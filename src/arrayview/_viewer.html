@@ -766,7 +766,51 @@
             pointer-events: auto;
             transition-delay: 0s;
         }
+        #tool-drawer {
+            display: flex;
+            justify-content: flex-end;
+            align-items: stretch;
+            position: fixed;
+            inset: 0;
+            padding: 14px;
+            background: transparent;
+            z-index: 50;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+            box-sizing: border-box;
+        }
+        #tool-drawer.visible {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: none;
+            transition-delay: 0s;
+        }
         #cmap-picker-box {
+            width: min(278px, calc(100vw - 28px));
+            height: calc(100vh - 28px);
+            max-height: calc(100vh - 28px);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+            background: color-mix(in srgb, var(--surface) 78%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+            border-radius: var(--radius-lg);
+            box-sizing: border-box;
+            pointer-events: auto;
+            overflow: hidden;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: var(--text);
+            box-shadow: var(--layout-shadow);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            opacity: 0;
+            transform: translateX(26px);
+            transition: opacity 0.18s ease, transform 0.22s ease;
+        }
+        #tool-drawer-box {
             width: min(278px, calc(100vw - 28px));
             height: calc(100vh - 28px);
             max-height: calc(100vh - 28px);
@@ -793,7 +837,17 @@
             opacity: 1;
             transform: translateX(0);
         }
+        #tool-drawer.visible #tool-drawer-box {
+            opacity: 1;
+            transform: translateX(0);
+        }
         .cmap-picker-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .tool-drawer-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -805,7 +859,18 @@
             gap: 3px;
             min-width: 0;
         }
+        .tool-drawer-head-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+        }
         #cmap-picker-title {
+            font-size: 16px;
+            line-height: 1.15;
+            color: var(--active-dim);
+        }
+        #tool-drawer-title {
             font-size: 16px;
             line-height: 1.15;
             color: var(--active-dim);
@@ -817,7 +882,15 @@
             text-transform: uppercase;
             color: var(--muted);
         }
-        #cmap-picker-close {
+        .tool-drawer-subtitle {
+            font-size: 10px;
+            line-height: 1.2;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        #cmap-picker-close,
+        #tool-drawer-close {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -834,7 +907,28 @@
             flex: 0 0 auto;
             transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
         }
-        #cmap-picker-close:hover {
+        #tool-drawer-body {
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 2px;
+            scrollbar-width: thin;
+            scrollbar-color: color-mix(in srgb, var(--text) 15%, transparent) transparent;
+        }
+        #tool-drawer-body::-webkit-scrollbar { width: 6px; }
+        #tool-drawer-body::-webkit-scrollbar-track { background: transparent; }
+        #tool-drawer-body::-webkit-scrollbar-thumb {
+            background: color-mix(in srgb, var(--text) 15%, transparent);
+            border-radius: 999px;
+        }
+        .tool-drawer-footer {
+            color: var(--muted);
+            font-size: 9px;
+            text-align: center;
+        }
+        #cmap-picker-close:hover,
+        #tool-drawer-close:hover {
             border-color: var(--active-dim);
             color: var(--active-dim);
             background: color-mix(in srgb, var(--active-dim) 10%, transparent);
@@ -1443,20 +1537,22 @@
         /* ── Tool Panel (overrides in tool-list / tool-options mode) ── */
         #dynamic-island.tool-list,
         #dynamic-island.tool-options {
-            width: 320px;
+            width: 54px;
+            min-width: 54px;
             height: auto;
             max-height: calc(100vh - 32px);
             overflow: hidden;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(18, 18, 18, 0.94);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--surface) 78%, transparent);
             box-shadow: var(--surface-shadow-strong);
             padding: 0;
             cursor: default;
+            z-index: 52;
         }
         #dynamic-island.tool-list .tool-panel-inner,
         #dynamic-island.tool-options .tool-panel-inner {
-            padding: 16px 18px 14px;
+            padding: 8px;
             overflow-y: auto;
             overflow-x: hidden;
             max-height: inherit;
@@ -1473,7 +1569,7 @@
         /* ── Tool Panel Header ── */
         #dynamic-island.tool-list .po-header,
         #dynamic-island.tool-options .po-header {
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: space-between;
             height: 24px;
@@ -1517,14 +1613,17 @@
 
         /* ── Tool Row (3-column grid) ── */
         #dynamic-island.tool-list .tool-row {
-            display: grid;
-            grid-template-columns: 24px minmax(0, 1fr) 30px;
-            column-gap: 9px;
+            display: flex;
             align-items: center;
-            min-height: 46px;
-            padding: 5px 6px;
-            border-radius: 8px;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            min-height: 36px;
+            padding: 0;
+            border-radius: var(--radius);
             cursor: pointer;
+            border: 1px solid transparent;
+            box-sizing: border-box;
         }
         #dynamic-island.tool-list .tool-row.unavailable {
             opacity: 0.42;
@@ -1534,39 +1633,48 @@
             background: transparent;
         }
         #dynamic-island.tool-list .tool-row.available:hover {
-            background: rgba(255, 255, 255, 0.045);
+            background: color-mix(in srgb, var(--text) 5%, transparent);
+            border-color: var(--border);
         }
         #dynamic-island.tool-list .tool-row.active {
-            background: rgba(245, 190, 40, 0.08);
-            outline: 1px solid rgba(245, 190, 40, 0.55);
+            background: color-mix(in srgb, #86efac 10%, transparent);
+            border-color: color-mix(in srgb, #86efac 45%, transparent);
         }
         #dynamic-island.tool-list .tool-row.active .tool-title,
         #dynamic-island.tool-list .tool-row.active .tool-icon {
+            color: color-mix(in srgb, #86efac 82%, var(--text));
+        }
+        #dynamic-island.tool-list .tool-row.selected {
+            background: color-mix(in srgb, var(--active-dim) 12%, transparent);
+            border-color: var(--active-dim);
+        }
+        #dynamic-island.tool-list .tool-row.selected .tool-title,
+        #dynamic-island.tool-list .tool-row.selected .tool-icon {
             color: var(--active-dim);
         }
-        #dynamic-island.tool-list .tool-row.active .shortcut-key {
+        #dynamic-island.tool-list .tool-row.selected .shortcut-key {
             border-color: rgba(245, 190, 40, 0.45);
             color: var(--active-dim);
         }
 
         /* ── Icon Column ── */
         #dynamic-island.tool-list .tool-icon {
-            width: 17px;
-            height: 17px;
-            color: rgba(255, 255, 255, 0.52);
+            width: 20px;
+            height: 20px;
+            color: var(--muted);
             display: grid;
             place-items: center;
             justify-self: center;
         }
         #dynamic-island.tool-list .tool-icon svg {
-            width: 17px;
-            height: 17px;
+            width: 20px;
+            height: 20px;
             stroke-width: 1.7;
         }
 
         /* ── Text Column ── */
         #dynamic-island.tool-list .tool-text-col {
-            min-width: 0;
+            display: none;
         }
         #dynamic-island.tool-list .tool-title {
             font-size: 13px;
@@ -1589,23 +1697,16 @@
 
         /* ── Shortcut Keycap Column ── */
         #dynamic-island.tool-list .shortcut-key {
-            justify-self: end;
-            width: 26px;
-            height: 26px;
-            border-radius: 7px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            display: grid;
-            place-items: center;
-            color: rgba(255, 255, 255, 0.48);
-            background: rgba(255, 255, 255, 0.035);
-            font-size: 11px;
-            font-family: var(--mono);
+            display: none;
         }
 
         /* ── Section Labels ── */
         #dynamic-island.tool-list .tool-section {
-            padding-top: 6px;
-            border-top: 1px solid rgba(255, 255, 255, 0.07);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-top: 0;
+            border-top: none;
         }
         #dynamic-island.tool-list .tool-section:first-child {
             border-top: none;
@@ -1621,7 +1722,8 @@
 
         /* ── Unavailable toggle ── */
         #dynamic-island.tool-list .tool-more-toggle {
-            display: flex; align-items: center; justify-content: space-between;
+            display: none;
+            align-items: center; justify-content: space-between;
             margin-top: 6px; padding: 4px 6px;
             cursor: pointer; user-select: none;
             color: rgba(255,255,255,0.36); font-size: 9px;
@@ -1935,6 +2037,209 @@
             background: var(--active-dim); border-color: var(--active-dim); color: #111;
             font-weight: 600;
         }
+        #tool-drawer .section-label {
+            margin: 16px 0 10px;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+        }
+        #tool-drawer .tool-body {
+            padding: 0;
+            border-top: 1px solid var(--border);
+        }
+        #tool-drawer .compare-center-mode-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+            padding-top: 8px;
+        }
+        #tool-drawer .compare-center-mode-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 28px; min-height: 22px; padding: 3px 6px;
+            border-radius: var(--radius); border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--text) 3%, transparent); color: var(--text);
+            font-family: inherit; font-size: 10px; line-height: 1.15; text-align: center;
+            cursor: pointer; transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+            position: relative; overflow: hidden;
+        }
+        #tool-drawer .compare-center-mode-btn:hover,
+        #tool-drawer .compare-center-mode-btn.active {
+            border-color: var(--active-dim);
+            color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+        }
+        #tool-drawer .compare-center-mode-glyph {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-height: 12px;
+            transition: opacity 120ms ease;
+        }
+        #tool-drawer .compare-center-mode-text {
+            position: absolute;
+            inset: 0;
+            color: inherit;
+            display: inline-flex; align-items: center; justify-content: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 8px;
+            opacity: 0;
+            transition: opacity 120ms ease;
+            pointer-events: none;
+        }
+        #tool-drawer .compare-center-mode-btn:hover .compare-center-mode-glyph,
+        #tool-drawer .compare-center-mode-btn:focus-visible .compare-center-mode-glyph { opacity: 0.12; }
+        #tool-drawer .compare-center-mode-btn:hover .compare-center-mode-text,
+        #tool-drawer .compare-center-mode-btn:focus-visible .compare-center-mode-text { opacity: 0.92; }
+        #tool-drawer .island-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+        #tool-drawer .island-toolbar .island-shapes { flex: 1; }
+        #tool-drawer .island-toolbar .island-modal-btn { margin-left: auto; }
+        #tool-drawer .island-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+        #tool-drawer .island-pill {
+            font-size: 10px; font-family: var(--mono);
+            padding: 3px 10px; border-radius: var(--radius);
+            cursor: pointer; transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+            border: 1px solid transparent; user-select: none;
+        }
+        #tool-drawer .island-pill.on {
+            background: color-mix(in srgb, var(--text) 10%, transparent);
+            color: var(--text);
+            border-color: var(--border);
+        }
+        #tool-drawer .island-pill.off {
+            background: transparent;
+            color: var(--muted);
+            border-color: var(--border);
+            opacity: 0.6;
+        }
+        #tool-drawer .island-pill.only { opacity: 0.6; cursor: not-allowed; }
+        #tool-drawer .island-shapes { display: flex; align-items: center; gap: 8px; flex: 1; }
+        #tool-drawer .island-shapes > span,
+        #tool-drawer .island-modal-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 3px; border-radius: var(--radius); cursor: pointer;
+            color: var(--muted); transition: background 120ms ease, color 120ms ease;
+        }
+        #tool-drawer .island-shapes > span:hover,
+        #tool-drawer .island-modal-btn:hover { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); }
+        #tool-drawer .island-rows { display: flex; flex-direction: column; gap: 3px; }
+        #tool-drawer .island-row {
+            display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: var(--radius);
+            background: color-mix(in srgb, var(--text) 3%, transparent);
+        }
+        #tool-drawer .island-row.selected,
+        #tool-drawer .island-row.selected-roi,
+        #tool-drawer .island-row.selected-seg {
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+            border-color: var(--active-dim);
+        }
+        #tool-drawer .island-swatch { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+        #tool-drawer .island-swatch.pulse { animation: island-pulse 1.2s ease-in-out infinite; }
+        #tool-drawer .island-name {
+            color: var(--text); flex: 1; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        #tool-drawer .island-name.editable { border-bottom: 1px dashed var(--border); padding-bottom: 1px; cursor: text; }
+        #tool-drawer .island-name.default-name,
+        #tool-drawer .island-stats { color: var(--muted); }
+        #tool-drawer .island-stats { font-size: 9px; white-space: nowrap; }
+        #tool-drawer .island-delete,
+        #tool-drawer .island-eye {
+            color: var(--muted); cursor: pointer; flex-shrink: 0;
+        }
+        #tool-drawer .island-delete { font-size: 16px; line-height: 1; padding: 0 4px; }
+        #tool-drawer .island-eye { display: inline-flex; align-items: center; padding: 0 3px; transition: color 120ms ease; }
+        #tool-drawer .island-delete:hover,
+        #tool-drawer .island-eye:hover { color: var(--text); }
+        #tool-drawer .island-eye.off,
+        #tool-drawer .island-row.hidden .island-swatch,
+        #tool-drawer .island-row.hidden .island-name { opacity: 0.35; }
+        #tool-drawer .island-slider-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 2px; font-size: 12px; color: var(--muted);
+        }
+        #tool-drawer .island-slider-label {
+            min-width: 48px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        #tool-drawer .island-slider {
+            flex: 1; -webkit-appearance: none; appearance: none;
+            height: 14px; background: transparent;
+            cursor: pointer; outline: none; padding: 0; margin: 0;
+            accent-color: var(--active-dim);
+        }
+        #tool-drawer .island-slider-value {
+            min-width: 44px;
+            font-size: 12px;
+            text-align: right;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
+        #tool-drawer .island-add-row {
+            display: flex; align-items: center; gap: 6px;
+            padding: 5px 6px; margin-top: 4px;
+            color: var(--muted); cursor: pointer; border-radius: var(--radius);
+            font-size: 10px; user-select: none;
+            border: 1px dashed var(--border);
+            transition: color 120ms ease, border-color 120ms ease;
+        }
+        #tool-drawer .island-add-row:hover { color: var(--text); border-color: var(--muted); }
+        #tool-drawer .island-add-row[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+        #tool-drawer .crop-rows { display: flex; flex-direction: column; gap: 4px; padding: 2px 2px 0; }
+        #tool-drawer .crop-row {
+            display: grid; grid-template-columns: 38px 1fr 54px;
+            align-items: center; gap: 8px; font-size: 10px; color: var(--muted);
+        }
+        #tool-drawer .crop-row label,
+        #tool-drawer .crop-dim-picker-label { color: var(--muted); text-transform: lowercase; letter-spacing: 0.04em; }
+        #tool-drawer .crop-row input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 14px; background: transparent;
+            cursor: pointer; outline: none; padding: 0; margin: 0; accent-color: var(--active-dim);
+        }
+        #tool-drawer .crop-row input[type="number"] {
+            width: 100%; box-sizing: border-box;
+            background: color-mix(in srgb, var(--text) 4%, transparent);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            color: var(--text); padding: 2px 4px; font-family: inherit; font-size: 10px;
+            -moz-appearance: textfield;
+        }
+        #tool-drawer .crop-row input[type="number"]::-webkit-outer-spin-button,
+        #tool-drawer .crop-row input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        #tool-drawer .crop-summary,
+        #tool-drawer .crop-status {
+            margin: 6px 2px 2px; font-size: 10px; color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
+        #tool-drawer .crop-actions {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 4px; padding: 4px 0 0;
+        }
+        #tool-drawer .crop-btn,
+        #tool-drawer .crop-dim-btn {
+            cursor: pointer; border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--text) 4%, transparent); color: var(--text);
+            font-family: inherit; font-size: 10px; padding: 4px 6px;
+            text-align: center; transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+        }
+        #tool-drawer .crop-btn { width: 100%; }
+        #tool-drawer .crop-btn:hover:not([disabled]),
+        #tool-drawer .crop-dim-btn:hover:not([disabled]) { border-color: var(--active-dim); color: var(--active-dim); }
+        #tool-drawer .crop-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+        #tool-drawer .crop-btn.primary,
+        #tool-drawer .crop-btn.on,
+        #tool-drawer .crop-dim-btn.on {
+            background: var(--active-dim); border-color: var(--active-dim); color: var(--bg);
+            font-weight: 600;
+        }
+        #tool-drawer .crop-dim-picker {
+            display: flex; align-items: center; gap: 8px;
+            padding: 2px 2px 6px; font-size: 10px; color: var(--muted);
+        }
+        #tool-drawer .crop-dim-picker-label { min-width: 38px; }
+        #tool-drawer .crop-dim-picker-btns { display: flex; gap: 4px; flex-wrap: wrap; }
         /* Oblique colorbar flip — while the multiview colorbar is the front
            face, a back face with 90\u00b0 / Save / Load controls is revealed by
            rotateX(180deg) when the user holds Alt (or hovers the back).
@@ -3373,6 +3678,19 @@
         <input id="cmap-picker-input" type="text" placeholder="Search colormaps" autocomplete="off" spellcheck="false">
         <div id="cmap-picker-results"></div>
         <div id="cmap-picker-list"></div>
+    </div>
+</div>
+<div id="tool-drawer">
+    <div id="tool-drawer-box" role="dialog" aria-modal="true">
+        <div class="tool-drawer-head">
+            <div class="tool-drawer-head-copy">
+                <div id="tool-drawer-title">Tools</div>
+                <div class="tool-drawer-subtitle">Options</div>
+            </div>
+            <button id="tool-drawer-close" type="button" aria-label="Close tool options" onclick="_goBackOrCloseToolPanel()">&#x2715;</button>
+        </div>
+        <div id="tool-drawer-body"></div>
+        <div class="tool-drawer-footer">Esc tools &middot; / close</div>
     </div>
 </div>
     <script src="gsap.min.js"></script>
@@ -11087,7 +11405,12 @@
         function _positionIsland() {
             const el = document.getElementById('dynamic-island');
             if (!el) return;
-            if (_islandDragPos) {
+            if (el.classList.contains('tool-list') || el.classList.contains('tool-options')) {
+                el.style.left = '8px';
+                el.style.top = '50%';
+                el.style.bottom = '';
+                el.style.transform = 'translateY(-50%)';
+            } else if (_islandDragPos) {
                 el.style.left = _islandDragPos.x + 'px';
                 el.style.top = _islandDragPos.y + 'px';
                 el.style.bottom = '';
@@ -11098,6 +11421,18 @@
                 el.style.bottom = '';
                 el.style.transform = 'none';
             }
+        }
+
+        function _ensureToolRailVisible() {
+            if (_toolPanelState === 'closed') {
+                _toolPanelState = 'tool-menu';
+                toolMenuOpen = true;
+                _toolPanelUserClosed = false;
+                _moreToolsExpanded = false;
+            } else {
+                toolMenuOpen = true;
+            }
+            renderToolMenu();
         }
 
         function _islandSetShape(shape) {
@@ -14508,6 +14843,7 @@
             overlay: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><circle cx="15" cy="15" r="7"/></svg>`,
             vectorfield: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 7a24 24 0 0 1 0 10"/><path d="M4.5 7a24 24 0 0 0 0 10"/><path d="M7 19.5a24 24 0 0 0 10 0"/><path d="M7 4.5a24 24 0 0 1 10 0"/><rect x="17" y="17" width="5" height="5" rx="1"/><rect x="17" y="2" width="5" height="5" rx="1"/><rect x="2" y="17" width="5" height="5" rx="1"/><rect x="2" y="2" width="5" height="5" rx="1"/></svg>`,
             crop: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>`,
+            colormap: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2.5 2.5 0 0 0 0 5H12z"/></svg>`,
         };
         function _toolIcon(id) {
             return TOOL_ICONS[id] || '';
@@ -18235,6 +18571,7 @@
             _toolPanelState = 'closed';
             toolMenuOpen = false;
             _toolPanelUserClosed = true;
+            if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
             renderToolMenu();
             try { sink.focus(); } catch (_) {}
         }
@@ -18242,6 +18579,7 @@
         function openToolOptions(toolId) {
             const tile = TOOL_TILES.find(t => t.id === toolId);
             if (!tile || !_toolTileEnabled(tile)) return;
+            if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
             _toolPanelState = { kind: 'tool-options', toolId };
             toolMenuOpen = true;
             _toolPanelUserClosed = false;
@@ -18279,7 +18617,6 @@
             if (_toolPanelState === 'tool-menu') {
                 closeToolPanel();
             } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
-                _exitActiveTool(_toolPanelState.toolId);
                 _toolPanelState = 'tool-menu';
                 renderToolMenu();
             }
@@ -18341,13 +18678,15 @@
             return false;
         }
 
-        function _renderToolRow(tile, enabled, active) {
-            const rowCls = active ? 'tool-row active' : enabled ? 'tool-row available' : 'tool-row unavailable';
+        function _renderToolRow(tile, enabled, active, selected = false) {
+            const rowCls = selected ? 'tool-row selected' : active ? 'tool-row active' : enabled ? 'tool-row available' : 'tool-row unavailable';
             const keycap = (tile.keyHint || '').toUpperCase();
             const desc = tile.desc || '';
             const icon = _toolIcon(tile.id);
-            const onclick = enabled ? ` onclick="_openToolOptions('${tile.id}')"` : '';
-            let html = `<div class="${rowCls}" data-tool="${tile.id}"${onclick}>`;
+            const action = tile.id === 'colormap' ? `_openToolRailItem('${tile.id}')` : `_openToolOptions('${tile.id}')`;
+            const onclick = enabled ? ` onclick="${action}"` : '';
+            const title = enabled ? (tile.label || '') : (tile.unavailableReason ? tile.unavailableReason() : (tile.label || ''));
+            let html = `<div class="${rowCls}" data-tool="${tile.id}" title="${title}" aria-label="${title}"${onclick}>`;
             html += `<span class="tool-icon">${icon}</span>`;
             html += `<div class="tool-text-col"><div class="tool-title">${tile.label || ''}</div>`;
             if (desc) html += `<div class="tool-description">${desc}</div>`;
@@ -18355,6 +18694,24 @@
             html += `<span class="shortcut-key">${keycap}</span>`;
             html += `</div>`;
             return html;
+        }
+
+        function _openToolRailItem(id) {
+            if (id === 'colormap') {
+                if (rgbMode) return;
+                if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                    _toolPanelState = 'tool-menu';
+                    renderToolMenu();
+                }
+                _cmapPickerAllowToolRail = true;
+                try {
+                    openCmapPicker();
+                } finally {
+                    _cmapPickerAllowToolRail = false;
+                }
+                return;
+            }
+            openToolOptions(id);
         }
 
         function _renderToolOptionsBody(tile) {
@@ -18467,9 +18824,15 @@
             if (_islandSliderDragging) return;
             const hint = document.getElementById('tool-hint');
             if (hint) hint.classList.toggle('active', _toolPanelIsOpen() || !!_activeToolId());
+            const drawer = document.getElementById('tool-drawer');
+            const drawerTitle = document.getElementById('tool-drawer-title');
+            const drawerSubtitle = document.querySelector('#tool-drawer .tool-drawer-subtitle');
+            const drawerBody = document.getElementById('tool-drawer-body');
 
             if (_toolPanelState === 'closed') {
                 el.classList.remove('visible', 'tool-list', 'tool-options');
+                if (drawer) drawer.classList.remove('visible');
+                if (drawerBody) drawerBody.innerHTML = '';
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
@@ -18487,35 +18850,33 @@
             });
 
             let html = '';
+            const colormapTile = {
+                id: 'colormap',
+                label: 'Colormaps',
+                desc: 'Browse colormap previews.',
+                keyHint: 'c',
+                isEnabled: () => !rgbMode,
+                isActive: () => typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen,
+                unavailableReason: () => 'Not available for RGB arrays.',
+            };
+            const railTiles = [colormapTile, ...tiles];
+            const selectedToolId = (_toolPanelState && _toolPanelState.kind === 'tool-options') ? _toolPanelState.toolId : null;
 
-            if (_toolPanelState === 'tool-menu') {
-                el.classList.add('visible', 'tool-list');
-                el.classList.remove('tool-options');
-                html += `<div class="tool-panel-inner">`;
-                html += `<div class="po-header"><span class="po-title">TOOLS</span><span class="po-close" onclick="closeToolPanel()" title="Close">\u00d7</span></div>`;
-                const available = tiles.filter(t => _toolTileEnabled(t));
-                const unavailable = tiles.filter(t => !_toolTileEnabled(t));
-                if (available.length) {
-                    html += `<div class="section-label">AVAILABLE</div>`;
-                    html += `<div class="tool-section">`;
-                    for (const tile of available) {
-                        const active = _toolTileActive(tile);
-                        html += _renderToolRow(tile, true, active);
-                    }
-                    html += `</div>`;
-                }
-                if (unavailable.length) {
-                    html += `<div class="tool-more-toggle" onclick="_toggleMoreTools()"><span>CURRENTLY UNAVAILABLE</span><span class="tool-more-arrow${_moreToolsExpanded ? ' expanded' : ''}">\u02c7</span></div>`;
-                    if (_moreToolsExpanded) {
-                        html += `<div class="tool-section">`;
-                        for (const tile of unavailable) {
-                            html += _renderToolRow(tile, false, false);
-                        }
-                        html += `</div>`;
-                    }
-                }
-                html += `</div>`;
-            } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+            el.classList.add('visible', 'tool-list');
+            el.classList.remove('tool-options');
+            html += `<div class="tool-panel-inner">`;
+            html += `<div class="tool-section">`;
+            for (const tile of railTiles) {
+                const enabled = tile.id === 'colormap' ? tile.isEnabled() : _toolTileEnabled(tile);
+                const active = tile.id === 'colormap' ? tile.isActive() : _toolTileActive(tile);
+                const selected = tile.id === 'colormap'
+                    ? (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen)
+                    : selectedToolId === tile.id;
+                html += _renderToolRow(tile, enabled, active, selected);
+            }
+            html += `</div></div>`;
+
+            if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
                 const tileId = _toolPanelState.toolId;
                 const tile = TOOL_TILES.find(t => t.id === tileId);
                 if (!tile) {
@@ -18523,22 +18884,24 @@
                     renderToolMenu();
                     return;
                 }
-                el.classList.add('visible', 'tool-options');
-                el.classList.remove('tool-list');
                 const active = _toolTileActive(tile);
-                const title = (tile.label || '').toUpperCase();
-                html += `<div class="tool-panel-inner">`;
-                html += `<div class="po-header"><span class="po-back" onclick="_goBackOrCloseToolPanel()" title="Back to tools">\u2190</span><span class="po-title">${title}</span><span class="po-close" onclick="closeToolPanel()" title="Close">\u00d7</span></div>`;
+                const title = tile.label || 'Tools';
+                if (drawerTitle) drawerTitle.textContent = title;
+                if (drawerSubtitle) drawerSubtitle.textContent = 'Options';
+                let drawerHtml = '';
                 if (active || tileId === 'overlay') {
                     const body = _renderToolOptionsBody(tile);
                     if (body) {
-                        html += `<div class="tool-body">${body}</div>`;
+                        drawerHtml += `<div class="tool-body">${body}</div>`;
                     }
                 } else {
-                    html += `<div style="padding:6px 2px;color:var(--muted);font-size:10px;">Activate to see options</div>`;
+                    drawerHtml += `<div style="padding:6px 2px;color:var(--muted);font-size:10px;">Activate to see options</div>`;
                 }
-                html += `<div class="tool-footer-hint">Esc tools &middot; / close</div>`;
-                html += `</div>`;
+                if (drawerBody) drawerBody.innerHTML = drawerHtml;
+                if (drawer) drawer.classList.add('visible');
+            } else {
+                if (drawer) drawer.classList.remove('visible');
+                if (drawerBody) drawerBody.innerHTML = '';
             }
 
             el.innerHTML = html;
@@ -18550,6 +18913,7 @@
 
         function renderIsland() { renderToolMenu(); }
         window._openToolOptions = openToolOptions;
+        window._openToolRailItem = _openToolRailItem;
         window._goBackOrCloseToolPanel = _goBackOrCloseToolPanel;
         window.closeToolPanel = closeToolPanel;
         window._toggleMoreTools = function() {
@@ -18878,6 +19242,7 @@
         let _cmapPickerSpec = null;
         let _cmapPreviewRequestToken = 0;
         let _cmapPickerFocusLock = false;
+        let _cmapPickerAllowToolRail = false;
 
         function _invalidateCmapPreviewRequests() {
             _cmapPreviewRequestToken += 1;
@@ -19416,6 +19781,7 @@
 
         function openCmapPicker(opts) {
             if (_cmapPickerOpen) {
+                _ensureToolRailVisible();
                 if (opts && opts.focusSearch) {
                     const input = document.getElementById('cmap-picker-input');
                     if (input) input.focus();
@@ -19427,7 +19793,10 @@
             const root = document.getElementById('cmap-picker');
             const box = document.getElementById('cmap-picker-box');
             const input = document.getElementById('cmap-picker-input');
-            closeToolPanel();
+            if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                _toolPanelState = 'tool-menu';
+                renderToolMenu();
+            }
             if (paletteOpen) closeCommandPalette();
             _cmapPickerSpec = spec;
             _cmapPickerPrevState = typeof spec.captureState === 'function' ? spec.captureState() : null;
@@ -19439,6 +19808,7 @@
             box.classList.remove('search-active', 'has-query');
             input.value = '';
             _cmapPickerSetMeta('12 swatches · Search to browse the full library.');
+            _ensureToolRailVisible();
 
             const loadAndShow = (names) => {
                 _cmapPickerAllNames = names;
@@ -19507,6 +19877,7 @@
             const input = document.getElementById('cmap-picker-input');
             if (input) input.blur();
             document.getElementById('cmap-picker').classList.remove('visible');
+            if (toolMenuOpen) renderToolMenu();
             try { sink.focus(); } catch (_) {}
         }
 
@@ -26162,7 +26533,7 @@
             // anywhere a colormap is meaningful.
             if (rgbMode) return false;
             if (qmriActive || compareQmriActive) return false;
-            if (typeof toolMenuOpen !== 'undefined' && toolMenuOpen) return false;
+            if (typeof toolMenuOpen !== 'undefined' && toolMenuOpen && !_cmapPickerAllowToolRail) return false;
             if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) return false;
             if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
