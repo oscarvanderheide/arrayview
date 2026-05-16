@@ -2123,6 +2123,58 @@
         }
         #tool-drawer .island-shapes > span:hover,
         #tool-drawer .island-modal-btn:hover { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); }
+        #tool-drawer .seg-method-list { display: flex; flex-direction: column; gap: 4px; }
+        #tool-drawer .seg-method-row {
+            display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
+            padding: 6px 7px; border-radius: var(--radius); cursor: pointer;
+            color: var(--muted); border: 1px solid transparent;
+            background: color-mix(in srgb, var(--text) 3%, transparent);
+            transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+        }
+        #tool-drawer .seg-method-row:hover {
+            color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent);
+        }
+        #tool-drawer .seg-method-row.on {
+            color: var(--text); border-color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+        }
+        #tool-drawer .seg-method-icon { display: inline-flex; align-items: center; justify-content: center; }
+        #tool-drawer .seg-method-title { font-size: 11px; color: var(--text); }
+        #tool-drawer .seg-method-desc { margin-top: 2px; font-size: 10px; color: var(--muted); line-height: 1.35; }
+        #tool-drawer .seg-method-action { font-size: 10px; color: var(--active-dim); }
+        #tool-drawer .seg-nn-row,
+        #tool-drawer .seg-bottom-action {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 6px 7px; border-radius: var(--radius);
+            background: color-mix(in srgb, var(--text) 3%, transparent);
+        }
+        #tool-drawer .seg-nn-copy,
+        #tool-drawer .seg-bottom-copy { min-width: 0; }
+        #tool-drawer .seg-nn-title,
+        #tool-drawer .seg-bottom-title { font-size: 11px; color: var(--text); }
+        #tool-drawer .seg-nn-desc,
+        #tool-drawer .seg-bottom-desc { margin-top: 2px; font-size: 10px; color: var(--muted); line-height: 1.35; }
+        #tool-drawer .seg-toggle {
+            flex: 0 0 auto; min-width: 54px; height: 24px; padding: 0 9px; border-radius: 999px;
+            border: 1px solid var(--border); background: transparent; color: var(--muted);
+            font: 10px var(--mono); cursor: pointer;
+        }
+        #tool-drawer .seg-toggle.on {
+            color: var(--text); border-color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 12%, transparent);
+        }
+        #tool-drawer .seg-bottom-btn {
+            flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: var(--radius); color: var(--muted); cursor: pointer;
+        }
+        #tool-drawer .seg-bottom-btn:hover {
+            color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent);
+        }
+        #tool-drawer .seg-empty-row {
+            padding: 5px 7px; border-radius: var(--radius); color: var(--muted); font-size: 10px;
+            background: color-mix(in srgb, var(--text) 3%, transparent);
+        }
+        #tool-drawer .island-stat { color: var(--muted); font-size: 9px; white-space: nowrap; }
         #tool-drawer .island-rows { display: flex; flex-direction: column; gap: 3px; }
         #tool-drawer .island-row {
             display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: var(--radius);
@@ -2134,6 +2186,7 @@
             background: color-mix(in srgb, var(--active-dim) 10%, transparent);
             border-color: var(--active-dim);
         }
+        #tool-drawer[data-tool-options="segmentation"] .tool-drawer-footer { display: none; }
         #tool-drawer .island-swatch { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
         #tool-drawer .island-swatch.pulse { animation: island-pulse 1.2s ease-in-out infinite; }
         #tool-drawer .island-name {
@@ -4020,14 +4073,15 @@
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let rectRoiMode = false; // R key toggles rectangle ROI selection mode
-        let _segMode = false;  // S key toggles nnInteractive segmentation mode
+        let _segMode = false;  // S key toggles segmentation mode
         let _segOverlaySid = null; // overlay session ID for segmentation mask
-        let _segActivating = false; // true while connecting/launching server
-        let _segMethod = 'click'; // 'click' | 'circle' | 'scribble' | 'lasso'
+        let _segActivating = false; // true while initializing/connecting
+        let _segBackend = 'local'; // 'local' | 'nninteractive'
+        let _segMethod = 'region'; // 'region' | 'threshold' | 'scribble' | 'lasso'
         let _segLabels = [];  // labels array from server, kept for island rendering
-        const _SEG_METHODS = ['click', 'circle', 'scribble', 'lasso'];
-        let _segDrawing = false; // true while dragging for circle/scribble/lasso
-        let _segDrawStart = null; // {x, y} for circle start
+        const _SEG_METHODS = ['region', 'threshold', 'scribble', 'lasso'];
+        let _segDrawing = false; // true while dragging for scribble/lasso
+        let _segDrawStart = null; // start point for current segmentation drawing
         let _segDrawPoints = []; // points for scribble/lasso
         let _rulerMode = false;
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
@@ -4100,10 +4154,22 @@
             floodfill: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 3Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
         };
         const _SEG_METHOD_ICONS = {
-            click:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>',
-            circle:   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-            scribble: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-            lasso:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            region:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="3"/><path d="M7 7l2 2"/><path d="M15 15l2 2"/><path d="M17 7l-2 2"/><path d="M9 15l-2 2"/></svg>',
+            threshold: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M5 19h14"/><path d="M7 12V5"/><path d="M12 12V8"/><path d="M17 12V4"/></svg>',
+            scribble:  '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="m15 5 3 3"/></svg>',
+            lasso:     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3c4-1 10 0 13 4 3 5-2 11-8 11-6 0-11-4-10-8 .5-2 2-3 5-3"/><path d="M11 17c-2 2-4 3-7 3"/><path d="M4 20c1 1 3 1 5 0"/></svg>',
+        };
+        const _SEG_METHOD_LABELS = {
+            region: 'Region grow',
+            threshold: 'Threshold',
+            scribble: 'Brush',
+            lasso: 'Lasso',
+        };
+        const _SEG_METHOD_DESCS = {
+            region: 'Click a seed; keeps the connected area with similar intensity.',
+            threshold: 'Creates a mask from the current display min/max range.',
+            scribble: 'Paint directly on the current slice. Shift erases.',
+            lasso: 'Draw a closed contour on the current slice. Shift removes it.',
         };
         const _DOWNLOAD_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v7"/><path d="M4 7l3 3 3-3"/><path d="M2 11h10"/></svg>';
         const _MAGNIFIER_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.9-4.9"/></svg>';
@@ -11445,6 +11511,7 @@
                 _segShowMethodStatus();
             }
             renderIsland();
+            renderToolMenu();
         }
         window._islandSetShape = _islandSetShape;
 
@@ -12599,7 +12666,7 @@
                     body += `<div class="island-rows">`;
                     body += `<div class="island-row">`;
                     body += `<div class="island-swatch pulse" style="background:${accentColor}"></div>`;
-                    body += `<span class="island-name default-name">nnInteractive \u00B7 connecting</span>`;
+                    body += `<span class="island-name default-name">segmentation \u00B7 starting</span>`;
                     body += `</div>`;
                     body += `</div>`;
                 } else {
@@ -12618,6 +12685,12 @@
                     const exportTitle = isRoi ? 'Export table' : 'Export segments';
                     body += `<span class="island-modal-btn" onclick="_islandExport()" title="${exportTitle}">${_MAGNIFIER_ICON}</span>`;
                     body += `</div>`;
+                    if (!isRoi) {
+                        const backendLabel = _segBackend === 'nninteractive' ? 'nnInteractive connected' : 'local tools';
+                        body += `<div class="island-pills"><div class="island-pill on">${backendLabel}</div>`;
+                        if (_segMethod === 'threshold') body += `<div class="island-pill on" onclick="_segRunThreshold()">apply range</div>`;
+                        body += `</div>`;
+                    }
 
                     body += `<div class="island-rows">`;
                     body += isRoi ? _renderRoiRows() : _renderSegRows();
@@ -13073,7 +13146,7 @@
 
         function _renderSegRows() {
             let html = '';
-            if (!_segLabels || !_segLabels.length) return html;
+            if (!_segLabels || !_segLabels.length) return `<div class="seg-empty-row">No accepted masks yet. Create a mask, then press Enter to accept it.</div>`;
             for (let i = 0; i < _segLabels.length; i++) {
                 const l = _segLabels[i];
                 const userSet = _segLabelNames[l.label] !== undefined;
@@ -13083,8 +13156,44 @@
                 html += `<div class="island-row${selected}">`;
                 html += `<div class="island-swatch" style="background:${l.color}"></div>`;
                 html += `<span class="island-name ${nameClass}" data-label="${l.label}" onclick="event.stopPropagation(); _islandEditSegName(this)" title="Click to rename">${name}</span>`;
+                html += `<span class="island-stat">${l.voxels} vox</span>`;
                 html += `<span class="island-delete" onclick="_islandDeleteSeg(${l.label})" title="Delete segment">\u00d7</span>`;
                 html += `</div>`;
+            }
+            return html;
+        }
+
+        function _renderSegMethodRows() {
+            let html = `<div class="seg-method-list">`;
+            for (const key of _SEG_METHODS) {
+                const isCurrent = key === _segMethod;
+                const cls = isCurrent ? 'seg-method-row on' : 'seg-method-row';
+                const action = key === 'threshold' ? 'apply' : 'select';
+                html += `<div class="${cls}" onclick="_islandSetShape('${key}')">`;
+                html += `<span class="seg-method-icon">${_SEG_METHOD_ICONS[key]}</span>`;
+                html += `<span><div class="seg-method-title">${_SEG_METHOD_LABELS[key]}</div><div class="seg-method-desc">${_SEG_METHOD_DESCS[key]}</div></span>`;
+                html += `<span class="seg-method-action">${isCurrent ? (key === 'threshold' ? 'range' : 'active') : action}</span>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function _renderSegNnInteractiveOptions() {
+            const connected = _segBackend === 'nninteractive';
+            let html = `<div class="section-label">nnInteractive</div>`;
+            html += `<div class="seg-nn-row">`;
+            html += `<div class="seg-nn-copy"><div class="seg-nn-title">${connected ? 'Connected' : 'Use nnInteractive'}</div>`;
+            html += `<div class="seg-nn-desc">${connected ? 'Seed clicks, brush, and lasso are sent to the model server.' : 'Optional model-assisted refinement. Requires a reachable nnInteractive server.'}</div></div>`;
+            html += `<button type="button" class="seg-toggle${connected ? ' on' : ''}" onclick="_segToggleNnInteractive()">${connected ? 'on' : 'off'}</button>`;
+            html += `</div>`;
+            if (connected) {
+                html += `<div class="island-pills">`;
+                html += `<div class="island-pill on">click seeds</div>`;
+                html += `<div class="island-pill on">brush prompts</div>`;
+                html += `<div class="island-pill on">lasso prompts</div>`;
+                html += `</div>`;
+                html += `<div class="tool-footer-hint">Shift marks negative prompts. Reset clears model prompts but keeps accepted masks.</div>`;
             }
             return html;
         }
@@ -15934,40 +16043,48 @@
         }
 
         // ---------------------------------------------------------------
-        // nnInteractive segmentation helpers
+        // Segmentation helpers
         // ---------------------------------------------------------------
-        /* ── JS: nnInteractive Segmentation ──────────────────────── */
+        /* ── JS: Segmentation ──────────────────────── */
 
         function _segShowMethodStatus() {
             const hints = {
-                click: 'click add · shift+click exclude',
-                circle: 'drag circle (sent as bbox)',
-                scribble: 'draw freehand scribble',
+                region: _segBackend === 'nninteractive' ? 'click add · shift+click exclude' : 'click grow from seed',
+                threshold: 'uses current display range',
+                scribble: 'draw freehand brush',
                 lasso: 'draw closed contour',
             };
-            showStatus(`segmentation: ${_segMethod} · ${hints[_segMethod]} · S cycle · r reset · enter accept · esc exit`);
+            const backend = _segBackend === 'nninteractive' ? 'nnInteractive' : 'local';
+            showStatus(`segmentation: ${backend} · ${_segMethod} · ${hints[_segMethod]} · r reset · enter accept · esc exit`);
         }
 
-        async function _segActivate() {
+        function _segCurrentScrollDim() {
+            const scrollDim = current_slice_dim >= 0 ? current_slice_dim
+                : indices.findIndex((_, i) => i !== dim_x && i !== dim_y);
+            return scrollDim >= 0 ? scrollDim : -1;
+        }
+
+        function _segActivationParams() {
+            return new URLSearchParams({
+                dim_x: String(dim_x), dim_y: String(dim_y),
+                scroll_dim: String(_segCurrentScrollDim()),
+                indices: indices.join(','),
+            });
+        }
+
+        async function _segActivateLocal() {
             if (_segActivating) return;
             if (compareActive || multiViewActive || qmriActive) {
                 showStatus('segmentation: not available in this mode'); return;
             }
             _segActivating = true;
-            _segMethod = 'click';
-            showStatus('segmentation: connecting...');
+            _segBackend = 'local';
+            _segMethod = 'region';
+            showStatus('segmentation: starting local tools...');
             canvas.style.cursor = 'wait';
             renderIsland();
             try {
-                // Send current axis info for >3D subvolume extraction
-                const scrollDim = current_slice_dim >= 0 ? current_slice_dim
-                    : indices.findIndex((_, i) => i !== dim_x && i !== dim_y);
-                const params = new URLSearchParams({
-                    dim_x: String(dim_x), dim_y: String(dim_y),
-                    scroll_dim: String(scrollDim >= 0 ? scrollDim : -1),
-                    indices: indices.join(','),
-                });
-                const r = await proxyFetch(`/seg/activate/${sid}?${params}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/local/activate/${sid}?${_segActivationParams()}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') {
                     showToast(`segmentation: ${d.message}`);
@@ -15989,7 +16106,63 @@
             }
             _segActivating = false;
             renderIsland();
+            renderToolMenu();
         }
+
+        async function _segConnectNnInteractive() {
+            if (_segActivating) return;
+            if (!_segMode) await _segActivateLocal();
+            if (!_segMode) return;
+            _segActivating = true;
+            showStatus('segmentation: connecting nnInteractive...');
+            canvas.style.cursor = 'wait';
+            renderIsland();
+            renderToolMenu();
+            try {
+                const r = await proxyFetch(`/seg/activate/${sid}?${_segActivationParams()}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') {
+                    showToast(`segmentation: ${d.message}`);
+                    return;
+                }
+                _segBackend = 'nninteractive';
+                _segOverlaySid = d.overlay_sid || _segOverlaySid || null;
+                if (d.labels) _segUpdatePanel(d.labels);
+                if (_segOverlaySid) _segRefreshOverlay();
+                _segShowMethodStatus();
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            } finally {
+                _segActivating = false;
+                canvas.style.cursor = 'crosshair';
+                renderIsland();
+                renderToolMenu();
+            }
+        }
+        window._segConnectNnInteractive = _segConnectNnInteractive;
+
+        async function _segToggleNnInteractive() {
+            if (_segBackend === 'nninteractive') {
+                try {
+                    const r = await proxyFetch('/seg/nninteractive/disconnect', { method: 'POST' });
+                    const d = await r.json();
+                    if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                    _segOverlaySid = d.overlay_sid || _segOverlaySid;
+                    if (d.labels) _segUpdatePanel(d.labels);
+                } catch (err) {
+                    showToast(`segmentation: ${err.message}`);
+                    return;
+                }
+                _segBackend = 'local';
+                showStatus('segmentation: nnInteractive off · local tools ready');
+                renderIsland();
+                renderToolMenu();
+                updateView();
+                return;
+            }
+            await _segConnectNnInteractive();
+        }
+        window._segToggleNnInteractive = _segToggleNnInteractive;
 
         function _segDeactivate() {
             _segMode = false;
@@ -15998,31 +16171,68 @@
             _segDrawPoints = [];
             _segDrawStart = null;
             canvas.style.cursor = 'crosshair';
-            showStatus('segmentation: off (server stays active · S to resume)');
+            showStatus('segmentation: off');
             renderIsland();  // hides island since _segMode is now false
+            renderToolMenu();
             renderEggs();
             _segClearDrawOverlay();
             updateView();
         }
 
         async function _segClick(px, py, positive) {
-            showStatus(positive ? 'segmentation: predicting...' : 'segmentation: excluding...');
+            showStatus(_segBackend === 'nninteractive'
+                ? (positive ? 'segmentation: predicting...' : 'segmentation: excluding...')
+                : 'segmentation: growing region...');
             try {
                 const params = new URLSearchParams({
                     dim_x: String(dim_x), dim_y: String(dim_y),
                     indices: indices.join(','), px: String(px), py: String(py),
                     positive: positive ? 'true' : 'false',
                 });
-                const r = await proxyFetch(`/seg/click/${sid}?${params}`, { method: 'POST' });
+                if (_segBackend !== 'nninteractive') {
+                    const range = Math.abs(Number(currentVmax) - Number(currentVmin));
+                    params.set('tolerance', String(Math.max(range * 0.05, Number.EPSILON)));
+                }
+                const endpoint = _segBackend === 'nninteractive' ? 'click' : 'local/region';
+                const r = await proxyFetch(`/seg/${endpoint}/${sid}?${params}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
                 _segRefreshOverlay();
-                showStatus('segmentation: click to refine · shift+click to exclude · r reset · enter accept');
+                showStatus(_segBackend === 'nninteractive'
+                    ? 'segmentation: click to refine · shift+click to exclude · r reset · enter accept'
+                    : 'segmentation: region grown · enter accept');
             } catch (err) {
                 showToast(`segmentation: ${err.message}`);
             }
         }
+
+        async function _segRunThreshold() {
+            if (!_segMode) return;
+            const lo = Number(currentVmin);
+            const hi = Number(currentVmax);
+            if (!isFinite(lo) || !isFinite(hi)) {
+                showToast('segmentation: no display range available');
+                return;
+            }
+            showStatus('segmentation: thresholding display range...');
+            try {
+                const r = await proxyFetch(`/seg/local/threshold/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ min: lo, max: hi }),
+                });
+                const d = await r.json();
+                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                _segBackend = 'local';
+                _segOverlaySid = d.overlay_sid;
+                _segRefreshOverlay();
+                showStatus('segmentation: threshold mask ready · enter accept');
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            }
+        }
+        window._segRunThreshold = _segRunThreshold;
 
         async function _segAccept() {
             try {
@@ -16032,7 +16242,7 @@
                 _segOverlaySid = d.overlay_sid;
                 _segUpdatePanel(d.labels);
                 _segRefreshOverlay();
-                showStatus('segmentation: accepted · click to segment next object');
+                showStatus('segmentation: accepted · choose another method or seed');
             } catch (err) {
                 showToast(`segmentation: ${err.message}`);
             }
@@ -16126,15 +16336,7 @@
             ctx.fillStyle = 'rgba(232, 122, 175, 0.2)';
             ctx.lineWidth = 2;
 
-            if (_segMethod === 'circle' && _segDrawStart && _segDrawPoints.length > 0) {
-                const s = _segDrawStart, e = _segDrawPoints[_segDrawPoints.length - 1];
-                const cx = (s.px + e.px) / 2, cy = (s.py + e.py) / 2;
-                const rx = Math.abs(e.px - s.px) / 2, ry = Math.abs(e.py - s.py) / 2;
-                ctx.beginPath();
-                ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-                ctx.stroke();
-                ctx.fill();
-            } else if ((_segMethod === 'scribble' || _segMethod === 'lasso') && _segDrawPoints.length > 0) {
+            if ((_segMethod === 'scribble' || _segMethod === 'lasso') && _segDrawPoints.length > 0) {
                 ctx.beginPath();
                 ctx.moveTo(_segDrawPoints[0].px, _segDrawPoints[0].py);
                 for (let i = 1; i < _segDrawPoints.length; i++) {
@@ -16159,29 +16361,11 @@
             _segDrawing = false;
             _segClearDrawOverlay();
 
-            if (_segMethod === 'circle' && _segDrawStart && _segDrawPoints.length > 0) {
-                // Send as bounding box
-                const s = _segDrawStart, e = _segDrawPoints[_segDrawPoints.length - 1];
-                const x0 = Math.min(s.px, e.px), y0 = Math.min(s.py, e.py);
-                const x1 = Math.max(s.px, e.px), y1 = Math.max(s.py, e.py);
-                showStatus('segmentation: predicting...');
+            if (_segMethod === 'scribble' && _segDrawPoints.length >= 1) {
+                showStatus(_segBackend === 'nninteractive' ? 'segmentation: predicting...' : 'segmentation: brushing...');
                 try {
-                    const r = await proxyFetch(`/seg/bbox/${sid}`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            dim_x, dim_y, indices: indices.join(','),
-                            x0, y0, x1, y1,
-                        }),
-                    });
-                    const d = await r.json();
-                    if (d.status === 'error') { showToast(`segmentation: ${d.message}`); }
-                    else { _segOverlaySid = d.overlay_sid; _segRefreshOverlay(); }
-                } catch (err) { showToast(`segmentation: ${err.message}`); }
-            } else if (_segMethod === 'scribble' && _segDrawPoints.length >= 1) {
-                showStatus('segmentation: predicting...');
-                try {
-                    const r = await proxyFetch(`/seg/scribble/${sid}`, {
+                    const endpoint = _segBackend === 'nninteractive' ? 'scribble' : 'local/scribble';
+                    const r = await proxyFetch(`/seg/${endpoint}/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -16195,9 +16379,10 @@
                     else { _segOverlaySid = d.overlay_sid; _segRefreshOverlay(); }
                 } catch (err) { showToast(`segmentation: ${err.message}`); }
             } else if (_segMethod === 'lasso' && _segDrawPoints.length >= 3) {
-                showStatus('segmentation: predicting...');
+                showStatus(_segBackend === 'nninteractive' ? 'segmentation: predicting...' : 'segmentation: applying lasso...');
                 try {
-                    const r = await proxyFetch(`/seg/lasso/${sid}`, {
+                    const endpoint = _segBackend === 'nninteractive' ? 'lasso' : 'local/lasso';
+                    const r = await proxyFetch(`/seg/${endpoint}/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -16221,7 +16406,7 @@
         canvas.addEventListener('mousedown', (e) => {
             if (e.button === 0) _clickCopyDown = { x: e.clientX, y: e.clientY };
             // Segmentation drawing start
-            if (e.button === 0 && _segMode && _segMethod !== 'click') {
+            if (e.button === 0 && _segMode && (_segMethod === 'scribble' || _segMethod === 'lasso')) {
                 const c = _segCanvasCoord(e);
                 _segDrawing = true;
                 _segDrawStart = c;
@@ -16229,19 +16414,15 @@
             }
         });
         canvas.addEventListener('mousemove', (e) => {
-            if (_segDrawing && _segMode && _segMethod !== 'click') {
+            if (_segDrawing && _segMode && (_segMethod === 'scribble' || _segMethod === 'lasso')) {
                 const c = _segCanvasCoord(e);
-                if (_segMethod === 'circle') {
-                    _segDrawPoints = [c]; // only track endpoint
-                } else {
-                    _segDrawPoints.push(c);
-                }
+                _segDrawPoints.push(c);
                 _segDrawOverlay();
             }
         });
         canvas.addEventListener('mouseup', (e) => {
             // Segmentation drawing finish
-            if (_segDrawing && _segMode && _segMethod !== 'click' && e.button === 0) {
+            if (_segDrawing && _segMode && (_segMethod === 'scribble' || _segMethod === 'lasso') && e.button === 0) {
                 const positive = !e.shiftKey;
                 _segFinishDraw(positive);
                 _clickCopyDown = null;
@@ -16258,7 +16439,7 @@
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            if (_segMode && _segMethod === 'click') {
+            if (_segMode && _segMethod === 'region') {
                 _segClick(px, py, !e.shiftKey);
                 return;
             }
@@ -16993,7 +17174,7 @@
                             _clearRoiOverlay();
                             _islandMorph();
                         }
-                        _segActivate();
+                        _segActivateLocal();
                     }
                 },
             },
@@ -18222,11 +18403,11 @@
                     },
                     {
                         subsection: 'Segmentation',
-                        subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
+                        subdesc: 'Local segmentation tools with optional nnInteractive connection.',
                         entries: [
                             { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open tool menu, then s' },
-                            { key: 'Click', action: 'Add region (positive prompt)' },
-                            { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
+                            { key: 'Click', action: 'Grow local region from seed' },
+                            { key: 'Options', action: 'Threshold current display range or connect nnInteractive' },
                             { key: 'Esc', action: 'Exit segmentation' },
                         ]
                     }
@@ -18299,7 +18480,7 @@
             },
             {
                 id: 'tool-segmentation', label: 'Segment',
-                desc: 'Interactive segmentation mode — click to place foreground/background seeds and generate a segmentation mask using nnInteractive.',
+                desc: 'Segmentation mode — use local threshold, region, brush, and lasso tools, or connect nnInteractive from the options.',
                 columns: 1,
                 sections: [
                     {
@@ -18307,8 +18488,8 @@
                         entries: [
                             { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
                             { key: 'Esc', action: 'Exit all tools' },
-                            { key: 'Click', action: 'Place seed point' },
-                            { key: 'u', action: 'Undo last seed' },
+                            { key: 'Click', action: 'Grow local region from seed' },
+                            { key: 'Shape icons', action: 'Switch method', hint: 'region · threshold · brush · lasso' },
                         ]
                     },
                     {
@@ -18764,19 +18945,32 @@
                 const isSegLoading = !isRoi && _segActivating && !_segMode;
                 const accentColor = '#f0c674';
                 if (isSegLoading) {
-                    body += `<div class="island-rows"><div class="island-row"><div class="island-swatch pulse" style="background:${accentColor}"></div><span class="island-name default-name">nnInteractive \u00B7 connecting</span></div></div>`;
+                    body += `<div class="island-rows"><div class="island-row"><div class="island-swatch pulse" style="background:${accentColor}"></div><span class="island-name default-name">segmentation \u00B7 starting</span></div></div>`;
                 } else {
                     const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
                     const currentShape = isRoi ? _roiShape : _segMethod;
-                    body += `<div class="island-toolbar"><div class="island-shapes">`;
-                    for (const key of Object.keys(shapes)) {
-                        const isCurrent = key === currentShape;
-                        const color = isCurrent ? accentColor : '#555';
-                        const opacity = isCurrent ? '1' : '0.5';
-                        body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                    if (isRoi) {
+                        body += `<div class="island-toolbar"><div class="island-shapes">`;
+                        for (const key of Object.keys(shapes)) {
+                            const isCurrent = key === currentShape;
+                            const color = isCurrent ? accentColor : '#555';
+                            const opacity = isCurrent ? '1' : '0.5';
+                            body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                        }
+                        body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="Export table">${_MAGNIFIER_ICON}</span></div>`;
+                        body += `<div class="island-rows">${_renderRoiRows()}</div>`;
+                    } else {
+                        body += `<div class="section-label">Local methods</div>`;
+                        body += _renderSegMethodRows();
+                        if (_segMethod === 'threshold') {
+                            body += `<div class="island-pills"><div class="island-pill on" onclick="_segRunThreshold()">apply current range</div></div>`;
+                        }
+                        body += `<div class="section-label">Masks</div>`;
+                        body += `<div class="island-rows">${_renderSegRows()}</div>`;
+                        body += _renderSegNnInteractiveOptions();
+                        body += `<div class="section-label">Details</div>`;
+                        body += `<div class="seg-bottom-action"><div class="seg-bottom-copy"><div class="seg-bottom-title">Mask properties</div><div class="seg-bottom-desc">Inspect labels, voxel counts, names, and export data.</div></div><span class="seg-bottom-btn" onclick="_islandExport()" title="Inspect segmentation properties">${_MAGNIFIER_ICON}</span></div>`;
                     }
-                    body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="${isRoi ? 'Export table' : 'Export segments'}">${_MAGNIFIER_ICON}</span></div>`;
-                    body += `<div class="island-rows">${isRoi ? _renderRoiRows() : _renderSegRows()}</div>`;
                 }
             } else if (id === 'overlay') {
                 if (_overlaySids.length) {
@@ -18832,6 +19026,7 @@
             if (_toolPanelState === 'closed') {
                 el.classList.remove('visible', 'tool-list', 'tool-options');
                 if (drawer) drawer.classList.remove('visible');
+                if (drawer) delete drawer.dataset.toolOptions;
                 if (drawerBody) drawerBody.innerHTML = '';
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
@@ -18888,6 +19083,7 @@
                 const title = tile.label || 'Tools';
                 if (drawerTitle) drawerTitle.textContent = title;
                 if (drawerSubtitle) drawerSubtitle.textContent = 'Options';
+                if (drawer) drawer.dataset.toolOptions = tileId;
                 let drawerHtml = '';
                 if (active || tileId === 'overlay') {
                     const body = _renderToolOptionsBody(tile);
@@ -18902,6 +19098,7 @@
             } else {
                 if (drawer) drawer.classList.remove('visible');
                 if (drawerBody) drawerBody.innerHTML = '';
+                if (drawer) delete drawer.dataset.toolOptions;
             }
 
             el.innerHTML = html;

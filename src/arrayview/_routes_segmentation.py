@@ -13,6 +13,7 @@ _seg_current_label: int = 0  # label counter for accept
 _seg_vol_axes: tuple[int, ...] | None = None  # which N-D axes map to 3D volume
 _seg_fixed_indices: tuple[int, ...] | None = None  # fixed indices for non-volume dims
 _seg_full_shape: tuple[int, ...] | None = None  # full N-D shape of source session
+_seg_volume_data: np.ndarray | None = None  # active 3D segmentation volume
 
 
 def _seg_coord_3d(
@@ -118,6 +119,116 @@ def _seg_apply_mask(mask: np.ndarray) -> dict:
     return {"status": "ok", "overlay_sid": _seg_overlay_sid}
 
 
+def _seg_overlay_to_volume_mask(data: np.ndarray) -> np.ndarray:
+    """Return overlay data in the active 3D segmentation volume shape."""
+    if _seg_label_mask is None:
+        return data
+    if data.shape == _seg_label_mask.shape:
+        return data
+    if _seg_full_shape is None or _seg_vol_axes is None:
+        return data
+    ndim = len(_seg_full_shape)
+    idx = _seg_fixed_indices if _seg_fixed_indices else (0,) * ndim
+    slc = [slice(None) if ax in _seg_vol_axes else idx[ax] for ax in range(ndim)]
+    return np.asarray(data)[tuple(slc)]
+
+
+def _seg_prepare_volume(
+    session,
+    dim_x: int,
+    dim_y: int,
+    scroll_dim: int,
+    indices: str,
+) -> tuple[np.ndarray | None, dict | None, int]:
+    """Select the active 3D segmentation volume without contacting a model."""
+    shape = session.spatial_shape if session.rgb_axis is not None else session.shape
+    ndim = len(shape)
+    if ndim < 3:
+        return None, {
+            "status": "error",
+            "message": f"segmentation requires 3D+ data (got {ndim}D)",
+        }, ndim
+
+    global _seg_overlay_sid, _seg_label_mask, _seg_current_label
+    global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape, _seg_volume_data
+
+    data = np.asarray(session.data)
+    if session.rgb_axis is not None:
+        slc = [slice(None)] * data.ndim
+        slc[session.rgb_axis] = 0
+        data = data[tuple(slc)]
+
+    _seg_full_shape = data.shape
+
+    if ndim == 3:
+        vol = data
+        _seg_vol_axes = (0, 1, 2)
+        _seg_fixed_indices = ()
+    else:
+        if scroll_dim < 0:
+            for ax in range(ndim):
+                if ax != dim_x and ax != dim_y:
+                    scroll_dim = ax
+                    break
+        vol_axes = sorted({dim_x, dim_y, scroll_dim})
+        if len(vol_axes) != 3:
+            return None, {
+                "status": "error",
+                "message": "need 3 distinct axes for segmentation",
+            }, ndim
+        _seg_vol_axes = tuple(vol_axes)
+
+        idx_list = [int(x) for x in indices.split(",")] if indices else [0] * ndim
+        slc = [slice(None) if ax in vol_axes else idx_list[ax] for ax in range(ndim)]
+        _seg_fixed_indices = tuple(idx_list)
+        vol = data[tuple(slc)]
+
+    if _seg_label_mask is None or _seg_label_mask.shape != vol.shape:
+        _seg_label_mask = np.zeros(vol.shape, dtype=np.uint8)
+        _seg_current_label = 0
+        _seg_overlay_sid = None
+    _seg_volume_data = np.asarray(vol)
+    return _seg_volume_data, None, ndim
+
+
+def _seg_region_grow_mask(seed: tuple[int, int, int], tolerance: float) -> np.ndarray:
+    """Grow a 6-connected component around seed within an absolute tolerance."""
+    if _seg_volume_data is None:
+        raise ValueError("no active segmentation volume")
+    vol = np.asarray(_seg_volume_data)
+    if any(coord < 0 or coord >= size for coord, size in zip(seed, vol.shape)):
+        raise ValueError("seed outside volume")
+    seed_value = float(vol[seed])
+    finite = np.isfinite(vol)
+    candidate = finite & (np.abs(vol.astype(np.float64) - seed_value) <= tolerance)
+    if not bool(candidate[seed]):
+        return np.zeros(vol.shape, dtype=np.uint8)
+
+    out = np.zeros(vol.shape, dtype=np.uint8)
+    stack = [seed]
+    out[seed] = 1
+    while stack:
+        z, y, x = stack.pop()
+        for nz, ny, nx in (
+            (z - 1, y, x),
+            (z + 1, y, x),
+            (z, y - 1, x),
+            (z, y + 1, x),
+            (z, y, x - 1),
+            (z, y, x + 1),
+        ):
+            if (
+                0 <= nz < vol.shape[0]
+                and 0 <= ny < vol.shape[1]
+                and 0 <= nx < vol.shape[2]
+                and not out[nz, ny, nx]
+                and candidate[nz, ny, nx]
+            ):
+                out[nz, ny, nx] = 1
+                stack.append((nz, ny, nx))
+    return out
+
+
 def _seg_update_overlay() -> dict:
     """Update overlay to show cumulative label mask only (after reset/accept)."""
     if _seg_label_mask is None:
@@ -196,16 +307,16 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         """Connect to nnInteractive server (auto-launch if needed) and upload volume."""
         from arrayview import _segmentation as seg
 
-        shape = session.spatial_shape if session.rgb_axis is not None else session.shape
-        ndim = len(shape)
-        if ndim < 3:
-            return {
-                "status": "error",
-                "message": f"nnInteractive requires 3D+ data (got {ndim}D)",
-            }
+        global _seg_overlay_sid, _seg_label_mask
 
-        global _seg_overlay_sid, _seg_label_mask, _seg_current_label
-        global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape
+        vol, error, ndim = _seg_prepare_volume(
+            session, dim_x, dim_y, scroll_dim, indices
+        )
+        if error:
+            error["message"] = error["message"].replace(
+                "segmentation requires", "nnInteractive requires"
+            )
+            return error
 
         if not seg.is_connected():
             from arrayview._config import get_nninteractive_url
@@ -222,7 +333,11 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
                 if err:
                     return {"status": "error", "message": err}
 
-        if _seg_label_mask is not None and seg.is_connected():
+        if (
+            _seg_label_mask is not None
+            and _seg_overlay_sid is not None
+            and seg.is_connected()
+        ):
             return {
                 "status": "ok",
                 "message": "resumed",
@@ -231,47 +346,120 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
                 "labels": _seg_get_label_info(),
             }
 
-        data = np.asarray(session.data)
-        if session.rgb_axis is not None:
-            slc = [slice(None)] * data.ndim
-            slc[session.rgb_axis] = 0
-            data = data[tuple(slc)]
-
-        _seg_full_shape = data.shape
-
-        if ndim == 3:
-            vol = data
-            _seg_vol_axes = (0, 1, 2)
-            _seg_fixed_indices = ()
-        else:
-            if scroll_dim < 0:
-                for ax in range(ndim):
-                    if ax != dim_x and ax != dim_y:
-                        scroll_dim = ax
-                        break
-            vol_axes = sorted({dim_x, dim_y, scroll_dim})
-            if len(vol_axes) != 3:
-                return {
-                    "status": "error",
-                    "message": "need 3 distinct axes for segmentation",
-                }
-            _seg_vol_axes = tuple(vol_axes)
-
-            idx_list = [int(x) for x in indices.split(",")] if indices else [0] * ndim
-            slc = [slice(None) if ax in vol_axes else idx_list[ax] for ax in range(ndim)]
-            _seg_fixed_indices = tuple(idx_list)
-            vol = data[tuple(slc)]
-
         try:
             await asyncio.to_thread(seg.upload_volume, vol)
         except Exception as exc:
             return {"status": "error", "message": f"upload failed: {exc}"}
 
-        _seg_label_mask = np.zeros(vol.shape, dtype=np.uint8)
-        _seg_current_label = 0
-        _seg_overlay_sid = None
-
         return {"status": "ok", "message": "connected", "ndim": ndim}
+
+    @app.post("/seg/local/activate/{sid}")
+    async def seg_local_activate(
+        sid: str,
+        dim_x: int = 0,
+        dim_y: int = 1,
+        scroll_dim: int = -1,
+        indices: str = "",
+        session=Depends(get_session_or_404),
+    ):
+        """Start segmentation with local/offline methods only."""
+        _vol, error, ndim = _seg_prepare_volume(
+            session, dim_x, dim_y, scroll_dim, indices
+        )
+        if error:
+            return error
+        return {
+            "status": "ok",
+            "message": "local",
+            "ndim": ndim,
+            "overlay_sid": _seg_overlay_sid,
+            "labels": _seg_get_label_info(),
+            "methods": ["threshold", "region", "scribble", "lasso"],
+        }
+
+    @app.post("/seg/local/threshold/{sid}")
+    async def seg_local_threshold(sid: str, body: dict = Body(...)):
+        """Create a local mask from an inclusive intensity threshold."""
+        if _seg_volume_data is None:
+            return {"status": "error", "message": "no active segmentation volume"}
+        lo = float(body.get("min", body.get("vmin", 0)))
+        hi = float(body.get("max", body.get("vmax", 0)))
+        if lo > hi:
+            lo, hi = hi, lo
+        vol = np.asarray(_seg_volume_data)
+        finite = np.isfinite(vol)
+        mask = (finite & (vol >= lo) & (vol <= hi)).astype(np.uint8)
+        return _seg_apply_mask(mask)
+
+    @app.post("/seg/local/region/{sid}")
+    async def seg_local_region(
+        sid: str,
+        dim_x: int,
+        dim_y: int,
+        indices: str,
+        px: int,
+        py: int,
+        tolerance: float,
+        session=Depends(get_session_or_404),
+    ):
+        """Create a local 6-connected region around a clicked seed."""
+        if _seg_volume_data is None:
+            return {"status": "error", "message": "no active segmentation volume"}
+        idx_tuple = tuple(int(x) for x in indices.split(","))
+        seed = _seg_coord_3d(session, dim_x, dim_y, idx_tuple, px, py)
+        try:
+            mask = await asyncio.to_thread(_seg_region_grow_mask, seed, tolerance)
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        return _seg_apply_mask(mask)
+
+    @app.post("/seg/local/scribble/{sid}")
+    async def seg_local_scribble(
+        sid: str,
+        body: dict = Body(...),
+        session=Depends(get_session_or_404),
+    ):
+        """Apply a local freehand brush directly to the current pending mask."""
+        if _seg_label_mask is None:
+            return {"status": "error", "message": "no active segmentation volume"}
+        positive = bool(body.get("positive", True))
+        brush = _seg_rasterize_drawing(session, body)
+        if brush is None:
+            return {"status": "error", "message": "no points provided"}
+        current = np.zeros(_seg_label_mask.shape, dtype=np.uint8)
+        if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
+            current = (
+                _seg_overlay_to_volume_mask(SESSIONS[_seg_overlay_sid].data) > 0
+            ).astype(np.uint8)
+        if positive:
+            current[brush > 0] = 1
+        else:
+            current[brush > 0] = 0
+        return _seg_apply_mask(current)
+
+    @app.post("/seg/local/lasso/{sid}")
+    async def seg_local_lasso(
+        sid: str,
+        body: dict = Body(...),
+        session=Depends(get_session_or_404),
+    ):
+        """Apply a local filled lasso directly to the current pending mask."""
+        if _seg_label_mask is None:
+            return {"status": "error", "message": "no active segmentation volume"}
+        positive = bool(body.get("positive", True))
+        brush = _seg_rasterize_drawing(session, body, fill=True)
+        if brush is None:
+            return {"status": "error", "message": "need at least 3 points"}
+        current = np.zeros(_seg_label_mask.shape, dtype=np.uint8)
+        if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
+            current = (
+                _seg_overlay_to_volume_mask(SESSIONS[_seg_overlay_sid].data) > 0
+            ).astype(np.uint8)
+        if positive:
+            current[brush > 0] = 1
+        else:
+            current[brush > 0] = 0
+        return _seg_apply_mask(current)
 
     @app.post("/seg/click/{sid}")
     async def seg_click(
@@ -377,12 +565,13 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         """Reset interactions for next object."""
         from arrayview import _segmentation as seg
 
-        if not seg.is_connected():
-            return {"status": "error", "message": "not connected"}
-        try:
-            await asyncio.to_thread(seg.reset_interactions)
-        except Exception as exc:
-            return {"status": "error", "message": str(exc)}
+        if seg.is_connected():
+            try:
+                await asyncio.to_thread(seg.reset_interactions)
+            except Exception as exc:
+                return {"status": "error", "message": str(exc)}
+        elif _seg_label_mask is None:
+            return {"status": "error", "message": "no active segmentation"}
 
         return _seg_update_overlay()
 
@@ -400,13 +589,14 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
             return {"status": "error", "message": "overlay session lost"}
 
         _seg_current_label += 1
-        current_mask = np.asarray(ov_session.data)
+        current_mask = _seg_overlay_to_volume_mask(np.asarray(ov_session.data))
         _seg_label_mask[current_mask > 0] = _seg_current_label
 
-        try:
-            await asyncio.to_thread(seg.reset_interactions)
-        except Exception:
-            pass
+        if seg.is_connected():
+            try:
+                await asyncio.to_thread(seg.reset_interactions)
+            except Exception:
+                pass
 
         return _seg_update_overlay()
 
@@ -416,7 +606,7 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         from arrayview import _segmentation as seg
 
         global _seg_overlay_sid, _seg_label_mask, _seg_current_label
-        global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape
+        global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape, _seg_volume_data
         seg.disconnect()
         _seg_overlay_sid = None
         _seg_label_mask = None
@@ -424,7 +614,20 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         _seg_vol_axes = None
         _seg_fixed_indices = None
         _seg_full_shape = None
+        _seg_volume_data = None
         return {"status": "ok"}
+
+    @app.post("/seg/nninteractive/disconnect")
+    async def seg_nninteractive_disconnect():
+        """Disconnect nnInteractive while preserving local segmentation state."""
+        from arrayview import _segmentation as seg
+
+        seg.disconnect()
+        return {
+            "status": "ok",
+            "overlay_sid": _seg_overlay_sid,
+            "labels": _seg_get_label_info(),
+        }
 
     @app.get("/seg/labels/{sid}")
     def seg_labels(sid: str):

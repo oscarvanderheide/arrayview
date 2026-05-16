@@ -254,6 +254,7 @@ def fake_segmentation(monkeypatch):
         seg_routes._seg_vol_axes = None
         seg_routes._seg_fixed_indices = None
         seg_routes._seg_full_shape = None
+        seg_routes._seg_volume_data = None
         seg_routes._seg_label_names.clear()
 
     reset_server_state()
@@ -434,6 +435,88 @@ class TestSegmentation:
         assert disconnected.status_code == 200
         assert disconnected.json() == {"status": "ok"}
         assert fake_segmentation["disconnect_calls"] == 1
+
+    def test_local_activate_does_not_connect_to_nninteractive(
+        self, client, sid_3d, fake_segmentation
+    ):
+        r = client.post(f"/seg/local/activate/{sid_3d}")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "ok"
+        assert body["message"] == "local"
+        assert body["methods"] == ["threshold", "region", "scribble", "lasso"]
+        assert fake_segmentation["uploaded"] is None
+        assert fake_segmentation["connected"] is False
+
+    def test_local_threshold_creates_overlay_and_accepts_label(
+        self, client, sid_3d, arr_3d, fake_segmentation
+    ):
+        activated = client.post(f"/seg/local/activate/{sid_3d}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        lo = float(arr_3d[0, 0, 0])
+        hi = float(arr_3d[0, 0, 3])
+        thresholded = client.post(
+            f"/seg/local/threshold/{sid_3d}",
+            json={"min": lo, "max": hi},
+        )
+
+        assert thresholded.status_code == 200
+        body = thresholded.json()
+        assert body["status"] == "ok"
+
+        import arrayview._routes_segmentation as seg_routes
+
+        overlay = seg_routes.SESSIONS[body["overlay_sid"]].data
+        expected = ((arr_3d >= lo) & (arr_3d <= hi)).astype(np.uint8)
+        np.testing.assert_array_equal(overlay, expected)
+
+        accepted = client.post(f"/seg/accept/{sid_3d}")
+        assert accepted.status_code == 200
+        accepted_body = accepted.json()
+        assert accepted_body["status"] == "ok"
+        assert accepted_body["labels"][0]["voxels"] == int(expected.sum())
+        assert fake_segmentation["reset_calls"] == 0
+
+    def test_local_region_grow_uses_clicked_seed(
+        self, client, tmp_path, fake_segmentation
+    ):
+        arr = np.full((4, 5, 5), 9, dtype=np.float32)
+        arr[1, 1:4, 1:4] = 2
+        arr[1, 2, 4] = 2
+        path = tmp_path / "region.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        activated = client.post(f"/seg/local/activate/{sid}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        grown = client.post(
+            f"/seg/local/region/{sid}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "1,2,2",
+                "px": 2,
+                "py": 2,
+                "tolerance": 0.01,
+            },
+        )
+
+        assert grown.status_code == 200
+        body = grown.json()
+        assert body["status"] == "ok"
+
+        import arrayview._routes_segmentation as seg_routes
+
+        overlay = seg_routes.SESSIONS[body["overlay_sid"]].data
+        expected = np.zeros_like(arr, dtype=np.uint8)
+        expected[1, 1:4, 1:4] = 1
+        expected[1, 2, 4] = 1
+        np.testing.assert_array_equal(overlay, expected)
 
 
 # ---------------------------------------------------------------------------
