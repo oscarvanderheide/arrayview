@@ -16,7 +16,7 @@ edges:
     condition: when the endpoint triggers a render (slice, mosaic, projection)
   - target: context/conventions.md
     condition: for lazy import rules and Verify Checklist
-last_updated: 2026-04-29
+last_updated: 2026-05-16
 ---
 
 # Add Server Endpoint

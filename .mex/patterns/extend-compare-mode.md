@@ -9,9 +9,9 @@ triggers:
   - "diff params"
   - "X key"
 edges:
-  - target: frontend-change.md
+  - target: patterns/frontend-change.md
     condition: when the work is primarily a local `_viewer.html` edit
-  - target: ../context/render-pipeline.md
+  - target: context/render-pipeline.md
     condition: when compare changes require backend render or diff parameter changes
 last_updated: 2026-05-13
 ---

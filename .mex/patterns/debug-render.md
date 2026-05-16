@@ -22,7 +22,7 @@ edges:
     condition: only after Step 1 points to `_viewer.html` rather than the Python pipeline
   - target: context/conventions.md
     condition: for the Verify Checklist after fixing
-last_updated: 2026-04-29
+last_updated: 2026-05-16
 ---
 
 # Debug Render

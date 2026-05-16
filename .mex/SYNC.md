@@ -1,5 +1,7 @@
 # Sync — Realign This Scaffold
 
+Last reviewed: 2026-05-16
+
 ## Recommended: Use sync.sh
 
 ```bash

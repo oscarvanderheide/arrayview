@@ -12,7 +12,7 @@ triggers:
 edges:
   - target: context/conventions.md
     condition: when making code changes after confirming the failure mode
-last_updated: 2026-05-06
+last_updated: 2026-05-16
 ---
 
 # Debug VS Code Extension Python
@@ -38,7 +38,7 @@ an unsatisfiable dependency error.
 
 1. **Check the extension log first**
    ```bash
-   tail -n 120 ~/.arrayview/extension.log
+   tail -n 120 "$HOME/.arrayview/extension.log"
    ```
    Look for `CUSTOM-EDITOR:`, `PYTHON: spawning`, stderr lines, and the final exit code.
 
@@ -80,11 +80,11 @@ an unsatisfiable dependency error.
 
 - Running `python -m arrayview --mode stdio ...` directly from a shell script without redirecting stdin can feed shell text into the stdio server. Use `</dev/null` for bounded startup checks.
 - In tunnel workspaces, the clicked-file custom editor does **not** use the current repo checkout automatically unless that workspace `.venv` points to it.
-- A reboot or deleting `~/.vscode-server` can change the default interpreter resolution without changing the extension code.
+- A reboot or deleting the VS Code server directory under the user's home directory can change the default interpreter resolution without changing the extension code.
 
 ## Verify
 
-- [ ] `~/.arrayview/extension.log` shows the expected candidate order
+- [ ] The ArrayView extension log under the user's home directory shows the expected candidate order
 - [ ] The failing workspace reproducer emits `SESSION:{...}` with the intended interpreter
 - [ ] If `extension.js` changed, `vscode-extension/package.json`, `_VSCODE_EXT_VERSION`, and the VSIX version all match
 - [ ] After reinstalling or reloading, the custom editor opens the target array without `Python process exited with code 1`

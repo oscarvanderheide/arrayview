@@ -15,7 +15,7 @@ edges:
     condition: for the lazy import pattern and Verify Checklist
   - target: context/render-pipeline.md
     condition: when the new format returns an unusual dtype that may affect the render pipeline
-last_updated: 2026-04-29
+last_updated: 2026-05-16
 ---
 
 # Add File Format

@@ -16,7 +16,7 @@ edges:
     condition: for shared conventions and the Verify Checklist
   - target: patterns/debug-render.md
     condition: when the change produces wrong visual output
-last_updated: 2026-05-01
+last_updated: 2026-05-16
 ---
 
 # Frontend Change

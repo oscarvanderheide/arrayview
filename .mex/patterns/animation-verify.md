@@ -16,7 +16,7 @@ triggers:
 edges:
   - target: patterns/frontend-change.md
     condition: always — animation changes are always frontend changes
-last_updated: 2026-04-29
+last_updated: 2026-05-16
 ---
 
 # Animation Verify

@@ -1,7 +1,7 @@
 ---
 name: agents
 description: Lightweight pointer to ROUTER.md for task routing.
-last_updated: 2026-05-01
+last_updated: 2026-05-16
 ---
 
 # arrayview
