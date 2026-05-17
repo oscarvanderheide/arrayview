@@ -480,6 +480,107 @@ class TestSegmentation:
         assert accepted_body["labels"][0]["voxels"] == int(expected.sum())
         assert fake_segmentation["reset_calls"] == 0
 
+    def test_accept_preserves_existing_labels_when_adding_another_mask(
+        self, client, tmp_path, fake_segmentation
+    ):
+        arr = np.zeros((3, 4, 4), dtype=np.float32)
+        arr[0, 0, 0] = 1.0
+        arr[2, 3, 3] = 2.0
+        path = tmp_path / "seg_two_labels.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        activated = client.post(f"/seg/local/activate/{sid}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        first = client.post(
+            f"/seg/local/threshold/{sid}", json={"min": 1.0, "max": 1.0}
+        )
+        assert first.status_code == 200
+        accepted_first = client.post(f"/seg/accept/{sid}")
+        assert accepted_first.status_code == 200
+        assert accepted_first.json()["labels"] == [
+            {"label": 1, "name": "segment 1", "color": "#ff5050", "voxels": 1}
+        ]
+
+        second = client.post(
+            f"/seg/local/threshold/{sid}", json={"min": 2.0, "max": 2.0}
+        )
+        assert second.status_code == 200
+        accepted_second = client.post(f"/seg/accept/{sid}")
+        assert accepted_second.status_code == 200
+        assert accepted_second.json()["labels"] == [
+            {"label": 1, "name": "segment 1", "color": "#ff5050", "voxels": 1},
+            {"label": 2, "name": "segment 2", "color": "#50a0ff", "voxels": 1},
+        ]
+
+        exported = client.get(f"/seg/export/{sid}")
+        assert exported.status_code == 200
+        exported_mask = np.load(io.BytesIO(exported.content))
+        assert int(exported_mask[0, 0, 0]) == 1
+        assert int(exported_mask[2, 3, 3]) == 2
+
+    @pytest.mark.parametrize(
+        ("endpoint", "points"),
+        [
+            ("scribble", [[3, 3]]),
+            ("lasso", [[2, 2], [3, 2], [3, 3], [2, 3]]),
+        ],
+    )
+    def test_local_drawing_preserves_existing_labels_when_adding_another_mask(
+        self, client, tmp_path, fake_segmentation, endpoint, points
+    ):
+        arr = np.zeros((3, 4, 4), dtype=np.float32)
+        arr[0, 0, 0] = 1.0
+        path = tmp_path / f"seg_{endpoint}_after_accept.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        activated = client.post(f"/seg/local/activate/{sid}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        first = client.post(
+            f"/seg/local/threshold/{sid}", json={"min": 1.0, "max": 1.0}
+        )
+        assert first.status_code == 200
+        accepted_first = client.post(f"/seg/accept/{sid}")
+        assert accepted_first.status_code == 200
+
+        drawn = client.post(
+            f"/seg/local/{endpoint}/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "2,0,0",
+                "points": points,
+                "positive": True,
+            },
+        )
+        assert drawn.status_code == 200
+        assert drawn.json()["status"] == "ok"
+
+        accepted_second = client.post(f"/seg/accept/{sid}")
+        assert accepted_second.status_code == 200
+        labels = accepted_second.json()["labels"]
+        assert labels[0] == {
+            "label": 1,
+            "name": "segment 1",
+            "color": "#ff5050",
+            "voxels": 1,
+        }
+        assert labels[1]["label"] == 2
+        assert labels[1]["name"] == "segment 2"
+        assert labels[1]["color"] == "#50a0ff"
+        assert labels[1]["voxels"] > 0
+
+        exported = client.get(f"/seg/export/{sid}")
+        assert exported.status_code == 200
+        exported_mask = np.load(io.BytesIO(exported.content))
+        assert int(exported_mask[0, 0, 0]) == 1
+        assert int(exported_mask[2, 3, 3]) == 2
+
     def test_local_region_grow_uses_clicked_seed(
         self, client, tmp_path, fake_segmentation
     ):

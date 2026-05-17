@@ -119,6 +119,17 @@ def _seg_apply_mask(mask: np.ndarray) -> dict:
     return {"status": "ok", "overlay_sid": _seg_overlay_sid}
 
 
+def _seg_pending_mask_from_overlay() -> np.ndarray:
+    """Return the editable pending object from the current segmentation overlay."""
+    if _seg_label_mask is None:
+        return np.zeros((), dtype=np.uint8)
+    if not (_seg_overlay_sid and _seg_overlay_sid in SESSIONS):
+        return np.zeros(_seg_label_mask.shape, dtype=np.uint8)
+
+    overlay = _seg_overlay_to_volume_mask(SESSIONS[_seg_overlay_sid].data)
+    return (overlay == (_seg_current_label + 1)).astype(np.uint8)
+
+
 def _seg_overlay_to_volume_mask(data: np.ndarray) -> np.ndarray:
     """Return overlay data in the active 3D segmentation volume shape."""
     if _seg_label_mask is None:
@@ -426,11 +437,7 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         brush = _seg_rasterize_drawing(session, body)
         if brush is None:
             return {"status": "error", "message": "no points provided"}
-        current = np.zeros(_seg_label_mask.shape, dtype=np.uint8)
-        if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
-            current = (
-                _seg_overlay_to_volume_mask(SESSIONS[_seg_overlay_sid].data) > 0
-            ).astype(np.uint8)
+        current = _seg_pending_mask_from_overlay()
         if positive:
             current[brush > 0] = 1
         else:
@@ -450,11 +457,7 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         brush = _seg_rasterize_drawing(session, body, fill=True)
         if brush is None:
             return {"status": "error", "message": "need at least 3 points"}
-        current = np.zeros(_seg_label_mask.shape, dtype=np.uint8)
-        if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
-            current = (
-                _seg_overlay_to_volume_mask(SESSIONS[_seg_overlay_sid].data) > 0
-            ).astype(np.uint8)
+        current = _seg_pending_mask_from_overlay()
         if positive:
             current[brush > 0] = 1
         else:
@@ -588,9 +591,14 @@ def register_segmentation_routes(app, get_session_or_404) -> None:
         if ov_session is None:
             return {"status": "error", "message": "overlay session lost"}
 
-        _seg_current_label += 1
         current_mask = _seg_overlay_to_volume_mask(np.asarray(ov_session.data))
-        _seg_label_mask[current_mask > 0] = _seg_current_label
+        next_label = _seg_current_label + 1
+        new_mask = current_mask == next_label
+        if not np.any(new_mask):
+            return {"status": "error", "message": "no active prediction to accept"}
+
+        _seg_current_label = next_label
+        _seg_label_mask[new_mask] = _seg_current_label
 
         if seg.is_connected():
             try:
