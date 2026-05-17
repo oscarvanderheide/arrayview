@@ -59,6 +59,37 @@ def test_collapsed_colorbar_hover_shows_lebesgue_overlay(loaded_viewer, sid_2d):
 
 
 @pytest.mark.browser
+def test_histogram_shortcut_opens_without_eager_lebesgue_mode(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    hist_requests = []
+    page.on(
+        "request",
+        lambda request: (
+            hist_requests.append(request.url)
+            if "/volume-histogram/" in request.url
+            else None
+        ),
+    )
+    page.keyboard.press("d")
+    page.wait_for_function(
+        """() => !!window._primaryCb
+            && window._primaryCb.expanded
+            && window._primaryCb._animT > 0
+            && lebesgueMode !== true""",
+        timeout=5000,
+    )
+    page.wait_for_function(
+        """() => !!window._primaryCb._histData
+            && !_histFetching
+            && !window._primaryCb._histFetching
+            && _histDataVersion === _expectedHistKey()""",
+        timeout=5000,
+    )
+    page.wait_for_timeout(250)
+    assert len(hist_requests) == 1
+
+
+@pytest.mark.browser
 def test_colorbar_hover_uses_window_range_not_histogram_range(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     vals = page.evaluate(

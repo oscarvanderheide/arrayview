@@ -7055,7 +7055,7 @@
             // Auto-refresh histogram display when expanded but data is stale
             // (volume changed via fixed-dim navigation). Does NOT touch vmin/vmax —
             // those are managed by _maybeAutoRecomputeRange in unlocked mode.
-            if (primaryCb._expanded && !_histFetching) {
+            if (primaryCb._expanded && !_histFetching && !primaryCb._histFetching) {
                 const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
                 if (stale) {
                     _histData = null; _kdeSmooth = null; // clear immediately to prevent stale use
@@ -7986,8 +7986,9 @@
                 this._expanded = true;
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
-                await this.ensureHistogramData();
+                const histPromise = this.ensureHistogramData();
                 this.startAnim(true);
+                await histPromise;
                 if (this.opts.onExpand) this.opts.onExpand();
                 if (this._syncWith && !this._syncing) {
                     this._syncWith._syncing = true;
@@ -8045,13 +8046,6 @@
                     _kdeSmooth = this._kdeSmooth;
                 }
                 this.draw();
-                if (this._onBinHover && this._mouseOver && this._hoverFrac >= 0 && this.orientation === 'horizontal') {
-                    const rect = this.canvas.getBoundingClientRect();
-                    const cssH = rect.height || this.canvas.clientHeight || CB_COLLAPSED_H;
-                    const hoverY = this._hoverY >= 0 ? this._hoverY : cssH - 1;
-                    const binIdx = this._hoverBinIndexForPoint(this._hoverFrac, hoverY, cssH);
-                    this._onBinHover(binIdx, this._hoverFrac);
-                }
                 return this._histData;
             }
 
@@ -8144,6 +8138,11 @@
 
                 // Dblclick toggles histogram expand/collapse
                 this.canvas.addEventListener('dblclick', (e) => {
+                    this._dragX = null;
+                    this._dragTarget = null;
+                    this._dragActive = false;
+                    document.body.style.cursor = '';
+                    if (this.opts.onMouseLeave) this.opts.onMouseLeave();
                     if (this._expanded) {
                         this._manualExpand = false;
                         this.collapse();
@@ -9189,8 +9188,6 @@
                 }
             },
             onExpand: () => {
-                lebesgueMode = true;
-                _fetchLebesgueSlice();
                 _redrawActiveColorbar();
             },
             onCollapse: () => {
@@ -9214,7 +9211,7 @@
             onMouseLeave: () => {
                 _stopColorbarLebesgueHover();
                 // Restart fresh 3-second timer when mouse leaves after 'd'-key open
-                if (!_lebesgueManual && lebesgueMode && primaryCb._expanded) {
+                if (!_lebesgueManual && primaryCb._expanded) {
                     _restartHistAutoDismiss();
                 }
             },
@@ -9240,6 +9237,8 @@
         let _volHistCache = {};
 
         async function _fetchVolumeHistogram(opts = {}) {
+            if (_histFetching) return null;
+            _histFetching = true;
             const fetchDimX = opts.dimX ?? dim_x;
             const fetchDimY = opts.dimY ?? dim_y;
             // Aggregation dims (may be empty): sent to server as scroll_dims.
@@ -9270,6 +9269,7 @@
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
+                _histFetching = false;
                 return _volHistCache[cacheKey];
             }
 
@@ -9290,6 +9290,7 @@
                 _histDataVersion = cacheKey;
                 return data;
             } catch (_) { return null; }
+            finally { _histFetching = false; }
         }
 
         /** Resolve the picker state for dim `i`. Explicit entries in
@@ -9373,7 +9374,7 @@
                 if (i === dx || i === dy || aggSet.has(i)) continue;
                 parts.push(`${i}:${indices[i]}`);
             }
-            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}`;
+            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}:`;
         }
 
         // Scoped nav signal: nav paths that move along a specific dim set this
@@ -9708,7 +9709,7 @@
             }, 80);
         }
 
-        async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY) {
+        async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY, signal = null) {
             const params = new URLSearchParams({
                 dim_x: fetchDimX, dim_y: fetchDimY,
                 indices: indices.join(','),
@@ -9719,7 +9720,7 @@
             const cached = _lebesguePerSession[fetchSid];
             if (cached && cached.version === ver) return cached;
             try {
-                const resp = await proxyFetch(`/lebesgue/${fetchSid}?${params}`);
+                const resp = await proxyFetch(`/lebesgue/${fetchSid}?${params}`, signal ? { signal } : undefined);
                 if (!resp.ok) return null;
                 const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
                 const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
@@ -9739,7 +9740,7 @@
             try {
                 if (compareActive) {
                     const sids = getCompareRenderSids();
-                    await Promise.all(sids.map(s => _fetchLebesgueSliceForSid(s, dim_x, dim_y)));
+                    await Promise.all(sids.map(s => _fetchLebesgueSliceForSid(s, dim_x, dim_y, ctrl.signal)));
                     if (ctrl.signal.aborted) return;
                     const first = _lebesguePerSession[sids[0]];
                     if (first) {
@@ -9749,7 +9750,7 @@
                         _lebesgueVersion = first.version;
                     }
                 } else {
-                    const entry = await _fetchLebesgueSliceForSid(sid, dim_x, dim_y);
+                    const entry = await _fetchLebesgueSliceForSid(sid, dim_x, dim_y, ctrl.signal);
                     if (ctrl.signal.aborted) return;
                     if (entry) {
                         _lebesgueSlice = entry.slice;
@@ -9773,12 +9774,18 @@
 
         function _startColorbarLebesgueHover() {
             _colorbarLebesgueHover = true;
-            _fetchLebesgueSlice();
-            _prefetchHoverSlices();
+            clearTimeout(_hoverPrefetchTimer);
+            _hoverPrefetchTimer = setTimeout(() => {
+                if (!_colorbarLebesgueHover) return;
+                _fetchLebesgueSlice();
+                _prefetchHoverSlices();
+            }, 120);
         }
 
         function _stopColorbarLebesgueHover() {
             _colorbarLebesgueHover = false;
+            clearTimeout(_hoverPrefetchTimer);
+            if (!lebesgueMode && _lebesgueFetchCtrl) _lebesgueFetchCtrl.abort();
             _lastLebesgueSource = '';
             _lastLebesgueColorBar = null;
             if (!lebesgueMode) {
@@ -9824,35 +9831,39 @@
             const octx = overlayCv.getContext('2d');
             if (!octx) return;
             const cw = targetCv.width, ch = targetCv.height;
+            if (!cw || !ch || !sliceW || !sliceH) return;
             if (overlayCv.width !== cw || overlayCv.height !== ch) {
                 overlayCv.width = cw; overlayCv.height = ch;
             }
             overlayCv.style.width = targetCv.style.width;
             overlayCv.style.height = targetCv.style.height;
-            const sx = cw / sliceW, sy = ch / sliceH;
             const fx = flip_x, fy = flip_y;
-            octx.clearRect(0, 0, cw, ch);
-            octx.fillStyle = 'rgba(0,0,0,0.55)';
-            octx.fillRect(0, 0, cw, ch);
-            octx.globalCompositeOperation = 'destination-out';
-            octx.fillStyle = 'rgba(0,0,0,1)';
-            octx.beginPath();
-            for (let py = 0; py < sliceH; py++) {
-                for (let px = 0; px < sliceW; px++) {
-                    const val = sliceData[py * sliceW + px];
-                    if (val >= binLow && val < binHigh) {
-                        const dx = fx ? (sliceW - 1 - px) : px;
-                        const dy = fy ? (sliceH - 1 - py) : py;
-                        const x0 = Math.floor(dx * sx);
-                        const y0 = Math.floor(dy * sy);
-                        const x1 = Math.min(cw, Math.ceil((dx + 1) * sx));
-                        const y1 = Math.min(ch, Math.ceil((dy + 1) * sy));
-                        octx.rect(x0, y0, x1 - x0, y1 - y0);
-                    }
+            if (!overlayCv._lebesgueMask) overlayCv._lebesgueMask = document.createElement('canvas');
+            const maskCv = overlayCv._lebesgueMask;
+            if (maskCv.width !== sliceW || maskCv.height !== sliceH) {
+                maskCv.width = sliceW;
+                maskCv.height = sliceH;
+            }
+            const mctx = maskCv.getContext('2d');
+            if (!mctx) return;
+            const img = mctx.createImageData(sliceW, sliceH);
+            const buf = img.data;
+            const alpha = Math.round(255 * 0.55);
+            for (let y = 0; y < sliceH; y++) {
+                const srcY = fy ? (sliceH - 1 - y) : y;
+                const row = srcY * sliceW;
+                for (let x = 0; x < sliceW; x++) {
+                    const srcX = fx ? (sliceW - 1 - x) : x;
+                    const val = sliceData[row + srcX];
+                    if (val >= binLow && val < binHigh) continue;
+                    const i = (y * sliceW + x) * 4;
+                    buf[i + 3] = alpha;
                 }
             }
-            octx.fill();
-            octx.globalCompositeOperation = 'source-over';
+            mctx.putImageData(img, 0, 0);
+            octx.clearRect(0, 0, cw, ch);
+            octx.imageSmoothingEnabled = false;
+            octx.drawImage(maskCv, 0, 0, cw, ch);
             overlayCv.style.display = '';
         }
 
@@ -17353,30 +17364,22 @@
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
                         _lebesgueManual = false;
+                        _stopColorbarLebesgueHover();
                         _computeCbExpandedH();
-                        primaryCb._expanded = true;
                         primaryCb._manualExpand = true;
-                        const tz = document.getElementById('slim-cb-tri-zone');
-                        if (tz) tz.classList.add('expanded');
-                        if (compareActive) {
-                            await _fetchHistogramCompare();
-                        } else {
-                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                            if (volData) _histData = volData;
-                        }
-                        _buildKDE();
-                        lebesgueMode = true;
-                        _fetchLebesgueSlice();
-                        primaryCb.startAnim(true);
+                        primaryCb.expand().then(() => {
+                            if (primaryCb._histData) {
+                                _histData = primaryCb._histData;
+                                _kdeSmooth = primaryCb._kdeSmooth;
+                            }
+                            const q = _currentQuantileFromHist(
+                                manualVmin ?? currentVmin,
+                                manualVmax ?? currentVmax,
+                            );
+                            if (q) showToast(_quantileLabel(q.lo, q.hi));
+                        }).catch(() => {});
                         if (multiViewActive || compareMvActive) drawMvColorbar();
                         else drawSlimColorbar(cbMarkerFrac);
-                        // Show the current percentile bracket so the user knows
-                        // the in-effect window on the very first tap.
-                        const q = _currentQuantileFromHist(
-                            manualVmin ?? currentVmin,
-                            manualVmax ?? currentVmax,
-                        );
-                        if (q) showToast(_quantileLabel(q.lo, q.hi));
                         _restartHistAutoDismiss();
                         saveState();
                         return;
@@ -24562,7 +24565,7 @@
             cb.updateLabels();
             // Auto-refresh histogram display when expanded but data is stale
             // (volume changed via fixed-dim navigation). Does NOT touch vmin/vmax.
-            if (primaryCb._expanded && !_histFetching) {
+            if (primaryCb._expanded && !_histFetching && !primaryCb._histFetching) {
                 const stale = !_histData || (_histDataVersion !== _expectedHistKey());
                 if (stale) {
                     _histData = null; _kdeSmooth = null;
