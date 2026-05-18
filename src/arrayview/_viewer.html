@@ -1616,6 +1616,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
             width: 36px;
             height: 36px;
             min-height: 36px;
@@ -1637,12 +1638,22 @@
             border-color: var(--border);
         }
         #dynamic-island.tool-list .tool-row.active {
-            background: color-mix(in srgb, #86efac 10%, transparent);
-            border-color: color-mix(in srgb, #86efac 45%, transparent);
+            border-color: color-mix(in srgb, var(--active-dim) 35%, transparent);
         }
         #dynamic-island.tool-list .tool-row.active .tool-title,
         #dynamic-island.tool-list .tool-row.active .tool-icon {
-            color: color-mix(in srgb, #86efac 82%, var(--text));
+            color: var(--active-dim);
+        }
+        #dynamic-island.tool-list .tool-row.active::after {
+            content: '';
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            width: 5px;
+            height: 5px;
+            border-radius: 999px;
+            background: var(--active-dim);
+            opacity: 0.78;
         }
         #dynamic-island.tool-list .tool-row.selected {
             background: color-mix(in srgb, var(--active-dim) 12%, transparent);
@@ -1653,7 +1664,7 @@
             color: var(--active-dim);
         }
         #dynamic-island.tool-list .tool-row.selected .shortcut-key {
-            border-color: rgba(245, 190, 40, 0.45);
+            border-color: color-mix(in srgb, var(--active-dim) 45%, transparent);
             color: var(--active-dim);
         }
 
@@ -18686,6 +18697,18 @@
             return false;
         }
 
+        function _selectedToolDrawerId() {
+            return (_toolPanelState && _toolPanelState.kind === 'tool-options') ? _toolPanelState.toolId : null;
+        }
+
+        function _toolDrawerActivatesOnOpen(toolId) {
+            return toolId !== 'overlay';
+        }
+
+        function _toolDrawerExitsOnClose(toolId) {
+            return toolId === 'segmentation' || toolId === 'roi';
+        }
+
         function _toolSortRank(tile) {
             return _toolTileEnabled(tile) ? 0 : 1;
         }
@@ -18752,10 +18775,13 @@
 
         function closeToolPanel() {
             if (_toolPanelState === 'closed') return;
+            const toolId = _selectedToolDrawerId();
             _toolPanelState = 'closed';
             toolMenuOpen = false;
             _toolPanelUserClosed = true;
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
+            if (toolId && _toolDrawerExitsOnClose(toolId)) _exitActiveTool(toolId);
+            _toolPanelUserClosed = true;
             renderToolMenu();
             try { sink.focus(); } catch (_) {}
         }
@@ -18767,7 +18793,7 @@
             _toolPanelState = { kind: 'tool-options', toolId };
             toolMenuOpen = true;
             _toolPanelUserClosed = false;
-            if (!_toolTileActive(tile)) {
+            if (_toolDrawerActivatesOnOpen(toolId) && !_toolTileActive(tile)) {
                 _toolToggle(toolId);
             }
             _moreToolsExpanded = false;
@@ -18801,7 +18827,9 @@
             if (_toolPanelState === 'tool-menu') {
                 closeToolPanel();
             } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                const toolId = _toolPanelState.toolId;
                 _toolPanelState = 'tool-menu';
+                if (_toolDrawerExitsOnClose(toolId)) _exitActiveTool(toolId);
                 renderToolMenu();
             }
         }
@@ -18863,11 +18891,15 @@
         }
 
         function _renderToolRow(tile, enabled, active, selected = false) {
-            const rowCls = selected ? 'tool-row selected' : active ? 'tool-row active' : enabled ? 'tool-row available' : 'tool-row unavailable';
+            const rowClasses = ['tool-row'];
+            rowClasses.push(enabled ? 'available' : 'unavailable');
+            if (active) rowClasses.push('active');
+            if (selected) rowClasses.push('selected');
+            const rowCls = rowClasses.join(' ');
             const keycap = (tile.keyHint || '').toUpperCase();
             const desc = tile.desc || '';
             const icon = _toolIcon(tile.id);
-            const action = tile.id === 'colormap' ? `_openToolRailItem('${tile.id}')` : `_openToolOptions('${tile.id}')`;
+            const action = `_openToolRailItem('${tile.id}')`;
             const onclick = enabled ? ` onclick="${action}"` : '';
             const title = enabled ? (tile.label || '') : (tile.unavailableReason ? tile.unavailableReason() : (tile.label || ''));
             let html = `<div class="${rowCls}" data-tool="${tile.id}" title="${title}" aria-label="${title}"${onclick}>`;
@@ -18881,10 +18913,18 @@
         }
 
         function _openToolRailItem(id) {
+            const selectedToolId = _selectedToolDrawerId();
             if (id === 'colormap') {
                 if (rgbMode) return;
-                if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) {
+                    closeCmapPicker(false);
                     _toolPanelState = 'tool-menu';
+                    renderToolMenu();
+                    return;
+                }
+                if (selectedToolId) {
+                    _toolPanelState = 'tool-menu';
+                    if (_toolDrawerExitsOnClose(selectedToolId)) _exitActiveTool(selectedToolId);
                     renderToolMenu();
                 }
                 _cmapPickerAllowToolRail = true;
@@ -18894,6 +18934,14 @@
                     _cmapPickerAllowToolRail = false;
                 }
                 return;
+            }
+            if (selectedToolId === id) {
+                _goBackOrCloseToolPanel();
+                return;
+            }
+            if (selectedToolId && _toolDrawerExitsOnClose(selectedToolId)) {
+                _toolPanelState = 'tool-menu';
+                _exitActiveTool(selectedToolId);
             }
             openToolOptions(id);
         }
