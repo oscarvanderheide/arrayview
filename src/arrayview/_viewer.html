@@ -2124,7 +2124,82 @@
             border-color: var(--border);
             opacity: 0.6;
         }
+        #tool-drawer[data-tool-options="qmri"] .section-label {
+            color: color-mix(in srgb, var(--text) 72%, var(--muted));
+            font-weight: 650;
+        }
+        #tool-drawer[data-tool-options="qmri"] .tool-state-hint {
+            color: color-mix(in srgb, var(--text) 58%, var(--muted));
+        }
+        #tool-drawer[data-tool-options="qmri"] .island-pill.on {
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+            color: var(--active-dim);
+            border-color: color-mix(in srgb, var(--active-dim) 45%, transparent);
+            font-weight: 650;
+        }
+        #tool-drawer[data-tool-options="qmri"] .island-pill.off {
+            background: color-mix(in srgb, var(--text) 4%, transparent);
+            color: color-mix(in srgb, var(--text) 60%, var(--muted));
+            border-color: color-mix(in srgb, var(--text) 14%, var(--border));
+            opacity: 0.95;
+        }
         #tool-drawer .island-pill.only { opacity: 0.6; cursor: not-allowed; }
+        #tool-drawer .tool-state-block {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        #tool-drawer .tool-state-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-height: 28px;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: color-mix(in srgb, var(--surface) 72%, transparent);
+        }
+        #tool-drawer .tool-state-copy {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        #tool-drawer .tool-state-label {
+            color: var(--text);
+            font-size: 11px;
+            font-weight: 650;
+            line-height: 1.15;
+        }
+        #tool-drawer .tool-state-hint {
+            color: var(--muted);
+            font-size: 9.5px;
+            line-height: 1.2;
+            margin-top: 2px;
+        }
+        #tool-drawer .tool-state-toggle {
+            flex: 0 0 auto;
+            min-width: 42px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 10px;
+            line-height: 1;
+            padding: 5px 8px;
+            cursor: pointer;
+        }
+        #tool-drawer .tool-state-toggle.on {
+            color: var(--active-dim);
+            border-color: color-mix(in srgb, var(--active-dim) 45%, transparent);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+        }
+        #tool-drawer .tool-state-toggle:disabled {
+            cursor: default;
+            opacity: 0.45;
+        }
         #tool-drawer .island-shapes { display: flex; align-items: center; gap: 8px; flex: 1; }
         #tool-drawer .island-shapes > span,
         #tool-drawer .island-modal-btn {
@@ -4086,6 +4161,7 @@
         let rectRoiMode = false; // R key toggles rectangle ROI selection mode
         let _segMode = false;  // S key toggles segmentation mode
         let _segOverlaySid = null; // overlay session ID for segmentation mask
+        let _segMaskVisible = true;
         let _segActivating = false; // true while initializing/connecting
         let _segBackend = 'local'; // 'local' | 'nninteractive'
         let _segMethod = 'region'; // 'region' | 'threshold' | 'scribble' | 'lasso'
@@ -4098,6 +4174,7 @@
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
+        let _roiVisible = true;
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
@@ -11546,6 +11623,40 @@
         }
         window._islandDeleteRoi = _islandDeleteRoi;
 
+        function _activateRoiInteraction() {
+            if (compareActive || multiViewActive) {
+                showStatus('ROI mode: not available in this mode');
+                return;
+            }
+            if (_segMode) {
+                _segDeactivate();
+                _islandMorph();
+            }
+            rectRoiMode = true;
+            _roiShape = 'rect';
+            _roiVisible = true;
+            canvas.style.cursor = 'crosshair';
+            if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
+            showStatus('ROI mode: rect · drag to draw');
+            renderEggs();
+            renderIsland();
+            _redrawRoiOverlays();
+        }
+
+        function _deactivateRoiInteraction({ clear = false } = {}) {
+            rectRoiMode = false;
+            _roiShape = 'rect';
+            _roiFreehandPts = [];
+            _floodFillTolerance = 0.1;
+            if (clear) _rois = [];
+            if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = ''; });
+            canvas.style.cursor = '';
+            showStatus(clear ? 'ROI mode: cleared' : 'ROI drawing: off');
+            renderEggs();
+            renderIsland();
+            _redrawRoiOverlays();
+        }
+
         async function _islandDeleteSeg(label) {
             try {
                 const r = await proxyFetch(`/seg/delete_label/${sid}?label=${label}`, { method: 'POST' });
@@ -14162,7 +14273,7 @@
 
         function _getVisibleOverlaySids() {
             const base = _visibleOverlayIndices().map(i => _overlaySids[i]).join(',');
-            if (_segMode && _segOverlaySid) {
+            if (_segMaskVisible && _segOverlaySid) {
                 return base ? base + ',' + _segOverlaySid : _segOverlaySid;
             }
             return base;
@@ -14992,7 +15103,7 @@
             },
             {
                 id: 'qmri',
-                label: 'Quantitative MRI',
+                label: 'qMRI',
                 desc: 'Inspect parameter maps.',
                 keyHint: 'q',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
@@ -15012,7 +15123,7 @@
             },
             {
                 id: 'roi',
-                label: 'ROI analysis',
+                label: 'Measure ROI',
                 desc: 'Measure regions.',
                 keyHint: 'r',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
@@ -15022,8 +15133,8 @@
             },
             {
                 id: 'overlay',
-                label: 'Overlay',
-                desc: 'Show masks and maps.',
+                label: 'Loaded overlays',
+                desc: 'Show loaded masks and maps.',
                 keyHint: 'o',
                 isEnabled: () => !compareActive && !multiViewActive,
                 isActive: () => _overlaySids.length > 0 && _overlayVisibility !== 'none',
@@ -15044,13 +15155,62 @@
                 id: 'crop',
                 label: 'Crop',
                 desc: 'Select a spatial range.',
-                keyHint: 'c',
+                keyHint: 'C',
                 isEnabled: () => !compareActive && !compareQmriActive,
                 isActive: () => _cropActive,
                 unavailableReason: () => 'Not available in compare mode.',
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
         ];
+        const TOOL_DRAWER_BEHAVIOR = {
+            comparecenter: { kind: 'persistent', activateOnOpen: true, deactivateOnClose: false },
+            qmri: {
+                kind: 'persistent',
+                activateOnOpen: true,
+                deactivateOnClose: false,
+                bodyWhenInactive: true,
+                toggleLabel: 'qMRI mode',
+                onHint: 'map lens stays active when this drawer closes',
+                offHint: 'enable the qMRI map lens',
+            },
+            segmentation: {
+                kind: 'transient',
+                activateOnOpen: true,
+                deactivateOnClose: true,
+                bodyWhenInactive: true,
+                toggleLabel: 'Creating masks',
+                onHint: 'drag or click to create and edit masks',
+                offHint: 'accepted masks can stay visible',
+            },
+            roi: {
+                kind: 'transient',
+                activateOnOpen: true,
+                deactivateOnClose: true,
+                bodyWhenInactive: true,
+                toggleLabel: 'Drawing ROIs',
+                onHint: 'drag to measure a region',
+                offHint: 'existing ROIs stay stored',
+            },
+            overlay: {
+                kind: 'passive',
+                activateOnOpen: false,
+                deactivateOnClose: false,
+                bodyWhenInactive: true,
+                toggleLabel: 'Show overlays',
+                onHint: 'loaded overlay layers are visible',
+                offHint: 'loaded layers remain available',
+            },
+            vectorfield: {
+                kind: 'persistent',
+                activateOnOpen: true,
+                deactivateOnClose: false,
+                bodyWhenInactive: true,
+                toggleLabel: 'Show vectors',
+                onHint: 'vector field overlay is visible',
+                offHint: 'vector controls stay available',
+            },
+            crop: { kind: 'transient', activateOnOpen: true, deactivateOnClose: false },
+        };
         const _TOOL_ORTHO_ALLOWED = new Set(['crop']);
         const TOOL_HELP = {
             comparecenter: 'compare',
@@ -15451,7 +15611,7 @@
             _syncRoiOverlay();
             const { sx, sy, dW, dH } = _roiDispScale();
             roiOverlayCtx.clearRect(0, 0, dW, dH);
-            if (!_rois.length && !previewRoi) { roiOverlayCanvas.style.display = 'none'; return; }
+            if (!_roiVisible || (!_rois.length && !previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
             roiOverlayCanvas.style.display = '';
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
@@ -15509,7 +15669,7 @@
                 ov.style.width = view.canvas.style.width;
                 ov.style.height = view.canvas.style.height;
                 rctx.clearRect(0, 0, dW, dH);
-                if (!_rois.length && !previewRoi) { ov.style.display = 'none'; continue; }
+                if (!_roiVisible || (!_rois.length && !previewRoi)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 for (let i = 0; i < _rois.length; i++) {
@@ -16285,7 +16445,7 @@
         }
 
         function _segRefreshOverlay() {
-            // _getVisibleOverlaySids() auto-appends _segOverlaySid when in seg mode
+            // _getVisibleOverlaySids() auto-appends the accepted mask overlay when visible.
             updateView();
         }
 
@@ -16676,30 +16836,11 @@
                 title: 'Toggle ROI mode',
                 when: [],
                 run: (ctx, e) => {
-                    if (compareActive || multiViewActive) {
-                        showStatus('ROI mode: not available in this mode'); return;
-                    }
-                    // Deactivate SEG if active — modes are mutually exclusive
-                    if (_segMode) {
-                        _segDeactivate();
-                        _islandMorph();
-                    }
                     if (!rectRoiMode) {
-                        rectRoiMode = true; _roiShape = 'rect';
-                        canvas.style.cursor = 'crosshair';
-                        if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
-                        showStatus('ROI mode: rect · drag to draw');
+                        _activateRoiInteraction();
                     } else {
-                        rectRoiMode = false; _roiShape = 'rect';
-                        _rois = []; _roiFreehandPts = [];
-                        _floodFillTolerance = 0.1;
-                        _clearRoiOverlay();
-                        if (qmriActive) { _clearQvRoiOverlays(); qmriViews.forEach(v => { v.canvas.style.cursor = ''; }); }
-                        canvas.style.cursor = '';
-                        showStatus('ROI mode: off');
+                        _deactivateRoiInteraction();
                     }
-                    renderEggs();
-                    renderIsland();
                 },
             },
             'compare.cycleTarget': {
@@ -17190,10 +17331,7 @@
                     } else {
                         // Deactivate ROI if active — modes are mutually exclusive
                         if (rectRoiMode) {
-                            rectRoiMode = false; _roiShape = 'rect';
-                            _rois = []; _roiFreehandPts = [];
-                            _floodFillTolerance = 0.1;
-                            _clearRoiOverlay();
+                            _deactivateRoiInteraction();
                             _islandMorph();
                         }
                         _segActivateLocal();
@@ -17763,8 +17901,18 @@
             },
             'qmri.cycle': {
                 title: 'Enter / exit qMRI mode',
-                when: ['toolMenuList'],
+                when: [],
                 run: (ctx, e) => {
+                    const wasActive = qmriActive || compareQmriActive;
+                    if (wasActive) {
+                        _toolPanelState = 'closed';
+                        toolMenuOpen = false;
+                        _toolPanelUserClosed = true;
+                    } else if (!wasActive) {
+                        _toolPanelState = { kind: 'tool-options', toolId: 'qmri' };
+                        toolMenuOpen = true;
+                        _toolPanelUserClosed = false;
+                    }
                     crossfade(() => {
                         if (compareQmriActive) {
                             exitCompareQmri();
@@ -17777,6 +17925,7 @@
                             _qmriVisibleMaps = null;
                             enterQmri();
                         }
+                        if (typeof renderToolMenu === 'function') renderToolMenu();
                     });
                 },
             },
@@ -18089,7 +18238,7 @@
             },
             'toolmenu.open': {
                 title: 'Open tool menu',
-                when: ['!toolMenuOpen'],
+                when: [],
                 run: (ctx, e) => { openToolMenu(); },
             },
             'toolmenu.close': {
@@ -18133,6 +18282,7 @@
             { key: '/', command: 'toolmenu.open' },
             { key: 'q', command: 'qmri.cycle' },
             { key: 'c', command: 'colormap.openOrCycle' },
+            { key: 'C', command: 'crop.cycle' },
             { key: 'X', command: 'compare.enterDetachedDimMode' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
@@ -18173,7 +18323,6 @@
             { key: 'g', command: 'grid.holdOrTap' },
             { key: 'G', command: 'compare.cycleLayout' },
             { key: 'm', command: 'complex.cycleMode' },
-            { key: 'C', command: 'colormap.promptCustom' },
             { key: 'd', command: 'histogram.openOrCycle' },
             { key: 'D', command: 'histogram.openDimPicker' },
             { key: 'j', command: 'slice.prev' },
@@ -18307,7 +18456,6 @@
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Open colormap picker / cycle', hint: 'opens the swatch island · repeated taps cycle browse selection · Enter accepts · Esc cancels' },
-                            { key: 'Shift+C', action: 'Focus colormap search', hint: 'opens the same picker with search focused · type to fuzzy-filter any matplotlib colormap' },
                             { key: 'd', action: 'Open histogram / cycle percentile', hint: '1st tap opens the histogram · each subsequent tap cycles the percentile preset (full · 0.1–99.9% · 1–99% · 5–95% · 10–90%)' },
                             { key: 'Shift+D', action: 'Histogram dim picker (3-state)', hint: 'Click a dim to cycle scope → recompute → frozen. A legend stays visible while the picker is open: scope = does not change vmin/vmax · recompute = rebuild vmin/vmax on nav · frozen = keep vmin/vmax. Hover still shows per-dim detail. Shift+D or Esc closes.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
@@ -18457,7 +18605,7 @@
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open tool menu, then q' },
+                            { key: 'q', action: 'Toggle qMRI drawer', hint: 'opens qMRI tools · press again to close' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
@@ -18471,7 +18619,7 @@
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
+                            { key: 'q', action: 'Exit qMRI', hint: 'closes the qMRI drawer' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                         ]
@@ -18546,7 +18694,7 @@
                     {
                         title: 'Enter / exit',
                         entries: [
-                            { key: '/', action: 'Open tool menu', hint: 'press / then c — or click the Crop row' },
+                            { key: 'C', action: 'Toggle crop mode' },
                             { key: 'Esc', action: 'Exit the tool', hint: 'closes the menu first, then deactivates crop' },
                         ]
                     },
@@ -18701,12 +18849,20 @@
             return (_toolPanelState && _toolPanelState.kind === 'tool-options') ? _toolPanelState.toolId : null;
         }
 
+        function _toolDrawerBehavior(toolId) {
+            return TOOL_DRAWER_BEHAVIOR[toolId] || { kind: 'passive', activateOnOpen: false, deactivateOnClose: false };
+        }
+
         function _toolDrawerActivatesOnOpen(toolId) {
-            return toolId !== 'overlay';
+            return _toolDrawerBehavior(toolId).activateOnOpen === true;
         }
 
         function _toolDrawerExitsOnClose(toolId) {
-            return toolId === 'segmentation' || toolId === 'roi';
+            return _toolDrawerBehavior(toolId).deactivateOnClose === true;
+        }
+
+        function _toolDrawerBodyWhenInactive(toolId) {
+            return _toolDrawerBehavior(toolId).bodyWhenInactive === true;
         }
 
         function _toolSortRank(tile) {
@@ -18835,6 +18991,10 @@
         }
 
         function _exitActiveTool(toolId) {
+            if (toolId === 'roi') {
+                if (rectRoiMode) _deactivateRoiInteraction();
+                return;
+            }
             const tile = TOOL_TILES.find(t => t.id === toolId);
             if (!tile || !_toolTileActive(tile)) return;
             _toolToggle(toolId);
@@ -18861,8 +19021,8 @@
                 return true;
             }
             if (_toolPanelState === 'tool-menu') {
-                const target = String(e.key || '').toLowerCase();
-                const tile = TOOL_TILES.find(t => (t.keyHint || '').toLowerCase() === target);
+                const target = String(e.key || '');
+                const tile = TOOL_TILES.find(t => (t.keyHint || '') === target);
                 if (tile && _toolTileEnabled(tile)) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -18946,12 +19106,93 @@
             openToolOptions(id);
         }
 
+        function _renderToolStateRow({ label, hint, on, action, disabled = false }) {
+            const state = on ? 'on' : 'off';
+            const disabledAttr = disabled ? ' disabled' : '';
+            return `<div class="tool-state-row"><div class="tool-state-copy"><div class="tool-state-label">${label}</div><div class="tool-state-hint">${hint || ''}</div></div><button type="button" class="tool-state-toggle ${state}" onclick="${action}"${disabledAttr}>${state}</button></div>`;
+        }
+
+        function _renderToolActivationHeader(toolId, active) {
+            const behavior = _toolDrawerBehavior(toolId);
+            if (!behavior.toggleLabel) return '';
+            const hint = active ? behavior.onHint : behavior.offHint;
+            const disabled = (toolId === 'overlay' && !_overlaySids.length)
+                || (toolId === 'vectorfield' && !hasVectorfield);
+            return _renderToolStateRow({
+                label: behavior.toggleLabel,
+                hint,
+                on: active,
+                action: `_toolHeaderToggle('${toolId}')`,
+                disabled,
+            });
+        }
+
+        function _renderToolVisibilityHeader(toolId) {
+            if (toolId === 'segmentation') {
+                return _renderToolStateRow({
+                    label: 'Show masks',
+                    hint: _segOverlaySid ? 'accepted masks stay available when drawing is off' : 'no accepted mask overlay yet',
+                    on: _segMaskVisible && !!_segOverlaySid,
+                    action: `_toolVisibilityToggle('${toolId}')`,
+                    disabled: !_segOverlaySid,
+                });
+            }
+            if (toolId === 'roi') {
+                return _renderToolStateRow({
+                    label: 'Show ROIs',
+                    hint: _rois.length ? 'measurements stay stored when drawing is off' : 'no measured ROIs yet',
+                    on: _roiVisible && _rois.length > 0,
+                    action: `_toolVisibilityToggle('${toolId}')`,
+                    disabled: !_rois.length,
+                });
+            }
+            return '';
+        }
+
+        function _renderToolHeader(toolId, active) {
+            const rows = _renderToolActivationHeader(toolId, active) + _renderToolVisibilityHeader(toolId);
+            return rows ? `<div class="tool-state-block">${rows}</div>` : '';
+        }
+
+        function _toolHeaderToggle(toolId) {
+            if (toolId === 'roi') {
+                if (rectRoiMode) _deactivateRoiInteraction();
+                else _activateRoiInteraction();
+                renderToolMenu();
+                return;
+            }
+            _toolToggle(toolId);
+            renderToolMenu();
+        }
+        window._toolHeaderToggle = _toolHeaderToggle;
+
+        function _toolVisibilityToggle(toolId) {
+            if (toolId === 'segmentation') {
+                if (!_segOverlaySid) return;
+                _segMaskVisible = !_segMaskVisible;
+                updateView();
+                renderToolMenu();
+                showStatus(`masks: ${_segMaskVisible ? 'visible' : 'hidden'}`);
+                return;
+            }
+            if (toolId === 'roi') {
+                if (!_rois.length) return;
+                _roiVisible = !_roiVisible;
+                _redrawRoiOverlays();
+                renderToolMenu();
+                showStatus(`ROIs: ${_roiVisible ? 'visible' : 'hidden'}`);
+            }
+        }
+        window._toolVisibilityToggle = _toolVisibilityToggle;
+
         function _renderToolOptionsBody(tile) {
             const id = tile.id;
-            let body = '';
+            const active = _toolTileActive(tile);
+            let body = _renderToolHeader(id, active);
             if (id === 'comparecenter') {
                 body += _renderCompareCenterModeButtons({ activeMode: compareCenterMode, showLabels: true });
             } else if (id === 'qmri') {
+                if (!active) return body;
                 const qDim = compareQmriActive ? compareQmriDim : qmriDim;
                 const n = shape[qDim];
                 const allCmaps = QMRI_COLORMAPS[n];
@@ -19136,7 +19377,7 @@
                 if (drawerSubtitle) drawerSubtitle.textContent = 'Options';
                 if (drawer) drawer.dataset.toolOptions = tileId;
                 let drawerHtml = '';
-                if (active || tileId === 'overlay') {
+                if (active || _toolDrawerBodyWhenInactive(tileId)) {
                     const body = _renderToolOptionsBody(tile);
                     if (body) {
                         drawerHtml += `<div class="tool-body">${body}</div>`;
@@ -19473,7 +19714,7 @@
             });
         })();
 
-        // ── Colormap Picker (c / Shift+C) ──────────────────────────────
+        // ── Colormap Picker (c) ────────────────────────────────────────
         let _cmapPickerOpen = false;
         const _CMAP_PICKER_DEFAULT_COUNT = 12;
         let _cmapPickerAllNames = null;   // full list from server
@@ -19488,6 +19729,7 @@
         let _cmapPickerSearchFocused = false;
         let _cmapPickerPrevState = null;
         let _cmapPickerSpec = null;
+        let _cmapPickerBrowseAnchorName = '';
         let _cmapPreviewRequestToken = 0;
         let _cmapPickerFocusLock = false;
         let _cmapPickerAllowToolRail = false;
@@ -19849,9 +20091,9 @@
         function _cmapPickerBuildBrowseSwatches() {
             const strip = document.getElementById('cmap-picker-swatches');
             const pool = _cmapPickerBrowsePool.slice();
-            const currentName = _cmapPickerSpec && typeof _cmapPickerSpec.currentName === 'function'
+            const currentName = _cmapPickerBrowseAnchorName || (_cmapPickerSpec && typeof _cmapPickerSpec.currentName === 'function'
                 ? _cmapPickerSpec.currentName()
-                : _cmapPickerCurrentName();
+                : _cmapPickerCurrentName());
             _cmapPickerBrowseNames = _cmapPickerUniqueNames([currentName, ...pool]).slice(0, Math.min(pool.length, _CMAP_PICKER_DEFAULT_COUNT));
             _cmapPickerSetMeta('');
             _cmapPickerBrowseSwatchEls = _cmapPickerRenderGrid(strip, _cmapPickerBrowseNames, 'browse');
@@ -20049,6 +20291,7 @@
             _cmapPickerSpec = spec;
             _cmapPickerPrevState = typeof spec.captureState === 'function' ? spec.captureState() : null;
             _cmapPickerBrowsePool = Array.isArray(spec.pool) ? spec.pool.slice() : COLORMAPS.slice();
+            _cmapPickerBrowseAnchorName = typeof spec.currentName === 'function' ? spec.currentName() : _cmapPickerCurrentName();
             _cmapPickerSearchFocused = !!(opts && opts.focusSearch);
             _cmapPickerSearchQuery = '';
             _cmapPickerOpen = true;
@@ -20114,6 +20357,7 @@
             _cmapPickerSearchQuery = '';
             _cmapPickerSpec = null;
             _cmapPickerPrevState = null;
+            _cmapPickerBrowseAnchorName = '';
             _cmapPickerFocusLock = false;
             _cmapPickerBrowsePool = [];
             _cmapPickerBrowseNames = [];
