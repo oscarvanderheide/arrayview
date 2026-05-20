@@ -16670,9 +16670,15 @@
                         _cmapPickerCycleAll(1);
                         return;
                     }
-                    if (_cmapHoldMenuEligible()) {
-                        openCmapPicker();
-                        return;
+                    _cmapPickerAllowToolRail = true;
+                    try {
+                        const spec = _resolveCmapHoldSpec();
+                        if (spec) {
+                            openCmapPicker({ spec });
+                            return;
+                        }
+                    } finally {
+                        _cmapPickerAllowToolRail = false;
                     }
                     commands['colormap.cycleNext'].run(ctx, e);
                 },
@@ -19026,7 +19032,8 @@
                 if (tile && _toolTileEnabled(tile)) {
                     e.preventDefault();
                     e.stopPropagation();
-                    openToolOptions(tile.id);
+                    if (tile.id === 'colormap') _openToolRailItem('colormap');
+                    else openToolOptions(tile.id);
                     return true;
                 }
             }
@@ -19089,7 +19096,8 @@
                 }
                 _cmapPickerAllowToolRail = true;
                 try {
-                    openCmapPicker();
+                    const spec = _resolveCmapHoldSpec();
+                    if (spec) openCmapPicker({ spec });
                 } finally {
                     _cmapPickerAllowToolRail = false;
                 }
@@ -20094,7 +20102,7 @@
             const currentName = _cmapPickerBrowseAnchorName || (_cmapPickerSpec && typeof _cmapPickerSpec.currentName === 'function'
                 ? _cmapPickerSpec.currentName()
                 : _cmapPickerCurrentName());
-            _cmapPickerBrowseNames = _cmapPickerUniqueNames([currentName, ...pool]).slice(0, Math.min(pool.length, _CMAP_PICKER_DEFAULT_COUNT));
+            _cmapPickerBrowseNames = _cmapPickerUniqueNames(pool).slice(0, Math.min(pool.length, _CMAP_PICKER_DEFAULT_COUNT));
             _cmapPickerSetMeta('');
             _cmapPickerBrowseSwatchEls = _cmapPickerRenderGrid(strip, _cmapPickerBrowseNames, 'browse');
             const currentIdx = _cmapPickerBrowseNames.indexOf(currentName);
@@ -20278,7 +20286,7 @@
                 }
                 return;
             }
-            const spec = _resolveCmapHoldSpec();
+            const spec = (opts && opts.spec) || _resolveCmapHoldSpec();
             if (!spec || !spec.host) return;
             const root = document.getElementById('cmap-picker');
             const box = document.getElementById('cmap-picker-box');
