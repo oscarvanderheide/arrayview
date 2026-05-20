@@ -2212,7 +2212,7 @@
         #tool-drawer .seg-method-list { display: flex; flex-direction: column; gap: 4px; }
         #tool-drawer .seg-method-row {
             display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
-            padding: 6px 7px; border-radius: var(--radius); cursor: pointer;
+            padding: 5px 7px; border-radius: var(--radius); cursor: pointer;
             color: var(--muted); border: 1px solid transparent;
             background: color-mix(in srgb, var(--text) 3%, transparent);
             transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
@@ -2226,7 +2226,6 @@
         }
         #tool-drawer .seg-method-icon { display: inline-flex; align-items: center; justify-content: center; }
         #tool-drawer .seg-method-title { font-size: 11px; color: var(--text); }
-        #tool-drawer .seg-method-desc { margin-top: 2px; font-size: 10px; color: var(--muted); line-height: 1.35; }
         #tool-drawer .seg-method-action { font-size: 10px; color: var(--active-dim); }
         #tool-drawer .seg-nn-row,
         #tool-drawer .seg-bottom-action {
@@ -4179,6 +4178,7 @@
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
         let _toolPanelState = 'closed';
+        let _toolPanelSlashRestoreState = null;
         let _moreToolsExpanded = false;
         let _toolPanelUserClosed = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
@@ -13279,7 +13279,7 @@
 
         function _renderSegRows() {
             let html = '';
-            if (!_segLabels || !_segLabels.length) return `<div class="seg-empty-row">No accepted masks yet. Create a mask, then press Enter to accept it.</div>`;
+            if (!_segLabels || !_segLabels.length) return `<div class="seg-empty-row">No masks yet.</div>`;
             for (let i = 0; i < _segLabels.length; i++) {
                 const l = _segLabels[i];
                 const userSet = _segLabelNames[l.label] !== undefined;
@@ -13302,9 +13302,9 @@
                 const isCurrent = key === _segMethod;
                 const cls = isCurrent ? 'seg-method-row on' : 'seg-method-row';
                 const action = key === 'threshold' ? 'apply' : 'select';
-                html += `<div class="${cls}" onclick="_islandSetShape('${key}')">`;
+                html += `<div class="${cls}" onclick="_islandSetShape('${key}')" title="${_SEG_METHOD_DESCS[key]}">`;
                 html += `<span class="seg-method-icon">${_SEG_METHOD_ICONS[key]}</span>`;
-                html += `<span><div class="seg-method-title">${_SEG_METHOD_LABELS[key]}</div><div class="seg-method-desc">${_SEG_METHOD_DESCS[key]}</div></span>`;
+                html += `<span><div class="seg-method-title">${_SEG_METHOD_LABELS[key]}</div></span>`;
                 html += `<span class="seg-method-action">${isCurrent ? (key === 'threshold' ? 'range' : 'active') : action}</span>`;
                 html += `</div>`;
             }
@@ -13316,8 +13316,7 @@
             const connected = _segBackend === 'nninteractive';
             let html = `<div class="section-label">nnInteractive</div>`;
             html += `<div class="seg-nn-row">`;
-            html += `<div class="seg-nn-copy"><div class="seg-nn-title">${connected ? 'Connected' : 'Use nnInteractive'}</div>`;
-            html += `<div class="seg-nn-desc">${connected ? 'Seed clicks, brush, and lasso are sent to the model server.' : 'Optional model-assisted refinement. Requires a reachable nnInteractive server.'}</div></div>`;
+            html += `<div class="seg-nn-copy"><div class="seg-nn-title">${connected ? 'nnInteractive connected' : 'nnInteractive'}</div></div>`;
             html += `<button type="button" class="seg-toggle${connected ? ' on' : ''}" onclick="_segToggleNnInteractive()">${connected ? 'on' : 'off'}</button>`;
             html += `</div>`;
             if (connected) {
@@ -18250,7 +18249,7 @@
             'toolmenu.close': {
                 title: 'Close tool panel',
                 when: ['toolMenuOpen'],
-                run: (ctx, e) => { closeToolPanel(); },
+                run: (ctx, e) => { closeToolPanel({ rememberSlashState: true }); },
             },
             'tool.exit': {
                 title: 'Exit all tools',
@@ -18927,6 +18926,12 @@
             if (_toolPanelState !== 'closed') return;
             closeCommandPalette();
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
+            if (_toolPanelSlashRestoreState && _toolPanelSlashRestoreState.kind === 'tool-options') {
+                const restoreToolId = _toolPanelSlashRestoreState.toolId;
+                _toolPanelSlashRestoreState = null;
+                openToolOptions(restoreToolId);
+                return;
+            }
             _toolPanelState = 'tool-menu';
             toolMenuOpen = true;
             _toolPanelUserClosed = false;
@@ -18935,9 +18940,12 @@
             setTimeout(() => { try { sink.focus(); } catch (_) {} }, 0);
         }
 
-        function closeToolPanel() {
+        function closeToolPanel(opts = {}) {
             if (_toolPanelState === 'closed') return;
             const toolId = _selectedToolDrawerId();
+            _toolPanelSlashRestoreState = opts.rememberSlashState && toolId
+                ? { kind: 'tool-options', toolId }
+                : null;
             _toolPanelState = 'closed';
             toolMenuOpen = false;
             _toolPanelUserClosed = true;
@@ -19010,7 +19018,7 @@
             if (e.key === '/') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeToolPanel();
+                closeToolPanel({ rememberSlashState: true });
                 return true;
             }
             if (e.key === 'Escape') {
@@ -19117,7 +19125,8 @@
         function _renderToolStateRow({ label, hint, on, action, disabled = false }) {
             const state = on ? 'on' : 'off';
             const disabledAttr = disabled ? ' disabled' : '';
-            return `<div class="tool-state-row"><div class="tool-state-copy"><div class="tool-state-label">${label}</div><div class="tool-state-hint">${hint || ''}</div></div><button type="button" class="tool-state-toggle ${state}" onclick="${action}"${disabledAttr}>${state}</button></div>`;
+            const hintHtml = hint ? `<div class="tool-state-hint">${hint}</div>` : '';
+            return `<div class="tool-state-row"><div class="tool-state-copy"><div class="tool-state-label">${label}</div>${hintHtml}</div><button type="button" class="tool-state-toggle ${state}" onclick="${action}"${disabledAttr}>${state}</button></div>`;
         }
 
         function _renderToolActivationHeader(toolId, active) {
@@ -19269,7 +19278,7 @@
                         body += `<div class="island-rows">${_renderSegRows()}</div>`;
                         body += _renderSegNnInteractiveOptions();
                         body += `<div class="section-label">Details</div>`;
-                        body += `<div class="seg-bottom-action"><div class="seg-bottom-copy"><div class="seg-bottom-title">Mask properties</div><div class="seg-bottom-desc">Inspect labels, voxel counts, names, and export data.</div></div><span class="seg-bottom-btn" onclick="_islandExport()" title="Inspect segmentation properties">${_MAGNIFIER_ICON}</span></div>`;
+                        body += `<div class="seg-bottom-action"><div class="seg-bottom-copy"><div class="seg-bottom-title">Mask properties</div></div><span class="seg-bottom-btn" onclick="_islandExport()" title="Inspect labels, voxel counts, names, and export data">${_MAGNIFIER_ICON}</span></div>`;
                     }
                 }
             } else if (id === 'overlay') {
