@@ -841,6 +841,9 @@
             opacity: 1;
             transform: translateX(0);
         }
+        #tool-drawer[data-tool-options="save"] #tool-drawer-box {
+            width: min(352px, calc(100vw - 28px));
+        }
         .cmap-picker-head {
             display: flex;
             align-items: center;
@@ -1161,83 +1164,6 @@
             background: rgba(255,255,255,0.06); font-family: var(--mono);
             font-size: 9px; color: var(--help-key);
         }
-        /* Save flip — the slim colorbar flips around to reveal save icons.
-           Reuses the same 400ms cubic-bezier rotateX(180deg) curve as the
-           oblique-flip used in ortho-view. See openSaveMenu(). */
-        .save-flip-inner {
-            position: relative;
-            display: flex; align-items: center; gap: 8px;
-            flex: 1 1 auto; min-width: 0;
-            transform-style: preserve-3d; -webkit-transform-style: preserve-3d;
-            transition: transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        .save-flip-inner.flipped { transform: rotateX(180deg); }
-        .save-flip-front {
-            display: flex; align-items: center; gap: 8px;
-            flex: 1 1 auto; min-width: 0;
-            backface-visibility: hidden; -webkit-backface-visibility: hidden;
-        }
-        /* Back face sits absolute over the front; an opaque background keeps
-           the colorbar from bleeding through once the inner is flipped
-           (canvas children of the front defeat backface-visibility alone). */
-        .save-flip-back {
-            position: absolute; inset: 0;
-            transform: rotateX(180deg);
-            backface-visibility: hidden; -webkit-backface-visibility: hidden;
-            background: rgb(26, 26, 26);
-            border-radius: 14px;
-            display: flex; align-items: center; gap: 10px;
-            padding: 0 12px;
-            box-sizing: border-box;
-        }
-        :root.light .save-flip-back { background: rgb(240, 240, 240); }
-
-        .save-flip-label {
-            font-size: 11px; color: var(--active-dim);
-            font-weight: 600; flex-shrink: 0; white-space: nowrap;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-        }
-        .save-flip-btn-row {
-            display: flex; align-items: center; gap: 8px;
-            flex: 1 1 auto; justify-content: center;
-        }
-        .save-btn {
-            height: 28px; min-width: 34px; padding: 0 3px;
-            border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
-            background: rgba(255,255,255,0.04); color: var(--text, #ddd);
-            font-family: inherit; font-size: 11px; letter-spacing: 0;
-            cursor: pointer; white-space: nowrap;
-            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-            box-shadow: var(--button-shadow);
-            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms, box-shadow 120ms;
-            position: relative;
-        }
-        .save-btn svg { width: 22px; height: 22px; }
-        .save-btn[data-save-id="url"] svg { width: 18px; height: 18px; }
-        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); box-shadow: var(--button-shadow-hover); }
-        .save-btn:disabled { opacity: 0.3; cursor: default; }
-        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); box-shadow: var(--button-shadow); }
-        .save-btn svg { flex-shrink: 0; }
-        .save-btn[data-tip]::after {
-            content: attr(data-tip);
-            position: absolute;
-            bottom: calc(100% + 8px); left: 50%;
-            transform: translateX(-50%);
-            background: rgba(10, 10, 10, 0.96);
-            color: var(--text, #ddd);
-            font-family: inherit; font-size: 11px; letter-spacing: 0; font-weight: 400;
-            padding: 4px 8px; border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            white-space: nowrap; pointer-events: none;
-            opacity: 0; transition: opacity 120ms;
-            z-index: 1000;
-        }
-        .save-btn[data-tip]:hover::after {
-            opacity: 1; transition-delay: 200ms;
-        }
-        :root.light .save-btn { color: #222; border-color: rgba(0,0,0,0.22); background: rgba(0,0,0,0.04); }
-        :root.light .save-btn:hover { background: rgba(0,0,0,0.08); color: #7a4cd9; }
-        :root.light .save-btn[data-tip]::after { background: rgba(245,245,245,0.97); color: #222; border-color: rgba(0,0,0,0.12); }
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -2378,6 +2304,75 @@
         }
         #tool-drawer .crop-dim-picker-label { min-width: 38px; }
         #tool-drawer .crop-dim-picker-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+        #tool-drawer .save-action-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        #tool-drawer .save-action-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+            min-height: 110px;
+            padding: 10px;
+            border-radius: var(--radius-lg);
+            border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+            background: color-mix(in srgb, var(--text) 4%, transparent);
+            color: var(--text);
+            font-family: inherit;
+            text-align: left;
+            appearance: none;
+            -webkit-appearance: none;
+            transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
+        }
+        #tool-drawer .save-action-card[aria-disabled="false"] { cursor: pointer; }
+        #tool-drawer .save-action-card[aria-disabled="false"]:hover {
+            border-color: color-mix(in srgb, var(--active-dim) 55%, transparent);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+            color: var(--active-dim);
+            transform: translateY(-1px);
+        }
+        #tool-drawer .save-action-card[aria-disabled="true"] {
+            opacity: 0.46;
+            cursor: default;
+        }
+        #tool-drawer .save-action-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #tool-drawer .save-action-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+            background: color-mix(in srgb, var(--text) 5%, transparent);
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
+        #tool-drawer .save-action-card[aria-disabled="false"]:hover .save-action-icon {
+            color: var(--active-dim);
+            border-color: color-mix(in srgb, var(--active-dim) 40%, transparent);
+        }
+        #tool-drawer .save-action-icon svg {
+            width: 18px;
+            height: 18px;
+            stroke-width: 1.9;
+        }
+        #tool-drawer .save-action-title {
+            font-size: 11px;
+            line-height: 1.2;
+            color: var(--text);
+        }
+        #tool-drawer .save-action-desc {
+            font-size: 10px;
+            line-height: 1.35;
+        }
+        #tool-drawer .save-action-desc { color: var(--muted); }
         /* Oblique colorbar flip — while the multiview colorbar is the front
            face, a back face with 90\u00b0 / Save / Load controls is revealed by
            rotateX(180deg) when the user holds Alt (or hovers the back).
@@ -3488,22 +3483,17 @@
         </div>
         <div id="slim-cb-wrap" style="display:none">
             <div id="slim-cb-preview" class="cmap-hold-preview" aria-hidden="true"></div>
-            <div class="save-flip-inner" id="slim-cb-save-flip">
-                <div class="save-flip-front">
-                    <span class="slim-cb-val" id="slim-cb-vmin"></span>
-                    <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
-                        <canvas id="slim-cb"></canvas>
-                        <div id="slim-cb-tri-zone">
-                            <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
-                            <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
-                        </div>
-                    </div>
-                    <span class="slim-cb-val" id="slim-cb-vmax"></span>
-                    <div id="slim-cb-labels"></div>
-                    <div id="slim-cb-tooltip"></div>
+            <span class="slim-cb-val" id="slim-cb-vmin"></span>
+            <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
+                <canvas id="slim-cb"></canvas>
+                <div id="slim-cb-tri-zone">
+                    <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
+                    <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
                 </div>
-                <div class="save-flip-back" id="slim-cb-save-back"></div>
             </div>
+            <span class="slim-cb-val" id="slim-cb-vmax"></span>
+            <div id="slim-cb-labels"></div>
+            <div id="slim-cb-tooltip"></div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -4158,7 +4148,7 @@
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let rectRoiMode = false; // R key toggles rectangle ROI selection mode
-        let _segMode = false;  // S key toggles segmentation mode
+        let _segMode = false;  // segmentation tool state
         let _segOverlaySid = null; // overlay session ID for segmentation mask
         let _segMaskVisible = true;
         let _segActivating = false; // true while initializing/connecting
@@ -15028,26 +15018,28 @@
             }).catch(() => {});
         }
 
-        function saveScreenshot() {
-            function _rescaleCanvas(src) {
-                // Render at CSS display size so output is crisp and matches what the user sees
-                const cssW = parseInt(src.style.width) || src.width;
-                const cssH = parseInt(src.style.height) || src.height;
-                const dpr = window.devicePixelRatio || 1;
-                const outW = Math.max(1, Math.round(cssW * dpr));
-                const outH = Math.max(1, Math.round(cssH * dpr));
-                const dst = document.createElement('canvas');
-                dst.width = outW; dst.height = outH;
-                const ctx = dst.getContext('2d');
-                ctx.imageSmoothingEnabled = false;
-                ctx.drawImage(src, 0, 0, outW, outH);
-                return dst;
-            }
-            let dataUrl, filename;
+        function _rescaleCanvas(src) {
+            // Render at CSS display size so output is crisp and matches what the user sees
+            const cssW = parseInt(src.style.width) || src.width;
+            const cssH = parseInt(src.style.height) || src.height;
+            const dpr = window.devicePixelRatio || 1;
+            const outW = Math.max(1, Math.round(cssW * dpr));
+            const outH = Math.max(1, Math.round(cssH * dpr));
+            const dst = document.createElement('canvas');
+            dst.width = outW; dst.height = outH;
+            const ctx = dst.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(src, 0, 0, outW, outH);
+            return dst;
+        }
+
+        function _buildScreenshotCapture() {
+            let outputCanvas;
+            let filename;
             if (multiViewActive && mvViews.length) {
                 const gap = 12;
                 const canvases = mvViews.map(v => v.canvas).filter(c => c.width && c.height);
-                if (!canvases.length) return;
+                if (!canvases.length) return null;
                 const totalW = canvases.reduce((s, c) => s + c.width, 0) + gap * (canvases.length - 1);
                 const totalH = Math.max(...canvases.map(c => c.height));
                 const off = document.createElement('canvas');
@@ -15058,13 +15050,38 @@
                     offCtx.drawImage(c, x, Math.round((totalH - c.height) / 2));
                     x += c.width + gap;
                 });
-                dataUrl = _rescaleCanvas(off).toDataURL('image/png');
+                outputCanvas = _rescaleCanvas(off);
                 filename = `multiview_${indices.join('-')}.png`;
             } else {
-                dataUrl = _rescaleCanvas(canvas).toDataURL('image/png');
+                outputCanvas = _rescaleCanvas(canvas);
                 filename = `slice_${indices.join('-')}.png`;
             }
-            _downloadFile(dataUrl, filename);
+            return { canvas: outputCanvas, dataUrl: outputCanvas.toDataURL('image/png'), filename };
+        }
+
+        async function _copyScreenshotToClipboard() {
+            const capture = _buildScreenshotCapture();
+            if (!capture) return;
+            if (!(navigator.clipboard && typeof ClipboardItem !== 'undefined')) {
+                showStatus('Clipboard image copy is not available here.');
+                return;
+            }
+            try {
+                const blob = await new Promise((resolve, reject) => {
+                    capture.canvas.toBlob((out) => out ? resolve(out) : reject(new Error('blob failed')), 'image/png');
+                });
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                setStatus('Screenshot copied to clipboard.');
+                setTimeout(() => setStatus(''), 2000);
+            } catch (_) {
+                setStatus('Screenshot copy failed.');
+            }
+        }
+
+        function saveScreenshot() {
+            const capture = _buildScreenshotCapture();
+            if (!capture) return;
+            _downloadFile(capture.dataUrl, capture.filename);
             setStatus('Screenshot saved to Downloads.');
             setTimeout(() => setStatus(''), 2000);
         }
@@ -15098,6 +15115,7 @@
 
         let paletteOpen = false;
         const TOOL_ICONS = {
+            save: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></svg>`,
             comparecenter: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><path d="M12 6h5a2 2 0 0 1 2 2v7"/><path d="m15 9-3-3 3-3"/><circle cx="19" cy="18" r="3"/><path d="M12 18H7a2 2 0 0 1-2-2V9"/><path d="m9 15 3 3-3 3"/></svg>`,
             qmri: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v5"/><path d="M16 14v7"/><path d="M20 10v11"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/><path d="M4 18v3"/><path d="M8 14v7"/></svg>`,
             segmentation: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>`,
@@ -15111,6 +15129,16 @@
             return TOOL_ICONS[id] || '';
         }
         const TOOL_TILES = [
+            {
+                id: 'save',
+                label: 'Save',
+                desc: 'Export the current view, data, or link.',
+                keyHint: 's',
+                isEnabled: () => true,
+                isActive: () => false,
+                unavailableReason: () => '',
+                excludes: [],
+            },
             {
                 id: 'comparecenter',
                 label: 'Compare center',
@@ -15135,7 +15163,7 @@
                 id: 'segmentation',
                 label: 'Segmentation',
                 desc: 'Create or edit masks.',
-                keyHint: 's',
+                keyHint: 'S',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive),
                 isActive: () => _segMode || _segActivating,
                 unavailableReason: () => 'Not available in compare or multi-view.',
@@ -15183,6 +15211,7 @@
             },
         ];
         const TOOL_DRAWER_BEHAVIOR = {
+            save: { kind: 'passive', activateOnOpen: false, deactivateOnClose: false, bodyWhenInactive: true },
             comparecenter: { kind: 'persistent', activateOnOpen: true, deactivateOnClose: false },
             qmri: {
                 kind: 'persistent',
@@ -18201,12 +18230,12 @@
                 },
             },
             'saveMenu.open': {
-                title: 'Open save menu',
-                when: ['!saveMenuOpen'],
+                title: 'Open save rail',
+                when: [],
                 run: (ctx, e) => { openSaveMenu(); },
             },
             'saveMenu.close': {
-                title: 'Close save menu',
+                title: 'Close save rail',
                 when: ['saveMenuOpen'],
                 run: (ctx, e) => { closeSaveMenu(); },
             },
@@ -18395,7 +18424,7 @@
                 cmapPickerOpen: (typeof _cmapPickerOpen !== 'undefined') ? !!_cmapPickerOpen : false,
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
                 toolMenuList: (typeof _toolPanelState !== 'undefined') ? _toolPanelState === 'tool-menu' : false,
-                saveMenuOpen: (typeof saveMenuOpen !== 'undefined') ? !!saveMenuOpen : false,
+                saveMenuOpen: _saveDrawerSelected(),
                 anyToolActive: (
                     compareCenterMode > 0
                     || 
@@ -18457,7 +18486,7 @@
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Flip colorbar → save icons', hint: 'click or press icon letter (s / g / a / u) to save; Esc to flip back' },
+                            { key: 's', action: 'Open save rail', hint: 'opens the left tool rail and right save drawer with screenshot, GIF, array, and URL exports' },
                             { key: 'e', action: 'Copy shareable URL' },
                         ]
                     }
@@ -18583,7 +18612,7 @@
                         subsection: 'Segmentation',
                         subdesc: 'Local segmentation tools with optional nnInteractive connection.',
                         entries: [
-                            { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open tool menu, then s' },
+                            { key: '/ S', action: 'Enter segmentation mode', hint: 'press / to open tool menu, then Shift+S' },
                             { key: 'Click', action: 'Grow local region from seed' },
                             { key: 'Options', action: 'Threshold current display range or connect nnInteractive' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -19217,7 +19246,9 @@
             const id = tile.id;
             const active = _toolTileActive(tile);
             let body = _renderToolHeader(id, active);
-            if (id === 'comparecenter') {
+            if (id === 'save') {
+                body += `<div class="save-action-grid">${SAVE_MENU_ITEMS.map(item => _renderSaveActionCard(item)).join('')}</div>`;
+            } else if (id === 'comparecenter') {
                 body += _renderCompareCenterModeButtons({ activeMode: compareCenterMode, showLabels: true });
             } else if (id === 'qmri') {
                 if (!active) return body;
@@ -19342,17 +19373,19 @@
             const drawerTitle = document.getElementById('tool-drawer-title');
             const drawerSubtitle = document.querySelector('#tool-drawer .tool-drawer-subtitle');
             const drawerBody = document.getElementById('tool-drawer-body');
+            const drawerFooter = document.querySelector('#tool-drawer .tool-drawer-footer');
 
             if (_toolPanelState === 'closed') {
                 el.classList.remove('visible', 'tool-list', 'tool-options');
                 if (drawer) drawer.classList.remove('visible');
                 if (drawer) delete drawer.dataset.toolOptions;
                 if (drawerBody) drawerBody.innerHTML = '';
+                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
 
-            const ORDER = ['segmentation', 'crop', 'roi', 'overlay', 'qmri', 'comparecenter', 'vectorfield'];
+            const ORDER = ['save', 'segmentation', 'crop', 'roi', 'overlay', 'qmri', 'comparecenter', 'vectorfield'];
             const tiles = [...TOOL_TILES].sort((a, b) => {
                 const ai = ORDER.indexOf(a.id);
                 const bi = ORDER.indexOf(b.id);
@@ -19402,8 +19435,9 @@
                 const active = _toolTileActive(tile);
                 const title = tile.label || 'Tools';
                 if (drawerTitle) drawerTitle.textContent = title;
-                if (drawerSubtitle) drawerSubtitle.textContent = 'Options';
+                if (drawerSubtitle) drawerSubtitle.textContent = tileId === 'save' ? 'Export' : 'Options';
                 if (drawer) drawer.dataset.toolOptions = tileId;
+                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
                 let drawerHtml = '';
                 if (active || _toolDrawerBodyWhenInactive(tileId)) {
                     const body = _renderToolOptionsBody(tile);
@@ -19419,6 +19453,7 @@
                 if (drawer) drawer.classList.remove('visible');
                 if (drawerBody) drawerBody.innerHTML = '';
                 if (drawer) delete drawer.dataset.toolOptions;
+                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
             }
 
             el.innerHTML = html;
@@ -19445,33 +19480,39 @@
             renderToolMenu();
         };
 
-        // ── Save menu (colorbar flip) ────────────────────────────
-        // Pressing `s` flips the main colorbar around (same rotateX animation
-        // the ortho-view uses for Alt-held) to reveal a row of save icons.
-        // Icons tooltip via data-tip; `s` again, Escape, or an action closes.
-        let saveMenuOpen = false;
-        let _saveMenuBuilt = false;
+        // ── Save rail ────────────────────────────────────────────
         const SAVE_MENU_ITEMS = [
             {
-                id: 'screenshot', label: 'Screenshot (PNG)', keyHint: 's',
+                id: 'screenshot', label: 'Save screenshot',
+                detail: 'Current frame at display resolution.',
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h3.3l1.4-2.3h8.6L17.7 8H21v11.5a.8.8 0 0 1-.8.8H3.8a.8.8 0 0 1-.8-.8z"/><circle cx="12" cy="13.5" r="4.2"/></svg>',
                 isEnabled: () => true,
                 run: () => saveScreenshot(),
             },
             {
-                id: 'gif', label: 'Animated GIF', keyHint: 'g',
+                id: 'clipboard', label: 'Copy screenshot',
+                detail: 'Copy the current frame straight to the clipboard.',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1.3"/><path d="M9 5H6.8A1.8 1.8 0 0 0 5 6.8v11.4A1.8 1.8 0 0 0 6.8 20h10.4A1.8 1.8 0 0 0 19 18.2V6.8A1.8 1.8 0 0 0 17.2 5H15"/><path d="M9 14h6"/><path d="M9 10h6"/></svg>',
+                isEnabled: () => !!(navigator.clipboard && typeof ClipboardItem !== 'undefined'),
+                run: () => _copyScreenshotToClipboard(),
+            },
+            {
+                id: 'gif', label: 'Save GIF',
+                detail: 'Animate along the active slice axis.',
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.8"/><polygon points="10,8.5 10,15.5 16,12" fill="currentColor" stroke="none"/></svg>',
                 isEnabled: () => !ModeRegistry.isMultiPane,
                 run: () => saveGif(),
             },
             {
-                id: 'array', label: 'Save full array (.npy)', keyHint: 'a',
+                id: 'array', label: 'Save array',
+                detail: 'Download the full data values.',
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 11l5 5 5-5"/><path d="M4 19h16"/><path d="M4 19v1.5"/><path d="M20 19v1.5"/></svg>',
                 isEnabled: () => !hasSourceFile,
                 run: () => _saveFullArrayNpy(),
             },
             {
-                id: 'url', label: 'Copy shareable URL', keyHint: 'u',
+                id: 'url', label: 'Copy shareable URL',
+                detail: 'Reuse this exact viewer state later.',
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 1 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 1 0 7 7l1-1"/></svg>',
                 isEnabled: () => true,
                 run: () => _runCommand('url.copyReusable'),
@@ -19503,108 +19544,43 @@
             try { return item && item.isEnabled && item.isEnabled(); } catch (_) { return false; }
         }
 
-        function _saveMenuButtons() {
-            return Array.from(document.querySelectorAll('#slim-cb-save-back .save-btn'));
+        function _saveMenuItemById(id) {
+            return SAVE_MENU_ITEMS.find(item => item.id === id) || null;
         }
 
-        function _buildSaveMenu() {
-            const back = document.getElementById('slim-cb-save-back');
-            if (!back) return;
-            back.innerHTML = '';
-            const label = document.createElement('span');
-            label.className = 'save-flip-label';
-            label.textContent = 'Save:';
-            back.appendChild(label);
-            const row = document.createElement('div');
-            row.className = 'save-flip-btn-row';
-            SAVE_MENU_ITEMS.forEach((item) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'save-btn';
-                button.dataset.saveId = item.id;
-                button.setAttribute('data-tip', `${item.label} (${item.keyHint})`);
-                button.innerHTML = item.icon;
-                button.addEventListener('mousedown', (e) => e.preventDefault());
-                button.addEventListener('click', (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    if (button.disabled) return;
-                    _saveMenuRun(item.id);
-                });
-                row.appendChild(button);
-            });
-            back.appendChild(row);
-            _saveMenuBuilt = true;
-            _refreshSaveMenu();
-        }
-
-        function _refreshSaveMenu() {
-            const buttons = _saveMenuButtons();
-            SAVE_MENU_ITEMS.forEach((item, i) => {
-                const btn = buttons[i];
-                if (!btn) return;
-                btn.disabled = !_saveMenuItemEnabled(item);
-            });
+        function _renderSaveActionCard(item) {
+            const enabled = _saveMenuItemEnabled(item);
+            const click = enabled ? ` onclick="_runSaveAction('${item.id}')"` : '';
+            return `<button type="button" class="save-action-card" aria-disabled="${enabled ? 'false' : 'true'}"${click}>`
+                + `<div class="save-action-top">`
+                + `<span class="save-action-icon">${item.icon}</span>`
+                + `</div>`
+                + `<div class="save-action-title">${item.label}</div>`
+                + `<div class="save-action-desc">${item.detail || ''}</div>`
+                + `</button>`;
         }
 
         function _saveMenuRun(id) {
-            const item = SAVE_MENU_ITEMS.find(it => it.id === id);
+            const item = _saveMenuItemById(id);
             if (!item || !_saveMenuItemEnabled(item)) return;
-            closeSaveMenu();
             try { item.run(); } catch (err) { console.warn('save menu run failed', err); }
         }
+        window._runSaveAction = _saveMenuRun;
 
-        function _saveMenuFindQuickKey(key) {
-            const target = String(key || '').toLowerCase();
-            if (!target || target.length !== 1) return null;
-            for (const item of SAVE_MENU_ITEMS) {
-                if ((item.keyHint || '').toLowerCase() === target) return item;
-            }
-            return null;
-        }
-
-        function _saveMenuKey(e) {
-            if (e.key === 'Escape') {
-                e.preventDefault(); e.stopPropagation();
-                closeSaveMenu();
-                return true;
-            }
-            const item = _saveMenuFindQuickKey(e.key);
-            if (item && _saveMenuItemEnabled(item)) {
-                e.preventDefault(); e.stopPropagation();
-                _saveMenuRun(item.id);
-                return true;
-            }
-            e.preventDefault(); e.stopPropagation();
-            return true;
+        function _saveDrawerSelected() {
+            return !!(_toolPanelState && _toolPanelState.kind === 'tool-options' && _toolPanelState.toolId === 'save');
         }
 
         function openSaveMenu() {
-            if (saveMenuOpen) return;
-            // Only flip the main colorbar; skip multi-pane modes for now.
-            if (ModeRegistry.isMultiPane) {
-                showStatus('save menu: only in single-pane view');
-                return;
-            }
-            const wrap = document.getElementById('slim-cb-wrap');
-            if (!wrap || wrap.style.display === 'none') {
-                // No colorbar visible (welcome / loading) — silently ignore.
-                return;
-            }
             closeCommandPalette();
-            closeToolPanel();
-            if (!_saveMenuBuilt) _buildSaveMenu();
-            _refreshSaveMenu();
-            saveMenuOpen = true;
-            const inner = document.getElementById('slim-cb-save-flip');
-            if (inner) inner.classList.add('flipped');
+            if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
+            openToolOptions('save');
             setTimeout(() => sink.focus(), 0);
         }
 
         function closeSaveMenu() {
-            if (!saveMenuOpen) return;
-            saveMenuOpen = false;
-            const inner = document.getElementById('slim-cb-save-flip');
-            if (inner) inner.classList.remove('flipped');
+            if (!_saveDrawerSelected()) return;
+            _goBackOrCloseToolPanel();
             try { sink.focus(); } catch (_) {}
         }
 
@@ -20563,10 +20539,6 @@
             }
             if (_toolPanelIsOpen()) {
                 if (_handleToolMenuKey(e)) return;
-            }
-            if (saveMenuOpen) {
-                if (_saveMenuKey(e)) return;
-                return;
             }
             if (helpOverlay.classList.contains('visible')) {
                 if (e.key === 'Escape') {
@@ -25235,12 +25207,6 @@
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
         });
-        // Clicking outside the flipped colorbar closes the save menu.
-        document.addEventListener('mousedown', (e) => {
-            if (!saveMenuOpen) return;
-            const wrap = document.getElementById('slim-cb-wrap');
-            if (wrap && !wrap.contains(e.target)) closeSaveMenu();
-        }, true);
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
