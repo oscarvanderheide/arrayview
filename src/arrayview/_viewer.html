@@ -14104,6 +14104,23 @@
                 </div>
             `;
         }
+        function _positionPixelInfo(el, cx, cy) {
+            if (!el || cx === undefined || cy === undefined) return;
+            const par = el.offsetParent;
+            if (!par) return;
+            const pr = par.getBoundingClientRect();
+            const margin = 8;
+            const elW = el.offsetWidth || 120;
+            const elH = el.offsetHeight || 22;
+            let x = cx - pr.left + margin;
+            let y = cy - pr.top - elH - margin;
+            // Keep inside parent horizontally
+            if (x + elW > pr.width) x = cx - pr.left - elW - margin;
+            if (x < 0) x = margin;
+            if (y < 0) y = cy - pr.top + margin;
+            el.style.left = x + 'px';
+            el.style.top  = y + 'px';
+        }
         function showPixelInfo(el, payload, cx, cy) {
             if (!el || !_pixelInfoVisible) return;
             const key = (payload && typeof payload === 'object')
@@ -14114,23 +14131,7 @@
                 el.dataset.pixelInfoKey = key;
             }
             el.style.display = 'block';
-            if (cx !== undefined && cy !== undefined) {
-                const par = el.offsetParent;
-                if (par) {
-                    const pr = par.getBoundingClientRect();
-                    const margin = 8;
-                    const elW = el.offsetWidth || 120;
-                    const elH = el.offsetHeight || 22;
-                    let x = cx - pr.left + margin;
-                    let y = cy - pr.top - elH - margin;
-                    // Keep inside parent horizontally
-                    if (x + elW > pr.width) x = cx - pr.left - elW - margin;
-                    if (x < 0) x = margin;
-                    if (y < 0) y = cy - pr.top + margin;
-                    el.style.left = x + 'px';
-                    el.style.top  = y + 'px';
-                }
-            }
+            _positionPixelInfo(el, cx, cy);
         }
 
         let _pixelHoverThrottle = false;
@@ -14146,6 +14147,12 @@
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
             const py = Math.floor((opts.event.clientY - rect.top) * opts.imgH / rect.height);
             if (px < 0 || px >= opts.imgW || py < 0 || py >= opts.imgH) return false;
+
+            // Keep the hover card visually attached to the cursor even when the
+            // value is briefly waiting on the slower network fallback.
+            if (opts.displayEl && opts.displayEl.style.display === 'block') {
+                _positionPixelInfo(opts.displayEl, opts.event.clientX, opts.event.clientY);
+            }
 
             // Fast path: use cached raw slice for instant local lookup (never throttled)
             const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale + ':' + (opts.qmriRole || '');
