@@ -18,7 +18,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-05-05
+last_updated: 2026-05-26
 ---
 
 # Architecture
@@ -62,6 +62,18 @@ pywebview, or system browser).
 - **`_vscode.py`** — VS Code integration facade. Submodules: `_vscode_extension.py` (install), `_vscode_signal.py` (signal-file IPC), `_vscode_shm.py` (shared-memory transport), `_vscode_browser.py` (browser/SSH guidance).
 - **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
 - **`_viewer.html`** — The entire frontend (~24 100 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
+
+## Frontend Tool Lifecycle
+
+Tool launch, tool activation, and drawer visibility are separate states.
+
+- Selecting an actionable tool activates it immediately and opens the right drawer.
+- Closing the right drawer hides controls only; it does not deactivate the active tool.
+- Re-selecting an active tool reopens its drawer when hidden, or hides the drawer when already visible.
+- `Esc` targets visible UI first: drawer, launcher, picker, or help before exiting active tools.
+- Passive tools such as Save open a drawer without entering a mode.
+- Overlay and vector tools show their rendered layer immediately when selected and available.
+- Existing tool output persists after mode exit unless the tool has an explicit destructive action.
 
 ## Display Routing
 

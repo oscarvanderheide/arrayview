@@ -15336,7 +15336,7 @@
             segmentation: {
                 kind: 'transient',
                 activateOnOpen: true,
-                deactivateOnClose: true,
+                deactivateOnClose: false,
                 bodyWhenInactive: true,
                 toggleLabel: 'Creating masks',
                 onHint: 'drag or click to create and edit masks',
@@ -15345,15 +15345,15 @@
             roi: {
                 kind: 'transient',
                 activateOnOpen: true,
-                deactivateOnClose: true,
+                deactivateOnClose: false,
                 bodyWhenInactive: true,
                 toggleLabel: 'Drawing ROIs',
                 onHint: 'drag to measure a region',
                 offHint: 'existing ROIs stay stored',
             },
             overlay: {
-                kind: 'passive',
-                activateOnOpen: false,
+                kind: 'persistent',
+                activateOnOpen: true,
                 deactivateOnClose: false,
                 bodyWhenInactive: true,
                 toggleLabel: 'Show overlays',
@@ -17551,12 +17551,9 @@
                 title: 'Open crop options',
                 when: [],
                 run: (ctx, e) => {
-                    const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
-                        && _toolPanelState.toolId === 'crop'
-                        && _toolPanelState.origin === 'direct';
                     if (_cropActive) {
-                        if (directOpen) closeToolPanel();
-                        commands['crop.cycle'].run(ctx, e);
+                        if (_selectedToolDrawerId() === 'crop') closeToolPanel();
+                        else _openDirectToolOptions('crop');
                         return;
                     }
                     _openDirectToolOptions('crop');
@@ -18375,12 +18372,9 @@
                 title: 'Open qMRI options',
                 when: [],
                 run: (ctx, e) => {
-                    const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
-                        && _toolPanelState.toolId === 'qmri'
-                        && _toolPanelState.origin === 'direct';
                     if (qmriActive || compareQmriActive) {
-                        if (directOpen) closeToolPanel();
-                        commands['qmri.cycle'].run(ctx, e);
+                        if (_selectedToolDrawerId() === 'qmri') closeToolPanel();
+                        else _openDirectToolOptions('qmri');
                         return;
                     }
                     _openDirectToolOptions('qmri');
@@ -18389,7 +18383,14 @@
             'tool.comparecenterDirect': {
                 title: 'Open compare center options',
                 when: [],
-                run: (ctx, e) => { commands['compare.cycleCenterMode'].run(ctx, e); },
+                run: (ctx, e) => {
+                    if (compareCenterMode > 0) {
+                        if (_selectedToolDrawerId() === 'comparecenter') closeToolPanel();
+                        else _openDirectToolOptions('comparecenter');
+                        return;
+                    }
+                    commands['compare.cycleCenterMode'].run(ctx, e);
+                },
             },
             'saveMenu.close': {
                 title: 'Close save options',
@@ -18460,7 +18461,10 @@
                 title: 'Exit all tools',
                 when: ['anyToolActive'],
                 run: (ctx, e) => {
-                    closeToolPanel();
+                    if (_toolPanelIsOpen()) {
+                        closeToolPanel();
+                        return;
+                    }
                     const needsCrossfade = (
                         (typeof _segMode !== 'undefined' && _segMode)
                         || rectRoiMode
