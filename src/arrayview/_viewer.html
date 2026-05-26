@@ -1460,6 +1460,123 @@
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
 
+        #tool-launcher {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 24px 24px 13vh;
+            background: var(--overlay-bg);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            font-family: var(--mono);
+        }
+        #tool-launcher.visible { display: flex; }
+        .tool-launcher-panel {
+            width: min(560px, calc(100vw - 48px));
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: color-mix(in srgb, var(--surface) 76%, transparent);
+            box-shadow: var(--surface-shadow-strong);
+            padding: 10px;
+        }
+        .tool-launcher-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 2px 8px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .tool-launcher-title {
+            color: var(--active-dim);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+        .tool-launcher-hint {
+            color: var(--muted);
+            font-size: 9px;
+        }
+        .tool-launcher-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 4px;
+        }
+        .tool-launcher-item {
+            display: grid;
+            grid-template-columns: 32px minmax(0, 1fr) 20px;
+            gap: 7px;
+            align-items: center;
+            min-height: 34px;
+            padding: 5px 7px 5px 5px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            color: var(--text);
+            background: transparent;
+            cursor: pointer;
+            user-select: none;
+            transition: border-color 120ms ease, background 120ms ease, color 120ms ease, opacity 120ms ease;
+        }
+        .tool-launcher-item.available:hover {
+            border-color: color-mix(in srgb, var(--active-dim) 42%, transparent);
+            background: color-mix(in srgb, var(--active-dim) 8%, transparent);
+        }
+        .tool-launcher-item.active {
+            border-color: color-mix(in srgb, var(--active-dim) 56%, transparent);
+            background: color-mix(in srgb, var(--active-dim) 7%, transparent);
+        }
+        .tool-launcher-item.unavailable {
+            opacity: 0.34;
+            cursor: default;
+        }
+        .tool-launcher-icon {
+            width: 18px;
+            height: 18px;
+            color: var(--muted);
+            display: grid;
+            place-items: center;
+        }
+        .tool-launcher-icon svg {
+            width: 17px;
+            height: 17px;
+            stroke-width: 1.7;
+        }
+        .tool-launcher-item.available:hover .tool-launcher-icon,
+        .tool-launcher-item.available:hover .tool-launcher-label,
+        .tool-launcher-item.active .tool-launcher-key,
+        .tool-launcher-item.active .tool-launcher-label {
+            color: var(--active-dim);
+        }
+        .tool-launcher-label {
+            font-size: 11px;
+            font-weight: 650;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tool-launcher-key {
+            min-width: 24px;
+            padding: 4px 0;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            color: var(--active-dim);
+            background: color-mix(in srgb, var(--surface) 84%, transparent);
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+        }
+        .tool-launcher-item.available:hover .tool-launcher-key {
+            border-color: color-mix(in srgb, var(--active-dim) 50%, var(--border));
+        }
+        @media (max-width: 620px) {
+            .tool-launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
         /* ── Tool Panel (overrides in tool-list / tool-options mode) ── */
         #dynamic-island.tool-list,
         #dynamic-island.tool-options {
@@ -3746,9 +3863,10 @@
         </div>
     </div>
     <div id="help-hint">?</div>
-    <div id="tool-hint" title="Open tools (/)">/</div>
+    <div id="tool-hint" title="Tool launcher (/)">/</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
+    <div id="tool-launcher" aria-hidden="true"></div>
     <div id="info-overlay">
         <div id="info-box"><table id="info-table"></table></div>
     </div>
@@ -3818,7 +3936,7 @@
             <button id="tool-drawer-close" type="button" aria-label="Close tool options" onclick="_goBackOrCloseToolPanel()">&#x2715;</button>
         </div>
         <div id="tool-drawer-body"></div>
-        <div class="tool-drawer-footer">Esc tools &middot; / close</div>
+        <div class="tool-drawer-footer">Esc close &middot; / launcher</div>
     </div>
 </div>
     <script src="gsap.min.js"></script>
@@ -4167,8 +4285,8 @@
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
+        let _toolLauncherOpen = false;
         let _toolPanelState = 'closed';
-        let _toolPanelSlashRestoreState = null;
         let _moreToolsExpanded = false;
         let _toolPanelUserClosed = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
@@ -11579,14 +11697,7 @@
         }
 
         function _ensureToolRailVisible() {
-            if (_toolPanelState === 'closed') {
-                _toolPanelState = 'tool-menu';
-                toolMenuOpen = true;
-                _toolPanelUserClosed = false;
-                _moreToolsExpanded = false;
-            } else {
-                toolMenuOpen = true;
-            }
+            toolMenuOpen = _toolPanelIsOpen();
             renderToolMenu();
         }
 
@@ -15295,6 +15406,7 @@
                 closeCommandPalette();
                 if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
                 closeToolPanel();
+                closeToolLauncher();
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
@@ -17435,6 +17547,21 @@
                     saveState();
                 },
             },
+            'tool.cropDirect': {
+                title: 'Open crop options',
+                when: [],
+                run: (ctx, e) => {
+                    const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
+                        && _toolPanelState.toolId === 'crop'
+                        && _toolPanelState.origin === 'direct';
+                    if (_cropActive) {
+                        if (directOpen) closeToolPanel();
+                        commands['crop.cycle'].run(ctx, e);
+                        return;
+                    }
+                    _openDirectToolOptions('crop');
+                },
+            },
             'vfield.cycle': {
                 title: 'Toggle vector field',
                 when: [],
@@ -17958,16 +18085,6 @@
                 title: 'Enter / exit qMRI mode',
                 when: [],
                 run: (ctx, e) => {
-                    const wasActive = qmriActive || compareQmriActive;
-                    if (wasActive) {
-                        _toolPanelState = 'closed';
-                        toolMenuOpen = false;
-                        _toolPanelUserClosed = true;
-                    } else if (!wasActive) {
-                        _toolPanelState = { kind: 'tool-options', toolId: 'qmri' };
-                        toolMenuOpen = true;
-                        _toolPanelUserClosed = false;
-                    }
                     crossfade(() => {
                         if (compareQmriActive) {
                             exitCompareQmri();
@@ -18230,12 +18347,52 @@
                 },
             },
             'saveMenu.open': {
-                title: 'Open save rail',
+                title: 'Open save options',
                 when: [],
                 run: (ctx, e) => { openSaveMenu(); },
             },
+            'tool.roiDirect': {
+                title: 'Open ROI options',
+                when: [],
+                run: (ctx, e) => { _openDirectToolOrExplain('roi'); },
+            },
+            'tool.segmentationDirect': {
+                title: 'Open segmentation options',
+                when: [],
+                run: (ctx, e) => { _openDirectToolOrExplain('segmentation'); },
+            },
+            'tool.overlayDirect': {
+                title: 'Open overlay options',
+                when: [],
+                run: (ctx, e) => { _openDirectToolOrExplain('overlay'); },
+            },
+            'tool.vectorfieldDirect': {
+                title: 'Open vector field options',
+                when: [],
+                run: (ctx, e) => { _openDirectToolOrExplain('vectorfield'); },
+            },
+            'tool.qmriDirect': {
+                title: 'Open qMRI options',
+                when: [],
+                run: (ctx, e) => {
+                    const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
+                        && _toolPanelState.toolId === 'qmri'
+                        && _toolPanelState.origin === 'direct';
+                    if (qmriActive || compareQmriActive) {
+                        if (directOpen) closeToolPanel();
+                        commands['qmri.cycle'].run(ctx, e);
+                        return;
+                    }
+                    _openDirectToolOptions('qmri');
+                },
+            },
+            'tool.comparecenterDirect': {
+                title: 'Open compare center options',
+                when: [],
+                run: (ctx, e) => { commands['compare.cycleCenterMode'].run(ctx, e); },
+            },
             'saveMenu.close': {
-                title: 'Close save rail',
+                title: 'Close save options',
                 when: ['saveMenuOpen'],
                 run: (ctx, e) => { closeSaveMenu(); },
             },
@@ -18257,6 +18414,14 @@
                         return;
                     }
                     _setCompareCenterMode(nextMode);
+                    if (nextMode > 0) {
+                        if (_selectedToolDrawerId() !== 'comparecenter') _openDirectToolOptions('comparecenter');
+                    } else {
+                        const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
+                            && _toolPanelState.toolId === 'comparecenter'
+                            && _toolPanelState.origin === 'direct';
+                        if (directOpen) closeToolPanel();
+                    }
                     return;
                 },
             },
@@ -18282,14 +18447,14 @@
                 },
             },
             'toolmenu.open': {
-                title: 'Open tool menu',
+                title: 'Open tool launcher',
                 when: [],
                 run: (ctx, e) => { openToolMenu(); },
             },
             'toolmenu.close': {
-                title: 'Close tool panel',
-                when: ['toolMenuOpen'],
-                run: (ctx, e) => { closeToolPanel({ rememberSlashState: true }); },
+                title: 'Close tool launcher',
+                when: ['toolLauncherOpen'],
+                run: (ctx, e) => { closeToolLauncher(); },
             },
             'tool.exit': {
                 title: 'Exit all tools',
@@ -18325,9 +18490,9 @@
         const keybinds = [
             { key: '/', command: 'toolmenu.close' },
             { key: '/', command: 'toolmenu.open' },
-            { key: 'q', command: 'qmri.cycle' },
+            { key: 'q', command: 'tool.qmriDirect' },
             { key: 'c', command: 'colormap.openOrCycle' },
-            { key: 'C', command: 'crop.cycle' },
+            { key: 'C', command: 'tool.cropDirect' },
             { key: 'X', command: 'compare.enterDetachedDimMode' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
@@ -18423,7 +18588,8 @@
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 cmapPickerOpen: (typeof _cmapPickerOpen !== 'undefined') ? !!_cmapPickerOpen : false,
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
-                toolMenuList: (typeof _toolPanelState !== 'undefined') ? _toolPanelState === 'tool-menu' : false,
+                toolLauncherOpen: (typeof _toolLauncherOpen !== 'undefined') ? !!_toolLauncherOpen : false,
+                toolMenuList: false,
                 saveMenuOpen: _saveDrawerSelected(),
                 anyToolActive: (
                     compareCenterMode > 0
@@ -18469,7 +18635,7 @@
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows value under cursor; click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Tool menu', hint: 'open tools — / toggles the menu · Esc goes back one level' },
+                            { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
                         ]
                     },
                     {
@@ -18486,7 +18652,7 @@
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Open save rail', hint: 'opens the left tool rail and right save drawer with screenshot, GIF, array, and URL exports' },
+                            { key: 's', action: 'Open save options', hint: 'opens screenshot, GIF, array, and URL exports directly · / also lists tools' },
                             { key: 'e', action: 'Copy shareable URL' },
                         ]
                     }
@@ -18577,8 +18743,8 @@
                     {
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
-                            { key: '/ x', action: 'Toggle compare center', hint: 'opens the last-used center mode from the tool menu; click the mode buttons in the tool or center-pane header for direct selection' },
-                            { key: 'X', action: 'Cycle compare operation', hint: 'with one array on a non-spatial dim, enters detached compare first; then cycles A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
+                            { key: 'X', action: 'Open compare center', hint: 'first press opens the last-used center mode and its options directly · / also lists tools' },
+                            { key: 'Repeated X', action: 'Cycle compare operation', hint: 'with one array on a non-spatial dim, enters detached compare first; then cycles A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
                             { key: '[ ]', action: 'Adjust operation parameter / detached A index', hint: 'in detached compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
                             { key: '{ }', action: 'Adjust detached B index', hint: 'in detached compare, scrubs the right pane index' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when X activated a center operation; outside compare, Z toggles full zen mode' },
@@ -18588,34 +18754,26 @@
             },
             {
                 id: 'tools', label: 'Tools',
-                desc: 'Draw on the image to measure, segment, or crop. Each tool uses click or drag to define a region, and shows results in real time.',
+                desc: 'Tool shortcuts and one-line explanations. Press / for the transient launcher; press ? for this documentation.',
+                columns: 2,
                 sections: [
                     {
-                        subsection: 'ROI — Region of Interest',
-                        subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
+                        title: 'Direct',
                         entries: [
-                            { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open tool menu, then r' },
-                            { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
-                            { key: 'Drag', action: 'Draw ROI region' },
-                            { key: 'Right-click', action: 'Delete ROI under cursor' },
-                            { key: 'Esc', action: 'Exit ROI mode' },
+                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, and URL options' },
+                            { key: 'q', action: 'qMRI', hint: 'inspect parameter maps with contextual controls' },
+                            { key: 'X', action: 'Compare center', hint: 'open the last-used 2-array center comparison mode' },
+                            { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
+                            { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
                         ]
                     },
                     {
-                        subsection: 'Ruler',
-                        subdesc: 'Click two points to measure pixel distance.',
+                        title: 'After /', columnBreak: true,
                         entries: [
-                            { key: 'u', action: 'Toggle ruler mode' },
-                        ]
-                    },
-                    {
-                        subsection: 'Segmentation',
-                        subdesc: 'Local segmentation tools with optional nnInteractive connection.',
-                        entries: [
-                            { key: '/ S', action: 'Enter segmentation mode', hint: 'press / to open tool menu, then Shift+S' },
-                            { key: 'Click', action: 'Grow local region from seed' },
-                            { key: 'Options', action: 'Threshold current display range or connect nnInteractive' },
-                            { key: 'Esc', action: 'Exit segmentation' },
+                            { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
+                            { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
+                            { key: '/ o', action: 'Overlays', hint: 'inspect loaded masks and overlay opacity' },
+                            { key: '/ v', action: 'Vector field', hint: 'leader namespace; bare v still toggles ortho-view' },
                         ]
                     }
                 ]
@@ -18650,7 +18808,7 @@
                     {
                         title: 'Controls',
                         entries: [
-                            { key: 'q', action: 'Toggle qMRI drawer', hint: 'opens qMRI tools · press again to close' },
+                            { key: 'q', action: 'Enter or exit qMRI', hint: 'opens qMRI options directly · / also lists tools' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
@@ -18664,7 +18822,7 @@
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: 'q', action: 'Exit qMRI', hint: 'closes the qMRI drawer' },
+                            { key: 'q', action: 'Exit qMRI', hint: 'closes qMRI and its direct options drawer' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                         ]
@@ -18693,7 +18851,7 @@
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
+                            { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
                             { key: 'Esc', action: 'Exit all tools' },
                             { key: 'Click', action: 'Grow local region from seed' },
                             { key: 'Shape icons', action: 'Switch method', hint: 'region · threshold · brush · lasso' },
@@ -18715,7 +18873,7 @@
                     {
                         title: 'Drawing',
                         entries: [
-                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
+                            { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
                             { key: 'Drag', action: 'Draw ROI on canvas' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Click ROI', action: 'Select an existing ROI' },
@@ -18740,7 +18898,7 @@
                         title: 'Enter / exit',
                         entries: [
                             { key: 'C', action: 'Toggle crop mode' },
-                            { key: 'Esc', action: 'Exit the tool', hint: 'closes the menu first, then deactivates crop' },
+                            { key: 'Esc', action: 'Exit the tool', hint: 'closes the drawer first, then deactivates crop' },
                         ]
                     },
                     {
@@ -18768,7 +18926,7 @@
                             { key: 'ortho multi-view', action: 'Overlay on each pane (axis-aligned or oblique)' },
                             { key: 'compare', action: 'Overlay only on the primary sid\u2019s pane; other panes render clean' },
                             { key: 'compare 3-plane', action: 'Overlay on the primary sid\u2019s 3 panes; other rows render clean' },
-                            { key: 'compare-qMRI', action: 'Crop is disabled — tool menu dims the row' },
+                            { key: 'compare-qMRI', action: 'Crop is disabled in compare-qMRI' },
                         ]
                     },
                 ]
@@ -18962,52 +19120,172 @@
             return _toolPanelState !== 'closed';
         }
 
-        function openToolMenu() {
-            if (_toolPanelState !== 'closed') return;
-            closeCommandPalette();
-            if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
-            if (_toolPanelSlashRestoreState && _toolPanelSlashRestoreState.kind === 'tool-options') {
-                const restoreToolId = _toolPanelSlashRestoreState.toolId;
-                _toolPanelSlashRestoreState = null;
-                openToolOptions(restoreToolId);
-                return;
-            }
-            _toolPanelState = 'tool-menu';
-            toolMenuOpen = true;
-            _toolPanelUserClosed = false;
-            _moreToolsExpanded = false;
-            renderToolMenu();
-            setTimeout(() => { try { sink.focus(); } catch (_) {} }, 0);
+        function _toolLauncherItemSpecs() {
+            return [
+                { key: 'q', toolId: 'qmri', command: 'tool.qmriDirect' },
+                { key: 's', toolId: 'save', command: 'saveMenu.open' },
+                { key: 'C', toolId: 'crop', command: 'tool.cropDirect' },
+                { key: 'X', toolId: 'comparecenter', command: 'tool.comparecenterDirect' },
+                { key: 'r', toolId: 'roi', command: 'tool.roiDirect' },
+                { key: 'S', toolId: 'segmentation', command: 'tool.segmentationDirect' },
+                { key: 'o', toolId: 'overlay', command: 'tool.overlayDirect' },
+                { key: 'v', toolId: 'vectorfield', command: 'tool.vectorfieldDirect' },
+                {
+                    key: 'u',
+                    id: 'ruler',
+                    label: 'Ruler',
+                    command: 'ruler.toggle',
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><path d="m7 17 2 2"/><path d="m10 14 1 1"/><path d="m13 11 2 2"/><path d="m16 8 1 1"/></svg>',
+                    enabled: () => true,
+                    active: () => _rulerMode,
+                    unavailableReason: () => '',
+                },
+            ];
         }
 
-        function closeToolPanel(opts = {}) {
+        function _toolLauncherItems() {
+            return _toolLauncherItemSpecs().map(spec => {
+                const tile = spec.toolId ? TOOL_TILES.find(t => t.id === spec.toolId) : null;
+                const enabled = tile ? _toolTileEnabled(tile) : (spec.enabled ? !!spec.enabled() : true);
+                const active = tile ? _toolTileActive(tile) : (spec.active ? !!spec.active() : false);
+                const reason = enabled ? '' : (tile && tile.unavailableReason ? tile.unavailableReason() : (spec.unavailableReason ? spec.unavailableReason() : 'Unavailable'));
+                return {
+                    ...spec,
+                    id: spec.id || spec.toolId,
+                    label: spec.label || (tile ? tile.label : spec.id),
+                    icon: spec.icon || (tile ? _toolIcon(tile.id) : ''),
+                    enabled,
+                    active,
+                    reason,
+                };
+            });
+        }
+
+        function renderToolLauncher() {
+            const root = document.getElementById('tool-launcher');
+            if (!root) return;
+            root.classList.toggle('visible', _toolLauncherOpen);
+            root.setAttribute('aria-hidden', _toolLauncherOpen ? 'false' : 'true');
+            const hint = document.getElementById('tool-hint');
+            if (hint) hint.classList.toggle('active', _toolLauncherOpen || _toolPanelIsOpen() || !!_activeToolId());
+            if (!_toolLauncherOpen) {
+                root.innerHTML = '';
+                return;
+            }
+            const items = _toolLauncherItems();
+            let html = '<div class="tool-launcher-panel" role="dialog" aria-label="Tool launcher">';
+            html += '<div class="tool-launcher-head"><div class="tool-launcher-title">Tools</div><div class="tool-launcher-hint">press key · Esc closes</div></div>';
+            html += '<div class="tool-launcher-grid">';
+            for (const item of items) {
+                const cls = `tool-launcher-item ${item.enabled ? 'available' : 'unavailable'}${item.active ? ' active' : ''}`;
+                const title = _escapeHtml(item.reason || item.label || '');
+                const onclick = item.enabled ? ` onclick="_toolLauncherPick('${item.key}')"` : '';
+                html += `<div class="${cls}" data-tool="${_escapeHtml(item.id)}" title="${title}"${onclick}>`;
+                html += `<span class="tool-launcher-key">${_escapeHtml(item.key)}</span>`;
+                html += `<span class="tool-launcher-label">${_escapeHtml(item.label || '')}</span>`;
+                html += `<span class="tool-launcher-icon">${item.icon || ''}</span>`;
+                html += '</div>';
+            }
+            html += '</div></div>';
+            root.innerHTML = html;
+        }
+
+        function closeToolLauncher() {
+            if (!_toolLauncherOpen) return;
+            _toolLauncherOpen = false;
+            renderToolLauncher();
+            try { sink.focus(); } catch (_) {}
+        }
+
+        function openToolMenu() {
+            if (_toolLauncherOpen) {
+                closeToolLauncher();
+                return;
+            }
+            closeCommandPalette();
+            if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
+            if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
+            _toolLauncherOpen = true;
+            renderToolLauncher();
+            try { sink.focus(); } catch (_) {}
+        }
+
+        function _toolLauncherPick(key, eventObj = null) {
+            const item = _toolLauncherItems().find(entry => entry.key === key);
+            if (!item) return false;
+            if (!item.enabled) {
+                if (item.reason) showStatus(item.reason);
+                closeToolLauncher();
+                return true;
+            }
+            closeToolLauncher();
+            const cmd = commands[item.command];
+            if (cmd) cmd.run(makeContext(null), eventObj);
+            return true;
+        }
+
+        function _handleToolLauncherKey(e) {
+            if (!_toolLauncherOpen) return false;
+            if (e.key === 'Escape' || e.key === '/') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeToolLauncher();
+                return true;
+            }
+            const item = _toolLauncherItems().find(entry => entry.key === e.key);
+            if (!item) return true;
+            e.preventDefault();
+            e.stopPropagation();
+            _toolLauncherPick(item.key, e);
+            return true;
+        }
+
+        function closeToolPanel() {
             if (_toolPanelState === 'closed') return;
             const toolId = _selectedToolDrawerId();
-            _toolPanelSlashRestoreState = opts.rememberSlashState && toolId
-                ? { kind: 'tool-options', toolId }
-                : null;
             _toolPanelState = 'closed';
             toolMenuOpen = false;
             _toolPanelUserClosed = true;
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
             if (toolId && _toolDrawerExitsOnClose(toolId)) _exitActiveTool(toolId);
-            _toolPanelUserClosed = true;
             renderToolMenu();
             try { sink.focus(); } catch (_) {}
         }
 
-        function openToolOptions(toolId) {
+        function openToolOptions(toolId, opts = {}) {
             const tile = TOOL_TILES.find(t => t.id === toolId);
             if (!tile || !_toolTileEnabled(tile)) return;
+            const origin = opts.origin === 'direct' ? 'direct' : 'menu';
+            const activate = opts.activate !== false;
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
-            _toolPanelState = { kind: 'tool-options', toolId };
+            _toolPanelState = { kind: 'tool-options', toolId, origin };
             toolMenuOpen = true;
             _toolPanelUserClosed = false;
-            if (_toolDrawerActivatesOnOpen(toolId) && !_toolTileActive(tile)) {
+            if (activate && _toolDrawerActivatesOnOpen(toolId) && !_toolTileActive(tile)) {
                 _toolToggle(toolId);
             }
             _moreToolsExpanded = false;
             renderToolMenu();
+        }
+
+        function _openDirectToolOptions(toolId) {
+            const selectedToolId = _selectedToolDrawerId();
+            if (selectedToolId && selectedToolId !== toolId && _toolDrawerExitsOnClose(selectedToolId)) {
+                _toolPanelState = 'closed';
+                _exitActiveTool(selectedToolId);
+            }
+            openToolOptions(toolId, { origin: 'direct' });
+        }
+
+        function _openDirectToolOrExplain(toolId) {
+            const tile = TOOL_TILES.find(t => t.id === toolId);
+            if (!tile) return;
+            if (!_toolTileEnabled(tile)) {
+                const reason = tile.unavailableReason ? tile.unavailableReason() : `${tile.label || toolId}: unavailable`;
+                showStatus(reason);
+                return;
+            }
+            _openDirectToolOptions(toolId);
         }
 
         function _activeToolId() {
@@ -19028,20 +19306,13 @@
             if (!id) return;
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile) return;
-            _toolPanelState = { kind: 'tool-options', toolId: id };
+            _toolPanelState = { kind: 'tool-options', toolId: id, origin: 'direct' };
             toolMenuOpen = true;
         }
 
         function _goBackOrCloseToolPanel() {
             if (_toolPanelState === 'closed') return;
-            if (_toolPanelState === 'tool-menu') {
-                closeToolPanel();
-            } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
-                const toolId = _toolPanelState.toolId;
-                _toolPanelState = 'tool-menu';
-                if (_toolDrawerExitsOnClose(toolId)) _exitActiveTool(toolId);
-                renderToolMenu();
-            }
+            closeToolPanel();
         }
 
         function _exitActiveTool(toolId) {
@@ -19058,7 +19329,7 @@
             if (e.key === '/') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeToolPanel({ rememberSlashState: true });
+                openToolMenu();
                 return true;
             }
             if (e.key === 'Escape') {
@@ -19073,17 +19344,6 @@
                 closeToolPanel();
                 setHelpVisible(true);
                 return true;
-            }
-            if (_toolPanelState === 'tool-menu') {
-                const target = String(e.key || '');
-                const tile = TOOL_TILES.find(t => (t.keyHint || '') === target);
-                if (tile && _toolTileEnabled(tile)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (tile.id === 'colormap') _openToolRailItem('colormap');
-                    else openToolOptions(tile.id);
-                    return true;
-                }
             }
             if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
                 const toolId = _toolPanelState.toolId;
@@ -19103,63 +19363,6 @@
                 }
             }
             return false;
-        }
-
-        function _renderToolRow(tile, enabled, active, selected = false) {
-            const rowClasses = ['tool-row'];
-            rowClasses.push(enabled ? 'available' : 'unavailable');
-            if (active) rowClasses.push('active');
-            if (selected) rowClasses.push('selected');
-            const rowCls = rowClasses.join(' ');
-            const keycap = (tile.keyHint || '').toUpperCase();
-            const desc = tile.desc || '';
-            const icon = _toolIcon(tile.id);
-            const action = `_openToolRailItem('${tile.id}')`;
-            const onclick = enabled ? ` onclick="${action}"` : '';
-            const title = enabled ? (tile.label || '') : (tile.unavailableReason ? tile.unavailableReason() : (tile.label || ''));
-            let html = `<div class="${rowCls}" data-tool="${tile.id}" title="${title}" aria-label="${title}"${onclick}>`;
-            html += `<span class="tool-icon">${icon}</span>`;
-            html += `<div class="tool-text-col"><div class="tool-title">${tile.label || ''}</div>`;
-            if (desc) html += `<div class="tool-description">${desc}</div>`;
-            html += `</div>`;
-            html += `<span class="shortcut-key">${keycap}</span>`;
-            html += `</div>`;
-            return html;
-        }
-
-        function _openToolRailItem(id) {
-            const selectedToolId = _selectedToolDrawerId();
-            if (id === 'colormap') {
-                if (rgbMode) return;
-                if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) {
-                    closeCmapPicker(false);
-                    _toolPanelState = 'tool-menu';
-                    renderToolMenu();
-                    return;
-                }
-                if (selectedToolId) {
-                    _toolPanelState = 'tool-menu';
-                    if (_toolDrawerExitsOnClose(selectedToolId)) _exitActiveTool(selectedToolId);
-                    renderToolMenu();
-                }
-                _cmapPickerAllowToolRail = true;
-                try {
-                    const spec = _resolveCmapHoldSpec();
-                    if (spec) openCmapPicker({ spec });
-                } finally {
-                    _cmapPickerAllowToolRail = false;
-                }
-                return;
-            }
-            if (selectedToolId === id) {
-                _goBackOrCloseToolPanel();
-                return;
-            }
-            if (selectedToolId && _toolDrawerExitsOnClose(selectedToolId)) {
-                _toolPanelState = 'tool-menu';
-                _exitActiveTool(selectedToolId);
-            }
-            openToolOptions(id);
         }
 
         function _renderToolStateRow({ label, hint, on, action, disabled = false }) {
@@ -19375,60 +19578,28 @@
             const drawerBody = document.getElementById('tool-drawer-body');
             const drawerFooter = document.querySelector('#tool-drawer .tool-drawer-footer');
 
+            if (_toolPanelState === 'tool-menu') {
+                _toolPanelState = 'closed';
+                toolMenuOpen = false;
+            }
+
             if (_toolPanelState === 'closed') {
                 el.classList.remove('visible', 'tool-list', 'tool-options');
                 if (drawer) drawer.classList.remove('visible');
                 if (drawer) delete drawer.dataset.toolOptions;
                 if (drawerBody) drawerBody.innerHTML = '';
-                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
+                if (drawerFooter) drawerFooter.textContent = 'Esc close · / launcher';
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
-
-            const ORDER = ['save', 'segmentation', 'crop', 'roi', 'overlay', 'qmri', 'comparecenter', 'vectorfield'];
-            const tiles = [...TOOL_TILES].sort((a, b) => {
-                const ai = ORDER.indexOf(a.id);
-                const bi = ORDER.indexOf(b.id);
-                if (ai !== -1 && bi !== -1) return ai - bi;
-                if (ai !== -1) return -1;
-                if (bi !== -1) return 1;
-                const rankDiff = _toolSortRank(a) - _toolSortRank(b);
-                if (rankDiff !== 0) return rankDiff;
-                return a.label.localeCompare(b.label);
-            });
-
-            let html = '';
-            const colormapTile = {
-                id: 'colormap',
-                label: 'Colormaps',
-                desc: 'Browse colormap previews.',
-                keyHint: 'c',
-                isEnabled: () => !rgbMode,
-                isActive: () => typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen,
-                unavailableReason: () => 'Not available for RGB arrays.',
-            };
-            const railTiles = [colormapTile, ...tiles];
-            const selectedToolId = (_toolPanelState && _toolPanelState.kind === 'tool-options') ? _toolPanelState.toolId : null;
-
-            el.classList.add('visible', 'tool-list');
-            el.classList.remove('tool-options');
-            html += `<div class="tool-panel-inner">`;
-            html += `<div class="tool-section">`;
-            for (const tile of railTiles) {
-                const enabled = tile.id === 'colormap' ? tile.isEnabled() : _toolTileEnabled(tile);
-                const active = tile.id === 'colormap' ? tile.isActive() : _toolTileActive(tile);
-                const selected = tile.id === 'colormap'
-                    ? (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen)
-                    : selectedToolId === tile.id;
-                html += _renderToolRow(tile, enabled, active, selected);
-            }
-            html += `</div></div>`;
+            el.classList.remove('visible', 'tool-list', 'tool-options');
 
             if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
                 const tileId = _toolPanelState.toolId;
                 const tile = TOOL_TILES.find(t => t.id === tileId);
                 if (!tile) {
-                    _toolPanelState = 'tool-menu';
+                    _toolPanelState = 'closed';
+                    toolMenuOpen = false;
                     renderToolMenu();
                     return;
                 }
@@ -19437,7 +19608,7 @@
                 if (drawerTitle) drawerTitle.textContent = title;
                 if (drawerSubtitle) drawerSubtitle.textContent = tileId === 'save' ? 'Export' : 'Options';
                 if (drawer) drawer.dataset.toolOptions = tileId;
-                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
+                if (drawerFooter) drawerFooter.textContent = 'Esc close · / launcher';
                 let drawerHtml = '';
                 if (active || _toolDrawerBodyWhenInactive(tileId)) {
                     const body = _renderToolOptionsBody(tile);
@@ -19453,10 +19624,9 @@
                 if (drawer) drawer.classList.remove('visible');
                 if (drawerBody) drawerBody.innerHTML = '';
                 if (drawer) delete drawer.dataset.toolOptions;
-                if (drawerFooter) drawerFooter.textContent = 'Esc tools · / close';
+                if (drawerFooter) drawerFooter.textContent = 'Esc close · / launcher';
             }
-
-            el.innerHTML = html;
+            el.innerHTML = '';
             _positionIsland();
             _hideRoiRowTooltip();
             _attachRoiRowTooltipHandlers();
@@ -19465,7 +19635,7 @@
 
         function renderIsland() { renderToolMenu(); }
         window._openToolOptions = openToolOptions;
-        window._openToolRailItem = _openToolRailItem;
+        window._toolLauncherPick = _toolLauncherPick;
         window._goBackOrCloseToolPanel = _goBackOrCloseToolPanel;
         window.closeToolPanel = closeToolPanel;
         window._toggleMoreTools = function() {
@@ -19574,7 +19744,7 @@
         function openSaveMenu() {
             closeCommandPalette();
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
-            openToolOptions('save');
+            _openDirectToolOptions('save');
             setTimeout(() => sink.focus(), 0);
         }
 
@@ -20288,7 +20458,8 @@
             const box = document.getElementById('cmap-picker-box');
             const input = document.getElementById('cmap-picker-input');
             if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
-                _toolPanelState = 'tool-menu';
+                _toolPanelState = 'closed';
+                toolMenuOpen = false;
                 renderToolMenu();
             }
             if (paletteOpen) closeCommandPalette();
@@ -20510,6 +20681,9 @@
             if (_histPickerActive) {
                 if (_histPickerKey(e)) return;
             }
+            if (_toolLauncherOpen) {
+                if (_handleToolLauncherKey(e)) return;
+            }
             // First-press of `g` (no modifiers) in ortho: arm the hold timer
             // for the grid layout picker. Auto-repeat falls through to the
             // dispatcher (grid.holdOrTap) which opens the picker immediately.
@@ -20541,6 +20715,10 @@
                 if (_handleToolMenuKey(e)) return;
             }
             if (helpOverlay.classList.contains('visible')) {
+                if (e.key === '/') {
+                    openToolMenu();
+                    return;
+                }
                 if (e.key === 'Escape') {
                     setHelpVisible(false);
                     document.getElementById('info-overlay').classList.remove('visible');
@@ -25211,8 +25389,10 @@
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
         document.getElementById('tool-hint').addEventListener('click', () => {
-            if (toolMenuOpen) closeToolPanel();
-            else openToolMenu();
+            openToolMenu();
+        });
+        document.getElementById('tool-launcher').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeToolLauncher();
         });
 
         // Click on a dim label to make it the active dim (consistent with h/l navigation)
