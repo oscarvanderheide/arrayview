@@ -1464,79 +1464,122 @@
             position: fixed;
             inset: 0;
             z-index: 60;
-            display: none;
-            align-items: flex-end;
+            display: flex;
+            align-items: center;
             justify-content: center;
-            padding: 24px 24px 13vh;
+            padding: 24px;
             background: var(--overlay-bg);
             backdrop-filter: blur(2px);
             -webkit-backdrop-filter: blur(2px);
             font-family: var(--mono);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 180ms ease, visibility 0s linear 180ms;
         }
-        #tool-launcher.visible { display: flex; }
+        #tool-launcher.visible {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transition: opacity 180ms ease;
+        }
+        @keyframes toolLauncherPanelIn {
+            from { opacity: 0; transform: translateY(12px) scale(0.965); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes toolLauncherRowIn {
+            from { opacity: 0; transform: translateY(34px) scale(0.96); }
+            to { opacity: var(--tool-row-opacity, 1); transform: translateY(0) scale(1); }
+        }
         .tool-launcher-panel {
-            width: min(560px, calc(100vw - 48px));
+            width: min(360px, calc(100vw - 32px));
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
             background: color-mix(in srgb, var(--surface) 76%, transparent);
             box-shadow: var(--surface-shadow-strong);
-            padding: 10px;
+            overflow: hidden;
+            transform-origin: 50% 52%;
+            will-change: transform, opacity;
         }
         .tool-launcher-head {
             display: flex;
             align-items: baseline;
             justify-content: space-between;
             gap: 12px;
-            padding: 0 2px 8px;
+            min-height: 0;
+            padding: 12px 12px 7px;
             border-bottom: 1px solid var(--border);
-            margin-bottom: 8px;
         }
         .tool-launcher-title {
             color: var(--active-dim);
-            font-size: 11px;
+            font-size: 16px;
             font-weight: 700;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-        }
-        .tool-launcher-hint {
-            color: var(--muted);
-            font-size: 9px;
+            letter-spacing: 0;
+            text-transform: none;
         }
         .tool-launcher-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 4px;
+            grid-template-columns: 1fr;
+            gap: 0;
+            padding: 4px 6px 6px;
         }
         .tool-launcher-item {
             display: grid;
-            grid-template-columns: 32px minmax(0, 1fr) 20px;
-            gap: 7px;
+            grid-template-columns: 28px minmax(0, 1fr) 22px;
+            gap: 8px;
             align-items: center;
             min-height: 34px;
-            padding: 5px 7px 5px 5px;
+            padding: 0 8px;
             border: 1px solid transparent;
-            border-radius: 8px;
+            border-radius: 7px;
             color: var(--text);
             background: transparent;
             cursor: pointer;
             user-select: none;
             transition: border-color 120ms ease, background 120ms ease, color 120ms ease, opacity 120ms ease;
+            transform-origin: 50% 60%;
+            will-change: transform, opacity;
+            --tool-row-opacity: 1;
         }
         .tool-launcher-item.available:hover {
             border-color: color-mix(in srgb, var(--active-dim) 42%, transparent);
             background: color-mix(in srgb, var(--active-dim) 8%, transparent);
         }
+        .tool-launcher-item.focus {
+            background: color-mix(in srgb, var(--active-dim) 12%, transparent);
+            color: var(--active-dim);
+        }
         .tool-launcher-item.active {
             border-color: color-mix(in srgb, var(--active-dim) 56%, transparent);
             background: color-mix(in srgb, var(--active-dim) 7%, transparent);
         }
+        .tool-launcher-item.active.focus {
+            background: color-mix(in srgb, var(--active-dim) 14%, transparent);
+        }
         .tool-launcher-item.unavailable {
             opacity: 0.34;
             cursor: default;
+            --tool-row-opacity: 0.34;
         }
+        #tool-launcher.tool-launcher-animating .tool-launcher-panel {
+            animation: toolLauncherPanelIn 260ms ease-out both;
+        }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item {
+            opacity: 0;
+            animation: toolLauncherRowIn 190ms ease-out both;
+        }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(1) { animation-delay: 20ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(2) { animation-delay: 40ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(3) { animation-delay: 60ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(4) { animation-delay: 80ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(5) { animation-delay: 100ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(6) { animation-delay: 120ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(7) { animation-delay: 140ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(8) { animation-delay: 160ms; }
+        #tool-launcher.tool-launcher-animating .tool-launcher-item:nth-child(9) { animation-delay: 180ms; }
         .tool-launcher-icon {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
             color: var(--muted);
             display: grid;
             place-items: center;
@@ -1549,7 +1592,10 @@
         .tool-launcher-item.available:hover .tool-launcher-icon,
         .tool-launcher-item.available:hover .tool-launcher-label,
         .tool-launcher-item.active .tool-launcher-key,
-        .tool-launcher-item.active .tool-launcher-label {
+        .tool-launcher-item.active .tool-launcher-label,
+        .tool-launcher-item.focus .tool-launcher-icon,
+        .tool-launcher-item.focus .tool-launcher-label,
+        .tool-launcher-item.focus .tool-launcher-key {
             color: var(--active-dim);
         }
         .tool-launcher-label {
@@ -1560,21 +1606,13 @@
             text-overflow: ellipsis;
         }
         .tool-launcher-key {
-            min-width: 24px;
-            padding: 4px 0;
-            border: 1px solid var(--border);
-            border-radius: 7px;
-            color: var(--active-dim);
-            background: color-mix(in srgb, var(--surface) 84%, transparent);
-            font-size: 12px;
+            color: var(--muted);
+            font-size: 11px;
             font-weight: 700;
-            text-align: center;
-        }
-        .tool-launcher-item.available:hover .tool-launcher-key {
-            border-color: color-mix(in srgb, var(--active-dim) 50%, var(--border));
+            text-align: right;
         }
         @media (max-width: 620px) {
-            .tool-launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .tool-launcher-panel { width: min(340px, calc(100vw - 24px)); }
         }
 
         /* ── Tool Panel (overrides in tool-list / tool-options mode) ── */
@@ -4286,6 +4324,8 @@
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
         let _toolLauncherOpen = false;
+        let _toolLauncherAnimateOnRender = false;
+        let _toolLauncherClearTimer = null;
         let _toolPanelState = 'closed';
         let _moreToolsExpanded = false;
         let _toolPanelUserClosed = false;
@@ -19139,7 +19179,7 @@
                     id: 'ruler',
                     label: 'Ruler',
                     command: 'ruler.toggle',
-                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><path d="m7 17 2 2"/><path d="m10 14 1 1"/><path d="m13 11 2 2"/><path d="m16 8 1 1"/></svg>',
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16"/><path d="M6 17V7"/><path d="M18 17V7"/><path d="M6 9h12"/><path d="m9 7-3 2 3 2"/><path d="m15 7 3 2-3 2"/></svg>',
                     enabled: () => true,
                     active: () => _rulerMode,
                     unavailableReason: () => '',
@@ -19165,6 +19205,15 @@
             });
         }
 
+        function _animateToolLauncherOpen(root) {
+            if (!root) return;
+            root.classList.remove('tool-launcher-animating');
+            // Force a style flush so reopening the launcher reliably restarts row animations.
+            void root.offsetWidth;
+            root.classList.add('tool-launcher-animating');
+            window.setTimeout(() => root.classList.remove('tool-launcher-animating'), 420);
+        }
+
         function renderToolLauncher() {
             const root = document.getElementById('tool-launcher');
             if (!root) return;
@@ -19173,25 +19222,38 @@
             const hint = document.getElementById('tool-hint');
             if (hint) hint.classList.toggle('active', _toolLauncherOpen || _toolPanelIsOpen() || !!_activeToolId());
             if (!_toolLauncherOpen) {
-                root.innerHTML = '';
+                if (_toolLauncherClearTimer) window.clearTimeout(_toolLauncherClearTimer);
+                _toolLauncherClearTimer = window.setTimeout(() => {
+                    if (!_toolLauncherOpen) root.innerHTML = '';
+                    _toolLauncherClearTimer = null;
+                }, 190);
                 return;
             }
+            if (_toolLauncherClearTimer) {
+                window.clearTimeout(_toolLauncherClearTimer);
+                _toolLauncherClearTimer = null;
+            }
             const items = _toolLauncherItems();
+            const focusItem = items.find(item => item.enabled && item.active) || items.find(item => item.enabled);
             let html = '<div class="tool-launcher-panel" role="dialog" aria-label="Tool launcher">';
-            html += '<div class="tool-launcher-head"><div class="tool-launcher-title">Tools</div><div class="tool-launcher-hint">press key · Esc closes</div></div>';
+            html += '<div class="tool-launcher-head"><div class="tool-launcher-title">Tools</div></div>';
             html += '<div class="tool-launcher-grid">';
             for (const item of items) {
-                const cls = `tool-launcher-item ${item.enabled ? 'available' : 'unavailable'}${item.active ? ' active' : ''}`;
+                const cls = `tool-launcher-item ${item.enabled ? 'available' : 'unavailable'}${item.active ? ' active' : ''}${item === focusItem ? ' focus' : ''}`;
                 const title = _escapeHtml(item.reason || item.label || '');
                 const onclick = item.enabled ? ` onclick="_toolLauncherPick('${item.key}')"` : '';
                 html += `<div class="${cls}" data-tool="${_escapeHtml(item.id)}" title="${title}"${onclick}>`;
-                html += `<span class="tool-launcher-key">${_escapeHtml(item.key)}</span>`;
-                html += `<span class="tool-launcher-label">${_escapeHtml(item.label || '')}</span>`;
                 html += `<span class="tool-launcher-icon">${item.icon || ''}</span>`;
+                html += `<span class="tool-launcher-label">${_escapeHtml(item.label || '')}</span>`;
+                html += `<span class="tool-launcher-key">${_escapeHtml(item.key)}</span>`;
                 html += '</div>';
             }
             html += '</div></div>';
             root.innerHTML = html;
+            if (_toolLauncherAnimateOnRender) {
+                _toolLauncherAnimateOnRender = false;
+                _animateToolLauncherOpen(root);
+            }
         }
 
         function closeToolLauncher() {
@@ -19210,6 +19272,7 @@
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker(false);
             if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
             _toolLauncherOpen = true;
+            _toolLauncherAnimateOnRender = true;
             renderToolLauncher();
             try { sink.focus(); } catch (_) {}
         }
