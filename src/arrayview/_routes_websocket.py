@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import numpy as np
 from fastapi import WebSocket
@@ -159,6 +160,9 @@ def register_websocket_routes(app) -> None:
                 qmri_dim = int(msg.get("qmri_dim", -1))
                 qmri_role = str(msg.get("qmri_role", ""))
                 synthetic_mri = str(msg.get("synthetic_mri", ""))
+                perf = bool(msg.get("perf", False))
+                total_t0 = time.perf_counter()
+                render_t0 = total_t0
 
                 if synthetic_mri:
                     te = msg.get("te")
@@ -331,6 +335,8 @@ def register_websocket_routes(app) -> None:
                         (h, w),
                     )
 
+                render_ms = (time.perf_counter() - render_t0) * 1000.0
+                post_t0 = time.perf_counter()
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
                 vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
                 if canvas_w and canvas_h and (w > canvas_w or h > canvas_h):
@@ -362,6 +368,23 @@ def register_websocket_routes(app) -> None:
                         vf_scale = np.array([vf_result["scale"]], dtype=np.float32).tobytes()
                         payload += vf_hdr + vf_scale + arrows.tobytes()
                 await ws.send_bytes(payload)
+                if perf:
+                    total_ms = (time.perf_counter() - total_t0) * 1000.0
+                    await ws.send_json(
+                        {
+                            "type": "render_timing",
+                            "seq": seq,
+                            "total_ms": total_ms,
+                            "render_ms": render_ms,
+                            "post_ms": (time.perf_counter() - post_t0) * 1000.0,
+                            "payload_bytes": len(payload),
+                            "width": int(w),
+                            "height": int(h),
+                            "raw_cache_entries": len(session.raw_cache),
+                            "rgba_cache_entries": len(session.rgba_cache),
+                            "mosaic_cache_entries": len(session.mosaic_cache),
+                        }
+                    )
 
                 if slice_dim >= 0 and not (dim_z >= 0):
                     _schedule_prefetch(

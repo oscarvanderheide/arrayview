@@ -21,6 +21,24 @@ SNAPSHOTS = Path(__file__).parent / "snapshots"
 DEBUG_DIR = Path(__file__).resolve().parents[1] / "debug"
 
 # ---------------------------------------------------------------------------
+# Perf instrumentation
+# ---------------------------------------------------------------------------
+
+def test_perf_mode_collects_render_samples(page, server_url, sid_3d):
+    page.goto(f"{server_url}/?sid={sid_3d}&perf=1")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    page.wait_for_function(
+        "() => window.__arrayviewPerf && window.__arrayviewPerf.samples.length > 0",
+        timeout=15_000,
+    )
+    perf = page.evaluate(
+        "() => ({enabled: window.__arrayviewPerf.enabled, sample: window.__arrayviewPerf.samples.at(-1)})"
+    )
+    assert perf["enabled"] is True
+    assert perf["sample"]["mode"] in ("ws", "http")
+    assert perf["sample"]["client_total_ms"] is None or perf["sample"]["client_total_ms"] >= 0
+
+# ---------------------------------------------------------------------------
 # Canvas inspection helpers (evaluated in-browser via JS)
 # ---------------------------------------------------------------------------
 

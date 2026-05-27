@@ -1102,6 +1102,29 @@ class TestSlice:
         img = Image.open(io.BytesIO(r.content))
         assert img.size == (64, 64)
 
+    def test_perf_slice_returns_timing_headers(self, client, sid_3d):
+        r = client.get(
+            f"/slice/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+                "perf": 1,
+            },
+        )
+        assert r.status_code == 200
+        assert "render;dur=" in r.headers["Server-Timing"]
+        for name in (
+            "X-ArrayView-Render-Ms",
+            "X-ArrayView-Encode-Ms",
+            "X-ArrayView-Total-Ms",
+            "X-ArrayView-Payload-Bytes",
+        ):
+            assert float(r.headers[name]) >= 0
+
     def test_unknown_sid_is_404(self, client):
         r = client.get(
             "/slice/doesnotexist000",
@@ -1329,6 +1352,46 @@ class TestOverlayWebSocket:
 
         seq, width, height = np.frombuffer(payload[:12], dtype=np.uint32)
         assert (int(seq), int(width), int(height)) == (7, 6, 6)
+
+    def test_ws_perf_sends_timing_json_after_binary_frame(self, tmp_path):
+        from arrayview._app import app
+
+        arr = np.arange(36, dtype=np.float32).reshape(6, 6)
+        np.save(tmp_path / "perf_ws.npy", arr)
+
+        with TestClient(app) as c:
+            sid = c.post(
+                "/load", json={"filepath": str(tmp_path / "perf_ws.npy")}
+            ).json()["sid"]
+
+            with c.websocket_connect(f"/ws/{sid}") as ws:
+                meta = ws.receive_json()
+                assert meta["type"] == "metadata"
+                ws.send_json(
+                    {
+                        "seq": 11,
+                        "dim_x": 1,
+                        "dim_y": 0,
+                        "dim_z": -1,
+                        "indices": [0, 0],
+                        "colormap": "gray",
+                        "dr": 0,
+                        "complex_mode": 0,
+                        "log_scale": False,
+                        "slice_dim": 0,
+                        "direction": 1,
+                        "perf": True,
+                    }
+                )
+                payload = ws.receive_bytes()
+                timing = ws.receive_json()
+
+        seq, width, height = np.frombuffer(payload[:12], dtype=np.uint32)
+        assert (int(seq), int(width), int(height)) == (11, 6, 6)
+        assert timing["type"] == "render_timing"
+        assert timing["seq"] == 11
+        for key in ("total_ms", "render_ms", "post_ms", "payload_bytes"):
+            assert float(timing[key]) >= 0
 
     def test_shell_close_drops_session(self, tmp_path):
         from arrayview._app import app

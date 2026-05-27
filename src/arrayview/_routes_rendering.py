@@ -1,4 +1,5 @@
 import io
+import time
 
 import numpy as np
 from fastapi import Depends, Response
@@ -93,8 +94,11 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         te: float | None = None,
         tr: float | None = None,
         ti: float | None = None,
+        perf: bool = False,
         session=Depends(get_session_or_404),
     ):
+        total_t0 = time.perf_counter()
+        render_t0 = total_t0
         idx_tuple = tuple(int(x) for x in indices.split(","))
         if synthetic_mri:
             try:
@@ -252,17 +256,40 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     vmin_override=vmin_override,
                     vmax_override=vmax_override,
                 )
+        render_ms = (time.perf_counter() - render_t0) * 1000.0
+        encode_t0 = time.perf_counter()
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
+        payload = buf.getvalue()
+        encode_ms = (time.perf_counter() - encode_t0) * 1000.0
+        total_ms = (time.perf_counter() - total_t0) * 1000.0
+        headers = {
+            "Cache-Control": "max-age=300",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        }
+        if perf:
+            payload_bytes = len(payload)
+            headers.update(
+                {
+                    "Server-Timing": (
+                        f"render;dur={render_ms:.3f}, "
+                        f"encode;dur={encode_ms:.3f}, total;dur={total_ms:.3f}"
+                    ),
+                    "X-ArrayView-Render-Ms": f"{render_ms:.3f}",
+                    "X-ArrayView-Encode-Ms": f"{encode_ms:.3f}",
+                    "X-ArrayView-Total-Ms": f"{total_ms:.3f}",
+                    "X-ArrayView-Payload-Bytes": str(payload_bytes),
+                    "X-ArrayView-Raw-Cache-Entries": str(len(session.raw_cache)),
+                    "X-ArrayView-RGBA-Cache-Entries": str(len(session.rgba_cache)),
+                    "X-ArrayView-Mosaic-Cache-Entries": str(len(session.mosaic_cache)),
+                }
+            )
         return Response(
-            content=buf.getvalue(),
+            content=payload,
             media_type="image/jpeg",
-            headers={
-                "Cache-Control": "max-age=300",
-                "X-ArrayView-Vmin": str(vmin),
-                "X-ArrayView-Vmax": str(vmax),
-            },
+            headers=headers,
         )
 
     @app.get("/diff/{sid_a}/{sid_b}")

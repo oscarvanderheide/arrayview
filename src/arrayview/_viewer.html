@@ -4025,6 +4025,57 @@
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
         const _DEBUG_UI = urlParams.get('debug_ui') === '1';
+        const _PERF_ENABLED = urlParams.get('perf') === '1';
+        const _perfRequests = new Map();
+        const _perfServerTimings = new Map();
+        let _perfHttpSeq = 0;
+        window.__arrayviewPerf = {
+            enabled: _PERF_ENABLED,
+            samples: [],
+            maxSamples: 120,
+        };
+
+        function _perfNow() {
+            return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        }
+
+        function _perfMarkRequest(mode, seq, detail) {
+            if (!_PERF_ENABLED || seq === undefined || seq === null) return;
+            const perfKey = (detail && detail.perfKey) || 'main';
+            _perfRequests.set(`${mode}:${perfKey}:${seq}`, { mode, seq, perfKey, start: _perfNow(), detail: detail || {} });
+        }
+
+        function _perfPush(sample) {
+            if (!_PERF_ENABLED) return;
+            const out = Object.assign({ at: _perfNow() }, sample || {});
+            window.__arrayviewPerf.samples.push(out);
+            while (window.__arrayviewPerf.samples.length > window.__arrayviewPerf.maxSamples) {
+                window.__arrayviewPerf.samples.shift();
+            }
+            const n = window.__arrayviewPerf.samples.length;
+            if (n % 8 === 0 && console && typeof console.table === 'function') {
+                console.table(window.__arrayviewPerf.samples.slice(-8));
+            }
+        }
+
+        function _perfCompleteRequest(mode, seq, sample) {
+            if (!_PERF_ENABLED || seq === undefined || seq === null) return;
+            const perfKey = (sample && sample.perfKey) || 'main';
+            const key = `${mode}:${perfKey}:${seq}`;
+            const req = _perfRequests.get(key);
+            if (req) _perfRequests.delete(key);
+            const normalized = Object.assign({}, sample || {});
+            if (req && normalized.frame_receive_at !== undefined && normalized.frame_receive_at !== null) {
+                normalized.frame_receive_ms = normalized.frame_receive_at - req.start;
+                delete normalized.frame_receive_at;
+            }
+            _perfPush(Object.assign({
+                mode,
+                seq,
+                perfKey,
+                client_total_ms: req ? _perfNow() - req.start : null,
+            }, req ? req.detail : {}, normalized));
+        }
 
         let _metadataResolve = null;
         const _metadataFromWs = new Promise(r => { _metadataResolve = r; });
@@ -10932,11 +10983,14 @@
                         if (msg.type === 'metadata' && _metadataResolve) {
                             _metadataResolve(msg);
                             _metadataResolve = null;
+                        } else if (msg.type === 'render_timing' && _PERF_ENABLED) {
+                            _perfHandleTimingMessage(event.data, 'main');
                         }
                     } catch (_) {}
                     return;
                 }
                 const buf = event.data;
+                const frameReceiveTime = _perfNow();
                 const headerU32 = new Uint32Array(buf, 0, 3);
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
@@ -10967,6 +11021,7 @@
                         }
 
                         const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                        const drawT0 = _perfNow();
                         const newImageData = new ImageData(rgba, width, height);
                         crossFadeIn(newImageData, width, height);
                         // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
@@ -10995,6 +11050,15 @@
                             drawVectorOverlay();
                         }
                         updateMiniMap();
+                        _perfCompleteRequest('ws', seq, {
+                            frame_receive_at: frameReceiveTime,
+                            draw_ms: _perfNow() - drawT0,
+                            width,
+                            height,
+                            payload_bytes: buf.byteLength,
+                            server: _perfServerTimings.get(`main:${seq}`) || null,
+                        });
+                        _perfServerTimings.delete(`main:${seq}`);
                         if (!_reportedFirstFrame) {
                             _reportedFirstFrame = true;
                             reportParent('frame-rendered', {
@@ -11059,6 +11123,20 @@
         }
 
         async function fetchSliceFrame(params, targetSid = sid, opts = null) {
+            let perfSeq = null;
+            let fetchT0 = 0;
+            let decodeT0 = 0;
+            let decodeMs = null;
+            if (_PERF_ENABLED) {
+                perfSeq = ++_perfHttpSeq;
+                params.set('perf', '1');
+                _perfMarkRequest('http', perfSeq, {
+                    perfKey: targetSid,
+                    sid: targetSid,
+                    path: `/slice/${targetSid}`,
+                });
+                fetchT0 = _perfNow();
+            }
             const timeoutMs = opts && Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 0;
             const timed = _withTimeout(null, timeoutMs);
             let res;
@@ -11079,12 +11157,65 @@
             const vmin = Number(res.headers.get('X-ArrayView-Vmin'));
             const vmax = Number(res.headers.get('X-ArrayView-Vmax'));
             const blob = await res.blob();
+            if (_PERF_ENABLED) decodeT0 = _perfNow();
             const decoded = await decodeBlobToImageData(blob);
+            if (_PERF_ENABLED) {
+                decodeMs = _perfNow() - decodeT0;
+                _perfCompleteRequest('http', perfSeq, {
+                    perfKey: targetSid,
+                    fetch_ms: decodeT0 - fetchT0,
+                    decode_ms: decodeMs,
+                    width: decoded.width,
+                    height: decoded.height,
+                    payload_bytes: Number(res.headers.get('X-ArrayView-Payload-Bytes')) || blob.size || null,
+                    server: {
+                        render_ms: Number(res.headers.get('X-ArrayView-Render-Ms')),
+                        encode_ms: Number(res.headers.get('X-ArrayView-Encode-Ms')),
+                        total_ms: Number(res.headers.get('X-ArrayView-Total-Ms')),
+                        payload_bytes: Number(res.headers.get('X-ArrayView-Payload-Bytes')),
+                        raw_cache_entries: Number(res.headers.get('X-ArrayView-Raw-Cache-Entries')),
+                        rgba_cache_entries: Number(res.headers.get('X-ArrayView-RGBA-Cache-Entries')),
+                        mosaic_cache_entries: Number(res.headers.get('X-ArrayView-Mosaic-Cache-Entries')),
+                    },
+                });
+            }
             return {
                 ...decoded,
                 vmin,
                 vmax,
+                perfSeq,
             };
+        }
+
+        function _perfAttachHttpDraw(frame, drawMs) {
+            if (!_PERF_ENABLED || !frame || !frame.perfSeq) return;
+            for (let i = window.__arrayviewPerf.samples.length - 1; i >= 0; i--) {
+                const sample = window.__arrayviewPerf.samples[i];
+                if (sample.mode === 'http' && sample.seq === frame.perfSeq) {
+                    sample.draw_ms = drawMs;
+                    break;
+                }
+            }
+        }
+
+        function _perfHandleTimingMessage(text, perfKey) {
+            if (!_PERF_ENABLED || typeof text !== 'string') return false;
+            const key = perfKey || 'main';
+            try {
+                const msg = JSON.parse(text);
+                if (msg.type !== 'render_timing') return false;
+                _perfServerTimings.set(`${key}:${msg.seq}`, msg);
+                for (let i = window.__arrayviewPerf.samples.length - 1; i >= 0; i--) {
+                    const sample = window.__arrayviewPerf.samples[i];
+                    if (sample.mode === 'ws' && sample.seq === msg.seq && sample.perfKey === key) {
+                        sample.server = msg;
+                        break;
+                    }
+                }
+                return true;
+            } catch (_) {
+                return false;
+            }
         }
 
         async function updateViewHttp() {
@@ -11139,6 +11270,7 @@
                 lastImageData = frame.imageData;
                 lastImgW = frame.width;
                 lastImgH = frame.height;
+                const drawT0 = _perfNow();
                 crossFadeIn(frame.imageData, frame.width, frame.height);
                 if (document.getElementById('loading-overlay').style.display !== 'none') {
                     document.getElementById('canvas-wrap').style.display = '';
@@ -11148,6 +11280,7 @@
                     setTimeout(() => _playStartupAnimation(), _delay);
                 }
                 scaleCanvas(frame.width, frame.height);
+                _perfAttachHttpDraw(frame, _perfNow() - drawT0);
                 drawVectorOverlay();
                 drawSlimColorbar(cbMarkerFrac);
                 updateMiniMap();
@@ -15033,6 +15166,7 @@
 
             isRendering = true;
             wsSentSeq++;
+            _perfMarkRequest('ws', wsSentSeq, { perfKey: 'main', sid, dim_x, dim_y, slice_dim: current_slice_dim });
             const _dpr = window.devicePixelRatio || 1;
             const canvas_w = Math.round((parseInt(canvas.style.width)  || window.innerWidth)  * _dpr);
             const canvas_h = Math.round((parseInt(canvas.style.height) || window.innerHeight) * _dpr);
@@ -15057,6 +15191,7 @@
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
                 vf_density: hasVectorfield ? vfDensityLevel : undefined,
                 vf_t: hasVectorfield ? vfieldT : undefined,
+                perf: _PERF_ENABLED,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -23377,6 +23512,8 @@
             const _qdpr = window.devicePixelRatio || 1;
             const _qcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _qdpr);
             const _qch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _qdpr);
+            const perfKey = `compare-qmri:${v.sid}:${v.qmriIdx}`;
+            _perfMarkRequest('ws', v.seq, { perfKey, sid: v.sid, pane: 'compare-qmri', dim_x, dim_y, slice_dim: current_slice_dim });
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
@@ -23392,6 +23529,7 @@
                 canvas_h: _qch,
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
+                perf: _PERF_ENABLED,
             }));
         }
 
@@ -23533,19 +23671,31 @@
         }
 
         function compareQmriOnMessage(v, event) {
-            if (typeof event.data === 'string') return;
+            const perfKey = `compare-qmri:${v.sid}:${v.qmriIdx}`;
+            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
             const buf = event.data;
+            const frameReceiveTime = _perfNow();
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq && compareQmriActive && v._qmriGeneration === _qmriRenderGeneration && compareQmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                const drawT0 = _perfNow();
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
                 compareQmriScaleAllCanvases();
                 compareQmriDrawFrame(v);
                 if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
+                _perfCompleteRequest('ws', h32[0], {
+                    frame_receive_at: frameReceiveTime,
+                    draw_ms: _perfNow() - drawT0,
+                    width,
+                    height,
+                    payload_bytes: buf.byteLength,
+                    perfKey,
+                    server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
+                });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; compareQmriRender(v); }
@@ -23909,6 +24059,8 @@
             const _dpr = window.devicePixelRatio || 1;
             const _cw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _dpr);
             const _ch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _dpr);
+            const perfKey = `compare-mv:${v.sid}:${v.dimX}:${v.dimY}`;
+            _perfMarkRequest('ws', v.seq, { perfKey, sid: v.sid, pane: 'compare-mv', dim_x: v.dimX, dim_y: v.dimY, slice_dim: v.sliceDir });
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
                 indices: [...indices], colormap: currentColormap(),
@@ -23922,6 +24074,7 @@
                 canvas_h: _ch,
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? v.sliceDir : -1,
+                perf: _PERF_ENABLED,
             }));
         }
 
@@ -24096,8 +24249,10 @@
         }
 
         function compareMvOnMessage(v, event) {
-            if (typeof event.data === 'string') return;
+            const perfKey = `compare-mv:${v.sid}:${v.dimX}:${v.dimY}`;
+            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
             const buf = event.data;
+            const frameReceiveTime = _perfNow();
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq) {
@@ -24109,10 +24264,20 @@
                     v.vmin = v.lockedVmin; v.vmax = v.lockedVmax;
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                const drawT0 = _perfNow();
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
+                _perfCompleteRequest('ws', h32[0], {
+                    frame_receive_at: frameReceiveTime,
+                    draw_ms: _perfNow() - drawT0,
+                    width,
+                    height,
+                    payload_bytes: buf.byteLength,
+                    perfKey,
+                    server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
+                });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; compareMvRender(v); }
@@ -24157,6 +24322,9 @@
             if (qmriMosaicActive) _qmMsg.mosaic_cols = shape[_qmriMosaicZDim];
             if (v.lockedVmin != null) _qmMsg.vmin_override = v.lockedVmin;
             if (v.lockedVmax != null) _qmMsg.vmax_override = v.lockedVmax;
+            _qmMsg.perf = _PERF_ENABLED;
+            const perfKey = v.syntheticId ? `qmri-synth:${v.syntheticId}` : `qmri:${v.qmriIdx}`;
+            _perfMarkRequest('ws', v.seq, { perfKey, sid: v.sid || sid, pane: 'qmri', dim_x, dim_y, slice_dim: current_slice_dim });
             v.ws.send(JSON.stringify(_qmMsg));
         }
 
@@ -24499,8 +24667,10 @@
 
         function qvOnMessage(v, event) {
             // Skip text messages (e.g. metadata JSON push on new WS connections)
-            if (typeof event.data === 'string') return;
+            const perfKey = v.syntheticId ? `qmri-synth:${v.syntheticId}` : `qmri:${v.qmriIdx}`;
+            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
             const buf = event.data;
+            const frameReceiveTime = _perfNow();
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq && qmriActive && v._qmriGeneration === _qmriRenderGeneration && qmriViews.includes(v)) {
@@ -24511,12 +24681,22 @@
                     v.lockedVmax = v.vmax;
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                const drawT0 = _perfNow();
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
                 if (qmriMosaicActive && v._mosaicColorBar) { v._mosaicColorBar.draw(); v._mosaicColorBar.updateLabels(); }
                 else if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
+                _perfCompleteRequest('ws', h32[0], {
+                    frame_receive_at: frameReceiveTime,
+                    draw_ms: _perfNow() - drawT0,
+                    width,
+                    height,
+                    payload_bytes: buf.byteLength,
+                    perfKey,
+                    server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
+                });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; qvRender(v); }
@@ -24656,6 +24836,8 @@
             const _mvdpr = window.devicePixelRatio || 1;
             const _mvcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _mvdpr);
             const _mvch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _mvdpr);
+            const perfKey = `mv:${v.dimX}:${v.dimY}`;
+            _perfMarkRequest('ws', v.seq, { perfKey, sid, pane: 'mv', dim_x: v.dimX, dim_y: v.dimY, slice_dim: v.sliceDir });
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
                 indices: [...indices], colormap: currentColormap(),
@@ -24671,6 +24853,7 @@
                 projection_dim: projectionMode > 0 ? v.sliceDir : -1,
                 vf_density: hasVectorfield ? vfDensityLevel : undefined,
                 vf_t: hasVectorfield ? vfieldT : undefined,
+                perf: _PERF_ENABLED,
             }));
         }
 
@@ -25060,8 +25243,10 @@
         function mvOnMessage(v, event) {
             _refreshLoupeFromLastMouse();
             // Skip text messages (e.g. metadata JSON push on new WS connections)
-            if (typeof event.data === 'string') return;
+            const perfKey = `mv:${v.dimX}:${v.dimY}`;
+            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
             const buf = event.data;
+            const frameReceiveTime = _perfNow();
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq) {
@@ -25073,6 +25258,7 @@
                     v.vmin = v.lockedVmin; v.vmax = v.lockedVmax;
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                const drawT0 = _perfNow();
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
                 // Ensure CSS scaling is applied before drawing so we can compute
@@ -25093,6 +25279,15 @@
                         mvDrawVectorOverlay(v, mvViews.indexOf(v));
                     }
                 }
+                _perfCompleteRequest('ws', h32[0], {
+                    frame_receive_at: frameReceiveTime,
+                    draw_ms: _perfNow() - drawT0,
+                    width,
+                    height,
+                    payload_bytes: buf.byteLength,
+                    perfKey,
+                    server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
+                });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
