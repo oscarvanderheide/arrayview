@@ -19,6 +19,11 @@ const LOG_FILE = path.join(SIGNAL_DIR, 'extension.log');
 function _findVscodeIpcHook() {
     const direct = process.env.VSCODE_IPC_HOOK_CLI || '';
     if (direct && fs.existsSync(direct)) return direct;
+    // Parent-process walk only works on Unix (uses ps).
+    // On Windows, VSCODE_IPC_HOOK_CLI is already available directly in
+    // the extension host process, and the extension injects
+    // ARRAYVIEW_WINDOW_ID for terminal-to-window routing.
+    if (process.platform === 'win32') return '';
     // Walk up to 8 ancestor processes looking for VSCODE_IPC_HOOK_CLI.
     let pid = process.pid;
     for (let i = 0; i < 8; i++) {
@@ -59,9 +64,20 @@ function _getAncestorPids(pid, depth) {
     const result = [];
     let p = pid;
     for (let i = 0; i < depth; i++) {
-        const res = spawnSync('ps', ['-p', String(p), '-o', 'ppid='],
-            { encoding: 'utf8', timeout: 1000 });
-        const ppid = parseInt((res.stdout || '').trim(), 10);
+        let ppid = 0;
+        if (process.platform === 'win32') {
+            try {
+                const res = spawnSync('powershell', [
+                    '-NoProfile', '-Command',
+                    `(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=${p}").ParentProcessId`
+                ], { encoding: 'utf8', timeout: 3000 });
+                ppid = parseInt((res.stdout || '').trim(), 10);
+            } catch (_) { break; }
+        } else {
+            const res = spawnSync('ps', ['-p', String(p), '-o', 'ppid='],
+                { encoding: 'utf8', timeout: 1000 });
+            ppid = parseInt((res.stdout || '').trim(), 10);
+        }
         if (!ppid || ppid <= 1) break;
         result.push(ppid);
         p = ppid;
@@ -107,7 +123,10 @@ class PythonBridge {
                 const folders = vscode.workspace.workspaceFolders;
                 if (folders) {
                     for (const f of folders) {
-                        const venvPy = path.join(f.uri.fsPath, '.venv', 'bin', 'python');
+                        const isWin = process.platform === 'win32';
+                        const venvPy = isWin
+                            ? path.join(f.uri.fsPath, '.venv', 'Scripts', 'python.exe')
+                            : path.join(f.uri.fsPath, '.venv', 'bin', 'python');
                         if (fs.existsSync(venvPy)) {
                             this._candidates.unshift(venvPy);
                             break;

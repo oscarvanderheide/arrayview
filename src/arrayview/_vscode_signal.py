@@ -12,7 +12,7 @@ import time
 import uuid
 
 from arrayview._session import _vprint
-from arrayview._platform import _find_vscode_ipc_hook, _is_vscode_remote
+from arrayview._platform import _find_vscode_ipc_hook, _is_vscode_remote, get_ppid
 
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
@@ -79,31 +79,11 @@ def _find_current_vscode_window_id() -> str | None:
         )
         return None
 
-    # Helper: get parent PID of a process (macOS/Linux)
-    def _ppid(pid: int) -> int:
-        try:
-            with open(f"/proc/{pid}/status") as fh:
-                for line in fh:
-                    if line.startswith("PPid:"):
-                        return int(line.split()[1])
-        except Exception:
-            pass
-        try:
-            r = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "ppid="],
-                capture_output=True,
-                text=True,
-                timeout=1,
-            )
-            return int(r.stdout.strip())
-        except Exception:
-            return -1
-
     # Collect our ancestor PIDs with depth (depth=1 means direct parent)
     our_ancestors: dict[int, int] = {}
     cur = os.getpid()
     for depth in range(1, 25):
-        p = _ppid(cur)
+        p = get_ppid(cur)
         if p <= 1 or p in our_ancestors:
             break
         our_ancestors[p] = depth
@@ -155,31 +135,9 @@ def _find_arrayview_window_id() -> str | None:
     if val:
         return val
 
-    # Walk ancestors looking for ARRAYVIEW_WINDOW_ID (uv run strips env vars).
-    # Mirrors the approach in _platform._find_vscode_ipc_hook() for cross-platform support.
-    def _ppid(pid: int) -> int:
-        try:
-            with open(f"/proc/{pid}/status") as fh:
-                for line in fh:
-                    if line.startswith("PPid:"):
-                        return int(line.split()[1])
-        except Exception:
-            pass
-        try:
-            r = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "ppid="],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            return int(r.stdout.strip())
-        except Exception:
-            pass
-        return -1
-
     pid = os.getpid()
     for _ in range(20):
-        pid = _ppid(pid)
+        pid = get_ppid(pid)
         if pid <= 1:
             break
         # Linux: /proc/<pid>/environ (null-separated KEY=VALUE pairs)

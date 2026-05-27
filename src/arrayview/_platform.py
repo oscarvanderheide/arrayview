@@ -6,6 +6,44 @@ import os
 import subprocess
 import sys
 
+
+def get_ppid(pid: int) -> int:
+    """Return parent PID of *pid*, or -1 if unavailable.
+
+    Cross-platform: /proc on Linux, ps on macOS, wmic on Windows.
+    """
+    if sys.platform == "win32":
+        try:
+            r = subprocess.run(
+                ["wmic", "process", "where", f"processid={pid}",
+                 "get", "parentprocessid"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in r.stdout.strip().splitlines():
+                val = line.strip()
+                if val.isdigit():
+                    return int(val)
+        except Exception:
+            pass
+        return -1
+    try:
+        with open(f"/proc/{pid}/status") as fh:
+            for line in fh:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1])
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "ppid="],
+            capture_output=True, text=True, timeout=2,
+        )
+        return int(r.stdout.strip())
+    except Exception:
+        pass
+    return -1
+
+
 # ---------------------------------------------------------------------------
 # Jupyter
 # ---------------------------------------------------------------------------
@@ -58,26 +96,6 @@ def _in_matlab() -> bool:
         _MATLAB_CACHE = True
         return True
 
-    def _ppid(pid: int) -> int:
-        try:
-            with open(f"/proc/{pid}/status") as fh:
-                for line in fh:
-                    if line.startswith("PPid:"):
-                        return int(line.split()[1])
-        except Exception:
-            pass
-        try:
-            r = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "ppid="],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            return int(r.stdout.strip())
-        except Exception:
-            pass
-        return -1
-
     def _command_from_pid(pid: int) -> str:
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
@@ -103,7 +121,7 @@ def _in_matlab() -> bool:
         if "matlab" in cmd:
             _MATLAB_CACHE = True
             return True
-        pid = _ppid(pid)
+        pid = get_ppid(pid)
         if pid <= 1:
             break
 
@@ -129,26 +147,6 @@ def _find_vscode_ipc_hook() -> str | None:
     global _VSCODE_IPC_HOOK_CACHE
     if _VSCODE_IPC_HOOK_CACHE != "__unset__":
         return _VSCODE_IPC_HOOK_CACHE
-
-    def _ppid(pid: int) -> int:
-        try:
-            with open(f"/proc/{pid}/status") as fh:
-                for line in fh:
-                    if line.startswith("PPid:"):
-                        return int(line.split()[1])
-        except Exception:
-            pass
-        try:
-            r = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "ppid="],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            return int(r.stdout.strip())
-        except Exception:
-            pass
-        return -1
 
     def _ipc_from_pid(pid: int) -> str:
         # Linux: /proc/<pid>/environ (null-separated KEY=VALUE pairs)
@@ -184,7 +182,7 @@ def _find_vscode_ipc_hook() -> str | None:
     # Walk up to 12 ancestor processes
     pid = os.getpid()
     for _ in range(12):
-        pid = _ppid(pid)
+        pid = get_ppid(pid)
         if pid <= 1:
             break
         val = _ipc_from_pid(pid)

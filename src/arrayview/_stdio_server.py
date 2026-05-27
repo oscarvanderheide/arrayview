@@ -721,43 +721,96 @@ def run_stdio_server() -> None:
     processing a slice, we non-blocking peek for newer messages and skip stale
     intermediate frames with a minimal 1×1 response.  No threads — zero
     overhead when the queue is empty.
+
+    On Windows, select() only supports sockets (not pipes/stdio), so a
+    background reader thread feeds a queue for coalescing.
     """
     _init_luts()
 
-    # Bypass Python's buffered IO so select() accurately reflects available
-    # data.  We manage our own read buffer on the raw fd.
-    _fd = sys.stdin.fileno()
-    _buf = b""
+    if sys.platform == "win32":
+        import threading as _threading
+        import queue as _queue
 
-    def _read_line() -> str | None:
-        """Block until a complete line is available, return it (or None on EOF)."""
-        nonlocal _buf
-        while b"\n" not in _buf:
-            select.select([_fd], [], [])
+        _win32_line_queue: _queue.Queue = _queue.Queue()
+        _win32_eof = False
+
+        def _win32_reader() -> None:
+            nonlocal _win32_eof
+            try:
+                while True:
+                    line = sys.stdin.readline()
+                    if not line:
+                        break
+                    _win32_line_queue.put(line)
+            except Exception:
+                pass
+            _win32_eof = True
+
+        _win32_reader_thread = _threading.Thread(
+            target=_win32_reader, daemon=True
+        )
+        _win32_reader_thread.start()
+
+        def _read_line() -> str | None:
+            """Block until a complete line is available, return it (or None on EOF)."""
+            while True:
+                try:
+                    line: str = _win32_line_queue.get(timeout=0.1)
+                    if line.endswith("\n"):
+                        line = line[:-1]
+                    if line.endswith("\r"):
+                        line = line[:-1]
+                    return line
+                except _queue.Empty:
+                    if _win32_eof and _win32_line_queue.empty():
+                        return None
+
+        def _try_read_line() -> str | None:
+            """Return next line if data is immediately available, else None."""
+            try:
+                line: str = _win32_line_queue.get_nowait()
+                if line.endswith("\n"):
+                    line = line[:-1]
+                if line.endswith("\r"):
+                    line = line[:-1]
+                return line
+            except _queue.Empty:
+                return None
+    else:
+        # Bypass Python's buffered IO so select() accurately reflects available
+        # data.  We manage our own read buffer on the raw fd.
+        _fd = sys.stdin.fileno()
+        _buf = b""
+
+        def _read_line() -> str | None:
+            """Block until a complete line is available, return it (or None on EOF)."""
+            nonlocal _buf
+            while b"\n" not in _buf:
+                select.select([_fd], [], [])
+                chunk = os.read(_fd, 65536)
+                if not chunk:
+                    return None
+                _buf += chunk
+            line, _, _buf = _buf.partition(b"\n")
+            return line.decode()
+
+        def _try_read_line() -> str | None:
+            """Return next line if data is immediately available, else None."""
+            nonlocal _buf
+            if b"\n" in _buf:
+                line, _, _buf = _buf.partition(b"\n")
+                return line.decode()
+            readable, _, _ = select.select([_fd], [], [], 0)
+            if not readable:
+                return None
             chunk = os.read(_fd, 65536)
             if not chunk:
                 return None
             _buf += chunk
-        line, _, _buf = _buf.partition(b"\n")
-        return line.decode()
-
-    def _try_read_line() -> str | None:
-        """Return next line if data is immediately available, else None."""
-        nonlocal _buf
-        if b"\n" in _buf:
-            line, _, _buf = _buf.partition(b"\n")
-            return line.decode()
-        readable, _, _ = select.select([_fd], [], [], 0)
-        if not readable:
+            if b"\n" in _buf:
+                line, _, _buf = _buf.partition(b"\n")
+                return line.decode()
             return None
-        chunk = os.read(_fd, 65536)
-        if not chunk:
-            return None
-        _buf += chunk
-        if b"\n" in _buf:
-            line, _, _buf = _buf.partition(b"\n")
-            return line.decode()
-        return None
 
     def _parse_line(raw: str) -> dict | None:
         """Parse a stripped line as JSON; write error response on failure."""
