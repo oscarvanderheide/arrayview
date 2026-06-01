@@ -16391,9 +16391,20 @@
                 if (_pointInRoi(_rois[i], cx, cy)) { hitIdx = i; break; }
             }
             const piEl = document.getElementById('main-pixel-info');
-            if (hitIdx < 0 || !_rois[hitIdx].stats) { ttip.style.display = 'none'; if (_pixelInfoVisible) piEl.style.display = ''; return; }
+            if (hitIdx < 0 || (!_rois[hitIdx].stats && !_rois[hitIdx].qmriStats)) { ttip.style.display = 'none'; if (_pixelInfoVisible) piEl.style.display = ''; return; }
             const s = _rois[hitIdx].stats;
+            const q = _rois[hitIdx].qmriStats;
             const c = _roiColors[hitIdx % _roiColors.length];
+            if (Array.isArray(q) && q.length && q[0].stats) {
+                const ttipQ = document.getElementById('roi-stats-tooltip');
+                if (ttipQ) {
+                    ttipQ.innerHTML = _buildRoiTooltipContent(hitIdx);
+                    ttipQ.style.display = 'block';
+                    _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
+                }
+                if (_pixelInfoVisible) piEl.style.display = 'none';
+                return;
+            }
             const fmt = v => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
             ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">${hitIdx+1}</span> ${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
             ttip.style.display = 'block';
@@ -23011,6 +23022,46 @@
                     });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
+                    cv.addEventListener('mousemove', (e) => {
+                        if (!rectRoiMode || roiDragging) return;
+                        const rect = cv.getBoundingClientRect();
+                        const cx = (e.clientX - rect.left) * view.lastW / rect.width;
+                        const cy = (e.clientY - rect.top) * view.lastH / rect.height;
+                        let hitIdx = -1;
+                        for (let ii = _rois.length - 1; ii >= 0; ii--) {
+                            if (_pointInRoi(_rois[ii], cx, cy)) { hitIdx = ii; break; }
+                        }
+                        if (hitIdx < 0 || (!_rois[hitIdx].stats && !_rois[hitIdx].qmriStats)) {
+                            const t = document.getElementById('roi-hover-tooltip');
+                            if (t) t.style.display = 'none';
+                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            return;
+                        }
+                        const q = _rois[hitIdx].qmriStats;
+                        if (Array.isArray(q) && q.length && q[0].stats) {
+                            const tq = document.getElementById('roi-stats-tooltip');
+                            if (tq) {
+                                tq.innerHTML = _buildRoiTooltipContent(hitIdx);
+                                tq.classList.add('visible');
+                                _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
+                            }
+                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            return;
+                        }
+                        const s = _rois[hitIdx].stats;
+                        const c = _roiColors[hitIdx % _roiColors.length];
+                        const fmt = (v) => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
+                        const t = document.getElementById('roi-hover-tooltip');
+                        if (t) {
+                            t.innerHTML = '#' + (hitIdx + 1) + ' ' + fmt(s.mean) + ' +/- ' + fmt(s.std);
+                            t.style.display = 'block';
+                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                        }
+                    });
+                    cv.addEventListener('mouseleave', () => {
+                        const tq = document.getElementById('roi-stats-tooltip');
+                        if (tq) tq.classList.remove('visible');
+                    });
                     cv.addEventListener('contextmenu', (e) => {
                         if (!rectRoiMode) return;
                         e.preventDefault(); e.stopImmediatePropagation();
