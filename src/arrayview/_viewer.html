@@ -24702,8 +24702,13 @@
                          - bottomPad;
             const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
             const absMaxScaleH = Math.max(10, totalH / rows);
-            const absMaxScale = Math.min(...ready.map(v =>
-                Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
+            const layoutSizes = ready.map(v => ({
+                v,
+                w: Math.max(1, Number(shape[dim_x]) || v.lastW),
+                h: Math.max(1, Number(shape[dim_y]) || v.lastH),
+            }));
+            const absMaxScale = Math.min(...layoutSizes.map(({ w, h }) =>
+                Math.min(absMaxScaleW / w, absMaxScaleH / h)));
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
             // Per-pane geometry routed through the shared _scalePane primitive.
             // qMRI non-mosaic has no per-pane pan or viewport clipping: each canvas
@@ -24716,13 +24721,13 @@
             // clip/pan machinery entirely.
             const _qvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             const qvBaseScale = cappedScale / Math.max(0.0001, userZoom);
-            for (const v of ready) {
+            for (const { v, w, h } of layoutSizes) {
                 _scalePane(
-                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _qvPanStub },
+                    { canvas: v.canvas, w, h, pan: _qvPanStub },
                     null,
                     {
-                        maxW: Math.round(v.lastW * cappedScale),
-                        maxH: Math.round(v.lastH * cappedScale),
+                        maxW: Math.round(w * cappedScale),
+                        maxH: Math.round(h * cappedScale),
                         baseScale: qvBaseScale,
                         squareStretch: false,
                         updateAutoFit: false,

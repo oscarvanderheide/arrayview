@@ -1507,6 +1507,37 @@ class TestKeyboard:
         page.wait_for_timeout(500)
         assert page.locator("canvas.qv-canvas").count() == 5
 
+    def test_qmri_layout_ignores_thumbnail_frame_size(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_selector("#qmri-view-wrap.active .qv-canvas", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        state = page.evaluate(
+            """() => {
+                if (typeof qvScaleAllCanvases !== 'function' || !Array.isArray(qmriViews)) {
+                    return { error: 'qMRI globals unavailable' };
+                }
+                const views = qmriViews.filter(v => v.canvas && v.lastW && v.lastH);
+                if (views.length < 3) return { error: 'not enough qMRI panes', count: views.length };
+                qvScaleAllCanvases();
+                const before = views.slice(0, 3).map(v => Math.round(v.canvas.getBoundingClientRect().width));
+                views[1].lastW = Math.max(4, Math.round((Number(shape[dim_x]) || views[1].lastW) / 8));
+                views[1].lastH = Math.max(4, Math.round((Number(shape[dim_y]) || views[1].lastH) / 8));
+                qvScaleAllCanvases();
+                const after = views.slice(0, 3).map(v => Math.round(v.canvas.getBoundingClientRect().width));
+                return { before, after };
+            }"""
+        )
+
+        assert "error" not in state, f"qMRI layout test setup failed: {state}"
+        assert min(state["before"]) > 20, f"expected visible qMRI panes before perturbation, got: {state}"
+        assert min(state["after"]) / max(state["after"]) > 0.9, (
+            "qMRI pane layout should stay uniform when one pane receives a thumbnail-sized frame, "
+            f"got: {state}"
+        )
+
     def test_s_puts_status_message(self, loaded_viewer, sid_2d):
         # s triggers download and sets #status to "Screenshot saved."
         page = loaded_viewer(sid_2d)
