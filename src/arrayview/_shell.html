@@ -243,26 +243,26 @@
         }
         connectShellWS();
 
-        if (!window.__av_inline) {
-            const params = new URLSearchParams(window.location.search);
-            const initSid = params.get('init_sid');
-            const initName = params.get('init_name');
-            const initCompareSid = params.get('init_compare_sid');
-            const initCompareSids = params.get('init_compare_sids');
-            if (initSid) {
-                let url = `/?sid=${initSid}`;
-                if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
-                addTab(initSid, initName || 'Array', url);
-            } else {
-                fetch('/sessions').then(r => r.json()).then(sessions => {
-                    if (sessions.length > 0) {
-                        sessions.forEach(s => addTab(s.sid, s.name));
-                    } else {
-                        // No arrays loaded yet — show the welcome/plasma screen
-                        addTab('__welcome__', '', '/');
-                    }
-                }).catch(() => { addTab('__welcome__', '', '/'); });
-            }
+        const initParams = new URLSearchParams(
+            window.__av_inline ? (window.__av_inlineQuery || '') : window.location.search
+        );
+        const initSid = initParams.get('init_sid');
+        const initName = initParams.get('init_name');
+        const initCompareSid = initParams.get('init_compare_sid');
+        const initCompareSids = initParams.get('init_compare_sids');
+        if (initSid) {
+            let url = `/?sid=${initSid}`;
+            if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
+            addTab(initSid, initName || 'Array', url);
+        } else if (!window.__av_inline) {
+            fetch('/sessions').then(r => r.json()).then(sessions => {
+                if (sessions.length > 0) {
+                    sessions.forEach(s => addTab(s.sid, s.name));
+                } else {
+                    // No arrays loaded yet — show the welcome/plasma screen
+                    addTab('__welcome__', '', '/');
+                }
+            }).catch(() => { addTab('__welcome__', '', '/'); });
         }
     </script>
 </body>

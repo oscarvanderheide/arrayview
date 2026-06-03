@@ -2551,33 +2551,66 @@ class TestNormalInspectInteractions:
         _focus_kb(page)
         page.keyboard.press("i")
         page.wait_for_timeout(180)
+        page.evaluate(
+            """() => {
+                flip_x = true;
+                if (lastImageData && ctx) {
+                    ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                }
+                renderInfo();
+            }"""
+        )
 
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
-        page.mouse.move(cx - 20, cy - 12)
+        pin_x = cx - 64
+        pin_y = cy
+        page.mouse.move(pin_x, pin_y)
         page.wait_for_timeout(180)
 
-        hover_card_visible = page.evaluate(
-            "() => !!document.querySelector('#main-pixel-info .pixel-hover-card')"
+        hover_state = page.evaluate(
+            """() => ({
+                visible: !!document.querySelector('#main-pixel-info .pixel-hover-card'),
+                valueText: (document.querySelector('#main-pixel-info .pixel-hover-value') || {}).textContent || '',
+                coordsText: (document.querySelector('#main-pixel-info .pixel-hover-coords') || {}).textContent || '',
+            })"""
         )
-        hover_coords = page.evaluate(
-            "() => (document.querySelector('#main-pixel-info .pixel-hover-coords') || {}).textContent || ''"
-        )
-        assert hover_card_visible, "hover-info mode should show the pinned-style hover card"
-        assert "x=" in hover_coords and "y=" in hover_coords, "hover card should include coordinates"
+        assert hover_state["visible"], "hover-info mode should show the pinned-style hover card"
+        assert "x=" in hover_state["coordsText"] and "y=" in hover_state["coordsText"], "hover card should include coordinates"
+        assert hover_state["valueText"].strip(), "hover card should show a numeric value before pinning"
 
-        page.mouse.click(cx, cy)
+        page.mouse.click(pin_x, pin_y)
+        page.evaluate(
+            """async () => {
+                for (const key of Object.keys(_hoverSliceCache)) delete _hoverSliceCache[key];
+                await _refreshHoverPins(true);
+            }"""
+        )
         page.mouse.click(cx + 80, cy + 30)
         page.wait_for_timeout(240)
 
         pin_count = page.evaluate(
             "() => document.querySelectorAll('#main-pixel-pins .main-pixel-pin').length"
         )
-        pin_value = page.evaluate(
-            "() => (document.querySelector('#main-pixel-pins .main-pixel-pin .pixel-pin-value') || {}).textContent || ''"
+        pin_state = page.evaluate(
+            """() => {
+                const pin = document.querySelector('#main-pixel-pins .main-pixel-pin');
+                return {
+                    valueText: (pin?.querySelector('.pixel-pin-value') || {}).textContent || '',
+                    coordsText: (pin?.querySelector('.pixel-pin-coords') || {}).textContent || '',
+                };
+            }"""
         )
         assert pin_count == 2, "clicking twice in hover-info mode should create two pins"
-        assert pin_value.strip(), "pinned readout should show a numeric value"
+        assert pin_state["valueText"].strip(), "pinned readout should show a numeric value"
+        assert pin_state["coordsText"] == hover_state["coordsText"], (
+            f"pinned hover coords should match the live hover coords, got {pin_state['coordsText']} vs {hover_state['coordsText']}"
+        )
+        actual = float(pin_state["valueText"])
+        expected = float(hover_state["valueText"])
+        assert np.isclose(actual, expected, atol=5e-4), (
+            f"pinned hover value should survive a forced refresh in flipped view, got {actual} vs {expected}"
+        )
 
         page.keyboard.press("Escape")
         page.wait_for_timeout(180)

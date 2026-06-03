@@ -59,6 +59,7 @@ class TestHealth:
         assert '<meta name="color-scheme" content="dark">' in r.text
         assert "function hideShellLoadingOverlay()" in r.text
         assert "phase === 'script-loaded' || phase === 'frame-rendered'" in r.text
+        assert "window.__av_inline ? (window.__av_inlineQuery || '') : window.location.search" in r.text
         assert "skip the overlay entirely" not in r.text
 
     def test_launcher_cold_start_loading_infrastructure(self):
@@ -2107,6 +2108,19 @@ class TestViewWindowHelpers:
 
 
 class TestCliOpenHelpers:
+    def test_build_inline_shell_html_preserves_init_query(self):
+        import arrayview._launcher as launcher
+
+        html = launcher._build_inline_shell_html(
+            "http://localhost:8000/shell?init_sid=sid_base&init_name=base.npy",
+            8000,
+        )
+
+        assert html is not None
+        assert "window.__av_inline=true;" in html
+        assert "window.__av_inlineQuery='init_sid=sid_base&init_name=base.npy';" in html
+        assert '<base href="http://localhost:8000/">' in html
+
     def test_open_webview_cli_returns_after_ready_marker(self, monkeypatch):
         import arrayview._launcher as launcher
 
@@ -2501,6 +2515,54 @@ class TestCliOpenHelpers:
         assert event_names[:3] == ["spawn", "webview", "wait"]
         assert "notify" in event_names
         assert events[1][2]["shell_port"] == 8000
+        assert opened[0]["webview_already_opened"] is True
+
+    def test_handle_cli_spawned_daemon_keeps_first_native_shell_when_notify_misses(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd: object(),
+        )
+        monkeypatch.setattr(launcher, "_open_webview_cli", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher,
+            "_notify_existing_session",
+            lambda *args, **kwargs: {"notified": False},
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_webview=True,
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
         assert opened[0]["webview_already_opened"] is True
 
     def test_handle_cli_spawned_daemon_does_not_early_open_remote_webview(

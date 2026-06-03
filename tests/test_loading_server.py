@@ -85,7 +85,7 @@ def test_with_loading_wraps_url_when_port_set():
         L._loading_port = 9999
         url = "http://localhost:7778/?sid=abc123"
         result = L._with_loading(url)
-        assert result.startswith("http://127.0.0.1:9999/")
+        assert result.startswith("http://localhost:9999/")
         assert "target=" in result
         assert "localhost" in result  # target URL is encoded in the loading URL
     finally:

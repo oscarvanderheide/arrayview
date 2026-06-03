@@ -13984,16 +13984,43 @@
                 cssY: clientY - rect.top,
             };
         }
-        function _mainDisplayPointFromRaw(rawX, rawY) {
+        function _mainHoverSourceEntry() {
+            const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
+            if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
+                return { w: _lebesgueSliceW, h: _lebesgueSliceH };
+            }
+            const cached = _hoverSliceCache[`${sid}:${ver}`];
+            if (cached && cached.w > 0 && cached.h > 0) return cached;
+            return null;
+        }
+        function _mainRawPointFromDisplay(displayX, displayY, sourceW = null, sourceH = null) {
             if (!canvas || !canvas.width || !canvas.height) return null;
-            if (rawX < 0 || rawX >= canvas.width || rawY < 0 || rawY >= canvas.height) return null;
+            const srcW = sourceW || _mainHoverSourceEntry()?.w || shape[dim_x] || canvas.width;
+            const srcH = sourceH || _mainHoverSourceEntry()?.h || shape[dim_y] || canvas.height;
+            if (!srcW || !srcH) return null;
+            const scaledX = Math.max(0, Math.min(srcW - 1, Math.floor(displayX * srcW / canvas.width)));
+            const scaledY = Math.max(0, Math.min(srcH - 1, Math.floor(displayY * srcH / canvas.height)));
             return {
-                displayX: flip_x ? (canvas.width - 1 - rawX) : rawX,
-                displayY: flip_y ? (canvas.height - 1 - rawY) : rawY,
+                rawX: flip_x ? (srcW - 1 - scaledX) : scaledX,
+                rawY: flip_y ? (srcH - 1 - scaledY) : scaledY,
+                sourceW: srcW,
+                sourceH: srcH,
             };
         }
-        function _mainCssPointFromRaw(rawX, rawY) {
-            const disp = _mainDisplayPointFromRaw(rawX, rawY);
+        function _mainDisplayPointFromRaw(rawX, rawY, sourceW = null, sourceH = null) {
+            if (!canvas || !canvas.width || !canvas.height) return null;
+            const srcW = sourceW || _mainHoverSourceEntry()?.w || shape[dim_x] || canvas.width;
+            const srcH = sourceH || _mainHoverSourceEntry()?.h || shape[dim_y] || canvas.height;
+            if (rawX < 0 || rawX >= srcW || rawY < 0 || rawY >= srcH) return null;
+            const sourceX = flip_x ? (srcW - 1 - rawX) : rawX;
+            const sourceY = flip_y ? (srcH - 1 - rawY) : rawY;
+            return {
+                displayX: Math.max(0, Math.min(canvas.width - 1, Math.floor(((sourceX + 0.5) * canvas.width) / srcW))),
+                displayY: Math.max(0, Math.min(canvas.height - 1, Math.floor(((sourceY + 0.5) * canvas.height) / srcH))),
+            };
+        }
+        function _mainCssPointFromRaw(rawX, rawY, sourceW = null, sourceH = null) {
+            const disp = _mainDisplayPointFromRaw(rawX, rawY, sourceW, sourceH);
             if (!disp) return null;
             const cssW = parseInt(canvas.style.width) || canvas.width;
             const cssH = parseInt(canvas.style.height) || canvas.height;
@@ -14020,7 +14047,7 @@
             const cssH = parseInt(canvas.style.height) || canvas.height;
             const fragments = [];
             for (const pin of _hoverPins) {
-                const css = _mainCssPointFromRaw(pin.rawX, pin.rawY);
+                const css = _mainCssPointFromRaw(pin.rawX, pin.rawY, pin.sourceW, pin.sourceH);
                 if (!css) continue;
                 const cardW = 94;
                 const cardH = 34;
@@ -14066,6 +14093,8 @@
                         if (cached.w > pin.rawX && cached.h > pin.rawY) {
                             const val = cached.slice[pin.rawY * cached.w + pin.rawX];
                             if (Number.isFinite(val)) {
+                                pin.sourceW = cached.w;
+                                pin.sourceH = cached.h;
                                 pin.valueText = _pixelFmt(val, _activeNumericContext());
                                 pin.version = version;
                             }
@@ -14078,15 +14107,14 @@
             const refreshToken = ++_hoverPinsRefreshToken;
             for (const pin of _hoverPins) {
                 if (!forceFetch && pin.version === version && pin.valueText) continue;
-                const disp = _mainDisplayPointFromRaw(pin.rawX, pin.rawY);
-                if (!disp) continue;
+                if (pin.rawX < 0 || pin.rawY < 0) continue;
                 try {
                     const params = new URLSearchParams({
                         dim_x: String(dim_x),
                         dim_y: String(dim_y),
                         indices: indices.join(','),
-                        px: String(disp.displayX),
-                        py: String(disp.displayY),
+                        px: String(pin.rawX),
+                        py: String(pin.rawY),
                         complex_mode: complexMode,
                     });
                     if (logScale) params.set('log_scale', '1');
@@ -14105,10 +14133,20 @@
             if (!_mainHoverPinEligible()) return;
             const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
             if (!pt) return;
+            const entry = await _fetchHoverSlice(sid, dim_x, dim_y, indices);
+            const rawPt = _mainRawPointFromDisplay(
+                pt.displayX,
+                pt.displayY,
+                entry?.w || null,
+                entry?.h || null,
+            );
+            if (!rawPt) return;
             const pin = {
                 id: _hoverPinNextId++,
-                rawX: pt.rawX,
-                rawY: pt.rawY,
+                rawX: rawPt.rawX,
+                rawY: rawPt.rawY,
+                sourceW: rawPt.sourceW,
+                sourceH: rawPt.sourceH,
                 valueText: '',
                 version: null,
             };
@@ -14438,9 +14476,13 @@
                 const cached = _hoverSliceCache[hkey];
                 if (cached && cached.w > 0 && cached.h > 0) { _fpSlice = cached.slice; _fpW = cached.w; _fpH = cached.h; }
             }
+            const fallbackW = (Array.isArray(shape) && Number.isInteger(opts.dimX) && shape[opts.dimX] > 0) ? shape[opts.dimX] : opts.imgW;
+            const fallbackH = (Array.isArray(shape) && Number.isInteger(opts.dimY) && shape[opts.dimY] > 0) ? shape[opts.dimY] : opts.imgH;
+            const sampleW = _fpW > 0 ? _fpW : fallbackW;
+            const sampleH = _fpH > 0 ? _fpH : fallbackH;
+            const rawX = flip_x ? (sampleW - 1 - Math.floor(px * sampleW / opts.imgW)) : Math.floor(px * sampleW / opts.imgW);
+            const rawY = flip_y ? (sampleH - 1 - Math.floor(py * sampleH / opts.imgH)) : Math.floor(py * sampleH / opts.imgH);
             if (_fpSlice) {
-                const rawX = flip_x ? (_fpW - 1 - Math.floor(px * _fpW / opts.imgW)) : Math.floor(px * _fpW / opts.imgW);
-                const rawY = flip_y ? (_fpH - 1 - Math.floor(py * _fpH / opts.imgH)) : Math.floor(py * _fpH / opts.imgH);
                 if (rawX >= 0 && rawX < _fpW && rawY >= 0 && rawY < _fpH) {
                     const val = _fpSlice[rawY * _fpW + rawX];
                     if (Number.isFinite(val)) {
@@ -14460,8 +14502,8 @@
                 dim_x: String(opts.dimX),
                 dim_y: String(opts.dimY),
                 indices: opts.indices.join(','),
-                px: String(px),
-                py: String(py),
+                px: String(rawX),
+                py: String(rawY),
                 complex_mode: complexMode,
             });
             if (logScale) params.set('log_scale', '1');
@@ -14471,10 +14513,8 @@
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    const rawX = flip_x ? (opts.imgW - 1 - px) : px;
-                    const rawY = flip_y ? (opts.imgH - 1 - py) : py;
                     showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, opts.event.clientX, opts.event.clientY);
-                    if (opts.onResult) opts.onResult(d, px, py);
+                    if (opts.onResult) opts.onResult(d, rawX, rawY);
                 })
                 .catch(() => {});
 

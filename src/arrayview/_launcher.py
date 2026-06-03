@@ -156,6 +156,7 @@ def _vprint(*args, **kwargs) -> None:
 # ── Subprocess GUI Launcher ───────────────────────────────────────
 
 _ICON_PNG_PATH: str | None = None
+_LOOPBACK_HOST = "localhost"
 
 
 def _get_icon_png_path() -> str | None:
@@ -175,6 +176,57 @@ def _get_icon_png_path() -> str | None:
     except Exception:
         _ICON_PNG_PATH = ""
     return _ICON_PNG_PATH or None
+
+
+def _build_inline_shell_html(url: str, shell_port: int) -> str | None:
+    """Return embedded shell HTML for a cold-start native window."""
+    try:
+        shell_html = _pkg_files("arrayview").joinpath("_shell.html").read_text(
+            encoding="utf-8"
+        )
+        parsed = urllib.parse.urlparse(url)
+        inline_query = parsed.query
+        shell_html = shell_html.replace(
+            "</head>",
+            f"<script>"
+            f"window.__av_inline=true;"
+            f"window.__av_inlineQuery={inline_query!r};"
+            f"</script>\n"
+            f'<base href="http://{_LOOPBACK_HOST}:{shell_port}/">\n'
+            f"</head>",
+            1,
+        )
+        # Fix WebSocket URL — location.host is "" in inline html= mode
+        shell_html = shell_html.replace(
+            "`${proto}//${location.host}/ws/shell`",
+            f"`ws://{_LOOPBACK_HOST}:{shell_port}/ws/shell`",
+        )
+        return shell_html
+    except Exception:
+        return None
+
+
+def _make_loopback_socket(port: int) -> "socket.socket":
+    """Bind a TCP listener on the same loopback host the viewer URLs use."""
+    for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
+        _LOOPBACK_HOST,
+        port,
+        type=socket.SOCK_STREAM,
+    ):
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(sockaddr)
+            sock.listen(128)
+            sock.set_inheritable(True)
+            return sock
+        except OSError:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    raise OSError(f"Could not bind {_LOOPBACK_HOST}:{port}")
 
 
 def _open_webview(
@@ -199,25 +251,9 @@ def _open_webview(
     inline_html_b64 = None
 
     if shell_port is not None:
-        try:
-            from importlib.resources import files as _pkg_files
-            shell_html = _pkg_files("arrayview").joinpath("_shell.html").read_text(encoding="utf-8")
-            # Inject inline-mode flag and hardcoded host (location.host is empty in html= mode)
-            shell_html = shell_html.replace(
-                "</head>",
-                f'<script>window.__av_inline=true;</script>\n'
-                f'<base href="http://localhost:{shell_port}/">\n'
-                f"</head>",
-                1,
-            )
-            # Fix WebSocket URL — location.host is "" in inline html= mode
-            shell_html = shell_html.replace(
-                "`${proto}//${location.host}/ws/shell`",
-                f"`ws://localhost:{shell_port}/ws/shell`",
-            )
+        shell_html = _build_inline_shell_html(url, shell_port)
+        if shell_html is not None:
             inline_html_b64 = _b64.b64encode(shell_html.encode()).decode()
-        except Exception:
-            pass  # fall back to URL mode
 
     if inline_html_b64:
         script_lines = [
@@ -469,7 +505,7 @@ def _open_webview_cli(
 
 def _server_alive(port: int, timeout: float = 0.5) -> bool:
     """Return True only if an ArrayView server is responding on the port."""
-    url = f"http://127.0.0.1:{port}/ping"
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             if resp.status != 200:
@@ -482,7 +518,7 @@ def _server_alive(port: int, timeout: float = 0.5) -> bool:
 
 def _server_pid(port: int) -> int | None:
     """Return the pid of the responding ArrayView server, or None if unreachable."""
-    url = f"http://127.0.0.1:{port}/ping"
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
     try:
         with urllib.request.urlopen(url, timeout=0.5) as resp:
             if resp.status != 200:
@@ -497,7 +533,7 @@ def _server_pid(port: int) -> int | None:
 
 def _server_hostname(port: int, timeout: float = 0.5) -> str | None:
     """Return the hostname reported by the ArrayView server on ``port``, or None."""
-    url = f"http://127.0.0.1:{port}/ping"
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             if resp.status != 200:
@@ -515,7 +551,7 @@ def _relay_array_to_server(
     port: int,
     name: str,
     rgb: bool = False,
-    relay_host: str = "127.0.0.1",
+    relay_host: str = _LOOPBACK_HOST,
 ) -> None:
     """Load *filepath* locally and POST the bytes to an ArrayView relay server.
 
@@ -523,7 +559,7 @@ def _relay_array_to_server(
     ArrayView server (e.g. tunnel-remote).  The relay server registers the
     session and writes its own VS Code signal file so a viewer tab opens there.
 
-    ``relay_host`` defaults to 127.0.0.1; only change it when the relay server
+    ``relay_host`` defaults to localhost; only change it when the relay server
     is genuinely on a different network interface (rare).
     """
     import base64
@@ -567,7 +603,7 @@ type _CompareSids = list[str] | tuple[str, ...]
 
 def _server_json_request(port: int, path: str, payload: dict) -> dict:
     req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}",
+        f"http://{_LOOPBACK_HOST}:{port}{path}",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -1002,7 +1038,7 @@ def _handle_cli_spawned_daemon(
         window_mode=window_mode,
         floating=floating,
         is_remote=is_remote,
-        webview_already_opened=early_webview_notified,
+        webview_already_opened=early_webview_opened,
     )
 
 
@@ -1170,7 +1206,7 @@ def _promote_view_to_vscode_terminal(
 
 def _port_in_use(port: int) -> bool:
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+        with socket.create_connection((_LOOPBACK_HOST, port), timeout=0.3):
             return True
     except OSError:
         return False
@@ -1311,25 +1347,17 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     _loading_port = None  # reset for this server lifetime
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
     _session_mod.SERVER_PORT = port
-    import socket as _socket
-
-    # Pre-create the socket with SO_REUSEADDR so we can rebind immediately after
-    # a previous server on this port was killed (avoids TIME_WAIT Errno 48).
-    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", port))
-    sock.listen(128)
-    sock.set_inheritable(True)
+    # Bind on the same loopback hostname the viewer URLs use. On macOS,
+    # localhost often resolves to ::1 first, so binding only 127.0.0.1 can
+    # leave the native shell stuck on its loading overlay forever.
+    sock = _make_loopback_socket(port)
 
     # Bind the loading-page server on an OS-chosen ephemeral port.
     # This uses only stdlib so it starts in microseconds — well before
     # uvicorn's heavy imports finish.  _loading_port is read by the main
     # thread after _server_ready_event fires.
     try:
-        _lsock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-        _lsock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        _lsock.bind(("127.0.0.1", 0))
-        _lsock.listen(16)
+        _lsock = _make_loopback_socket(0)
         _loading_port = _lsock.getsockname()[1]
         threading.Thread(
             target=_run_loading_server, args=(_lsock,), daemon=True
@@ -1361,7 +1389,7 @@ def _with_loading(url: str) -> str:
     """
     if _loading_port is not None:
         encoded = urllib.parse.quote(url, safe="")
-        return f"http://127.0.0.1:{_loading_port}/?target={encoded}"
+        return f"http://{_LOOPBACK_HOST}:{_loading_port}/?target={encoded}"
     return url
 
 
@@ -1615,7 +1643,7 @@ class ViewHandle(str):
         _np.save(buf, arr)
         body = buf.getvalue()
         request = _req.Request(
-            f"http://127.0.0.1:{self._port}/update/{self._sid}",
+            f"http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}",
             data=body,
             method="POST",
         )
@@ -1625,7 +1653,7 @@ class ViewHandle(str):
         except Exception as e:
             raise RuntimeError(
                 f"[ArrayView] Failed to update viewer: {e}\n"
-                f"  URL: http://127.0.0.1:{self._port}/update/{self._sid}\n"
+                f"  URL: http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}\n"
                 f"  Is the ArrayView server still running?"
             ) from e
 
@@ -2507,7 +2535,7 @@ def _serve_empty(port: int) -> None:
     threading.Thread(
         target=lambda: _uvicorn().run(
             _server_mod().app,
-            host="127.0.0.1",
+            host=_LOOPBACK_HOST,
             port=port,
             log_level="error",
             timeout_keep_alive=30,
@@ -2548,13 +2576,7 @@ def _serve_daemon(
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
 
-    import socket as _socket
-
-    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", port))
-    sock.listen(128)
-    sock.set_inheritable(True)
+    sock = _make_loopback_socket(port)
 
     def _run_uvicorn_on_socket():
         config = _uvicorn().Config(
@@ -2741,7 +2763,7 @@ def _start_watch_thread(filepath: str, sid: str, port: int) -> None:
                 last_mtime = mtime
                 try:
                     req = _urlreq.Request(
-                        f"http://127.0.0.1:{port}/reload/{sid}",
+                        f"http://{_LOOPBACK_HOST}:{port}/reload/{sid}",
                         data=b"",
                         method="POST",
                     )
@@ -3209,7 +3231,7 @@ def arrayview():
         if ":" in relay_str:
             relay_host, relay_port_str = relay_str.rsplit(":", 1)
         else:
-            relay_host, relay_port_str = "127.0.0.1", relay_str
+            relay_host, relay_port_str = _LOOPBACK_HOST, relay_str
         try:
             relay_port = int(relay_port_str)
         except ValueError:
