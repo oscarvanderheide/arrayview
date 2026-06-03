@@ -15499,7 +15499,7 @@
                 id: 'roi',
                 label: 'Measure ROI',
                 desc: 'Measure regions.',
-                keyHint: 'r',
+                keyHint: 'R',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
                 unavailableReason: () => 'Not available in compare or multi-view.',
@@ -18760,6 +18760,7 @@
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'saveMenu.open' },
+            { key: 'R', shift: true, command: 'tool.roiDirect' },
             { key: 'g', command: 'grid.holdOrTap' },
             { key: 'G', command: 'compare.cycleLayout' },
             { key: 'm', command: 'complex.cycleMode' },
@@ -18994,6 +18995,7 @@
                             { key: 'q', action: 'qMRI', hint: 'inspect parameter maps with contextual controls' },
                             { key: 'X', action: 'Compare center', hint: 'open the last-used 2-array center comparison mode' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
+                            { key: 'Shift+R', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
                         ]
                     },
@@ -19103,6 +19105,7 @@
                     {
                         title: 'Drawing',
                         entries: [
+                            { key: 'Shift+R', action: 'Open ROI options', hint: 'activates Measure ROI if it is off' },
                             { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
                             { key: 'Drag', action: 'Draw ROI on canvas' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
