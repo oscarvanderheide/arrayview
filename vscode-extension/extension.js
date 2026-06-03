@@ -486,6 +486,36 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams, extraAr
 // ---------------------------------------------------------------------------
 // Custom editor provider: "Open With..." from Explorer
 // ---------------------------------------------------------------------------
+function isArrayViewCustomEditorTab(tab, uri) {
+    const input = tab && tab.input;
+    if (!input || input.viewType !== ArrayViewEditorProvider.viewType || !input.uri) {
+        return false;
+    }
+    return !uri || input.uri.toString() === uri.toString();
+}
+
+function keepActiveArrayViewPreview(reason, uri = null) {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    if (!isArrayViewCustomEditorTab(tab, uri)) {
+        return false;
+    }
+    if (tab.isPreview === false) {
+        return true;
+    }
+    void vscode.commands.executeCommand('workbench.action.keepEditor')
+        .then(
+            () => log(`CUSTOM-EDITOR: kept preview tab (${reason})`),
+            (e) => log(`CUSTOM-EDITOR: keepEditor failed (${reason}): ${e.message}`)
+        );
+    return true;
+}
+
+function scheduleKeepArrayViewEditor(uri, reason) {
+    for (const delay of [0, 50, 200, 750]) {
+        setTimeout(() => keepActiveArrayViewPreview(`${reason}+${delay}ms`, uri), delay);
+    }
+}
+
 class ArrayViewEditorProvider {
     static viewType = 'arrayview.arrayEditor';
 
@@ -498,6 +528,15 @@ class ArrayViewEditorProvider {
     async resolveCustomEditor(document, webviewPanel, _token) {
         const filePath = document.uri.fsPath;
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
+        // Single-clicked Explorer files normally open in VS Code's preview tab,
+        // which gets replaced by the next file. Pin once VS Code has actually
+        // made this custom editor the active preview tab.
+        scheduleKeepArrayViewEditor(document.uri, 'resolve');
+        webviewPanel.onDidChangeViewState((event) => {
+            if (event.webviewPanel.active) {
+                scheduleKeepArrayViewEditor(document.uri, 'view-state');
+            }
+        });
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui">
             <div>Loading ${path.basename(filePath)}…</div></body></html>`;
@@ -997,9 +1036,19 @@ function activate(context) {
     const editorProvider = vscode.window.registerCustomEditorProvider(
         ArrayViewEditorProvider.viewType,
         new ArrayViewEditorProvider(),
-        { webviewOptions: { retainContextWhenHidden: true } }
+        {
+            webviewOptions: { retainContextWhenHidden: true },
+            supportsMultipleEditorsPerDocument: true,
+        }
     );
     context.subscriptions.push(editorProvider);
+
+    if (vscode.window.tabGroups && vscode.window.tabGroups.onDidChangeTabs) {
+        context.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs(() => {
+            keepActiveArrayViewPreview('tab-change');
+        }));
+        keepActiveArrayViewPreview('activate');
+    }
 
     log('=== ACTIVATE DONE ===');
 }
