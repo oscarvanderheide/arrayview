@@ -4,6 +4,130 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 
+def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod):
+    monkeypatch.setattr(launcher, "_server_pid", lambda port: None)
+    monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
+    monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
+    monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+    monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+    monkeypatch.setattr(launcher, "_can_native_window", lambda: False)
+    monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
+    monkeypatch.setattr("arrayview._platform.detect_environment", lambda: "terminal")
+    monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
+
+
+def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeypatch):
+    import arrayview._launcher as launcher
+    import arrayview._session as session_mod
+
+    _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod)
+    monkeypatch.setattr(launcher, "_is_script_mode", lambda: True)
+
+    thread_calls = []
+
+    class _DummyEvent:
+        def clear(self):
+            return None
+
+        def wait(self, timeout=None):
+            return True
+
+    class _DummyThread:
+        def __init__(self, target=None, daemon=None, name=None):
+            thread_calls.append({"daemon": daemon, "name": name})
+            self.target = target
+
+        def start(self):
+            return self.target()
+
+    async def _fake_serve_background(port, stop_when_closed=False):
+        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+
+    monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
+    monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
+    monkeypatch.setattr(launcher, "_serve_background", _fake_serve_background)
+    monkeypatch.setattr(launcher, "_open_browser", lambda *args, **kwargs: None)
+
+    handle = launcher.view(
+        np.zeros((4, 4), dtype=np.float32),
+        name="script-view",
+        window=False,
+    )
+
+    assert isinstance(handle, launcher.ViewHandle)
+    assert thread_calls[0]["daemon"] is False
+    assert thread_calls[1] == {"port": 8123, "stop_when_closed": True}
+
+
+def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(monkeypatch):
+    import arrayview._launcher as launcher
+    import arrayview._session as session_mod
+
+    _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod)
+    monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
+    monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: False)
+
+    thread_calls = []
+
+    class _DummyEvent:
+        def clear(self):
+            return None
+
+        def wait(self, timeout=None):
+            return True
+
+    class _DummyThread:
+        def __init__(self, target=None, daemon=None, name=None):
+            thread_calls.append({"daemon": daemon, "name": name})
+            self.target = target
+
+        def start(self):
+            return self.target()
+
+    async def _fake_serve_background(port, stop_when_closed=False):
+        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+
+    monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
+    monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
+    monkeypatch.setattr(launcher, "_serve_background", _fake_serve_background)
+
+    result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="jupyter-view", inline=True)
+
+    assert result.__class__.__name__ == "IFrame"
+    assert thread_calls[0]["daemon"] is True
+    assert thread_calls[1] == {"port": 8123, "stop_when_closed": False}
+
+
+def test_plain_ssh_browser_guidance_keeps_localhost_forwarding_url(monkeypatch, capsys):
+    import arrayview._vscode_browser as browser
+
+    monkeypatch.setattr(browser, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: False)
+    monkeypatch.setenv("SSH_CLIENT", "localhost 12345 22")
+    monkeypatch.setenv("SSH_CONNECTION", "localhost 12345 22")
+    monkeypatch.setattr(browser.sys, "platform", "linux")
+    monkeypatch.setattr(browser.subprocess, "run", lambda *args, **kwargs: type("R", (), {"returncode": 0})())
+    monkeypatch.setattr(browser.os, "uname", lambda: type("U", (), {"nodename": "ssh-host"})())
+
+    browser._open_browser("http://localhost:8123/?sid=abc", blocking=True)
+
+    out = capsys.readouterr().out
+    assert "http://localhost:8123/" in out
+    assert "ssh -L 8123:localhost:8123" in out
+
+
+def test_plain_ssh_keeps_script_mode_transient(monkeypatch):
+    import arrayview._launcher as launcher
+
+    monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
+    monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+    monkeypatch.setenv("SSH_CLIENT", "localhost 12345 22")
+    monkeypatch.setenv("SSH_CONNECTION", "localhost 12345 22")
+
+    assert launcher._is_script_mode() is True
+
+
 def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
     import arrayview._launcher as launcher
 
