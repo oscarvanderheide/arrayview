@@ -2288,13 +2288,18 @@ async def _stop_server_when_viewer_closes(
     Used in script mode so the non-daemon server thread exits cleanly when done."""
     import arrayview._session as _sm
 
+    connections_before = _sm.VIEWER_CONNECTIONS_SEEN
     deadline = time.monotonic() + connect_timeout
-    while _sm.VIEWER_SOCKETS == 0:
+    while (
+        _sm.VIEWER_SOCKETS == 0
+        and _sm.VIEWER_CONNECTIONS_SEEN == connections_before
+    ):
         if time.monotonic() > deadline:
             server.should_exit = True  # no viewer connected; give up
             return
         await asyncio.sleep(0.2)
-    # At least one viewer connected — now wait for all to disconnect.
+    # At least one viewer connected, even if it already disconnected between
+    # polling ticks. Now wait for all viewer sockets to be closed.
     while True:
         while _sm.VIEWER_SOCKETS > 0:
             await asyncio.sleep(0.2)
@@ -2329,10 +2334,14 @@ def _wait_for_viewer_close(
     """
     import arrayview._session as _sm
 
+    connections_before = _sm.VIEWER_CONNECTIONS_SEEN
     connect_deadline = (
         None if connect_timeout is None else time.monotonic() + connect_timeout
     )
-    while _sm.VIEWER_SOCKETS == 0:
+    while (
+        _sm.VIEWER_SOCKETS == 0
+        and _sm.VIEWER_CONNECTIONS_SEEN == connections_before
+    ):
         if connect_deadline is not None and time.monotonic() >= connect_deadline:
             return
         time.sleep(0.2)

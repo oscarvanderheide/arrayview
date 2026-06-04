@@ -29,6 +29,7 @@ SERVER_PORT: int | None = None  # actual port the uvicorn server is bound to
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 VIEWER_SID_COUNTS: dict[str, int] = {}  # active viewer WS count per session ID
+VIEWER_CONNECTIONS_SEEN = 0  # monotonic count of accepted viewer WS connections
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
@@ -447,6 +448,7 @@ __all__ = [
     "SERVER_LOOP",
     "VIEWER_SOCKETS",
     "VIEWER_SIDS",
+    "VIEWER_CONNECTIONS_SEEN",
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",

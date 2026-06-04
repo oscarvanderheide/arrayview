@@ -635,12 +635,26 @@ function releaseUrlSession(url) {
     } catch (_) {
         return;
     }
-    const sid = parsed.searchParams.get('sid');
-    if (!sid || sid === '__welcome__') return;
-    const releaseUrl = `${parsed.origin}/release/${encodeURIComponent(sid)}`;
-    void httpPostOk(releaseUrl).then((ok) => {
-        log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
-    });
+    const sids = new Set();
+    const addSids = (value) => {
+        if (!value) return;
+        for (const sid of value.split(',')) {
+            const trimmed = sid.trim();
+            if (trimmed && trimmed !== '__welcome__') {
+                sids.add(trimmed);
+            }
+        }
+    };
+    addSids(parsed.searchParams.get('sid'));
+    addSids(parsed.searchParams.get('compare_sid'));
+    addSids(parsed.searchParams.get('compare_sids'));
+    addSids(parsed.searchParams.get('overlay_sid'));
+    for (const sid of sids) {
+        const releaseUrl = `${parsed.origin}/release/${encodeURIComponent(sid)}`;
+        void httpPostOk(releaseUrl).then((ok) => {
+            log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
+        });
+    }
 }
 
 function isExpiredSignal(data) {

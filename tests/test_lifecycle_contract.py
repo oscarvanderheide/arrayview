@@ -128,6 +128,99 @@ def test_plain_ssh_keeps_script_mode_transient(monkeypatch):
     assert launcher._is_script_mode() is True
 
 
+def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
+    import arrayview._launcher as launcher
+    import arrayview._session as session_mod
+
+    session_mod.VIEWER_SOCKETS = 0
+    session_mod.VIEWER_CONNECTIONS_SEEN = 0
+    sleeps = []
+
+    def _sleep(_seconds):
+        sleeps.append(_seconds)
+        session_mod.VIEWER_CONNECTIONS_SEEN += 1
+
+    monkeypatch.setattr(launcher.time, "sleep", _sleep)
+
+    launcher._wait_for_viewer_close(
+        grace_seconds=0,
+        idle_seconds=0,
+        connect_timeout=60,
+    )
+
+    assert sleeps == [0.2]
+
+
+def test_transient_daemon_exits_after_quick_viewer_disconnect(tmp_path):
+    import asyncio
+    import socket
+    import subprocess
+    import sys
+    import time
+
+    import httpx
+    import websockets
+
+    with socket.socket() as sock:
+        sock.bind(("localhost", 0))
+        port = sock.getsockname()[1]
+
+    array_path = tmp_path / "live_shutdown.npy"
+    np.save(array_path, np.zeros((8, 8), dtype=np.float32))
+    sid = "live_shutdown_sid"
+    code = (
+        "from arrayview._launcher import _serve_daemon;"
+        f"_serve_daemon({str(array_path)!r}, {port}, {sid!r}, "
+        "name='live-shutdown', persist=False)"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                response = httpx.get(f"http://localhost:{port}/ping", timeout=0.3)
+                if response.status_code == 200:
+                    break
+            except Exception:
+                pass
+            if proc.poll() is not None:
+                out, err = proc.communicate(timeout=1)
+                raise AssertionError(
+                    f"daemon exited before ping: rc={proc.returncode}\nstdout={out}\nstderr={err}"
+                )
+            time.sleep(0.1)
+        else:
+            raise AssertionError("daemon did not answer /ping")
+
+        async def _connect_and_close():
+            async with websockets.connect(f"ws://localhost:{port}/ws/{sid}") as ws:
+                first = await asyncio.wait_for(ws.recv(), timeout=5)
+                assert '"type":"metadata"' in first.replace(" ", "")
+
+        asyncio.run(_connect_and_close())
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            raise AssertionError(
+                "transient daemon stayed alive after last viewer websocket closed"
+            )
+        assert proc.returncode == 0
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+
+
 def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
     import arrayview._launcher as launcher
 
@@ -213,6 +306,7 @@ def test_viewer_sid_tracking_clears_on_websocket_disconnect(tmp_path):
     session_mod.VIEWER_SOCKETS = 0
     session_mod.VIEWER_SIDS.clear()
     session_mod.VIEWER_SID_COUNTS.clear()
+    session_mod.VIEWER_CONNECTIONS_SEEN = 0
 
     arr = np.ones((4, 4), dtype=np.float32)
     np.save(tmp_path / "viewer_sid.npy", arr)
@@ -227,6 +321,7 @@ def test_viewer_sid_tracking_clears_on_websocket_disconnect(tmp_path):
             assert session_mod.VIEWER_SOCKETS == 1
             assert sid in session_mod.VIEWER_SIDS
             assert session_mod.VIEWER_SID_COUNTS[sid] == 1
+            assert session_mod.VIEWER_CONNECTIONS_SEEN == 1
 
         assert session_mod.VIEWER_SOCKETS == 0
         assert sid not in session_mod.VIEWER_SIDS
@@ -288,3 +383,31 @@ def test_vscode_url_panel_dispose_releases_primary_sid():
     assert "parsed.searchParams.get('sid')" in source
     assert "/release/${encodeURIComponent(sid)}" in source
     assert "releaseUrlSession(url)" in source
+
+
+def test_vscode_url_panel_dispose_releases_compare_and_overlay_sids():
+    source = (
+        Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js"
+    ).read_text()
+
+    assert "const sids = new Set()" in source
+    assert "addSids(parsed.searchParams.get('compare_sid'))" in source
+    assert "addSids(parsed.searchParams.get('compare_sids'))" in source
+    assert "addSids(parsed.searchParams.get('overlay_sid'))" in source
+    assert "for (const sid of sids)" in source
+
+
+def test_bundled_vscode_vsix_matches_release_lifecycle_source():
+    import json
+    import zipfile
+
+    from arrayview._vscode_extension import _VSCODE_EXT_VERSION
+
+    vsix = Path(__file__).resolve().parents[1] / "src/arrayview/arrayview-opener.vsix"
+    with zipfile.ZipFile(vsix) as zf:
+        package = json.loads(zf.read("extension/package.json"))
+        extension_source = zf.read("extension/extension.js").decode()
+
+    assert package["version"] == _VSCODE_EXT_VERSION
+    assert "addSids(parsed.searchParams.get('compare_sids'))" in extension_source
+    assert "addSids(parsed.searchParams.get('overlay_sid'))" in extension_source

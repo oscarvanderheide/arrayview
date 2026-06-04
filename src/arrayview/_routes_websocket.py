@@ -105,6 +105,7 @@ def register_websocket_routes(app) -> None:
             pass
 
         _session_mod.VIEWER_SOCKETS += 1
+        _session_mod.VIEWER_CONNECTIONS_SEEN += 1
         _session_mod.VIEWER_SID_COUNTS[sid] = (
             _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
         )
