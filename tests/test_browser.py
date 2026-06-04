@@ -1538,6 +1538,37 @@ class TestKeyboard:
             f"got: {state}"
         )
 
+    def test_qmri_synthetic_hover_does_not_hit_pixel_500(self, loaded_viewer, sid_4d):
+        bad_pixel_responses = []
+        page = loaded_viewer(sid_4d)
+        page.on(
+            "response",
+            lambda resp: bad_pixel_responses.append((resp.url, resp.status))
+            if "/pixel/" in resp.url and resp.status >= 400
+            else None,
+        )
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_selector("#qmri-view-wrap.active .qv-canvas", timeout=5_000)
+        page.evaluate("() => _islandToggleQmriSyntheticContrast('t1w')")
+        page.wait_for_selector("#qmri-view-wrap .qv-synthetic-row .qv-canvas", timeout=5_000)
+        page.wait_for_timeout(700)
+
+        regular_canvas = page.locator(
+            "#qmri-view-wrap .qv-row:not(.qv-synthetic-row) .qv-canvas"
+        ).nth(0)
+        box = regular_canvas.bounding_box()
+        assert box is not None, "expected a regular qMRI pane to hover"
+        page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+        page.wait_for_timeout(150)
+        page.mouse.move(box["x"] + box["width"] * 0.55, box["y"] + box["height"] * 0.55)
+        page.wait_for_timeout(500)
+
+        assert not bad_pixel_responses, (
+            "Synthetic qMRI hover should not generate failing /pixel requests, "
+            f"got: {bad_pixel_responses}"
+        )
+
     def test_s_puts_status_message(self, loaded_viewer, sid_2d):
         # s triggers download and sets #status to "Screenshot saved."
         page = loaded_viewer(sid_2d)

@@ -1606,6 +1606,21 @@ class TestPixel:
         )
         assert r.status_code == 404
 
+    def test_malformed_indices_return_none_instead_of_500(self, client, sid_2d):
+        r = client.get(
+            f"/pixel/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,",
+                "px": 0,
+                "py": 0,
+                "complex_mode": 0,
+            },
+        )
+        assert r.status_code == 200
+        assert r.json() == {"value": None}
+
 
 # ---------------------------------------------------------------------------
 # /clearcache

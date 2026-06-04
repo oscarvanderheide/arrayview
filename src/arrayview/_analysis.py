@@ -268,11 +268,16 @@ def _pixel_value(
     """Return a finite pixel value or None."""
     if session.rgb_axis is not None:
         return None
-    idx_tuple = (
-        tuple(int(v) for v in indices.split(","))
-        if isinstance(indices, str)
-        else tuple(indices)
-    )
+    if isinstance(indices, str):
+        parts = indices.split(",")
+        if not parts or any(v == "" for v in parts):
+            return None
+        try:
+            idx_tuple = tuple(int(v) for v in parts)
+        except ValueError:
+            return None
+    else:
+        idx_tuple = tuple(indices)
     raw = (
         qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
         if qmri_role

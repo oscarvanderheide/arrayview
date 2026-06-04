@@ -14455,6 +14455,8 @@
             return vals.filter(Number.isFinite);
         }
         function fetchPixelInfo(opts) {
+            const indices = Array.isArray(opts.indices) ? opts.indices : [];
+            if (!indices.length || indices.some(v => !Number.isFinite(v))) return false;
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
             const py = Math.floor((opts.event.clientY - rect.top) * opts.imgH / rect.height);
@@ -14467,7 +14469,7 @@
             }
 
             // Fast path: use cached raw slice for instant local lookup (never throttled)
-            const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale + ':' + (opts.qmriRole || '');
+            const ver = indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale + ':' + (opts.qmriRole || '');
             let _fpSlice = null, _fpW = 0, _fpH = 0;
             if (!opts.qmriRole && _lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
                 _fpSlice = _lebesgueSlice; _fpW = _lebesgueSliceW; _fpH = _lebesgueSliceH;
@@ -14501,7 +14503,7 @@
             const params = new URLSearchParams({
                 dim_x: String(opts.dimX),
                 dim_y: String(opts.dimY),
-                indices: opts.indices.join(','),
+                indices: indices.join(','),
                 px: String(rawX),
                 py: String(rawY),
                 complex_mode: complexMode,
@@ -23039,6 +23041,7 @@
                                 // Non-hover: fetch for all other qmri views at same pixel
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
+                                    if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
                                     const qIndices = [...indices];
                                     qIndices[qmriDim] = v.qmriIdx;
                                     const params = new URLSearchParams({
