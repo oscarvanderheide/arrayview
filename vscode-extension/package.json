@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.14.10",
+  "version": "0.14.11",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -17,6 +17,7 @@
   },
   "files": [
     "extension.js",
+    "lifecycle_helpers.js",
     "package.json",
     "icon.png",
     "LICENSE"

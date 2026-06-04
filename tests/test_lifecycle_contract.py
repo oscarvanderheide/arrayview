@@ -369,7 +369,7 @@ def test_shell_close_uses_release_route_semantics(tmp_path):
 def test_vscode_wrapper_backend_check_uses_extension_host_ping():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
-    assert "pingUrl = `${parsed.origin}/ping`" in source
+    assert "pingUrlFromViewerUrl(url)" in source
     assert "await httpOk(pingUrl)" in source
     assert "viewerReady = true" in source
     assert "postMessage({ type: 'backend-error', url })" in source
@@ -380,21 +380,26 @@ def test_vscode_url_panel_dispose_releases_primary_sid():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "function releaseUrlSession(url)" in source
-    assert "parsed.searchParams.get('sid')" in source
+    assert "collectReleaseSidsFromUrl(url)" in source
     assert "/release/${encodeURIComponent(sid)}" in source
     assert "releaseUrlSession(url)" in source
 
 
-def test_vscode_url_panel_dispose_releases_compare_and_overlay_sids():
-    source = (
-        Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js"
-    ).read_text()
+def test_vscode_lifecycle_helpers_with_node():
+    import shutil
+    import subprocess
 
-    assert "const sids = new Set()" in source
-    assert "addSids(parsed.searchParams.get('compare_sid'))" in source
-    assert "addSids(parsed.searchParams.get('compare_sids'))" in source
-    assert "addSids(parsed.searchParams.get('overlay_sid'))" in source
-    assert "for (const sid of sids)" in source
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    repo_root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        [node, "vscode-extension/test_lifecycle_helpers.js"],
+        cwd=repo_root,
+        check=True,
+    )
 
 
 def test_bundled_vscode_vsix_matches_release_lifecycle_source():
@@ -407,7 +412,9 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     with zipfile.ZipFile(vsix) as zf:
         package = json.loads(zf.read("extension/package.json"))
         extension_source = zf.read("extension/extension.js").decode()
+        helper_source = zf.read("extension/lifecycle_helpers.js").decode()
 
     assert package["version"] == _VSCODE_EXT_VERSION
-    assert "addSids(parsed.searchParams.get('compare_sids'))" in extension_source
-    assert "addSids(parsed.searchParams.get('overlay_sid'))" in extension_source
+    assert "collectReleaseSidsFromUrl(url)" in extension_source
+    assert "compare_sids" in helper_source
+    assert "overlay_sid" in helper_source

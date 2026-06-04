@@ -6,6 +6,10 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { spawnSync } = require('child_process');
+const {
+    collectReleaseSidsFromUrl,
+    pingUrlFromViewerUrl,
+} = require('./lifecycle_helpers');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
 const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');  // fallback
@@ -629,28 +633,11 @@ function httpPostOk(url, timeoutMs = 1500) {
 }
 
 function releaseUrlSession(url) {
-    let parsed;
-    try {
-        parsed = new URL(url);
-    } catch (_) {
-        return;
-    }
-    const sids = new Set();
-    const addSids = (value) => {
-        if (!value) return;
-        for (const sid of value.split(',')) {
-            const trimmed = sid.trim();
-            if (trimmed && trimmed !== '__welcome__') {
-                sids.add(trimmed);
-            }
-        }
-    };
-    addSids(parsed.searchParams.get('sid'));
-    addSids(parsed.searchParams.get('compare_sid'));
-    addSids(parsed.searchParams.get('compare_sids'));
-    addSids(parsed.searchParams.get('overlay_sid'));
+    const sids = collectReleaseSidsFromUrl(url);
+    if (!sids.length) return;
+    const origin = new URL(url).origin;
     for (const sid of sids) {
-        const releaseUrl = `${parsed.origin}/release/${encodeURIComponent(sid)}`;
+        const releaseUrl = `${origin}/release/${encodeURIComponent(sid)}`;
         void httpPostOk(releaseUrl).then((ok) => {
             log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
         });
@@ -835,11 +822,7 @@ async function openInWebviewPanel(url, title, floating = false) {
     // attribute-encoding issues.
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url); // safe JS string literal embedding
-    let pingUrl = null;
-    try {
-        const parsed = new URL(url);
-        pingUrl = `${parsed.origin}/ping`;
-    } catch (_) {}
+    const pingUrl = pingUrlFromViewerUrl(url);
 
     panel.webview.html = `<!DOCTYPE html>
 <html>
