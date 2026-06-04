@@ -2399,7 +2399,9 @@ class TestCliOpenHelpers:
         spawned = []
         opened = []
 
-        monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+        monkeypatch.setattr(
+            launcher, "_configure_vscode_port_preview", lambda port: None
+        )
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
@@ -2413,7 +2415,9 @@ class TestCliOpenHelpers:
             lambda **kwargs: opened.append(kwargs),
         )
 
-        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+        monkeypatch.setattr(
+            launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})()
+        )
         launcher._handle_cli_spawned_daemon(
             port=8000,
             base_file="/tmp/base.npy",
@@ -2613,6 +2617,46 @@ class TestCliOpenHelpers:
         assert events[0][0] == "spawn"
         assert events[1][0] == "open"
         assert events[1][1]["webview_already_opened"] is False
+
+    def test_handle_cli_spawned_daemon_keeps_vscode_tab_server_persistent(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        spawned = []
+
+        monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd: spawned.append(cmd) or object(),
+        )
+        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(launcher, "_open_cli_spawned_view", lambda **kwargs: None)
+        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_webview=False,
+            watch=False,
+            window_mode="vscode",
+            floating=False,
+            is_remote=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
+        assert spawned
+        assert "persist=True" in spawned[0][2]
 
 
 # ---------------------------------------------------------------------------
