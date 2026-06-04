@@ -1,6 +1,11 @@
 import io
 import json
+import os
+import socket
+import subprocess
 import sys
+import time
+import urllib.request
 
 import numpy as np
 import pytest
@@ -29,6 +34,24 @@ def _record_opened_url(opened: dict):
         return url
 
     return _open
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("localhost", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_ping(port: int, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    url = f"http://localhost:{port}/ping"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.5) as res:
+                return res.status == 200
+        except Exception:
+            time.sleep(0.1)
+    return False
 
 
 def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
@@ -73,6 +96,50 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert "127.0.0.1" not in opened["url"]
     assert "compare_sid=sid_cmp1" in opened["url"]
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
+
+
+def test_cli_vscode_terminal_keeps_spawned_backend_alive(tmp_path):
+    arr_path = tmp_path / "base.npy"
+    np.save(arr_path, np.zeros((8, 8), dtype=np.float32))
+    port = _free_port()
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "TERM_PROGRAM": "vscode",
+            "ARRAYVIEW_WINDOW_ID": "test-window",
+        }
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "arrayview",
+            str(arr_path),
+            "--window",
+            "vscode",
+            "--port",
+            str(port),
+        ],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    try:
+        assert result.returncode == 0, result.stderr
+        assert _wait_for_ping(port)
+    finally:
+        subprocess.run(
+            [sys.executable, "-m", "arrayview", "--kill", "--port", str(port)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
 
 
 def test_cli_rejects_more_than_six_files(monkeypatch):

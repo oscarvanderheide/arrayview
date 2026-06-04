@@ -984,7 +984,13 @@ def _handle_cli_spawned_daemon(
         f" rgb={rgb},"
         f")"
     )
-    subprocess.Popen([sys.executable, "-c", script])
+    subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
 
     early_webview_opened = False
     early_webview_notified = False

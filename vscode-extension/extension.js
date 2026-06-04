@@ -756,11 +756,50 @@ async function openInWebviewPanel(url, title, floating = false) {
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
   iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+  #backend-error {
+    box-sizing: border-box;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 32px;
+    background: #101010;
+    color: #e6e6e6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  #backend-error.visible { display: flex; }
+  #backend-error .box { max-width: 720px; line-height: 1.5; }
+  #backend-error h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
+  #backend-error p { margin: 8px 0; color: #bdbdbd; }
+  #backend-error code { color: #f5c842; word-break: break-all; }
 </style>
 </head>
 <body>
 <iframe id="f" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads"></iframe>
-<script nonce="${nonce}">document.getElementById('f').src = ${jsonUrl};</script>
+<div id="backend-error">
+  <div class="box">
+    <h2>ArrayView backend is not responding</h2>
+    <p>The VS Code tab opened, but the local ArrayView server for this view is unavailable.</p>
+    <p>Close this tab and run the command again. If it keeps happening, check that the terminal command is still running or that another process did not take the port.</p>
+    <p><code id="backend-url"></code></p>
+  </div>
+</div>
+<script nonce="${nonce}">
+const arrayviewUrl = ${jsonUrl};
+const frame = document.getElementById('f');
+frame.src = arrayviewUrl;
+setTimeout(async () => {
+  try {
+    const res = await fetch(arrayviewUrl, { method: 'GET', cache: 'no-store' });
+    if (res.ok || res.status < 500) return;
+    throw new Error('HTTP ' + res.status);
+  } catch (_) {
+    document.getElementById('backend-url').textContent = arrayviewUrl;
+    document.getElementById('backend-error').classList.add('visible');
+    frame.style.display = 'none';
+  }
+}, 3500);
+</script>
 </body>
 </html>`;
 

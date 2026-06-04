@@ -2405,7 +2405,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd: spawned.append(cmd) or object(),
+            lambda cmd, *args, **kwargs: spawned.append((cmd, kwargs)) or object(),
         )
         monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: ["sid_cmp"])
@@ -2438,9 +2438,13 @@ class TestCliOpenHelpers:
         )
 
         assert spawned
-        assert "_serve_daemon(" in spawned[0][2]
-        assert "persist=False" in spawned[0][2]
-        assert "rgb=True" in spawned[0][2]
+        assert "_serve_daemon(" in spawned[0][0][2]
+        assert "persist=False" in spawned[0][0][2]
+        assert "rgb=True" in spawned[0][0][2]
+        assert spawned[0][1]["stdin"] is launcher.subprocess.DEVNULL
+        assert spawned[0][1]["stdout"] is launcher.subprocess.DEVNULL
+        assert spawned[0][1]["stderr"] is launcher.subprocess.DEVNULL
+        assert spawned[0][1]["close_fds"] is True
         assert opened == [
             {
                 "port": 8000,
@@ -2470,7 +2474,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd: events.append(("spawn", cmd)) or object(),
+            lambda cmd, *args, **kwargs: events.append(("spawn", cmd, kwargs)) or object(),
         )
         monkeypatch.setattr(
             launcher,
@@ -2531,7 +2535,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd: object(),
+            lambda cmd, *args, **kwargs: object(),
         )
         monkeypatch.setattr(launcher, "_open_webview_cli", lambda *args, **kwargs: True)
         monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
@@ -2579,7 +2583,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd: events.append(("spawn", cmd)) or object(),
+            lambda cmd, *args, **kwargs: events.append(("spawn", cmd, kwargs)) or object(),
         )
         monkeypatch.setattr(
             launcher,
@@ -2625,16 +2629,20 @@ class TestCliOpenHelpers:
 
         spawned = []
 
-        monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+        monkeypatch.setattr(
+            launcher, "_configure_vscode_port_preview", lambda port: None
+        )
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd: spawned.append(cmd) or object(),
+            lambda cmd, *args, **kwargs: spawned.append((cmd, kwargs)) or object(),
         )
         monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
         monkeypatch.setattr(launcher, "_open_cli_spawned_view", lambda **kwargs: None)
-        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+        monkeypatch.setattr(
+            launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})()
+        )
 
         launcher._handle_cli_spawned_daemon(
             port=8000,
@@ -2656,7 +2664,7 @@ class TestCliOpenHelpers:
         )
 
         assert spawned
-        assert "persist=True" in spawned[0][2]
+        assert "persist=True" in spawned[0][0][2]
 
 
 # ---------------------------------------------------------------------------
