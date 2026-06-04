@@ -7,6 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 
 import arrayview._session as _session_mod
 from arrayview._analysis import _build_metadata
+from arrayview._lifecycle import release_session
 from arrayview._overlays import _composite_overlays
 from arrayview._render import (
     LUTS,
@@ -80,14 +81,8 @@ def register_websocket_routes(app) -> None:
                 msg = await ws.receive_json()
                 if msg.get("action") == "close":
                     sid = msg.get("sid")
-                    if sid in SESSIONS:
-                        SESSIONS[sid].reset_caches()
-                        SESSIONS[sid].data = None
-                        del SESSIONS[sid]
-                        from arrayview._routes_persistence import _CROP_LOCK, _CROP_STATE
-
-                        with _CROP_LOCK:
-                            _CROP_STATE.pop(sid, None)
+                    if sid:
+                        release_session(sid)
         except Exception:
             pass
         finally:
@@ -110,6 +105,9 @@ def register_websocket_routes(app) -> None:
             pass
 
         _session_mod.VIEWER_SOCKETS += 1
+        _session_mod.VIEWER_SID_COUNTS[sid] = (
+            _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
+        )
         _session_mod.VIEWER_SIDS.add(sid)
         loop = asyncio.get_running_loop()
         _pending: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -402,3 +400,9 @@ def register_websocket_routes(app) -> None:
             except asyncio.CancelledError:
                 pass
             _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
+            sid_count = max(0, _session_mod.VIEWER_SID_COUNTS.get(sid, 0) - 1)
+            if sid_count:
+                _session_mod.VIEWER_SID_COUNTS[sid] = sid_count
+            else:
+                _session_mod.VIEWER_SID_COUNTS.pop(sid, None)
+                _session_mod.VIEWER_SIDS.discard(sid)

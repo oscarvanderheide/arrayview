@@ -98,7 +98,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
-def test_cli_vscode_terminal_keeps_spawned_backend_alive(tmp_path):
+def test_cli_vscode_terminal_keeps_spawned_backend_available_for_tab_startup(tmp_path):
     arr_path = tmp_path / "base.npy"
     np.save(arr_path, np.zeros((8, 8), dtype=np.float32))
     port = _free_port()

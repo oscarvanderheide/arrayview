@@ -980,7 +980,7 @@ def _handle_cli_spawned_daemon(
         f" overlay_sids={repr(overlay_sids)},"
         f" vfield_filepath={repr(vfield_abs)},"
         f" vfield_components_dim={repr(vfield_components_dim)},"
-        f" persist={is_remote or window_mode == 'vscode'},"
+        f" persist={is_remote},"
         f" rgb={rgb},"
         f")"
     )

@@ -7,6 +7,7 @@ from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
+from arrayview._lifecycle import release_session
 from arrayview._session import SESSIONS, Session
 
 
@@ -168,6 +169,11 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             wait=wait,
         )
         return {"sid": session.sid, "name": name, "notified": notified}
+
+    @app.post("/release/{sid}")
+    def release_viewer_session(sid: str):
+        """Release a session when its owning viewer tab/window closes."""
+        return {"sid": sid, "released": release_session(sid)}
 
     @app.post("/session/{sid}/reload-npz")
     async def reload_npz_key(sid: str, request: Request):

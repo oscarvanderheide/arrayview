@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
 const { spawnSync } = require('child_process');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
@@ -569,6 +571,78 @@ function log(message) {
     console.log(`[arrayview-opener] ${prefix}${message}`);
 }
 
+function httpOk(url, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve(false);
+            return;
+        }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (ok) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+        };
+        const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
+            res.resume();
+            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 500);
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            done(false);
+        });
+        req.on('error', () => done(false));
+    });
+}
+
+function httpPostOk(url, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve(false);
+            return;
+        }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (ok) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+        };
+        const req = lib.request(parsed, { method: 'POST', timeout: timeoutMs }, (res) => {
+            res.resume();
+            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 500);
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            done(false);
+        });
+        req.on('error', () => done(false));
+        req.end();
+    });
+}
+
+function releaseUrlSession(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (_) {
+        return;
+    }
+    const sid = parsed.searchParams.get('sid');
+    if (!sid || sid === '__welcome__') return;
+    const releaseUrl = `${parsed.origin}/release/${encodeURIComponent(sid)}`;
+    void httpPostOk(releaseUrl).then((ok) => {
+        log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
+    });
+}
+
 function isExpiredSignal(data) {
     const sentAtMs = Number(data.sentAtMs || 0);
     const maxAgeMs = Number(data.maxAgeMs || 15000);
@@ -747,6 +821,11 @@ async function openInWebviewPanel(url, title, floating = false) {
     // attribute-encoding issues.
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url); // safe JS string literal embedding
+    let pingUrl = null;
+    try {
+        const parsed = new URL(url);
+        pingUrl = `${parsed.origin}/ping`;
+    } catch (_) {}
 
     panel.webview.html = `<!DOCTYPE html>
 <html>
@@ -787,25 +866,49 @@ async function openInWebviewPanel(url, title, floating = false) {
 <script nonce="${nonce}">
 const arrayviewUrl = ${jsonUrl};
 const frame = document.getElementById('f');
-frame.src = arrayviewUrl;
-setTimeout(async () => {
-  try {
-    const res = await fetch(arrayviewUrl, { method: 'GET', cache: 'no-store' });
-    if (res.ok || res.status < 500) return;
-    throw new Error('HTTP ' + res.status);
-  } catch (_) {
-    document.getElementById('backend-url').textContent = arrayviewUrl;
-    document.getElementById('backend-error').classList.add('visible');
-    frame.style.display = 'none';
+let viewerReady = false;
+function showBackendError() {
+  if (viewerReady) return;
+  document.getElementById('backend-url').textContent = arrayviewUrl;
+  document.getElementById('backend-error').classList.add('visible');
+  frame.style.display = 'none';
+}
+window.addEventListener('message', (event) => {
+  const msg = event && event.data;
+  if (msg && msg.type === 'backend-error') {
+    showBackendError();
+    return;
   }
-}, 3500);
+  if (!msg || msg.source !== 'arrayview-viewer') return;
+  if (msg.phase === 'script-loaded' || msg.phase === 'frame-rendered') {
+    viewerReady = true;
+  }
+});
+frame.src = arrayviewUrl;
 </script>
 </body>
 </html>`;
 
     _openPanels.set(url, panel);
-    panel.onDidDispose(() => _openPanels.delete(url));
+    let panelDisposed = false;
+    panel.onDidDispose(() => {
+        panelDisposed = true;
+        _openPanels.delete(url);
+        releaseUrlSession(url);
+    });
     log(`PANEL: created "${label}" for ${url}`);
+
+    if (pingUrl) {
+        setTimeout(async () => {
+            for (let attempt = 0; attempt <= 10 && !panelDisposed; attempt++) {
+                if (await httpOk(pingUrl)) return;
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+            if (!panelDisposed) {
+                await panel.webview.postMessage({ type: 'backend-error', url });
+            }
+        }, 3500);
+    }
 
     const cfg = vscode.workspace.getConfiguration('arrayview');
     if ((floating || cfg.get('openInFloatingWindow')) && vscode.env.uiKind !== vscode.UIKind.Web) {
