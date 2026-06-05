@@ -84,6 +84,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 ## Verification Anchors
 
+- `tests/lifecycle_matrix.py` is the top-level lifecycle gate; it reports automated, real-process, local-state, and manual-only checks separately.
 - `tests/test_lifecycle_contract.py` covers invocation ownership, release routes, transient daemon shutdown, and bundled VSIX lifecycle content.
 - `tests/test_cli.py` covers CLI launch behavior.
 - `tests/test_api.py` contains the affected WebSocket close and CLI helper coverage.
