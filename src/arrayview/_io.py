@@ -67,7 +67,7 @@ def list_mat_keys(filepath):
         for k, v in mat.items():
             if k.startswith("_"):
                 continue
-            if isinstance(v, np.ndarray) and v.ndim >= 1:
+            if isinstance(v, np.ndarray) and v.ndim >= 1 and v.dtype.kind in ("b", "i", "u", "f", "c"):
                 keys.append({"key": k, "shape": list(v.shape), "dtype": str(v.dtype)})
         return keys
     except NotImplementedError:
@@ -77,7 +77,7 @@ def list_mat_keys(filepath):
         keys = []
         for k in f.keys():
             ds = f[k]
-            if isinstance(ds, h5py.Dataset) and len(ds.shape) >= 1:
+            if isinstance(ds, h5py.Dataset) and len(ds.shape) >= 1 and ds.dtype.kind in ("b", "i", "u", "f", "c"):
                 keys.append({"key": k, "shape": list(ds.shape), "dtype": str(ds.dtype)})
         f.close()
         return keys

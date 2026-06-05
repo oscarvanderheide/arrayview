@@ -2621,7 +2621,16 @@ def _serve_daemon(
         from arrayview._io import load_data, load_data_with_meta, list_array_keys
 
         try:
-            data, spatial_meta = load_data_with_meta(filepath)
+            # Multi-array .npz/.mat: load the first array so the session is
+            # created, then store keys so the viewer can show a picker.
+            _array_keys = None
+            if (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
+                try:
+                    _array_keys = list_array_keys(filepath)
+                except Exception:
+                    pass
+            _load_key = _array_keys[0]["key"] if _array_keys and len(_array_keys) > 1 else None
+            data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
             if cleanup:
                 try:
                     os.unlink(filepath)
@@ -2632,15 +2641,9 @@ def _serve_daemon(
             )
             session.sid = sid
             session.spatial_meta = spatial_meta
-            # Multi-array .npz/.mat: store keys so the viewer can show a picker
-            if (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
-                try:
-                    keys = list_array_keys(filepath)
-                    if len(keys) > 1:
-                        session.array_keys = keys
-                        session.array_filepath = filepath
-                except Exception:
-                    pass
+            if _array_keys and len(_array_keys) > 1:
+                session.array_keys = _array_keys
+                session.array_filepath = filepath
             if spatial_meta is not None:
                 session.original_volume = data
             if rgb:
