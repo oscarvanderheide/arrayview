@@ -32,7 +32,18 @@ function pingUrlFromViewerUrl(url) {
     }
 }
 
+function shouldRemoveSameTunnelRegistration(currentWindowId, currentPpids, candidateWindowId, candidateData, candidateAlive) {
+    if (candidateWindowId === currentWindowId) return false;
+    if (!candidateData || !candidateData.pid || candidateAlive) return false;
+    const candidatePpids = Array.isArray(candidateData.ppids) ? candidateData.ppids : [];
+    if (!Array.isArray(currentPpids) || currentPpids.length < 1 || candidatePpids.length < 1) {
+        return false;
+    }
+    return candidatePpids[0] === currentPpids[0];
+}
+
 module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldRemoveSameTunnelRegistration,
 };

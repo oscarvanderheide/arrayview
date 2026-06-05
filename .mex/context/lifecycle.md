@@ -68,6 +68,8 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 - Remote or tunnel launches may persist when `--serve` or direct-server constraints require it.
 - Direct VS Code tunnel display should prefer stdio direct webview to avoid forwarded-port auth and public-port setup.
+- With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` must fail closed with a diagnostic rather than broadcasting to whichever window is focused.
+- An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
 
 ## Shared Rules
@@ -76,6 +78,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 - `release_session()` is the session-release primitive.
 - Viewer WebSocket connect/disconnect owns active viewer counts.
 - URL panel disposal must release every SID encoded in the URL: `sid`, `compare_sid`, `compare_sids`, and `overlay_sid`.
+- Tunnel registration cleanup must not remove live same-tunnel sibling windows.
 - Explicit cleanup wins over implicit disappearance.
 - Any VS Code extension source change must rebuild `src/arrayview/arrayview-opener.vsix` and keep the packaged version in sync.
 

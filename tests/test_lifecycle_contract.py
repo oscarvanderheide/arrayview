@@ -128,6 +128,63 @@ def test_plain_ssh_keeps_script_mode_transient(monkeypatch):
     assert launcher._is_script_mode() is True
 
 
+def test_vscode_tunnel_ambiguous_windows_fail_closed(monkeypatch, tmp_path, capsys):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
+    monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: "100")
+
+    for wid in ("100", "200"):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps({"pid": int(wid), "ppids": [10], "fallbackId": True})
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is False
+    assert "VS Code tunnel window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
+
+
+def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
+
+    (signal_dir / "window-100.json").write_text(
+        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1})
+    )
+    (signal_dir / "window-200.json").write_text(
+        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2})
+    )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is True
+    assert (signal_dir / "open-request-pid-100.json").exists()
+    assert not (signal_dir / "open-request-pid-200.json").exists()
+
+
 def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     import arrayview._launcher as launcher
     import arrayview._session as session_mod

@@ -9,6 +9,7 @@ const { spawnSync } = require('child_process');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldRemoveSameTunnelRegistration,
 } = require('./lifecycle_helpers');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
@@ -1095,24 +1096,26 @@ function activate(context) {
     cleanupStaleFiles();
 
     // Clean up stale registrations from previous tunnel sessions.
-    // When the extension host restarts (e.g. tunnel reconnect), the old
-    // process may still be alive but is no longer connected to a VS Code
-    // client.  Detect by finding registrations with the same first ppid
-    // (same server/tunnel) but an older timestamp.
+    // Do not delete live same-tunnel registrations just because they are older:
+    // multiple VS Code windows in one tunnel can share the same first parent,
+    // and removing those registrations makes Python target the wrong window.
     if (EXT_PPIDS.length >= 1) {
         try {
-            const now = Date.now();
             for (const f of fs.readdirSync(SIGNAL_DIR)) {
                 if (!f.startsWith('window-') || !f.endsWith('.json')) continue;
                 const wid = f.slice(7, -5);
                 if (wid === windowId) continue;
                 try {
                     const data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
-                    const sameTunnel = data.ppids && data.ppids.length >= 1 &&
-                        data.ppids[0] === EXT_PPIDS[0];
-                    if (sameTunnel && data.ts && data.ts < now - 5000) {
+                    if (shouldRemoveSameTunnelRegistration(
+                        windowId,
+                        EXT_PPIDS,
+                        wid,
+                        data,
+                        data.pid ? isProcessAlive(data.pid) : false
+                    )) {
                         fs.unlinkSync(path.join(SIGNAL_DIR, f));
-                        log(`CLEANUP: removed stale same-tunnel registration ${f} (ts=${data.ts})`);
+                        log(`CLEANUP: removed dead same-tunnel registration ${f} (pid=${data.pid})`);
                         // Also remove any stale signal files targeting that window
                         const prefix = data.fallbackId ? 'pid' : 'ipc';
                         try { fs.unlinkSync(path.join(SIGNAL_DIR, `open-request-${prefix}-${wid}.json`)); } catch (_) {}

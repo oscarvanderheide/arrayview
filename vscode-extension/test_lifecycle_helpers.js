@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldRemoveSameTunnelRegistration,
 } = require('./lifecycle_helpers');
 
 assert.deepStrictEqual(
@@ -19,5 +20,22 @@ assert.deepStrictEqual(
 assert.deepStrictEqual(collectReleaseSidsFromUrl('not a url'), []);
 assert.strictEqual(pingUrlFromViewerUrl('http://localhost:8123/?sid=abc'), 'http://localhost:8123/ping');
 assert.strictEqual(pingUrlFromViewerUrl('not a url'), null);
+
+assert.strictEqual(
+    shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [10] }, false),
+    true
+);
+assert.strictEqual(
+    shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [10] }, true),
+    false
+);
+assert.strictEqual(
+    shouldRemoveSameTunnelRegistration('current', [10], 'current', { pid: 123, ppids: [10] }, false),
+    false
+);
+assert.strictEqual(
+    shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [20] }, false),
+    false
+);
 
 console.log('lifecycle helper tests passed');

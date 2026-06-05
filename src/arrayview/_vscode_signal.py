@@ -440,7 +440,7 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                 # The stable window ID feature (v0.14.0+) already handles restart
                 # continuity on macOS via EnvironmentVariableCollection, making
                 # this stale-redirect unnecessary there.
-                if uses_pid and sys.platform != "darwin":
+                if uses_pid and sys.platform != "darwin" and not _is_vscode_remote():
                     _env_ts = _reg_data.get("ts", 0)
                     _env_ppids = _reg_data.get("ppids", [])
                     try:
@@ -512,22 +512,33 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                         flush=True,
                     )
                 elif len(_all_windows) > 1:
-                    _wfiles = []
-                    for _fn in _all_windows:
-                        _wid = _fn[7:-5]
-                        _wfiles.append(
-                            f"open-request-pid-{_wid}.json"
-                            if _wid.isdigit()
-                            else f"open-request-ipc-{_wid}.json"
+                    if _is_vscode_remote():
+                        print(
+                            "[ArrayView] VS Code tunnel window is ambiguous: "
+                            f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
+                            f"and {len(_all_windows)} VS Code windows are active. "
+                            "Open a fresh terminal in the target VS Code window "
+                            "and run ArrayView again.",
+                            flush=True,
                         )
-                    data["broadcast"] = True
-                    filenames = tuple(_wfiles)
-                    targeted_via_env = True
-                    _vprint(
-                        f"[ArrayView] signal: {len(_all_windows)} windows registered, "
-                        f"broadcasting with focus guard",
-                        flush=True,
-                    )
+                        return False
+                    else:
+                        _wfiles = []
+                        for _fn in _all_windows:
+                            _wid = _fn[7:-5]
+                            _wfiles.append(
+                                f"open-request-pid-{_wid}.json"
+                                if _wid.isdigit()
+                                else f"open-request-ipc-{_wid}.json"
+                            )
+                        data["broadcast"] = True
+                        filenames = tuple(_wfiles)
+                        targeted_via_env = True
+                        _vprint(
+                            f"[ArrayView] signal: {len(_all_windows)} windows registered, "
+                            f"broadcasting with focus guard",
+                            flush=True,
+                        )
                 # else: 0 windows — fall through to subsequent targeting
 
         if targeted_via_env:
@@ -658,38 +669,9 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                     except Exception:
                         _uses_pid = env_wid.isdigit()
 
-                    # Same stale-env guard as the primary check above.
-                    _env_ts = _reg_data.get("ts", 0)
-                    _env_ppids = _reg_data.get("ppids", [])
-                    try:
-                        for _fname in os.listdir(signal_dir):
-                            if not (_fname.startswith("window-") and _fname.endswith(".json")):
-                                continue
-                            _other_wid = _fname[7:-5]
-                            if _other_wid == env_wid:
-                                continue
-                            with open(os.path.join(signal_dir, _fname)) as _f:
-                                _other = json.load(_f)
-                            _other_ts = _other.get("ts", 0)
-                            _other_ppids = _other.get("ppids", [])
-                            if (
-                                _other_ts > _env_ts
-                                and len(_env_ppids) >= 1
-                                and len(_other_ppids) >= 1
-                                and _env_ppids[0] == _other_ppids[0]
-                            ):
-                                _vprint(
-                                    f"[ArrayView] signal: remote env {env_wid} is stale "
-                                    f"(newer {_other_wid}), redirecting",
-                                    flush=True,
-                                )
-                                env_wid = _other_wid
-                                _reg_data = _other
-                                _uses_pid = _other.get("fallbackId", False)
-                                _env_ts = _other_ts
-                    except Exception:
-                        pass
-
+                    # Trust an exact remote window ID. In tunnels, PID ancestry
+                    # can be shared by multiple live windows, so redirecting to
+                    # a newer same-parent registration can open the wrong tab.
                     _prefix = "pid" if _uses_pid else "ipc"
                     _vprint(f"[ArrayView] signal: env window match → {_prefix}-{env_wid}", flush=True)
                     filenames = (f"open-request-{_prefix}-{env_wid}.json",)
@@ -724,39 +706,51 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                             flush=True,
                         )
                     elif len(_all_windows_r) > 1:
-                        _wfiles_r = []
-                        for _fn in _all_windows_r:
-                            _wid = _fn[7:-5]
-                            _wfiles_r.append(
-                                f"open-request-pid-{_wid}.json"
-                                if _wid.isdigit()
-                                else f"open-request-ipc-{_wid}.json"
-                            )
-                        data["broadcast"] = True
-                        filenames = tuple(_wfiles_r)
-                        # env_wid is still the original stale ID (truthy), so the
-                        # `if not env_wid:` fallback below won't trigger; no clobber needed.
-                        _vprint(
-                            f"[ArrayView] signal: remote {len(_all_windows_r)} windows, "
-                            f"broadcasting with focus guard",
+                        print(
+                            "[ArrayView] VS Code tunnel window is ambiguous: "
+                            f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
+                            f"and {len(_all_windows_r)} VS Code windows are active. "
+                            "Open a fresh terminal in the target VS Code window "
+                            "and run ArrayView again.",
                             flush=True,
                         )
+                        return False
                     else:
                         env_wid = None  # 0 windows: keep existing fallback
 
             if not env_wid:
-                # Fallback: PID ancestry (may misfire with multiple windows)
-                _vprint(f"[ArrayView] signal: trying PID ancestry fallback", flush=True)
-                window_id = _find_current_vscode_window_id()
-                if window_id:
-                    _vprint(f"[ArrayView] signal: PID ancestry matched window={window_id}", flush=True)
-                    filenames = (
-                        f"open-request-pid-{window_id}.json"
-                        if window_id.isdigit()
-                        else f"open-request-ipc-{window_id}.json",
+                try:
+                    _all_windows_r = [
+                        fn for fn in os.listdir(signal_dir)
+                        if fn.startswith("window-") and fn.endswith(".json")
+                    ]
+                except Exception:
+                    _all_windows_r = []
+                if len(_all_windows_r) == 1:
+                    _sole_wid_r = _all_windows_r[0][7:-5]
+                    try:
+                        with open(os.path.join(signal_dir, _all_windows_r[0])) as _rf:
+                            _sole_reg_r = json.load(_rf)
+                        _uses_pid_r = _sole_reg_r.get("fallbackId", False)
+                    except Exception:
+                        _uses_pid_r = _sole_wid_r.isdigit()
+                    _prefix_r = "pid" if _uses_pid_r else "ipc"
+                    filenames = (f"open-request-{_prefix_r}-{_sole_wid_r}.json",)
+                    _vprint(
+                        f"[ArrayView] signal: remote single window → {filenames[0]}",
+                        flush=True,
                     )
+                elif len(_all_windows_r) > 1:
+                    print(
+                        "[ArrayView] VS Code tunnel window is ambiguous: "
+                        "ARRAYVIEW_WINDOW_ID is not available and multiple "
+                        "VS Code windows are active. Open a fresh terminal in "
+                        "the target VS Code window and run ArrayView again.",
+                        flush=True,
+                    )
+                    return False
                 else:
-                    _vprint(f"[ArrayView] signal: no window match, using shared fallback", flush=True)
+                    _vprint(f"[ArrayView] signal: no registered remote window, using shared fallback", flush=True)
                     filenames = (
                         (_VSCODE_SIGNAL_FILENAME,)
                         if skip_compat
@@ -778,4 +772,3 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
         return True
     except Exception:
         return False
-
