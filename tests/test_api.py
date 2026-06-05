@@ -2186,7 +2186,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: calls.append(args))
         monkeypatch.setattr(
             launcher,
-            "_open_webview_cli",
+            "_open_webview_cli_tracked",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
         )
         monkeypatch.setattr(
@@ -2217,7 +2217,9 @@ class TestCliOpenHelpers:
 
         opened = []
         printed = []
-        monkeypatch.setattr(launcher, "_open_webview_cli", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (False, None)
+        )
         monkeypatch.setattr(
             launcher, "_print_viewer_location", lambda url: printed.append(url)
         )
@@ -2256,6 +2258,104 @@ class TestCliOpenHelpers:
             }
         ]
 
+    def test_open_cli_existing_server_view_falls_back_when_native_never_connects(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 4)
+        monkeypatch.setattr(
+            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_existing_server_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid=None,
+            dims_override=None,
+            notify_webview=True,
+            notified=False,
+            name="base.npy",
+            base_file="/tmp/base.npy",
+            watch=False,
+            window_mode="native",
+            floating=False,
+        )
+
+        assert terminated == [True]
+        assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
+        assert opened[0]["blocking"] is True
+
+    def test_open_cli_spawned_view_falls_back_when_native_never_connects(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
+        monkeypatch.setattr(
+            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_spawned_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid=None,
+            dims_override=None,
+            use_webview=True,
+            name="base.npy",
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            base_file="/tmp/base.npy",
+        )
+
+        assert terminated == [True]
+        assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
+        assert opened[0]["blocking"] is False
+
     def test_open_cli_spawned_view_overlay_browser_path_starts_watch(self, monkeypatch):
         import arrayview._launcher as launcher
 
@@ -2264,7 +2364,7 @@ class TestCliOpenHelpers:
         watched = []
         monkeypatch.setattr(
             launcher,
-            "_open_webview_cli",
+            "_open_webview_cli_tracked",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
         )
         monkeypatch.setattr(
@@ -2485,6 +2585,7 @@ class TestCliOpenHelpers:
 
         events = []
         opened = []
+        proc = type("P", (), {"poll": lambda self: None, "terminate": lambda self: None})()
 
         monkeypatch.setattr(
             launcher.subprocess,
@@ -2493,14 +2594,16 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(
             launcher,
-            "_open_webview_cli",
-            lambda *args, **kwargs: events.append(("webview", args, kwargs)) or True,
+            "_open_webview_cli_tracked",
+            lambda *args, **kwargs: events.append(("webview", args, kwargs)) or (True, proc),
         )
         monkeypatch.setattr(
             launcher,
             "_wait_for_port",
             lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
         )
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
+        monkeypatch.setattr(launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: True)
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
         monkeypatch.setattr(
             launcher,
@@ -2540,25 +2643,40 @@ class TestCliOpenHelpers:
         assert events[1][2]["shell_port"] == 8000
         assert opened[0]["webview_already_opened"] is True
 
-    def test_handle_cli_spawned_daemon_keeps_first_native_shell_when_notify_misses(
+    def test_handle_cli_spawned_daemon_falls_back_when_early_native_never_connects(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
 
         opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
 
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
             lambda cmd, *args, **kwargs: object(),
         )
-        monkeypatch.setattr(launcher, "_open_webview_cli", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
         monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
+        monkeypatch.setattr(
+            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+        )
         monkeypatch.setattr(
             launcher,
             "_notify_existing_session",
-            lambda *args, **kwargs: {"notified": False},
+            lambda *args, **kwargs: {"notified": True},
         )
         monkeypatch.setattr(
             launcher,
@@ -2586,7 +2704,9 @@ class TestCliOpenHelpers:
             demo_cleanup=False,
         )
 
-        assert opened[0]["webview_already_opened"] is True
+        assert terminated == [True]
+        assert opened[0]["use_webview"] is False
+        assert opened[0]["webview_already_opened"] is False
 
     def test_handle_cli_spawned_daemon_does_not_early_open_remote_webview(
         self, monkeypatch
@@ -2602,7 +2722,7 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(
             launcher,
-            "_open_webview_cli",
+            "_open_webview_cli_tracked",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
         )
         monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)

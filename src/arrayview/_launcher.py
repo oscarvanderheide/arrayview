@@ -448,6 +448,17 @@ def _open_webview_cli(
     Returns True once the child has imported pywebview and created the window.
     Returns False if it crashed; in that case the caller should fall back to browser.
     """
+    opened, _proc = _open_webview_cli_tracked(url, win_w, win_h, shell_port=shell_port)
+    return opened
+
+
+def _open_webview_cli_tracked(
+    url: str,
+    win_w: int,
+    win_h: int,
+    shell_port: int | None = None,
+) -> tuple[bool, subprocess.Popen | None]:
+    """Launch pywebview and return the child process when startup succeeds."""
     import tempfile
 
     _vprint("[ArrayView] Launching native window (PyWebView)...", flush=True)
@@ -483,21 +494,64 @@ def _open_webview_cli(
             )
             if stderr_out:
                 _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-            return False
+            return False, None
         if os.path.exists(ready_file):
             try:
                 os.unlink(ready_file)
             except OSError:
                 pass
             _vprint("[ArrayView] Native window started successfully", flush=True)
-            return True
+            return True, proc
         time.sleep(0.02)
     try:
         os.unlink(ready_file)
     except OSError:
         pass
     _vprint("[ArrayView] Native window started successfully", flush=True)
-    return True
+    return True, proc
+
+
+def _server_viewer_connections_seen(port: int, timeout: float = 0.5) -> int:
+    """Return the daemon's monotonic viewer WebSocket connection count."""
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return 0
+            payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return int(
+                    payload.get("viewer_connections_seen")
+                    or payload.get("viewer_sockets")
+                    or 0
+                )
+    except Exception:
+        pass
+    return 0
+
+
+def _wait_for_viewer_connection(
+    port: int,
+    *,
+    before: int,
+    timeout: float = 8.0,
+) -> bool:
+    """Wait until the backend has accepted a new viewer WebSocket connection."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _server_viewer_connections_seen(port, timeout=0.3) > before:
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _terminate_native_process(proc: subprocess.Popen | None) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+    except Exception:
+        return
 
 
 # ── Server Port Utilities ─────────────────────────────────────────
@@ -809,7 +863,15 @@ def _open_cli_existing_server_view(
         return
     if notify_webview and not notified:
         url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
-        if not _open_webview_cli(url_shell, 1200, 800):
+        seen_before = _server_viewer_connections_seen(port)
+        opened, proc = _open_webview_cli_tracked(url_shell, 1200, 800)
+        if not opened or not _wait_for_viewer_connection(port, before=seen_before):
+            if opened:
+                _vprint(
+                    "[ArrayView] Native window did not connect to the backend; falling back to browser",
+                    flush=True,
+                )
+            _terminate_native_process(proc)
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
@@ -993,7 +1055,9 @@ def _handle_cli_spawned_daemon(
     )
 
     early_webview_opened = False
+    early_webview_proc = None
     early_webview_notified = False
+    early_webview_connected = False
     if (
         use_webview
         and not is_remote
@@ -1001,7 +1065,7 @@ def _handle_cli_spawned_daemon(
         and not compare_files
     ):
         url_shell_early = _shell_url(port, sid, name)
-        early_webview_opened = _open_webview_cli(
+        early_webview_opened, early_webview_proc = _open_webview_cli_tracked(
             url_shell_early, 1400, 900, shell_port=port
         )
 
@@ -1019,6 +1083,7 @@ def _handle_cli_spawned_daemon(
         sys.exit(1)
 
     if early_webview_opened:
+        seen_before = _server_viewer_connections_seen(port)
         try:
             notify_result = _notify_existing_session(
                 port,
@@ -1030,6 +1095,21 @@ def _handle_cli_spawned_daemon(
             early_webview_notified = bool(notify_result.get("notified"))
         except Exception:
             early_webview_notified = False
+        if early_webview_notified:
+            early_webview_connected = _wait_for_viewer_connection(
+                port,
+                before=seen_before,
+            )
+        if not early_webview_connected:
+            _vprint(
+                "[ArrayView] Native window did not connect to the backend; falling back to browser",
+                flush=True,
+            )
+            _terminate_native_process(early_webview_proc)
+
+    should_retry_webview = use_webview and not (
+        early_webview_opened and not early_webview_connected
+    )
 
     _open_cli_spawned_view(
         port=port,
@@ -1037,14 +1117,14 @@ def _handle_cli_spawned_daemon(
         compare_sids=compare_sids,
         overlay_sid=overlay_sid,
         dims_override=dims_override,
-        use_webview=use_webview,
+        use_webview=should_retry_webview,
         name=name,
         base_file=base_file,
         watch=watch,
         window_mode=window_mode,
         floating=floating,
         is_remote=is_remote,
-        webview_already_opened=early_webview_opened,
+        webview_already_opened=early_webview_connected,
     )
 
 
@@ -1075,7 +1155,15 @@ def _open_cli_spawned_view(
         if webview_already_opened:
             return
         url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
-        if not _open_webview_cli(url_shell, 1400, 900):
+        seen_before = _server_viewer_connections_seen(port)
+        opened, proc = _open_webview_cli_tracked(url_shell, 1400, 900)
+        if not opened or not _wait_for_viewer_connection(port, before=seen_before):
+            if opened:
+                _vprint(
+                    "[ArrayView] Native window did not connect to the backend; falling back to browser",
+                    flush=True,
+                )
+            _terminate_native_process(proc)
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
@@ -3168,10 +3256,62 @@ def arrayview():
     # --diagnose: print detection results and exit
     if getattr(args, "diagnose", False):
         import json as _json
+        import importlib.util as _importlib_util
         from ._platform import (
             _find_vscode_ipc_hook,
             _in_jupyter,
         )
+        from arrayview._config import CONFIG_PATH, get_window_default, load_config
+        from arrayview._platform import detect_environment
+
+        _det_env = detect_environment()
+        _config_window = get_window_default(_det_env)
+        _in_vs = _in_vscode_terminal()
+        _is_remote = _is_vscode_remote()
+        _can_native = _can_native_window()
+        _window_plan = _resolve_cli_window_mode(
+            explicit_window=args.window,
+            browser_flag=args.browser,
+            config_window=_config_window,
+            in_vscode_terminal=_in_vs,
+            is_vscode_remote=_is_remote,
+            can_native_window=_can_native,
+        )
+
+        def _localhost_candidates() -> list[dict[str, object]]:
+            out = []
+            try:
+                infos = socket.getaddrinfo(
+                    _LOOPBACK_HOST,
+                    args.port,
+                    type=socket.SOCK_STREAM,
+                )
+            except Exception as exc:
+                return [{"error": str(exc)}]
+            for family, socktype, proto, _canon, sockaddr in infos:
+                out.append(
+                    {
+                        "family": getattr(socket.AddressFamily(family), "name", str(family)),
+                        "socktype": socktype,
+                        "proto": proto,
+                        "sockaddr": str(sockaddr),
+                    }
+                )
+            return out
+
+        def _bind_probe(port: int) -> dict[str, object]:
+            try:
+                sock = _make_loopback_socket(port)
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            try:
+                return {
+                    "ok": True,
+                    "family": getattr(socket.AddressFamily(sock.family), "name", str(sock.family)),
+                    "sockname": str(sock.getsockname()),
+                }
+            finally:
+                sock.close()
 
         diag: dict = {
             "env": {
@@ -3185,28 +3325,40 @@ def arrayview():
                 "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
             },
             "detection": {
-                "in_vscode_terminal": _in_vscode_terminal(),
-                "is_vscode_remote": _is_vscode_remote(),
+                "in_vscode_terminal": _in_vs,
+                "is_vscode_remote": _is_remote,
                 "in_vscode_tunnel": _in_vscode_tunnel(),
-                "can_native_window": _can_native_window(),
+                "can_native_window": _can_native,
                 "in_jupyter": _in_jupyter(),
                 "vscode_ipc_hook_recovered": _find_vscode_ipc_hook(),
+            },
+            "launch_plan": {
+                **_window_plan,
+                "port": args.port,
+                "port_in_use": _port_in_use(args.port),
+                "arrayview_server_alive": _server_alive(args.port),
+            },
+            "loopback": {
+                "host": _LOOPBACK_HOST,
+                "getaddrinfo": _localhost_candidates(),
+                "bind_probe": _bind_probe(0),
+            },
+            "native_dependencies": {
+                "qtpy": _importlib_util.find_spec("qtpy") is not None,
+                "gi": _importlib_util.find_spec("gi") is not None,
+                "webview": _importlib_util.find_spec("webview") is not None,
             },
             "pid": os.getpid(),
             "ppid": os.getppid(),
             "platform": sys.platform,
             "python": sys.executable,
         }
-        from arrayview._config import CONFIG_PATH, get_window_default, load_config
-        from arrayview._platform import detect_environment
-
-        _det_env = detect_environment()
         diag["config"] = {
             "detected_environment": _det_env,
             "config_file": CONFIG_PATH,
             "config_contents": load_config() or None,
             "ARRAYVIEW_WINDOW": os.environ.get("ARRAYVIEW_WINDOW") or None,
-            "resolved_window_pref": get_window_default(_det_env),
+            "resolved_window_pref": _config_window,
         }
         print(_json.dumps(diag, indent=2))
         return
