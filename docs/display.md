@@ -8,7 +8,7 @@
 ## Dynamic range
 
 `d` cycles quantile presets: 0–100%, 1–99%, 5–95%, 10–90%. Expands the colorbar into a histogram.
-`D` toggles range lock. Locked (default): the range from `d` stays fixed during navigation. Unlocked: vmin/vmax auto-recompute per slice.
+`D` opens a histogram dim picker (3-state toggle for which dimensions participate).
 
 ## Window / level
 
@@ -28,4 +28,8 @@ Drag the colorbar to shift the window. Scroll on the colorbar to narrow or widen
 
 ## Layout
 
-`b` toggles a border around the canvas. `a` stretches panes to a square aspect ratio.
+`b` toggles a border around the canvas. `B` toggles rounded panes. `a` stretches panes to a square aspect ratio.
+
+## Caveat
+
+ArrayView works across six invocation environments (CLI, Python script, Jupyter, Julia, VS Code, SSH). Not every feature has been verified in every mode. If something behaves differently than documented, check the [remote](remote.md) page for environment-specific notes or open an issue.

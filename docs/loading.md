@@ -11,9 +11,11 @@
 | `.pt` / `.pth` | torch | Converted to numpy |
 | `.h5` / `.hdf5` | h5py | Must contain one dataset |
 | `.tif` / `.tiff` | tifffile | Full load |
-| `.mat` | scipy | Must contain one ndarray |
+| `.mat` | scipy / h5py | Multi-array: in-viewer picker for array selection |
 
 Optional libraries are imported only when needed.
+
+Multi-array formats (`.npz`, `.mat`) show an in-viewer picker when they contain more than one array.
 
 ## CLI
 
@@ -22,6 +24,7 @@ uvx arrayview volume.nii.gz
 uvx arrayview volume.npy --window browser
 uvx arrayview image.npy --rgb
 uvx arrayview --watch data.npy              # reload on file change
+uvx arrayview --version                     # print version
 ```
 
 ## Python
@@ -49,7 +52,7 @@ Key parameters:
 |-----------|------|-------------|
 | `data` | array-like | The array to display |
 | `name` | str | Label shown in the viewer tab |
-| `port` | int | Server port (default 8123) |
+| `port` | int | Server port (default 8123 for Python API, 8000 for CLI) |
 | `window` | str \| None | How to open the viewer (see below) |
 | `rgb` | bool | Treat last/first axis as RGB/RGBA channels |
 | `overlay` | array or list | Arrays composited as overlays |

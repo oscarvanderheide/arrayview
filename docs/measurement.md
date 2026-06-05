@@ -2,11 +2,15 @@
 
 ## ROI
 
-`A` cycles through ROI shapes: rectangle, circle, freehand, flood fill, off.
+`Shift+R` opens ROI options. Draw on the canvas to measure a region — live stats (mean, std, min, max) appear in the floating panel.
 
-Active ROIs show live statistics.
+Shapes: rectangle, ellipse, freehand, flood fill. Switch via the shape icons in the panel.
 
 For flood fill, `[` / `]` adjusts tolerance.
+
+Click an existing ROI to select it. `Delete` / `Backspace` removes it.
+
+`N` exports the ROI mask as `.npy`.
 
 ## Ruler
 
@@ -26,9 +30,11 @@ Click the colorbar to copy that value to the clipboard.
 
 | Key | Action |
 |-----|--------|
-| `s` | Screenshot — saved as PNG to Downloads and the snapshot gallery |
-| `g` | GIF along the current slice dimension |
-| `N` | Export current slice as `.npy` |
+| `s` | Open save options (screenshot PNG, GIF, .npy export) |
 | `e` | Copy a reusable URL to clipboard |
 
-`G` toggles the snapshot gallery.
+Screenshots download as PNG. GIF saves an animation along the current slice dimension. `.npy` export saves the current slice.
+
+## Caveat
+
+ArrayView works across six invocation environments (CLI, Python script, Jupyter, Julia, VS Code, SSH). Not every feature has been verified in every mode. If something behaves differently than documented, check the [remote](remote.md) page for environment-specific notes or open an issue.

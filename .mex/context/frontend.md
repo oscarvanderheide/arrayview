@@ -18,7 +18,7 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-05-16
+last_updated: 2026-06-05
 ---
 
 # Frontend (_viewer.html)

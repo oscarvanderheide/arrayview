@@ -9,6 +9,10 @@ uvx arrayview base.npy a.npy b.npy c.npy    # up to 6
 
 Or use the file picker (`Cmd/Ctrl+O`) or drag-and-drop.
 
+## Switching between arrays
+
+`n` cycles the compare target array (when multiple arrays are loaded).
+
 ## Center pane
 
 `X` cycles through comparison modes:

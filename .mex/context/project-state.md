@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-05-13
+last_updated: 2026-06-05
 ---
 
 # Project State
@@ -40,6 +40,18 @@ last_updated: 2026-05-13
 
 ## Recently Completed
 
+- ROI keybind changed from `r` to `Shift+R` (`R`); rotate/flip is now `r`, transpose is `t`
+- Crossfade animation added to rotate/transpose transitions
+- `--version` flag and version string in help overlay
+- In-viewer array picker for multi-array `.mat` and `.npz` files
+- ROI stats tooltips for qMRI canvases (per-parameter-map sub-rows in the island)
+- Invocation lifecycle contract defined and hardened: local VS Code CLI launches use transient daemon shutdown, remote/tunnel launches remain persistent only where transport requires it, URL webview backend checks run in the extension host against `/ping`, URL panel disposal releases all sessions encoded in the viewer URL, quick viewer connect/disconnect races detected by monotonic connection counter, ambiguous multi-window tunnel routing fails closed, stale viewer SID retry state cleared on WebSocket disconnect, bundled opener extension rebuilt as v0.14.12
+- Hover info wrong values fixed
+- Native launcher startup restored
+- qMRI pane sizing stabilized
+- VS Code extension Windows support (select/pipes, venv path, ppid)
+- Tool launcher motion refined
+
 - VS Code tab lifecycle hardening: local VS Code CLI launches now use transient daemon shutdown instead of `persist=True`, remote/tunnel launches remain persistent only where transport requires it, URL webview backend checks run in the extension host against `/ping`, URL panel disposal releases all sessions encoded in the viewer URL via tested lifecycle helpers, quick viewer connect/disconnect races are detected by a monotonic connection counter, ambiguous multi-window tunnel routing now fails closed instead of opening in a guessed window, stale viewer SID retry state is cleared on WebSocket disconnect, and the bundled opener extension was rebuilt as v0.14.12.
 - Shift+C colormap picker redesign: the old centered shortlist is now a narrow translucent right-edge drawer with a close button, a yellow `Colormaps` title plus a `Favorites` subtitle, and a plain 12-swatch two-column quick set that stays visible above the search field. Search matches render in a separate results area below the input, Enter first exits the search field before a second Enter commits, arrow-key movement follows the visible two-column grid, and repeated `c` presses cycle through the currently visible swatches while the picker is open.
 - Detached compare-on-X: single-array non-spatial dimensions now support the same compare-center family as two-array compare. The frontend reuses compare mode with per-pane detached indices, the dimbar shows a purple `X`, the compare titles show index-over-total labels, `[` / `]` control pane A, `{` / `}` control pane B, and repeated `X` exits detached compare after cycling the center modes. Focused coverage now includes a browser regression for detached entry/scrubbing/exit plus API coverage for split `/diff` indices on the same session.
@@ -55,7 +67,7 @@ last_updated: 2026-05-13
 ## In Progress
 
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
-- ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; ROI hover tooltip not yet wired for qMRI canvases; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
+- ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 
 ## Not Yet Built
 
