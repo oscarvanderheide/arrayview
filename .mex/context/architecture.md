@@ -14,11 +14,13 @@ edges:
     condition: when specific technology details are needed
   - target: context/decisions.md
     condition: when understanding why the architecture is structured this way
+  - target: context/lifecycle.md
+    condition: when ownership, startup, teardown, or display routing lifecycle matters
   - target: context/frontend.md
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-05-26
+last_updated: 2026-06-05
 ---
 
 # Architecture

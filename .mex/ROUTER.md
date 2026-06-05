@@ -6,6 +6,8 @@ edges:
     condition: when the task depends on what is currently shipped, in progress, or recently changed
   - target: context/architecture.md
     condition: when working on system design, integrations, or understanding how components connect
+  - target: context/lifecycle.md
+    condition: when working on server startup, shutdown, display ownership, VS Code tabs, orphan processes, or session release
   - target: context/stack.md
     condition: when working with specific technologies, libraries, or making tech decisions
   - target: context/conventions.md
@@ -22,7 +24,7 @@ edges:
     condition: when starting a task — check the pattern index for a matching pattern file
   - target: ../DESIGN.md
     condition: when the task touches design philosophy — new features, UI changes, mode additions, or interaction model decisions
-last_updated: 2026-05-16
+last_updated: 2026-06-05
 ---
 
 # arrayview — Router
@@ -81,6 +83,7 @@ Load `context/project-state.md` only when you need active-workstream or recent-s
 |-----------|------|
 | Checking current shipped / in-progress status | `context/project-state.md` |
 | Understanding system architecture | `context/architecture.md` |
+| Startup/shutdown/display ownership lifecycle | `context/lifecycle.md` |
 | Working with a specific technology | `context/stack.md` |
 | Writing or reviewing code | `context/conventions.md` |
 | Making a design decision | `context/decisions.md` |
