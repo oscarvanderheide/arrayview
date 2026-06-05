@@ -20,6 +20,7 @@ from arrayview._session import (
     SESSIONS,
     COLORMAPS,
 )
+from arrayview import __version__ as _av_version
 import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
 
 from arrayview._render import (
@@ -195,6 +196,7 @@ def get_ui(sid: str = None):
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
         .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
+        .replace("__ARRAYVIEW_VERSION__", _av_version)
     )
     headers = {"Cache-Control": "no-store"}
     return HTMLResponse(content=html, headers=headers)

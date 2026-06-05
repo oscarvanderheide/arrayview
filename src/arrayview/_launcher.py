@@ -2996,6 +2996,8 @@ def arrayview():
         return
 
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
+    from arrayview import __version__ as _av_version
+    parser.add_argument("--version", action="version", version=f"arrayview {_av_version}")
     parser.add_argument(
         "files",
         nargs="*",

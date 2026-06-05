@@ -23,6 +23,7 @@ import uuid
 
 import numpy as np
 
+from arrayview import __version__ as _av_version
 from arrayview._analysis import (
     _build_metadata,
     _lebesgue_slice,
@@ -686,6 +687,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
         .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
+        .replace("__ARRAYVIEW_VERSION__", _av_version)
     )
 
     _write_json({"html": html})
