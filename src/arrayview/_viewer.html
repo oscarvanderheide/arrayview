@@ -11718,20 +11718,20 @@
             }
             _reconcileUI();
 
-            // Multi-array .npz: show picker immediately so the user can select
+            // Multi-array .npz/.mat: show picker immediately so the user can select
             // the array they want, regardless of how the file was opened.
-            // Skip if we already reloaded for an npz key selection.
-            if (!urlParams.has('_npz') && data.npz_keys && Array.isArray(data.npz_keys) && data.npz_keys.length > 1) {
+            // Skip if we already reloaded for a key selection.
+            if (!urlParams.has('_picked') && data.array_keys && Array.isArray(data.array_keys) && data.array_keys.length > 1) {
                 (async () => {
-                    const key = await showNpzPicker(data.npz_keys, '');
+                    const key = await showArrayPicker(data.array_keys, '');
                     if (key) {
-                        await proxyFetch(`/session/${sid}/reload-npz`, {
+                        await proxyFetch(`/session/${sid}/reload-key`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ key }),
                         });
                         const u = new URL(window.location.href);
-                        u.searchParams.set('_npz', '1');
+                        u.searchParams.set('_picked', '1');
                         window.location.href = u.href;
                     }
                 })();
@@ -14649,7 +14649,7 @@
             });
         }
 
-        function showNpzPicker(keys, filepath) {
+        function showArrayPicker(keys, filepath) {
             return new Promise(resolve => {
                 const basename = filepath ? filepath.split('/').pop().split('\\').pop() : '';
                 const overlay = document.createElement('div');
@@ -14745,15 +14745,15 @@
             });
         }
 
-        async function _loadWithNpzSupport(filepath, name) {
+        async function _loadWithArraySupport(filepath, name) {
             const r = await proxyFetch('/load', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filepath, name }),
             });
             const data = await r.json();
             if (data.error) return data;
-            if (data.npz_keys) {
-                const key = await showNpzPicker(data.npz_keys, filepath);
+            if (data.array_keys) {
+                const key = await showArrayPicker(data.array_keys, filepath);
                 if (!key) return { error: 'cancelled' };
                 const r2 = await proxyFetch('/load', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -15120,6 +15120,23 @@
                 const res = await proxyFetch('/load-upload', { method: 'POST', body: form });
                 const body = await res.json();
                 if (!res.ok) throw new Error(body.detail || String(res.status));
+                if (body.array_keys) {
+                    const key = await showArrayPicker(body.array_keys, '');
+                    if (!key) { showStatus('Cancelled'); return; }
+                    const form2 = new FormData();
+                    form2.append('file', file);
+                    form2.append('key', key);
+                    const res2 = await proxyFetch('/load-upload', { method: 'POST', body: form2 });
+                    const body2 = await res2.json();
+                    if (!res2.ok) throw new Error(body2.detail || String(res2.status));
+                    if (!sid) {
+                        window.location.href = '/?sid=' + body2.sid;
+                    } else {
+                        window.open('/?sid=' + body2.sid, '_blank');
+                        showStatus(`Opened: ${body2.name}`);
+                    }
+                    return;
+                }
                 if (!sid) {
                     // Welcome screen — navigate in-place (replaces the welcome tab)
                     window.location.href = '/?sid=' + body.sid;
@@ -21436,7 +21453,7 @@
                                 if (mode === 'overlay') {
                                     item.classList.add('cp-item-loading');
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    _loadWithNpzSupport(f.path, f.name).then(async data => {
+                                    _loadWithArraySupport(f.path, f.name).then(async data => {
                                         if (data.error === 'insufficient_memory') {
                                             item.classList.remove('cp-item-loading');
                                             await _showRamBlockDialog(
@@ -21454,7 +21471,7 @@
                                     // Open directly
                                     item.classList.add('cp-item-loading');
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    _loadWithNpzSupport(f.path, f.name).then(async data => {
+                                    _loadWithArraySupport(f.path, f.name).then(async data => {
                                         if (data.error === 'insufficient_memory') {
                                             item.classList.remove('cp-item-loading');
                                             await _showRamBlockDialog(
@@ -21506,7 +21523,7 @@
                     for (const [key, item] of items) {
                         if (item.sid) continue;
                         try {
-                            const data = await _loadWithNpzSupport(item.filepath, item.name);
+                            const data = await _loadWithArraySupport(item.filepath, item.name);
                             if (data.error === 'insufficient_memory') {
                                 await _showRamBlockDialog(
                                     document.getElementById('uni-picker-box'),

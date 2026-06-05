@@ -43,8 +43,8 @@ def _build_metadata(session) -> dict:
         meta["ras_resample_active"] = bool(
             getattr(session, "ras_resample_active", False)
         )
-    if getattr(session, "npz_keys", None):
-        meta["npz_keys"] = session.npz_keys
+    if getattr(session, "array_keys", None):
+        meta["array_keys"] = session.array_keys
     return meta
 
 

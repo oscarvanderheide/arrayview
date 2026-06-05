@@ -53,10 +53,52 @@ def list_npz_keys(filepath):
     return keys
 
 
+def list_mat_keys(filepath):
+    """Return [{key, shape, dtype}] for each array in a .mat file.
+
+    Handles both scipy-loadable .mat files and v7.3 HDF5-based files.
+    Filters out metadata keys (starting with '_') and non-array entries.
+    """
+    try:
+        import scipy.io
+
+        mat = scipy.io.loadmat(filepath)
+        keys = []
+        for k, v in mat.items():
+            if k.startswith("_"):
+                continue
+            if isinstance(v, np.ndarray) and v.ndim >= 1:
+                keys.append({"key": k, "shape": list(v.shape), "dtype": str(v.dtype)})
+        return keys
+    except NotImplementedError:
+        import h5py
+
+        f = h5py.File(filepath, "r")
+        keys = []
+        for k in f.keys():
+            ds = f[k]
+            if isinstance(ds, h5py.Dataset) and len(ds.shape) >= 1:
+                keys.append({"key": k, "shape": list(ds.shape), "dtype": str(ds.dtype)})
+        f.close()
+        return keys
+
+
+def list_array_keys(filepath):
+    """Return [{key, shape, dtype}] for each array in a multi-array file.
+
+    Dispatches by extension: .npz or .mat.
+    """
+    if filepath.endswith(".npz"):
+        return list_npz_keys(filepath)
+    if filepath.endswith(".mat"):
+        return list_mat_keys(filepath)
+    return []
+
+
 def _select_npz_array(npz, filepath):
     """Load the first array from a multi-array .npz file.
 
-    The in-viewer NPZ picker handles array selection — no terminal prompt.
+    The in-viewer array picker handles array selection — no terminal prompt.
     """
     keys = list(npz.keys())
     return npz[keys[0]]
@@ -193,11 +235,13 @@ def load_data(filepath, key=None):
                 for k, v in mat.items()
                 if not k.startswith("_") and isinstance(v, np.ndarray)
             }
+            if key is not None:
+                return _fix_mat_complex(arrays[key])
             if len(arrays) == 1:
                 return _fix_mat_complex(next(iter(arrays.values())))
             raise ValueError(
                 f".mat file contains multiple arrays: {list(arrays.keys())}. "
-                "Load it manually and pass the array to view()."
+                "Select one in the viewer or pass a key."
             )
         except NotImplementedError:
             # MATLAB v7.3 files use HDF5 — scipy cannot load them; fall back to h5py.
@@ -205,11 +249,13 @@ def load_data(filepath, key=None):
 
             f = h5py.File(filepath, "r")
             arrays = {k: f[k] for k in f.keys() if isinstance(f[k], h5py.Dataset)}
+            if key is not None:
+                return np.array(arrays[key])
             if len(arrays) == 1:
                 return np.array(next(iter(arrays.values())))
             raise ValueError(
                 f".mat (v7.3) file contains multiple datasets: {list(arrays.keys())}. "
-                "Load it manually with h5py and pass the array to view()."
+                "Select one in the viewer or pass a key."
             )
     else:
         raise ValueError(

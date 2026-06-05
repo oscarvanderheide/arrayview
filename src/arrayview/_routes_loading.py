@@ -3,7 +3,7 @@ import io
 import os
 
 import numpy as np
-from fastapi import File, HTTPException, Request, UploadFile
+from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
@@ -113,16 +113,16 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 except ImportError:
                     pass
         try:
-            from ._io import load_data_with_meta, list_npz_keys
+            from ._io import load_data_with_meta, list_array_keys
 
-            # Multi-array .npz: if no key provided, return the key list so the
-            # client can show a picker instead of blocking on terminal input.
+            # Multi-array .npz/.mat: if no key provided, return the key list so
+            # the client can show a picker instead of blocking on terminal input.
             _key = body.get("key")
-            _npz_keys = None
-            if filepath.endswith(".npz"):
-                _npz_keys = await asyncio.to_thread(list_npz_keys, filepath)
-                if len(_npz_keys) > 1 and not _key:
-                    return {"npz_keys": _npz_keys, "filepath": filepath}
+            _array_keys = None
+            if filepath.endswith(".npz") or filepath.endswith(".mat"):
+                _array_keys = await asyncio.to_thread(list_array_keys, filepath)
+                if len(_array_keys) > 1 and not _key:
+                    return {"array_keys": _array_keys, "filepath": filepath}
 
             data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath, key=_key)
         except Exception as e:
@@ -131,9 +131,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         if spatial_meta is not None:
             session.spatial_meta = spatial_meta
             session.original_volume = data
-        if _npz_keys and len(_npz_keys) > 1:
-            session.npz_keys = _npz_keys
-            session.npz_filepath = filepath
+        if _array_keys and len(_array_keys) > 1:
+            session.array_keys = _array_keys
+            session.array_filepath = filepath
         if body.get("rgb"):
             try:
                 await asyncio.to_thread(setup_rgb, session)
@@ -175,22 +175,22 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         """Release a session when its owning viewer tab/window closes."""
         return {"sid": sid, "released": release_session(sid)}
 
-    @app.post("/session/{sid}/reload-npz")
-    async def reload_npz_key(sid: str, request: Request):
-        """Reload a session's data from an .npz file with a different key."""
+    @app.post("/session/{sid}/reload-key")
+    async def reload_array_key(sid: str, request: Request):
+        """Reload a session's data from a multi-array file with a different key."""
         session = SESSIONS.get(sid)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        npz_filepath = getattr(session, "npz_filepath", None)
-        if not npz_filepath:
-            raise HTTPException(status_code=400, detail="Session is not an npz")
+        array_filepath = getattr(session, "array_filepath", None)
+        if not array_filepath:
+            raise HTTPException(status_code=400, detail="Session has no array keys")
         body = await request.json()
         key = body.get("key")
         if not key:
             raise HTTPException(status_code=400, detail="key is required")
         try:
             from ._io import load_data
-            data = await asyncio.to_thread(load_data, npz_filepath, key=key)
+            data = await asyncio.to_thread(load_data, array_filepath, key=key)
         except Exception as e:
             return {"error": str(e)}
         session.data = data
@@ -203,7 +203,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         session._rgba_bytes = 0
         session._mosaic_bytes = 0
         session._estimated_mem = session._estimate_memory()
-        # Keep npz_keys so the user can switch again, but don't auto-prompt
+        # Keep array_keys so the user can switch again, but don't auto-prompt
         return {"ok": True}
 
     @app.get("/fs/list")
@@ -284,7 +284,10 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         return {"cwd": target, "parent": parent, "home": home, "entries": entries}
 
     @app.post("/load-upload")
-    async def load_upload(file: UploadFile = File(...)):
+    async def load_upload(
+        file: UploadFile = File(...),
+        key: str | None = Form(None),
+    ):
         """Accept a drag-and-dropped .npy or .mat file and create a new session."""
         import tempfile
 
@@ -300,16 +303,25 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             tmp.write(contents)
             tmp_path = tmp.name
 
+        _returned_keys = False
         try:
-            data = await asyncio.to_thread(load_data, tmp_path)
+            from ._io import list_array_keys
+
+            if ext == ".mat" and not key:
+                array_keys = await asyncio.to_thread(list_array_keys, tmp_path)
+                if len(array_keys) > 1:
+                    _returned_keys = True
+                    return {"array_keys": array_keys}
+            data = await asyncio.to_thread(load_data, tmp_path, key=key)
         except Exception as e:
             os.unlink(tmp_path)
             raise HTTPException(status_code=400, detail=str(e))
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            if not _returned_keys:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         session = await asyncio.to_thread(Session, data, name=filename)
         SESSIONS[session.sid] = session
