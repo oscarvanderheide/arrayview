@@ -292,7 +292,7 @@ class TestBasicRender:
         frame.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         frame.wait_for_timeout(900)
         frame.focus("#keyboard-sink")
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         frame.wait_for_timeout(450)
         page.keyboard.press("G")
         frame.wait_for_timeout(450)
@@ -453,9 +453,9 @@ class TestKeyboard:
         _enter_compare(page, sid_compare)
         page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(400)
-        assert page.is_visible("#compare-diff-canvas"), "diff center canvas should be visible after pressing X"
+        assert page.is_visible("#compare-diff-canvas"), "diff center canvas should be visible after pressing Shift+D"
         page.hover("#compare-diff-canvas")
         page.wait_for_timeout(150)
         page.keyboard.press("c")
@@ -751,9 +751,9 @@ class TestKeyboard:
         assert not page.is_visible("canvas#compare-third-canvas")
         assert page.is_visible("#slim-cb-wrap")
 
-        # Cycle compare center mode to overlay (mode 4): X×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
+        # Cycle compare center mode to overlay (mode 4): Shift+P×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
         for _ in range(4):
-            page.keyboard.press("X")
+            page.keyboard.press("Shift+P")
             page.wait_for_timeout(200)
         page.wait_for_timeout(400)
         diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
@@ -772,10 +772,10 @@ class TestKeyboard:
         page.wait_for_timeout(800)
         assert "arr2d_compare_2" in page.inner_text("#compare-right-title").lower()
 
-        # Press X twice more to go past wipe (mode 5) back to off (mode 0)
-        page.keyboard.press("X")
+        # Press Shift+P twice more to go past wipe (mode 5).
+        page.keyboard.press("Shift+P")
         page.wait_for_timeout(200)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+P")
         page.wait_for_timeout(400)
         diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
         assert "overlay-center" not in diff_classes
@@ -794,7 +794,7 @@ class TestKeyboard:
         _focus_kb(page)
         _enter_compare(page, sid_compare)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(250)
 
         state = page.evaluate(
@@ -818,7 +818,7 @@ class TestKeyboard:
             }"""
         )
 
-        assert state, "diff title should render an active compare-center pill after pressing X"
+        assert state, "diff title should render an active compare-center pill after pressing Shift+D"
         assert not state["fullscreen"], f"test must stay in non-immersive mode, got: {state}"
         assert "A" in state["text"] and "B" in state["text"], f"compare-center pill should render the compare glyph, got: {state}"
         assert state["background"] != "rgba(0, 0, 0, 0)", f"compare-center pill should use a filled glass background outside fullscreen, got: {state}"
@@ -828,7 +828,7 @@ class TestKeyboard:
         assert state["minHeight"] == "26px", f"compare-center pill should stay compact outside fullscreen, got: {state}"
         assert state["minWidth"] == "52px", f"compare-center pill should keep a compact pill width outside fullscreen, got: {state}"
 
-    def test_x_enters_detached_compare_for_single_array(self, loaded_viewer, sid_4d):
+    def test_shift_x_enters_split_for_single_array(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         _focus_kb(page)
         detached_state = page.evaluate(
@@ -842,7 +842,7 @@ class TestKeyboard:
         )
 
         assert detached_state["dim"] is not None
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+X")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(500)
 
@@ -851,7 +851,10 @@ class TestKeyboard:
         right_title_before = page.inner_text("#compare-right-title")
         assert f'/{detached_state["size"]}' in left_title_before
         assert f'/{detached_state["size"]}' in right_title_before
+        assert "[" in left_title_before and "]" in left_title_before
+        assert "{" in right_title_before and "}" in right_title_before
         assert left_title_before != right_title_before
+        assert not page.is_visible("#compare-diff-canvas")
 
         left_sum_before = page.evaluate(
             """() => {
@@ -862,9 +865,25 @@ class TestKeyboard:
                 return sum;
             }"""
         )
+        left_bracket_before = page.evaluate(
+            """() => {
+                const el = document.querySelector('.detached-index-hint[data-detached-pane="A"] .hint-bracket[data-detached-key="]"]');
+                return getComputedStyle(el).color;
+            }"""
+        )
         page.keyboard.press("]")
-        page.wait_for_timeout(350)
+        left_highlight = page.evaluate(
+            """() => {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        const el = document.querySelector('.detached-index-hint[data-detached-pane="A"] .hint-bracket[data-detached-key="]"]');
+                        resolve({ after: getComputedStyle(el).color });
+                    }, 330);
+                });
+            }"""
+        )
         left_title_after = page.inner_text("#compare-left-title")
+        assert left_highlight["after"] == left_bracket_before
         left_sum_after = page.evaluate(
             """() => {
                 const c = document.querySelector('canvas#compare-left-canvas');
@@ -886,9 +905,25 @@ class TestKeyboard:
                 return sum;
             }"""
         )
+        right_bracket_before = page.evaluate(
+            """() => {
+                const el = document.querySelector('.detached-index-hint[data-detached-pane="B"] .hint-bracket[data-detached-key="}"]');
+                return getComputedStyle(el).color;
+            }"""
+        )
         page.keyboard.press("}")
-        page.wait_for_timeout(350)
+        right_highlight = page.evaluate(
+            """() => {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        const el = document.querySelector('.detached-index-hint[data-detached-pane="B"] .hint-bracket[data-detached-key="}"]');
+                        resolve({ after: getComputedStyle(el).color });
+                    }, 330);
+                });
+            }"""
+        )
         right_title_after = page.inner_text("#compare-right-title")
+        assert right_highlight["after"] == right_bracket_before
         right_sum_after = page.evaluate(
             """() => {
                 const c = document.querySelector('canvas#compare-right-canvas');
@@ -901,9 +936,13 @@ class TestKeyboard:
         assert right_title_after != right_title_before
         assert right_sum_after != right_sum_before
 
-        for _ in range(7):
-            page.keyboard.press("X")
-            page.wait_for_timeout(150)
+        page.keyboard.press("Shift+D")
+        page.wait_for_selector("#compare-diff-canvas:visible", timeout=5_000)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        assert not page.is_visible("#compare-diff-canvas")
+
+        page.keyboard.press("Shift+X")
         page.wait_for_timeout(300)
         assert not page.is_visible("#compare-view-wrap.active")
 
@@ -959,7 +998,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(700)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(350)
         page.keyboard.press("G")
         page.wait_for_timeout(350)
@@ -1033,7 +1072,7 @@ class TestKeyboard:
         _focus_kb(page)
         _enter_compare(page, sid_compare)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_function(
             """() => {
                 const wrap = document.querySelector('#compare-view-wrap');
@@ -1098,7 +1137,7 @@ class TestKeyboard:
         _focus_kb(page)
         _enter_compare(page, sid_compare)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_function(
             """() => {
                 const wrap = document.querySelector('#compare-view-wrap');
@@ -1148,7 +1187,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(900)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(450)
         page.keyboard.press("G")
         page.wait_for_timeout(450)
@@ -1216,7 +1255,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(700)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(200)
         page.keyboard.press("G")
         page.wait_for_timeout(120)
@@ -1279,7 +1318,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(900)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(220)
         page.keyboard.press("G")
         page.wait_for_timeout(160)
@@ -1803,7 +1842,7 @@ class TestKeyboard:
         _focus_kb(page)
         _enter_compare(page, sid_compare)
         _focus_kb(page)
-        page.keyboard.press("X")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(350)
         page.keyboard.press("G")
         page.wait_for_timeout(350)
