@@ -13809,7 +13809,7 @@
                         const label = labels[pos] || 'x';
                         const sizeId = label === 'x' ? ' id="dim-x-size"' : label === 'y' ? ' id="dim-y-size"' : label === 'z' ? ' id="dim-z-size"' : '';
                         const prefix = flipDims[i] ? '-' : '';
-                        const cls = (active || playing) ? `${dimCls} dim-label` : 'spatial-dim dim-label';
+                        const cls = (active || playing) ? `spatial-dim ${dimCls} dim-label` : 'spatial-dim dim-label';
                         return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
@@ -13821,17 +13821,17 @@
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${shape[i]}</span>`;
-                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${shape[i]}</span>`;
-                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
                     const inner = `z<span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${shape[i]}</span>`;
-                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
