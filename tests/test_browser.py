@@ -878,7 +878,7 @@ class TestKeyboard:
                     setTimeout(() => {
                         const el = document.querySelector('.detached-index-hint[data-detached-pane="A"] .hint-bracket[data-detached-key="]"]');
                         resolve({ after: getComputedStyle(el).color });
-                    }, 330);
+                    }, 475);
                 });
             }"""
         )
@@ -918,7 +918,7 @@ class TestKeyboard:
                     setTimeout(() => {
                         const el = document.querySelector('.detached-index-hint[data-detached-pane="B"] .hint-bracket[data-detached-key="}"]');
                         resolve({ after: getComputedStyle(el).color });
-                    }, 330);
+                    }, 475);
                 });
             }"""
         )

@@ -2756,10 +2756,11 @@
         }
         .detached-index-hint .hint-bracket.index-hint-glow {
             color: var(--active-dim);
-            animation: detached-index-flash 250ms ease-out forwards;
+            animation: detached-index-flash 325ms ease-out forwards;
         }
         @keyframes detached-index-flash {
             0% { color: var(--active-dim); }
+            45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
         .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 14px; }
@@ -6346,7 +6347,7 @@
             updateCompareTitles();
             renderInfo();
             compareRender();
-            _flashDetachedIndexHint(which, key);
+            setTimeout(() => _flashDetachedIndexHint(which, key), 40);
             saveState();
             showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
             return true;
@@ -7073,12 +7074,16 @@
             if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
             // Wait for fade-out transition to finish, then run the mode switch
             setTimeout(() => {
-                try { fn(); } catch(e) { console.error(e); }
-                // Let the browser reflow after the mode switch before fading back in
-                requestAnimationFrame(() => {
+                let result;
+                try { result = fn(); } catch(e) { console.error(e); }
+                Promise.resolve(result).finally(() => {
+                    // Let the browser reflow after the mode switch before fading back in
                     requestAnimationFrame(() => {
-                        w.classList.remove('mode-fade');
-                        _crossfading = false;
+                        requestAnimationFrame(() => {
+                            w.classList.remove('mode-fade');
+                            _crossfading = false;
+                            _syncSinkFocus();
+                        });
                     });
                 });
             }, 150);
@@ -18757,8 +18762,10 @@
                 when: [],
                 run: async (ctx, e) => {
                     if (detachedDimMode) {
-                        exitCompareMode();
-                        showStatus('split: off');
+                        crossfade(() => {
+                            exitCompareMode();
+                            showStatus('split: off');
+                        });
                         return;
                     }
                     if (compareActive) {
@@ -18769,7 +18776,8 @@
                         showStatus('split: choose a non-spatial dimension with at least 2 indices');
                         return;
                     }
-                    await enterDetachedDimMode(activeDim);
+                    const dim = activeDim;
+                    crossfade(() => { enterDetachedDimMode(dim); });
                     return;
                 },
             },
