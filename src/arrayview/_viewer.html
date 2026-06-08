@@ -285,7 +285,7 @@
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
         .dim-hover-idx { font-size: 0.68em; font-weight: normal; color: var(--dim-hover, #777); opacity: 1; }
         .active-dim { font-weight: bold; }
-        .playing-dim { color: var(--playing-dim); font-weight: bold; }
+        .playing-dim { font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
         .active-vfield-t { font-weight: bold; }
         .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
@@ -466,8 +466,7 @@
             color: var(--text);
             -webkit-text-fill-color: var(--text);
         }
-        .active-dim .dim-slash:not([style*="background"]),
-        .playing-dim .dim-slash:not([style*="background"]) {
+        .active-dim .dim-slash:not([style*="background"]) {
             color: var(--active-dim) !important;
             -webkit-text-fill-color: var(--active-dim) !important;
         }
@@ -13784,10 +13783,9 @@
             const subtle = style.getPropertyValue('--subtle').trim();
             let fill;
             if (isVfieldT) fill = style.getPropertyValue('--vfield-t-dim').trim();
-            else if (playing) fill = style.getPropertyValue('--playing-dim').trim();
             else if (active) fill = style.getPropertyValue('--active-dim').trim();
             else fill = muted;
-            const unfilled = (active || playing || isVfieldT) ? `color-mix(in srgb, ${fill} 32%, ${muted})` : subtle;
+            const unfilled = (active || isVfieldT) ? `color-mix(in srgb, ${fill} 32%, ${muted})` : subtle;
             return slashFill(pct, fill, unfilled);
         }
         /* ── JS: Info Bar and Pixel Display ───────────────────────── */
