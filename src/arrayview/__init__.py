@@ -1,4 +1,5 @@
-__version__ = "0.25.1"
+import importlib.metadata as _metadata
+__version__ = _metadata.version("arrayview")
 
 __all__ = [
     "TrainingMonitor",
