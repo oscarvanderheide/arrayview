@@ -119,3 +119,21 @@ def test_command_reachable_in_mode(reach_page, mode_id, cmd):
     assert enabled == expected, (
         f"{cmd} expected enabled={expected} in mode {mode_id}, got {enabled}"
     )
+
+
+def test_colormap_shortcut_works_when_body_has_focus(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    _focus(page)
+    _wait(page, 300)
+    opened = page.evaluate(
+        """() => {
+            const ev = new KeyboardEvent('keydown', {
+                key: 'c',
+                bubbles: true,
+                cancelable: true,
+            });
+            document.body.dispatchEvent(ev);
+            return _cmapPickerOpen;
+        }"""
+    )
+    assert opened is True

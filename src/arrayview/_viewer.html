@@ -21056,7 +21056,7 @@
 
         /* ── JS: Keyboard Shortcuts ───────────────────────────────── */
 
-        sink.addEventListener('keydown', async (e) => {
+        function _handleViewerShortcutKeydown(e) {
             e.preventDefault();
             e.stopImmediatePropagation();
             if (_cmapPickerOpen) {
@@ -21144,7 +21144,14 @@
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-        });
+        }
+
+        sink.addEventListener('keydown', _handleViewerShortcutKeydown);
+        document.addEventListener('keydown', (e) => {
+            if (e.target === sink) return;
+            if (_isEditableActive()) return;
+            _handleViewerShortcutKeydown(e);
+        }, true);
 
         // Hold-`g` finalizer. The picker handles its own commit/cancel
         // through armUp(); this listener just routes the keyup to it. Listen
