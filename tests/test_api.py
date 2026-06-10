@@ -3177,6 +3177,40 @@ class TestPortAndTunnelHelpers:
 
         assert platform._can_native_window() is True
 
+    def test_can_native_window_false_on_linux_without_webview(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(platform, "_is_vscode_remote", lambda: False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setenv("DISPLAY", ":0")
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setattr(
+            platform.importlib.util,
+            "find_spec",
+            lambda name: object() if name == "qtpy" else None,
+        )
+
+        assert platform._can_native_window() is False
+
+    def test_can_native_window_true_on_linux_with_webview_and_qt(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(platform, "_is_vscode_remote", lambda: False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setattr(
+            platform.importlib.util,
+            "find_spec",
+            lambda name: object() if name in {"webview", "qtpy"} else None,
+        )
+
+        assert platform._can_native_window() is True
+
     def test_open_browser_skips_vscode_signal_when_terminal_check_is_false(self, monkeypatch):
         import arrayview._vscode_browser as browser_mod
 

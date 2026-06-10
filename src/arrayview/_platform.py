@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -414,12 +415,13 @@ def _can_native_window() -> bool:
     # Plain SSH (no VS Code): the display is on the client machine, not here.
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
         return False
+    if importlib.util.find_spec("webview") is None:
+        return False
     if sys.platform in ("darwin", "win32"):
         return True
     # Linux/BSD: need a display server AND pywebview's GUI bindings
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
-    import importlib.util
 
     return (
         importlib.util.find_spec("qtpy") is not None
