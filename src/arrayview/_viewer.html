@@ -17575,24 +17575,20 @@
                     // Transpose x and y: swap the dimension indices and flips
                     if (shape.length < 2) return;
                     if (multiViewActive) {
-                        crossfade(() => {
-                            mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
-                            [dim_x, dim_y] = [dim_y, dim_x];
-                            [flip_x, flip_y] = [flip_y, flip_x];
-                            flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
-                            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                        });
+                        mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
+                        [dim_x, dim_y] = [dim_y, dim_x];
+                        [flip_x, flip_y] = [flip_y, flip_x];
+                        flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
+                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         showStatus('transposed x/y (all panes)');
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
-                    crossfade(() => {
-                        [dim_x, dim_y] = [dim_y, dim_x];
-                        [flip_x, flip_y] = [flip_y, flip_x];
-                        if (!wasMosaic) dim_z = -1;
-                        updateView(); triggerPreload();
-                    });
+                    [dim_x, dim_y] = [dim_y, dim_x];
+                    [flip_x, flip_y] = [flip_y, flip_x];
+                    if (!wasMosaic) dim_z = -1;
+                    updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
@@ -17603,34 +17599,32 @@
                 run: (ctx, e) => {
                     if (_segMode) { _segReset(); return; }
                     if (multiViewActive) {
-                        crossfade(() => {
-                            const oldDimX = dim_x, oldDimY = dim_y;
-                            dim_x = oldDimY; dim_y = oldDimX;
-                            const ofx = flipDims[oldDimX] || false, ofy = flipDims[oldDimY] || false;
-                            flipDims[dim_x] = ofy; flipDims[dim_y] = !ofx;
-                            const third = mvDims.find(d => d !== oldDimX && d !== oldDimY);
-                            mvDims = [dim_y, dim_x, third];
-                            const newDefs = [
-                                { dimX: mvDims[1], dimY: mvDims[0], sliceDir: mvDims[2] },
-                                { dimX: mvDims[2], dimY: mvDims[0], sliceDir: mvDims[1] },
-                                { dimX: mvDims[2], dimY: mvDims[1], sliceDir: mvDims[0] },
-                            ];
-                            mvViews.forEach((v, i) => {
-                                v.dimX = newDefs[i].dimX; v.dimY = newDefs[i].dimY;
-                                v.sliceDir = newDefs[i].sliceDir;
-                                v.seq++;
-                            });
-                            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                            const _axLetters = ['x', 'y', 'z'];
-                            mvViews.forEach((v, i) => {
-                                const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
-                                const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
-                                v.axLblX = newX; v.axLblY = newY;
-                                if (v.axesSvg) {
-                                    v.axesSvg.querySelector('.axes-lbl-x').textContent = newX;
-                                    v.axesSvg.querySelector('.axes-lbl-y').textContent = newY;
-                                }
-                            });
+                        const oldDimX = dim_x, oldDimY = dim_y;
+                        dim_x = oldDimY; dim_y = oldDimX;
+                        const ofx = flipDims[oldDimX] || false, ofy = flipDims[oldDimY] || false;
+                        flipDims[dim_x] = ofy; flipDims[dim_y] = !ofx;
+                        const third = mvDims.find(d => d !== oldDimX && d !== oldDimY);
+                        mvDims = [dim_y, dim_x, third];
+                        const newDefs = [
+                            { dimX: mvDims[1], dimY: mvDims[0], sliceDir: mvDims[2] },
+                            { dimX: mvDims[2], dimY: mvDims[0], sliceDir: mvDims[1] },
+                            { dimX: mvDims[2], dimY: mvDims[1], sliceDir: mvDims[0] },
+                        ];
+                        mvViews.forEach((v, i) => {
+                            v.dimX = newDefs[i].dimX; v.dimY = newDefs[i].dimY;
+                            v.sliceDir = newDefs[i].sliceDir;
+                            v.seq++;
+                        });
+                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        const _axLetters = ['x', 'y', 'z'];
+                        mvViews.forEach((v, i) => {
+                            const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
+                            const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
+                            v.axLblX = newX; v.axLblY = newY;
+                            if (v.axesSvg) {
+                                v.axesSvg.querySelector('.axes-lbl-x').textContent = newX;
+                                v.axesSvg.querySelector('.axes-lbl-y').textContent = newY;
+                            }
                         });
                         showStatus('rotated 90°');
                         renderInfo(); saveState();
@@ -17643,11 +17637,9 @@
                         if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
-                        crossfade(() => {
-                            const [odx, ody, ofx, ofy] = [dim_x, dim_y, flip_x, flip_y];
-                            dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
-                            updateView(); triggerPreload();
-                        });
+                        const [odx, ody, ofx, ofy] = [dim_x, dim_y, flip_x, flip_y];
+                        dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
+                        updateView(); triggerPreload();
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
