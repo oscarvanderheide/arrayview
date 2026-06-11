@@ -20,6 +20,15 @@ Every behavior that depends on *how* arrayview is started (server lifecycle, bro
 | **VS Code terminal** | `arrayview()` or `view()` | VS Code Simple Browser | in-process or subprocess |
 | **Plain SSH (no VS Code)** | `arrayview()` or `view()` | prints port-forward hint | in-process or subprocess |
 
+## Transport Split
+
+ArrayView has two backend transports. Invocation-sensitive fixes must account for both:
+
+- **Network mode**: FastAPI routes and WebSocket server. File registration goes through `/load` in `_routes_loading.py`; spawned CLI sessions load in `_launcher._serve_daemon()`.
+- **VS Code direct mode**: stdio subprocess. VS Code tunnel launches write a signal file; the extension runs `python -m arrayview --mode stdio <file>`, and file registration goes through `_stdio_server._handle_register()`.
+
+Do not assume a `/load` or daemon fix covers VS Code tunnel. Shared behavior such as file-format key selection belongs in `_io.py` helpers and must be used by both transports.
+
 ## Key Detection Functions (all in `_platform.py`)
 
 ```python
@@ -86,17 +95,24 @@ for pid_str in client_pids:
    - Jupyter: repeated calls don't fail on port-already-in-use
    - Julia: `_view_julia()` passes new params via CLI flag or file
 
-2. **Browser/display opening?**
+2. **File/session registration consistent?**
+   - FastAPI `/load` path handles the feature
+   - CLI spawned daemon path handles the feature
+   - VS Code direct stdio `_handle_register()` path handles the feature
+   - Direct `--mode stdio <file>` CLI path handles the feature
+   - Multi-array/default-key behavior is centralized in `_io.py`
+
+3. **Browser/display opening?**
    - Local native window (macOS): `pywebview` opens correctly
    - VS Code terminal: Simple Browser opens via extension signal file
    - VS Code tunnel: reaches client-side Simple Browser, not remote host
    - Verify `_ensure_vscode_extension()` installs/updates if VSIX changed
 
-3. **Environment detection?**
+4. **Environment detection?**
    - Check detection order: Julia → Jupyter → VS Code remote → VS Code terminal → local
    - `_find_vscode_ipc_hook()` walks up to 12 parent processes; new subprocess wrappers may need the same
 
-4. **VS Code extension changed?**
+5. **VS Code extension changed?**
    - Rebuild VSIX: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-opener.vsix`
    - Bump `_VSCODE_EXT_VERSION` in `_vscode.py` and `vscode-extension/package.json` together
 
@@ -111,6 +127,8 @@ uv run python -c "from arrayview import view; import numpy as np; view(np.zeros(
 ## Red Flags — STOP
 
 - "I changed server startup but only tested CLI" → test all paths
+- "I fixed `/load` but not `_stdio_server.py`" → VS Code tunnel can still be broken
+- "I fixed `_serve_daemon()` but `--diagnose` says `is_vscode_remote: true`" → tunnel uses stdio direct mode, not the daemon
 - "Works locally but not in tunnel" → check `_is_vscode_remote()` path and port exposure
 - "I used `127.0.0.1` in the URL" → use `localhost`
 - "I fixed tmux with `#{client_pid}`" → only works with one client; use `list-clients`

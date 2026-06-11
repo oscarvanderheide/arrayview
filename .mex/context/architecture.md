@@ -20,7 +20,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-06-05
+last_updated: 2026-06-11
 ---
 
 # Architecture
@@ -89,6 +89,17 @@ Tool launch, tool activation, and drawer visibility are separate states.
 | SSH terminal | Prints URL — user forwards port with `ssh -L` | network |
 
 Detection logic: `_platform.py`. Display opening: `_launcher.py` + `_vscode.py`.
+
+## File Registration Paths
+
+File parsing belongs in `_io.py`, but session registration happens through different transports:
+
+- **Network `/load`**: existing FastAPI server path in `_routes_loading.py`.
+- **Spawned CLI daemon**: `_launcher._serve_daemon()` loads before publishing the pending session.
+- **VS Code tunnel direct webview**: `_stdio_server._handle_register()` handles `python -m arrayview --mode stdio <file>` spawned by the extension.
+- **Direct stdio CLI mode**: `_launcher.arrayview()` preloads positional files before starting `run_stdio_server()`.
+
+For multi-array formats or formats with non-displayable members, keep key filtering/default selection in `_io.py` helpers and call those helpers from every registration path. A fix in `/load` alone does not cover VS Code tunnel.
 
 ## External Dependencies
 
