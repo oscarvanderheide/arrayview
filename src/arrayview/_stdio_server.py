@@ -115,14 +115,19 @@ def _handle_register(msg: dict) -> None:
     name = msg.get("name") or __import__("os").path.basename(file_path)
     options = msg.get("options", {})
 
-    from ._io import default_array_key
+    from ._io import list_array_keys
 
+    array_keys = list_array_keys(file_path)
+    key = array_keys[0]["key"] if array_keys else None
     data, spatial_meta = load_data_with_meta(
         file_path,
-        key=default_array_key(file_path),
+        key=key,
     )
     session = Session(data=data, filepath=file_path, name=name)
     session.spatial_meta = spatial_meta
+    if len(array_keys) > 1:
+        session.array_keys = array_keys
+        session.array_filepath = file_path
     if spatial_meta is not None:
         session.original_volume = data
 
@@ -152,6 +157,48 @@ def _handle_metadata(msg: dict) -> None:
         return
 
     _write_json(_build_metadata(session))
+
+
+def _handle_reload_key(sid: str, msg: dict) -> None:
+    """Reload a session's data from a multi-array file with a different key."""
+    session = SESSIONS.get(sid)
+    if not session:
+        _write_error("session not found")
+        return
+    array_filepath = getattr(session, "array_filepath", None)
+    if not array_filepath:
+        _write_error("session has no array keys")
+        return
+
+    try:
+        body = json.loads(msg.get("body") or "{}")
+    except Exception:
+        _write_error("invalid JSON body")
+        return
+    key = body.get("key")
+    if not key:
+        _write_error("key is required")
+        return
+
+    try:
+        from ._io import load_data
+
+        data = load_data(array_filepath, key=key)
+    except Exception as e:
+        _write_error(str(e))
+        return
+
+    session.data = data
+    session.shape = data.shape
+    session.data_version += 1
+    session.raw_cache.clear()
+    session.rgba_cache.clear()
+    session.mosaic_cache.clear()
+    session._raw_bytes = 0
+    session._rgba_bytes = 0
+    session._mosaic_bytes = 0
+    session._estimated_mem = session._estimate_memory()
+    _write_json({"ok": True})
 
 
 def _handle_sessions() -> None:
@@ -409,6 +456,8 @@ def _handle_fetch_proxy(msg: dict) -> None:
         _handle_metadata({"sid": sid})
     elif route == "clearcache" and sid:
         _handle_clearcache({"sid": sid})
+    elif route == "session" and len(parts) >= 3 and parts[2] == "reload-key":
+        _handle_reload_key(parts[1], msg)
     elif route == "sessions":
         _handle_sessions()
     elif route == "histogram" and sid:
