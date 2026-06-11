@@ -2717,7 +2717,7 @@ def _serve_daemon(
                     _array_keys = list_array_keys(filepath)
                 except Exception:
                     pass
-            _load_key = _array_keys[0]["key"] if _array_keys and len(_array_keys) > 1 else None
+            _load_key = _array_keys[0]["key"] if _array_keys else None
             data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
             if cleanup:
                 try:
@@ -3187,12 +3187,12 @@ def arrayview():
             )
             print(f"SESSION:{info}", file=sys.stderr)
         elif args.files:
-            from arrayview._io import load_data
+            from arrayview._io import default_array_key, load_data
             from arrayview._session import SESSIONS, Session
 
             # First file is the main array
             base_path = args.files[0]
-            data = load_data(base_path)
+            data = load_data(base_path, key=default_array_key(base_path))
             session = Session(
                 data=data,
                 filepath=base_path,
@@ -3205,7 +3205,10 @@ def arrayview():
             if getattr(args, "vectorfield", None):
                 from arrayview._vectorfield import _configure_vectorfield
 
-                vf_data = load_data(args.vectorfield)
+                vf_data = load_data(
+                    args.vectorfield,
+                    key=default_array_key(args.vectorfield),
+                )
                 _configure_vectorfield(
                     session, vf_data,
                     getattr(args, "vectorfield_components_dim", None),
@@ -3216,7 +3219,7 @@ def arrayview():
             # Load overlay(s) as separate sessions
             overlay_sids = []
             for ov_path in (getattr(args, "overlay", None) or []):
-                ov_data = load_data(ov_path)
+                ov_data = load_data(ov_path, key=default_array_key(ov_path))
                 ov_session = Session(
                     data=ov_data,
                     filepath=ov_path,
@@ -3232,7 +3235,7 @@ def arrayview():
             if getattr(args, "compare", None):
                 compare_paths.append(args.compare)
             for cp in compare_paths:
-                cmp_data = load_data(cp)
+                cmp_data = load_data(cp, key=default_array_key(cp))
                 cmp_session = Session(
                     data=cmp_data,
                     filepath=cp,
@@ -3572,18 +3575,21 @@ def arrayview():
 
     if args.vectorfield:
         try:
-            from arrayview._io import load_data
+            from arrayview._io import default_array_key, load_data
             from arrayview._render import _detect_rgb_axis
             from arrayview._vectorfield import _resolve_vfield_layout
 
-            base_data = load_data(base_file)
+            base_data = load_data(base_file, key=default_array_key(base_file))
             image_shape = tuple(int(s) for s in base_data.shape)
             if args.rgb:
                 rgb_axis = _detect_rgb_axis(image_shape)
                 image_shape = tuple(
                     s for i, s in enumerate(image_shape) if i != rgb_axis
                 )
-            vf_data = load_data(args.vectorfield)
+            vf_data = load_data(
+                args.vectorfield,
+                key=default_array_key(args.vectorfield),
+            )
             layout = _resolve_vfield_layout(
                 tuple(int(s) for s in vf_data.shape),
                 image_shape,

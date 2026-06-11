@@ -115,7 +115,12 @@ def _handle_register(msg: dict) -> None:
     name = msg.get("name") or __import__("os").path.basename(file_path)
     options = msg.get("options", {})
 
-    data, spatial_meta = load_data_with_meta(file_path)
+    from ._io import default_array_key
+
+    data, spatial_meta = load_data_with_meta(
+        file_path,
+        key=default_array_key(file_path),
+    )
     session = Session(data=data, filepath=file_path, name=name)
     session.spatial_meta = spatial_meta
     if spatial_meta is not None:

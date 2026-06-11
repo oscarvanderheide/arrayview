@@ -123,8 +123,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 _array_keys = await asyncio.to_thread(list_array_keys, filepath)
                 if len(_array_keys) > 1 and not _key:
                     return {"array_keys": _array_keys, "filepath": filepath}
+                if len(_array_keys) == 1 and not _key:
+                    _key = _array_keys[0]["key"]
 
-            data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath, key=_key)
+            data, spatial_meta = await asyncio.to_thread(
+                load_data_with_meta,
+                filepath,
+                key=_key,
+            )
         except Exception as e:
             return {"error": str(e)}
         session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)

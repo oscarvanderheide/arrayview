@@ -131,6 +131,54 @@ class TestLoad:
         r = client.post("/load", json={"filepath": str(tmp_path / "coolarray.npy")})
         assert r.json()["name"] == "coolarray.npy"
 
+    def test_load_mat_single_numeric_array_with_metadata_returns_sid(
+        self, client, tmp_path
+    ):
+        import scipy.io
+
+        path = tmp_path / "single_numeric_with_metadata.mat"
+        expected = np.arange(12, dtype=np.float32).reshape(3, 4)
+        scipy.io.savemat(
+            path,
+            {
+                "image": expected,
+                "metadata": np.array([{"name": "not-displayable"}], dtype=object),
+            },
+        )
+
+        r = client.post("/load", json={"filepath": str(path)})
+        body = r.json()
+        assert "error" not in body
+        sid = body["sid"]
+
+        meta = client.get(f"/metadata/{sid}").json()
+        assert meta["shape"] == [3, 4]
+        assert "array_keys" not in meta
+
+    def test_load_mat_multiple_numeric_arrays_returns_picker_keys(
+        self, client, tmp_path
+    ):
+        import scipy.io
+
+        path = tmp_path / "multiple_numeric.mat"
+        scipy.io.savemat(
+            path,
+            {
+                "first": np.zeros((2, 3), dtype=np.float32),
+                "second": np.ones((4, 5), dtype=np.uint16),
+                "metadata": np.array([{"name": "not-displayable"}], dtype=object),
+            },
+        )
+
+        body = client.post("/load", json={"filepath": str(path)}).json()
+        assert body == {
+            "array_keys": [
+                {"key": "first", "shape": [2, 3], "dtype": "float32"},
+                {"key": "second", "shape": [4, 5], "dtype": "uint16"},
+            ],
+            "filepath": str(path),
+        }
+
     def test_notify_existing_session_returns_open_state(self, client, sid_2d):
         r = client.post(
             f"/notify/{sid_2d}",

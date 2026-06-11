@@ -38,6 +38,15 @@ def _fix_mat_complex(arr):
     return arr
 
 
+def _is_viewable_mat_array(value):
+    """True for MATLAB arrays ArrayView can display directly."""
+    return (
+        isinstance(value, np.ndarray)
+        and value.ndim >= 1
+        and value.dtype.kind in ("b", "i", "u", "f", "c")
+    )
+
+
 def list_npz_keys(filepath):
     """Return [{key, shape, dtype}] for each ndarray in an .npz file.
 
@@ -67,7 +76,7 @@ def list_mat_keys(filepath):
         for k, v in mat.items():
             if k.startswith("_"):
                 continue
-            if isinstance(v, np.ndarray) and v.ndim >= 1 and v.dtype.kind in ("b", "i", "u", "f", "c"):
+            if _is_viewable_mat_array(v):
                 keys.append({"key": k, "shape": list(v.shape), "dtype": str(v.dtype)})
         return keys
     except NotImplementedError:
@@ -93,6 +102,12 @@ def list_array_keys(filepath):
     if filepath.endswith(".mat"):
         return list_mat_keys(filepath)
     return []
+
+
+def default_array_key(filepath):
+    """Return the first selectable array key for multi-array formats, if any."""
+    keys = list_array_keys(filepath)
+    return keys[0]["key"] if keys else None
 
 
 def _select_npz_array(npz, filepath):
@@ -233,7 +248,7 @@ def load_data(filepath, key=None):
             arrays = {
                 k: v
                 for k, v in mat.items()
-                if not k.startswith("_") and isinstance(v, np.ndarray)
+                if not k.startswith("_") and _is_viewable_mat_array(v)
             }
             if key is not None:
                 return _fix_mat_complex(arrays[key])
