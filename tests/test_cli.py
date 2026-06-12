@@ -17,6 +17,7 @@ import arrayview._launcher as _launcher_mod
 class _DummyResponse:
     def __init__(self, payload: dict):
         self._payload = payload
+        self.status = 200
 
     def __enter__(self):
         return self
@@ -266,6 +267,67 @@ def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_pat
     appmod.arrayview()
 
     assert opened == []
+
+
+def test_cli_existing_server_native_shell_connection_skips_browser(
+    monkeypatch, tmp_path
+):
+    base = str(tmp_path / "base.npy")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    opened = []
+    terminated = []
+
+    proc = type(
+        "P",
+        (),
+        {
+            "poll": lambda self: None,
+            "terminate": lambda self: terminated.append(True),
+        },
+    )()
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_webview_cli_tracked",
+        lambda *args, **kwargs: (True, proc),
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda *args, **kwargs: opened.append((args, kwargs)),
+    )
+    monkeypatch.setattr(_launcher_mod, "_vprint", lambda *args, **kwargs: None)
+
+    def fake_urlopen(req, timeout=5):
+        url = req if isinstance(req, str) else req.full_url
+        if url.endswith("/ping"):
+            return _DummyResponse(
+                {
+                    "ok": True,
+                    "service": "arrayview",
+                    "viewer_connections_seen": 0,
+                    "viewer_sockets": 0,
+                    "shell_sockets": 1,
+                }
+            )
+        body = json.loads((req.data or b"{}").decode())
+        return _DummyResponse(
+            {
+                "sid": "sid_base",
+                "name": body["name"],
+                "notified": False,
+            }
+        )
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    assert opened == []
+    assert terminated == []
 
 
 def test_cli_spawn_daemon_opens_viewer_url(monkeypatch, tmp_path):

@@ -154,6 +154,7 @@ def ping():
         "hostname": socket.gethostname(),
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
         "viewer_connections_seen": _session_mod.VIEWER_CONNECTIONS_SEEN,
+        "shell_sockets": len(_session_mod.SHELL_SOCKETS),
     }
 
 

@@ -283,65 +283,23 @@ def _open_direct_via_shm(
     title: str | None = None,
     floating: bool = False,
 ) -> bool:
-    """Write a direct-mode signal file with shared memory parameters.
+    """Compatibility shim for the canonical SHM direct-mode helper."""
+    import warnings
 
-    Places the array in POSIX shared memory so the extension-spawned subprocess
-    can read it without any disk I/O.
-    """
-    import atexit
-    import sys as _sys
-    from multiprocessing.shared_memory import SharedMemory
+    from arrayview._vscode_shm import _open_direct_via_shm as _canonical_open_direct_via_shm
 
-    import numpy as np
-
-    arr = np.ascontiguousarray(data)
-    shm = SharedMemory(create=True, size=arr.nbytes)
-    np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)[:] = arr
-
-    # The subprocess will unlink the SHM after reading it.  Unregister from
-    # Python's resource tracker so it doesn't warn about "leaked" SHM at exit.
-    from multiprocessing import resource_tracker
-    try:
-        resource_tracker.unregister(f"/{shm.name}", "shared_memory")
-    except Exception:
-        pass
-
-    # Keep the shm alive until the subprocess reads it (or this process exits).
-    _ACTIVE_SHM.append(shm)
-
-    def _cleanup():
-        try:
-            shm.close()
-        except Exception:
-            pass
-        try:
-            shm.unlink()
-        except Exception:
-            pass
-
-    atexit.register(_cleanup)
-
-    payload: dict = {
-        "action": "open-preview",
-        "mode": "direct",
-        "shm": {
-            "name": shm.name,
-            "shape": ",".join(str(int(s)) for s in arr.shape),
-            "dtype": str(arr.dtype),
-        },
-        "arrayName": name,
-        "pythonPath": _sys.executable,
-        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
-    }
-    if title:
-        payload["title"] = title
-    if floating:
-        payload["floating"] = True
-    return _write_vscode_signal(payload, skip_compat=True)
-
-
-# Shared memory blocks kept alive until process exit or subprocess reads them.
-_ACTIVE_SHM: list = []
+    warnings.warn(
+        "arrayview._vscode_signal._open_direct_via_shm is deprecated; "
+        "use arrayview._vscode_shm._open_direct_via_shm",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _canonical_open_direct_via_shm(
+        data,
+        name=name,
+        title=title,
+        floating=floating,
+    )
 
 
 def _schedule_remote_open_retries(
@@ -772,3 +730,19 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
         return True
     except Exception:
         return False
+
+
+def __getattr__(name: str):
+    if name == "_ACTIVE_SHM":
+        import warnings
+
+        from arrayview._vscode_shm import _ACTIVE_SHM
+
+        warnings.warn(
+            "arrayview._vscode_signal._ACTIVE_SHM is deprecated; "
+            "use arrayview._vscode_shm._ACTIVE_SHM",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _ACTIVE_SHM
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

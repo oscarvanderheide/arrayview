@@ -28,6 +28,7 @@ class TestHealth:
         body = r.json()
         assert body["ok"] is True
         assert body["service"] == "arrayview"
+        assert "shell_sockets" in body
 
     def test_root_without_sid_returns_html(self, client):
         r = client.get("/", follow_redirects=False)
@@ -2171,6 +2172,24 @@ class TestViewWindowHelpers:
 
 
 class TestCliOpenHelpers:
+    def test_open_webview_passes_selected_linux_gui_backend(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        calls = []
+        monkeypatch.setattr(launcher, "_get_icon_png_path", lambda: None)
+        monkeypatch.setattr(launcher, "_native_window_gui", lambda: "gtk")
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd, **kwargs: calls.append((cmd, kwargs)) or object(),
+        )
+
+        launcher._open_webview("http://localhost:8000/shell", 1200, 800)
+
+        assert calls
+        assert calls[0][0][-1] == "gtk"
+        assert "kw = {'gui': gui} if gui else {}" in calls[0][0][2]
+
     def test_build_inline_shell_html_preserves_init_query(self):
         import arrayview._launcher as launcher
 
@@ -2301,10 +2320,47 @@ class TestCliOpenHelpers:
                 "url": "http://localhost:8000/?sid=sid_base&compare_sid=sid_cmp&compare_sids=sid_cmp&dim_x=1&dim_y=2",
                 "blocking": True,
                 "title": "ArrayView: base.npy",
-                "filepath": "/tmp/base.npy",
                 "floating": False,
             }
         ]
+
+    def test_open_cli_existing_server_view_opens_registered_url_not_direct_stdio(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+
+        launcher._open_cli_existing_server_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid=None,
+            dims_override=None,
+            notify_webview=False,
+            notified=False,
+            name="base.npy",
+            base_file="/tmp/base.npy",
+            watch=False,
+            window_mode="vscode",
+            floating=True,
+        )
+
+        assert opened == [
+            {
+                "url": "http://localhost:8000/?sid=sid_base",
+                "blocking": True,
+                "force_vscode": True,
+                "title": "ArrayView: base.npy",
+                "floating": True,
+            }
+        ]
+        assert "filepath" not in opened[0]
 
     def test_open_cli_existing_server_view_falls_back_when_native_never_connects(
         self, monkeypatch
@@ -2326,7 +2382,9 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 4)
         monkeypatch.setattr(
-            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
         monkeypatch.setattr(
@@ -2375,7 +2433,9 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
-            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
         monkeypatch.setattr(
@@ -2403,6 +2463,55 @@ class TestCliOpenHelpers:
         assert terminated == [True]
         assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
         assert opened[0]["blocking"] is False
+
+    def test_open_cli_spawned_view_keeps_native_when_shell_connects(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
+        monkeypatch.setattr(
+            launcher, "_server_viewer_connections_seen", lambda *args, **kwargs: 0
+        )
+        monkeypatch.setattr(
+            launcher, "_server_shell_sockets_open", lambda *args, **kwargs: 1
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_spawned_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid=None,
+            dims_override=None,
+            use_webview=True,
+            name="base.npy",
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            base_file="/tmp/base.npy",
+        )
+
+        assert terminated == []
+        assert opened == []
 
     def test_open_cli_spawned_view_overlay_browser_path_starts_watch(self, monkeypatch):
         import arrayview._launcher as launcher
@@ -2651,7 +2760,11 @@ class TestCliOpenHelpers:
             lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
         )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
-        monkeypatch.setattr(launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: True,
+        )
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
         monkeypatch.setattr(
             launcher,
@@ -2719,7 +2832,9 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
-            launcher, "_wait_for_viewer_connection", lambda *args, **kwargs: False
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(
             launcher,
@@ -2755,6 +2870,75 @@ class TestCliOpenHelpers:
         assert terminated == [True]
         assert opened[0]["use_webview"] is False
         assert opened[0]["webview_already_opened"] is False
+
+    def test_handle_cli_spawned_daemon_keeps_native_when_early_shell_connects(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
+
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd, *args, **kwargs: object(),
+        )
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
+        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: True,
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_notify_existing_session",
+            lambda *args, **kwargs: {"notified": True},
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+        monkeypatch.setattr(
+            launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})()
+        )
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_webview=True,
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
+        assert terminated == []
+        assert opened[0]["use_webview"] is True
+        assert opened[0]["webview_already_opened"] is True
 
     def test_handle_cli_spawned_daemon_does_not_early_open_remote_webview(
         self, monkeypatch
@@ -3258,6 +3442,24 @@ class TestPortAndTunnelHelpers:
         )
 
         assert platform._can_native_window() is True
+
+    def test_linux_native_window_gui_uses_gtk_when_only_gi_available(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(platform, "_is_vscode_remote", lambda: False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setenv("DISPLAY", ":0")
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setattr(
+            platform.importlib.util,
+            "find_spec",
+            lambda name: object() if name in {"webview", "gi"} else None,
+        )
+
+        assert platform._can_native_window() is True
+        assert platform._native_window_gui() == "gtk"
 
     def test_open_browser_skips_vscode_signal_when_terminal_check_is_false(self, monkeypatch):
         import arrayview._vscode_browser as browser_mod
