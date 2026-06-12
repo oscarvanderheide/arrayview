@@ -415,18 +415,23 @@ def _can_native_window() -> bool:
     # Plain SSH (no VS Code): the display is on the client machine, not here.
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
         return False
-    if importlib.util.find_spec("webview") is None:
-        return False
-    if sys.platform in ("darwin", "win32"):
-        return True
-    # Linux/BSD: need a display server AND pywebview's GUI bindings
-    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        return False
+    return _native_window_gui() is not None
 
-    return (
-        importlib.util.find_spec("qtpy") is not None
-        or importlib.util.find_spec("gi") is not None
-    )
+
+def _native_window_gui() -> str | None:
+    """Return the pywebview GUI backend name to use, or None if unavailable."""
+    if importlib.util.find_spec("webview") is None:
+        return None
+    if sys.platform in ("darwin", "win32"):
+        return ""
+    # Linux/BSD: need a display server AND pywebview's GUI bindings.
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return None
+    if importlib.util.find_spec("qtpy") is not None:
+        return "qt"
+    if importlib.util.find_spec("gi") is not None:
+        return "gtk"
+    return None
 
 
 # ---------------------------------------------------------------------------

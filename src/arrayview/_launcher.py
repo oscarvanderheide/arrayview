@@ -33,6 +33,7 @@ from arrayview._platform import (
     _is_vscode_remote,
     _in_vscode_tunnel,
     _can_native_window,
+    _native_window_gui,
     _find_vscode_ipc_hook,
     _is_julia_env,
     _in_julia_jupyter,
@@ -249,6 +250,7 @@ def _open_webview(
 
     icon_path = _get_icon_png_path() or ""
     inline_html_b64 = None
+    gui_name = _native_window_gui() or ""
 
     if shell_port is not None:
         shell_html = _build_inline_shell_html(url, shell_port)
@@ -258,14 +260,14 @@ def _open_webview(
     if inline_html_b64:
         script_lines = [
             "import sys, base64, webview",
-            "u, w, h, icon, html_b64, ready_file = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]",
+            "u, w, h, icon, html_b64, ready_file, gui = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]",
             "html = base64.b64decode(html_b64.encode()).decode()",
             "class Api:",
             "    def set_title(self, title):",
             "        try: webview.windows[0].set_title(str(title)[:240])",
             "        except Exception: pass",
             "win = webview.create_window('ArrayView', html=html, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
-            "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
+            "kw = {'gui': gui} if gui else {}",
             "def _start_func():",
             "    if ready_file:",
             "        try:",
@@ -298,6 +300,7 @@ def _open_webview(
                 icon_path,
                 inline_html_b64,
                 ready_file or "",
+                gui_name,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
@@ -306,13 +309,13 @@ def _open_webview(
     # URL mode — direct load (used when shell_port not provided)
     script_lines = [
         "import sys, webview",
-        "u, w, h, icon, ready_file = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]",
+        "u, w, h, icon, ready_file, gui = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]",
         "class Api:",
         "    def set_title(self, title):",
         "        try: webview.windows[0].set_title(str(title)[:240])",
         "        except Exception: pass",
         "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
-        "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
+        "kw = {'gui': gui} if gui else {}",
         "def _start_func():",
         "    if ready_file:",
         "        try:",
@@ -344,6 +347,7 @@ def _open_webview(
             str(win_h),
             icon_path,
             ready_file or "",
+            gui_name,
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
@@ -368,6 +372,7 @@ def _open_webview_with_fallback(
     sockets_before = (
         _session_mod.VIEWER_SOCKETS
     )  # capture count so we detect a NEW connection
+    shell_sockets_before = len(_session_mod.SHELL_SOCKETS)
 
     def _read_stderr():
         try:
@@ -390,14 +395,18 @@ def _open_webview_with_fallback(
                 _open_browser(url, floating=floating)
                 return
 
-        # Phase 2: process is alive — wait up to 8 s for a NEW viewer WebSocket to connect.
-        # We compare against sockets_before so an already-open browser tab doesn't
-        # falsely confirm that the native window launched successfully.
+        # Phase 2: process is alive — wait up to 8 s for a NEW viewer or shell
+        # WebSocket.  The native shell connection proves pywebview is usable;
+        # the embedded viewer iframe can legitimately connect later.
         import arrayview._session as _sm
 
         for _ in range(80):
             time.sleep(0.1)
-            if _sm.VIEWER_SOCKETS > sockets_before:
+            shell_connected = (
+                shell_port is not None
+                and len(_sm.SHELL_SOCKETS) > shell_sockets_before
+            )
+            if _sm.VIEWER_SOCKETS > sockets_before or shell_connected:
                 _vprint("[ArrayView] Native window connected successfully", flush=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(
@@ -530,6 +539,21 @@ def _server_viewer_connections_seen(port: int, timeout: float = 0.5) -> int:
     return 0
 
 
+def _server_shell_sockets_open(port: int, timeout: float = 0.5) -> int:
+    """Return the daemon's current native shell WebSocket count."""
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return 0
+            payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return int(payload.get("shell_sockets") or 0)
+    except Exception:
+        pass
+    return 0
+
+
 def _wait_for_viewer_connection(
     port: int,
     *,
@@ -545,6 +569,23 @@ def _wait_for_viewer_connection(
     return False
 
 
+def _wait_for_native_shell_or_viewer_connection(
+    port: int,
+    *,
+    viewer_before: int,
+    timeout: float = 8.0,
+) -> bool:
+    """Wait until pywebview proves it is alive via shell or viewer WebSocket."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _server_viewer_connections_seen(port, timeout=0.3) > viewer_before:
+            return True
+        if _server_shell_sockets_open(port, timeout=0.3) > 0:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def _terminate_native_process(proc: subprocess.Popen | None) -> None:
     if proc is None or proc.poll() is not None:
         return
@@ -552,6 +593,64 @@ def _terminate_native_process(proc: subprocess.Popen | None) -> None:
         proc.terminate()
     except Exception:
         return
+
+
+def _open_cli_native_shell_after_server(
+    *,
+    port: int,
+    sid: str,
+    name: str,
+    compare_sids: "_CompareSids | None",
+    win_w: int,
+    win_h: int,
+) -> bool:
+    """Open a CLI native shell and return whether it is usable."""
+    url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
+    viewer_before = _server_viewer_connections_seen(port)
+    opened, proc = _open_webview_cli_tracked(url_shell, win_w, win_h)
+    if opened and _wait_for_native_shell_or_viewer_connection(
+        port, viewer_before=viewer_before
+    ):
+        return True
+    if opened:
+        _vprint(
+            "[ArrayView] Native window did not connect to the backend; falling back to browser",
+            flush=True,
+        )
+    _terminate_native_process(proc)
+    return False
+
+
+def _activate_early_cli_native_shell(
+    *,
+    port: int,
+    sid: str,
+    name: str,
+    proc: subprocess.Popen | None,
+) -> bool:
+    """Attach an already-started preload shell to a spawned daemon session."""
+    viewer_before = _server_viewer_connections_seen(port)
+    try:
+        notify_result = _notify_existing_session(
+            port,
+            sid,
+            name,
+            url=_viewer_path(sid),
+            wait=True,
+        )
+        notified = bool(notify_result.get("notified"))
+    except Exception:
+        notified = False
+    if notified and _wait_for_native_shell_or_viewer_connection(
+        port, viewer_before=viewer_before
+    ):
+        return True
+    _vprint(
+        "[ArrayView] Native window did not connect to the backend; falling back to browser",
+        flush=True,
+    )
+    _terminate_native_process(proc)
+    return False
 
 
 # ── Server Port Utilities ─────────────────────────────────────────
@@ -862,23 +961,21 @@ def _open_cli_existing_server_view(
         _vprint(f"Injected into existing window (port {port})")
         return
     if notify_webview and not notified:
-        url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
-        seen_before = _server_viewer_connections_seen(port)
-        opened, proc = _open_webview_cli_tracked(url_shell, 1200, 800)
-        if not opened or not _wait_for_viewer_connection(port, before=seen_before):
-            if opened:
-                _vprint(
-                    "[ArrayView] Native window did not connect to the backend; falling back to browser",
-                    flush=True,
-                )
-            _terminate_native_process(proc)
+        native_ready = _open_cli_native_shell_after_server(
+            port=port,
+            sid=sid,
+            name=name,
+            compare_sids=compare_sids,
+            win_w=1200,
+            win_h=800,
+        )
+        if not native_ready:
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
                 url,
                 blocking=True,
                 title=f"ArrayView: {name}",
-                filepath=base_file,
                 floating=floating,
             )
         return
@@ -889,7 +986,6 @@ def _open_cli_existing_server_view(
         blocking=True,
         force_vscode=(window_mode == "vscode"),
         title=f"ArrayView: {name}",
-        filepath=base_file,
         floating=floating,
     )
 
@@ -1056,7 +1152,6 @@ def _handle_cli_spawned_daemon(
 
     early_webview_opened = False
     early_webview_proc = None
-    early_webview_notified = False
     early_webview_connected = False
     if (
         use_webview
@@ -1083,29 +1178,12 @@ def _handle_cli_spawned_daemon(
         sys.exit(1)
 
     if early_webview_opened:
-        seen_before = _server_viewer_connections_seen(port)
-        try:
-            notify_result = _notify_existing_session(
-                port,
-                sid,
-                name,
-                url=_viewer_path(sid),
-                wait=True,
-            )
-            early_webview_notified = bool(notify_result.get("notified"))
-        except Exception:
-            early_webview_notified = False
-        if early_webview_notified:
-            early_webview_connected = _wait_for_viewer_connection(
-                port,
-                before=seen_before,
-            )
-        if not early_webview_connected:
-            _vprint(
-                "[ArrayView] Native window did not connect to the backend; falling back to browser",
-                flush=True,
-            )
-            _terminate_native_process(early_webview_proc)
+        early_webview_connected = _activate_early_cli_native_shell(
+            port=port,
+            sid=sid,
+            name=name,
+            proc=early_webview_proc,
+        )
 
     should_retry_webview = use_webview and not (
         early_webview_opened and not early_webview_connected
@@ -1154,16 +1232,15 @@ def _open_cli_spawned_view(
     if _should_notify_webview(use_webview, overlay_sid):
         if webview_already_opened:
             return
-        url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
-        seen_before = _server_viewer_connections_seen(port)
-        opened, proc = _open_webview_cli_tracked(url_shell, 1400, 900)
-        if not opened or not _wait_for_viewer_connection(port, before=seen_before):
-            if opened:
-                _vprint(
-                    "[ArrayView] Native window did not connect to the backend; falling back to browser",
-                    flush=True,
-                )
-            _terminate_native_process(proc)
+        native_ready = _open_cli_native_shell_after_server(
+            port=port,
+            sid=sid,
+            name=name,
+            compare_sids=compare_sids,
+            win_w=1400,
+            win_h=900,
+        )
+        if not native_ready:
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
