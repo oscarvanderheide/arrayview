@@ -11985,6 +11985,8 @@
             rectRoiMode = true;
             _roiShape = 'rect';
             _roiVisible = true;
+            hideAllPixelInfo();
+            _resetDimbarHover();
             canvas.style.cursor = 'crosshair';
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
             showStatus('ROI mode: rect · drag to draw');
@@ -11995,6 +11997,7 @@
 
         function _deactivateRoiInteraction({ clear = false } = {}) {
             rectRoiMode = false;
+            _roiSuppressPixelInfo = false;
             _roiShape = 'rect';
             _roiFreehandPts = [];
             _floodFillTolerance = 0.1;
@@ -14518,6 +14521,11 @@
         }
         function showPixelInfo(el, payload, cx, cy) {
             if (!el || !_pixelInfoVisible) return;
+            if (rectRoiMode && _roiSuppressPixelInfo) {
+                el.style.display = 'none';
+                delete el.dataset.pixelInfoKey;
+                return;
+            }
             const key = (payload && typeof payload === 'object')
                 ? `${payload.valueText ?? ''}|${payload.rawX ?? ''}|${payload.rawY ?? ''}`
                 : String(payload ?? '');
@@ -14530,6 +14538,7 @@
         }
 
         let _pixelHoverThrottle = false;
+        let _roiSuppressPixelInfo = false;
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
             const vals = view && view.displayState
@@ -14538,6 +14547,17 @@
             return vals.filter(Number.isFinite);
         }
         function fetchPixelInfo(opts) {
+            if (rectRoiMode) {
+                const roiIdx = _roiHitIndexForCanvasEvent(opts.event, opts.canvas, opts.imgW, opts.imgH);
+                _roiSuppressPixelInfo = _roiHasStats(roiIdx);
+                if (_roiSuppressPixelInfo) {
+                    if (opts.displayEl) {
+                        opts.displayEl.style.display = 'none';
+                        delete opts.displayEl.dataset.pixelInfoKey;
+                    }
+                    return false;
+                }
+            }
             const indices = Array.isArray(opts.indices) ? opts.indices : [];
             if (!indices.length || indices.some(v => !Number.isFinite(v))) return false;
             const rect = opts.canvas.getBoundingClientRect();
@@ -16259,6 +16279,20 @@
             }
             return false;
         }
+        function _roiHasStats(idx) {
+            return idx >= 0 && !!(_rois[idx] && (_rois[idx].stats || _rois[idx].qmriStats));
+        }
+        function _roiHitIndexForCanvasEvent(e, cv, imgW, imgH) {
+            if (!rectRoiMode || !cv || !imgW || !imgH) return -1;
+            const rect = cv.getBoundingClientRect();
+            if (!rect.width || !rect.height) return -1;
+            const cx = (e.clientX - rect.left) * imgW / rect.width;
+            const cy = (e.clientY - rect.top) * imgH / rect.height;
+            for (let i = _rois.length - 1; i >= 0; i--) {
+                if (_pointInRoi(_rois[i], cx, cy)) return i;
+            }
+            return -1;
+        }
         function _updateRoiPanel() {
             renderIsland();
         }
@@ -16533,25 +16567,27 @@
             for (let i = _rois.length - 1; i >= 0; i--) {
                 if (_pointInRoi(_rois[i], cx, cy)) { hitIdx = i; break; }
             }
-            const piEl = document.getElementById('main-pixel-info');
-            if (hitIdx < 0 || (!_rois[hitIdx].stats && !_rois[hitIdx].qmriStats)) { ttip.style.display = 'none'; if (_pixelInfoVisible) piEl.style.display = ''; return; }
+            _roiSuppressPixelInfo = _roiHasStats(hitIdx);
+            if (!_roiSuppressPixelInfo) { ttip.style.display = 'none'; return; }
             const s = _rois[hitIdx].stats;
             const q = _rois[hitIdx].qmriStats;
             const c = _roiColors[hitIdx % _roiColors.length];
             if (Array.isArray(q) && q.length && q[0].stats) {
-                const ttipQ = document.getElementById('roi-stats-tooltip');
+                const ttipQ = _getRoiRowTooltip();
                 if (ttipQ) {
                     ttipQ.innerHTML = _buildRoiTooltipContent(hitIdx);
-                    ttipQ.style.display = 'block';
                     _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
+                    ttipQ.classList.add('visible');
                 }
-                if (_pixelInfoVisible) piEl.style.display = 'none';
+                const piEl = document.getElementById('main-pixel-info');
+                if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
                 return;
             }
             const fmt = v => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
             ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">${hitIdx+1}</span> ${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
             ttip.style.display = 'block';
-            if (_pixelInfoVisible) piEl.style.display = 'none';
+            const piEl = document.getElementById('main-pixel-info');
+            if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
             const par = ttip.offsetParent;
             if (par) {
                 const pr = par.getBoundingClientRect();
@@ -16690,8 +16726,10 @@
                 roiDragging = false;
                 _drawAllRois(); // clear in-progress preview
             }
+            _roiSuppressPixelInfo = false;
             const ttip = document.getElementById('roi-hover-tooltip');
             if (ttip) ttip.style.display = 'none';
+            _hideRoiRowTooltip();
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
         });
@@ -23209,7 +23247,8 @@
                         for (let ii = _rois.length - 1; ii >= 0; ii--) {
                             if (_pointInRoi(_rois[ii], cx, cy)) { hitIdx = ii; break; }
                         }
-                        if (hitIdx < 0 || (!_rois[hitIdx].stats && !_rois[hitIdx].qmriStats)) {
+                        _roiSuppressPixelInfo = _roiHasStats(hitIdx);
+                        if (!_roiSuppressPixelInfo) {
                             const t = document.getElementById('roi-hover-tooltip');
                             if (t) t.style.display = 'none';
                             if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
@@ -23217,11 +23256,11 @@
                         }
                         const q = _rois[hitIdx].qmriStats;
                         if (Array.isArray(q) && q.length && q[0].stats) {
-                            const tq = document.getElementById('roi-stats-tooltip');
+                            const tq = _getRoiRowTooltip();
                             if (tq) {
                                 tq.innerHTML = _buildRoiTooltipContent(hitIdx);
-                                tq.classList.add('visible');
                                 _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
+                                tq.classList.add('visible');
                             }
                             if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                             return;
@@ -23237,6 +23276,7 @@
                         }
                     });
                     cv.addEventListener('mouseleave', () => {
+                        _roiSuppressPixelInfo = false;
                         const tq = document.getElementById('roi-stats-tooltip');
                         if (tq) tq.classList.remove('visible');
                     });
