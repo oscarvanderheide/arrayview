@@ -1148,6 +1148,7 @@ def _handle_cli_spawned_daemon(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
+        start_new_session=(sys.platform != "win32"),
     )
 
     early_webview_opened = False
@@ -1245,7 +1246,7 @@ def _open_cli_spawned_view(
             _print_viewer_location(url)
             _open_browser(
                 url,
-                blocking=False,
+                blocking=(window_mode == "vscode"),
                 force_vscode=(window_mode == "vscode"),
                 title=f"ArrayView: {name}",
                 floating=floating,

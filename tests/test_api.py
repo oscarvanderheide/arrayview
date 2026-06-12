@@ -2464,6 +2464,64 @@ class TestCliOpenHelpers:
         assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
         assert opened[0]["blocking"] is False
 
+    def test_open_cli_spawned_view_vscode_fallback_blocks_until_signal_written(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        terminated = []
+        proc = type(
+            "P",
+            (),
+            {
+                "poll": lambda self: None,
+                "terminate": lambda self: terminated.append(True),
+            },
+        )()
+        monkeypatch.setattr(
+            launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
+        )
+        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_native_shell_or_viewer_connection",
+            lambda *args, **kwargs: False,
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_spawned_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid=None,
+            dims_override=None,
+            use_webview=True,
+            name="base.npy",
+            watch=False,
+            window_mode="vscode",
+            floating=True,
+            is_remote=False,
+            base_file="/tmp/base.npy",
+        )
+
+        assert terminated == [True]
+        assert opened == [
+            {
+                "url": "http://localhost:8000/?sid=sid_base",
+                "blocking": True,
+                "force_vscode": True,
+                "title": "ArrayView: base.npy",
+                "floating": True,
+            }
+        ]
+
     def test_open_cli_spawned_view_keeps_native_when_shell_connects(
         self, monkeypatch
     ):
