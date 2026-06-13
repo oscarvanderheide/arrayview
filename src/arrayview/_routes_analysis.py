@@ -380,12 +380,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
 
         labels = np.zeros(session.shape, dtype=np.uint16)
         for roi_idx, roi in enumerate(rois):
-            label = int(roi.get("label", roi_idx + 1))
-            if label <= 0:
-                continue
-            visible = roi.get("visible", True)
-            if visible is False:
-                continue
+            label = roi_idx + 1
             for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
                 raw = extract_slice(session, dim_x, dim_y, idx)
                 mask = _roi_mask_for_shape(roi, raw.shape)
@@ -736,4 +731,3 @@ def _write_roi_mask(
         idx[dim_y] = int(y)
         idx[dim_x] = int(x)
         labels[tuple(idx)] = label
-

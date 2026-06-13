@@ -25,8 +25,9 @@ last_updated: 2026-06-05
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
 - Tool menu (`/` menu) supports multi-select where allowed: spacebar toggles tools, Enter applies selection. Mutual exclusion enforced (ROI ↔ Segmentation, and overlay/vectorfield ↔ everything else). Cursor indicator shows focused tile via yellow background + left accent bar
-- Dynamic island renders sections for all active plugins simultaneously (qMRI pills + ROI shapes/stats separated by divider), replacing the old single-plugin priority chain
-- ROI mode works alongside qMRI: drawing on any pane mirrors the ROI to all panes in real-time via per-pane overlay canvases; stats fetched per parameter map and shown as sub-rows in the island
+- Dynamic island renders sections for active plugins such as qMRI and segmentation, replacing the old single-plugin priority chain
+- ROI mode is a lightweight measurement tool: `Shift+R` shows/hides session ROIs, defaults to true circles, uses slim colorbar controls for shape/stats/hide/clear, and manages stats/rename/delete/export from the ROI manager modal
+- ROI mode works alongside qMRI: drawing on any pane mirrors the ROI to all panes in real-time via per-pane overlay canvases; stats are fetched per visible parameter map and shown in the ROI manager
 - qMRI map toggle (`_islandToggleQmriMap`) fade animation now covers dimbar and array-name in addition to panes and colorbars
 - Segmentation menu shares the ROI layout (yellow accent, magnifier action icon, common `#export-overlay` modal). Pre-activation shows a pulsing "nnInteractive · connecting" row that morphs into the normal shape toolbar once `/seg/activate` resolves
 - Overlays are a plugin tile (`OV`): per-overlay row with colour swatch, editable label, eye toggle, × delete; shared opacity slider; `+ add overlay` opens a filesystem picker rooted at the launched file's directory
@@ -44,7 +45,7 @@ last_updated: 2026-06-05
 - Crossfade animation added to rotate/transpose transitions
 - `--version` flag and version string in help overlay
 - In-viewer array picker for multi-array `.mat` and `.npz` files
-- ROI stats tooltips for qMRI canvases (per-parameter-map sub-rows in the island)
+- ROI manager modal for qMRI canvases (per-parameter-map stats rows, CSV export, label-mask export)
 - Invocation lifecycle contract defined and hardened: local VS Code CLI launches use transient daemon shutdown, remote/tunnel launches remain persistent only where transport requires it, URL webview backend checks run in the extension host against `/ping`, URL panel disposal releases all sessions encoded in the viewer URL, quick viewer connect/disconnect races detected by monotonic connection counter, ambiguous multi-window tunnel routing fails closed, stale viewer SID retry state cleared on WebSocket disconnect, bundled opener extension rebuilt as v0.14.12
 - Hover info wrong values fixed
 - Native launcher startup restored

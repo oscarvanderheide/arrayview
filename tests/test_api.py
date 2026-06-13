@@ -3229,13 +3229,16 @@ class TestFloodFillROI:
 
 
 class TestStructuredROI:
-    def test_structured_circle_stats_respect_shape_across_scope(self, client, tmp_path):
-        arr = np.zeros((3, 9, 9), dtype=np.float32)
+    def test_structured_circle_stats_use_true_mask_on_explicit_slice(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((2, 9, 9), dtype=np.float32)
         yy, xx = np.ogrid[:9, :9]
         circle = (xx - 4) ** 2 + (yy - 4) ** 2 <= 2**2
-        arr[:, circle] = np.array([1.0, 2.0, 3.0])[:, None]
-        arr[:, 2:7, 2:7] += 10.0 * (~circle[2:7, 2:7])
-        path = tmp_path / "roi_circle_scope.npy"
+        arr[0, circle] = 3.0
+        arr[1, circle] = 7.0
+        arr[:, 2:7, 2:7] += 100.0 * (~circle[2:7, 2:7])
+        path = tmp_path / "roi_circle_true_mask.npy"
         np.save(path, arr)
         sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
 
@@ -3244,7 +3247,7 @@ class TestStructuredROI:
             json={
                 "dim_x": 2,
                 "dim_y": 1,
-                "indices": [0, 4, 4],
+                "indices": [1, 4, 4],
                 "rois": [
                     {
                         "id": "circle-a",
@@ -3253,7 +3256,7 @@ class TestStructuredROI:
                         "cx": 4,
                         "cy": 4,
                         "r": 2,
-                        "scope": {"broadcast_dims": [0]},
+                        "scope": {"indices": [1, 4, 4], "broadcast_dims": []},
                     }
                 ],
             },
@@ -3262,40 +3265,142 @@ class TestStructuredROI:
         assert r.status_code == 200
         body = r.json()
         stats = body["results"][0]["stats"]
-        assert stats["n"] == int(circle.sum() * arr.shape[0])
-        assert stats["mean"] == pytest.approx(2.0)
-        assert stats["max"] == pytest.approx(3.0)
-        assert len(body["results"][0]["rows"]) == 3
+        assert stats["n"] == int(circle.sum())
+        assert stats["mean"] == pytest.approx(7.0)
+        assert stats["max"] == pytest.approx(7.0)
+        assert len(body["results"][0]["rows"]) == 1
+        assert body["results"][0]["rows"][0]["indices"] == [1, 4, 4]
 
-    def test_structured_roi_mask_exports_label_mask_and_overlap_wins(
+    def test_structured_stats_scope_broadcasts_multiple_dimensions(
         self, client, tmp_path
     ):
-        arr = np.zeros((2, 8, 8), dtype=np.float32)
+        arr = np.zeros((2, 3, 5, 5), dtype=np.float32)
+        for a in range(arr.shape[0]):
+            for b in range(arr.shape[1]):
+                arr[a, b, 2, 2] = 100.0 * a + 10.0 * b
+        path = tmp_path / "roi_multi_dim_scope.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.post(
+            f"/roi_stats/{sid}",
+            json={
+                "dim_x": 3,
+                "dim_y": 2,
+                "indices": [0, 0, 2, 2],
+                "rois": [
+                    {
+                        "type": "rect",
+                        "x0": 2,
+                        "y0": 2,
+                        "x1": 2,
+                        "y1": 2,
+                        "scope": {
+                            "broadcast_dims": [0, 1],
+                            "ranges": {"0": [0, 1], "1": [1, 2]},
+                        },
+                    }
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        result = r.json()["results"][0]
+        stats = result["stats"]
+        assert stats["n"] == 4
+        assert stats["min"] == pytest.approx(10.0)
+        assert stats["max"] == pytest.approx(120.0)
+        assert stats["mean"] == pytest.approx(65.0)
+        assert [row["indices"] for row in result["rows"]] == [
+            [0, 1, 2, 2],
+            [0, 2, 2, 2],
+            [1, 1, 2, 2],
+            [1, 2, 2, 2],
+        ]
+
+    def test_structured_stats_support_qmri_like_explicit_map_values(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((4, 7, 7), dtype=np.float32)
+        yy, xx = np.ogrid[:7, :7]
+        circle = (xx - 3) ** 2 + (yy - 3) ** 2 <= 1**2
+        for i, value in enumerate([11.0, 22.0, 33.0, 44.0]):
+            arr[i, circle] = value
+        path = tmp_path / "roi_qmri_values.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.post(
+            f"/roi_stats/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [1, 3, 3],
+                "rois": [
+                    {
+                        "type": "circle",
+                        "cx": 3,
+                        "cy": 3,
+                        "r": 1,
+                        "scope": {
+                            "broadcast_dims": [0],
+                            "values": {"0": [0, 2, 3]},
+                        },
+                    }
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        result = r.json()["results"][0]
+        assert result["stats"]["n"] == int(circle.sum() * 3)
+        assert result["stats"]["mean"] == pytest.approx((11.0 + 33.0 + 44.0) / 3.0)
+        assert [row["indices"][0] for row in result["rows"]] == [0, 2, 3]
+
+    def test_structured_roi_mask_exports_shape_and_list_order_labels(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((3, 8, 8), dtype=np.float32)
         path = tmp_path / "roi_mask_export.npy"
         np.save(path, arr)
         sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        floodfill_sub = np.array([[1, 0], [1, 1]], dtype=np.uint8)
+        floodfill_encoded = base64.b64encode(floodfill_sub.tobytes()).decode("ascii")
 
         r = client.post(
             f"/roi_mask/{sid}",
             json={
                 "dim_x": 2,
                 "dim_y": 1,
-                "indices": [0, 0, 0],
+                "indices": [1, 0, 0],
                 "rois": [
                     {
                         "type": "rect",
-                        "x0": 1,
-                        "y0": 1,
-                        "x1": 4,
-                        "y1": 4,
-                        "scope": {"broadcast_dims": [0]},
+                        "label": 99,
+                        "x0": 0,
+                        "y0": 0,
+                        "x1": 1,
+                        "y1": 1,
+                        "scope": {"indices": [1, 0, 0]},
                     },
                     {
                         "type": "circle",
-                        "cx": 4,
-                        "cy": 4,
-                        "r": 2,
-                        "scope": {"values": {"0": [1]}, "broadcast_dims": [0]},
+                        "label": 42,
+                        "cx": 5,
+                        "cy": 2,
+                        "r": 1,
+                        "scope": {"indices": [1, 0, 0]},
+                    },
+                    {
+                        "type": "freehand",
+                        "points": [[3, 5], [4, 5], [4, 6], [3, 6]],
+                        "scope": {"indices": [1, 0, 0]},
+                    },
+                    {
+                        "type": "floodfill",
+                        "bbox": {"x0": 6, "y0": 6, "x1": 7, "y1": 7},
+                        "mask_b64": floodfill_encoded,
+                        "scope": {"indices": [1, 0, 0]},
                     },
                 ],
             },
@@ -3305,10 +3410,55 @@ class TestStructuredROI:
         assert r.headers["content-disposition"] == "attachment; filename=roi_mask.npy"
         mask = np.load(io.BytesIO(r.content))
         assert mask.shape == arr.shape
-        assert int(mask[0, 2, 2]) == 1
-        assert int(mask[1, 4, 4]) == 2
-        assert int(mask[1, 3, 3]) == 2
-        assert int(mask[0, 4, 4]) == 1
+        assert set(np.unique(mask).tolist()) == {0, 1, 2, 3, 4}
+        assert int(mask[1, 0, 0]) == 1
+        assert int(mask[1, 2, 5]) == 2
+        assert int(mask[1, 5, 3]) == 3
+        assert int(mask[1, 6, 6]) == 4
+        assert int(mask[0].sum()) == 0
+        assert int(mask[2].sum()) == 0
+
+    def test_structured_roi_mask_later_payload_entries_win_overlap(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((6, 6), dtype=np.float32)
+        path = tmp_path / "roi_mask_overlap.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.post(
+            f"/roi_mask/{sid}",
+            json={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": [0, 0],
+                "rois": [
+                    {
+                        "type": "rect",
+                        "label": 40,
+                        "x0": 1,
+                        "y0": 1,
+                        "x1": 4,
+                        "y1": 4,
+                    },
+                    {
+                        "type": "rect",
+                        "label": 99,
+                        "x0": 3,
+                        "y0": 3,
+                        "x1": 5,
+                        "y1": 5,
+                    },
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        mask = np.load(io.BytesIO(r.content))
+        assert set(np.unique(mask).tolist()) == {0, 1, 2}
+        assert int(mask[1, 1]) == 1
+        assert int(mask[3, 3]) == 2
+        assert int(mask[5, 5]) == 2
 
     def test_structured_floodfill_mask_uses_encoded_component(self, client, tmp_path):
         arr = np.zeros((6, 6), dtype=np.float32)

@@ -2292,69 +2292,103 @@ class TestKeyboard:
 
 
 class TestROIDrag:
-    def test_canvas_drag_select_move_and_export_controls(self, loaded_viewer, sid_2d):
-        page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        page.evaluate("() => { _activateRoiInteraction(); _openDirectToolOrExplain('roi'); }")
-        page.wait_for_timeout(300)
+    def _draw_roi(self, page):
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
         assert box is not None
-        # Drag from upper-left to lower-right of the canvas
-        x0 = box["x"] + box["width"] * 0.1
-        y0 = box["y"] + box["height"] * 0.1
-        x1 = box["x"] + box["width"] * 0.6
-        y1 = box["y"] + box["height"] * 0.6
+        x0 = box["x"] + box["width"] * 0.18
+        y0 = box["y"] + box["height"] * 0.18
+        x1 = box["x"] + box["width"] * 0.58
+        y1 = box["y"] + box["height"] * 0.58
         page.mouse.move(x0, y0)
         page.mouse.down()
         page.mouse.move(x1, y1, steps=10)
         page.mouse.up()
         page.wait_for_timeout(800)
+        return x0, y0, x1, y1
 
-        rows = page.locator("#tool-drawer-body .island-row")
-        assert rows.filter(has_text="ROI 1").count() >= 1
-        assert "selected-roi" in (rows.filter(has_text="ROI 1").first.get_attribute("class") or "")
+    def test_shift_r_hide_show_preserves_rois(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        assert "visible" not in (page.locator("#tool-drawer").get_attribute("class") or "")
+        self._draw_roi(page)
 
-        # Drag inside the selected ROI to move it; it should remain selected.
-        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
-        page.mouse.down()
-        page.mouse.move((x0 + x1) / 2 + 10, (y0 + y1) / 2 + 8, steps=4)
-        page.mouse.up()
-        page.wait_for_timeout(400)
         assert page.evaluate("() => _rois.length") == 1
-        assert rows.filter(has_text="ROI 1").count() >= 1
+        assert page.evaluate("() => _rois[0].type") == "circle"
+        assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") != "none"
 
-        page.locator("#tool-drawer-body .island-modal-btn").first.click()
+        page.keyboard.press("Shift+R")
+        page.wait_for_function("() => !document.getElementById('roi-cb-controls').classList.contains('visible')")
+        assert page.evaluate("() => _rois.length") == 1
+        assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") == "none"
+
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        assert page.evaluate("() => _rois.length") == 1
+        assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") != "none"
+
+    def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        x0, y0, x1, y1 = self._draw_roi(page)
+
+        assert page.evaluate("() => _roiShape") == "circle"
+        assert page.evaluate("() => _rois[0].type") == "circle"
+        assert page.evaluate("() => _selectedRoiIdx") == 0
+
+        page.mouse.click((x0 + x1) / 2, (y0 + y1) / 2)
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => _selectedRoiIdx") == 0
+
+        page.keyboard.press("Delete")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => _rois.length") == 0
+
+    def test_stats_popup_manager_basics(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        self._draw_roi(page)
+
+        page.locator("#roi-cb-controls").get_by_text("Stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
+        assert page.locator("#export-title").inner_text() == "ROI manager"
+        assert page.locator(".roi-manager-row").count() == 1
         assert page.locator("#export-download").inner_text() == "Download CSV"
         assert page.locator("#export-mask").is_visible()
 
-    def test_4d_roi_scope_labels_are_readable(self, loaded_viewer, sid_4d):
+        name = page.locator(".roi-manager-name input").first
+        name.fill("Phantom well")
+        name.press("Enter")
+        page.wait_for_timeout(200)
+        assert page.evaluate("() => _rois[0].name") == "Phantom well"
+
+        page.locator(".roi-manager-actions").get_by_text("Delete").click()
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => _rois.length") == 0
+
+    def test_manager_extent_labels_are_plain_language(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         _focus_kb(page)
-        page.evaluate("() => { _activateRoiInteraction(); _openDirectToolOrExplain('roi'); }")
-        page.wait_for_timeout(300)
-        cv = page.locator("canvas#viewer")
-        box = cv.bounding_box()
-        assert box is not None
-        x0 = box["x"] + box["width"] * 0.2
-        y0 = box["y"] + box["height"] * 0.2
-        x1 = box["x"] + box["width"] * 0.5
-        y1 = box["y"] + box["height"] * 0.5
-        page.mouse.move(x0, y0)
-        page.mouse.down()
-        page.mouse.move(x1, y1, steps=8)
-        page.mouse.up()
-        page.wait_for_timeout(800)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        self._draw_roi(page)
+        page.locator("#roi-cb-controls").get_by_text("Stats").click()
+        page.wait_for_selector("#export-overlay.visible", timeout=2_000)
 
-        drawer_text = page.locator("#tool-drawer-body").inner_text()
-        assert "ROI extent" in drawer_text
-        assert "Current slice on axis " in drawer_text
-        assert "suggest circles" not in drawer_text
-        assert "d0:" not in drawer_text
-        assert "d1:" not in drawer_text
-        assert "d2:" not in drawer_text
-        assert "d3:" not in drawer_text
+        manager_text = page.locator("#export-table-wrap").inner_text()
+        assert "Extent" in manager_text
+        assert "Current slice on axis " in manager_text
+        assert "suggest circles" not in manager_text
+        assert "d0:" not in manager_text
+        assert "d1:" not in manager_text
+        assert "d2:" not in manager_text
+        assert "d3:" not in manager_text
 
 
 class TestColorbarWindowLevel:

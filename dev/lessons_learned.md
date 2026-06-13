@@ -127,3 +127,10 @@ last_updated: 2026-04-25
 - [ ] Update `.mex/ROUTER.md` "Current Project State" if what's working/not built has changed
 - [ ] Update any `.mex/context/` files that are now out of date
 - [ ] If this is a new task type without a pattern, create one in `.mex/patterns/` and add to `INDEX.md`
+
+## ROI Shortcut Registry
+
+**Problem:** ROI/segmentation docs and help can advertise an export key before
+the key exists in the command registry.
+**Fix:** When changing tool UI, verify every advertised key has both a command
+and a keybind, then run `tests/test_command_reachability.py`.

@@ -2,15 +2,19 @@
 
 ## ROI
 
-`Shift+R` opens ROI options. Draw on the canvas to measure a region — live stats (mean, std, min, max) appear in the floating panel.
+`Shift+R` shows or hides ROI mode. Hiding ROI mode keeps the session's ROIs.
 
-Shapes: rectangle, ellipse, freehand, flood fill. Switch via the shape icons in the panel.
+Draw on the canvas to measure a region. The default shape is a circle.
+
+Shapes: circle, rectangle, freehand, flood fill. Switch via the colorbar controls.
 
 For flood fill, `[` / `]` adjusts tolerance.
 
 Click an existing ROI to select it. `Delete` / `Backspace` removes it.
 
-`N` exports the ROI mask as `.npy`.
+`Stats` opens the ROI manager: rename/delete ROIs, adjust extent, export CSV, or export a label mask.
+
+`N` exports the active ROI or segmentation mask as `.npy`.
 
 ## Ruler
 
