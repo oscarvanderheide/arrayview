@@ -2313,6 +2313,8 @@ class TestROIDrag:
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         assert "visible" not in (page.locator("#tool-drawer").get_attribute("class") or "")
+        assert "roi-active" in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
+        assert page.locator("#slim-cb-col").evaluate("el => getComputedStyle(el).display") == "none"
         self._draw_roi(page)
 
         assert page.evaluate("() => _rois.length") == 1
@@ -2323,11 +2325,13 @@ class TestROIDrag:
         page.wait_for_function("() => !document.getElementById('roi-cb-controls').classList.contains('visible')")
         assert page.evaluate("() => _rois.length") == 1
         assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") == "none"
+        assert "roi-active" not in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
 
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         assert page.evaluate("() => _rois.length") == 1
         assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") != "none"
+        assert page.locator("#slim-cb-col").evaluate("el => getComputedStyle(el).display") == "none"
 
     def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -2355,10 +2359,13 @@ class TestROIDrag:
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         self._draw_roi(page)
 
-        page.locator("#roi-cb-controls").get_by_text("Stats").click()
+        page.locator("#roi-cb-controls").get_by_text("stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
-        assert page.locator("#export-title").inner_text() == "ROI manager"
-        assert page.locator(".roi-manager-row").count() == 1
+        assert page.locator("#export-title").inner_text() == "ROI stats"
+        assert page.locator(".roi-manager-row").count() == 2
+        table_text = page.locator("#export-table-wrap").inner_text()
+        assert "MEAN" in table_text
+        assert "STD" in table_text
         assert page.locator("#export-download").inner_text() == "Download CSV"
         assert page.locator("#export-mask").is_visible()
 
@@ -2368,7 +2375,7 @@ class TestROIDrag:
         page.wait_for_timeout(200)
         assert page.evaluate("() => _rois[0].name") == "Phantom well"
 
-        page.locator(".roi-manager-actions").get_by_text("Delete").click()
+        page.locator(".roi-manager-actions").get_by_text("delete").click()
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
@@ -2378,12 +2385,12 @@ class TestROIDrag:
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         self._draw_roi(page)
-        page.locator("#roi-cb-controls").get_by_text("Stats").click()
+        page.locator("#roi-cb-controls").get_by_text("stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
 
         manager_text = page.locator("#export-table-wrap").inner_text()
-        assert "Extent" in manager_text
-        assert "Current slice on axis " in manager_text
+        assert "scope:" in manager_text
+        assert "current slice on axis " in manager_text
         assert "suggest circles" not in manager_text
         assert "d0:" not in manager_text
         assert "d1:" not in manager_text

@@ -184,21 +184,28 @@
         }
 
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
+        #slim-cb-wrap.roi-active {
+            padding: 5px 8px;
+        }
+        #slim-cb-wrap.roi-active #slim-cb-vmin,
+        #slim-cb-wrap.roi-active #slim-cb-col,
+        #slim-cb-wrap.roi-active #slim-cb-vmax,
+        #slim-cb-wrap.roi-active #slim-cb-labels,
+        #slim-cb-wrap.roi-active #slim-cb-tooltip {
+            display: none !important;
+        }
         #roi-cb-controls {
-            position: absolute;
-            left: 50%;
-            bottom: calc(100% + 7px);
-            transform: translateX(-50%) rotateX(-90deg);
-            transform-origin: bottom center;
-            display: flex;
+            transform: rotateX(-90deg);
+            transform-origin: center center;
+            display: none;
             align-items: center;
             gap: 6px;
-            padding: 5px 7px;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            background: var(--surface);
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: transparent;
             color: var(--text);
-            box-shadow: var(--surface-shadow);
+            box-shadow: none;
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
@@ -209,10 +216,11 @@
             z-index: 3;
         }
         #roi-cb-controls.visible {
+            display: flex;
             opacity: 1;
             visibility: visible;
             pointer-events: auto;
-            transform: translateX(-50%) rotateX(0deg);
+            transform: rotateX(0deg);
             transition: opacity 0.16s ease, transform 0.16s ease;
         }
         .roi-cb-shapes {
@@ -221,8 +229,8 @@
             gap: 3px;
         }
         .roi-cb-btn {
-            min-width: 24px;
-            height: 24px;
+            min-width: 26px;
+            height: 26px;
             padding: 0 7px;
             border: 1px solid var(--border);
             border-radius: var(--radius);
@@ -231,10 +239,20 @@
             font-family: var(--mono);
             font-size: 11px;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
         }
         .roi-cb-btn.icon {
-            width: 24px;
+            width: 26px;
             padding: 0;
+        }
+        .roi-cb-btn svg {
+            width: 16px;
+            height: 16px;
+            display: block;
+            margin: auto;
         }
         .roi-cb-btn.on {
             color: var(--active-dim);
@@ -1452,10 +1470,18 @@
         }
         .roi-manager-row {
             display: grid;
-            grid-template-columns: minmax(130px, 1.1fr) 86px minmax(180px, 1.4fr) auto;
-            gap: 10px;
-            align-items: start;
-            padding: 10px 0;
+            grid-template-columns: minmax(180px, 1.4fr) repeat(2, minmax(86px, 0.7fr)) minmax(56px, 0.45fr) minmax(110px, 0.8fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .roi-manager-head {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding-bottom: 8px;
             border-bottom: 1px solid var(--border-subtle);
         }
         .roi-manager-row:last-child { border-bottom: none; }
@@ -1482,18 +1508,40 @@
             padding: 5px 7px;
             font: inherit;
         }
-        .roi-manager-shape,
-        .roi-manager-stat,
-        .roi-manager-extent,
-        .roi-manager-map-row {
+        .roi-manager-meta,
+        .roi-manager-value-sub,
+        .roi-manager-map-row,
+        .roi-manager-scope-body {
             color: var(--muted);
-            font-size: 12px;
+            font-size: 11px;
             line-height: 1.45;
         }
-        .roi-manager-stat strong,
+        .roi-manager-value {
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
         .roi-manager-map-row strong {
             color: var(--text);
             font-weight: 600;
+        }
+        .roi-manager-scope {
+            margin-top: 5px;
+        }
+        .roi-manager-scope summary {
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 11px;
+            list-style: none;
+        }
+        .roi-manager-scope summary::-webkit-details-marker { display: none; }
+        .roi-manager-scope summary:hover {
+            color: var(--text);
+        }
+        .roi-manager-range {
+            color: var(--muted);
+            font-size: 12px;
         }
         .roi-manager-maps {
             margin-top: 5px;
@@ -1515,6 +1563,13 @@
             font: inherit;
             cursor: pointer;
         }
+        .roi-manager-actions button {
+            padding: 5px 7px;
+            color: var(--muted);
+        }
+        .roi-manager-actions button.primary {
+            color: var(--text);
+        }
         .roi-manager-actions button:hover,
         .roi-extent-btn:hover {
             border-color: var(--muted);
@@ -1523,7 +1578,7 @@
             display: flex;
             flex-wrap: wrap;
             gap: 5px;
-            margin-top: 5px;
+            margin-top: 7px;
         }
         .roi-extent-btn.on {
             color: var(--active-dim);
@@ -4648,10 +4703,15 @@
         let _cropDragPushT = 0;   // perf.now() of last /update POST
 
         const _ROI_SHAPE_ICONS = {
-            rect:      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
-            circle:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-            freehand:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-            floodfill: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 3Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
+            rect:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+            circle:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>',
+            freehand:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+            floodfill: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 2-3.5 2-3.5s2 1.9 2 3.5"/></svg>',
+        };
+        const _ROI_ACTION_ICONS = {
+            stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
+            hide: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.2A10.7 10.7 0 0 1 12 4c7 0 10 8 10 8a13.2 13.2 0 0 1-2.1 3.2"/><path d="M6.6 6.6C3.5 8.6 2 12 2 12s3 8 10 8a10.8 10.8 0 0 0 4.3-.9"/></svg>',
+            clear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
         };
         const _SEG_METHOD_ICONS = {
             region:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="3"/><path d="M7 7l2 2"/><path d="M15 15l2 2"/><path d="M17 7l-2 2"/><path d="M9 15l-2 2"/></svg>',
@@ -12488,6 +12548,10 @@
             return html;
         }
 
+        function _roiMetric(stats, key) {
+            return stats ? _roiStatsFmt(stats[key]) : '—';
+        }
+
         function _roiScopeDescription(r) {
             const scope = r.scope || _roiCurrentScope();
             if (!Array.isArray(shape) || shape.length <= 2) return 'current image plane';
@@ -12529,19 +12593,25 @@
                 return '<div class="roi-manager-empty">No ROIs yet. Use Shift+R, then drag on the canvas.</div>';
             }
             let html = '<div id="roi-manager-rows">';
+            html += '<div class="roi-manager-row roi-manager-head">';
+            html += '<div>ROI</div><div>Mean</div><div>Std</div><div>Count</div><div>Min–max</div><div></div>';
+            html += '</div>';
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
                 if (!r) continue;
                 const c = _roiColors[i % _roiColors.length];
                 html += `<div class="roi-manager-row${i === _selectedRoiIdx ? ' selected-roi' : ''}">`;
-                html += `<div class="roi-manager-name"><span class="roi-manager-swatch" style="background:${c.stroke}"></span><input value="${_roiHtmlEscape(_roiName(i))}" onchange="_roiManagerRename(${i}, this.value)" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur()"></div>`;
-                html += `<div class="roi-manager-shape">${_roiHtmlEscape(_roiShapeLabel(r.type))}</div>`;
-                html += `<div><div class="roi-manager-stat"><strong>Stats</strong> ${_roiHtmlEscape(_roiStatsLine(r.stats))}</div>`;
+                html += `<div><div class="roi-manager-name"><span class="roi-manager-swatch" style="background:${c.stroke}"></span><input value="${_roiHtmlEscape(_roiName(i))}" onchange="_roiManagerRename(${i}, this.value)" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur()"></div>`;
+                html += `<div class="roi-manager-meta">${_roiHtmlEscape(_roiShapeLabel(r.type))}</div>`;
                 html += _roiQmriDetails(r);
-                html += `<div class="roi-manager-extent"><strong>Extent</strong> ${_roiHtmlEscape(_roiScopeDescription(r))}</div>`;
+                html += `<details class="roi-manager-scope"><summary>scope: ${_roiHtmlEscape(_roiScopeDescription(r))}</summary><div class="roi-manager-scope-body">Change where this ROI applies:</div>`;
                 html += _roiExtentControls(i);
-                html += `</div>`;
-                html += `<div class="roi-manager-actions"><button type="button" onclick="_roiSelect(${i}); _updateRoiPanel()">Select</button><button type="button" onclick="_roiManagerDelete(${i})">Delete</button></div>`;
+                html += `</details></div>`;
+                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'mean'))}</div></div>`;
+                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'std'))}</div></div>`;
+                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'n'))}</div></div>`;
+                html += `<div class="roi-manager-range">${_roiHtmlEscape(_roiMetric(r.stats, 'min'))} – ${_roiHtmlEscape(_roiMetric(r.stats, 'max'))}</div>`;
+                html += `<div class="roi-manager-actions"><button type="button" class="primary" onclick="_roiSelect(${i}); _updateRoiPanel()">select</button><button type="button" onclick="_roiManagerDelete(${i})">delete</button></div>`;
                 html += `</div>`;
             }
             html += '</div>';
@@ -12582,7 +12652,7 @@
             if (title) {
                 title.textContent = _exportMode === 'seg'
                     ? 'Segmentation \u00B7 export'
-                    : 'ROI manager';
+                    : 'ROI stats';
             }
             wrap.innerHTML = _exportMode === 'seg' ? _buildSegExportTable() : _buildRoiExportTable();
             ov.classList.add('visible');
@@ -16653,17 +16723,17 @@
             }
         }
         function _roiDrawVisibleShape(rctx, r, sx, sy, color, selected) {
-            const baseWidth = selected ? 2 : 1;
+            const baseWidth = selected ? 1.6 : 1.1;
             rctx.save();
             rctx.lineJoin = 'round';
             rctx.lineCap = 'round';
             rctx.fillStyle = color.fill;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { stroke: false });
-            rctx.strokeStyle = 'rgba(0,0,0,0.88)';
-            rctx.lineWidth = baseWidth + 5;
+            rctx.strokeStyle = 'rgba(0,0,0,0.72)';
+            rctx.lineWidth = baseWidth + 2.2;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
-            rctx.strokeStyle = 'rgba(255,255,255,0.92)';
-            rctx.lineWidth = baseWidth + 3;
+            rctx.strokeStyle = 'rgba(255,255,255,0.78)';
+            rctx.lineWidth = baseWidth + 1.1;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
             rctx.strokeStyle = color.stroke;
             rctx.lineWidth = baseWidth;
@@ -16683,15 +16753,15 @@
         }
         function _roiDrawLabel(rctx, label, x, y, color) {
             rctx.save();
-            rctx.font = 'bold 16px monospace';
+            rctx.font = 'bold 12px monospace';
             rctx.textAlign = 'center';
             rctx.textBaseline = 'middle';
             rctx.lineJoin = 'round';
-            rctx.strokeStyle = 'rgba(0,0,0,0.9)';
-            rctx.lineWidth = 5;
-            rctx.strokeText(label, x, y);
-            rctx.strokeStyle = 'rgba(255,255,255,0.92)';
+            rctx.strokeStyle = 'rgba(0,0,0,0.82)';
             rctx.lineWidth = 3;
+            rctx.strokeText(label, x, y);
+            rctx.strokeStyle = 'rgba(255,255,255,0.72)';
+            rctx.lineWidth = 1.4;
             rctx.strokeText(label, x, y);
             rctx.fillStyle = color;
             rctx.fillText(label, x, y);
@@ -28113,10 +28183,10 @@
             }
             html += '</div>';
             html += '<div class="roi-cb-sep"></div>';
-            html += '<button type="button" class="roi-cb-btn" onclick="event.stopPropagation(); _roiOpenManager()">Stats</button>';
-            html += '<button type="button" class="roi-cb-btn" onclick="event.stopPropagation(); _deactivateRoiInteraction()">Hide</button>';
+            html += `<button type="button" class="roi-cb-btn" title="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}<span>stats</span></button>`;
+            html += `<button type="button" class="roi-cb-btn icon" title="Hide ROI mode" aria-label="Hide ROI mode" onclick="event.stopPropagation(); _deactivateRoiInteraction()">${_ROI_ACTION_ICONS.hide}</button>`;
             if (_rois.length) {
-                html += '<button type="button" class="roi-cb-btn" onclick="event.stopPropagation(); _roiClearAll()">Clear</button>';
+                html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" onclick="event.stopPropagation(); _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
             }
             el.innerHTML = html;
         }
@@ -28125,6 +28195,8 @@
             const el = document.getElementById('roi-cb-controls');
             if (!el) return;
             const visible = !!(rectRoiMode && _sharedCbVisible && !compareActive && !multiViewActive && !compareMvActive);
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) cbWrap.classList.toggle('roi-active', visible);
             if (visible) _renderRoiColorbarControls();
             el.classList.toggle('visible', visible);
             el.setAttribute('aria-hidden', visible ? 'false' : 'true');
