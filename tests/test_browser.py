@@ -2359,7 +2359,7 @@ class TestROIDrag:
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         self._draw_roi(page)
 
-        page.locator("#roi-cb-controls").get_by_text("stats").click()
+        page.locator("#roi-cb-controls").get_by_label("ROI stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
         assert page.locator("#export-title").inner_text() == "ROI stats"
         assert page.locator(".roi-manager-row").count() == 2
@@ -2385,12 +2385,12 @@ class TestROIDrag:
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
         self._draw_roi(page)
-        page.locator("#roi-cb-controls").get_by_text("stats").click()
+        page.locator("#roi-cb-controls").get_by_label("ROI stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
 
         manager_text = page.locator("#export-table-wrap").inner_text()
         assert "scope:" in manager_text
-        assert "current slice on axis " in manager_text
+        assert "this slice" in manager_text
         assert "suggest circles" not in manager_text
         assert "d0:" not in manager_text
         assert "d1:" not in manager_text

@@ -1595,12 +1595,21 @@
         #export-footer { display: flex; justify-content: flex-end; gap: 8px; }
         #export-download,
         #export-mask {
-            background: #f5c842; color: #111; border: none;
-            border-radius: 6px; padding: 8px 18px;
-            font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 6px 10px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
         }
         #export-download:hover,
-        #export-mask:hover { filter: brightness(1.1); }
+        #export-mask:hover {
+            border-color: var(--muted);
+            color: var(--active-dim);
+        }
         #picker-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -12554,20 +12563,24 @@
 
         function _roiScopeDescription(r) {
             const scope = r.scope || _roiCurrentScope();
-            if (!Array.isArray(shape) || shape.length <= 2) return 'current image plane';
-            const parts = [];
+            if (!Array.isArray(shape) || shape.length <= 2) return 'this image';
+            const fixed = [];
+            const broad = [];
             for (let d = 0; d < shape.length; d++) {
                 if (d === dim_x || d === dim_y) continue;
                 const all = Array.isArray(scope.broadcast_dims) && scope.broadcast_dims.includes(d);
                 const isQmriAxis = qmriActive && d === qmriDim;
                 const cur = ((scope.indices || indices)[d] ?? 0) + 1;
                 const total = shape[d];
-                if (isQmriAxis && all) parts.push('visible qMRI maps');
-                else if (isQmriAxis) parts.push(`current qMRI map (${cur} of ${total})`);
-                else if (all) parts.push(`all slices on axis ${d}`);
-                else parts.push(`current slice on axis ${d} (${cur} of ${total})`);
+                if (isQmriAxis && all) broad.push('visible qMRI maps');
+                else if (isQmriAxis) fixed.push(`qMRI map ${cur} of ${total}`);
+                else if (all) broad.push(`all slices on axis ${d}`);
+                else fixed.push(`axis ${d}: ${cur} of ${total}`);
             }
-            return parts.length ? parts.join(' · ') : 'current image plane';
+            if (!broad.length) return 'this slice';
+            const parts = broad.slice();
+            if (fixed.length) parts.push(`fixed ${fixed.join(', ')}`);
+            return parts.join(' · ');
         }
 
         function _roiExtentControls(idx) {
@@ -12580,9 +12593,10 @@
                 const on = Array.isArray(scope.broadcast_dims) && scope.broadcast_dims.includes(d);
                 const isQmriAxis = qmriActive && d === qmriDim;
                 const label = isQmriAxis
-                    ? (on ? 'Visible qMRI maps' : 'Current qMRI map')
-                    : (on ? `All slices on axis ${d}` : `Current slice on axis ${d}`);
-                buttons.push(`<button type="button" class="roi-extent-btn${on ? ' on' : ''}" onclick="_roiManagerToggleDim(${idx}, ${d})">${label}</button>`);
+                    ? (on ? 'visible qMRI maps' : 'this qMRI map')
+                    : (on ? `all slices · axis ${d}` : `this slice · axis ${d}`);
+                const title = on ? `Click to keep only the current index on axis ${d}` : `Click to apply this ROI across axis ${d}`;
+                buttons.push(`<button type="button" class="roi-extent-btn${on ? ' on' : ''}" title="${title}" onclick="_roiManagerToggleDim(${idx}, ${d})">${label}</button>`);
             }
             if (!buttons.length) return '';
             return `<div class="roi-extent-controls">${buttons.join('')}</div>`;
@@ -16478,18 +16492,18 @@
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
         });
         const _roiColors = [
-            {fill:'rgba(255,255,100,0.10)', stroke:'rgba(255,255,100,0.85)'},
-            {fill:'rgba(100,200,255,0.10)', stroke:'rgba(100,200,255,0.85)'},
-            {fill:'rgba(255,120,180,0.10)', stroke:'rgba(255,120,180,0.85)'},
-            {fill:'rgba(120,255,180,0.10)', stroke:'rgba(120,255,180,0.85)'},
-            {fill:'rgba(200,150,255,0.10)', stroke:'rgba(200,150,255,0.85)'},
-            {fill:'rgba(255,180,100,0.10)', stroke:'rgba(255,180,100,0.85)'},
-            {fill:'rgba(100,255,255,0.10)', stroke:'rgba(100,255,255,0.85)'},
-            {fill:'rgba(255,100,100,0.10)', stroke:'rgba(255,100,100,0.85)'},
-            {fill:'rgba(180,255,100,0.10)', stroke:'rgba(180,255,100,0.85)'},
-            {fill:'rgba(255,100,255,0.10)', stroke:'rgba(255,100,255,0.85)'},
-            {fill:'rgba(100,180,200,0.10)', stroke:'rgba(100,180,200,0.85)'},
-            {fill:'rgba(220,200,100,0.10)', stroke:'rgba(220,200,100,0.85)'},
+            {fill:'rgba(255,255,100,0.035)', stroke:'rgba(255,255,100,0.88)'},
+            {fill:'rgba(100,200,255,0.035)', stroke:'rgba(100,200,255,0.88)'},
+            {fill:'rgba(255,120,180,0.035)', stroke:'rgba(255,120,180,0.88)'},
+            {fill:'rgba(120,255,180,0.035)', stroke:'rgba(120,255,180,0.88)'},
+            {fill:'rgba(200,150,255,0.035)', stroke:'rgba(200,150,255,0.88)'},
+            {fill:'rgba(255,180,100,0.035)', stroke:'rgba(255,180,100,0.88)'},
+            {fill:'rgba(100,255,255,0.035)', stroke:'rgba(100,255,255,0.88)'},
+            {fill:'rgba(255,100,100,0.035)', stroke:'rgba(255,100,100,0.88)'},
+            {fill:'rgba(180,255,100,0.035)', stroke:'rgba(180,255,100,0.88)'},
+            {fill:'rgba(255,100,255,0.035)', stroke:'rgba(255,100,255,0.88)'},
+            {fill:'rgba(100,180,200,0.035)', stroke:'rgba(100,180,200,0.88)'},
+            {fill:'rgba(220,200,100,0.035)', stroke:'rgba(220,200,100,0.88)'},
         ];
         function _roiDispScale() {
             const dW = parseInt(canvas.style.width)  || canvas.width;
@@ -16723,17 +16737,17 @@
             }
         }
         function _roiDrawVisibleShape(rctx, r, sx, sy, color, selected) {
-            const baseWidth = selected ? 1.6 : 1.1;
+            const baseWidth = selected ? 1.4 : 1.0;
             rctx.save();
             rctx.lineJoin = 'round';
             rctx.lineCap = 'round';
             rctx.fillStyle = color.fill;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { stroke: false });
-            rctx.strokeStyle = 'rgba(0,0,0,0.72)';
-            rctx.lineWidth = baseWidth + 2.2;
+            rctx.strokeStyle = 'rgba(0,0,0,0.62)';
+            rctx.lineWidth = baseWidth + 1.6;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
-            rctx.strokeStyle = 'rgba(255,255,255,0.78)';
-            rctx.lineWidth = baseWidth + 1.1;
+            rctx.strokeStyle = 'rgba(255,255,255,0.62)';
+            rctx.lineWidth = baseWidth + 0.7;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
             rctx.strokeStyle = color.stroke;
             rctx.lineWidth = baseWidth;
@@ -16758,10 +16772,10 @@
             rctx.textBaseline = 'middle';
             rctx.lineJoin = 'round';
             rctx.strokeStyle = 'rgba(0,0,0,0.82)';
-            rctx.lineWidth = 3;
+            rctx.lineWidth = 2.4;
             rctx.strokeText(label, x, y);
-            rctx.strokeStyle = 'rgba(255,255,255,0.72)';
-            rctx.lineWidth = 1.4;
+            rctx.strokeStyle = 'rgba(255,255,255,0.64)';
+            rctx.lineWidth = 1;
             rctx.strokeText(label, x, y);
             rctx.fillStyle = color;
             rctx.fillText(label, x, y);
@@ -16780,9 +16794,11 @@
                 const c = _roiColors[i % _roiColors.length];
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
                 if (i === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, r, sx, sy);
-                const lbl = String(i + 1);
-                const [lx, ly] = _roiLabelPoint(r, sx, sy);
-                _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
+                if (i === _selectedRoiIdx) {
+                    const lbl = String(i + 1);
+                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
+                }
             }
             // Draw in-progress ROI preview
             if (previewRoi) {
@@ -16823,9 +16839,11 @@
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
                     if (i === _selectedRoiIdx) _roiDrawHandles(rctx, r, sx, sy);
-                    const lbl = String(i + 1);
-                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
-                    _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
+                    if (i === _selectedRoiIdx) {
+                        const lbl = String(i + 1);
+                        const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                        _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
+                    }
                 }
                 if (previewRoi) {
                     const c = _roiColors[_rois.length % _roiColors.length];
@@ -28183,7 +28201,7 @@
             }
             html += '</div>';
             html += '<div class="roi-cb-sep"></div>';
-            html += `<button type="button" class="roi-cb-btn" title="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}<span>stats</span></button>`;
+            html += `<button type="button" class="roi-cb-btn icon" title="ROI stats" aria-label="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}</button>`;
             html += `<button type="button" class="roi-cb-btn icon" title="Hide ROI mode" aria-label="Hide ROI mode" onclick="event.stopPropagation(); _deactivateRoiInteraction()">${_ROI_ACTION_ICONS.hide}</button>`;
             if (_rois.length) {
                 html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" onclick="event.stopPropagation(); _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
