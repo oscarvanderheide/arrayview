@@ -2292,11 +2292,10 @@ class TestKeyboard:
 
 
 class TestROIDrag:
-    def test_canvas_drag_shows_roi_stats(self, loaded_viewer, sid_2d):
+    def test_canvas_drag_select_move_and_export_controls(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        # Enter ROI mode first (A key)
-        page.keyboard.press("A")
+        page.evaluate("() => { _activateRoiInteraction(); _openDirectToolOrExplain('roi'); }")
         page.wait_for_timeout(300)
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
@@ -2311,14 +2310,51 @@ class TestROIDrag:
         page.mouse.move(x1, y1, steps=10)
         page.mouse.up()
         page.wait_for_timeout(800)
-        panel_visible = page.evaluate(
-            "() => document.getElementById('roi-panel').style.display !== 'none' && document.getElementById('roi-panel').style.display !== ''"
-        )
-        assert panel_visible, "Expected #roi-panel to be visible after drag"
-        table_text = page.inner_text("#roi-content")
-        assert "mean" in table_text.lower() or "min" in table_text.lower(), (
-            f"Expected ROI stats in #roi-content, got: '{table_text}'"
-        )
+
+        rows = page.locator("#tool-drawer-body .island-row")
+        assert rows.filter(has_text="ROI 1").count() >= 1
+        assert "selected-roi" in (rows.filter(has_text="ROI 1").first.get_attribute("class") or "")
+
+        # Drag inside the selected ROI to move it; it should remain selected.
+        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        page.mouse.down()
+        page.mouse.move((x0 + x1) / 2 + 10, (y0 + y1) / 2 + 8, steps=4)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        assert page.evaluate("() => _rois.length") == 1
+        assert rows.filter(has_text="ROI 1").count() >= 1
+
+        page.locator("#tool-drawer-body .island-modal-btn").first.click()
+        page.wait_for_selector("#export-overlay.visible", timeout=2_000)
+        assert page.locator("#export-download").inner_text() == "Download CSV"
+        assert page.locator("#export-mask").is_visible()
+
+    def test_4d_roi_scope_labels_are_readable(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.evaluate("() => { _activateRoiInteraction(); _openDirectToolOrExplain('roi'); }")
+        page.wait_for_timeout(300)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        assert box is not None
+        x0 = box["x"] + box["width"] * 0.2
+        y0 = box["y"] + box["height"] * 0.2
+        x1 = box["x"] + box["width"] * 0.5
+        y1 = box["y"] + box["height"] * 0.5
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(800)
+
+        drawer_text = page.locator("#tool-drawer-body").inner_text()
+        assert "ROI extent" in drawer_text
+        assert "Current slice on axis " in drawer_text
+        assert "suggest circles" not in drawer_text
+        assert "d0:" not in drawer_text
+        assert "d1:" not in drawer_text
+        assert "d2:" not in drawer_text
+        assert "d3:" not in drawer_text
 
 
 class TestColorbarWindowLevel:

@@ -1,3 +1,5 @@
+import base64
+import io
 import itertools
 import math
 
@@ -313,6 +315,90 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             "mask_b64": _encode_mask_b64(component, bbox),
         }
 
+    @app.post("/roi_stats/{sid}")
+    def get_roi_stats_structured(
+        sid: str,
+        body: dict = Body(...),
+        session=Depends(get_session_or_404),
+    ):
+        if session.rgb_axis is not None:
+            return {"error": "not supported for RGB sessions"}
+        dim_x = int(body.get("dim_x", 1 if session.data.ndim > 1 else 0))
+        dim_y = int(body.get("dim_y", 0))
+        indices = _roi_indices_from_body(body, session.data.ndim, session.shape)
+        complex_mode = int(body.get("complex_mode", 0))
+        rois = body.get("rois", [])
+        if not isinstance(rois, list):
+            return {"error": "rois must be a list"}
+
+        results = []
+        for roi_idx, roi in enumerate(rois):
+            rows = []
+            for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
+                raw = extract_slice(session, dim_x, dim_y, idx)
+                data = apply_complex_mode(raw, complex_mode)
+                mask = _roi_mask_for_shape(roi, data.shape)
+                finite = _roi_finite_values(data, mask)
+                if finite.size:
+                    rows.append(
+                        {
+                            "indices": list(idx),
+                            "dims": _roi_scope_dims_string(idx, indices, {dim_x, dim_y}),
+                            "min": _safe_float(finite.min()),
+                            "max": _safe_float(finite.max()),
+                            "mean": _safe_float(finite.mean()),
+                            "std": _safe_float(finite.std()),
+                            "n": int(finite.size),
+                        }
+                    )
+            combined = _combine_roi_rows(rows)
+            results.append(
+                {
+                    "roi": roi.get("id", roi_idx),
+                    "name": roi.get("name", f"ROI {roi_idx + 1}"),
+                    "shape": roi.get("type", "rect"),
+                    "rows": rows,
+                    "stats": combined,
+                }
+            )
+        return {"results": results}
+
+    @app.post("/roi_mask/{sid}")
+    def export_roi_mask_structured(
+        sid: str,
+        body: dict = Body(...),
+        session=Depends(get_session_or_404),
+    ):
+        if session.rgb_axis is not None:
+            return Response(status_code=400, content="not supported for RGB sessions")
+        dim_x = int(body.get("dim_x", 1 if session.data.ndim > 1 else 0))
+        dim_y = int(body.get("dim_y", 0))
+        indices = _roi_indices_from_body(body, session.data.ndim, session.shape)
+        rois = body.get("rois", [])
+        if not isinstance(rois, list):
+            return Response(status_code=400, content="rois must be a list")
+
+        labels = np.zeros(session.shape, dtype=np.uint16)
+        for roi_idx, roi in enumerate(rois):
+            label = int(roi.get("label", roi_idx + 1))
+            if label <= 0:
+                continue
+            visible = roi.get("visible", True)
+            if visible is False:
+                continue
+            for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
+                raw = extract_slice(session, dim_x, dim_y, idx)
+                mask = _roi_mask_for_shape(roi, raw.shape)
+                _write_roi_mask(labels, mask, idx, dim_x, dim_y, label)
+
+        buf = io.BytesIO()
+        np.save(buf, labels)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": "attachment; filename=roi_mask.npy"},
+        )
+
     @app.get("/line_profile/{sid}")
     def get_line_profile(
         sid: str,
@@ -468,9 +554,186 @@ def register_analysis_routes(app, get_session_or_404) -> None:
 
 
 def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
-    import base64
-
     x0, y0 = bbox["x0"], bbox["y0"]
     x1, y1 = bbox["x1"], bbox["y1"]
     sub = mask[y0 : y1 + 1, x0 : x1 + 1].astype(np.uint8)
     return base64.b64encode(sub.tobytes()).decode("ascii")
+
+
+def _roi_indices_from_body(body: dict, ndim: int, shape: tuple[int, ...]) -> list[int]:
+    raw = body.get("indices", "")
+    if isinstance(raw, str):
+        vals = [int(v) for v in raw.split(",") if v != ""]
+    else:
+        vals = [int(v) for v in raw]
+    if len(vals) < ndim:
+        vals.extend(s // 2 for s in shape[len(vals) :])
+    return [min(max(v, 0), shape[i] - 1) for i, v in enumerate(vals[:ndim])]
+
+
+def _roi_scope_indices(
+    roi: dict,
+    base_indices: list[int],
+    shape: tuple[int, ...],
+    spatial_dims: set[int],
+):
+    scope = roi.get("scope") or {}
+    fixed = scope.get("indices") or base_indices
+    if isinstance(fixed, str):
+        fixed = [int(v) for v in fixed.split(",") if v != ""]
+    fixed = list(fixed)
+    if len(fixed) < len(shape):
+        fixed.extend(base_indices[len(fixed) :])
+    fixed = [min(max(int(v), 0), shape[i] - 1) for i, v in enumerate(fixed[: len(shape)])]
+
+    raw_dims = scope.get("broadcast_dims", [])
+    broadcast_dims = []
+    for d in raw_dims:
+        d = int(d)
+        if 0 <= d < len(shape) and d not in spatial_dims:
+            broadcast_dims.append(d)
+
+    ranges = scope.get("ranges") or {}
+    values = scope.get("values") or {}
+    choices = []
+    for d in broadcast_dims:
+        key = str(d)
+        if key in values:
+            vals = [int(v) for v in values[key]]
+        elif d in values:
+            vals = [int(v) for v in values[d]]
+        elif key in ranges:
+            lo, hi = ranges[key]
+            vals = list(range(int(lo), int(hi) + 1))
+        elif d in ranges:
+            lo, hi = ranges[d]
+            vals = list(range(int(lo), int(hi) + 1))
+        else:
+            vals = list(range(shape[d]))
+        vals = [v for v in vals if 0 <= v < shape[d]]
+        choices.append((d, vals or [fixed[d]]))
+
+    if not choices:
+        yield fixed
+        return
+    for combo in itertools.product(*(vals for _d, vals in choices)):
+        idx = list(fixed)
+        for (d, _vals), v in zip(choices, combo):
+            idx[d] = v
+        yield idx
+
+
+def _roi_scope_dims_string(idx: list[int], base_idx: list[int], spatial_dims: set[int]) -> str:
+    bits = []
+    for d, val in enumerate(idx):
+        bits.append("1" if d in spatial_dims or val != base_idx[d] else "0")
+    return "".join(bits)
+
+
+def _roi_mask_for_shape(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
+    h, w = data_shape
+    roi_type = roi.get("type", "rect")
+    if roi_type == "circle":
+        cx = float(roi.get("cx", 0))
+        cy = float(roi.get("cy", 0))
+        r = max(0.0, float(roi.get("r", 0)))
+        ys, xs = np.ogrid[:h, :w]
+        return (xs - cx) ** 2 + (ys - cy) ** 2 <= r**2
+    if roi_type == "freehand":
+        points = roi.get("points", [])
+        if len(points) < 3:
+            return np.zeros((h, w), dtype=bool)
+        from PIL import Image as _PILImage, ImageDraw as _PILDraw
+
+        mask_img = _PILImage.new("L", (w, h), 0)
+        _PILDraw.Draw(mask_img).polygon([(p[0], p[1]) for p in points], fill=255)
+        return np.array(mask_img) > 0
+    if roi_type == "floodfill":
+        return _floodfill_roi_mask(roi, data_shape)
+
+    x0 = int(round(float(roi.get("x0", 0))))
+    y0 = int(round(float(roi.get("y0", 0))))
+    x1 = int(round(float(roi.get("x1", x0))))
+    y1 = int(round(float(roi.get("y1", y0))))
+    xa = max(0, min(x0, x1, w - 1))
+    xb = min(w, max(x0, x1) + 1)
+    ya = max(0, min(y0, y1, h - 1))
+    yb = min(h, max(y0, y1) + 1)
+    mask = np.zeros((h, w), dtype=bool)
+    if xa < xb and ya < yb:
+        mask[ya:yb, xa:xb] = True
+    return mask
+
+
+def _floodfill_roi_mask(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
+    h, w = data_shape
+    mask = np.zeros((h, w), dtype=bool)
+    bbox = roi.get("bbox") or {}
+    encoded = roi.get("mask_b64")
+    if not encoded:
+        return mask
+    try:
+        x0 = int(bbox.get("x0", 0))
+        y0 = int(bbox.get("y0", 0))
+        x1 = int(bbox.get("x1", x0))
+        y1 = int(bbox.get("y1", y0))
+        bw = x1 - x0 + 1
+        bh = y1 - y0 + 1
+        if bw <= 0 or bh <= 0:
+            return mask
+        sub = np.frombuffer(base64.b64decode(encoded), dtype=np.uint8)
+        sub = sub.reshape((bh, bw)).astype(bool)
+    except Exception:
+        return mask
+    xa0, ya0 = max(0, x0), max(0, y0)
+    xa1, ya1 = min(w, x1 + 1), min(h, y1 + 1)
+    if xa0 >= xa1 or ya0 >= ya1:
+        return mask
+    sx0, sy0 = xa0 - x0, ya0 - y0
+    sx1, sy1 = sx0 + (xa1 - xa0), sy0 + (ya1 - ya0)
+    mask[ya0:ya1, xa0:xa1] = sub[sy0:sy1, sx0:sx1]
+    return mask
+
+
+def _roi_finite_values(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    if mask.shape != data.shape:
+        return np.array([])
+    roi = data[mask]
+    return roi[np.isfinite(roi)]
+
+
+def _combine_roi_rows(rows: list[dict]) -> dict | None:
+    if not rows:
+        return None
+    n = sum(int(r["n"]) for r in rows)
+    if n <= 0:
+        return None
+    means = np.array([float(r["mean"]) for r in rows], dtype=np.float64)
+    stds = np.array([float(r["std"]) for r in rows], dtype=np.float64)
+    counts = np.array([int(r["n"]) for r in rows], dtype=np.float64)
+    mean = float(np.sum(means * counts) / np.sum(counts))
+    variance = float(np.sum((stds**2 + (means - mean) ** 2) * counts) / np.sum(counts))
+    return {
+        "min": min(r["min"] for r in rows),
+        "max": max(r["max"] for r in rows),
+        "mean": _safe_float(mean),
+        "std": _safe_float(math.sqrt(max(0.0, variance))),
+        "n": int(n),
+    }
+
+
+def _write_roi_mask(
+    labels: np.ndarray,
+    mask_2d: np.ndarray,
+    indices: list[int],
+    dim_x: int,
+    dim_y: int,
+    label: int,
+) -> None:
+    ys, xs = np.nonzero(mask_2d)
+    for y, x in zip(ys, xs):
+        idx = list(indices)
+        idx[dim_y] = int(y)
+        idx[dim_x] = int(x)
+        labels[tuple(idx)] = label
+

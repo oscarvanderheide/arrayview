@@ -3227,6 +3227,121 @@ class TestFloodFillROI:
         )
         assert r.status_code == 404
 
+
+class TestStructuredROI:
+    def test_structured_circle_stats_respect_shape_across_scope(self, client, tmp_path):
+        arr = np.zeros((3, 9, 9), dtype=np.float32)
+        yy, xx = np.ogrid[:9, :9]
+        circle = (xx - 4) ** 2 + (yy - 4) ** 2 <= 2**2
+        arr[:, circle] = np.array([1.0, 2.0, 3.0])[:, None]
+        arr[:, 2:7, 2:7] += 10.0 * (~circle[2:7, 2:7])
+        path = tmp_path / "roi_circle_scope.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.post(
+            f"/roi_stats/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [0, 4, 4],
+                "rois": [
+                    {
+                        "id": "circle-a",
+                        "name": "well",
+                        "type": "circle",
+                        "cx": 4,
+                        "cy": 4,
+                        "r": 2,
+                        "scope": {"broadcast_dims": [0]},
+                    }
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        stats = body["results"][0]["stats"]
+        assert stats["n"] == int(circle.sum() * arr.shape[0])
+        assert stats["mean"] == pytest.approx(2.0)
+        assert stats["max"] == pytest.approx(3.0)
+        assert len(body["results"][0]["rows"]) == 3
+
+    def test_structured_roi_mask_exports_label_mask_and_overlap_wins(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((2, 8, 8), dtype=np.float32)
+        path = tmp_path / "roi_mask_export.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.post(
+            f"/roi_mask/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [0, 0, 0],
+                "rois": [
+                    {
+                        "type": "rect",
+                        "x0": 1,
+                        "y0": 1,
+                        "x1": 4,
+                        "y1": 4,
+                        "scope": {"broadcast_dims": [0]},
+                    },
+                    {
+                        "type": "circle",
+                        "cx": 4,
+                        "cy": 4,
+                        "r": 2,
+                        "scope": {"values": {"0": [1]}, "broadcast_dims": [0]},
+                    },
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        assert r.headers["content-disposition"] == "attachment; filename=roi_mask.npy"
+        mask = np.load(io.BytesIO(r.content))
+        assert mask.shape == arr.shape
+        assert int(mask[0, 2, 2]) == 1
+        assert int(mask[1, 4, 4]) == 2
+        assert int(mask[1, 3, 3]) == 2
+        assert int(mask[0, 4, 4]) == 1
+
+    def test_structured_floodfill_mask_uses_encoded_component(self, client, tmp_path):
+        arr = np.zeros((6, 6), dtype=np.float32)
+        path = tmp_path / "roi_floodfill_mask.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        sub = np.array([[1, 0], [1, 1]], dtype=np.uint8)
+        encoded = base64.b64encode(sub.tobytes()).decode("ascii")
+
+        r = client.post(
+            f"/roi_mask/{sid}",
+            json={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": [0, 0],
+                "rois": [
+                    {
+                        "type": "floodfill",
+                        "bbox": {"x0": 2, "y0": 3, "x1": 3, "y1": 4},
+                        "mask_b64": encoded,
+                    }
+                ],
+            },
+        )
+
+        assert r.status_code == 200
+        mask = np.load(io.BytesIO(r.content))
+        expected = np.zeros_like(arr, dtype=np.uint16)
+        expected[3, 2] = 1
+        expected[4, 2] = 1
+        expected[4, 3] = 1
+        np.testing.assert_array_equal(mask, expected)
+
     def test_floodfill_larger_tolerance_gives_more_pixels(self, client, sid_2d):
         base = {
             "dim_x": 1,
