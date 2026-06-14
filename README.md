@@ -2,20 +2,20 @@
 
 _This is my array viewer. There are many like it, but this one is mine._ 
 
-And I think you might like it too. Fast, responsive scrolling
-through slices of multi-dimensional arrays. Feature rich with a modern, minimal UI that only shows what needs to be shown.
+Arrayview lets you scroll through multi-dimensional arrays.
 
-It works wherever you work. The shell, scripts (Python/Julia/Matlab), or Jupyter notebooks. Local or remote. Easy to install.
+Open it from the shell, from Python, Julia, or Matlab, or inside a Jupyter notebook. Use it locally or over SSH. 
 
-VS Code users can even open the viewer just by clicking an array in the explorer tab. 
+If you work in VS Code, you can open arrays directly from the explorer; with Remote SSH, it works the same way.
 
-And if you're using the VS Code remote extension to connect to a remote, it just works—no additional setup required.
+It is meant to feel simple but there's more to it than meets the eye. 
 
 Curious? Give it a try with
 ```bash
 uvx arrayview your_array.npy
 ```
-Explore, there's more to it than meets the eye. 
+
 
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
 
+**Warning**: Arrayview is still under active development. Things may break or change without warning.
