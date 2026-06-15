@@ -166,7 +166,7 @@
             padding: calc(3px + var(--cb-extra-top)) 10px 3px;
             margin-top: calc(-1 * var(--cb-extra-top));
             position: fixed; z-index: 2;
-            transition: opacity 0.26s ease, transform 0.26s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
+            transition: opacity 0.26s ease, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
             border-radius: 15px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -177,6 +177,8 @@
             --fly-y: 0px;
             transform: translateY(var(--fly-y, 0px));
             perspective: 1000px;
+            transform-style: preserve-3d;
+            -webkit-transform-style: preserve-3d;
         }
         :root.light #slim-cb-wrap {
             background: rgba(240, 240, 240, 0.85);
@@ -186,42 +188,89 @@
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
         #slim-cb-wrap.roi-active {
             padding: 5px 8px;
-        }
-        #slim-cb-wrap.roi-active #slim-cb-vmin,
-        #slim-cb-wrap.roi-active #slim-cb-col,
-        #slim-cb-wrap.roi-active #slim-cb-vmax,
-        #slim-cb-wrap.roi-active #slim-cb-labels,
-        #slim-cb-wrap.roi-active #slim-cb-tooltip {
-            display: none !important;
-        }
-        #roi-cb-controls {
-            transform: rotateX(-90deg);
-            transform-origin: center center;
-            display: none;
-            align-items: center;
-            gap: 6px;
-            padding: 0;
-            border: none;
-            border-radius: 0;
+            min-height: 42px;
             background: transparent;
-            color: var(--text);
+            border-color: transparent;
             box-shadow: none;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
+
+        /* 3-D flip faces for ROI colorbar */
+        #roi-cb-flip-inner {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            min-height: 32px;
+            transform-style: preserve-3d;
+            -webkit-transform-style: preserve-3d;
+            transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        #slim-cb-wrap.roi-active #roi-cb-flip-inner {
+            transform: rotateX(180deg);
+        }
+        .roi-cb-front {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            min-height: 32px;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
+        .roi-cb-front > * {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
+        #slim-cb-wrap.roi-active .roi-cb-front {
             opacity: 0;
             visibility: hidden;
+        }
+        .roi-cb-back {
+            position: absolute;
+            inset: 0;
+            transform: rotateX(180deg);
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 2px 8px;
+            box-sizing: border-box;
+            border-radius: 15px;
+            overflow: visible;
+            pointer-events: auto;
+        }
+        #slim-cb-wrap.roi-active .roi-cb-back {
+            display: flex;
+        }
+        #slim-cb-wrap.roi-active .roi-cb-front {
             pointer-events: none;
-            transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+        }
+
+        #roi-cb-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 6px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: var(--surface-shadow);
             font-family: var(--mono);
             font-size: 11px;
             white-space: nowrap;
-            z-index: 3;
         }
-        #roi-cb-controls.visible {
-            display: flex;
-            opacity: 1;
-            visibility: visible;
-            pointer-events: auto;
-            transform: rotateX(0deg);
-            transition: opacity 0.16s ease, transform 0.16s ease;
+        .roi-cb-label {
+            color: var(--active-dim);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            padding: 0 2px;
         }
         .roi-cb-shapes {
             display: flex;
@@ -232,7 +281,7 @@
             min-width: 26px;
             height: 26px;
             padding: 0 7px;
-            border: 1px solid var(--border);
+            border: 1px solid transparent;
             border-radius: var(--radius);
             background: transparent;
             color: var(--muted);
@@ -257,15 +306,27 @@
         .roi-cb-btn.on {
             color: var(--active-dim);
             border-color: var(--active-dim);
+            background: var(--border-subtle);
         }
         .roi-cb-btn:hover {
             color: var(--text);
             border-color: var(--muted);
+            background: var(--border-subtle);
+        }
+        .roi-cb-btn:disabled {
+            color: var(--muted);
+            opacity: 0.38;
+            cursor: default;
+        }
+        .roi-cb-btn:disabled:hover {
+            border-color: transparent;
+            background: transparent;
         }
         .roi-cb-sep {
             width: 1px;
             height: 18px;
             background: var(--border);
+            opacity: 0.9;
         }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
@@ -417,6 +478,26 @@
         }
         #info.hist-pick-mode .dim-label.hist-frozen:hover    { opacity: 1; }
         #info.hist-pick-mode .dim-label.hist-locked-dim { cursor: not-allowed; }
+        #info.roi-scope-mode .dim-label {
+            cursor: pointer;
+            background-image: linear-gradient(var(--roi-scope-underline, transparent), var(--roi-scope-underline, transparent));
+            background-repeat: no-repeat;
+            background-position: left calc(100% - 1px);
+            background-size: 100% 2px;
+            transition: background 0.1s, opacity 0.1s;
+        }
+        #info.roi-scope-mode .dim-label.roi-display-dim {
+            --roi-scope-underline: var(--spatial-dim);
+            cursor: not-allowed;
+        }
+        #info.roi-scope-mode .dim-label.roi-included-dim {
+            --roi-scope-underline: var(--vfield-t-dim);
+        }
+        #info.roi-scope-mode .dim-label.roi-current-dim {
+            --roi-scope-underline: var(--muted);
+            opacity: 0.72;
+        }
+        #info.roi-scope-mode .dim-label.roi-current-dim:hover { opacity: 1; }
 
         /* In-pane legend for the legacy expanded histogram picker. It stays visible
          * while picker mode is open so the three dim states remain legible
@@ -1425,6 +1506,58 @@
         #roi-stats-tooltip.visible { opacity: 1; }
         #roi-stats-tooltip .rst-line { line-height: 1.5; }
         #roi-stats-tooltip .rst-label { color: var(--help-key); margin-right: 6px; }
+        #roi-context-menu {
+            position: fixed;
+            z-index: 25;
+            display: none;
+            min-width: 108px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--surface-shadow);
+            padding: 3px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text);
+        }
+        #roi-context-menu.visible {
+            display: block;
+        }
+        #roi-context-menu button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: transparent;
+            border: 0;
+            border-radius: var(--radius);
+            color: var(--text);
+            font: inherit;
+            text-align: left;
+            padding: 4px 6px;
+            cursor: pointer;
+        }
+        #roi-context-menu svg {
+            width: 12px;
+            height: 12px;
+            flex: 0 0 auto;
+        }
+        #roi-context-menu .roi-context-rename {
+            width: 118px;
+            box-sizing: border-box;
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--active-dim);
+            border-radius: var(--radius);
+            padding: 4px 6px;
+            font: inherit;
+        }
+        #roi-context-menu button:hover {
+            background: var(--border-subtle);
+        }
+        #roi-context-menu .danger {
+            color: var(--muted);
+        }
         #export-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -1437,22 +1570,22 @@
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
             box-shadow: 0 8px 32px rgba(0,0,0,0.45);
-            padding: 20px 24px;
-            width: min(820px, 92vw);
-            max-height: 86vh;
+            padding: 16px 18px;
+            width: min(720px, 92vw);
+            max-height: 78vh;
             display: flex; flex-direction: column;
             font-family: var(--mono);
-            font-size: 13px; color: var(--text);
+            font-size: 12px; color: var(--text);
         }
         #export-header {
             display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 18px; padding-bottom: 10px;
+            margin-bottom: 10px; padding-bottom: 8px;
             border-bottom: 1px solid var(--border-subtle);
         }
-        #export-header .island-title { font-size: 16px; }
+        #export-header .island-title { font-size: 15px; }
         #export-close { cursor: pointer; color: var(--muted); font-size: 18px; }
         #export-close:hover { color: var(--text); }
-        #export-table-wrap { flex: 1; overflow: auto; margin-bottom: 18px; }
+        #export-table-wrap { flex: 1; overflow: auto; margin-bottom: 12px; }
         #export-table {
             width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px;
         }
@@ -1470,21 +1603,112 @@
         }
         .roi-manager-row {
             display: grid;
-            grid-template-columns: minmax(180px, 1.4fr) repeat(2, minmax(86px, 0.7fr)) minmax(56px, 0.45fr) minmax(110px, 0.8fr) auto;
-            gap: 12px;
+            grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(74px, 0.65fr)) minmax(58px, 0.45fr) minmax(104px, 0.75fr) 34px;
+            gap: 10px;
             align-items: center;
-            padding: 12px 0;
+            padding: 7px 6px;
             border-bottom: 1px solid var(--border-subtle);
+        }
+        .roi-manager-row-compact {
+            display: grid;
+            grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(74px, 0.65fr)) minmax(58px, 0.45fr) minmax(104px, 0.75fr) 34px;
+            gap: 10px;
+            align-items: center;
+            padding: 7px 6px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .roi-manager-row-compact:hover,
+        .roi-manager-row-compact.selected-roi {
+            background: var(--border-subtle);
+        }
+        .roi-manager-row-compact.selected-roi .roi-manager-name input {
+            border-color: var(--active-dim);
+        }
+        .roi-manager-expand {
+            display: none;
+            padding: 8px 0 4px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .roi-manager-expand.open {
+            display: block;
+        }
+        .roi-manager-expand .roi-manager-maps {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        .roi-manager-expand .roi-manager-scope {
+            margin-top: 8px;
         }
         .roi-manager-head {
             color: var(--muted);
-            font-size: 11px;
+            font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 0.06em;
-            padding-bottom: 8px;
+            padding-top: 0;
+            padding-bottom: 6px;
             border-bottom: 1px solid var(--border-subtle);
         }
-        .roi-manager-row:last-child { border-bottom: none; }
+        .roi-manager-row:last-child,
+        .roi-manager-row-compact:last-child { border-bottom: none; }
+        .roi-manager-tools {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+        .roi-advanced-scope {
+            position: relative;
+        }
+        .roi-advanced-scope summary {
+            cursor: pointer;
+            list-style: none;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .roi-advanced-scope summary::-webkit-details-marker { display: none; }
+        .roi-advanced-scope summary:hover {
+            border-color: var(--muted);
+        }
+        .roi-advanced-scope svg {
+            width: 15px;
+            height: 15px;
+        }
+        .roi-advanced-panel {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            width: 260px;
+            padding: 10px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--surface-shadow);
+            z-index: 2;
+        }
+        .roi-advanced-copy {
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.45;
+            margin-bottom: 8px;
+        }
+        .roi-advanced-label {
+            color: var(--text);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 5px;
+        }
         .roi-manager-name {
             display: flex;
             align-items: center;
@@ -1505,7 +1729,7 @@
             color: var(--text);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 5px 7px;
+            padding: 4px 6px;
             font: inherit;
         }
         .roi-manager-meta,
@@ -1518,9 +1742,10 @@
         }
         .roi-manager-value {
             color: var(--text);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             line-height: 1.2;
+            font-variant-numeric: tabular-nums;
         }
         .roi-manager-map-row strong {
             color: var(--text);
@@ -1542,6 +1767,7 @@
         .roi-manager-range {
             color: var(--muted);
             font-size: 12px;
+            font-variant-numeric: tabular-nums;
         }
         .roi-manager-maps {
             margin-top: 5px;
@@ -1564,11 +1790,17 @@
             cursor: pointer;
         }
         .roi-manager-actions button {
-            padding: 5px 7px;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             color: var(--muted);
         }
-        .roi-manager-actions button.primary {
-            color: var(--text);
+        .roi-manager-actions button svg {
+            width: 14px;
+            height: 14px;
         }
         .roi-manager-actions button:hover,
         .roi-extent-btn:hover {
@@ -1576,20 +1808,84 @@
         }
         .roi-extent-controls {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 5px;
             margin-top: 7px;
+        }
+        .roi-extent-btn {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            width: 100%;
+            text-align: left;
+        }
+        .roi-extent-btn span {
+            color: var(--text);
+        }
+        .roi-extent-btn strong {
+            color: var(--muted);
+            font-weight: 500;
+        }
+        .roi-expand-btn {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 5px 7px;
+            font: inherit;
+            font-size: 10px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .roi-expand-btn:hover {
+            color: var(--text);
+            border-color: var(--muted);
         }
         .roi-extent-btn.on {
             color: var(--active-dim);
             border-color: var(--active-dim);
         }
         @media (max-width: 760px) {
-            .roi-manager-row {
-                grid-template-columns: 1fr;
+            #export-box {
+                width: min(680px, 94vw);
+                padding: 14px 16px;
+            }
+            .roi-manager-head {
+                display: none;
+            }
+            .roi-manager-row-compact {
+                grid-template-columns: minmax(180px, 1.3fr) repeat(2, minmax(72px, 0.6fr)) minmax(54px, 0.45fr) 28px;
+                grid-template-areas:
+                    "roi roi roi roi actions"
+                    "mean std count range actions";
+                gap: 6px 10px;
+                padding: 10px 6px;
+            }
+            .roi-manager-row-compact > .roi-manager-name { grid-area: roi; }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(2) { grid-area: mean; }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(3) { grid-area: std; }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(4) { grid-area: count; }
+            .roi-manager-row-compact > .roi-manager-range { grid-area: range; }
+            .roi-manager-row-compact > .roi-manager-actions { grid-area: actions; align-self: center; }
+            .roi-manager-value::before,
+            .roi-manager-range::before {
+                display: block;
+                color: var(--muted);
+                font-size: 9px;
+                font-weight: 500;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                margin-bottom: 2px;
+            }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(2)::before { content: "mean"; }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(3)::before { content: "std"; }
+            .roi-manager-row-compact > .roi-manager-value:nth-child(4)::before { content: "count"; }
+            .roi-manager-range::before { content: "min-max"; }
+            .roi-manager-range {
+                font-size: 11px;
             }
             .roi-manager-actions {
-                justify-content: flex-start;
+                justify-content: flex-end;
             }
         }
         #export-footer { display: flex; justify-content: flex-end; gap: 8px; }
@@ -2879,6 +3175,60 @@
             white-space: nowrap; backdrop-filter: var(--blur);
             -webkit-backdrop-filter: var(--blur);
         }
+        #roi-hover-tooltip.editing {
+            pointer-events: auto;
+            padding: 5px 9px;
+        }
+        #roi-hover-tooltip .roi-tip-edit {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            line-height: 1.7;
+        }
+        #roi-hover-tooltip .roi-tip-name-input {
+            appearance: none;
+            -webkit-appearance: none;
+            width: auto;
+            min-width: 1.5ch;
+            max-width: min(220px, 42vw);
+            height: 19px;
+            box-sizing: border-box;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            font-weight: 700;
+            line-height: 19px;
+            padding: 0;
+            outline: none;
+        }
+        #roi-hover-tooltip .roi-tip-stats {
+            color: var(--text);
+            flex: 0 0 auto;
+        }
+        #roi-hover-tooltip .roi-tip-delete {
+            width: 17px;
+            height: 17px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--muted);
+            padding: 0;
+            cursor: pointer;
+        }
+        #roi-hover-tooltip .roi-tip-delete:hover {
+            color: var(--text);
+            border-color: var(--muted);
+        }
+        #roi-hover-tooltip .roi-tip-delete svg {
+            width: 11px;
+            height: 11px;
+        }
         #mv-orientation {
             display: none; position: fixed; top: 14px; right: 14px; z-index: 4;
             width: 120px; height: 120px;
@@ -3908,19 +4258,25 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
-            <div id="slim-cb-preview" class="cmap-hold-preview" aria-hidden="true"></div>
-            <span class="slim-cb-val" id="slim-cb-vmin"></span>
-            <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
-                <canvas id="slim-cb"></canvas>
-                <div id="slim-cb-tri-zone">
-                    <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
-                    <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
+            <div id="roi-cb-flip-inner">
+                <div id="roi-cb-front" class="roi-cb-front">
+                    <div id="slim-cb-preview" class="cmap-hold-preview" aria-hidden="true"></div>
+                    <span class="slim-cb-val" id="slim-cb-vmin"></span>
+                    <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
+                        <canvas id="slim-cb"></canvas>
+                        <div id="slim-cb-tri-zone">
+                            <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
+                            <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
+                        </div>
+                    </div>
+                    <span class="slim-cb-val" id="slim-cb-vmax"></span>
+                    <div id="slim-cb-labels"></div>
+                    <div id="slim-cb-tooltip"></div>
+                </div>
+                <div id="roi-cb-back" class="roi-cb-back">
+                    <div id="roi-cb-controls" aria-label="ROI controls"></div>
                 </div>
             </div>
-            <span class="slim-cb-val" id="slim-cb-vmax"></span>
-            <div id="slim-cb-labels"></div>
-            <div id="slim-cb-tooltip"></div>
-            <div id="roi-cb-controls" aria-label="ROI controls"></div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -4203,6 +4559,7 @@
             </div>
         </div>
     </div>
+    <div id="roi-context-menu" aria-hidden="true"></div>
     <div id="picker-overlay">
         <div id="picker-box">
             <div id="picker-header">
@@ -4648,6 +5005,8 @@
         let _roiNextId = 1;
         let _selectedRoiIdx = -1;
         let _roiEditDrag = null; // {idx, mode, startX, startY, snapshot}
+        let _roiTooltipEdit = null; // {idx, original}
+        let _roiContextJustOpened = false;
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
@@ -4721,6 +5080,8 @@
             stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
             hide: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.2A10.7 10.7 0 0 1 12 4c7 0 10 8 10 8a13.2 13.2 0 0 1-2.1 3.2"/><path d="M6.6 6.6C3.5 8.6 2 12 2 12s3 8 10 8a10.8 10.8 0 0 0 4.3-.9"/></svg>',
             clear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
+            rename: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+            advanced: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg>',
         };
         const _SEG_METHOD_ICONS = {
             region:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="3"/><path d="M7 7l2 2"/><path d="M15 15l2 2"/><path d="M17 7l-2 2"/><path d="M9 15l-2 2"/></svg>',
@@ -10370,6 +10731,7 @@
         }
 
         function _startColorbarLebesgueHover() {
+            if (rectRoiMode) return;
             _colorbarLebesgueHover = true;
             clearTimeout(_hoverPrefetchTimer);
             _hoverPrefetchTimer = setTimeout(() => {
@@ -12301,6 +12663,7 @@
             const hover = document.getElementById('roi-hover-tooltip');
             if (hover) hover.style.display = 'none';
             if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
+            if (typeof _hideRoiContextMenu === 'function') _hideRoiContextMenu();
             showStatus(clear ? 'ROI mode: cleared' : 'ROI mode: hidden');
             renderEggs();
             renderIsland();
@@ -12348,14 +12711,111 @@
 
         function _roiName(i) {
             const r = _rois[i];
-            if (!r) return `ROI ${i + 1}`;
-            return r.name || _roiNames[i] || `ROI ${i + 1}`;
+            if (!r) return String(i + 1);
+            return r.name || _roiNames[i] || String(i + 1);
+        }
+
+        function _roiCanvasLabel(i) {
+            return _roiName(i);
+        }
+
+        function _roiSimpleStatsHtml(idx) {
+            const r = _rois[idx];
+            if (!r || !r.stats) return '';
+            return `${_roiStatsFmt(r.stats.mean)} \u00B1 ${_roiStatsFmt(r.stats.std)}`;
+        }
+
+        function _positionRoiTooltipAtClient(ttip, clientX, clientY) {
+            const par = ttip ? ttip.offsetParent : null;
+            if (!par) return;
+            const pr = par.getBoundingClientRect();
+            const tw = ttip.offsetWidth || 160;
+            const th = ttip.offsetHeight || 42;
+            let tx = clientX - pr.left + 12;
+            let ty = clientY - pr.top - th - 12;
+            if (tx + tw > pr.width) tx = clientX - pr.left - tw - 12;
+            if (ty < 0) ty = clientY - pr.top + 12;
+            ttip.style.left = tx + 'px';
+            ttip.style.top = ty + 'px';
+        }
+
+        function _hideRoiTooltipEditor() {
+            const ttip = document.getElementById('roi-hover-tooltip');
+            _roiTooltipEdit = null;
+            if (ttip) {
+                ttip.classList.remove('editing');
+                ttip.style.display = 'none';
+            }
+        }
+
+        function _commitRoiTooltipEditor(value) {
+            if (!_roiTooltipEdit) return;
+            const idx = _roiTooltipEdit.idx;
+            _roiManagerRename(idx, value);
+            _hideRoiTooltipEditor();
+        }
+
+        function _cancelRoiTooltipEditor() {
+            _hideRoiTooltipEditor();
+        }
+
+        function _showRoiTooltipEditor(idx, clientX, clientY) {
+            const r = _rois[idx];
+            const ttip = document.getElementById('roi-hover-tooltip');
+            if (!r || !ttip) return;
+            _roiSelect(idx);
+            const c = _roiColors[idx % _roiColors.length];
+            const name = _roiName(idx);
+            _roiTooltipEdit = { idx, original: name };
+            ttip.classList.add('editing');
+            ttip.innerHTML = `
+                <div class="roi-tip-edit">
+                    <input class="roi-tip-name-input" value="${_roiHtmlEscape(name)}" aria-label="ROI name" style="color:${c.stroke}">
+                    <span class="roi-tip-stats">${_roiSimpleStatsHtml(idx)}</span>
+                    <button type="button" class="roi-tip-delete" aria-label="Delete ${_roiHtmlEscape(name)}">${_ROI_ACTION_ICONS.clear}</button>
+                </div>
+            `;
+            ttip.style.display = 'block';
+            _positionRoiTooltipAtClient(ttip, clientX, clientY);
+            const input = ttip.querySelector('.roi-tip-name-input');
+            if (!input) return;
+            const del = ttip.querySelector('.roi-tip-delete');
+            if (del) {
+                del.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const deletedName = _roiName(idx);
+                    _hideRoiTooltipEditor();
+                    _roiDelete(idx);
+                    _updateRoiPanel();
+                    showStatus(`ROI ${deletedName} deleted`);
+                });
+            }
+            const resize = () => {
+                const len = Math.max(1, input.value.length || 1);
+                input.style.width = Math.min(220, Math.max(9, len * 6.7 + 2)) + 'px';
+                _positionRoiTooltipAtClient(ttip, clientX, clientY);
+            };
+            input.addEventListener('input', resize);
+            input.addEventListener('keydown', e => {
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    _commitRoiTooltipEditor(input.value);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    _cancelRoiTooltipEditor();
+                }
+            });
+            input.focus();
+            input.select();
+            resize();
         }
 
         function _roiNormalize(r, opts = {}) {
             const roi = Object.assign({}, r);
             if (!roi.id) roi.id = `roi-${_roiNextId++}`;
-            if (!roi.name) roi.name = opts.name || `ROI ${_rois.length + 1}`;
+            if (!roi.name && opts.name) roi.name = opts.name;
             if (!roi.scope) roi.scope = _roiCurrentScope();
             if (roi.visible === undefined) roi.visible = true;
             if (roi.selected === undefined) roi.selected = false;
@@ -12377,6 +12837,74 @@
                 renderIsland();
             }
         }
+
+        function _hideRoiContextMenu() {
+            const menu = document.getElementById('roi-context-menu');
+            if (!menu) return;
+            menu.classList.remove('visible');
+            menu.setAttribute('aria-hidden', 'true');
+            menu.innerHTML = '';
+        }
+
+        function _showRoiContextMenu(idx, clientX, clientY) {
+            const r = _rois[idx];
+            const menu = document.getElementById('roi-context-menu');
+            if (!r || !menu) return;
+            _roiSelect(idx);
+            const label = _roiHtmlEscape(_roiName(idx));
+            menu.innerHTML = `
+                <button type="button" onclick="event.stopPropagation(); _roiContextRename(${idx})">${_ROI_ACTION_ICONS.rename}<span>Rename ${label}</span></button>
+                <button type="button" class="danger" onclick="event.stopPropagation(); _roiContextDelete(${idx})">${_ROI_ACTION_ICONS.clear}<span>Delete ${label}</span></button>
+            `;
+            menu.classList.add('visible');
+            menu.setAttribute('aria-hidden', 'false');
+            _roiContextJustOpened = true;
+            setTimeout(() => { _roiContextJustOpened = false; }, 0);
+            const mw = menu.offsetWidth || 150;
+            const mh = menu.offsetHeight || 74;
+            const left = Math.max(6, Math.min(clientX + 8, window.innerWidth - mw - 6));
+            const top = Math.max(6, Math.min(clientY + 8, window.innerHeight - mh - 6));
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+        }
+
+        function _roiContextRename(idx) {
+            const menu = document.getElementById('roi-context-menu');
+            const r = _rois[idx];
+            if (!menu || !r) return;
+            const value = _roiHtmlEscape(_roiName(idx));
+            menu.innerHTML = `
+                <input class="roi-context-rename" value="${value}" aria-label="ROI name" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur(); if (event.key === 'Escape') _hideRoiContextMenu();" onblur="_roiContextCommitRename(${idx}, this.value)">
+            `;
+            const input = menu.querySelector('input');
+            if (input) { input.focus(); input.select(); }
+        }
+        window._roiContextRename = _roiContextRename;
+
+        function _roiContextCommitRename(idx, value) {
+            _roiManagerRename(idx, value);
+            _hideRoiContextMenu();
+        }
+        window._roiContextCommitRename = _roiContextCommitRename;
+
+        function _roiLabelHitTest(x, y, sx, sy) {
+            for (let i = _rois.length - 1; i >= 0; i--) {
+                const r = _rois[i];
+                if (!r || r.visible === false) continue;
+                const label = _roiCanvasLabel(i);
+                const [lx, ly] = _roiLabelPoint(r, 1, 1);
+                const halfW = Math.max(12, label.length * 3.8 / Math.max(sx, 0.001));
+                const halfH = 9 / Math.max(sy, 0.001);
+                if (Math.abs(x - lx) <= halfW && Math.abs(y - ly) <= halfH) return i;
+            }
+            return -1;
+        }
+
+        function _roiContextDelete(idx) {
+            _hideRoiContextMenu();
+            _roiManagerDelete(idx);
+        }
+        window._roiContextDelete = _roiContextDelete;
 
         function _roiDelete(idx) {
             if (idx < 0 || idx >= _rois.length) return;
@@ -12614,19 +13142,24 @@
                 const r = _rois[i];
                 if (!r) continue;
                 const c = _roiColors[i % _roiColors.length];
-                html += `<div class="roi-manager-row${i === _selectedRoiIdx ? ' selected-roi' : ''}">`;
-                html += `<div><div class="roi-manager-name"><span class="roi-manager-swatch" style="background:${c.stroke}"></span><input value="${_roiHtmlEscape(_roiName(i))}" onchange="_roiManagerRename(${i}, this.value)" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur()"></div>`;
-                html += `<div class="roi-manager-meta">${_roiHtmlEscape(_roiShapeLabel(r.type))}</div>`;
-                html += _roiQmriDetails(r);
-                html += `<details class="roi-manager-scope"><summary>scope: ${_roiHtmlEscape(_roiScopeDescription(r))}</summary><div class="roi-manager-scope-body">Change where this ROI applies:</div>`;
-                html += _roiExtentControls(i);
-                html += `</details></div>`;
-                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'mean'))}</div></div>`;
-                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'std'))}</div></div>`;
-                html += `<div><div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'n'))}</div></div>`;
+                const hasExpand = !!(Array.isArray(r.qmriStats) && r.qmriStats.length);
+                html += `<div class="roi-manager-row-compact${i === _selectedRoiIdx ? ' selected-roi' : ''}" onclick="_roiSelect(${i}); _updateRoiPanel()">`;
+                html += `<div class="roi-manager-name"><span class="roi-manager-swatch" style="background:${c.stroke}"></span><input value="${_roiHtmlEscape(_roiName(i))}" onclick="event.stopPropagation()" onchange="_roiManagerRename(${i}, this.value)" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur()"> <span class="roi-manager-meta">${_roiHtmlEscape(_roiShapeLabel(r.type))}</span></div>`;
+                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'mean'))}</div>`;
+                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'std'))}</div>`;
+                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'n'))}</div>`;
                 html += `<div class="roi-manager-range">${_roiHtmlEscape(_roiMetric(r.stats, 'min'))} – ${_roiHtmlEscape(_roiMetric(r.stats, 'max'))}</div>`;
-                html += `<div class="roi-manager-actions"><button type="button" class="primary" onclick="_roiSelect(${i}); _updateRoiPanel()">select</button><button type="button" onclick="_roiManagerDelete(${i})">delete</button></div>`;
-                html += `</div>`;
+                html += `<div class="roi-manager-actions">`;
+                html += `<button type="button" onclick="event.stopPropagation(); _roiManagerDelete(${i})" title="Delete ${_roiHtmlEscape(_roiName(i))}" aria-label="Delete ${_roiHtmlEscape(_roiName(i))}">${_ROI_ACTION_ICONS.clear}</button>`;
+                if (hasExpand) {
+                    html += `<button type="button" class="roi-expand-btn" onclick="event.stopPropagation(); _roiManagerToggleExpand(${i}, this)" title="Details">&#x25BC;</button>`;
+                }
+                html += `</div></div>`;
+                if (hasExpand) {
+                    html += `<div class="roi-manager-expand" id="roi-expand-${i}">`;
+                    html += _roiQmriDetails(r);
+                    html += `</div>`;
+                }
             }
             html += '</div>';
             return html;
@@ -13997,7 +14530,7 @@
                 html += `<div class="island-swatch" style="background:${c.stroke}"></div>`;
                 html += `<span class="island-name ${nameClass}" data-roi-idx="${i}" onclick="event.stopPropagation(); _islandEditRoiName(this)" title="Click to rename">${name}</span>`;
                 html += `<span class="island-eye${visible ? '' : ' off'}" onclick="event.stopPropagation(); _islandToggleRoi(${i})" title="Toggle visibility">${visible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
-                html += `<span class="island-delete" data-roi="${i}" onclick="_islandDeleteRoi(${i})" title="Delete ROI ${i + 1}">\u00d7</span>`;
+                html += `<span class="island-delete" data-roi="${i}" onclick="_islandDeleteRoi(${i})" title="Delete ${_roiHtmlEscape(name)}">\u00d7</span>`;
                 html += `</div>`;
             }
             if (!_rois.length) {
@@ -14377,14 +14910,33 @@
             if (!_info) return;
             const visible = _histDimControlsVisible();
             _info.classList.toggle('hist-pick-mode', visible);
+            const roiVisible = _roiDimControlsVisible();
+            _info.classList.toggle('roi-scope-mode', roiVisible);
             const labels = _info.querySelectorAll('.dim-label[data-dim]');
             if (!visible) {
                 labels.forEach(el => {
                     el.classList.remove('hist-scope', 'hist-recompute', 'hist-frozen', 'hist-locked-dim');
                 });
-                _hideHistTooltip();
+                if (!roiVisible) {
+                    labels.forEach(el => {
+                        el.classList.remove('roi-display-dim', 'roi-included-dim', 'roi-current-dim');
+                    });
+                    _hideHistTooltip();
+                    return;
+                }
+                labels.forEach(el => {
+                    const i = Number(el.getAttribute('data-dim'));
+                    const display = i === dim_x || i === dim_y;
+                    const included = _roiDimIncluded(i);
+                    el.classList.toggle('roi-display-dim', display);
+                    el.classList.toggle('roi-included-dim', !display && included);
+                    el.classList.toggle('roi-current-dim', !display && !included);
+                });
                 return;
             }
+            labels.forEach(el => {
+                el.classList.remove('roi-display-dim', 'roi-included-dim', 'roi-current-dim');
+            });
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
             const pickDx = useMv ? mvDims[1] : dim_x;
             const pickDy = useMv ? mvDims[0] : dim_y;
@@ -16480,7 +17032,8 @@
                     e.preventDefault();
                     roiDragging = false;
                     _roiSelect(hit.idx);
-                    _roiEditDrag = { idx: hit.idx, mode: hit.mode, handle: hit.handle, startX: hx, startY: hy, snapshot: _roiCloneGeometry(_rois[hit.idx]) };
+                    _hideRoiContextMenu();
+                    _roiEditDrag = { idx: hit.idx, mode: hit.mode, handle: hit.handle, startX: hx, startY: hy, clientX: e.clientX, clientY: e.clientY, moved: false, snapshot: _roiCloneGeometry(_rois[hit.idx]) };
                     canvas.style.cursor = hit.mode === 'resize' ? 'nwse-resize' : 'move';
                     return;
                 }
@@ -16490,6 +17043,22 @@
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
+        });
+        canvas.addEventListener('dblclick', e => {
+            if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * canvas.width / rect.width;
+            const y = (e.clientY - rect.top) * canvas.height / rect.height;
+            let idx = -1;
+            for (let i = _rois.length - 1; i >= 0; i--) {
+                if (_rois[i].visible !== false && _pointInRoi(_rois[i], x, y)) { idx = i; break; }
+            }
+            if (idx < 0) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            roiDragging = false;
+            _roiEditDrag = null;
+            _showRoiTooltipEditor(idx, e.clientX, e.clientY);
         });
         const _roiColors = [
             {fill:'rgba(255,255,100,0.035)', stroke:'rgba(255,255,100,0.88)'},
@@ -16513,12 +17082,16 @@
         function _syncRoiOverlay() {
             if (!roiOverlayCanvas) return;
             const { dW, dH } = _roiDispScale();
-            if (roiOverlayCanvas.width !== dW || roiOverlayCanvas.height !== dH) {
-                roiOverlayCanvas.width  = dW;
-                roiOverlayCanvas.height = dH;
+            const dpr = Math.max(1, window.devicePixelRatio || 1);
+            const bw = Math.max(1, Math.round(dW * dpr));
+            const bh = Math.max(1, Math.round(dH * dpr));
+            if (roiOverlayCanvas.width !== bw || roiOverlayCanvas.height !== bh) {
+                roiOverlayCanvas.width  = bw;
+                roiOverlayCanvas.height = bh;
             }
             roiOverlayCanvas.style.width  = canvas.style.width;
             roiOverlayCanvas.style.height = canvas.style.height;
+            if (roiOverlayCtx) roiOverlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         function _clearRoiOverlay() {
             if (!roiOverlayCanvas) return;
@@ -16731,8 +17304,21 @@
                             }
                         }
                     }
-                    const b = _roiBounds(r);
-                    if (doStroke) rctx.strokeRect(b.x0 * sx + 0.5, b.y0 * sy + 0.5, (b.x1 - b.x0 + 1) * sx - 1, (b.y1 - b.y0 + 1) * sy - 1);
+                    if (doStroke) {
+                        const oldFill = rctx.fillStyle;
+                        rctx.fillStyle = rctx.strokeStyle;
+                        for (let y = 0; y < bh; y++) {
+                            for (let x = 0; x < bw; x++) {
+                                if (!maskBytes[y * bw + x]) continue;
+                                const edge = (x === 0 || !maskBytes[y * bw + x - 1])
+                                    || (x === bw - 1 || !maskBytes[y * bw + x + 1])
+                                    || (y === 0 || !maskBytes[(y - 1) * bw + x])
+                                    || (y === bh - 1 || !maskBytes[(y + 1) * bw + x]);
+                                if (edge) rctx.fillRect((r.bbox.x0 + x) * sx, (r.bbox.y0 + y) * sy, Math.max(1, sx), Math.max(1, sy));
+                            }
+                        }
+                        rctx.fillStyle = oldFill;
+                    }
                 } catch (_e) { /* ignore malformed floodfill masks */ }
             }
         }
@@ -16767,18 +17353,17 @@
         }
         function _roiDrawLabel(rctx, label, x, y, color) {
             rctx.save();
-            rctx.font = 'bold 12px monospace';
+            const px = Math.round(x);
+            const py = Math.round(y);
+            rctx.font = '700 12px monospace';
             rctx.textAlign = 'center';
             rctx.textBaseline = 'middle';
             rctx.lineJoin = 'round';
             rctx.strokeStyle = 'rgba(0,0,0,0.82)';
-            rctx.lineWidth = 2.4;
-            rctx.strokeText(label, x, y);
-            rctx.strokeStyle = 'rgba(255,255,255,0.64)';
-            rctx.lineWidth = 1;
-            rctx.strokeText(label, x, y);
+            rctx.lineWidth = 3;
+            rctx.strokeText(label, px, py);
             rctx.fillStyle = color;
-            rctx.fillText(label, x, y);
+            rctx.fillText(label, px, py);
             rctx.restore();
         }
         function _drawAllRois(previewRoi) {
@@ -16794,11 +17379,9 @@
                 const c = _roiColors[i % _roiColors.length];
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
                 if (i === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, r, sx, sy);
-                if (i === _selectedRoiIdx) {
-                    const lbl = String(i + 1);
-                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
-                    _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
-                }
+                const lbl = _roiCanvasLabel(i);
+                const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
             }
             // Draw in-progress ROI preview
             if (previewRoi) {
@@ -16826,9 +17409,13 @@
                 if (!ov || !rctx) continue;
                 const dW = parseInt(view.canvas.style.width) || view.canvas.clientWidth;
                 const dH = parseInt(view.canvas.style.height) || view.canvas.clientHeight;
-                if (ov.width !== dW || ov.height !== dH) { ov.width = dW; ov.height = dH; }
+                const dpr = Math.max(1, window.devicePixelRatio || 1);
+                const bw = Math.max(1, Math.round(dW * dpr));
+                const bh = Math.max(1, Math.round(dH * dpr));
+                if (ov.width !== bw || ov.height !== bh) { ov.width = bw; ov.height = bh; }
                 ov.style.width = view.canvas.style.width;
                 ov.style.height = view.canvas.style.height;
+                rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 rctx.clearRect(0, 0, dW, dH);
                 if (!_roiVisible || (!_rois.length && !previewRoi)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
@@ -16839,11 +17426,9 @@
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
                     if (i === _selectedRoiIdx) _roiDrawHandles(rctx, r, sx, sy);
-                    if (i === _selectedRoiIdx) {
-                        const lbl = String(i + 1);
-                        const [lx, ly] = _roiLabelPoint(r, sx, sy);
-                        _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
-                    }
+                    const lbl = _roiCanvasLabel(i);
+                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
                 }
                 if (previewRoi) {
                     const c = _roiColors[_rois.length % _roiColors.length];
@@ -16969,7 +17554,7 @@
         function _roiManagerRename(idx, value) {
             const r = _rois[idx];
             if (!r) return;
-            const name = String(value || '').trim() || `ROI ${idx + 1}`;
+            const name = String(value || '').trim() || String(idx + 1);
             r.name = name;
             _roiNames[idx] = name;
             _updateRoiPanel();
@@ -17006,6 +17591,79 @@
             _updateRoiPanel();
         }
         window._roiManagerToggleDim = _roiManagerToggleDim;
+
+        function _roiManagerToggleDimAll(dim) {
+            if (dim === dim_x || dim === dim_y || !_rois.length) return;
+            const allOn = _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+            for (let i = 0; i < _rois.length; i++) {
+                const r = _rois[i];
+                if (!r) continue;
+                if (!r.scope) r.scope = _roiCurrentScope();
+                if (!Array.isArray(r.scope.broadcast_dims)) r.scope.broadcast_dims = [];
+                const pos = r.scope.broadcast_dims.indexOf(dim);
+                if (allOn && pos >= 0) {
+                    r.scope.broadcast_dims.splice(pos, 1);
+                    if (r.scope.values) delete r.scope.values[String(dim)];
+                    if (r.scope.ranges) delete r.scope.ranges[String(dim)];
+                } else if (!allOn && pos < 0) {
+                    r.scope.broadcast_dims.push(dim);
+                    if (r.scope.values) delete r.scope.values[String(dim)];
+                    if (r.scope.ranges) delete r.scope.ranges[String(dim)];
+                }
+                r.stats = null;
+                r.qmriStats = null;
+                _roiFetchStructuredStats(i);
+            }
+            _updateRoiPanel();
+        }
+        window._roiManagerToggleDimAll = _roiManagerToggleDimAll;
+
+        function _roiDimControlsVisible() {
+            return !!(rectRoiMode && Array.isArray(shape) && shape.length > 2 && !_histDimControlsVisible());
+        }
+
+        function _roiDimIncluded(dim) {
+            if (dim === dim_x || dim === dim_y) return true;
+            return _rois.length > 0 && _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+        }
+
+        function _roiToggleScopeDimAll(dim) {
+            if (!_roiDimControlsVisible() || !Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
+            if (dim === dim_x || dim === dim_y) {
+                showToast('display axis — always included');
+                return false;
+            }
+            if (!_rois.length) {
+                showToast('draw an ROI first');
+                return false;
+            }
+            _roiManagerToggleDimAll(dim);
+            renderInfo();
+            const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
+            showToast(`ROI dim ${dim}: ${label}`);
+            return true;
+        }
+
+        function _roiTooltipTextForDim(dim) {
+            const stateLabel = (cls, text) => `<span class="hist-tip-state ${cls}">${text}</span>`;
+            const locked = dim === dim_x || dim === dim_y;
+            if (locked) {
+                return `<div class="hist-tip-title">DISPLAY AXIS — always ${stateLabel('scope', 'INCLUDED')}.</div>`
+                    + `<ul class="hist-tip-list"><li>ROI geometry is drawn on this displayed plane.</li><li>Click other dims to include all indices in ROI statistics.</li></ul>`;
+            }
+            const included = _roiDimIncluded(dim);
+            return `<div class="hist-tip-title">Current: ${included ? stateLabel('scope', 'ALL INDICES') : stateLabel('frozen', 'CURRENT INDEX')}</div>`
+                + `<ul class="hist-tip-list"><li>${stateLabel('frozen', 'CURRENT INDEX')}: use only the displayed slice position.</li><li>${stateLabel('scope', 'ALL INDICES')}: include every index along this dimension for all ROIs.</li></ul>`;
+        }
+
+        function _roiManagerToggleExpand(idx, btn) {
+            const el = document.getElementById('roi-expand-' + idx);
+            if (!el) return;
+            const open = el.classList.toggle('open');
+            btn.innerHTML = open ? '&#x25B2;' : '&#x25BC;';
+            btn.setAttribute('title', open ? 'Hide details' : 'Details');
+        }
+        window._roiManagerToggleExpand = _roiManagerToggleExpand;
 
         async function _exportRoiMask() {
             if (!_rois.length) return;
@@ -17211,17 +17869,20 @@
             saveState();
         });
         // Clean up zoom-select if mouse released outside canvas
-        window.addEventListener('mouseup', () => {
+        window.addEventListener('mouseup', e => {
             if (_zoomSelectDrag) { _zoomSelectDrag = null; _removeZoomSelectRect(); }
             _bcEndDrag();
             _endMainLoupe();
             _endQmriLoupe();
             if (_roiEditDrag) {
-                const idx = _roiEditDrag.idx;
+                const drag = _roiEditDrag;
+                const idx = drag.idx;
                 _roiEditDrag = null;
                 canvas.style.cursor = rectRoiMode ? 'crosshair' : '';
                 _redrawRoiOverlays();
-                _roiFetchStructuredStats(idx);
+                if (drag.moved || drag.mode !== 'move') {
+                    _roiFetchStructuredStats(idx);
+                }
             }
             // Crop drag: release outside of any pane as well.
             if (_cropDrag) {
@@ -17240,6 +17901,8 @@
                 const y = (e.clientY - rect.top) * canvas.height / rect.height;
                 const r = _rois[_roiEditDrag.idx];
                 if (!r) return;
+                if (Math.hypot(x - _roiEditDrag.startX, y - _roiEditDrag.startY) > 2) _roiEditDrag.moved = true;
+                if (!_roiEditDrag.moved) return;
                 if (_roiEditDrag.mode === 'resize') _roiResizeGeometry(r, x, y, _roiEditDrag.handle, _roiEditDrag.snapshot);
                 else _roiMoveGeometry(r, x - _roiEditDrag.startX, y - _roiEditDrag.startY, _roiEditDrag.snapshot);
                 r.stats = null; r.qmriStats = null;
@@ -17310,6 +17973,7 @@
         // ROI hover: show stats tooltip over active ROI
         canvas.addEventListener('mousemove', e => {
             if (!rectRoiMode || roiDragging) return;
+            if (_roiTooltipEdit) return;
             const rect = canvas.getBoundingClientRect();
             const cx = (e.clientX - rect.left) * canvas.width / rect.width;
             const cy = (e.clientY - rect.top) * canvas.height / rect.height;
@@ -17336,19 +18000,12 @@
                 return;
             }
             const fmt = v => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
-            ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">${hitIdx+1}</span> ${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
+            ttip.classList.remove('editing');
+            ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">${_roiHtmlEscape(_roiName(hitIdx))}</span> ${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
             ttip.style.display = 'block';
             const piEl = document.getElementById('main-pixel-info');
             if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
-            const par = ttip.offsetParent;
-            if (par) {
-                const pr = par.getBoundingClientRect();
-                const tw = ttip.offsetWidth || 160, th = ttip.offsetHeight || 60;
-                let tx = e.clientX - pr.left + 12, ty = e.clientY - pr.top - th - 12;
-                if (tx + tw > pr.width) tx = e.clientX - pr.left - tw - 12;
-                if (ty < 0) ty = e.clientY - pr.top + 12;
-                ttip.style.left = tx + 'px'; ttip.style.top = ty + 'px';
-            }
+            _positionRoiTooltipAtClient(ttip, e.clientX, e.clientY);
         });
         // ROI right-click: delete the ROI under the cursor
         canvas.addEventListener('contextmenu', e => {
@@ -17360,8 +18017,11 @@
             const cy = (e.clientY - rect.top) * canvas.height / rect.height;
             for (let i = _rois.length - 1; i >= 0; i--) {
                 if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy)) {
+                    const deletedName = _roiName(i);
+                    if (_roiTooltipEdit && _roiTooltipEdit.idx === i) _cancelRoiTooltipEditor();
                     _roiDelete(i);
-                    showStatus(`ROI ${i + 1} deleted`);
+                    _updateRoiPanel();
+                    showStatus(`ROI ${deletedName} deleted`);
                     return;
                 }
             }
@@ -17370,7 +18030,16 @@
             if (e.target === document.getElementById('info-overlay'))
                 document.getElementById('info-overlay').classList.remove('visible');
         });
-        document.addEventListener('click', () => {});
+        document.addEventListener('click', e => {
+            const ttip = document.getElementById('roi-hover-tooltip');
+            if (_roiTooltipEdit && ttip && !ttip.contains(e.target)) {
+                const input = ttip.querySelector('.roi-tip-name-input');
+                _commitRoiTooltipEditor(input ? input.value : _roiTooltipEdit.original);
+            }
+            const menu = document.getElementById('roi-context-menu');
+            if (_roiContextJustOpened) return;
+            if (menu && menu.classList.contains('visible') && !menu.contains(e.target)) _hideRoiContextMenu();
+        });
         window.addEventListener('focus', () => {
             const _pkr = document.getElementById('uni-picker') || document.getElementById('compare-picker');
             if (_pkr && _pkr.classList.contains('visible')) return;
@@ -17478,7 +18147,7 @@
             }
             _roiSuppressPixelInfo = false;
             const ttip = document.getElementById('roi-hover-tooltip');
-            if (ttip) ttip.style.display = 'none';
+            if (ttip && !_roiTooltipEdit) ttip.style.display = 'none';
             _hideRoiRowTooltip();
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
@@ -18135,6 +18804,7 @@
                     e.preventDefault();
                     const idx = _selectedRoiIdx;
                     _roiDelete(idx);
+                    _hideRoiContextMenu();
                     showStatus(`ROI ${idx + 1} deleted`);
                 },
             },
@@ -24075,8 +24745,10 @@
                         const cy = (e.clientY - rect.top) * view.lastH / rect.height;
                         for (let ii = _rois.length - 1; ii >= 0; ii--) {
                             if (_rois[ii].visible !== false && _pointInRoi(_rois[ii], cx, cy)) {
+                                const deletedName = _roiName(ii);
                                 _roiDelete(ii);
-                                showStatus(`ROI ${ii + 1} deleted`);
+                                _updateRoiPanel();
+                                showStatus(`ROI ${deletedName} deleted`);
                                 return;
                             }
                         }
@@ -26762,6 +27434,11 @@
                 _histPickerCycleDim(d);
                 return;
             }
+            if (_roiDimControlsVisible()) {
+                e.preventDefault();
+                _roiToggleScopeDimAll(d);
+                return;
+            }
             // Skip dims in projection or quantization mode — they aren't navigable
             if (projectionMode > 0 && d === projectionDim) return;
             if ((qmriActive && d === qmriDim) || (compareQmriActive && d === compareQmriDim)) return;
@@ -26792,7 +27469,7 @@
         // Drag on a dim label to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
         infoEl.addEventListener('mousedown', (e) => {
-            if (_histDimControlsVisible()) return;  // histogram controls own the labels
+            if (_histDimControlsVisible() || _roiDimControlsVisible()) return;  // picker controls own the labels
             const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
@@ -26847,6 +27524,9 @@
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
+                } else if (_roiDimControlsVisible()) {
+                    _histDimHovering = true;
+                    _showHistTooltip(_roiTooltipTextForDim(hoveredDim), span.getBoundingClientRect());
                 }
             } else {
                 hoveredDim = -1;
@@ -28193,7 +28873,7 @@
             const el = document.getElementById('roi-cb-controls');
             if (!el) return;
             const shapes = ['circle', 'rect', 'freehand', 'floodfill'];
-            let html = '<div class="roi-cb-shapes">';
+            let html = '<span class="roi-cb-label">ROI:</span><div class="roi-cb-shapes">';
             for (const shapeName of shapes) {
                 const icon = _ROI_SHAPE_ICONS[shapeName] || shapeName;
                 const active = shapeName === _roiShape ? ' on' : '';
@@ -28202,21 +28882,20 @@
             html += '</div>';
             html += '<div class="roi-cb-sep"></div>';
             html += `<button type="button" class="roi-cb-btn icon" title="ROI stats" aria-label="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}</button>`;
-            html += `<button type="button" class="roi-cb-btn icon" title="Hide ROI mode" aria-label="Hide ROI mode" onclick="event.stopPropagation(); _deactivateRoiInteraction()">${_ROI_ACTION_ICONS.hide}</button>`;
-            if (_rois.length) {
-                html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" onclick="event.stopPropagation(); _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
-            }
+            html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" ${_rois.length ? '' : 'disabled'} onclick="event.stopPropagation(); if (_rois.length) _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
             el.innerHTML = html;
         }
 
         function _reconcileRoiColorbarControls() {
             const el = document.getElementById('roi-cb-controls');
             if (!el) return;
-            const visible = !!(rectRoiMode && _sharedCbVisible && !compareActive && !multiViewActive && !compareMvActive);
+            const visible = !!(rectRoiMode && _sharedCbVisible && colorbarVisible() && !compareActive && !multiViewActive && !compareMvActive && !qmriActive && !compareQmriActive);
             const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) cbWrap.classList.toggle('roi-active', visible);
+            if (cbWrap) {
+                cbWrap.classList.toggle('roi-active', visible);
+                if (rectRoiMode) cbWrap.style.display = visible ? '' : 'none';
+            }
             if (visible) _renderRoiColorbarControls();
-            el.classList.toggle('visible', visible);
             el.setAttribute('aria-hidden', visible ? 'false' : 'true');
         }
 

@@ -2311,10 +2311,12 @@ class TestROIDrag:
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         assert "visible" not in (page.locator("#tool-drawer").get_attribute("class") or "")
         assert "roi-active" in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
-        assert page.locator("#slim-cb-col").evaluate("el => getComputedStyle(el).display") == "none"
+        assert page.locator("#roi-cb-front").evaluate("el => getComputedStyle(el).visibility") == "hidden"
+        assert page.locator("#roi-cb-front").evaluate("el => getComputedStyle(el).opacity") == "0"
+        assert page.locator("#roi-cb-controls").is_visible()
         self._draw_roi(page)
 
         assert page.evaluate("() => _rois.length") == 1
@@ -2322,33 +2324,69 @@ class TestROIDrag:
         assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") != "none"
 
         page.keyboard.press("Shift+R")
-        page.wait_for_function("() => !document.getElementById('roi-cb-controls').classList.contains('visible')")
+        page.wait_for_function("() => !document.getElementById('slim-cb-wrap').classList.contains('roi-active')")
         assert page.evaluate("() => _rois.length") == 1
         assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") == "none"
         assert "roi-active" not in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
 
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         assert page.evaluate("() => _rois.length") == 1
         assert page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display") != "none"
-        assert page.locator("#slim-cb-col").evaluate("el => getComputedStyle(el).display") == "none"
+        assert "roi-active" in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
+        assert page.locator("#roi-cb-front").evaluate("el => getComputedStyle(el).visibility") == "hidden"
+        assert page.locator("#roi-cb-controls").is_visible()
 
     def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         x0, y0, x1, y1 = self._draw_roi(page)
 
         assert page.evaluate("() => _roiShape") == "circle"
         assert page.evaluate("() => _rois[0].type") == "circle"
         assert page.evaluate("() => _selectedRoiIdx") == 0
+        assert page.evaluate("() => _roiName(0)") == "1"
 
         page.mouse.click((x0 + x1) / 2, (y0 + y1) / 2)
         page.wait_for_timeout(300)
         assert page.evaluate("() => _selectedRoiIdx") == 0
+        assert not page.locator("#roi-context-menu").is_visible()
+        assert not page.locator("#roi-hover-tooltip").evaluate("el => el.classList.contains('pinned')")
+        assert page.evaluate("() => _roiCanvasLabel(0)") == "1"
+        assert not page.locator("#export-overlay").is_visible()
+        hover_text = page.locator("#roi-hover-tooltip").inner_text()
+        assert "±" in hover_text
+        assert "n =" not in hover_text
+        assert "count" not in hover_text.lower()
+        hover_height = page.locator("#roi-hover-tooltip").evaluate("el => el.getBoundingClientRect().height")
 
-        page.keyboard.press("Delete")
+        roi_pt = {"x": (x0 + x1) / 2, "y": (y0 + y1) / 2}
+        page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
+        page.wait_for_selector("#roi-hover-tooltip.editing .roi-tip-name-input", timeout=2_000)
+        edit_height = page.locator("#roi-hover-tooltip").evaluate("el => el.getBoundingClientRect().height")
+        assert edit_height <= hover_height + 1
+        assert page.locator("#roi-hover-tooltip .roi-tip-edit").evaluate("el => getComputedStyle(el).flexDirection") == "row"
+        assert page.locator("#roi-hover-tooltip .roi-tip-delete").is_visible()
+        assert page.locator("#roi-hover-tooltip .roi-tip-name-input").evaluate("el => getComputedStyle(el).borderBottomWidth") == "0px"
+        assert "n =" not in page.locator("#roi-hover-tooltip").inner_text()
+        assert "count" not in page.locator("#roi-hover-tooltip").inner_text().lower()
+        page.locator("#roi-hover-tooltip .roi-tip-name-input").fill("Phantom well")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        assert page.evaluate("() => _roiName(0)") == "Phantom well"
+        assert page.evaluate("() => _roiCanvasLabel(0)") == "Phantom well"
+        assert not page.locator("#roi-hover-tooltip").evaluate("el => el.classList.contains('editing')")
+
+        page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
+        page.wait_for_selector("#roi-hover-tooltip.editing .roi-tip-name-input", timeout=2_000)
+        page.locator("#roi-hover-tooltip .roi-tip-name-input").fill("Cancelled")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        assert page.evaluate("() => _roiName(0)") == "Phantom well"
+
+        page.mouse.click((x0 + x1) / 2, (y0 + y1) / 2, button="right")
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
@@ -2356,13 +2394,13 @@ class TestROIDrag:
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         self._draw_roi(page)
 
         page.locator("#roi-cb-controls").get_by_label("ROI stats").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
         assert page.locator("#export-title").inner_text() == "ROI stats"
-        assert page.locator(".roi-manager-row").count() == 2
+        assert page.locator(".roi-manager-row, .roi-manager-row-compact").count() == 2
         table_text = page.locator("#export-table-wrap").inner_text()
         assert "MEAN" in table_text
         assert "STD" in table_text
@@ -2374,8 +2412,9 @@ class TestROIDrag:
         name.press("Enter")
         page.wait_for_timeout(200)
         assert page.evaluate("() => _rois[0].name") == "Phantom well"
+        assert page.evaluate("() => _roiCanvasLabel(0)") == "Phantom well"
 
-        page.locator(".roi-manager-actions").get_by_text("delete").click()
+        page.locator(".roi-manager-actions").get_by_label("Delete Phantom well").click()
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
@@ -2383,19 +2422,20 @@ class TestROIDrag:
         page = loaded_viewer(sid_4d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls.visible", timeout=2_000)
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         self._draw_roi(page)
-        page.locator("#roi-cb-controls").get_by_label("ROI stats").click()
-        page.wait_for_selector("#export-overlay.visible", timeout=2_000)
+        dim = page.evaluate("() => shape.findIndex((_, i) => i !== dim_x && i !== dim_y)")
+        assert dim >= 0
+        page.locator(f'#info [data-dim="{dim}"]').hover()
+        page.wait_for_timeout(200)
+        assert "CURRENT INDEX" in page.locator("#hist-tooltip").inner_text()
 
-        manager_text = page.locator("#export-table-wrap").inner_text()
-        assert "scope:" in manager_text
-        assert "this slice" in manager_text
-        assert "suggest circles" not in manager_text
-        assert "d0:" not in manager_text
-        assert "d1:" not in manager_text
-        assert "d2:" not in manager_text
-        assert "d3:" not in manager_text
+        page.locator(f'#info [data-dim="{dim}"]').click()
+        page.wait_for_timeout(300)
+        assert page.evaluate("(d) => _rois[0].scope.broadcast_dims.includes(d)", dim)
+        page.locator(f'#info [data-dim="{dim}"]').hover()
+        page.wait_for_timeout(200)
+        assert "ALL INDICES" in page.locator("#hist-tooltip").inner_text()
 
 
 class TestColorbarWindowLevel:
