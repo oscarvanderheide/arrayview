@@ -1983,7 +1983,7 @@ class TestKeyboard:
             f"big-left multiview colorbar gap should match the multiview container gap with no extra wrapper offset, got: {big_left}"
         )
 
-    def test_multiview_auto_layout_picks_horizontal_on_jupyter_like_viewport_and_manual_override_sticks(
+    def test_multiview_auto_layout_picks_big_left_on_jupyter_like_viewport_and_manual_override_sticks(
         self, loaded_viewer, sid_3d
     ):
         page = loaded_viewer(sid_3d)
@@ -2021,41 +2021,42 @@ class TestKeyboard:
 
         initial = _state()
         assert initial["orthoLayoutMode"] is None, f"jupyter-like viewport should remain in auto ortho layout mode until manual override, got: {initial}"
-        assert initial["orthoAutoLayoutMode"] == "horizontal", f"jupyter-like viewport should auto-pick horizontal ortho layout, got: {initial}"
-        assert initial["rowPosition"] != "relative", f"horizontal ortho auto-layout should keep the legacy row flow, got: {initial}"
+        assert initial["orthoAutoLayoutMode"] == "big-left", f"jupyter-like viewport should auto-pick big-left ortho layout, got: {initial}"
+        assert initial["rowPosition"] == "relative", f"big-left ortho auto-layout should use preset positioning, got: {initial}"
+        assert "mv-promote-enabled" in initial["rowClass"], f"big-left ortho auto-layout should enable promotable preset chrome, got: {initial}"
         assert len(initial["panes"]) == 3, f"multiview should expose exactly three ortho panes, got: {initial}"
-        assert max(abs(initial["panes"][i]["top"] - initial["panes"][0]["top"]) for i in range(1, 3)) <= 2, f"horizontal ortho auto-layout should keep panes on one row, got: {initial}"
-        assert max(abs(initial["panes"][i]["width"] - initial["panes"][0]["width"]) for i in range(1, 3)) <= 2, f"horizontal ortho auto-layout should keep pane widths uniform, got: {initial}"
+        assert initial["panes"][0]["width"] > initial["panes"][1]["width"], f"big-left ortho auto-layout should make the first pane larger than the stacked panes, got: {initial}"
+        assert initial["panes"][1]["top"] < initial["panes"][2]["top"], f"big-left ortho auto-layout should stack the secondary panes vertically, got: {initial}"
 
         page.set_viewport_size({"width": 1700, "height": 1100})
         page.wait_for_timeout(500)
         resized = _state()
-        assert resized["orthoAutoLayoutMode"] == "horizontal", f"ortho auto-layout choice should stay stable across resize until manually overridden, got: {resized}"
-        assert resized["rowPosition"] != "relative", f"resizing alone should not flip ortho layout out of horizontal flow, got: {resized}"
+        assert resized["orthoAutoLayoutMode"] == "big-left", f"ortho auto-layout choice should stay stable across resize until manually overridden, got: {resized}"
+        assert resized["rowPosition"] == "relative", f"resizing alone should keep the cached big-left ortho layout, got: {resized}"
 
         page.keyboard.press("g")
         page.wait_for_timeout(500)
         overridden = _state()
-        assert overridden["orthoLayoutMode"] == "big-left", f"manual g cycling should persist a concrete ortho preset override, got: {overridden}"
-        assert overridden["rowPosition"] == "relative", f"big-left ortho override should switch mv panes into preset positioning, got: {overridden}"
-        assert "mv-promote-enabled" in overridden["rowClass"], f"big-left ortho override should enable the promotable preset chrome, got: {overridden}"
-        assert abs(overridden["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g switches to big-left, got initial={initial}, overridden={overridden}"
-        assert overridden["panes"][0]["width"] > overridden["panes"][1]["width"], f"big-left ortho override should make the first pane larger than the stacked panes, got: {overridden}"
-        assert overridden["panes"][1]["top"] < overridden["panes"][2]["top"], f"big-left ortho override should stack the secondary panes vertically, got: {overridden}"
+        assert overridden["orthoLayoutMode"] == "horizontal", f"manual g cycling should persist a concrete ortho preset override, got: {overridden}"
+        assert overridden["rowPosition"] != "relative", f"horizontal ortho override should restore legacy row flow, got: {overridden}"
+        assert "mv-promote-enabled" not in overridden["rowClass"], f"horizontal ortho layout should clear promotable preset chrome, got: {overridden}"
+        assert abs(overridden["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g switches to horizontal, got initial={initial}, overridden={overridden}"
+        assert max(abs(overridden["panes"][i]["top"] - overridden["panes"][0]["top"]) for i in range(1, 3)) <= 2, f"horizontal ortho override should keep panes on one row, got: {overridden}"
+        assert max(abs(overridden["panes"][i]["width"] - overridden["panes"][0]["width"]) for i in range(1, 3)) <= 2, f"horizontal ortho override should keep pane widths uniform, got: {overridden}"
 
         page.keyboard.press("g")
         page.wait_for_timeout(500)
         returned = _state()
-        assert returned["orthoLayoutMode"] == "horizontal", f"manual g cycling should now return directly to horizontal without vertical or big-top, got: {returned}"
-        assert returned["rowPosition"] != "relative", f"returning to horizontal should restore legacy row flow, got: {returned}"
-        assert "mv-promote-enabled" not in returned["rowClass"], f"horizontal ortho layout should clear promotable preset chrome, got: {returned}"
-        assert abs(returned["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g returns to horizontal, got initial={initial}, returned={returned}"
+        assert returned["orthoLayoutMode"] == "big-left", f"manual g cycling should now return directly to big-left without vertical or big-top, got: {returned}"
+        assert returned["rowPosition"] == "relative", f"returning to big-left should use preset positioning, got: {returned}"
+        assert "mv-promote-enabled" in returned["rowClass"], f"big-left ortho layout should enable promotable preset chrome, got: {returned}"
+        assert abs(returned["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g returns to big-left, got initial={initial}, returned={returned}"
 
         page.set_viewport_size({"width": 1280, "height": 760})
         page.wait_for_timeout(500)
         final = _state()
-        assert final["orthoLayoutMode"] == "horizontal", f"manual ortho preset override should stay sticky after resizing back to a smaller viewport, got: {final}"
-        assert final["rowPosition"] != "relative", f"manual horizontal ortho override should remain active after resize, got: {final}"
+        assert final["orthoLayoutMode"] == "big-left", f"manual ortho preset override should stay sticky after resizing back to a smaller viewport, got: {final}"
+        assert final["rowPosition"] == "relative", f"manual big-left ortho override should remain active after resize, got: {final}"
 
     def test_multiview_auto_layout_picks_big_left_on_large_viewport(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -2336,6 +2337,136 @@ class TestROIDrag:
         assert "roi-active" in (page.locator("#slim-cb-wrap").get_attribute("class") or "")
         assert page.locator("#roi-cb-front").evaluate("el => getComputedStyle(el).visibility") == "hidden"
         assert page.locator("#roi-cb-controls").is_visible()
+
+    def test_histogram_shortcut_is_blocked_in_roi_mode(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+
+        page.keyboard.press("d")
+        page.wait_for_timeout(300)
+        state = page.evaluate(
+            """() => ({
+                rectRoiMode,
+                histPickerActive: _histPickerActive,
+                expanded: !!(primaryCb && primaryCb._expanded),
+                status: document.querySelector('#status')?.innerText?.trim() || '',
+            })"""
+        )
+
+        assert state["rectRoiMode"], f"ROI mode should remain active after blocked histogram shortcut, got: {state}"
+        assert not state["histPickerActive"], f"histogram picker should not open in ROI mode, got: {state}"
+        assert not state["expanded"], f"histogram colorbar should not expand in ROI mode, got: {state}"
+        assert "histogram" in state["status"].lower() and "roi" in state["status"].lower(), (
+            f"blocked histogram shortcut should explain ROI conflict, got: {state}"
+        )
+
+    def test_shift_r_clears_roi_dimbar_underlines(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_function("() => document.getElementById('info').classList.contains('roi-scope-mode')")
+
+        active = page.evaluate(
+            """() => ({
+                infoClass: document.getElementById('info').className,
+                labeled: Array.from(document.querySelectorAll('#info .dim-label')).map(el => el.className),
+            })"""
+        )
+        assert any("roi-" in cls for cls in active["labeled"]), f"ROI mode should mark dimbar labels, got: {active}"
+
+        page.keyboard.press("Shift+R")
+        page.wait_for_function("() => !document.getElementById('info').classList.contains('roi-scope-mode')")
+        cleared = page.evaluate(
+            """() => ({
+                infoClass: document.getElementById('info').className,
+                labeled: Array.from(document.querySelectorAll('#info .dim-label')).map(el => el.className),
+            })"""
+        )
+
+        assert not any("roi-" in cls for cls in cleared["labeled"]), f"Shift+R should clear ROI dimbar classes, got: {cleared}"
+
+    def test_roi_overlay_stays_above_image_during_slice_navigation(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        page.evaluate(
+            """() => {
+                activeDim = dim_z;
+                renderInfo();
+            }"""
+        )
+
+        page.keyboard.press("k")
+        page.wait_for_timeout(80)
+        state = page.evaluate(
+            """() => ({
+                overlayDisplay: getComputedStyle(document.getElementById('roi-overlay')).display,
+                overlayOpacity: getComputedStyle(document.getElementById('roi-overlay')).opacity,
+                fadeOpacity: getComputedStyle(document.getElementById('viewer-fade')).opacity,
+                roiCount: _rois.length,
+            })"""
+        )
+
+        assert state["roiCount"] == 1, f"ROI should remain present after slice navigation, got: {state}"
+        assert state["overlayDisplay"] != "none", f"ROI overlay should remain visible after slice navigation, got: {state}"
+        assert state["overlayOpacity"] != "0", f"ROI overlay should not fade out during slice navigation, got: {state}"
+        assert state["fadeOpacity"] == "0", f"image fade canvas should not cover ROI overlay during slice navigation, got: {state}"
+
+    def test_roi_hover_stats_update_after_scroll_settles(self, loaded_viewer, client, tmp_path):
+        arr = np.zeros((3, 64, 64), dtype=np.float32)
+        arr[0, :, :] = 1
+        arr[1, :, :] = 5
+        arr[2, :, :] = 9
+        path = tmp_path / "roi_scroll_stats.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scroll_stats"}).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.evaluate(
+            """() => {
+                indices[0] = 0;
+                activeDim = 0;
+                current_slice_dim = 0;
+                updateView();
+                renderInfo();
+            }"""
+        )
+        page.wait_for_timeout(500)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        x0, y0, x1, y1 = self._draw_roi(page)
+        page.wait_for_function("() => _rois[0] && _rois[0].stats && _rois[0].stats.mean === 1", timeout=3_000)
+        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        page.wait_for_timeout(100)
+
+        page.keyboard.press("k")
+        page.wait_for_timeout(50)
+        hidden = page.evaluate(
+            """() => ({
+                display: getComputedStyle(document.getElementById('roi-hover-tooltip')).display,
+                mean: _rois[0].stats.mean,
+            })"""
+        )
+        assert hidden["display"] == "none", f"ROI hover tooltip should hide while scrolled stats are pending, got: {hidden}"
+
+        page.wait_for_function("() => _rois[0] && _rois[0].stats && _rois[0].stats.mean === 5", timeout=3_000)
+        page.wait_for_timeout(100)
+        state = page.evaluate(
+            """() => ({
+                mean: _rois[0].stats.mean,
+                display: getComputedStyle(document.getElementById('roi-hover-tooltip')).display,
+                tooltip: document.getElementById('roi-hover-tooltip')?.innerText || '',
+            })"""
+        )
+
+        assert state["mean"] == 5, f"ROI stats should refresh to the new slice after scrolling settles, got: {state}"
+        assert state["display"] != "none", f"ROI hover tooltip should reappear after refreshed stats arrive, got: {state}"
+        assert "5 ± 0" in state["tooltip"], f"hover tooltip should show refreshed ROI stats, got: {state}"
 
     def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

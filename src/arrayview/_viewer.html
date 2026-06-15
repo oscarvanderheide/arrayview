@@ -5471,16 +5471,16 @@
             const bigSide = bigLeftRects[0]?.w || 0;
             const smallSide = bigLeftRects[1]?.w || 0;
             const bigLeftViable = _supportsWidePrimaryLayout(profile, {
-                minAspect: 1.45,
-                minViewportW: 1450,
-                minViewportH: 820,
+                minAspect: 1.25,
+                minViewportW: 1080,
+                minViewportH: 560,
                 minPrimaryWidth: 520,
-                minSecondaryWidth: 220,
-                minBaselineWidth: 180,
+                minSecondaryWidth: 180,
+                minBaselineWidth: 150,
                 primaryWidth: bigSide,
                 secondaryWidth: smallSide,
                 baselineWidth: horizSide,
-                primaryVsBaselineRatio: 1.22,
+                primaryVsBaselineRatio: 1.08,
             });
             return bigLeftViable ? 'big-left' : 'horizontal';
         }
@@ -11722,6 +11722,7 @@
                             drawVectorOverlay();
                         }
                         updateMiniMap();
+                        if (rectRoiMode || (_roiVisible && _rois.length)) _redrawRoiOverlays();
                         _perfCompleteRequest('ws', seq, {
                             frame_receive_at: frameReceiveTime,
                             draw_ms: _perfNow() - drawT0,
@@ -11956,6 +11957,7 @@
                 drawVectorOverlay();
                 drawSlimColorbar(cbMarkerFrac);
                 updateMiniMap();
+                if (rectRoiMode || (_roiVisible && _rois.length)) _redrawRoiOverlays();
                 if (!_reportedFirstFrame) {
                     _reportedFirstFrame = true;
                     reportParent('frame-rendered', {
@@ -12656,6 +12658,7 @@
             _roiSuppressPixelInfo = false;
             _roiVisible = false;
             _roiFreehandPts = [];
+            if (_roiStatsRefreshTimer) { clearTimeout(_roiStatsRefreshTimer); _roiStatsRefreshTimer = null; }
             _floodFillTolerance = 0.1;
             if (clear) { _rois = []; _selectedRoiIdx = -1; }
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = ''; });
@@ -12665,6 +12668,7 @@
             if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
             if (typeof _hideRoiContextMenu === 'function') _hideRoiContextMenu();
             showStatus(clear ? 'ROI mode: cleared' : 'ROI mode: hidden');
+            renderInfo();
             renderEggs();
             renderIsland();
             _reconcileUI();
@@ -12923,7 +12927,16 @@
             renderIsland();
         }
 
-        function _roiPayload(rois = _rois) {
+        function _roiScopeForCurrentIndices(scope) {
+            const current = scope ? Object.assign({}, scope) : _roiCurrentScope();
+            current.indices = indices.slice();
+            if (Array.isArray(current.broadcast_dims)) current.broadcast_dims = current.broadcast_dims.slice();
+            if (current.values) current.values = Object.assign({}, current.values);
+            if (current.ranges) current.ranges = Object.assign({}, current.ranges);
+            return current;
+        }
+
+        function _roiPayload(rois = _rois, opts = {}) {
             return rois.filter(r => r && r.visible !== false).map((r, i) => ({
                 id: r.id || `roi-${i + 1}`,
                 name: r.name || `ROI ${i + 1}`,
@@ -12934,7 +12947,7 @@
                 points: r.points,
                 bbox: r.bbox,
                 mask_b64: r.mask_b64,
-                scope: r.scope || _roiCurrentScope(),
+                scope: opts.currentIndices ? _roiScopeForCurrentIndices(r.scope) : (r.scope || _roiCurrentScope()),
                 visible: r.visible !== false,
             }));
         }
@@ -12956,7 +12969,7 @@
                         dim_x, dim_y,
                         indices: indices.slice(),
                         complex_mode: complexMode,
-                        rois: _roiPayload([roi]),
+                        rois: _roiPayload([roi], { currentIndices: true }),
                     }),
                 });
                 const data = await resp.json();
@@ -12965,10 +12978,35 @@
                     _rois[idx].stats = result.stats;
                     _rois[idx].statRows = result.rows || [];
                     _updateRoiPanel();
+                    if (rectRoiMode) {
+                        requestAnimationFrame(() => {
+                            canvas.dispatchEvent(new MouseEvent('mousemove', {
+                                clientX: _lastMouseX,
+                                clientY: _lastMouseY,
+                                bubbles: true,
+                            }));
+                        });
+                    }
                 }
             } catch (err) {
                 showToast(`ROI stats: ${err.message}`);
             }
+        }
+
+        let _roiStatsRefreshTimer = null;
+        function _scheduleRoiStatsRefresh(navDim = null) {
+            if (!rectRoiMode || !_rois.length) return;
+            if (Number.isInteger(navDim) && (navDim === dim_x || navDim === dim_y)) return;
+            const hover = document.getElementById('roi-hover-tooltip');
+            if (hover && !_roiTooltipEdit) hover.style.display = 'none';
+            if (_roiStatsRefreshTimer) clearTimeout(_roiStatsRefreshTimer);
+            _roiStatsRefreshTimer = setTimeout(() => {
+                _roiStatsRefreshTimer = null;
+                if (!rectRoiMode || !_rois.length) return;
+                _rois.forEach((r, i) => {
+                    if (r && r.visible !== false) _roiFetchStructuredStats(i);
+                });
+            }, 120);
         }
 
         // ── Shared ROI row hover tooltip ──
@@ -16325,6 +16363,7 @@
             const _navDim = _pendingNavDim;
             _pendingNavDim = null;
             _maybeAutoRecomputeRange(_navDim);
+            _scheduleRoiStatsRefresh(_navDim);
             // Lebesgue / hover caches are version-keyed, so stale entries are
             // never served for the wrong slice.  Don't eagerly clear — the old
             // data remains harmless while the async re-fetch is in flight, and
@@ -19477,6 +19516,7 @@
                     // visible cycles to the next percentile preset and toasts
                     // the new pair. Hold-`d` opens the participation picker.
                     if (rgbMode) return;
+                    if (rectRoiMode) { showStatus('histogram: exit ROI mode first'); return; }
                     if (_histPickerActive) { _histPickerClose(); return; }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
@@ -27499,7 +27539,7 @@
                 if (compareQmriActive) compareQmriViews.forEach(v => compareQmriRender(v));
                 else if (compareMvActive) compareMvViews.forEach(v => compareMvRender(v));
                 else if (multiViewActive) { _maybeAutoRecomputeRange(d); mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); }); }
-                else if (qmriActive) qmriViews.forEach(v => qvRender(v));
+                else if (qmriActive) { qmriViews.forEach(v => qvRender(v)); _scheduleRoiStatsRefresh(d); }
                 else { _pendingNavDim = d; updateView(); return; }
                 _debouncedHoverPrefetch();
             }
@@ -27580,6 +27620,7 @@
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
             } else if (qmriActive) {
                 qmriViews.forEach(v => qvRender(v));
+                _scheduleRoiStatsRefresh(hoveredDim);
             } else {
                 _pendingNavDim = hoveredDim;
                 updateView();
@@ -27879,9 +27920,10 @@
         const _fadeCtx = _fadeCanvas ? _fadeCanvas.getContext('2d') : null;
         function crossFadeIn(newImageData, width, height) {
             // Snapshot old frame to fade canvas, then immediately draw new frame underneath
-            // Skip the fade when a vector overlay is active — the fade canvas sits above
-            // the vfield-canvas and would obscure the new arrows for 90 ms, causing flicker.
-            if (!hasVectorfield && _fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
+            // Skip the fade when image-anchored overlays are active — the fade
+            // canvas sits above them and would briefly obscure the overlay.
+            const roiPinnedOverlay = !!(rectRoiMode && _roiVisible && _rois.length);
+            if (!hasVectorfield && !roiPinnedOverlay && _fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
                 _fadeCanvas.width = width;
                 _fadeCanvas.height = height;
                 _fadeCanvas.style.width = canvas.style.width;
