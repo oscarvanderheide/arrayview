@@ -17085,7 +17085,10 @@
                 const ffRect = canvas.getBoundingClientRect();
                 const ffPx = Math.round((e.clientX - ffRect.left) * canvas.width / ffRect.width);
                 const ffPy = Math.round((e.clientY - ffRect.top) * canvas.height / ffRect.height);
-                _startRoiFloodFillDrag(e, ffPx, ffPy);
+                const hit = _roiHitTest(ffPx, ffPy, Math.max(3, 8 * canvas.width / ffRect.width));
+                const editIdx = hit ? hit.idx : -1;
+                if (editIdx >= 0) _roiSelect(editIdx);
+                _startRoiFloodFillDrag(e, ffPx, ffPy, { editIdx });
                 return;
             }
             // Left-click pan when zoomed in and not in ROI mode.
@@ -17182,23 +17185,38 @@
             return data;
         }
 
-        function _floodFillPreviewRoi(data) {
+        function _floodFillPreviewRoi(data, opts = {}) {
             if (!data || !data.bbox || !data.mask_b64) return null;
             return {
                 type: 'floodfill',
                 bbox: data.bbox,
                 mask_b64: data.mask_b64,
                 stats: { n: data.n, min: data.min, max: data.max, mean: data.mean, std: data.std },
+                seed_px: opts.px,
+                seed_py: opts.py,
+                tolerance: opts.tolerance,
+                replaceIdx: Number.isInteger(opts.replaceIdx) ? opts.replaceIdx : -1,
             };
         }
 
-        function _commitFloodFillData(data) {
-            const roi = _floodFillPreviewRoi(data);
+        function _commitFloodFillData(data, opts = {}) {
+            const roi = _floodFillPreviewRoi(data, opts);
             if (!roi) return false;
-            _roiAdd(roi);
+            if (opts.editIdx >= 0 && opts.editIdx < _rois.length) {
+                const prev = _rois[opts.editIdx];
+                const next = _roiNormalize(roi);
+                next.id = prev.id;
+                next.name = prev.name;
+                next.scope = prev.scope || next.scope;
+                if (prev.visible !== undefined) next.visible = prev.visible;
+                _rois[opts.editIdx] = next;
+                _roiSelect(opts.editIdx, { render: false });
+            } else {
+                _roiAdd(roi);
+            }
             _redrawRoiOverlays();
             _updateRoiPanel();
-            showStatus(`flood fill: ${data.n} pixels · hold + drag vertical to tune`);
+            showStatus(`flood fill: ${data.n} pixels · ${opts.editIdx >= 0 ? 'updated' : 'created'}`);
             return true;
         }
 
@@ -17223,11 +17241,11 @@
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
                     drag.data = data;
                     drag.dataTolerance = tolerance;
-                    _redrawRoiOverlays(_floodFillPreviewRoi(data));
+                    _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx }));
                     showStatus(`flood fill preview: ${data.n} pixels · ${Math.round(tolerance * 100)}% sensitivity`);
                     if (drag.released && Math.abs(drag.tolerance - tolerance) < 0.0001) {
                         _roiFloodFillDrag = null;
-                        _commitFloodFillData(data);
+                        _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance });
                     }
                 })
                 .catch(err => {
@@ -17243,10 +17261,11 @@
                 });
         }
 
-        function _startRoiFloodFillDrag(e, px, py) {
+        function _startRoiFloodFillDrag(e, px, py, opts = {}) {
             _roiFloodFillDrag = {
                 px,
                 py,
+                editIdx: Number.isInteger(opts.editIdx) ? opts.editIdx : -1,
                 startY: e.clientY,
                 baseTolerance: _floodFillTolerance,
                 tolerance: _floodFillTolerance,
@@ -17273,7 +17292,7 @@
                 drag.released = true;
                 if (drag.data && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
                     _roiFloodFillDrag = null;
-                    _commitFloodFillData(drag.data);
+                    _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance });
                 } else {
                     if (!drag.pending) _requestFloodFillPreview(drag);
                     showStatus('flood fill: finishing preview...');
@@ -17420,6 +17439,12 @@
                     if (doStroke) {
                         const oldFill = rctx.fillStyle;
                         rctx.fillStyle = rctx.strokeStyle;
+                        const cellW = Math.max(1, sx);
+                        const cellH = Math.max(1, sy);
+                        const strokeW = Math.max(cellW, rctx.lineWidth);
+                        const strokeH = Math.max(cellH, rctx.lineWidth);
+                        const strokeDx = (strokeW - cellW) / 2;
+                        const strokeDy = (strokeH - cellH) / 2;
                         for (let y = 0; y < bh; y++) {
                             for (let x = 0; x < bw; x++) {
                                 if (!maskBytes[y * bw + x]) continue;
@@ -17427,7 +17452,7 @@
                                     || (x === bw - 1 || !maskBytes[y * bw + x + 1])
                                     || (y === 0 || !maskBytes[(y - 1) * bw + x])
                                     || (y === bh - 1 || !maskBytes[(y + 1) * bw + x]);
-                                if (edge) rctx.fillRect((r.bbox.x0 + x) * sx, (r.bbox.y0 + y) * sy, Math.max(1, sx), Math.max(1, sy));
+                                if (edge) rctx.fillRect((r.bbox.x0 + x) * sx - strokeDx, (r.bbox.y0 + y) * sy - strokeDy, strokeW, strokeH);
                             }
                         }
                         rctx.fillStyle = oldFill;
@@ -17436,17 +17461,17 @@
             }
         }
         function _roiDrawVisibleShape(rctx, r, sx, sy, color, selected) {
-            const baseWidth = selected ? 1.4 : 1.0;
+            const baseWidth = selected ? 1.7 : 1.2;
             rctx.save();
             rctx.lineJoin = 'round';
             rctx.lineCap = 'round';
             rctx.fillStyle = color.fill;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { stroke: false });
-            rctx.strokeStyle = 'rgba(0,0,0,0.62)';
-            rctx.lineWidth = baseWidth + 1.6;
+            rctx.strokeStyle = 'rgba(0,0,0,0.78)';
+            rctx.lineWidth = baseWidth + 2.8;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
             rctx.strokeStyle = 'rgba(255,255,255,0.62)';
-            rctx.lineWidth = baseWidth + 0.7;
+            rctx.lineWidth = baseWidth + 1.0;
             _drawRoiShapeOnCtx(rctx, r, sx, sy, { fill: false });
             rctx.strokeStyle = color.stroke;
             rctx.lineWidth = baseWidth;
@@ -17486,8 +17511,10 @@
             roiOverlayCtx.clearRect(0, 0, dW, dH);
             if (!_roiVisible || (!_rois.length && !previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
             roiOverlayCanvas.style.display = '';
+            const replaceIdx = previewRoi && Number.isInteger(previewRoi.replaceIdx) ? previewRoi.replaceIdx : -1;
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
+                if (i === replaceIdx) continue;
                 if (r.visible === false) continue;
                 const c = _roiColors[i % _roiColors.length];
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
@@ -17498,11 +17525,13 @@
             }
             // Draw in-progress ROI preview
             if (previewRoi) {
-                const c = _roiColors[_rois.length % _roiColors.length];
+                const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
+                const c = _roiColors[colorIdx % _roiColors.length];
                 roiOverlayCtx.fillStyle = c.fill;
                 roiOverlayCtx.strokeStyle = c.stroke;
                 roiOverlayCtx.lineWidth = 1;
                 _drawRoiShapeOnCtx(roiOverlayCtx, previewRoi, sx, sy);
+                if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, previewRoi, sx, sy);
             }
         }
 
