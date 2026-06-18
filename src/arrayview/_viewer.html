@@ -12567,6 +12567,85 @@
         }
         window._roiClearAll = _roiClearAll;
 
+        function _roiClearOnDimChange() {
+            if (!_rois.length) return;
+            _rois = [];
+            _roiNames = {};
+            _selectedRoiIdx = -1;
+            _redrawRoiOverlays();
+            _updateRoiPanel();
+        }
+
+        function _roiTransformMask(bbox, maskB64, fn) {
+            const bw = bbox.x1 - bbox.x0 + 1;
+            const bh = bbox.y1 - bbox.y0 + 1;
+            let raw;
+            try { raw = atob(maskB64); } catch (_e) { return null; }
+            const oldBytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) oldBytes[i] = raw.charCodeAt(i);
+            const pts = [];
+            for (let y = 0; y < bh; y++) {
+                for (let x = 0; x < bw; x++) {
+                    if (oldBytes[y * bw + x]) {
+                        const [nx, ny] = fn(bbox.x0 + x, bbox.y0 + y);
+                        pts.push([Math.round(nx), Math.round(ny)]);
+                    }
+                }
+            }
+            if (!pts.length) return null;
+            let nx0 = Infinity, ny0 = Infinity, nx1 = -Infinity, ny1 = -Infinity;
+            for (const [px, py] of pts) {
+                if (px < nx0) nx0 = px; if (py < ny0) ny0 = py;
+                if (px > nx1) nx1 = px; if (py > ny1) ny1 = py;
+            }
+            const nBw = nx1 - nx0 + 1, nBh = ny1 - ny0 + 1;
+            const newBytes = new Uint8Array(nBw * nBh);
+            for (const [px, py] of pts) newBytes[(py - ny0) * nBw + (px - nx0)] = 1;
+            let bin = '';
+            for (let i = 0; i < newBytes.length; i++) bin += String.fromCharCode(newBytes[i]);
+            return { bbox: { x0: nx0, y0: ny0, x1: nx1, y1: ny1 }, mask_b64: btoa(bin) };
+        }
+
+        function _roiTransformAll(fn, swapDims) {
+            if (!_rois.length) return;
+            for (const r of _rois) {
+                if (!r) continue;
+                if (r.type === 'rect') {
+                    const [a0, b0] = fn(r.x0, r.y0);
+                    const [a1, b1] = fn(r.x1, r.y1);
+                    r.x0 = Math.round(Math.min(a0, a1)); r.y0 = Math.round(Math.min(b0, b1));
+                    r.x1 = Math.round(Math.max(a0, a1)); r.y1 = Math.round(Math.max(b0, b1));
+                } else if (r.type === 'circle') {
+                    const [ncx, ncy] = fn(r.cx, r.cy);
+                    r.cx = Math.round(ncx); r.cy = Math.round(ncy);
+                } else if (r.type === 'freehand' && r.points) {
+                    r.points = r.points.map(p => {
+                        const [nx, ny] = fn(p[0], p[1]);
+                        return [Math.round(nx), Math.round(ny)];
+                    });
+                } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
+                    const res = _roiTransformMask(r.bbox, r.mask_b64, fn);
+                    if (res) { r.bbox = res.bbox; r.mask_b64 = res.mask_b64; }
+                    if (Array.isArray(r.slices)) {
+                        for (const s of r.slices) {
+                            if (s && s.bbox && s.mask_b64) {
+                                const sr = _roiTransformMask(s.bbox, s.mask_b64, fn);
+                                if (sr) { s.bbox = sr.bbox; s.mask_b64 = sr.mask_b64; }
+                            }
+                        }
+                    }
+                    if (swapDims) {
+                        if (Number.isInteger(r.dimX) && Number.isInteger(r.dimY)) { const t = r.dimX; r.dimX = r.dimY; r.dimY = t; }
+                        if (Number.isInteger(r.mvDimX) && Number.isInteger(r.mvDimY)) { const t = r.mvDimX; r.mvDimX = r.mvDimY; r.mvDimY = t; }
+                    }
+                }
+                r.stats = null;
+                r.qmriStats = null;
+            }
+            _redrawRoiOverlays();
+            _updateRoiPanel();
+        }
+
         function _ensureToolRailVisible() {
             toolMenuOpen = _toolPanelIsOpen();
             renderToolMenu();
@@ -12979,6 +13058,8 @@
                 points: r.points,
                 bbox: r.bbox,
                 mask_b64: r.mask_b64,
+                scope_dim: r.scope_dim,
+                slices: r.slices,
                 scope: opts.currentIndices ? _roiScopeForCurrentIndices(r.scope) : (r.scope || _roiCurrentScope()),
                 visible: r.visible !== false,
             }));
@@ -17208,6 +17289,8 @@
                 replaceIdx: Number.isInteger(opts.replaceIdx) ? opts.replaceIdx : -1,
                 mvDimX: opts.view ? opts.view.dimX : opts.mvDimX,
                 mvDimY: opts.view ? opts.view.dimY : opts.mvDimY,
+                dimX: opts.view ? opts.view.dimX : dim_x,
+                dimY: opts.view ? opts.view.dimY : dim_y,
             });
             return roi;
         }
@@ -17335,13 +17418,46 @@
             window.addEventListener('mouseup', onUp);
         }
 
+        function _roiFloodFillActiveSlice(r) {
+            // For a scoped (3D) floodfill, return the per-slice {bbox, mask_b64}
+            // matching the current scroll position along the scope dimension, or
+            // null when the grown 3D region doesn't reach the current slice. For
+            // a plain 2D floodfill, return the seed-slice mask stored on the ROI.
+            if (!r || r.type !== 'floodfill' || !r.bbox || !r.mask_b64) return null;
+            if (Array.isArray(r.slices) && Number.isInteger(r.scope_dim) && r.scope_dim >= 0 && r.scope_dim < indices.length) {
+                const cur = indices[r.scope_dim];
+                const hit = r.slices.find(s => s && s.index === cur);
+                if (!hit || !hit.bbox || !hit.mask_b64) return null;
+                return { bbox: hit.bbox, mask_b64: hit.mask_b64 };
+            }
+            return { bbox: r.bbox, mask_b64: r.mask_b64 };
+        }
+        function _roiIsVisibleOnCurrentSlice(r) {
+            // Whether an ROI should be drawn (shape + label) on the current
+            // view.  Canvas-space shapes (rect/circle/freehand) are always
+            // visible — they select the same canvas region on any plane.
+            // Floodfill ROIs are data-space: hide them when the viewing dims
+            // no longer match the plane the 3D region was grown on, and when
+            // the grown region has no voxels on the current scroll position.
+            if (!r || r.visible === false) return false;
+            if (r.type === 'floodfill') {
+                if (Number.isInteger(r.dimX) && r.dimX !== dim_x) return false;
+                if (Number.isInteger(r.dimY) && r.dimY !== dim_y) return false;
+                if (!_roiFloodFillActiveSlice(r)) return false;
+            }
+            return true;
+        }
         function _roiBounds(r) {
             if (r.type === 'circle') return {x0: r.cx - r.r, y0: r.cy - r.r, x1: r.cx + r.r, y1: r.cy + r.r};
             if (r.type === 'freehand' && r.points && r.points.length) {
                 const xs = r.points.map(p => p[0]), ys = r.points.map(p => p[1]);
                 return {x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys)};
             }
-            if (r.type === 'floodfill' && r.bbox) return {x0: r.bbox.x0, y0: r.bbox.y0, x1: r.bbox.x1, y1: r.bbox.y1};
+            if (r.type === 'floodfill' && r.bbox) {
+                const s = _roiFloodFillActiveSlice(r);
+                const b = s ? s.bbox : r.bbox;
+                return {x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1};
+            }
             return {x0: r.x0 ?? 0, y0: r.y0 ?? 0, x1: r.x1 ?? 0, y1: r.y1 ?? 0};
         }
 
@@ -17366,7 +17482,7 @@
         function _roiHitTest(x, y, tol = 6) {
             for (let i = _rois.length - 1; i >= 0; i--) {
                 const r = _rois[i];
-                if (!r || r.visible === false) continue;
+                if (!_roiIsVisibleOnCurrentSlice(r)) continue;
                 const handle = _roiHandleHit(r, x, y, tol);
                 if (handle) return { idx: i, mode: 'resize', handle };
                 if (_pointInRoi(r, x, y)) return { idx: i, mode: 'move', handle: null };
@@ -17456,41 +17572,44 @@
                 if (doFill) rctx.fillRect(rx - 0.5, ry - 0.5, rw, rh);
                 if (doStroke) rctx.strokeRect(rx, ry, rw - 1, rh - 1);
             } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
-                try {
-                    const raw = atob(r.mask_b64);
-                    const bw = r.bbox.x1 - r.bbox.x0 + 1;
-                    const bh = r.bbox.y1 - r.bbox.y0 + 1;
-                    const maskBytes = new Uint8Array(raw.length);
-                    for (let i = 0; i < raw.length; i++) maskBytes[i] = raw.charCodeAt(i);
-                    if (doFill) {
-                        for (let y = 0; y < bh; y++) {
-                            for (let x = 0; x < bw; x++) {
-                                if (maskBytes[y * bw + x]) rctx.fillRect((r.bbox.x0 + x) * sx, (r.bbox.y0 + y) * sy, Math.max(1, sx), Math.max(1, sy));
+                const slice = _roiFloodFillActiveSlice(r);
+                if (slice) {
+                    try {
+                        const raw = atob(slice.mask_b64);
+                        const bw = slice.bbox.x1 - slice.bbox.x0 + 1;
+                        const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
+                        const maskBytes = new Uint8Array(raw.length);
+                        for (let i = 0; i < raw.length; i++) maskBytes[i] = raw.charCodeAt(i);
+                        if (doFill) {
+                            for (let y = 0; y < bh; y++) {
+                                for (let x = 0; x < bw; x++) {
+                                    if (maskBytes[y * bw + x]) rctx.fillRect((slice.bbox.x0 + x) * sx, (slice.bbox.y0 + y) * sy, Math.max(1, sx), Math.max(1, sy));
+                                }
                             }
                         }
-                    }
-                    if (doStroke) {
-                        const oldFill = rctx.fillStyle;
-                        rctx.fillStyle = rctx.strokeStyle;
-                        const cellW = Math.max(1, sx);
-                        const cellH = Math.max(1, sy);
-                        const strokeW = Math.max(cellW, rctx.lineWidth);
-                        const strokeH = Math.max(cellH, rctx.lineWidth);
-                        const strokeDx = (strokeW - cellW) / 2;
-                        const strokeDy = (strokeH - cellH) / 2;
-                        for (let y = 0; y < bh; y++) {
-                            for (let x = 0; x < bw; x++) {
-                                if (!maskBytes[y * bw + x]) continue;
-                                const edge = (x === 0 || !maskBytes[y * bw + x - 1])
-                                    || (x === bw - 1 || !maskBytes[y * bw + x + 1])
-                                    || (y === 0 || !maskBytes[(y - 1) * bw + x])
-                                    || (y === bh - 1 || !maskBytes[(y + 1) * bw + x]);
-                                if (edge) rctx.fillRect((r.bbox.x0 + x) * sx - strokeDx, (r.bbox.y0 + y) * sy - strokeDy, strokeW, strokeH);
+                        if (doStroke) {
+                            const oldFill = rctx.fillStyle;
+                            rctx.fillStyle = rctx.strokeStyle;
+                            const cellW = Math.max(1, sx);
+                            const cellH = Math.max(1, sy);
+                            const strokeW = Math.max(cellW, rctx.lineWidth);
+                            const strokeH = Math.max(cellH, rctx.lineWidth);
+                            const strokeDx = (strokeW - cellW) / 2;
+                            const strokeDy = (strokeH - cellH) / 2;
+                            for (let y = 0; y < bh; y++) {
+                                for (let x = 0; x < bw; x++) {
+                                    if (!maskBytes[y * bw + x]) continue;
+                                    const edge = (x === 0 || !maskBytes[y * bw + x - 1])
+                                        || (x === bw - 1 || !maskBytes[y * bw + x + 1])
+                                        || (y === 0 || !maskBytes[(y - 1) * bw + x])
+                                        || (y === bh - 1 || !maskBytes[(y + 1) * bw + x]);
+                                    if (edge) rctx.fillRect((slice.bbox.x0 + x) * sx - strokeDx, (slice.bbox.y0 + y) * sy - strokeDy, strokeW, strokeH);
+                                }
                             }
+                            rctx.fillStyle = oldFill;
                         }
-                        rctx.fillStyle = oldFill;
-                    }
-                } catch (_e) { /* ignore malformed floodfill masks */ }
+                    } catch (_e) { /* ignore malformed floodfill masks */ }
+                }
             }
         }
         function _roiDrawVisibleShape(rctx, r, sx, sy, color, selected) {
@@ -17547,6 +17666,7 @@
             for (let i = _rois.length - 1; i >= 0; i--) {
                 const r = _rois[i];
                 if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
+                if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) continue;
                 if (_pointInRoi(r, x, y)) return { idx: i, mode: 'move', handle: null };
             }
             return null;
@@ -17564,7 +17684,7 @@
                 const r = _rois[i];
                 if (i === replaceIdx) continue;
                 if (_roiIsMvPaneRoi(r)) continue;
-                if (r.visible === false) continue;
+                if (!_roiIsVisibleOnCurrentSlice(r)) continue;
                 const c = _roiColors[i % _roiColors.length];
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
                 if (i === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, r, sx, sy);
@@ -17623,6 +17743,7 @@
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
                     if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
+                    if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) continue;
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
                     const lbl = _roiCanvasLabel(i);
@@ -17673,7 +17794,7 @@
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
                     if (_roiIsMvPaneRoi(r)) continue;
-                    if (r.visible === false) continue;
+                    if (!_roiIsVisibleOnCurrentSlice(r)) continue;
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
                     if (i === _selectedRoiIdx) _roiDrawHandles(rctx, r, sx, sy);
@@ -17766,13 +17887,15 @@
                 }
                 return inside;
             } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
-                const x = Math.round(cx) - r.bbox.x0;
-                const y = Math.round(cy) - r.bbox.y0;
-                const bw = r.bbox.x1 - r.bbox.x0 + 1;
-                const bh = r.bbox.y1 - r.bbox.y0 + 1;
+                const slice = _roiFloodFillActiveSlice(r);
+                if (!slice) return false;
+                const x = Math.round(cx) - slice.bbox.x0;
+                const y = Math.round(cy) - slice.bbox.y0;
+                const bw = slice.bbox.x1 - slice.bbox.x0 + 1;
+                const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
                 if (x < 0 || y < 0 || x >= bw || y >= bh) return false;
                 try {
-                    const raw = atob(r.mask_b64);
+                    const raw = atob(slice.mask_b64);
                     return raw.charCodeAt(y * bw + x) > 0;
                 } catch (_e) { return false; }
             }
@@ -17788,7 +17911,7 @@
             const cx = (e.clientX - rect.left) * imgW / rect.width;
             const cy = (e.clientY - rect.top) * imgH / rect.height;
             for (let i = _rois.length - 1; i >= 0; i--) {
-                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy)) return i;
+                if (_roiIsVisibleOnCurrentSlice(_rois[i]) && _pointInRoi(_rois[i], cx, cy)) return i;
             }
             return -1;
         }
@@ -17885,26 +18008,22 @@
                 showToast('display axis — always included');
                 return false;
             }
-            if (!_rois.length) {
-                // No ROI yet — remember the dim as a pending default for the next ROI drawn.
-                if (!Array.isArray(_roiPendingBroadcastDims)) _roiPendingBroadcastDims = [];
-                const pos = _roiPendingBroadcastDims.indexOf(dim);
-                if (pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
-                else _roiPendingBroadcastDims.push(dim);
-                renderInfo();
-                const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
-                showToast(`ROI dim ${dim}: ${label}`);
-                return true;
+            // Clear existing ROIs on scope change — redrawing is fast and old
+            // ROIs were drawn for a different scope configuration.
+            if (_rois.length) {
+                _rois = [];
+                _roiNames = {};
+                _selectedRoiIdx = -1;
+                _redrawRoiOverlays();
+                _updateRoiPanel();
             }
-            _roiManagerToggleDimAll(dim);
-            // Keep the pending default in sync with the resulting state so future ROIs match.
-            const nowIncluded = _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+            // Toggle the pending dim for the next ROI.
             if (!Array.isArray(_roiPendingBroadcastDims)) _roiPendingBroadcastDims = [];
             const pos = _roiPendingBroadcastDims.indexOf(dim);
-            if (nowIncluded && pos < 0) _roiPendingBroadcastDims.push(dim);
-            else if (!nowIncluded && pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
+            if (pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
+            else _roiPendingBroadcastDims.push(dim);
             renderInfo();
-            const label = nowIncluded ? 'all indices included' : 'current index only';
+            const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
             showToast(`ROI dim ${dim}: ${label}`);
             return true;
         }
@@ -19318,10 +19437,12 @@
                         flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         showStatus('transposed x/y (all panes)');
+                        _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
+                    _roiTransformAll((px, py) => [py, px], true);
                     [dim_x, dim_y] = [dim_y, dim_x];
                     [flip_x, flip_y] = [flip_y, flip_x];
                     if (!wasMosaic) dim_z = -1;
@@ -19364,17 +19485,24 @@
                             }
                         });
                         showStatus('rotated 90°');
+                        _roiClearOnDimChange();
                         renderInfo(); saveState();
                     } else if (activeDim === dim_x) {
+                        const _w = canvas.width;
                         flip_x = !flip_x;
+                        _roiTransformAll((px, py) => [_w - 1 - px, py], false);
                         if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else if (activeDim === dim_y) {
+                        const _h = canvas.height;
                         flip_y = !flip_y;
+                        _roiTransformAll((px, py) => [px, _h - 1 - py], false);
                         if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
                         const [odx, ody, ofx, ofy] = [dim_x, dim_y, flip_x, flip_y];
+                        const _w = canvas.width;
+                        _roiTransformAll((px, py) => [py, _w - 1 - px], true);
                         dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
                         updateView(); triggerPreload();
                         showStatus('rotated 90°'); saveState();
@@ -19999,6 +20127,7 @@
                     }
                     if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                     updateView();
+                    _roiClearOnDimChange();
                     if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -20220,6 +20349,7 @@
                     }
                     if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                     updateView();
+                    _roiClearOnDimChange();
                     if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -27739,7 +27869,7 @@
                     [dim_x, dim_y] = [dim_y, dim_x];
                     dim_z = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
-                    updateView(); triggerPreload(); flashAxesIndicators(); sink.focus(); return;
+                    updateView(); _roiClearOnDimChange(); triggerPreload(); flashAxesIndicators(); sink.focus(); return;
                 }
             }
             if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z) {

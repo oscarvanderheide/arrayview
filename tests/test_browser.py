@@ -2506,6 +2506,308 @@ class TestROIDrag:
         assert roi["broadcast"] == [0], f"committed scope should broadcast dim 0, got {roi['broadcast']}"
         assert roi["nSlices"] == 4, f"3D grow should span all 4 slices, got {roi['nSlices']}"
 
+    def test_scoped_floodfill_overlay_changes_per_slice(self, loaded_viewer, client, tmp_path):
+        # Distinct per-slice regions so the 3D component has a different shape
+        # on each slice (all share the seed voxel (5,5) so they're 3D-connected):
+        #   slice 0: (5,5),(5,6)
+        #   slice 1: (5,5)          <- seed slice
+        #   slice 2: (5,5),(6,5),(6,6)
+        #   slice 3: nothing
+        arr = np.zeros((4, 10, 10), dtype=np.float32)
+        arr[0, 5, 5] = 5.0; arr[0, 5, 6] = 5.0
+        arr[1, 5, 5] = 5.0
+        arr[2, 5, 5] = 5.0; arr[2, 6, 5] = 5.0; arr[2, 6, 6] = 5.0
+        path = tmp_path / "roi_scoped_per_slice.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scoped_per_slice"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        page.evaluate("_roiSetShape('floodfill')")
+        # dim 0 is the non-display (slice) dim; make it the broadcast scope.
+        page.locator('#info .dim-label[data-dim="0"]').click()
+        page.wait_for_timeout(150)
+        # Seed on slice 1 at the center voxel (5,5).
+        page.evaluate(
+            """() => {
+                indices[0] = 1;
+                activeDim = 0;
+                current_slice_dim = 0;
+                updateView();
+                renderInfo();
+            }"""
+        )
+        page.wait_for_timeout(400)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        cx = box["x"] + box["width"] * (5.5 / 10)
+        cy = box["y"] + box["height"] * (5.5 / 10)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_timeout(300)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+
+        roi = page.evaluate("() => _rois[0] ? { scopeDim: _rois[0].scope_dim, slices: (_rois[0].slices || []).map(s => s.index) } : null")
+        assert roi is not None, "a scoped flood-fill ROI should have been created"
+        assert roi["scopeDim"] == 0, f"expected scope dim 0, got {roi['scopeDim']}"
+        assert roi["slices"] == [0, 1, 2], f"3D region should span slices 0,1,2, got {roi['slices']}"
+
+        # For each slice, set the scroll position and redraw the overlay, then
+        # sample overlay alpha at the distinguishing voxels. The overlay must
+        # reflect the per-slice mask, not the seed-slice mask on every slice.
+        sample_js = r"""
+        (s) => {
+            indices[0] = s;
+            _redrawRoiOverlays();
+            const ov = document.getElementById('roi-overlay');
+            const ctx = ov.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const dW = parseInt(ov.style.width) || ov.clientWidth;
+            const dH = parseInt(ov.style.height) || ov.clientHeight;
+            const mainCv = document.getElementById('viewer');
+            const sx = dW / mainCv.width;
+            const sy = dH / mainCv.height;
+            const sample = (ix, iy) => {
+                const px = Math.floor((ix + 0.5) * sx * dpr);
+                const py = Math.floor((iy + 0.5) * sy * dpr);
+                return ctx.getImageData(px, py, 1, 1).data[3];
+            };
+            return { v55: sample(5,5), v56: sample(5,6), v65: sample(6,5), v66: sample(6,6) };
+        }
+        """
+        s0 = page.evaluate(sample_js, 0)
+        assert s0["v55"] > 0 and s0["v56"] > 0, f"slice 0 overlay should cover (5,5)&(5,6), got {s0}"
+        assert s0["v65"] == 0 and s0["v66"] == 0, f"slice 0 overlay should not cover (6,*), got {s0}"
+
+        s1 = page.evaluate(sample_js, 1)
+        assert s1["v55"] > 0, f"slice 1 overlay should cover (5,5), got {s1}"
+        assert s1["v56"] == 0 and s1["v65"] == 0 and s1["v66"] == 0, f"slice 1 overlay should be a single voxel, got {s1}"
+
+        s2 = page.evaluate(sample_js, 2)
+        assert s2["v55"] > 0 and s2["v65"] > 0 and s2["v66"] > 0, f"slice 2 overlay should cover (5,5),(6,5),(6,6), got {s2}"
+        assert s2["v56"] == 0, f"slice 2 overlay should not cover (5,6), got {s2}"
+
+        # Slice 3 is outside the grown region: nothing should be drawn.
+        s3 = page.evaluate(sample_js, 3)
+        assert s3 == {"v55": 0, "v56": 0, "v65": 0, "v66": 0}, f"slice 3 overlay should be empty, got {s3}"
+
+        # On the empty slice, the ROI label (the number "1") must also be absent.
+        # Scan the full overlay for any non-transparent pixel.
+        label_present = page.evaluate(
+            r"""
+            (s) => {
+                indices[0] = s;
+                _redrawRoiOverlays();
+                const ov = document.getElementById('roi-overlay');
+                const ctx = ov.getContext('2d');
+                const dpr = window.devicePixelRatio || 1;
+                const w = ov.width, h = ov.height;
+                const img = ctx.getImageData(0, 0, w, h).data;
+                for (let i = 3; i < img.length; i += 4) { if (img[i] > 0) return true; }
+                return false;
+            }
+            """
+        , 3)
+        assert not label_present, "ROI label should not be drawn on a slice with no ROI voxels"
+
+    def test_scoped_floodfill_hidden_on_dim_mismatch(self, loaded_viewer, client, tmp_path):
+        # A scoped floodfill ROI grown on (dim_x=2, dim_y=1) must be hidden
+        # when the user swaps the viewing dims — the per-slice masks are in
+        # the original plane's coordinates and don't apply to the new plane.
+        arr = np.zeros((4, 10, 10), dtype=np.float32)
+        arr[:, 5, 5] = 5.0
+        path = tmp_path / "roi_scoped_dim_mismatch.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scoped_dim_mismatch"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        page.evaluate("_roiSetShape('floodfill')")
+        page.locator('#info .dim-label[data-dim="0"]').click()
+        page.wait_for_timeout(150)
+        page.evaluate(
+            """() => {
+                indices[0] = 1;
+                activeDim = 0;
+                current_slice_dim = 0;
+                updateView();
+                renderInfo();
+            }"""
+        )
+        page.wait_for_timeout(400)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        cx = box["x"] + box["width"] * (5.5 / 10)
+        cy = box["y"] + box["height"] * (5.5 / 10)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_timeout(300)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+
+        dims = page.evaluate("() => ({ dimX: dim_x, dimY: dim_y, roiDimX: _rois[0] && _rois[0].dimX, roiDimY: _rois[0] && _rois[0].dimY })")
+        assert dims["roiDimX"] is not None and dims["roiDimY"] is not None, f"floodfill ROI should track dimX/dimY, got {dims}"
+        assert dims["roiDimX"] == dims["dimX"] and dims["roiDimY"] == dims["dimY"], f"ROI dims should match current dims, got {dims}"
+
+        # Verify the overlay is visible on the matching plane.
+        overlay_visible_before = page.evaluate(
+            """() => {
+                _redrawRoiOverlays();
+                const ov = document.getElementById('roi-overlay');
+                const ctx = ov.getContext('2d');
+                const w = ov.width, h = ov.height;
+                const img = ctx.getImageData(0, 0, w, h).data;
+                for (let i = 3; i < img.length; i += 4) { if (img[i] > 0) return true; }
+                return false;
+            }"""
+        )
+        assert overlay_visible_before, "floodfill overlay should be visible on matching plane"
+
+        # Swap the viewing dims (x ↔ y) via the keybind.
+        page.evaluate(
+            """() => {
+                activeDim = dim_y;
+                const oldDimX = dim_x, oldDimY = dim_y;
+                dim_x = oldDimY; dim_y = oldDimX;
+                updateView();
+                renderInfo();
+            }"""
+        )
+        page.wait_for_timeout(300)
+
+        # After the swap, the ROI's dimX/dimY no longer match → overlay must be empty.
+        overlay_visible_after = page.evaluate(
+            """() => {
+                _redrawRoiOverlays();
+                const ov = document.getElementById('roi-overlay');
+                const ctx = ov.getContext('2d');
+                const w = ov.width, h = ov.height;
+                const img = ctx.getImageData(0, 0, w, h).data;
+                for (let i = 3; i < img.length; i += 4) { if (img[i] > 0) return true; }
+                return false;
+            }"""
+        )
+        assert not overlay_visible_after, "floodfill overlay should be hidden when viewing dims don't match the ROI's plane"
+
+    def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        assert page.evaluate("() => _rois.length") == 1, "ROI should exist after drawing"
+
+        # Find the third (non-display) dim and make it active, then press x
+        # to reassign it to the x-axis.  This changes dim_x, so all ROIs
+        # should be cleared.
+        third = page.evaluate(
+            """() => {
+                for (let i = 0; i < shape.length; i++) {
+                    if (i !== dim_x && i !== dim_y) return i;
+                }
+                return null;
+            }"""
+        )
+        assert third is not None, "expected a third dim for 3D array"
+        page.evaluate(f"() => {{ activeDim = {third}; renderInfo(); }}")
+        page.wait_for_timeout(100)
+        page.keyboard.press("x")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => _rois.length") == 0, "ROIs should be cleared after axis reassignment"
+
+    def test_rois_cleared_on_scope_click(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        assert page.evaluate("() => _rois.length") == 1, "ROI should exist after drawing"
+
+        # Clicking a non-display dim in ROI scope mode should clear ROIs.
+        nondisp = page.evaluate(
+            """() => {
+                const labels = Array.from(document.querySelectorAll('#info .dim-label[data-dim]'));
+                const found = labels.find(el => !el.classList.contains('roi-display-dim'));
+                return found ? Number(found.getAttribute('data-dim')) : null;
+            }"""
+        )
+        assert nondisp is not None
+        page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
+        page.wait_for_timeout(150)
+        assert page.evaluate("() => _rois.length") == 0, "ROIs should be cleared after scope dim click"
+        # Pending broadcast dim should still toggle for the next ROI.
+        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [nondisp], "pending dim should be set for next ROI"
+
+    def test_roi_transposes_with_view(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        before = page.evaluate("() => { const r = _rois[0]; return r ? { type: r.type, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, cx: r.cx, cy: r.cy, rr: r.r, dimX: r.dimX, dimY: r.dimY } : null; }")
+        assert before is not None, "ROI should exist before transpose"
+
+        page.keyboard.press("t")
+        page.wait_for_timeout(400)
+        after = page.evaluate("() => { const r = _rois[0]; return r ? { type: r.type, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, cx: r.cx, cy: r.cy, rr: r.r, dimX: r.dimX, dimY: r.dimY } : null; }")
+        assert after is not None, "ROI should survive transpose"
+        assert page.evaluate("() => _rois.length") == 1, "ROI count should not change on transpose"
+
+        if before["type"] == "rect":
+            assert after["x0"] == before["y0"] and after["y0"] == before["x0"], f"rect bbox should transpose, got {after}"
+            assert after["x1"] == before["y1"] and after["y1"] == before["x1"], f"rect bbox should transpose, got {after}"
+        elif before["type"] == "circle":
+            assert after["cx"] == before["cy"] and after["cy"] == before["cx"], f"circle center should transpose, got {after}"
+            assert after["rr"] == before["rr"], f"circle radius should not change, got {after}"
+        if before["dimX"] is not None:
+            assert after["dimX"] == before["dimY"] and after["dimY"] == before["dimX"], f"floodfill dimX/dimY should swap, got {after}"
+
+    def test_roi_rotates_90_with_view(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        before = page.evaluate(
+            """() => {
+                const r = _rois[0];
+                if (!r) return null;
+                const w = canvas.width;
+                return { type: r.type, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, cx: r.cx, cy: r.cy, rr: r.r, dimX: r.dimX, dimY: r.dimY, cw: w };
+            }"""
+        )
+        assert before is not None, "ROI should exist before rotate"
+
+        # Set activeDim to the third (non-display) dim so `r` does a 90° rotation
+        third = page.evaluate("() => { for (let i = 0; i < shape.length; i++) if (i !== dim_x && i !== dim_y) return i; return null; }")
+        assert third is not None
+        page.evaluate(f"() => {{ activeDim = {third}; renderInfo(); }}")
+        page.wait_for_timeout(100)
+        page.keyboard.press("r")
+        page.wait_for_timeout(400)
+        after = page.evaluate("() => { const r = _rois[0]; return r ? { type: r.type, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, cx: r.cx, cy: r.cy, rr: r.r, dimX: r.dimX, dimY: r.dimY } : null; }")
+        assert after is not None, "ROI should survive rotate"
+        assert page.evaluate("() => _rois.length") == 1, "ROI count should not change on rotate"
+
+        w = before["cw"]
+        if before["type"] == "rect":
+            # (px, py) -> (py, W-1-px)
+            exp_x0 = min(before["y0"], before["y1"])
+            exp_x1 = max(before["y0"], before["y1"])
+            exp_y0 = w - 1 - max(before["x0"], before["x1"])
+            exp_y1 = w - 1 - min(before["x0"], before["x1"])
+            assert after["x0"] == exp_x0 and after["x1"] == exp_x1, f"rect x should come from old y, got {after} expected x=[{exp_x0},{exp_x1}]"
+            assert after["y0"] == exp_y0 and after["y1"] == exp_y1, f"rect y should come from W-1-old_x, got {after} expected y=[{exp_y0},{exp_y1}]"
+        elif before["type"] == "circle":
+            assert after["cx"] == before["cy"], f"circle cx should come from old cy, got {after}"
+            assert after["cy"] == w - 1 - before["cx"], f"circle cy should be W-1-old_cx, got {after}"
+            assert after["rr"] == before["rr"], f"circle radius should not change, got {after}"
+        if before["dimX"] is not None:
+            assert after["dimX"] == before["dimY"] and after["dimY"] == before["dimX"], f"floodfill dimX/dimY should swap, got {after}"
+
     def test_roi_hover_stats_update_after_scroll_settles(self, loaded_viewer, client, tmp_path):
         arr = np.zeros((3, 64, 64), dtype=np.float32)
         arr[0, :, :] = 1
