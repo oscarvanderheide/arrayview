@@ -5497,16 +5497,16 @@
             const bigSide = bigLeftRects[0]?.w || 0;
             const smallSide = bigLeftRects[1]?.w || 0;
             const bigLeftViable = _supportsWidePrimaryLayout(profile, {
-                minAspect: 1.25,
-                minViewportW: 1080,
-                minViewportH: 560,
-                minPrimaryWidth: 520,
-                minSecondaryWidth: 180,
-                minBaselineWidth: 150,
+                minAspect: 1.1,
+                minViewportW: 720,
+                minViewportH: 480,
+                minPrimaryWidth: 360,
+                minSecondaryWidth: 160,
+                minBaselineWidth: 120,
                 primaryWidth: bigSide,
                 secondaryWidth: smallSide,
                 baselineWidth: horizSide,
-                primaryVsBaselineRatio: 1.08,
+                primaryVsBaselineRatio: 1.0,
             });
             return bigLeftViable ? 'big-left' : 'horizontal';
         }

@@ -2097,6 +2097,41 @@ class TestKeyboard:
         assert state["panes"][0]["width"] > state["panes"][1]["width"], f"big-left ortho auto-layout should make the first pane larger than the stacked panes, got: {state}"
         assert state["panes"][1]["top"] < state["panes"][2]["top"], f"big-left ortho auto-layout should stack the secondary panes vertically, got: {state}"
 
+    def test_multiview_auto_layout_falls_back_to_horizontal_on_narrow_viewport(self, loaded_viewer, sid_3d):
+        """big-left is the default for any reasonable viewport; only a truly
+        narrow viewport (e.g. a thin VS Code split) should fall back to the
+        horizontal three-in-a-row layout so the secondary panes stay readable."""
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 600, "height": 700})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        narrow = page.evaluate(
+            """() => ({
+                orthoLayoutMode,
+                orthoAutoLayoutMode: _orthoAutoLayoutMode,
+                rowPosition: getComputedStyle(document.querySelector('#mv-panes')).position,
+            })"""
+        )
+        assert narrow["orthoLayoutMode"] is None, f"narrow viewport should stay in auto mode, got: {narrow}"
+        assert narrow["orthoAutoLayoutMode"] == "horizontal", f"narrow viewport should fall back to horizontal, got: {narrow}"
+        assert narrow["rowPosition"] != "relative", f"horizontal fallback should use legacy row flow, got: {narrow}"
+
+        # A moderately small but usable viewport (VS Code tab) should still
+        # get big-left — that's the regression this commit fixes.
+        page.set_viewport_size({"width": 900, "height": 700})
+        page.wait_for_timeout(200)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+        medium = page.evaluate("() => ({ orthoLayoutMode, orthoAutoLayoutMode: _resolvedOrthoLayoutMode() })")
+        assert medium["orthoAutoLayoutMode"] == "big-left", f"VS Code-tab-sized viewport should default to big-left, got: {medium}"
+
     def test_compare_multiview_uses_single_shared_colorbar_and_aligned_columns(
         self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
     ):
