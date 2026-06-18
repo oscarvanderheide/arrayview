@@ -252,11 +252,24 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         py: int,
         tolerance: float = 0.1,
         complex_mode: int = 0,
+        scope_dim: int | None = None,
         session=Depends(get_session_or_404),
     ):
         if session.rgb_axis is not None:
             return {"error": "not supported for RGB sessions"}
         idx_tuple = tuple(int(v) for v in indices.split(","))
+        if scope_dim is not None:
+            return _scoped_floodfill_response(
+                session,
+                dim_x,
+                dim_y,
+                list(idx_tuple),
+                px,
+                py,
+                tolerance,
+                complex_mode,
+                scope_dim,
+            )
         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
         data = apply_complex_mode(raw, complex_mode)
         h, w = data.shape
@@ -337,7 +350,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
                 raw = extract_slice(session, dim_x, dim_y, idx)
                 data = apply_complex_mode(raw, complex_mode)
-                mask = _roi_mask_for_shape(roi, data.shape)
+                mask = _roi_mask_for_shape(roi, data.shape, idx)
                 finite = _roi_finite_values(data, mask)
                 if finite.size:
                     rows.append(
@@ -383,7 +396,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             label = roi_idx + 1
             for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
                 raw = extract_slice(session, dim_x, dim_y, idx)
-                mask = _roi_mask_for_shape(roi, raw.shape)
+                mask = _roi_mask_for_shape(roi, raw.shape, idx)
                 _write_roi_mask(labels, mask, idx, dim_x, dim_y, label)
 
         buf = io.BytesIO()
@@ -555,6 +568,144 @@ def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
     return base64.b64encode(sub.tobytes()).decode("ascii")
 
 
+def _scoped_floodfill_response(
+    session,
+    dim_x: int,
+    dim_y: int,
+    indices: list[int],
+    px: int,
+    py: int,
+    tolerance: float,
+    complex_mode: int,
+    scope_dim: int,
+) -> dict:
+    shape = session.shape
+    if len(indices) < len(shape):
+        indices.extend(s // 2 for s in shape[len(indices) :])
+    indices = [
+        min(max(int(v), 0), shape[i] - 1)
+        for i, v in enumerate(indices[: len(shape)])
+    ]
+    scope_dim = int(scope_dim)
+    if scope_dim in {dim_x, dim_y} or not (0 <= scope_dim < len(shape)):
+        return {"error": "scope_dim must be exactly one non-display dimension"}
+
+    values = list(range(shape[scope_dim]))
+    planes = []
+    for value in values:
+        idx = list(indices)
+        idx[scope_dim] = value
+        planes.append(
+            apply_complex_mode(
+                extract_slice(session, dim_x, dim_y, idx), complex_mode
+            )
+        )
+    volume = np.stack(planes, axis=0)
+    depth, h, w = volume.shape
+    if not (0 <= py < h and 0 <= px < w):
+        return {"error": "seed out of bounds"}
+
+    seed_z = values.index(indices[scope_dim])
+    seed_val = float(volume[seed_z, py, px])
+    abs_tol = tolerance * (
+        np.nanmax(np.abs(volume)) - np.nanmin(np.abs(volume)) + 1e-10
+    )
+    mask = np.abs(volume - seed_val) <= abs_tol
+    component = _connected_component(mask, (seed_z, py, px))
+    roi_values = volume[component]
+    finite = roi_values[np.isfinite(roi_values)]
+
+    slices = []
+    scoped_values = []
+    for z in range(depth):
+        plane_mask = component[z]
+        if not plane_mask.any():
+            continue
+        ys, xs = np.where(plane_mask)
+        bbox = {
+            "x0": int(xs.min()),
+            "y0": int(ys.min()),
+            "x1": int(xs.max()),
+            "y1": int(ys.max()),
+        }
+        scope_value = values[z]
+        scoped_values.append(scope_value)
+        slices.append(
+            {
+                "index": int(scope_value),
+                "bbox": bbox,
+                "mask_b64": _encode_mask_b64(plane_mask, bbox),
+            }
+        )
+
+    roi = {
+        "type": "floodfill",
+        "scope_dim": int(scope_dim),
+        "scope": {
+            "indices": list(indices),
+            "broadcast_dims": [int(scope_dim)],
+            "values": {str(scope_dim): scoped_values},
+        },
+        "slices": slices,
+    }
+    current_slice = next(
+        (entry for entry in slices if int(entry["index"]) == int(indices[scope_dim])),
+        None,
+    )
+    return {
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
+        "seed_value": _safe_float(seed_val),
+        "tolerance": tolerance,
+        "bbox": current_slice["bbox"] if current_slice else {"x0": 0, "y0": 0, "x1": 0, "y1": 0},
+        "mask_b64": current_slice["mask_b64"] if current_slice else "",
+        "scope": roi["scope"],
+        "slices": slices,
+        "roi": roi,
+    }
+
+
+def _connected_component(mask: np.ndarray, seed: tuple[int, int, int]) -> np.ndarray:
+    try:
+        from scipy.ndimage import label
+
+        labeled, _n_features = label(mask)
+        seed_label = labeled[seed]
+        if seed_label == 0:
+            return np.zeros(mask.shape, dtype=bool)
+        return labeled == seed_label
+    except ImportError:
+        component = np.zeros(mask.shape, dtype=bool)
+        if not mask[seed]:
+            return component
+        stack = [seed]
+        component[seed] = True
+        while stack:
+            cz, cy, cx = stack.pop()
+            for dz, dy, dx in [
+                (-1, 0, 0),
+                (1, 0, 0),
+                (0, -1, 0),
+                (0, 1, 0),
+                (0, 0, -1),
+                (0, 0, 1),
+            ]:
+                nz, ny, nx = cz + dz, cy + dy, cx + dx
+                if (
+                    0 <= nz < mask.shape[0]
+                    and 0 <= ny < mask.shape[1]
+                    and 0 <= nx < mask.shape[2]
+                    and mask[nz, ny, nx]
+                    and not component[nz, ny, nx]
+                ):
+                    component[nz, ny, nx] = True
+                    stack.append((nz, ny, nx))
+        return component
+
+
 def _roi_indices_from_body(body: dict, ndim: int, shape: tuple[int, ...]) -> list[int]:
     raw = body.get("indices", "")
     if isinstance(raw, str):
@@ -625,7 +776,9 @@ def _roi_scope_dims_string(idx: list[int], base_idx: list[int], spatial_dims: se
     return "".join(bits)
 
 
-def _roi_mask_for_shape(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
+def _roi_mask_for_shape(
+    roi: dict, data_shape: tuple[int, int], indices: list[int] | None = None
+) -> np.ndarray:
     h, w = data_shape
     roi_type = roi.get("type", "rect")
     if roi_type == "circle":
@@ -644,7 +797,7 @@ def _roi_mask_for_shape(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
         _PILDraw.Draw(mask_img).polygon([(p[0], p[1]) for p in points], fill=255)
         return np.array(mask_img) > 0
     if roi_type == "floodfill":
-        return _floodfill_roi_mask(roi, data_shape)
+        return _floodfill_roi_mask(roi, data_shape, indices)
 
     x0 = int(round(float(roi.get("x0", 0))))
     y0 = int(round(float(roi.get("y0", 0))))
@@ -660,9 +813,29 @@ def _roi_mask_for_shape(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
     return mask
 
 
-def _floodfill_roi_mask(roi: dict, data_shape: tuple[int, int]) -> np.ndarray:
+def _floodfill_roi_mask(
+    roi: dict, data_shape: tuple[int, int], indices: list[int] | None = None
+) -> np.ndarray:
     h, w = data_shape
     mask = np.zeros((h, w), dtype=bool)
+    if indices is not None and roi.get("slices"):
+        scope_dim = roi.get("scope_dim")
+        if scope_dim is None:
+            scope = roi.get("scope") or {}
+            raw_dims = scope.get("broadcast_dims") or []
+            scope_dim = raw_dims[0] if len(raw_dims) == 1 else None
+        if scope_dim is None:
+            return mask
+        scope_dim = int(scope_dim)
+        if not (0 <= scope_dim < len(indices)):
+            return mask
+        target = int(indices[scope_dim])
+        for entry in roi.get("slices") or []:
+            if int(entry.get("index", -1)) == target:
+                roi = entry
+                break
+        else:
+            return mask
     bbox = roi.get("bbox") or {}
     encoded = roi.get("mask_b64")
     if not encoded:

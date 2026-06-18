@@ -3213,6 +3213,8 @@ class TestFloodFillROI:
         assert "seed_value" in body
         assert "bbox" in body
         assert "mask_b64" in body
+        assert "slices" not in body
+        assert "roi" not in body
 
     def test_floodfill_unknown_sid_is_404(self, client):
         r = client.get(
@@ -3226,6 +3228,69 @@ class TestFloodFillROI:
             },
         )
         assert r.status_code == 404
+
+    def test_scoped_floodfill_spans_connected_slices_only(self, client, tmp_path):
+        arr = np.full((4, 7, 7), 10.0, dtype=np.float32)
+        arr[0, 3, 3] = 1.0
+        arr[1, 3, 3] = 1.0
+        arr[2, 3, 3] = 1.0
+        arr[2, 3, 4] = 1.0
+        arr[3, 0, 0] = 1.0
+        path = tmp_path / "roi_scoped_floodfill.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        r = client.get(
+            f"/roi_floodfill/{sid}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "1,3,3",
+                "px": 3,
+                "py": 3,
+                "tolerance": 0.01,
+                "scope_dim": 0,
+            },
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["n"] == 4
+        assert [entry["index"] for entry in body["slices"]] == [0, 1, 2]
+        roi = body["roi"]
+
+        stats_r = client.post(
+            f"/roi_stats/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [1, 3, 3],
+                "rois": [roi],
+            },
+        )
+        assert stats_r.status_code == 200
+        result = stats_r.json()["results"][0]
+        assert result["stats"]["n"] == 4
+        assert result["stats"]["mean"] == pytest.approx(1.0)
+        assert [row["indices"][0] for row in result["rows"]] == [0, 1, 2]
+
+        mask_r = client.post(
+            f"/roi_mask/{sid}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [1, 3, 3],
+                "rois": [roi],
+            },
+        )
+        assert mask_r.status_code == 200
+        mask = np.load(io.BytesIO(mask_r.content))
+        expected = np.zeros_like(arr, dtype=np.uint16)
+        expected[0, 3, 3] = 1
+        expected[1, 3, 3] = 1
+        expected[2, 3, 3] = 1
+        expected[2, 3, 4] = 1
+        np.testing.assert_array_equal(mask, expected)
 
 
 class TestStructuredROI:
