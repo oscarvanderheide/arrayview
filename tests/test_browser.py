@@ -2308,6 +2308,104 @@ class TestROIDrag:
         page.wait_for_timeout(800)
         return x0, y0, x1, y1
 
+    def test_shift_r_flips_mv_colorbar_to_roi_toolbar_in_v_mode(self, loaded_viewer, sid_3d):
+        """In ortho/v-mode the ROI toolbar should appear on the back face of
+        the multiview colorbar flip (ROI takes priority over the oblique
+        Alt-hold reveal). The single-view slim-cb-wrap stays hidden."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        page.keyboard.press("Shift+R")
+        page.wait_for_function(
+            "() => { const i = document.querySelector('.oblique-flip-inner');"
+            " return i && i.classList.contains('flipped') && i.classList.contains('roi-flipped'); }",
+            timeout=3_000,
+        )
+        state = page.evaluate(
+            """() => ({
+                rectRoiMode,
+                roiBackDisplay: getComputedStyle(document.querySelector('.roi-flip-back')).display,
+                obBackDisplay: getComputedStyle(document.querySelector('.oblique-flip-back')).display,
+                mvControlsBtns: document.querySelectorAll('#roi-cb-controls-mv button').length,
+                mvControlsVisible: document.getElementById('roi-cb-controls-mv').offsetParent !== null,
+                slimDisplay: getComputedStyle(document.getElementById('slim-cb-wrap')).display,
+            })"""
+        )
+        assert state["rectRoiMode"], f"ROI mode should activate in v-mode, got: {state}"
+        assert state["roiBackDisplay"] == "flex", f"ROI back face should show, got: {state}"
+        assert state["obBackDisplay"] == "none", f"oblique back face should hide, got: {state}"
+        assert state["mvControlsBtns"] == 6, f"ROI toolbar should render 6 buttons (4 shapes + stats + clear), got: {state}"
+        assert state["mvControlsVisible"], f"mv ROI controls should be visible, got: {state}"
+        assert state["slimDisplay"] == "none", f"slim-cb-wrap should stay hidden in v-mode, got: {state}"
+
+        # Toggling ROI off un-flips and restores the oblique back face.
+        page.keyboard.press("Shift+R")
+        page.wait_for_function(
+            "() => { const i = document.querySelector('.oblique-flip-inner');"
+            " return i && !i.classList.contains('flipped') && !i.classList.contains('roi-flipped'); }",
+            timeout=3_000,
+        )
+        off = page.evaluate(
+            """() => ({
+                rectRoiMode,
+                obBackDisplay: getComputedStyle(document.querySelector('.oblique-flip-back')).display,
+                roiBackDisplay: getComputedStyle(document.querySelector('.roi-flip-back')).display,
+            })"""
+        )
+        assert not off["rectRoiMode"], f"ROI mode should deactivate, got: {off}"
+        assert off["obBackDisplay"] == "flex", f"oblique back face should restore, got: {off}"
+        assert off["roiBackDisplay"] == "none", f"ROI back face should hide, got: {off}"
+
+    def test_v_mode_roi_marks_all_three_spatial_dims_as_display(self, loaded_viewer, sid_3d):
+        """In v-mode all three spatial dims are displayed (each in at least one
+        pane), so the dimbar should mark all of them roi-display-dim (purple)."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#info.roi-scope-mode", timeout=2_000)
+        labels = page.evaluate(
+            """() => Array.from(document.querySelectorAll('#info .dim-label[data-dim]')).map(el => ({
+                dim: el.getAttribute('data-dim'),
+                isDisplayDim: el.classList.contains('roi-display-dim'),
+            }))"""
+        )
+        spatial = [l for l in labels if l["isDisplayDim"]]
+        assert len(spatial) == 3, f"All 3 spatial dims should be roi-display-dim in v-mode, got: {labels}"
+
+    def test_v_mode_roi_draws_circle_on_mv_pane(self, loaded_viewer, sid_3d):
+        """Circle/rect/freehand ROIs should be drawable on mv panes in v-mode,
+        tagged with the pane's mvDimX/mvDimY so they render on the right pane."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector(".oblique-flip-inner.roi-flipped", timeout=2_000)
+        page.evaluate("() => _roiSetShape('circle')")
+        page.wait_for_timeout(200)
+
+        pane = page.locator(".mv-canvas").nth(0)
+        box = pane.bounding_box()
+        x0, y0 = box["x"] + box["width"] * 0.2, box["y"] + box["height"] * 0.2
+        x1, y1 = box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.6
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(800)
+
+        roi = page.evaluate("() => _rois[0] ? { type: _rois[0].type, mvDimX: _rois[0].mvDimX, mvDimY: _rois[0].mvDimY } : null")
+        assert roi is not None, "ROI should be created on mv pane"
+        assert roi["type"] == "circle", f"ROI should be circle, got: {roi}"
+        assert roi["mvDimX"] is not None and roi["mvDimY"] is not None, f"ROI should have mvDimX/mvDimY, got: {roi}"
+
     def test_shift_r_hide_show_preserves_rois(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)

@@ -3089,6 +3089,29 @@
         }
         :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
 
+        /* ROI back face for the multiview colorbar flip — revealed instead of
+           the oblique back face when ROI mode is active in v-mode. Same shell
+           as .oblique-flip-back so the flip animation keeps a fixed footprint,
+           but overflow visible so the wider ROI toolbar isn't clipped. */
+        .roi-flip-back {
+            position: absolute; inset: 0;
+            transform: rotateX(180deg);
+            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+            border-radius: 14px;
+            background: rgb(26, 26, 26);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 2px 10px;
+            display: none;
+            align-items: center; justify-content: center;
+            gap: 6px;
+            box-sizing: border-box;
+            overflow: visible;
+        }
+        :root.light .roi-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
+        /* ROI takes priority over the oblique back face when both could show. */
+        .oblique-flip-inner.roi-flipped .roi-flip-back { display: flex; }
+        .oblique-flip-inner.roi-flipped .oblique-flip-back { display: none; }
+
         .ob-label {
             font-size: 10px; color: var(--active-dim);
             letter-spacing: normal; text-transform: none;
@@ -4267,7 +4290,7 @@
                     <div id="slim-cb-tooltip"></div>
                 </div>
                 <div id="roi-cb-back" class="roi-cb-back">
-                    <div id="roi-cb-controls" aria-label="ROI controls"></div>
+                    <div id="roi-cb-controls" class="roi-cb-controls" aria-label="ROI controls"></div>
                 </div>
             </div>
         </div>
@@ -5004,6 +5027,7 @@
         let _roiFloodFillDrag = null; // press-hold seed growing preview state
         let _roiContextJustOpened = false;
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
+        let _mvRoiDragView = null; // which multiview pane initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
         let _toolLauncherOpen = false;
@@ -12735,6 +12759,8 @@
             _roiSuppressPixelInfo = false;
             _roiVisible = false;
             _roiFreehandPts = [];
+            _mvRoiDragView = null;
+            roiDragging = false;
             if (_roiStatsRefreshTimer) { clearTimeout(_roiStatsRefreshTimer); _roiStatsRefreshTimer = null; }
             _floodFillTolerance = 0.1;
             if (clear) { _rois = []; _selectedRoiIdx = -1; }
@@ -14465,8 +14491,13 @@
         function _reconcileObliqueFlip() {
             const inner = document.querySelector('.oblique-flip-inner');
             if (!inner) return;
-            const shouldFlip = multiViewActive && !compareMvActive && (_obliqueAltHeld || _obliqueBackHovered);
-            inner.classList.toggle('flipped', shouldFlip);
+            const mv = multiViewActive && !compareMvActive;
+            // ROI mode is persistent — it owns the back face when active. The
+            // oblique Alt-hold reveal is still available while ROI is off.
+            const roiFlip = mv && rectRoiMode;
+            const obFlip = mv && (_obliqueAltHeld || _obliqueBackHovered);
+            inner.classList.toggle('flipped', roiFlip || obFlip);
+            inner.classList.toggle('roi-flipped', roiFlip);
         }
 
         /** Build the flip wrapper around an existing `.cb-island` node, insert
@@ -14515,7 +14546,19 @@
                 + '</div>';
             inner.appendChild(back);
 
-            // Wire handlers.
+            // Build the ROI back face — shown when ROI mode is active in
+            // v-mode (takes priority over the oblique back face via the
+            // .roi-flipped class on the inner). Reuses .roi-cb-controls so
+            // _renderRoiColorbarControls() populates it alongside the
+            // single-view instance.
+            const roiBack = document.createElement('div');
+            roiBack.className = 'roi-flip-back';
+            const roiControls = document.createElement('div');
+            roiControls.className = 'roi-cb-controls';
+            roiControls.id = 'roi-cb-controls-mv';
+            roiControls.setAttribute('aria-label', 'ROI controls');
+            roiBack.appendChild(roiControls);
+            inner.appendChild(roiBack);
             const btnLock = back.querySelector('#oblique-lock-btn');
             const btnSave = back.querySelector('#oblique-save-btn');
             const btnReset = back.querySelector('#oblique-reset-btn');
@@ -15080,7 +15123,7 @@
                 }
                 labels.forEach(el => {
                     const i = Number(el.getAttribute('data-dim'));
-                    const display = i === dim_x || i === dim_y;
+                    const display = multiViewActive ? mvDims.includes(i) : (i === dim_x || i === dim_y);
                     const included = _roiDimIncluded(i);
                     el.classList.toggle('roi-display-dim', display);
                     el.classList.toggle('roi-included-dim', !display && included);
@@ -17844,6 +17887,32 @@
             _fetchQvRoiStats(roiIdx);
             renderEggs();
         }
+        function _finalizeMvRoi(view) {
+            if (!rectRoiMode || !view) return;
+            const roiIdx = _rois.length;
+            const mv = { mvDimX: view.dimX, mvDimY: view.dimY };
+            if (_roiShape === 'circle') {
+                const cx = (roiStart.x + roiEnd.x) / 2, cy = (roiStart.y + roiEnd.y) / 2;
+                const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2;
+                if (r < 2) { _drawAllMvRois(); return; }
+                _roiAdd({type:'circle', cx:Math.round(cx), cy:Math.round(cy), r:Math.round(r), stats:null, ...mv});
+            } else if (_roiShape === 'freehand') {
+                const pts = _roiFreehandPts.slice(); _roiFreehandPts = [];
+                if (pts.length < 5) { _drawAllMvRois(); return; }
+                _roiAdd({type:'freehand', points:pts, stats:null, ...mv});
+            } else {
+                const rw = Math.abs(roiEnd.x - roiStart.x), rh = Math.abs(roiEnd.y - roiStart.y);
+                if (rw < 3 || rh < 3) { _drawAllMvRois(); return; }
+                const x0 = Math.round(Math.min(roiStart.x, roiEnd.x));
+                const y0 = Math.round(Math.min(roiStart.y, roiEnd.y));
+                const x1 = Math.round(Math.max(roiStart.x, roiEnd.x));
+                const y1 = Math.round(Math.max(roiStart.y, roiEnd.y));
+                _roiAdd({type:'rect', x0, y0, x1, y1, stats:null, ...mv});
+            }
+            _drawAllMvRois();
+            _roiFetchStructuredStats(roiIdx);
+            renderEggs();
+        }
         function _fetchQvRoiStats(roiIdx) {
             const roi = _rois[roiIdx];
             if (!roi || !qmriActive) return;
@@ -17997,14 +18066,14 @@
         }
 
         function _roiDimIncluded(dim) {
-            if (dim === dim_x || dim === dim_y) return true;
+            if (multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y)) return true;
             if (_rois.length > 0) return _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
             return Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.includes(dim);
         }
 
         function _roiToggleScopeDimAll(dim) {
             if (!_roiDimControlsVisible() || !Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
-            if (dim === dim_x || dim === dim_y) {
+            if (multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y)) {
                 showToast('display axis — always included');
                 return false;
             }
@@ -18030,7 +18099,7 @@
 
         function _roiTooltipTextForDim(dim) {
             const stateLabel = (cls, text) => `<span class="hist-tip-state ${cls}">${text}</span>`;
-            const locked = dim === dim_x || dim === dim_y;
+            const locked = multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y);
             if (locked) {
                 return `<div class="hist-tip-title">DISPLAY AXIS — always ${stateLabel('scope', 'INCLUDED')}.</div>`
                     + `<ul class="hist-tip-list"><li>ROI geometry is drawn on this displayed plane.</li><li>Click other dims to include all indices in ROI statistics.</li></ul>`;
@@ -24089,15 +24158,88 @@
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
                     if (rectRoiMode) {
                         e.stopImmediatePropagation();
+                        if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
                         if (_roiShape === 'floodfill') {
-                            if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
                             const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
                             const editIdx = hit ? hit.idx : -1;
                             if (editIdx >= 0) _roiSelect(editIdx);
                             _startRoiFloodFillDrag(e, Math.round(px), Math.round(py), { editIdx, view });
                             return;
                         }
-                        showStatus('ROI in 3-plane view: choose floodfill');
+                        // Hit-test existing ROIs on this pane for select/edit.
+                        const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
+                        if (hit) {
+                            _roiSelect(hit.idx);
+                            _roiEditDrag = { idx: hit.idx, mode: hit.mode, handle: hit.handle, startX: px, startY: py, clientX: e.clientX, clientY: e.clientY, moved: false, snapshot: _roiCloneGeometry(_rois[hit.idx]) };
+                            cv.style.cursor = hit.mode === 'resize' ? 'nwse-resize' : 'move';
+                            const onEditMove = (me) => {
+                                if (!_roiEditDrag) return;
+                                const er = cv.getBoundingClientRect();
+                                const x = (me.clientX - er.left) * view.lastW / er.width;
+                                const y = (me.clientY - er.top) * view.lastH / er.height;
+                                const r = _rois[_roiEditDrag.idx];
+                                if (!r) return;
+                                if (_roiEditDrag.mode === 'resize') _roiResizeGeometry(r, x, y, _roiEditDrag.handle, _roiEditDrag.snapshot);
+                                else _roiMoveGeometry(r, x - _roiEditDrag.startX, y - _roiEditDrag.startY, _roiEditDrag.snapshot);
+                                r.stats = null;
+                                _drawAllMvRois();
+                                renderIsland();
+                            };
+                            const onEditUp = () => {
+                                window.removeEventListener('mousemove', onEditMove);
+                                window.removeEventListener('mouseup', onEditUp);
+                                const idx = _roiEditDrag ? _roiEditDrag.idx : -1;
+                                _roiEditDrag = null;
+                                cv.style.cursor = 'crosshair';
+                                _drawAllMvRois();
+                                if (idx >= 0) _roiFetchStructuredStats(idx);
+                            };
+                            window.addEventListener('mousemove', onEditMove);
+                            window.addEventListener('mouseup', onEditUp);
+                            return;
+                        }
+                        // Start drawing a new ROI on this pane (circle/rect/freehand).
+                        roiDragging = true;
+                        _mvRoiDragView = view;
+                        roiStart = roiEnd = { x: px, y: py };
+                        if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
+                        const onMove = (me) => {
+                            if (!roiDragging || !_mvRoiDragView) return;
+                            const v = _mvRoiDragView;
+                            const mr = v.canvas.getBoundingClientRect();
+                            roiEnd = {
+                                x: (me.clientX - mr.left) * v.lastW / mr.width,
+                                y: (me.clientY - mr.top) * v.lastH / mr.height,
+                            };
+                            let previewRoi = null;
+                            if (_roiShape === 'circle') {
+                                const pcx = (roiStart.x + roiEnd.x) / 2, pcy = (roiStart.y + roiEnd.y) / 2;
+                                const pr = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2;
+                                previewRoi = { type: 'circle', cx: pcx, cy: pcy, r: pr, mvDimX: v.dimX, mvDimY: v.dimY };
+                            } else if (_roiShape === 'freehand') {
+                                _roiFreehandPts.push([roiEnd.x, roiEnd.y]);
+                                if (_roiFreehandPts.length > 2) previewRoi = { type: 'freehand', points: _roiFreehandPts, mvDimX: v.dimX, mvDimY: v.dimY };
+                            } else {
+                                previewRoi = {
+                                    type: 'rect',
+                                    x0: Math.min(roiStart.x, roiEnd.x), y0: Math.min(roiStart.y, roiEnd.y),
+                                    x1: Math.max(roiStart.x, roiEnd.x), y1: Math.max(roiStart.y, roiEnd.y),
+                                    mvDimX: v.dimX, mvDimY: v.dimY,
+                                };
+                            }
+                            _drawAllMvRois(previewRoi);
+                        };
+                        const onUp = () => {
+                            window.removeEventListener('mousemove', onMove);
+                            window.removeEventListener('mouseup', onUp);
+                            if (!roiDragging) return;
+                            roiDragging = false;
+                            const v = _mvRoiDragView;
+                            _mvRoiDragView = null;
+                            _finalizeMvRoi(v);
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
                         return;
                     }
                     // Crop drag-handle on mv pane: take priority when NOT
@@ -29286,8 +29428,8 @@
         // Single entry point that reconciles all UI state from current flags.
         // Call after any mode state change.
         function _renderRoiColorbarControls() {
-            const el = document.getElementById('roi-cb-controls');
-            if (!el) return;
+            const containers = document.querySelectorAll('.roi-cb-controls');
+            if (!containers.length) return;
             const shapes = ['circle', 'rect', 'freehand', 'floodfill'];
             let html = '<span class="roi-cb-label">ROI:</span><div class="roi-cb-shapes">';
             for (const shapeName of shapes) {
@@ -29299,20 +29441,25 @@
             html += '<div class="roi-cb-sep"></div>';
             html += `<button type="button" class="roi-cb-btn icon" title="ROI stats" aria-label="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}</button>`;
             html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" ${_rois.length ? '' : 'disabled'} onclick="event.stopPropagation(); if (_rois.length) _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
-            el.innerHTML = html;
+            containers.forEach(el => { el.innerHTML = html; });
         }
 
         function _reconcileRoiColorbarControls() {
-            const el = document.getElementById('roi-cb-controls');
-            if (!el) return;
-            const visible = !!(rectRoiMode && _sharedCbVisible && colorbarVisible() && !compareActive && !multiViewActive && !compareMvActive && !qmriActive && !compareQmriActive);
+            const singleVisible = !!(rectRoiMode && _sharedCbVisible && colorbarVisible() && !compareActive && !multiViewActive && !compareMvActive && !qmriActive && !compareQmriActive);
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap) {
-                cbWrap.classList.toggle('roi-active', visible);
-                if (rectRoiMode) cbWrap.style.display = visible ? '' : 'none';
+                cbWrap.classList.toggle('roi-active', singleVisible);
+                if (rectRoiMode) cbWrap.style.display = singleVisible ? '' : 'none';
             }
-            if (visible) _renderRoiColorbarControls();
-            el.setAttribute('aria-hidden', visible ? 'false' : 'true');
+            // In v-mode the ROI toolbar lives on the back face of the mv
+            // colorbar flip (built by _buildObliqueFlipWrap). ROI takes
+            // priority over the oblique Alt-hold reveal.
+            const mvRoiActive = !!(rectRoiMode && multiViewActive && !compareMvActive);
+            if (rectRoiMode) _renderRoiColorbarControls();
+            document.querySelectorAll('.roi-cb-controls').forEach(el => {
+                el.setAttribute('aria-hidden', (singleVisible || mvRoiActive) ? 'false' : 'true');
+            });
+            if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
         }
 
         function _reconcileUI() {
