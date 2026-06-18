@@ -3004,6 +3004,78 @@ class TestROIDrag:
         assert z_back is not None and 4 <= z_back <= 7, f"scroll back should re-enter block (4<=z<=7), got z={z_back}"
         assert pane_present(0), f"3D ROI should reappear on pane 0 at z={z_back}"
 
+    def test_vmode_floodfill_3d_default_all_panes(self, loaded_viewer, client, tmp_path):
+        # Seeding a floodfill in ANY of the three v-mode panes should default
+        # to 3D (scope = that pane's sliceDir), not just the first pane.
+        arr = np.zeros((16, 16, 16), dtype=np.float32)
+        arr[4:8, 4:8, 4:8] = 5.0
+        path = tmp_path / "roi_vmode_all_panes.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "block"}, timeout=15).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("v"); page.wait_for_timeout(900)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.evaluate("_roiSetShape('floodfill')"); page.wait_for_timeout(150)
+        for pane_idx in range(3):
+            page.evaluate("() => { _rois.length = 0; _redrawRoiOverlays(); }")
+            page.wait_for_timeout(150)
+            page.evaluate("() => { indices[0]=6; indices[1]=6; indices[2]=6; mvViews.forEach(v=>mvRender(v)); }")
+            page.wait_for_timeout(300)
+            info = page.evaluate("""(i) => {
+                const v = mvViews[i]; const r = v.canvas.getBoundingClientRect();
+                return { x: r.x + r.width/2, y: r.y + r.height/2, sliceDir: v.sliceDir };
+            }""", pane_idx)
+            page.mouse.move(info["x"], info["y"])
+            page.mouse.down(); page.wait_for_timeout(450); page.mouse.up()
+            page.wait_for_timeout(400)
+            roi = page.evaluate("() => _rois[0] ? { scopeDim: _rois[0].scope_dim, has3d: !!_rois[0].mask3d_b64 } : null")
+            assert roi is not None, f"pane {pane_idx}: ROI should be created"
+            assert roi["scopeDim"] == info["sliceDir"], f"pane {pane_idx}: scopeDim ({roi['scopeDim']}) should equal sliceDir ({info['sliceDir']})"
+            assert roi["has3d"], f"pane {pane_idx}: should have 3D mask"
+
+    def test_roi_stats_correct_after_flip(self, loaded_viewer, client, tmp_path):
+        # After flip_x, a rect drawn on the left half of the display should
+        # compute stats on the data pixels visible there (the right half of
+        # the data), not the unflipped left half.
+        arr = np.full((1, 20, 20), 20.0, dtype=np.float32)
+        arr[0, 0:10, :] = 10.0  # dim 1 [0:10] = 10 → left half when dim_x=1
+        path = tmp_path / "roi_flip_stats.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "half"}, timeout=15).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=3_000)
+        page.evaluate("_roiSetShape('rect')"); page.wait_for_timeout(150)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        x0 = box["x"] + box["width"] * 0.05
+        y0 = box["y"] + box["height"] * 0.1
+        x1 = box["x"] + box["width"] * 0.45
+        y1 = box["y"] + box["height"] * 0.9
+
+        # Without flip: rect on left half (value=10)
+        page.mouse.move(x0, y0); page.mouse.down()
+        page.mouse.move(x1, y1, steps=8); page.wait_for_timeout(100); page.mouse.up()
+        page.wait_for_timeout(600)
+        stats = page.evaluate("() => _rois[0] && _rois[0].stats")
+        assert stats is not None, "ROI stats should be fetched"
+        assert abs(stats["mean"] - 10.0) < 0.1, f"no-flip mean should be ~10, got {stats['mean']}"
+
+        # Flip x, draw same rect on left half of display (now shows value=20)
+        page.evaluate("() => { _rois.length = 0; _redrawRoiOverlays(); }")
+        page.wait_for_timeout(200)
+        page.evaluate("() => { flip_x = !flip_x; updateView(); }")
+        page.wait_for_timeout(400)
+        page.mouse.move(x0, y0); page.mouse.down()
+        page.mouse.move(x1, y1, steps=8); page.wait_for_timeout(100); page.mouse.up()
+        page.wait_for_timeout(600)
+        stats_flip = page.evaluate("() => _rois[0] && _rois[0].stats")
+        assert stats_flip is not None, "ROI stats should be fetched after flip"
+        assert abs(stats_flip["mean"] - 20.0) < 0.1, f"flipped mean should be ~20, got {stats_flip['mean']}"
+
     def test_vmode_roi_toolbar_buttons_fit_in_island(self, loaded_viewer, client, tmp_path):
         # The v-mode ROI toolbar (on the colorbar flip-back) must lay its
         # buttons out in a single row inside the island, not wrap/overflow.

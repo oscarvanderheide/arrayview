@@ -13091,22 +13091,57 @@
             return current;
         }
 
+        // Un-flip ROI coordinates from display (canvas) space to data space
+        // before sending to the server. The image is rendered with flip applied
+        // to the pixel data (applyFlips), so canvas x shows data pixel w-1-x
+        // when flip_x is true. ROI shapes are stored in display space; the
+        // server works in data space. Floodfill masks are already in data
+        // space (server-returned), so they are NOT un-flipped here.
+        function _roiUnflipForServer(r, w, h, fx, fy) {
+            if (!fx && !fy) return r;
+            if (r.type === 'rect') {
+                const out = Object.assign({}, r);
+                if (fx) { out.x0 = w - 1 - r.x1; out.x1 = w - 1 - r.x0; }
+                if (fy) { out.y0 = h - 1 - r.y1; out.y1 = h - 1 - r.y0; }
+                return out;
+            }
+            if (r.type === 'circle') {
+                const out = Object.assign({}, r);
+                if (fx) out.cx = w - 1 - r.cx;
+                if (fy) out.cy = h - 1 - r.cy;
+                return out;
+            }
+            if (r.type === 'freehand' && r.points) {
+                const out = Object.assign({}, r);
+                out.points = r.points.map(p => [
+                    fx ? w - 1 - p[0] : p[0],
+                    fy ? h - 1 - p[1] : p[1],
+                ]);
+                return out;
+            }
+            return r;
+        }
+
         function _roiPayload(rois = _rois, opts = {}) {
-            return rois.filter(r => r && r.visible !== false).map((r, i) => ({
-                id: r.id || `roi-${i + 1}`,
-                name: r.name || `ROI ${i + 1}`,
-                label: i + 1,
-                type: r.type,
-                x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1,
-                cx: r.cx, cy: r.cy, r: r.r,
-                points: r.points,
-                bbox: r.bbox,
-                mask_b64: r.mask_b64,
-                scope_dim: r.scope_dim,
-                slices: r.slices,
-                scope: opts.currentIndices ? _roiScopeForCurrentIndices(r.scope) : (r.scope || _roiCurrentScope()),
-                visible: r.visible !== false,
-            }));
+            const w = shape[dim_x] || 0, h = shape[dim_y] || 0;
+            return rois.filter(r => r && r.visible !== false).map((r, i) => {
+                const u = _roiUnflipForServer(r, w, h, flip_x, flip_y);
+                return {
+                    id: r.id || `roi-${i + 1}`,
+                    name: r.name || `ROI ${i + 1}`,
+                    label: i + 1,
+                    type: r.type,
+                    x0: u.x0, y0: u.y0, x1: u.x1, y1: u.y1,
+                    cx: u.cx, cy: u.cy, r: u.r,
+                    points: u.points,
+                    bbox: r.bbox,
+                    mask_b64: r.mask_b64,
+                    scope_dim: r.scope_dim,
+                    slices: r.slices,
+                    scope: opts.currentIndices ? _roiScopeForCurrentIndices(r.scope) : (r.scope || _roiCurrentScope()),
+                    visible: r.visible !== false,
+                };
+            });
         }
 
         function _roiCsvEscape(v) {
@@ -17318,12 +17353,23 @@
         }
         async function _fetchFloodFill(px, py, tolerance, opts = {}) {
             const view = opts.view || null;
+            // Un-flip the seed from display (canvas) space to data space — the
+            // image is rendered with flip applied to pixel data, so the pixel
+            // the user clicks at canvas (px, py) is data pixel (w-1-px, h-1-py)
+            // when flip is active. The server works in data space.
+            const dimXRef = view ? view.dimX : dim_x;
+            const dimYRef = view ? view.dimY : dim_y;
+            const fx = view ? !!flipDims[dimXRef] : flip_x;
+            const fy = view ? !!flipDims[dimYRef] : flip_y;
+            const w = shape[dimXRef] || 0, h = shape[dimYRef] || 0;
+            const realPx = fx ? (w - 1 - px) : px;
+            const realPy = fy ? (h - 1 - py) : py;
             const params = new URLSearchParams({
-                dim_x: String(view ? view.dimX : dim_x),
-                dim_y: String(view ? view.dimY : dim_y),
+                dim_x: String(dimXRef),
+                dim_y: String(dimYRef),
                 indices: indices.join(','),
-                px: String(px),
-                py: String(py),
+                px: String(realPx),
+                py: String(realPy),
                 tolerance: String(tolerance),
                 complex_mode: String(complexMode),
             });
@@ -17443,7 +17489,11 @@
                 scopeDim = opts.view.sliceDir;
             }
             const vd = opts.view || null;
-            if (scopeDim === dim_x || scopeDim === dim_y) scopeDim = -1;
+            // In single-view, scope_dim must not be a display axis (dim_x/dim_y).
+            // In v-mode the pane's display axes are vd.dimX/vd.dimY — the global
+            // dim_x/dim_y belong to the single-view layout and may coincidentally
+            // equal the pane's sliceDir, so don't check them when a view is given.
+            if (!vd && (scopeDim === dim_x || scopeDim === dim_y)) scopeDim = -1;
             if (vd && (scopeDim === vd.dimX || scopeDim === vd.dimY)) scopeDim = -1;
             _roiFloodFillDrag = {
                 px,
@@ -17802,6 +17852,7 @@
             return !!(r && Number.isInteger(r.mvDimX) && Number.isInteger(r.mvDimY));
         }
         function _roiHitTestMvView(view, x, y) {
+            const fi = { fx: !!flipDims[view.dimX], fy: !!flipDims[view.dimY], w: shape[view.dimX], h: shape[view.dimY] };
             for (let i = _rois.length - 1; i >= 0; i--) {
                 const r = _rois[i];
                 if (!r || r.visible === false) continue;
@@ -17809,12 +17860,13 @@
                 if (isPane3d) {
                     const slice = _roiFloodFillSliceForView(r, view);
                     if (!slice) continue;
-                    if (_pointInRoi(r, x, y, slice)) return { idx: i, mode: 'move', handle: null };
+                    if (_pointInRoi(r, x, y, slice, fi)) return { idx: i, mode: 'move', handle: null };
                     continue;
                 }
                 if (!_roiMatchesMvView(r, view)) continue;
                 if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) continue;
-                if (_pointInRoi(r, x, y)) return { idx: i, mode: 'move', handle: null };
+                const ffi = (r.type === 'floodfill') ? fi : null;
+                if (_pointInRoi(r, x, y, null, ffi)) return { idx: i, mode: 'move', handle: null };
             }
             return null;
         }
@@ -17833,10 +17885,21 @@
                 if (_roiIsMvPaneRoi(r)) continue;
                 if (!_roiIsVisibleOnCurrentSlice(r)) continue;
                 const c = _roiColors[i % _roiColors.length];
+                // Floodfill masks are in data space; flip the drawing context
+                // to display space so the mask aligns with the flipped image.
+                const ffDs = r.type === 'floodfill' && r.mask_b64;
+                roiOverlayCtx.save();
+                if (ffDs && flip_x) { roiOverlayCtx.translate(dW, 0); roiOverlayCtx.scale(-1, 1); }
+                if (ffDs && flip_y) { roiOverlayCtx.translate(0, dH); roiOverlayCtx.scale(1, -1); }
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
                 if (i === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, r, sx, sy);
+                roiOverlayCtx.restore();
                 const lbl = _roiCanvasLabel(i);
-                const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                let [lx, ly] = _roiLabelPoint(r, sx, sy);
+                if (ffDs) {
+                    if (flip_x) lx = dW - lx;
+                    if (flip_y) ly = dH - ly;
+                }
                 _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
             }
             // Draw in-progress ROI preview (same border treatment as committed ROIs)
@@ -17894,10 +17957,12 @@
                 if (!_roiVisible || (!hasRoi && !previewForView)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
+                const vfx = !!flipDims[view.dimX], vfy = !!flipDims[view.dimY];
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
                     if (!r || r.visible === false) continue;
                     const is3d = r.type === 'floodfill' && r.mask3d_b64;
+                    const is2dFf = r.type === 'floodfill' && r.mask_b64 && !is3d;
                     if (is3d) {
                         const slice = _roiFloodFillSliceForView(r, view);
                         if (!slice) continue;
@@ -17908,10 +17973,19 @@
                         continue;
                     }
                     const c = _roiColors[i % _roiColors.length];
+                    const ffDs = is3d || is2dFf;
+                    rctx.save();
+                    if (ffDs && vfx) { rctx.translate(dW, 0); rctx.scale(-1, 1); }
+                    if (ffDs && vfy) { rctx.translate(0, dH); rctx.scale(1, -1); }
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
+                    rctx.restore();
                     r._paneSlice = null;
                     const lbl = _roiCanvasLabel(i);
-                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    let [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    if (ffDs) {
+                        if (vfx) lx = dW - lx;
+                        if (vfy) ly = dH - ly;
+                    }
                     _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
                 }
                 if (previewForView) {
@@ -18077,7 +18151,7 @@
             });
         }
 
-        function _pointInRoi(r, cx, cy, precomputedSlice) {
+        function _pointInRoi(r, cx, cy, precomputedSlice, flipInfo) {
             if (r.type === 'circle') {
                 return Math.hypot(cx - r.cx, cy - r.cy) <= r.r;
             } else if (r.type === 'rect') {
@@ -18094,8 +18168,15 @@
             } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
                 const slice = precomputedSlice || _roiFloodFillActiveSlice(r);
                 if (!slice || !slice.maskBytes) return false;
-                const x = Math.round(cx) - slice.bbox.x0;
-                const y = Math.round(cy) - slice.bbox.y0;
+                // Floodfill masks are in data space; un-flip the click from
+                // display space to data space before testing.
+                let dcx = cx, dcy = cy;
+                if (flipInfo) {
+                    if (flipInfo.fx) dcx = flipInfo.w - 1 - cx;
+                    if (flipInfo.fy) dcy = flipInfo.h - 1 - cy;
+                }
+                const x = Math.round(dcx) - slice.bbox.x0;
+                const y = Math.round(dcy) - slice.bbox.y0;
                 const bw = slice.bbox.x1 - slice.bbox.x0 + 1;
                 const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
                 if (x < 0 || y < 0 || x >= bw || y >= bh) return false;
@@ -18112,8 +18193,12 @@
             if (!rect.width || !rect.height) return -1;
             const cx = (e.clientX - rect.left) * imgW / rect.width;
             const cy = (e.clientY - rect.top) * imgH / rect.height;
+            const fi = { fx: flip_x, fy: flip_y, w: imgW, h: imgH };
             for (let i = _rois.length - 1; i >= 0; i--) {
-                if (_roiIsVisibleOnCurrentSlice(_rois[i]) && _pointInRoi(_rois[i], cx, cy)) return i;
+                const r = _rois[i];
+                if (!_roiIsVisibleOnCurrentSlice(r)) continue;
+                const ffi = (r.type === 'floodfill') ? fi : null;
+                if (_pointInRoi(r, cx, cy, null, ffi)) return i;
             }
             return -1;
         }
@@ -18566,8 +18651,10 @@
             const ttip = document.getElementById('roi-hover-tooltip');
             if (!ttip) return;
             let hitIdx = -1;
+            const fi = { fx: flip_x, fy: flip_y, w: canvas.width, h: canvas.height };
             for (let i = _rois.length - 1; i >= 0; i--) {
-                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy)) { hitIdx = i; break; }
+                const ffi = (_rois[i].type === 'floodfill') ? fi : null;
+                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy, null, ffi)) { hitIdx = i; break; }
             }
             _roiSuppressPixelInfo = _roiHasStats(hitIdx);
             if (!_roiSuppressPixelInfo) { ttip.style.display = 'none'; return; }
@@ -18603,8 +18690,10 @@
             const rect = canvas.getBoundingClientRect();
             const cx = (e.clientX - rect.left) * canvas.width / rect.width;
             const cy = (e.clientY - rect.top) * canvas.height / rect.height;
+            const fi = { fx: flip_x, fy: flip_y, w: canvas.width, h: canvas.height };
             for (let i = _rois.length - 1; i >= 0; i--) {
-                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy)) {
+                const ffi = (_rois[i].type === 'floodfill') ? fi : null;
+                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy, null, ffi)) {
                     const deletedName = _roiName(i);
                     if (_roiTooltipEdit && _roiTooltipEdit.idx === i) _cancelRoiTooltipEditor();
                     _roiDelete(i);
