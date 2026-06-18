@@ -44,7 +44,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.12"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.13"  # current bundled extension version
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""

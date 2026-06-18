@@ -660,16 +660,47 @@ function isProcessAlive(pid) {
 }
 
 function cleanupStaleFiles() {
-    // Remove stale .claimed-* and .tmp files left behind by crashes.
-    // Also remove window-*.json registration files for dead processes.
+    // Recover or remove stale .claimed-* files left behind by crashes, and
+    // remove incomplete .tmp files. Also remove window-*.json registration
+    // files for dead processes.
+    //
+    // A .claimed-* file is produced by tryOpenSignalFile renaming a signal
+    // file just before processing it. If the extension host died mid-process,
+    // that signal was never shown and the file sits here forever. Rather than
+    // deleting it (which loses the user's open request), restore non-expired
+    // ones to their original basename so the 1s poll re-claims and re-shows
+    // them on the next activate — only delete expired ones.
     try {
         const files = fs.readdirSync(SIGNAL_DIR);
         for (const f of files) {
-            if (f.startsWith('open-request-') && (f.includes('.claimed-') || f.endsWith('.tmp'))) {
+            if (f.startsWith('open-request-') && f.endsWith('.tmp')) {
+                try { fs.unlinkSync(path.join(SIGNAL_DIR, f)); log(`CLEANUP: removed stale tmp ${f}`); } catch (_) {}
+                continue;
+            }
+            if (f.startsWith('open-request-') && f.includes('.claimed-')) {
+                const fullPath = path.join(SIGNAL_DIR, f);
                 try {
-                    fs.unlinkSync(path.join(SIGNAL_DIR, f));
-                    log(`CLEANUP: removed stale file ${f}`);
-                } catch (_) {}
+                    const data = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                    if (isExpiredSignal(data)) {
+                        fs.unlinkSync(fullPath);
+                        log(`CLEANUP: removed expired claimed ${f}`);
+                    } else {
+                        // Restore to the original un-claimed basename so the
+                        // poll re-claims it. Skip if that file already exists
+                        // (another claim/restore or a fresh write beat us).
+                        const original = f.replace(/\.claimed-\d+$/, '');
+                        const originalPath = path.join(SIGNAL_DIR, original);
+                        if (!fs.existsSync(originalPath)) {
+                            fs.renameSync(fullPath, originalPath);
+                            log(`CLEANUP: restored non-expired claimed ${f} -> ${original}`);
+                        } else {
+                            fs.unlinkSync(fullPath);
+                            log(`CLEANUP: dropped claimed ${f} (original already present)`);
+                        }
+                    }
+                } catch (_) {
+                    try { fs.unlinkSync(fullPath); log(`CLEANUP: removed unparseable claimed ${f}`); } catch (__) {}
+                }
             }
             if (f.startsWith('window-') && f.endsWith('.json')) {
                 try {
@@ -922,72 +953,23 @@ frame.src = arrayviewUrl;
 async function processSignalData(data) {
     isProcessingSignal = true;
     log(`LOCK: isProcessingSignal=true`);
+    // Hard safety net: if any await inside the body hangs (e.g. VS Code's
+    // createWebviewPanel / openInWebviewPanel never resolves when the
+    // extension host is degraded), the finally below would never run and
+    // isProcessingSignal would stick true — every subsequent signal would
+    // be skipped at tryOpenSignalFile's guard until the user reloaded the
+    // window. Racing the whole body against a timeout guarantees the lock
+    // always releases so the 1s poll picks up queued signals again. The
+    // orphaned body promise is harmless: the panel either eventually opens
+    // or it doesn't, but the queue is no longer blocked.
+    const SIGNAL_HARD_TIMEOUT_MS = 45000;
     try {
-        log(`SIGNAL-DATA: mode=${data.mode} filepath=${data.filepath || '(none)'} shm=${data.shm ? JSON.stringify(data.shm) : '(none)'} url=${data.url || '(none)'}`);
-        // Direct webview mode: bypass iframe and use embedded viewer
-        if (data.mode === 'direct' && (data.filepath || data.shm)) {
-            // Clean up any compat signal duplicates to prevent double-processing
-            for (const compat of ['open-request-v0800.json', 'open-request-v0400.json']) {
-                try { fs.unlinkSync(path.join(SIGNAL_DIR, compat)); } catch (_) {}
-            }
-            const shmParams = data.shm ? { ...data.shm, arrayName: data.arrayName } : null;
-            // Forward extra CLI args generically — Python builds this list from
-            // its argparse namespace so new flags work without extension changes.
-            const extraArgs = Array.isArray(data.extraArgs) ? data.extraArgs : [];
-            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs, !!data.floating);
-            return;
-        }
-
-        const url = data.url;
-        if (!url) { log('SIGNAL: missing url'); return; }
-
-        const requestId = data.requestId || null;
-        const now = Date.now();
-        if (requestId && requestId === lastHandledRequestId) {
-            log(`SIGNAL: duplicate requestId ignored: ${requestId}`);
-            return;
-        }
-        if (!requestId && url === lastHandledUrl && now - lastHandledAt < 5000) {
-            log(`SIGNAL: duplicate url ignored within debounce window`);
-            return;
-        }
-
-        log(`SIGNAL: requestId=${requestId || 'none'} url=${url} title=${data.title || '(none)'}`);
-        lastHandledRequestId = requestId;
-        lastHandledUrl = url;
-        lastHandledAt = now;
-
-        let openUrl = url;
-        if (vscode.env.remoteName) {
-            // Remote / tunnel: asExternalUri converts the localhost URL to the
-            // public devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
-            // VS Code strips query strings during this conversion, so we extract
-            // ?sid=... from the original URL and re-append it manually.
-            let port = 8000;
-            try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
-            let origQuery = '';
-            try { origQuery = new URL(url).search; } catch (_) {}
-
-            try {
-                const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
-                log(`REMOTE: asExternalUri(http://localhost:${port}/)...`);
-                const externalUri = await Promise.race([
-                    vscode.env.asExternalUri(baseUri),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('asExternalUri timeout after 8s')), 8000)),
-                ]);
-                const externalBase = externalUri.toString().replace(/\/$/, '');
-                log(`REMOTE: → ${externalBase}`);
-                openUrl = externalBase + '/' + origQuery;
-                log(`REMOTE: final URL = ${openUrl}`);
-            } catch (err) {
-                log(`REMOTE: asExternalUri failed (${err.message}), using localhost`);
-                openUrl = url;
-            }
-        }
-
-        log(`openInWebviewPanel(${openUrl})`);
-        await openInWebviewPanel(openUrl, data.title, !!data.floating);
-        log('openInWebviewPanel done');
+        await Promise.race([
+            _processSignalDataBody(data),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`processSignalData hard timeout after ${SIGNAL_HARD_TIMEOUT_MS}ms`)), SIGNAL_HARD_TIMEOUT_MS)
+            ),
+        ]);
     } catch (error) {
         log(`ERROR: ${error.message}`);
     } finally {
@@ -996,6 +978,74 @@ async function processSignalData(data) {
         // Signal files for subsequent arrays remain on disk; the 1-second poll
         // will pick them up now that isProcessingSignal is false again.
     }
+}
+
+async function _processSignalDataBody(data) {
+    log(`SIGNAL-DATA: mode=${data.mode} filepath=${data.filepath || '(none)'} shm=${data.shm ? JSON.stringify(data.shm) : '(none)'} url=${data.url || '(none)'}`);
+    // Direct webview mode: bypass iframe and use embedded viewer
+    if (data.mode === 'direct' && (data.filepath || data.shm)) {
+        // Clean up any compat signal duplicates to prevent double-processing
+        for (const compat of ['open-request-v0800.json', 'open-request-v0400.json']) {
+            try { fs.unlinkSync(path.join(SIGNAL_DIR, compat)); } catch (_) {}
+        }
+        const shmParams = data.shm ? { ...data.shm, arrayName: data.arrayName } : null;
+        // Forward extra CLI args generically — Python builds this list from
+        // its argparse namespace so new flags work without extension changes.
+        const extraArgs = Array.isArray(data.extraArgs) ? data.extraArgs : [];
+        await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs, !!data.floating);
+        return;
+    }
+
+    const url = data.url;
+    if (!url) { log('SIGNAL: missing url'); return; }
+
+    const requestId = data.requestId || null;
+    const now = Date.now();
+    if (requestId && requestId === lastHandledRequestId) {
+        log(`SIGNAL: duplicate requestId ignored: ${requestId}`);
+        return;
+    }
+    if (!requestId && url === lastHandledUrl && now - lastHandledAt < 5000) {
+        log(`SIGNAL: duplicate url ignored within debounce window`);
+        return;
+    }
+
+    log(`SIGNAL: requestId=${requestId || 'none'} url=${url} title=${data.title || '(none)'}`);
+    lastHandledRequestId = requestId;
+    lastHandledUrl = url;
+    lastHandledAt = now;
+
+    let openUrl = url;
+    if (vscode.env.remoteName) {
+        // Remote / tunnel: asExternalUri converts the localhost URL to the
+        // public devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
+        // VS Code strips query strings during this conversion, so we extract
+        // ?sid=... from the original URL and re-append it manually.
+        let port = 8000;
+        try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
+        let origQuery = '';
+        try { origQuery = new URL(url).search; } catch (_) {}
+
+        try {
+            const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+            log(`REMOTE: asExternalUri(http://localhost:${port}/)...`);
+            const externalUri = await Promise.race([
+                vscode.env.asExternalUri(baseUri),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('asExternalUri timeout after 8s')), 8000)),
+            ]);
+            const externalBase = externalUri.toString().replace(/\/$/, '');
+            log(`REMOTE: → ${externalBase}`);
+            openUrl = externalBase + '/' + origQuery;
+            log(`REMOTE: final URL = ${openUrl}`);
+        } catch (err) {
+            log(`REMOTE: asExternalUri failed (${err.message}), using localhost`);
+            openUrl = url;
+        }
+    }
+
+    log(`openInWebviewPanel(${openUrl})`);
+    await openInWebviewPanel(openUrl, data.title, !!data.floating);
+    log('openInWebviewPanel done');
 }
 
 function activate(context) {

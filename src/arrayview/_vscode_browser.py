@@ -166,6 +166,22 @@ def _open_browser(
                     opened = r.returncode == 0
                 except Exception:
                     pass
+            elif sys.platform == "win32":
+                # os.startfile is the documented way to open a URL with the
+                # default handler on Windows; fall back to `cmd /c start` if
+                # it is unavailable (rare — constrained environments).
+                try:
+                    os.startfile(url)  # type: ignore[attr-defined]
+                    opened = True
+                except Exception:
+                    try:
+                        subprocess.run(
+                            ["cmd", "/c", "start", "", url],
+                            capture_output=True, timeout=5, shell=False,
+                        )
+                        opened = True
+                    except Exception:
+                        pass
 
         # Local sessions still benefit from a clickable terminal URL.
         _vprint(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)

@@ -419,19 +419,27 @@ def _can_native_window() -> bool:
 
 
 def _native_window_gui() -> str | None:
-    """Return the pywebview GUI backend name to use, or None if unavailable."""
+    """Return the pywebview GUI backend name to use, or None if unavailable.
+
+    On macOS/Windows and Linux we return ``""`` so pywebview uses its own
+    backend auto-detection, which is more robust than forcing a specific
+    backend: it probes each installed binding and falls back across them.
+    Forcing ``"qt"`` because ``find_spec("qtpy")`` succeeds is a bad probe —
+    qtpy being importable does not mean QtWebEngine can actually initialise
+    (missing libnss/libxkbcommon/QtWebEngineProcess is common on Linux), and
+    a failed forced backend hangs for ~10s before the watchdog falls back to a
+    browser. Letting pywebview pick avoids that. We still require a display
+    server on Linux and the webview package itself everywhere.
+    """
     if importlib.util.find_spec("webview") is None:
         return None
     if sys.platform in ("darwin", "win32"):
         return ""
-    # Linux/BSD: need a display server AND pywebview's GUI bindings.
+    # Linux/BSD: need a display server. pywebview probes Qt/GTK/Tk backends
+    # itself, so we don't pin one — we only confirm a display is reachable.
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return None
-    if importlib.util.find_spec("qtpy") is not None:
-        return "qt"
-    if importlib.util.find_spec("gi") is not None:
-        return "gtk"
-    return None
+    return ""
 
 
 # ---------------------------------------------------------------------------

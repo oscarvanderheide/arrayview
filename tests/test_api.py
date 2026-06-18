@@ -3831,7 +3831,13 @@ class TestPortAndTunnelHelpers:
 
         assert platform._can_native_window() is True
 
-    def test_linux_native_window_gui_uses_gtk_when_only_gi_available(self, monkeypatch):
+    def test_linux_native_window_gui_uses_pywebview_autodetect(self, monkeypatch):
+        """On Linux we no longer pin a specific GUI backend (qt/gtk) based on
+        find_spec — that was a bad probe (qtpy importable ≠ QtWebEngine can
+        initialise) that hung ~10s before browser fallback when Qt was broken.
+        Instead we return "" so pywebview probes and falls back across
+        backends itself. We still require a display server and the webview
+        package."""
         import arrayview._platform as platform
 
         monkeypatch.setattr(platform, "_in_vscode_terminal", lambda: False)
@@ -3847,7 +3853,7 @@ class TestPortAndTunnelHelpers:
         )
 
         assert platform._can_native_window() is True
-        assert platform._native_window_gui() == "gtk"
+        assert platform._native_window_gui() == ""
 
     def test_open_browser_skips_vscode_signal_when_terminal_check_is_false(self, monkeypatch):
         import arrayview._vscode_browser as browser_mod
@@ -3872,6 +3878,28 @@ class TestPortAndTunnelHelpers:
 
         assert signal_calls == []
         assert open_calls == [["open", "http://localhost:8123/?sid=sid_matlab"]]
+
+    def test_open_browser_uses_startfile_on_windows(self, monkeypatch):
+        """Regression: _open_browser had no Windows branch and only printed the
+        URL instead of opening the default browser. On win32 it must call
+        os.startfile (with a cmd /c start fallback)."""
+        import arrayview._vscode_browser as browser_mod
+
+        signal_calls = []
+        startfile_calls = []
+
+        monkeypatch.setattr(browser_mod, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(browser_mod, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(browser_mod, "_open_via_signal_file", lambda *a, **k: signal_calls.append(a))
+        monkeypatch.setattr(browser_mod.sys, "platform", "win32")
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr(browser_mod.os, "startfile", lambda url: startfile_calls.append(url), raising=False)
+
+        browser_mod._open_browser("http://localhost:8123/?sid=win", blocking=True)
+
+        assert signal_calls == []
+        assert startfile_calls == ["http://localhost:8123/?sid=win"]
 
 
 # ---------------------------------------------------------------------------
