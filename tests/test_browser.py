@@ -2406,6 +2406,49 @@ class TestROIDrag:
         assert roi["type"] == "circle", f"ROI should be circle, got: {roi}"
         assert roi["mvDimX"] is not None and roi["mvDimY"] is not None, f"ROI should have mvDimX/mvDimY, got: {roi}"
 
+    def test_v_mode_roi_overlay_keeps_image_visible(self, loaded_viewer, sid_3d):
+        """Regression: drawing an ROI in v-mode used to turn the whole pane gray
+        because the .mv-roi-overlay canvas inherited the universal opaque
+        `canvas { background: var(--bg) }`. The overlay must be transparent so
+        the image underneath stays visible, matching single-view (#roi-overlay)
+        and qMRI (.qv-roi-overlay)."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector(".oblique-flip-inner.roi-flipped", timeout=2_000)
+        page.evaluate("() => _roiSetShape('rect')")
+
+        pane = page.locator(".mv-canvas").nth(0)
+        box = pane.bounding_box()
+        x0, y0 = box["x"] + box["width"] * 0.2, box["y"] + box["height"] * 0.2
+        x1, y1 = box["x"] + box["width"] * 0.7, box["y"] + box["height"] * 0.7
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(800)
+
+        state = page.evaluate(
+            """() => {
+                const ov = document.querySelector('.mv-roi-overlay');
+                const cv = document.querySelector('.mv-canvas');
+                if (!ov || !cv) return null;
+                const ovBg = getComputedStyle(ov).backgroundColor;
+                // Image canvas center pixel must be non-empty (image rendered).
+                const ctx = cv.getContext('2d');
+                const px = ctx.getImageData(Math.floor(cv.width/2), Math.floor(cv.height/2), 1, 1).data;
+                return { ovBg, imgAlpha: px[3], display: getComputedStyle(ov).display };
+            }"""
+        )
+        assert state is not None, "mv-roi-overlay / mv-canvas must exist in v-mode ROI"
+        assert state["ovBg"] in ("rgba(0, 0, 0, 0)", "transparent"), (
+            f"mv-roi-overlay background must be transparent so the image shows through, got: {state}")
+        assert state["display"] != "none", "overlay should be visible after drawing a ROI"
+        assert state["imgAlpha"] > 0, f"image canvas must still hold rendered pixels, got: {state}"
+
     def test_shift_r_hide_show_preserves_rois(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
