@@ -251,19 +251,27 @@
             pointer-events: none;
         }
 
-        #roi-cb-controls {
+        /* Class: horizontal flex layout shared by every ROI toolbar instance
+           (single-view island + v-mode flip-back). The id selector below adds
+           the island shell (border/bg/shadow/padding) for the single-view
+           instance only — the v-mode instance lives inside .roi-flip-back,
+           which already provides the island shell. */
+        .roi-cb-controls {
             display: flex;
             align-items: center;
+            flex-wrap: nowrap;
             gap: 6px;
+            font-family: var(--mono);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        #roi-cb-controls {
             padding: 3px 6px;
             border: 1px solid var(--border);
             border-radius: 14px;
             background: var(--surface);
             color: var(--text);
             box-shadow: var(--surface-shadow);
-            font-family: var(--mono);
-            font-size: 11px;
-            white-space: nowrap;
         }
         .roi-cb-label {
             color: var(--active-dim);
@@ -3095,24 +3103,29 @@
         :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
 
         /* ROI back face for the multiview colorbar flip — revealed instead of
-           the oblique back face when ROI mode is active in v-mode. Same shell
-           as .oblique-flip-back so the flip animation keeps a fixed footprint,
-           but overflow visible so the wider ROI toolbar isn't clipped. */
+           the oblique back face when ROI mode is active in v-mode. Shrinks to
+           fit its buttons and centers over the colorbar, so the v-mode ROI
+           island matches the normal-view #roi-cb-controls island exactly
+           (same shell, same width) rather than stretching to the full
+           colorbar width. overflow visible so the toolbar isn't clipped. */
         .roi-flip-back {
-            position: absolute; inset: 0;
-            transform: rotateX(180deg);
+            position: absolute;
+            top: 50%; left: 50%;
+            width: fit-content;
+            transform: translate(-50%, -50%) rotateX(180deg);
             backface-visibility: hidden; -webkit-backface-visibility: hidden;
             border-radius: 14px;
-            background: rgb(26, 26, 26);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 2px 10px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: var(--surface-shadow);
+            padding: 3px 6px;
             display: none;
             align-items: center; justify-content: center;
             gap: 6px;
             box-sizing: border-box;
             overflow: visible;
         }
-        :root.light .roi-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
+        :root.light .roi-flip-back { background: var(--surface); border-color: var(--border); }
         /* ROI takes priority over the oblique back face when both could show. */
         .oblique-flip-inner.roi-flipped .roi-flip-back { display: flex; }
         .oblique-flip-inner.roi-flipped .oblique-flip-back { display: none; }
@@ -14613,6 +14626,7 @@
                 v.rendering = false; v.pending = false; v.seq++;
             });
             mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            _redrawRoiOverlays();
             _debouncedHoverPrefetch();
             showStatus('origin reset');
         }
@@ -16557,6 +16571,7 @@
             if (httpTransport) {
                 if (multiViewActive) {
                     mvViews.forEach(v => mvRender(v));
+                    _redrawRoiOverlays();
                     return;
                 }
                 if (qmriActive) {
@@ -16566,7 +16581,7 @@
                 updateViewHttp();
                 return;
             }
-            if (multiViewActive) { mvViews.forEach(v => mvRender(v)); return; }
+            if (multiViewActive) { mvViews.forEach(v => mvRender(v)); _redrawRoiOverlays(); return; }
             if (qmriActive) { qmriViews.forEach(v => qvRender(v)); return; }
             if (!wsReady) return;
 
@@ -17412,7 +17427,11 @@
             const editIdx = Number.isInteger(opts.editIdx) ? opts.editIdx : -1;
             // Determine the scope dim for 3D seed growing: when re-seeding an existing
             // ROI, reuse its scope dim; otherwise use the first pending broadcast dim
-            // the user clicked in the dimbar. Must not be a display axis of the view.
+            // the user clicked in the dimbar. In v-mode (opts.view set) with no
+            // pending broadcast dim, default to the clicked pane's sliceDir — the
+            // axis perpendicular to that plane — so seed growth is 3D by default
+            // and the grown region can render in all three panes. Must not be a
+            // display axis of the view.
             let scopeDim = -1;
             if (editIdx >= 0 && _rois[editIdx]) {
                 const prev = _rois[editIdx];
@@ -17420,6 +17439,8 @@
                 else if (prev.scope && Array.isArray(prev.scope.broadcast_dims) && prev.scope.broadcast_dims.length) scopeDim = prev.scope.broadcast_dims[0];
             } else if (Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.length) {
                 scopeDim = _roiPendingBroadcastDims[0];
+            } else if (opts.view && Number.isInteger(opts.view.sliceDir)) {
+                scopeDim = opts.view.sliceDir;
             }
             const vd = opts.view || null;
             if (scopeDim === dim_x || scopeDim === dim_y) scopeDim = -1;
@@ -17467,7 +17488,7 @@
         }
 
         function _roiFloodFillActiveSlice(r) {
-            // For a scoped (3D) floodfill, return the per-slice {bbox, mask_b64}
+            // For a scoped (3D) floodfill, return the per-slice {bbox, maskBytes}
             // matching the current scroll position along the scope dimension, or
             // null when the grown 3D region doesn't reach the current slice. For
             // a plain 2D floodfill, return the seed-slice mask stored on the ROI.
@@ -17476,9 +17497,81 @@
                 const cur = indices[r.scope_dim];
                 const hit = r.slices.find(s => s && s.index === cur);
                 if (!hit || !hit.bbox || !hit.mask_b64) return null;
-                return { bbox: hit.bbox, mask_b64: hit.mask_b64 };
+                return { bbox: hit.bbox, maskBytes: _roiDecodeMaskBytes(hit.mask_b64, hit) };
             }
-            return { bbox: r.bbox, mask_b64: r.mask_b64 };
+            return { bbox: r.bbox, maskBytes: _roiDecodeMaskBytes(r.mask_b64, r) };
+        }
+        // Decode a base64 mask into a cached Uint8Array on the owner. `owner`
+        // is the slice or roi carrying mask_b64 — caching avoids re-decoding
+        // the same mask on every redraw.
+        function _roiDecodeMaskBytes(maskB64, owner) {
+            if (!maskB64) return null;
+            if (owner && owner._maskBytes && owner._maskB64Key === maskB64) return owner._maskBytes;
+            try {
+                const raw = atob(maskB64);
+                const bytes = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                if (owner) { owner._maskBytes = bytes; owner._maskB64Key = maskB64; }
+                return bytes;
+            } catch (_e) { return null; }
+        }
+        // Compute a 2D {bbox, maskBytes} slice of a 3D floodfill ROI for a
+        // multiview pane. The 3D mask (r.mask3d_b64) has shape r.mask3d_shape
+        // = [depth, h, w] whose axes correspond to data dims
+        // [r.scope_dim, r.grow_dim_y, r.grow_dim_x]. For the pane's sliceDir
+        // axis, fix the index at indices[sliceDir] and arrange the remaining
+        // two axes as (dimY_pane, dimX_pane). Returns null if the ROI has no
+        // 3D mask or the pane's dims aren't part of the grown volume.
+        function _roiFloodFillSliceForView(r, view) {
+            if (!r || r.type !== 'floodfill' || !r.mask3d_b64 || !r.mask3d_shape) return null;
+            if (!view || !Number.isInteger(r.scope_dim) || !Number.isInteger(r.grow_dim_x) || !Number.isInteger(r.grow_dim_y)) return null;
+            const growAxes = [r.scope_dim, r.grow_dim_y, r.grow_dim_x];
+            const sliceAxis = growAxes.indexOf(view.sliceDir);
+            if (sliceAxis < 0) return null;
+            const idx = indices[view.sliceDir];
+            if (!Number.isInteger(idx) || idx < 0) return null;
+            const shape = r.mask3d_shape;
+            if (idx >= shape[sliceAxis]) return null;
+            // Lazily decode + cache the full 3D mask on the roi.
+            if (!r._mask3dBytes || r._mask3dKey !== r.mask3d_b64) {
+                const bytes = _roiDecodeMaskBytes(r.mask3d_b64, null);
+                if (!bytes) return null;
+                r._mask3dBytes = bytes; r._mask3dKey = r.mask3d_b64;
+            }
+            const bytes = r._mask3dBytes;
+            const strides = [shape[1] * shape[2], shape[2], 1];
+            const outAxes = [0, 1, 2].filter(a => a !== sliceAxis);
+            const outDims = outAxes.map(a => shape[a]);
+            const outGrowDims = outAxes.map(a => growAxes[a]);
+            const yLocal = outGrowDims.indexOf(view.dimY);
+            const xLocal = outGrowDims.indexOf(view.dimX);
+            if (yLocal < 0 || xLocal < 0 || yLocal === xLocal) return null;
+            const outH = outDims[yLocal], outW = outDims[xLocal];
+            const s0 = strides[outAxes[0]], s1 = strides[outAxes[1]];
+            const base = strides[sliceAxis] * idx;
+            const d0 = outDims[0], d1 = outDims[1];
+            const out = new Uint8Array(outH * outW);
+            let yMin = outH, yMax = -1, xMin = outW, xMax = -1;
+            for (let i0 = 0; i0 < d0; i0++) {
+                for (let i1 = 0; i1 < d1; i1++) {
+                    if (!bytes[base + i0 * s0 + i1 * s1]) continue;
+                    const y = (yLocal === 0) ? i0 : i1;
+                    const x = (xLocal === 0) ? i0 : i1;
+                    out[y * outW + x] = 1;
+                    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+                    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+                }
+            }
+            if (yMax < 0) return null; // no voxels on this pane slice
+            // Tighten to the occupied bbox + crop the mask.
+            const bw = xMax - xMin + 1, bh = yMax - yMin + 1;
+            const cropped = new Uint8Array(bw * bh);
+            for (let y = 0; y < bh; y++) {
+                for (let x = 0; x < bw; x++) {
+                    cropped[y * bw + x] = out[(yMin + y) * outW + (xMin + x)];
+                }
+            }
+            return { bbox: { x0: xMin, y0: yMin, x1: xMax, y1: yMax }, maskBytes: cropped };
         }
         function _roiIsVisibleOnCurrentSlice(r) {
             // Whether an ROI should be drawn (shape + label) on the current
@@ -17502,7 +17595,7 @@
                 return {x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys)};
             }
             if (r.type === 'floodfill' && r.bbox) {
-                const s = _roiFloodFillActiveSlice(r);
+                const s = r._paneSlice || _roiFloodFillActiveSlice(r);
                 const b = s ? s.bbox : r.bbox;
                 return {x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1};
             }
@@ -17620,14 +17713,12 @@
                 if (doFill) rctx.fillRect(rx - 0.5, ry - 0.5, rw, rh);
                 if (doStroke) rctx.strokeRect(rx, ry, rw - 1, rh - 1);
             } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
-                const slice = _roiFloodFillActiveSlice(r);
-                if (slice) {
+                const slice = r._paneSlice || _roiFloodFillActiveSlice(r);
+                if (slice && slice.maskBytes) {
                     try {
-                        const raw = atob(slice.mask_b64);
                         const bw = slice.bbox.x1 - slice.bbox.x0 + 1;
                         const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
-                        const maskBytes = new Uint8Array(raw.length);
-                        for (let i = 0; i < raw.length; i++) maskBytes[i] = raw.charCodeAt(i);
+                        const maskBytes = slice.maskBytes;
                         if (doFill) {
                             for (let y = 0; y < bh; y++) {
                                 for (let x = 0; x < bw; x++) {
@@ -17713,7 +17804,15 @@
         function _roiHitTestMvView(view, x, y) {
             for (let i = _rois.length - 1; i >= 0; i--) {
                 const r = _rois[i];
-                if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
+                if (!r || r.visible === false) continue;
+                const isPane3d = r.type === 'floodfill' && r.mask3d_b64;
+                if (isPane3d) {
+                    const slice = _roiFloodFillSliceForView(r, view);
+                    if (!slice) continue;
+                    if (_pointInRoi(r, x, y, slice)) return { idx: i, mode: 'move', handle: null };
+                    continue;
+                }
+                if (!_roiMatchesMvView(r, view)) continue;
                 if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) continue;
                 if (_pointInRoi(r, x, y)) return { idx: i, mode: 'move', handle: null };
             }
@@ -17783,24 +17882,48 @@
                 ov.style.height = view.canvas.style.height;
                 rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 rctx.clearRect(0, 0, dW, dH);
-                const previewForView = _roiMatchesMvView(previewRoi, view) ? previewRoi : null;
-                const hasRoi = _rois.some(r => r && r.visible !== false && _roiMatchesMvView(r, view));
+                // A 3D floodfill ROI (mask3d_b64) renders in every pane via a
+                // per-pane slice of the grown volume. Other ROIs are pane-local
+                // (rect/circle/freehand drawn on one pane) and only show on the
+                // pane whose dims match.
+                const preview3d = previewRoi && previewRoi.type === 'floodfill' && previewRoi.mask3d_b64 ? previewRoi : null;
+                const previewForView = preview3d ? preview3d : (_roiMatchesMvView(previewRoi, view) ? previewRoi : null);
+                const hasRoi = _rois.some(r => r && r.visible !== false && (
+                    (r.type === 'floodfill' && r.mask3d_b64) || _roiMatchesMvView(r, view)
+                ));
                 if (!_roiVisible || (!hasRoi && !previewForView)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
-                    if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
-                    if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) continue;
+                    if (!r || r.visible === false) continue;
+                    const is3d = r.type === 'floodfill' && r.mask3d_b64;
+                    if (is3d) {
+                        const slice = _roiFloodFillSliceForView(r, view);
+                        if (!slice) continue;
+                        r._paneSlice = slice;
+                    } else if (!_roiMatchesMvView(r, view)) {
+                        continue;
+                    } else if (r.type === 'floodfill' && !_roiFloodFillActiveSlice(r)) {
+                        continue;
+                    }
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
+                    r._paneSlice = null;
                     const lbl = _roiCanvasLabel(i);
                     const [lx, ly] = _roiLabelPoint(r, sx, sy);
                     _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
                 }
                 if (previewForView) {
+                    const is3dPreview = previewForView.mask3d_b64;
+                    if (is3dPreview) {
+                        const slice = _roiFloodFillSliceForView(previewForView, view);
+                        if (!slice) continue;
+                        previewForView._paneSlice = slice;
+                    }
                     const c = _roiColors[_rois.length % _roiColors.length];
                     _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, false);
+                    previewForView._paneSlice = null;
                 }
             }
         }
@@ -17866,6 +17989,14 @@
             if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
             else if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
             else _drawAllRois(previewRoi);
+        }
+        // Re-render every multiview pane's image AND redraw the ROI overlays.
+        // Use this wherever v-mode indices change (scroll, crosshair move,
+        // keyboard nav) — mvRender alone only redraws the image canvas, so the
+        // ROI overlay would otherwise stay frozen at the pre-scroll slice.
+        function _mvRenderAllWithRois() {
+            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            _redrawRoiOverlays();
         }
         function _finalizeQvRoi() {
             if (!rectRoiMode) return;
@@ -17946,7 +18077,7 @@
             });
         }
 
-        function _pointInRoi(r, cx, cy) {
+        function _pointInRoi(r, cx, cy, precomputedSlice) {
             if (r.type === 'circle') {
                 return Math.hypot(cx - r.cx, cy - r.cy) <= r.r;
             } else if (r.type === 'rect') {
@@ -17961,17 +18092,14 @@
                 }
                 return inside;
             } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
-                const slice = _roiFloodFillActiveSlice(r);
-                if (!slice) return false;
+                const slice = precomputedSlice || _roiFloodFillActiveSlice(r);
+                if (!slice || !slice.maskBytes) return false;
                 const x = Math.round(cx) - slice.bbox.x0;
                 const y = Math.round(cy) - slice.bbox.y0;
                 const bw = slice.bbox.x1 - slice.bbox.x0 + 1;
                 const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
                 if (x < 0 || y < 0 || x >= bw || y >= bh) return false;
-                try {
-                    const raw = atob(slice.mask_b64);
-                    return raw.charCodeAt(y * bw + x) > 0;
-                } catch (_e) { return false; }
+                return slice.maskBytes[y * bw + x] > 0;
             }
             return false;
         }
@@ -20546,7 +20674,7 @@
                         indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
                         _maybeAutoRecomputeRange(activeDim);
                         renderInfo();
-                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        _mvRenderAllWithRois();
                         _debouncedHoverPrefetch();
                         saveState();
                     } else if (activeDim === dim_x) {
@@ -20579,7 +20707,7 @@
                         indices[activeDim] = Math.max(0, indices[activeDim] - 1);
                         _maybeAutoRecomputeRange(activeDim);
                         renderInfo();
-                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        _mvRenderAllWithRois();
                         _debouncedHoverPrefetch();
                         saveState();
                     } else if (activeDim === dim_x) {
@@ -24150,7 +24278,7 @@
                     }
                     activeDim = view.sliceDir;
                     renderInfo();
-                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    _mvRenderAllWithRois();
                     _debouncedHoverPrefetch();
                     saveState();
                 }, { passive: false });
@@ -27082,7 +27210,7 @@
                 indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1,
                     fy ? shape[view.dimY] - 1 - Math.floor(py) : Math.floor(py)));
                 renderInfo();
-                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                _mvRenderAllWithRois();
             }
             _debouncedHoverPrefetch();
         }

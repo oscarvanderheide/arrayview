@@ -647,6 +647,14 @@ def _scoped_floodfill_response(
             "values": {str(scope_dim): scoped_values},
         },
         "slices": slices,
+        # Full 3D component so the frontend can render the grown region in
+        # every multiview pane, not just the plane it was seeded on. Shape
+        # axes are [scope_dim, dim_y, dim_x] (the grow axes); grow_dim_x /
+        # grow_dim_y record which data dims those are.
+        "mask3d_b64": base64.b64encode(component.astype(np.uint8).tobytes()).decode("ascii"),
+        "mask3d_shape": [int(s) for s in component.shape],
+        "grow_dim_x": int(dim_x),
+        "grow_dim_y": int(dim_y),
     }
     current_slice = next(
         (entry for entry in slices if int(entry["index"]) == int(indices[scope_dim])),

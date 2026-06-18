@@ -2894,6 +2894,148 @@ class TestROIDrag:
         )
         assert not overlay_visible_after, "floodfill overlay should be hidden when viewing dims don't match the ROI's plane"
 
+    def test_vmode_floodfill_defaults_to_3d_and_renders_in_all_panes(self, loaded_viewer, client, tmp_path):
+        # A centered 3D block of value 5 in a 12x12x12 volume. In v-mode a
+        # flood-fill seed on any pane should default to 3D (scope = that
+        # pane's sliceDir) and the grown region must render in all three
+        # panes, not just the one it was seeded on.
+        arr = np.zeros((12, 12, 12), dtype=np.float32)
+        arr[4:8, 4:8, 4:8] = 5.0
+        path = tmp_path / "roi_vmode_3d_block.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_3d_block"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.evaluate("_roiSetShape('floodfill')")
+        page.wait_for_timeout(150)
+
+        # Seed at the center of pane 0 (axial). No dim-label clicked, so the
+        # 3D default must kick in using pane 0's sliceDir.
+        pane0 = page.evaluate("() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2, dimX: v.dimX, dimY: v.dimY, sliceDir: v.sliceDir }; }")
+        page.mouse.move(pane0["x"], pane0["y"])
+        page.mouse.down()
+        page.wait_for_timeout(500)
+        page.mouse.up()
+        page.wait_for_timeout(500)
+
+        roi = page.evaluate("() => _rois[0] ? { type: _rois[0].type, scopeDim: _rois[0].scope_dim, nSlices: (_rois[0].slices || []).length, hasMask3d: !!_rois[0].mask3d_b64, growDimX: _rois[0].grow_dim_x, growDimY: _rois[0].grow_dim_y } : null")
+        assert roi is not None, "a flood-fill ROI should have been created"
+        assert roi["type"] == "floodfill"
+        assert roi["scopeDim"] == pane0["sliceDir"], f"v-mode seed should default to 3D (scope=pane sliceDir={pane0['sliceDir']}), got scopeDim={roi['scopeDim']}"
+        assert roi["hasMask3d"], "scoped floodfill ROI should carry the full 3D mask for cross-pane rendering"
+        assert roi["nSlices"] == 4, f"3D block should span 4 slices along scope dim, got {roi['nSlices']}"
+
+        # Each pane's overlay must show the grown region on its plane.
+        per_pane = page.evaluate("""() => mvViews.map(v => {
+            const ov = v.roiOverlay;
+            if (!ov || !v.roiCtx) return { sliceDir: v.sliceDir, present: false };
+            const ctx = v.roiCtx;
+            const img = ctx.getImageData(0, 0, ov.width, ov.height).data;
+            let present = false;
+            for (let i = 3; i < img.length; i += 4) { if (img[i] > 0) { present = true; break; } }
+            return { sliceDir: v.sliceDir, dimX: v.dimX, dimY: v.dimY, present };
+        })""")
+        assert len(per_pane) == 3
+        for p in per_pane:
+            assert p["present"], f"3D floodfill ROI should render in pane sliceDir={p['sliceDir']} (dimX={p['dimX']}, dimY={p['dimY']}), got present=False"
+
+    def test_vmode_floodfill_updates_on_scroll(self, loaded_viewer, client, tmp_path):
+        # A 3D block at z=4..7. Seed a 3D floodfill on pane 0 (sliceDir=2) at
+        # mid-z, then scroll pane 0 outside the block. The ROI overlay on
+        # pane 0 must disappear (no voxels on that slice) and reappear when
+        # scrolled back. Regression for the stale-overlay-on-scroll bug.
+        arr = np.zeros((16, 16, 16), dtype=np.float32)
+        arr[4:8, 4:8, 4:8] = 5.0
+        path = tmp_path / "roi_vmode_scroll.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_scroll"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.evaluate("_roiSetShape('floodfill')")
+        page.wait_for_timeout(150)
+        page.evaluate("() => { indices[0]=6; indices[1]=6; indices[2]=6; mvViews.forEach(v=>mvRender(v)); }")
+        page.wait_for_timeout(400)
+        # Seed at the block center on pane 0.
+        page.evaluate("""() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect();
+            window.__sx = r.x + r.width*(5.5/16); window.__sy = r.y + r.height*(5.5/16); }""")
+        sx, sy = page.evaluate("() => [window.__sx, window.__sy]")
+        page.mouse.move(sx, sy); page.mouse.down(); page.wait_for_timeout(450); page.mouse.up()
+        page.wait_for_timeout(450)
+        assert page.evaluate("() => _rois[0] && _rois[0].scope_dim") == 2, "seed should grow 3D along pane 0 sliceDir"
+
+        def pane_present(i):
+            return page.evaluate("""(i) => {
+                const v = mvViews[i]; const ov = v.roiOverlay;
+                if (!ov || !v.roiCtx) return false;
+                const img = v.roiCtx.getImageData(0,0,ov.width,ov.height).data;
+                for (let k=3;k<img.length;k+=4){ if(img[k]>0) return true; } return false;
+            }""", i)
+
+        # Scroll pane 0 to z=0 (outside the block) via real wheel events.
+        page.evaluate("""() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect();
+            window.__wx = r.x + r.width/2; window.__wy = r.y + r.height/2; }""")
+        wx, wy = page.evaluate("() => [window.__wx, window.__wy]")
+        for _ in range(8):
+            page.mouse.move(wx, wy)
+            page.mouse.wheel(0, 120)
+        page.wait_for_timeout(400)
+        z_after = page.evaluate("() => indices[2]")
+        assert z_after <= 3, f"scroll should move pane 0 outside block (z<=3), got z={z_after}"
+        assert not pane_present(0), f"3D ROI should disappear from pane 0 at z={z_after} (block is z=4..7)"
+
+        # Scroll back into the block one step at a time until z enters [4,7].
+        z_back = None
+        for _ in range(20):
+            page.mouse.move(wx, wy)
+            page.mouse.wheel(0, -120)
+            page.wait_for_timeout(120)
+            z_back = page.evaluate("() => indices[2]")
+            if 4 <= z_back <= 7:
+                break
+        page.wait_for_timeout(300)
+        assert z_back is not None and 4 <= z_back <= 7, f"scroll back should re-enter block (4<=z<=7), got z={z_back}"
+        assert pane_present(0), f"3D ROI should reappear on pane 0 at z={z_back}"
+
+    def test_vmode_roi_toolbar_buttons_fit_in_island(self, loaded_viewer, client, tmp_path):
+        # The v-mode ROI toolbar (on the colorbar flip-back) must lay its
+        # buttons out in a single row inside the island, not wrap/overflow.
+        arr = np.zeros((12, 12, 12), dtype=np.float32)
+        path = tmp_path / "roi_vmode_toolbar.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_toolbar"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.wait_for_timeout(200)
+        geom = page.evaluate("""() => {
+            const ctrls = document.getElementById('roi-cb-controls-mv');
+            const back = ctrls ? ctrls.closest('.roi-flip-back') : null;
+            const btns = ctrls ? Array.from(ctrls.querySelectorAll('button')) : [];
+            const r = el => { const x = el.getBoundingClientRect(); return {x: Math.round(x.x), y: Math.round(x.y), right: Math.round(x.right), h: Math.round(x.height)}; };
+            return {
+                controls: r(ctrls),
+                back: r(back),
+                buttonRows: btns.map(b => r(b).y),
+                buttonCount: btns.length,
+            };
+        }""")
+        assert geom["buttonCount"] >= 6, "ROI toolbar should have shape + action buttons"
+        # All buttons share one y → single row, no wrapping.
+        assert len(set(geom["buttonRows"])) == 1, f"toolbar buttons should be on one row, got ys={geom['buttonRows']}"
+        # Controls fit inside the island back face vertically.
+        assert geom["controls"]["h"] <= geom["back"]["h"] + 2, f"controls ({geom['controls']['h']}px) should fit inside island back ({geom['back']['h']}px)"
+
     def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
