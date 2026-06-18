@@ -439,6 +439,32 @@ class TestKeyboard:
         assert state["hostVisible"], f"multiview should open the integrated colormap menu, got: {state}"
         assert not state["stripVisible"], f"multiview should not fall back to the old strip previewer, got: {state}"
 
+    def test_v_mode_colorbar_width_holds_in_small_viewport(self, loaded_viewer, sid_3d):
+        """Regression: the v-mode colorbar used to be sized to one pane's width
+        (≈ viewport/3), so it shrank to a sliver in VS Code tabs. It should
+        instead be sized to the viewport (clamped to CB_TARGET_W=350), matching
+        single-view, and only hide below CB_MIN_W=200."""
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 900, "height": 700})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        state = page.evaluate(
+            """() => {
+                const cb = document.getElementById('mv-cb-wrap');
+                return {
+                    mvWidth: cb ? Math.round(cb.getBoundingClientRect().width) : -1,
+                    mvDisplay: cb ? getComputedStyle(cb).display : 'missing',
+                };
+            }"""
+        )
+        assert state["mvDisplay"] != "none", f"mv colorbar should be visible at 900px viewport, got: {state}"
+        assert state["mvWidth"] >= 280, f"mv colorbar should hold a wide footprint in a small viewport (>=280px), got: {state}"
+        assert state["mvWidth"] <= 350, f"mv colorbar should be capped at CB_TARGET_W (350px), got: {state}"
+
     def test_c_preview_uses_integrated_menu_in_diff_mode(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):

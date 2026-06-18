@@ -27824,7 +27824,7 @@
                     });
                     const mvCbWp = document.getElementById('mv-cb-wrap');
                     if (mvCbWp) {
-                        const mvCbTarget = cbTargetWidth(T);
+                        const mvCbTarget = cbTargetWidth(window.innerWidth);
                         if (mvCbTarget == null) {
                             mvCbWp.style.display = 'none';
                         } else {
@@ -27872,10 +27872,15 @@
                     v.wrap.style.height = v.canvas.style.height;
                 }
             }
-            // Match multiview colorbar width to one pane (clamped to CB_TARGET_W)
+            // Match multiview colorbar width to the viewport (clamped to
+            // CB_TARGET_W), mirroring single-view sizing. Tying it to one
+            // pane's width (≈ viewport/3) made it shrink to a sliver in VS
+            // Code tabs and other small viewports; the full-viewport input
+            // hits the 350px cap in any reasonable window and only hides
+            // below CB_MIN_W (200px).
             const mvCbW = document.getElementById('mv-cb-wrap');
             if (mvCbW) {
-                const mvCbTarget = cbTargetWidth(T);
+                const mvCbTarget = cbTargetWidth(window.innerWidth);
                 if (mvCbTarget == null) {
                     mvCbW.style.display = 'none';
                 } else {
