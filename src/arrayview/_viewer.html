@@ -5013,6 +5013,7 @@
         let _moreToolsExpanded = false;
         let _toolPanelUserClosed = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
+        let _roiPendingBroadcastDims = []; // dims clicked in the dimbar before any ROI exists; applied to the next drawn ROI
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
@@ -12627,7 +12628,7 @@
         window._islandToggleRoiScopeDim = _islandToggleRoiScopeDim;
 
         function _activateRoiInteraction() {
-            if (compareActive || multiViewActive) {
+            if (compareActive || compareMvActive) {
                 showStatus('ROI mode: not available in this mode');
                 return;
             }
@@ -12642,6 +12643,7 @@
             _resetDimbarHover();
             canvas.style.cursor = 'crosshair';
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
+            if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
             showStatus(`ROI mode: ${_roiShape} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity' : 'drag to draw'}`);
             renderEggs();
             renderIsland();
@@ -12658,6 +12660,7 @@
             _floodFillTolerance = 0.1;
             if (clear) { _rois = []; _selectedRoiIdx = -1; }
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = ''; });
+            if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = ''; });
             canvas.style.cursor = '';
             const hover = document.getElementById('roi-hover-tooltip');
             if (hover) hover.style.display = 'none';
@@ -12670,6 +12673,7 @@
             renderIsland();
             _reconcileUI();
             _redrawRoiOverlays();
+            _clearMvRoiOverlays();
         }
 
         async function _islandDeleteSeg(label) {
@@ -12702,7 +12706,7 @@
         }
 
         function _roiCurrentScope() {
-            const scope = { indices: indices.slice(), broadcast_dims: [], values: {} };
+            const scope = { indices: indices.slice(), broadcast_dims: (_roiPendingBroadcastDims || []).slice(), values: {} };
             if (qmriActive && typeof qmriDim === 'number' && qmriDim >= 0 && Array.isArray(qmriViews) && qmriViews.length) {
                 scope.broadcast_dims = [qmriDim];
                 scope.values[String(qmriDim)] = qmriViews.map(v => v.qmriIdx);
@@ -16738,9 +16742,9 @@
                 label: 'Measure ROI',
                 desc: 'Measure regions.',
                 keyHint: 'R',
-                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
+                isEnabled: () => rectRoiMode || (!compareActive && !compareMvActive),
                 isActive: () => rectRoiMode,
-                unavailableReason: () => 'Not available in compare or multi-view.',
+                unavailableReason: () => 'Not available in compare.',
                 excludes: ['segmentation', 'overlay', 'vectorfield', 'crop'],
             },
             {
@@ -16824,7 +16828,7 @@
             },
             crop: { kind: 'transient', activateOnOpen: true, deactivateOnClose: false },
         };
-        const _TOOL_ORTHO_ALLOWED = new Set(['crop']);
+        const _TOOL_ORTHO_ALLOWED = new Set(['crop', 'roi']);
         const TOOL_HELP = {
             comparecenter: 'compare',
             qmri:         'tool-qmri',
@@ -17168,16 +17172,18 @@
             roiOverlayCanvas.style.display = 'none';
             if (roiOverlayCtx) roiOverlayCtx.clearRect(0, 0, roiOverlayCanvas.width, roiOverlayCanvas.height);
         }
-        async function _fetchFloodFill(px, py, tolerance) {
+        async function _fetchFloodFill(px, py, tolerance, opts = {}) {
+            const view = opts.view || null;
             const params = new URLSearchParams({
-                dim_x: String(dim_x),
-                dim_y: String(dim_y),
+                dim_x: String(view ? view.dimX : dim_x),
+                dim_y: String(view ? view.dimY : dim_y),
                 indices: indices.join(','),
                 px: String(px),
                 py: String(py),
                 tolerance: String(tolerance),
                 complex_mode: String(complexMode),
             });
+            if (Number.isInteger(opts.scopeDim) && opts.scopeDim >= 0) params.set('scope_dim', String(opts.scopeDim));
             const resp = await proxyFetch(`/roi_floodfill/${sid}?${params}`);
             if (!resp.ok) throw new Error('request failed');
             const data = await resp.json();
@@ -17187,7 +17193,11 @@
 
         function _floodFillPreviewRoi(data, opts = {}) {
             if (!data || !data.bbox || !data.mask_b64) return null;
-            return {
+            // For a scoped (3D) flood fill, the server returns the full roi object
+            // (with scope_dim, slices, scope). Start from it so committed stats use
+            // the grown region across the broadcast dimension; overlay display fields.
+            const base = data.roi && typeof data.roi === 'object' ? Object.assign({}, data.roi) : {};
+            const roi = Object.assign(base, {
                 type: 'floodfill',
                 bbox: data.bbox,
                 mask_b64: data.mask_b64,
@@ -17196,18 +17206,24 @@
                 seed_py: opts.py,
                 tolerance: opts.tolerance,
                 replaceIdx: Number.isInteger(opts.replaceIdx) ? opts.replaceIdx : -1,
-            };
+                mvDimX: opts.view ? opts.view.dimX : opts.mvDimX,
+                mvDimY: opts.view ? opts.view.dimY : opts.mvDimY,
+            });
+            return roi;
         }
 
         function _commitFloodFillData(data, opts = {}) {
             const roi = _floodFillPreviewRoi(data, opts);
             if (!roi) return false;
+            const isScoped = roi.scope_dim !== undefined && Array.isArray(roi.slices);
             if (opts.editIdx >= 0 && opts.editIdx < _rois.length) {
                 const prev = _rois[opts.editIdx];
                 const next = _roiNormalize(roi);
                 next.id = prev.id;
                 next.name = prev.name;
-                next.scope = prev.scope || next.scope;
+                // A scoped (3D) re-seed brings its own freshly grown scope/slices;
+                // for a plain 2D re-seed, keep the previous user-configured scope.
+                if (!isScoped) next.scope = prev.scope || next.scope;
                 if (prev.visible !== undefined) next.visible = prev.visible;
                 _rois[opts.editIdx] = next;
                 _roiSelect(opts.editIdx, { render: false });
@@ -17236,16 +17252,16 @@
             const token = ++drag.token;
             const tolerance = drag.tolerance;
             showStatus(`flood fill preview: ${Math.round(tolerance * 100)}% sensitivity`);
-            _fetchFloodFill(drag.px, drag.py, tolerance)
+            _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim })
                 .then(data => {
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
                     drag.data = data;
                     drag.dataTolerance = tolerance;
-                    _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx }));
+                    _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx, view: drag.view }));
                     showStatus(`flood fill preview: ${data.n} pixels · ${Math.round(tolerance * 100)}% sensitivity`);
                     if (drag.released && Math.abs(drag.tolerance - tolerance) < 0.0001) {
                         _roiFloodFillDrag = null;
-                        _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance });
+                        _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, view: drag.view });
                     }
                 })
                 .catch(err => {
@@ -17262,10 +17278,27 @@
         }
 
         function _startRoiFloodFillDrag(e, px, py, opts = {}) {
+            const editIdx = Number.isInteger(opts.editIdx) ? opts.editIdx : -1;
+            // Determine the scope dim for 3D seed growing: when re-seeding an existing
+            // ROI, reuse its scope dim; otherwise use the first pending broadcast dim
+            // the user clicked in the dimbar. Must not be a display axis of the view.
+            let scopeDim = -1;
+            if (editIdx >= 0 && _rois[editIdx]) {
+                const prev = _rois[editIdx];
+                if (prev.scope_dim !== undefined) scopeDim = prev.scope_dim;
+                else if (prev.scope && Array.isArray(prev.scope.broadcast_dims) && prev.scope.broadcast_dims.length) scopeDim = prev.scope.broadcast_dims[0];
+            } else if (Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.length) {
+                scopeDim = _roiPendingBroadcastDims[0];
+            }
+            const vd = opts.view || null;
+            if (scopeDim === dim_x || scopeDim === dim_y) scopeDim = -1;
+            if (vd && (scopeDim === vd.dimX || scopeDim === vd.dimY)) scopeDim = -1;
             _roiFloodFillDrag = {
                 px,
                 py,
-                editIdx: Number.isInteger(opts.editIdx) ? opts.editIdx : -1,
+                editIdx,
+                view: vd,
+                scopeDim,
                 startY: e.clientY,
                 baseTolerance: _floodFillTolerance,
                 tolerance: _floodFillTolerance,
@@ -17292,7 +17325,7 @@
                 drag.released = true;
                 if (drag.data && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
                     _roiFloodFillDrag = null;
-                    _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance });
+                    _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, view: drag.view });
                 } else {
                     if (!drag.pending) _requestFloodFillPreview(drag);
                     showStatus('flood fill: finishing preview...');
@@ -17504,17 +17537,33 @@
             rctx.fillText(label, px, py);
             rctx.restore();
         }
+        function _roiMatchesMvView(r, view) {
+            return !!(r && view && r.mvDimX === view.dimX && r.mvDimY === view.dimY);
+        }
+        function _roiIsMvPaneRoi(r) {
+            return !!(r && Number.isInteger(r.mvDimX) && Number.isInteger(r.mvDimY));
+        }
+        function _roiHitTestMvView(view, x, y) {
+            for (let i = _rois.length - 1; i >= 0; i--) {
+                const r = _rois[i];
+                if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
+                if (_pointInRoi(r, x, y)) return { idx: i, mode: 'move', handle: null };
+            }
+            return null;
+        }
         function _drawAllRois(previewRoi) {
             if (!roiOverlayCanvas || !roiOverlayCtx) return;
             _syncRoiOverlay();
             const { sx, sy, dW, dH } = _roiDispScale();
             roiOverlayCtx.clearRect(0, 0, dW, dH);
-            if (!_roiVisible || (!_rois.length && !previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
+            const hasNormalRoi = _rois.some(r => r && r.visible !== false && !_roiIsMvPaneRoi(r));
+            if (!_roiVisible || (!hasNormalRoi && !previewRoi) || _roiIsMvPaneRoi(previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
             roiOverlayCanvas.style.display = '';
             const replaceIdx = previewRoi && Number.isInteger(previewRoi.replaceIdx) ? previewRoi.replaceIdx : -1;
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
                 if (i === replaceIdx) continue;
+                if (_roiIsMvPaneRoi(r)) continue;
                 if (r.visible === false) continue;
                 const c = _roiColors[i % _roiColors.length];
                 _roiDrawVisibleShape(roiOverlayCtx, r, sx, sy, c, i === _selectedRoiIdx);
@@ -17523,15 +17572,73 @@
                 const [lx, ly] = _roiLabelPoint(r, sx, sy);
                 _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
             }
-            // Draw in-progress ROI preview
+            // Draw in-progress ROI preview (same border treatment as committed ROIs)
             if (previewRoi) {
                 const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
                 const c = _roiColors[colorIdx % _roiColors.length];
-                roiOverlayCtx.fillStyle = c.fill;
-                roiOverlayCtx.strokeStyle = c.stroke;
-                roiOverlayCtx.lineWidth = 1;
-                _drawRoiShapeOnCtx(roiOverlayCtx, previewRoi, sx, sy);
+                _roiDrawVisibleShape(roiOverlayCtx, previewRoi, sx, sy, c, replaceIdx === _selectedRoiIdx);
                 if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, previewRoi, sx, sy);
+            }
+        }
+
+        // ── Multi-view ROI overlay helpers ────────────────────────
+        function _ensureMvRoiOverlay(view) {
+            if (!view || !view.canvas) return null;
+            if (!view.roiOverlay && view.cvBox) {
+                const ov = document.createElement('canvas');
+                ov.className = 'mv-roi-overlay';
+                ov.style.position = 'absolute';
+                ov.style.left = '0';
+                ov.style.top = '0';
+                ov.style.pointerEvents = 'none';
+                ov.style.display = 'none';
+                view.cvBox.style.position = 'relative';
+                view.cvBox.appendChild(ov);
+                view.roiOverlay = ov;
+                view.roiCtx = ov.getContext('2d');
+            }
+            return view.roiOverlay || null;
+        }
+        function _drawAllMvRois(previewRoi) {
+            if (!multiViewActive || !mvViews.length) return;
+            for (const view of mvViews) {
+                const ov = _ensureMvRoiOverlay(view);
+                const rctx = view.roiCtx;
+                if (!ov || !rctx || !view.lastW || !view.lastH) continue;
+                const dW = parseInt(view.canvas.style.width) || view.canvas.clientWidth;
+                const dH = parseInt(view.canvas.style.height) || view.canvas.clientHeight;
+                const dpr = Math.max(1, window.devicePixelRatio || 1);
+                const bw = Math.max(1, Math.round(dW * dpr));
+                const bh = Math.max(1, Math.round(dH * dpr));
+                if (ov.width !== bw || ov.height !== bh) { ov.width = bw; ov.height = bh; }
+                ov.style.width = view.canvas.style.width;
+                ov.style.height = view.canvas.style.height;
+                rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                rctx.clearRect(0, 0, dW, dH);
+                const previewForView = _roiMatchesMvView(previewRoi, view) ? previewRoi : null;
+                const hasRoi = _rois.some(r => r && r.visible !== false && _roiMatchesMvView(r, view));
+                if (!_roiVisible || (!hasRoi && !previewForView)) { ov.style.display = 'none'; continue; }
+                ov.style.display = 'block';
+                const sx = dW / view.lastW, sy = dH / view.lastH;
+                for (let i = 0; i < _rois.length; i++) {
+                    const r = _rois[i];
+                    if (!r || r.visible === false || !_roiMatchesMvView(r, view)) continue;
+                    const c = _roiColors[i % _roiColors.length];
+                    _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
+                    const lbl = _roiCanvasLabel(i);
+                    const [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
+                }
+                if (previewForView) {
+                    const c = _roiColors[_rois.length % _roiColors.length];
+                    _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, false);
+                }
+            }
+        }
+        function _clearMvRoiOverlays() {
+            if (!mvViews.length) return;
+            for (const v of mvViews) {
+                if (v.roiOverlay) { v.roiOverlay.style.display = 'none'; if (v.roiCtx) v.roiCtx.clearRect(0, 0, v.roiOverlay.width, v.roiOverlay.height); }
             }
         }
 
@@ -17559,11 +17666,13 @@
                 ov.style.height = view.canvas.style.height;
                 rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 rctx.clearRect(0, 0, dW, dH);
-                if (!_roiVisible || (!_rois.length && !previewRoi)) { ov.style.display = 'none'; continue; }
+                const hasQvRoi = _rois.some(r => r && r.visible !== false && !_roiIsMvPaneRoi(r));
+                if (!_roiVisible || (!hasQvRoi && !previewRoi) || _roiIsMvPaneRoi(previewRoi)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
+                    if (_roiIsMvPaneRoi(r)) continue;
                     if (r.visible === false) continue;
                     const c = _roiColors[i % _roiColors.length];
                     _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
@@ -17574,8 +17683,7 @@
                 }
                 if (previewRoi) {
                     const c = _roiColors[_rois.length % _roiColors.length];
-                    rctx.fillStyle = c.fill; rctx.strokeStyle = c.stroke; rctx.lineWidth = 1;
-                    _drawRoiShapeOnCtx(rctx, previewRoi, sx, sy);
+                    _roiDrawVisibleShape(rctx, previewRoi, sx, sy, c, false);
                 }
             }
         }
@@ -17586,7 +17694,8 @@
             }
         }
         function _redrawRoiOverlays(previewRoi) {
-            if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
+            if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
+            else if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
             else _drawAllRois(previewRoi);
         }
         function _finalizeQvRoi() {
@@ -17766,7 +17875,8 @@
 
         function _roiDimIncluded(dim) {
             if (dim === dim_x || dim === dim_y) return true;
-            return _rois.length > 0 && _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+            if (_rois.length > 0) return _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+            return Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.includes(dim);
         }
 
         function _roiToggleScopeDimAll(dim) {
@@ -17776,12 +17886,25 @@
                 return false;
             }
             if (!_rois.length) {
-                showToast('draw an ROI first');
-                return false;
+                // No ROI yet — remember the dim as a pending default for the next ROI drawn.
+                if (!Array.isArray(_roiPendingBroadcastDims)) _roiPendingBroadcastDims = [];
+                const pos = _roiPendingBroadcastDims.indexOf(dim);
+                if (pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
+                else _roiPendingBroadcastDims.push(dim);
+                renderInfo();
+                const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
+                showToast(`ROI dim ${dim}: ${label}`);
+                return true;
             }
             _roiManagerToggleDimAll(dim);
+            // Keep the pending default in sync with the resulting state so future ROIs match.
+            const nowIncluded = _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
+            if (!Array.isArray(_roiPendingBroadcastDims)) _roiPendingBroadcastDims = [];
+            const pos = _roiPendingBroadcastDims.indexOf(dim);
+            if (nowIncluded && pos < 0) _roiPendingBroadcastDims.push(dim);
+            else if (!nowIncluded && pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
             renderInfo();
-            const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
+            const label = nowIncluded ? 'all indices included' : 'current index only';
             showToast(`ROI dim ${dim}: ${label}`);
             return true;
         }
@@ -23793,7 +23916,7 @@
                 pane.appendChild(promoteBtn);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
-                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label: null,
+                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null,
                     pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
@@ -23834,6 +23957,19 @@
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    if (rectRoiMode) {
+                        e.stopImmediatePropagation();
+                        if (_roiShape === 'floodfill') {
+                            if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+                            const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
+                            const editIdx = hit ? hit.idx : -1;
+                            if (editIdx >= 0) _roiSelect(editIdx);
+                            _startRoiFloodFillDrag(e, Math.round(px), Math.round(py), { editIdx, view });
+                            return;
+                        }
+                        showStatus('ROI in 3-plane view: choose floodfill');
+                        return;
+                    }
                     // Crop drag-handle on mv pane: take priority when NOT
                     // holding Alt (oblique rotation) and the crop overlay's
                     // edges are visible on this pane. Skip panes whose affine

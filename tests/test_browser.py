@@ -2416,6 +2416,96 @@ class TestROIDrag:
         assert state["overlayOpacity"] != "0", f"ROI overlay should not fade out during slice navigation, got: {state}"
         assert state["fadeOpacity"] == "0", f"image fade canvas should not cover ROI overlay during slice navigation, got: {state}"
 
+    def test_dimbar_pending_dim_applies_to_next_roi(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_function("() => document.getElementById('info').classList.contains('roi-scope-mode')")
+
+        # The non-display dim is the one click may toggle. Find it from the client.
+        nondisp = page.evaluate(
+            """() => {
+                const labels = Array.from(document.querySelectorAll('#info .dim-label[data-dim]'));
+                const found = labels.find(el => !el.classList.contains('roi-display-dim'));
+                return found ? Number(found.getAttribute('data-dim')) : null;
+            }"""
+        )
+        assert nondisp is not None, "expected at least one non-display dim label in ROI scope mode"
+
+        # Clicking the dim label before any ROI must NOT gate on 'draw an ROI first';
+        # it should set a pending broadcast dim and mark the label included.
+        page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
+        page.wait_for_timeout(150)
+        pending = page.evaluate("() => _roiPendingBroadcastDims.slice()")
+        assert pending == [nondisp], f"pending broadcast dims should be [{nondisp}], got {pending}"
+        assert page.locator(f'#info .dim-label[data-dim="{nondisp}"]').evaluate(
+            "el => el.classList.contains('roi-included-dim')"
+        ), "dim label should show as included after click"
+
+        # Drawing a circle afterwards should produce an ROI whose scope spans that dim.
+        self._draw_roi(page)
+        scope = page.evaluate("() => _rois[0] && _rois[0].scope ? _rois[0].scope.broadcast_dims.slice() : null")
+        assert scope == [nondisp], f"drawn ROI should span pending dim {nondisp}, got {scope}"
+
+        # Toggling the dim off before drawing again should remove it from pending.
+        page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
+        page.wait_for_timeout(150)
+        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [], "pending dims should clear on toggle off"
+
+    def test_roi_preview_overlay_visible_during_drag(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        x0, y0 = box["x"] + box["width"] * 0.2, box["y"] + box["height"] * 0.2
+        x1, y1 = box["x"] + box["width"] * 0.55, box["y"] + box["height"] * 0.55
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        page.wait_for_timeout(120)
+        # While the mouse is still held, the in-progress preview must be painting.
+        overlay_display = page.locator("#roi-overlay").evaluate("el => getComputedStyle(el).display")
+        page.mouse.up()
+        assert overlay_display != "none", "ROI preview overlay should be visible during creation drag"
+
+    def test_seed_grows_in_pending_dim(self, loaded_viewer, client, tmp_path):
+        # A column of value 5 along dim 0 at (y=5, x=5); everything else 0.
+        # A seed there with a tight tolerance should grow across all 4 slices
+        # only when the broadcast dim is pending (3D scoped flood fill).
+        arr = np.zeros((4, 10, 10), dtype=np.float32)
+        arr[:, 5, 5] = 5.0
+        path = tmp_path / "roi_seed_column.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_seed_column"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        page.evaluate("_roiSetShape('floodfill')")
+
+        # dim 0 is the non-display (slice) dim for this 3D array.
+        page.locator('#info .dim-label[data-dim="0"]').click()
+        page.wait_for_timeout(150)
+        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [0]
+
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_timeout(250)  # let the scoped flood-fill preview resolve
+        page.mouse.up()
+        page.wait_for_timeout(400)
+
+        roi = page.evaluate("() => _rois[0] ? { type: _rois[0].type, scopeDim: _rois[0].scope_dim, nSlices: (_rois[0].slices || []).length, broadcast: _rois[0].scope && _rois[0].scope.broadcast_dims } : null")
+        assert roi is not None, "a flood-fill ROI should have been created"
+        assert roi["type"] == "floodfill"
+        assert roi["scopeDim"] == 0, f"seed should grow in pending dim 0, got scopeDim={roi['scopeDim']}"
+        assert roi["broadcast"] == [0], f"committed scope should broadcast dim 0, got {roi['broadcast']}"
+        assert roi["nSlices"] == 4, f"3D grow should span all 4 slices, got {roi['nSlices']}"
+
     def test_roi_hover_stats_update_after_scroll_settles(self, loaded_viewer, client, tmp_path):
         arr = np.zeros((3, 64, 64), dtype=np.float32)
         arr[0, :, :] = 1
