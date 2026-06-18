@@ -12822,10 +12822,10 @@
         // Shared formatting helper for ROI stats display (tooltip + export modal)
         function _roiStatsFmt(v) {
             if (v === null || v === undefined || Number.isNaN(v)) return '—';
-            const a = Math.abs(v);
-            if (a === 0) return '0';
-            if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
-            return parseFloat(v.toPrecision(4)).toString();
+            if (v === 0) return '0';
+            let s = v.toPrecision(4);
+            if (!/[eE]/.test(s)) return parseFloat(s).toString();
+            return v.toLocaleString('en-US', { maximumSignificantDigits: 4, useGrouping: false });
         }
 
         function _roiCurrentScope() {
@@ -18586,7 +18586,7 @@
                 if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
                 return;
             }
-            const fmt = v => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
+            const fmt = _roiStatsFmt;
             ttip.classList.remove('editing');
             ttip.style.setProperty('--roi-tip-color', c.stroke);
             ttip.innerHTML = `${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
@@ -24440,6 +24440,41 @@
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    // ROI hover tooltip: when ROI mode is active, hit-test ROIs
+                    // on this pane and show mean ± std. Takes priority over
+                    // crop/crosshair/pixel-info, matching the mousedown handler.
+                    if (rectRoiMode && !roiDragging && !_roiTooltipEdit) {
+                        const ttip = document.getElementById('roi-hover-tooltip');
+                        const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
+                        const hitIdx = hit ? hit.idx : -1;
+                        _roiSuppressPixelInfo = _roiHasStats(hitIdx);
+                        if (!_roiSuppressPixelInfo) {
+                            if (ttip) ttip.style.display = 'none';
+                            const tq = _getRoiRowTooltip();
+                            if (tq) tq.classList.remove('visible');
+                            if (view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                        } else {
+                            const r = _rois[hitIdx];
+                            const c = _roiColors[hitIdx % _roiColors.length];
+                            if (Array.isArray(r.qmriStats) && r.qmriStats.length && r.qmriStats[0].stats) {
+                                const tq = _getRoiRowTooltip();
+                                if (tq) {
+                                    tq.style.setProperty('--roi-tip-color', c.stroke);
+                                    tq.innerHTML = _buildRoiTooltipContent(hitIdx);
+                                    _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
+                                    tq.classList.add('visible');
+                                }
+                            } else if (ttip) {
+                                ttip.classList.remove('editing');
+                                ttip.style.setProperty('--roi-tip-color', c.stroke);
+                                ttip.innerHTML = `${_roiStatsFmt(r.stats.mean)} \u00B1 ${_roiStatsFmt(r.stats.std)}`;
+                                ttip.style.display = 'block';
+                                _positionRoiTooltipAtClient(ttip, e.clientX, e.clientY);
+                            }
+                            if (view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            return;
+                        }
+                    }
                     // Crop-drag in progress: update this pane's edge.
                     if (_cropDrag && _cropDrag.pane === view) {
                         const mxCss = e.clientX - rect.left;
@@ -24496,6 +24531,11 @@
                 });
                 cv.addEventListener('mouseleave', () => {
                     if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
+                    const ttip = document.getElementById('roi-hover-tooltip');
+                    if (ttip) ttip.style.display = 'none';
+                    const tq = _getRoiRowTooltip();
+                    if (tq) tq.classList.remove('visible');
+                    _roiSuppressPixelInfo = false;
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                     if (_pixelInfoVisible) _resetDimbarHover();
                 });
@@ -25413,7 +25453,7 @@
                             return;
                         }
                         const s = _rois[hitIdx].stats;
-                        const fmt = (v) => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
+                        const fmt = _roiStatsFmt;
                         const t = document.getElementById('roi-hover-tooltip');
                         if (t) {
                             t.style.setProperty('--roi-tip-color', c.stroke);
