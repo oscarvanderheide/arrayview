@@ -12858,15 +12858,29 @@
             // If the tooltip's parent is hidden (e.g. #canvas-wrap is
             // display:none in v-mode), reparent to document.body so it
             // can render and be positioned via fixed coordinates.
-            if (!ttip.offsetParent && ttip.parentElement !== document.body) {
+            const parentHidden = !ttip.offsetParent && ttip.parentElement !== document.body;
+            if (parentHidden) {
                 document.body.appendChild(ttip);
+            }
+            // Once on document.body, use fixed positioning (offsetParent is
+            // null for fixed elements, so check parentElement instead).
+            const onBody = ttip.parentElement === document.body;
+            if (onBody) {
+                ttip.style.position = 'fixed';
+                const tw = ttip.offsetWidth || 160;
+                const th = ttip.offsetHeight || 42;
+                let tx = clientX + 12, ty = clientY - th - 12;
+                if (tx + tw > window.innerWidth - 4) tx = clientX - tw - 12;
+                if (ty < 4) ty = clientY + 12;
+                if (tx < 4) tx = 4;
+                ttip.style.left = tx + 'px';
+                ttip.style.top = ty + 'px';
+                return;
             }
             const par = ttip.offsetParent;
             if (!par) return;
-            const fixed = (par === document.body);
-            if (fixed) ttip.style.position = 'fixed';
-            else ttip.style.position = 'absolute';
-            const pr = fixed ? { left: 0, top: 0, width: window.innerWidth } : par.getBoundingClientRect();
+            ttip.style.position = 'absolute';
+            const pr = par.getBoundingClientRect();
             const tw = ttip.offsetWidth || 160;
             const th = ttip.offsetHeight || 42;
             let tx = clientX - pr.left + 12;
