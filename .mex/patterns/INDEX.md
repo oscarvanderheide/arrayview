@@ -1,5 +1,7 @@
 # Pattern Index
 
+Last reviewed: 2026-06-19
+
 Lookup table for all pattern files in this directory. Check here before starting any task — if a pattern exists, follow it.
 
 <!-- This file is populated during setup (Pass 2) and updated whenever patterns are added.

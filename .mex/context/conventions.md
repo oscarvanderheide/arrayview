@@ -18,7 +18,7 @@ edges:
     condition: when applying frontend conventions (section separators, reconcilers, command registry)
   - target: context/render-pipeline.md
     condition: when applying render pipeline conventions (pipeline order, cache patterns, LUT usage)
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Conventions

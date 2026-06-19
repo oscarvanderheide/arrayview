@@ -11,7 +11,7 @@ edges:
     condition: when deciding whether `_server.py` should keep or delegate a route cluster
   - target: context/project-state.md
     condition: when the extraction changes the active architecture workstream
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Extract Server Route Module

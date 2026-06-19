@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/frontend.md
     condition: when a decision relates to the frontend architecture or viewer modes
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Decisions

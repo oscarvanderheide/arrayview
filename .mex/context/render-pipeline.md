@@ -20,7 +20,7 @@ edges:
     condition: when writing new render functions or extending the pipeline
   - target: patterns/debug-render.md
     condition: when a render produces wrong output or the wrong cache is hit
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Render Pipeline

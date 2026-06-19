@@ -14,7 +14,7 @@ edges:
     condition: when understanding how to use a technology in this codebase
   - target: context/architecture.md
     condition: when understanding how a library fits into the overall system
-last_updated: 2026-04-29
+last_updated: 2026-06-19
 ---
 
 # Stack

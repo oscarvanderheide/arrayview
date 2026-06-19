@@ -12,7 +12,7 @@ triggers:
 edges:
   - target: context/conventions.md
     condition: when making code changes after confirming the failure mode
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Debug VS Code Extension Python

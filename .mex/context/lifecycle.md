@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-06-05
+last_updated: 2026-06-19
 ---
 
 # Lifecycle

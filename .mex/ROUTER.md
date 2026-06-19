@@ -24,7 +24,7 @@ edges:
     condition: when starting a task — check the pattern index for a matching pattern file
   - target: ../DESIGN.md
     condition: when the task touches design philosophy — new features, UI changes, mode additions, or interaction model decisions
-last_updated: 2026-06-05
+last_updated: 2026-06-19
 ---
 
 # arrayview — Router

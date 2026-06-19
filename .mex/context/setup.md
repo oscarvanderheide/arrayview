@@ -13,7 +13,7 @@ edges:
     condition: when specific technology versions or library details are needed
   - target: context/architecture.md
     condition: when understanding how components connect during setup
-last_updated: 2026-05-16
+last_updated: 2026-06-19
 ---
 
 # Setup
@@ -62,7 +62,7 @@ No `.env` file is needed. All env vars are optional overrides; the server runs w
 
 **Port already in use:** The server binds to a random free port by default. If you see a port conflict, check for orphan `uvicorn` processes: `lsof -i :<port>`. Kill with `kill -9 <PID>`. The server is supposed to shut down automatically when all viewer windows close.
 
-**VS Code extension not loading:** Signal-file IPC can fail if the extension version is mismatched. Check `_VSCODE_EXT_VERSION` in `_vscode.py` matches the installed extension.
+**VS Code extension not loading:** Signal-file IPC can fail if the extension version is mismatched. Check `_VSCODE_EXT_VERSION` in `_vscode_extension.py` matches the installed extension.
 
 **Playwright tests fail on CI:** Ensure `uv run playwright install chromium` has been run. Browser tests require a display; on headless servers they need `DISPLAY=:0` or Xvfb.
 
