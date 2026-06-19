@@ -12854,9 +12854,19 @@
         }
 
         function _positionRoiTooltipAtClient(ttip, clientX, clientY) {
-            const par = ttip ? ttip.offsetParent : null;
+            if (!ttip) return;
+            // If the tooltip's parent is hidden (e.g. #canvas-wrap is
+            // display:none in v-mode), reparent to document.body so it
+            // can render and be positioned via fixed coordinates.
+            if (!ttip.offsetParent && ttip.parentElement !== document.body) {
+                document.body.appendChild(ttip);
+            }
+            const par = ttip.offsetParent;
             if (!par) return;
-            const pr = par.getBoundingClientRect();
+            const fixed = (par === document.body);
+            if (fixed) ttip.style.position = 'fixed';
+            else ttip.style.position = 'absolute';
+            const pr = fixed ? { left: 0, top: 0, width: window.innerWidth } : par.getBoundingClientRect();
             const tw = ttip.offsetWidth || 160;
             const th = ttip.offsetHeight || 42;
             let tx = clientX - pr.left + 12;
