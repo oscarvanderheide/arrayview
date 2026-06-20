@@ -336,6 +336,14 @@
             background: var(--border);
             opacity: 0.9;
         }
+        .roi-floodfill-sensitivity {
+            transition: height 0.08s ease, background 0.08s ease, opacity 0.08s ease;
+        }
+        .roi-cb-controls.floodfill-sensitivity-active .roi-floodfill-sensitivity {
+            height: calc(6px + (var(--roi-ff-sensitivity, 0.1) * 18px));
+            background: var(--active-dim);
+            opacity: 1;
+        }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
             --cb-extra-top: 0px;
@@ -506,7 +514,6 @@
             opacity: 0.72;
         }
         #info.roi-scope-mode .dim-label.roi-current-dim:hover { opacity: 1; }
-
         /* In-pane legend for the legacy expanded histogram picker. It stays visible
          * while picker mode is open so the three dim states remain legible
          * without relying on hover. */
@@ -1645,9 +1652,6 @@
             padding-top: 0;
             border-top: none;
         }
-        .roi-manager-expand .roi-manager-scope {
-            margin-top: 8px;
-        }
         .roi-manager-head {
             color: var(--muted);
             font-size: 10px;
@@ -1667,55 +1671,6 @@
             margin-bottom: 8px;
             color: var(--muted);
             font-size: 11px;
-        }
-        .roi-advanced-scope {
-            position: relative;
-        }
-        .roi-advanced-scope summary {
-            cursor: pointer;
-            list-style: none;
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            width: 28px;
-            height: 28px;
-            padding: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .roi-advanced-scope summary::-webkit-details-marker { display: none; }
-        .roi-advanced-scope summary:hover {
-            border-color: var(--muted);
-        }
-        .roi-advanced-scope svg {
-            width: 15px;
-            height: 15px;
-        }
-        .roi-advanced-panel {
-            position: absolute;
-            right: 0;
-            top: calc(100% + 6px);
-            width: 260px;
-            padding: 10px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--surface-shadow);
-            z-index: 2;
-        }
-        .roi-advanced-copy {
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.45;
-            margin-bottom: 8px;
-        }
-        .roi-advanced-label {
-            color: var(--text);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            margin-bottom: 5px;
         }
         .roi-manager-name {
             display: flex;
@@ -1747,8 +1702,7 @@
         }
         .roi-manager-meta,
         .roi-manager-value-sub,
-        .roi-manager-map-row,
-        .roi-manager-scope-body {
+        .roi-manager-map-row {
             color: var(--muted);
             font-size: 11px;
             line-height: 1.45;
@@ -1768,19 +1722,6 @@
             color: var(--text);
             font-weight: 600;
         }
-        .roi-manager-scope {
-            margin-top: 5px;
-        }
-        .roi-manager-scope summary {
-            color: var(--muted);
-            cursor: pointer;
-            font-size: 11px;
-            list-style: none;
-        }
-        .roi-manager-scope summary::-webkit-details-marker { display: none; }
-        .roi-manager-scope summary:hover {
-            color: var(--text);
-        }
         .roi-manager-range {
             color: color-mix(in srgb, var(--muted) 68%, var(--text));
             font-size: 13px;
@@ -1799,8 +1740,7 @@
             justify-content: flex-end;
             justify-self: end;
         }
-        .roi-manager-actions button,
-        .roi-extent-btn {
+        .roi-manager-actions button {
             background: transparent;
             color: var(--text);
             border: 1px solid var(--border);
@@ -1822,29 +1762,8 @@
             width: 14px;
             height: 14px;
         }
-        .roi-manager-actions button:hover,
-        .roi-extent-btn:hover {
+        .roi-manager-actions button:hover {
             border-color: var(--muted);
-        }
-        .roi-extent-controls {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            margin-top: 7px;
-        }
-        .roi-extent-btn {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            width: 100%;
-            text-align: left;
-        }
-        .roi-extent-btn span {
-            color: var(--text);
-        }
-        .roi-extent-btn strong {
-            color: var(--muted);
-            font-weight: 500;
         }
         .roi-expand-btn {
             background: transparent;
@@ -1860,10 +1779,6 @@
         .roi-expand-btn:hover {
             color: var(--text);
             border-color: var(--muted);
-        }
-        .roi-extent-btn.on {
-            color: var(--active-dim);
-            border-color: var(--active-dim);
         }
         @media (max-width: 760px) {
             #export-box {
@@ -5043,6 +4958,7 @@
         let _roiTooltipEdit = null; // {idx, original}
         let _roiLabelEdit = null; // {idx, original, clientX, clientY}
         let _roiFloodFillDrag = null; // press-hold seed growing preview state
+        let _roiFloodfillScopeDim = null; // null = auto spatial slice dim, -1 = 2D, number = explicit dim
         let _roiContextJustOpened = false;
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _mvRoiDragView = null; // which multiview pane initiated current ROI drag
@@ -5055,7 +4971,6 @@
         let _moreToolsExpanded = false;
         let _toolPanelUserClosed = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
-        let _roiPendingBroadcastDims = []; // dims clicked in the dimbar before any ROI exists; applied to the next drawn ROI
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
@@ -12588,6 +12503,8 @@
             _roiShape = shape;
             const modeHint = shape === 'floodfill' ? 'hold seed · drag up/down sensitivity · release to create' : 'drag to draw';
             if (rectRoiMode) showStatus(`ROI mode: ${shape} · ${modeHint}`);
+            if (shape !== 'floodfill') _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false);
+            if (rectRoiMode) renderInfo();
             _reconcileRoiColorbarControls();
             renderIsland();
             renderToolMenu();
@@ -12727,27 +12644,6 @@
         }
         window._islandToggleRoi = _islandToggleRoi;
 
-        function _islandToggleRoiScopeDim(idx, dim) {
-            const r = _rois[idx];
-            if (!r || dim === dim_x || dim === dim_y) return;
-            if (!r.scope) r.scope = _roiCurrentScope();
-            if (!Array.isArray(r.scope.broadcast_dims)) r.scope.broadcast_dims = [];
-            const pos = r.scope.broadcast_dims.indexOf(dim);
-            if (pos >= 0) {
-                r.scope.broadcast_dims.splice(pos, 1);
-                if (r.scope.values) delete r.scope.values[String(dim)];
-                if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-            } else {
-                r.scope.broadcast_dims.push(dim);
-                if (r.scope.values) delete r.scope.values[String(dim)];
-                if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-            }
-            r.stats = null; r.qmriStats = null;
-            _roiFetchStructuredStats(idx);
-            renderIsland();
-        }
-        window._islandToggleRoiScopeDim = _islandToggleRoiScopeDim;
-
         function _activateRoiInteraction() {
             if (compareActive || compareMvActive) {
                 showStatus('ROI mode: not available in this mode');
@@ -12781,6 +12677,7 @@
             roiDragging = false;
             if (_roiStatsRefreshTimer) { clearTimeout(_roiStatsRefreshTimer); _roiStatsRefreshTimer = null; }
             _floodFillTolerance = 0.1;
+            _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false);
             if (clear) { _rois = []; _selectedRoiIdx = -1; }
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = ''; });
             if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = ''; });
@@ -12829,7 +12726,7 @@
         }
 
         function _roiCurrentScope() {
-            const scope = { indices: indices.slice(), broadcast_dims: (_roiPendingBroadcastDims || []).slice(), values: {} };
+            const scope = { indices: indices.slice(), broadcast_dims: [], values: {} };
             if (qmriActive && typeof qmriDim === 'number' && qmriDim >= 0 && Array.isArray(qmriViews) && qmriViews.length) {
                 scope.broadcast_dims = [qmriDim];
                 scope.values[String(qmriDim)] = qmriViews.map(v => v.qmriIdx);
@@ -13343,47 +13240,6 @@
 
         function _roiMetric(stats, key) {
             return stats ? _roiStatsFmt(stats[key]) : '—';
-        }
-
-        function _roiScopeDescription(r) {
-            const scope = r.scope || _roiCurrentScope();
-            if (!Array.isArray(shape) || shape.length <= 2) return 'this image';
-            const fixed = [];
-            const broad = [];
-            for (let d = 0; d < shape.length; d++) {
-                if (d === dim_x || d === dim_y) continue;
-                const all = Array.isArray(scope.broadcast_dims) && scope.broadcast_dims.includes(d);
-                const isQmriAxis = qmriActive && d === qmriDim;
-                const cur = ((scope.indices || indices)[d] ?? 0) + 1;
-                const total = shape[d];
-                if (isQmriAxis && all) broad.push('visible qMRI maps');
-                else if (isQmriAxis) fixed.push(`qMRI map ${cur} of ${total}`);
-                else if (all) broad.push(`all slices on axis ${d}`);
-                else fixed.push(`axis ${d}: ${cur} of ${total}`);
-            }
-            if (!broad.length) return 'this slice';
-            const parts = broad.slice();
-            if (fixed.length) parts.push(`fixed ${fixed.join(', ')}`);
-            return parts.join(' · ');
-        }
-
-        function _roiExtentControls(idx) {
-            const r = _rois[idx];
-            if (!r || !Array.isArray(shape) || shape.length <= 2) return '';
-            const scope = r.scope || _roiCurrentScope();
-            const buttons = [];
-            for (let d = 0; d < shape.length; d++) {
-                if (d === dim_x || d === dim_y) continue;
-                const on = Array.isArray(scope.broadcast_dims) && scope.broadcast_dims.includes(d);
-                const isQmriAxis = qmriActive && d === qmriDim;
-                const label = isQmriAxis
-                    ? (on ? 'visible qMRI maps' : 'this qMRI map')
-                    : (on ? `all slices · axis ${d}` : `this slice · axis ${d}`);
-                const title = on ? `Click to keep only the current index on axis ${d}` : `Click to apply this ROI across axis ${d}`;
-                buttons.push(`<button type="button" class="roi-extent-btn${on ? ' on' : ''}" title="${title}" onclick="_roiManagerToggleDim(${idx}, ${d})">${label}</button>`);
-            }
-            if (!buttons.length) return '';
-            return `<div class="roi-extent-controls">${buttons.join('')}</div>`;
         }
 
         function _buildRoiExportTable() {
@@ -14433,7 +14289,6 @@
                     body += `<div class="island-rows">`;
                     body += isRoi ? _renderRoiRows() : _renderSegRows();
                     body += `</div>`;
-                    if (isRoi) body += _renderRoiScopePills();
                 }
                 html += _pluginSectionOpen(overlayPlugin, title, body);
             }
@@ -14814,29 +14669,6 @@
             return html;
         }
 
-        function _renderRoiScopePills() {
-            const r = _rois[_selectedRoiIdx];
-            if (!r || shape.length <= 2) return '';
-            const scope = r.scope || _roiCurrentScope();
-            const dims = [];
-            for (let d = 0; d < shape.length; d++) {
-                if (d === dim_x || d === dim_y) continue;
-                const on = Array.isArray(scope.broadcast_dims) && scope.broadcast_dims.includes(d);
-                const isQmriAxis = qmriActive && d === qmriDim;
-                const axisName = isQmriAxis ? 'qMRI maps' : `axis ${d}`;
-                const cur = (scope.indices || indices)[d];
-                const label = isQmriAxis
-                    ? (on ? 'Visible qMRI maps' : `Current qMRI map (${cur + 1}/${shape[d]})`)
-                    : (on ? `All slices on ${axisName}` : `Current slice on ${axisName} (${cur + 1}/${shape[d]})`);
-                const title = on
-                    ? `Click to use only index ${cur} on ${axisName}`
-                    : `Click to apply this ROI across all ${shape[d]} indices on ${axisName}`;
-                dims.push(`<div class="island-pill${on ? ' on' : ''}" onclick="_islandToggleRoiScopeDim(${_selectedRoiIdx}, ${d})" title="${title}">${label}</div>`);
-            }
-            if (!dims.length) return '';
-            return `<div class="section-label">ROI extent</div><div class="island-pills">${dims.join('')}</div>`;
-        }
-
         function _renderOverlayRows() {
             let html = '';
             for (let i = 0; i < _overlaySids.length; i++) {
@@ -15185,7 +15017,7 @@
             if (!_info) return;
             const visible = _histDimControlsVisible();
             _info.classList.toggle('hist-pick-mode', visible);
-            const roiVisible = _roiDimControlsVisible();
+            const roiVisible = _roiFloodfillScopeControlsVisible();
             _info.classList.toggle('roi-scope-mode', roiVisible);
             const labels = _info.querySelectorAll('.dim-label[data-dim]');
             if (!visible) {
@@ -15201,8 +15033,8 @@
                 }
                 labels.forEach(el => {
                     const i = Number(el.getAttribute('data-dim'));
-                    const display = multiViewActive ? mvDims.includes(i) : (i === dim_x || i === dim_y);
-                    const included = _roiDimIncluded(i);
+                    const display = _roiFloodfillDisplayDim(i);
+                    const included = _roiFloodfillDimIncluded(i);
                     el.classList.toggle('roi-display-dim', display);
                     el.classList.toggle('roi-included-dim', !display && included);
                     el.classList.toggle('roi-current-dim', !display && !included);
@@ -17453,8 +17285,16 @@
         }
 
         function _floodFillToleranceFromDrag(baseTolerance, deltaY) {
-            const factor = Math.exp(-deltaY / 140);
+            const factor = Math.exp(-deltaY / 70);
             return Math.max(0.01, Math.min(1.0, baseTolerance * factor));
+        }
+
+        function _updateRoiFloodfillSensitivityIndicator(tolerance = _floodFillTolerance, active = false) {
+            const value = Math.max(0.01, Math.min(1.0, Number(tolerance) || 0.1));
+            document.querySelectorAll('.roi-cb-controls').forEach(el => {
+                el.style.setProperty('--roi-ff-sensitivity', value.toFixed(3));
+                el.classList.toggle('floodfill-sensitivity-active', !!active);
+            });
         }
 
         function _requestFloodFillPreview(drag) {
@@ -17493,24 +17333,85 @@
                 });
         }
 
+        function _roiFloodfillScopeControlsVisible() {
+            return !!(rectRoiMode && _roiShape === 'floodfill' && Array.isArray(shape) && shape.length > 2 && !_histDimControlsVisible());
+        }
+
+        function _roiFloodfillDisplayDim(dim) {
+            return multiViewActive && Array.isArray(mvDims) && mvDims.length
+                ? mvDims.includes(dim)
+                : (dim === dim_x || dim === dim_y);
+        }
+
+        function _roiFloodfillScopeValid(dim, view = null) {
+            if (!Number.isInteger(dim) || !Array.isArray(shape) || dim < 0 || dim >= shape.length) return false;
+            if ((Number(shape[dim]) || 0) <= 1) return false;
+            if (!_isSpatialDim(dim)) return false;
+            if (view) return dim !== view.dimX && dim !== view.dimY;
+            return dim !== dim_x && dim !== dim_y;
+        }
+
+        function _roiDefaultFloodfillScopeDim(view = null) {
+            if (view && _roiFloodfillScopeValid(view.sliceDir, view)) return view.sliceDir;
+            const candidates = [];
+            if (Array.isArray(mvDims)) candidates.push(...mvDims);
+            candidates.push(dim_z, current_slice_dim);
+            for (let d = 0; Array.isArray(shape) && d < shape.length; d++) candidates.push(d);
+            const seen = new Set();
+            for (const dim of candidates) {
+                if (!Number.isInteger(dim) || seen.has(dim)) continue;
+                seen.add(dim);
+                if (_roiFloodfillScopeValid(dim, view)) return dim;
+            }
+            return -1;
+        }
+
+        function _roiResolvedFloodfillScopeDim(view = null) {
+            if (_roiFloodfillScopeDim === -1) return -1;
+            if (_roiFloodfillScopeValid(_roiFloodfillScopeDim, view)) return _roiFloodfillScopeDim;
+            return _roiDefaultFloodfillScopeDim(view);
+        }
+
+        function _roiFloodfillDimIncluded(dim) {
+            return _roiResolvedFloodfillScopeDim(null) === dim;
+        }
+
+        function _roiToggleFloodfillScopeDim(dim) {
+            if (!_roiFloodfillScopeControlsVisible() || !Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
+            if (_roiFloodfillDisplayDim(dim)) {
+                showToast('display axis - always included');
+                return false;
+            }
+            const current = _roiResolvedFloodfillScopeDim(null);
+            _roiFloodfillScopeDim = current === dim ? -1 : dim;
+            renderInfo();
+            const next = _roiResolvedFloodfillScopeDim(null);
+            showToast(next === -1 ? 'floodfill ROI: current slice only' : `floodfill ROI: scope dim ${next}`);
+            return true;
+        }
+
+        function _roiFloodfillTooltipTextForDim(dim) {
+            const stateLabel = (cls, text) => `<span class="hist-tip-state ${cls}">${text}</span>`;
+            if (_roiFloodfillDisplayDim(dim)) {
+                return `<div class="hist-tip-title">DISPLAY AXIS - always ${stateLabel('scope', 'INCLUDED')}.</div>`
+                    + `<ul class="hist-tip-list"><li>Floodfill is drawn on this displayed plane.</li><li>Click one non-display spatial dim to choose the 3D grow axis.</li></ul>`;
+            }
+            const included = _roiFloodfillDimIncluded(dim);
+            return `<div class="hist-tip-title">Floodfill: ${included ? stateLabel('scope', '3D SCOPE') : stateLabel('frozen', 'CURRENT SLICE')}</div>`
+                + `<ul class="hist-tip-list"><li>${stateLabel('frozen', 'CURRENT SLICE')}: grow only on the displayed plane.</li><li>${stateLabel('scope', '3D SCOPE')}: grow through this spatial dimension.</li></ul>`;
+        }
         function _startRoiFloodFillDrag(e, px, py, opts = {}) {
             const editIdx = Number.isInteger(opts.editIdx) ? opts.editIdx : -1;
-            // Determine the scope dim for 3D seed growing: when re-seeding an existing
-            // ROI, reuse its scope dim; otherwise use the first pending broadcast dim
-            // the user clicked in the dimbar. In v-mode (opts.view set) with no
-            // pending broadcast dim, default to the clicked pane's sliceDir — the
-            // axis perpendicular to that plane — so seed growth is 3D by default
-            // and the grown region can render in all three panes. Must not be a
-            // display axis of the view.
+            // Floodfill owns the only ROI dimbar scope. Re-seeding an existing
+            // 3D ROI preserves its axis; new fills use one extra spatial
+            // non-display dim when available.
             let scopeDim = -1;
             if (editIdx >= 0 && _rois[editIdx]) {
                 const prev = _rois[editIdx];
                 if (prev.scope_dim !== undefined) scopeDim = prev.scope_dim;
                 else if (prev.scope && Array.isArray(prev.scope.broadcast_dims) && prev.scope.broadcast_dims.length) scopeDim = prev.scope.broadcast_dims[0];
-            } else if (Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.length) {
-                scopeDim = _roiPendingBroadcastDims[0];
-            } else if (opts.view && Number.isInteger(opts.view.sliceDir)) {
-                scopeDim = opts.view.sliceDir;
+            } else {
+                scopeDim = _roiResolvedFloodfillScopeDim(opts.view || null);
             }
             const vd = opts.view || null;
             // In single-view, scope_dim must not be a display axis (dim_x/dim_y).
@@ -17535,6 +17436,7 @@
                 released: false,
             };
             const drag = _roiFloodFillDrag;
+            _updateRoiFloodfillSensitivityIndicator(drag.tolerance, true);
             _requestFloodFillPreview(drag);
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
@@ -17542,6 +17444,7 @@
                 if (Math.abs(next - drag.tolerance) < 0.005) return;
                 drag.tolerance = next;
                 _floodFillTolerance = next;
+                _updateRoiFloodfillSensitivityIndicator(drag.tolerance, true);
                 _requestFloodFillPreview(drag);
             };
             const onUp = () => {
@@ -17549,6 +17452,7 @@
                 window.removeEventListener('mouseup', onUp);
                 if (_roiFloodFillDrag !== drag) return;
                 drag.released = true;
+                _updateRoiFloodfillSensitivityIndicator(drag.tolerance, false);
                 if (drag.data && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
                     _roiFloodFillDrag = null;
                     _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, view: drag.view });
@@ -17982,8 +17886,10 @@
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 const vfx = !!flipDims[view.dimX], vfy = !!flipDims[view.dimY];
+                const replaceIdx = previewForView && Number.isInteger(previewForView.replaceIdx) ? previewForView.replaceIdx : -1;
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
+                    if (i === replaceIdx) continue;
                     if (!r || r.visible === false) continue;
                     const is3d = r.type === 'floodfill' && r.mask3d_b64;
                     const is2dFf = r.type === 'floodfill' && r.mask_b64 && !is3d;
@@ -18019,8 +17925,9 @@
                         if (!slice) continue;
                         previewForView._paneSlice = slice;
                     }
-                    const c = _roiColors[_rois.length % _roiColors.length];
-                    _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, false);
+                    const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
+                    const c = _roiColors[colorIdx % _roiColors.length];
+                    _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, replaceIdx === _selectedRoiIdx);
                     previewForView._paneSlice = null;
                 }
             }
@@ -18254,102 +18161,6 @@
             showStatus(`ROI ${idx + 1} deleted`);
         }
         window._roiManagerDelete = _roiManagerDelete;
-
-        function _roiManagerToggleDim(idx, dim) {
-            const r = _rois[idx];
-            if (!r || dim === dim_x || dim === dim_y) return;
-            if (!r.scope) r.scope = _roiCurrentScope();
-            if (!Array.isArray(r.scope.broadcast_dims)) r.scope.broadcast_dims = [];
-            const pos = r.scope.broadcast_dims.indexOf(dim);
-            if (pos >= 0) {
-                r.scope.broadcast_dims.splice(pos, 1);
-                if (r.scope.values) delete r.scope.values[String(dim)];
-                if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-            } else {
-                r.scope.broadcast_dims.push(dim);
-                if (r.scope.values) delete r.scope.values[String(dim)];
-                if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-            }
-            r.stats = null;
-            r.qmriStats = null;
-            _roiFetchStructuredStats(idx);
-            _updateRoiPanel();
-        }
-        window._roiManagerToggleDim = _roiManagerToggleDim;
-
-        function _roiManagerToggleDimAll(dim) {
-            if (dim === dim_x || dim === dim_y || !_rois.length) return;
-            const allOn = _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
-            for (let i = 0; i < _rois.length; i++) {
-                const r = _rois[i];
-                if (!r) continue;
-                if (!r.scope) r.scope = _roiCurrentScope();
-                if (!Array.isArray(r.scope.broadcast_dims)) r.scope.broadcast_dims = [];
-                const pos = r.scope.broadcast_dims.indexOf(dim);
-                if (allOn && pos >= 0) {
-                    r.scope.broadcast_dims.splice(pos, 1);
-                    if (r.scope.values) delete r.scope.values[String(dim)];
-                    if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-                } else if (!allOn && pos < 0) {
-                    r.scope.broadcast_dims.push(dim);
-                    if (r.scope.values) delete r.scope.values[String(dim)];
-                    if (r.scope.ranges) delete r.scope.ranges[String(dim)];
-                }
-                r.stats = null;
-                r.qmriStats = null;
-                _roiFetchStructuredStats(i);
-            }
-            _updateRoiPanel();
-        }
-        window._roiManagerToggleDimAll = _roiManagerToggleDimAll;
-
-        function _roiDimControlsVisible() {
-            return !!(rectRoiMode && Array.isArray(shape) && shape.length > 2 && !_histDimControlsVisible());
-        }
-
-        function _roiDimIncluded(dim) {
-            if (multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y)) return true;
-            if (_rois.length > 0) return _rois.every(r => r && r.scope && Array.isArray(r.scope.broadcast_dims) && r.scope.broadcast_dims.includes(dim));
-            return Array.isArray(_roiPendingBroadcastDims) && _roiPendingBroadcastDims.includes(dim);
-        }
-
-        function _roiToggleScopeDimAll(dim) {
-            if (!_roiDimControlsVisible() || !Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
-            if (multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y)) {
-                showToast('display axis — always included');
-                return false;
-            }
-            // Clear existing ROIs on scope change — redrawing is fast and old
-            // ROIs were drawn for a different scope configuration.
-            if (_rois.length) {
-                _rois = [];
-                _roiNames = {};
-                _selectedRoiIdx = -1;
-                _redrawRoiOverlays();
-                _updateRoiPanel();
-            }
-            // Toggle the pending dim for the next ROI.
-            if (!Array.isArray(_roiPendingBroadcastDims)) _roiPendingBroadcastDims = [];
-            const pos = _roiPendingBroadcastDims.indexOf(dim);
-            if (pos >= 0) _roiPendingBroadcastDims.splice(pos, 1);
-            else _roiPendingBroadcastDims.push(dim);
-            renderInfo();
-            const label = _roiDimIncluded(dim) ? 'all indices included' : 'current index only';
-            showToast(`ROI dim ${dim}: ${label}`);
-            return true;
-        }
-
-        function _roiTooltipTextForDim(dim) {
-            const stateLabel = (cls, text) => `<span class="hist-tip-state ${cls}">${text}</span>`;
-            const locked = multiViewActive ? mvDims.includes(dim) : (dim === dim_x || dim === dim_y);
-            if (locked) {
-                return `<div class="hist-tip-title">DISPLAY AXIS — always ${stateLabel('scope', 'INCLUDED')}.</div>`
-                    + `<ul class="hist-tip-list"><li>ROI geometry is drawn on this displayed plane.</li><li>Click other dims to include all indices in ROI statistics.</li></ul>`;
-            }
-            const included = _roiDimIncluded(dim);
-            return `<div class="hist-tip-title">Current: ${included ? stateLabel('scope', 'ALL INDICES') : stateLabel('frozen', 'CURRENT INDEX')}</div>`
-                + `<ul class="hist-tip-list"><li>${stateLabel('frozen', 'CURRENT INDEX')}: use only the displayed slice position.</li><li>${stateLabel('scope', 'ALL INDICES')}: include every index along this dimension for all ROIs.</li></ul>`;
-        }
 
         function _roiManagerToggleExpand(idx, btn) {
             const el = document.getElementById('roi-expand-' + idx);
@@ -22104,7 +21915,6 @@
                         }
                         body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="Export table">${_MAGNIFIER_ICON}</span></div>`;
                         body += `<div class="island-rows">${_renderRoiRows()}</div>`;
-                        body += _renderRoiScopePills();
                     } else {
                         body += `<div class="section-label">Local methods</div>`;
                         body += _renderSegMethodRows();
@@ -28282,9 +28092,9 @@
                 _histPickerCycleDim(d);
                 return;
             }
-            if (_roiDimControlsVisible()) {
+            if (_roiFloodfillScopeControlsVisible()) {
                 e.preventDefault();
-                _roiToggleScopeDimAll(d);
+                _roiToggleFloodfillScopeDim(d);
                 return;
             }
             // Skip dims in projection or quantization mode — they aren't navigable
@@ -28317,7 +28127,7 @@
         // Drag on a dim label to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
         infoEl.addEventListener('mousedown', (e) => {
-            if (_histDimControlsVisible() || _roiDimControlsVisible()) return;  // picker controls own the labels
+            if (_histDimControlsVisible() || _roiFloodfillScopeControlsVisible()) return;  // picker controls own the labels
             const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
@@ -28372,9 +28182,9 @@
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
-                } else if (_roiDimControlsVisible()) {
+                } else if (_roiFloodfillScopeControlsVisible()) {
                     _histDimHovering = true;
-                    _showHistTooltip(_roiTooltipTextForDim(hoveredDim), span.getBoundingClientRect());
+                    _showHistTooltip(_roiFloodfillTooltipTextForDim(hoveredDim), span.getBoundingClientRect());
                 }
             } else {
                 hoveredDim = -1;
@@ -29736,12 +29546,13 @@
             const shapes = ['circle', 'rect', 'freehand', 'floodfill'];
             let html = '<span class="roi-cb-label">ROI:</span><div class="roi-cb-shapes">';
             for (const shapeName of shapes) {
+                if (shapeName === 'floodfill') html += '<div class="roi-cb-sep" aria-hidden="true"></div>';
                 const icon = _ROI_SHAPE_ICONS[shapeName] || shapeName;
                 const active = shapeName === _roiShape ? ' on' : '';
                 html += `<button type="button" class="roi-cb-btn icon${active}" title="${_roiShapeLabel(shapeName)}" aria-label="${_roiShapeLabel(shapeName)}" onclick="event.stopPropagation(); _roiSetShape('${shapeName}')">${icon}</button>`;
             }
             html += '</div>';
-            html += '<div class="roi-cb-sep"></div>';
+            html += '<div class="roi-cb-sep roi-floodfill-sensitivity" aria-hidden="true"></div>';
             html += `<button type="button" class="roi-cb-btn icon" title="ROI stats" aria-label="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}</button>`;
             html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" ${_rois.length ? '' : 'disabled'} onclick="event.stopPropagation(); if (_rois.length) _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
             containers.forEach(el => { el.innerHTML = html; });

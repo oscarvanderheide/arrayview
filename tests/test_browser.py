@@ -2420,24 +2420,23 @@ class TestROIDrag:
         assert off["obBackDisplay"] == "flex", f"oblique back face should restore, got: {off}"
         assert off["roiBackDisplay"] == "none", f"ROI back face should hide, got: {off}"
 
-    def test_v_mode_roi_marks_all_three_spatial_dims_as_display(self, loaded_viewer, sid_3d):
-        """In v-mode all three spatial dims are displayed (each in at least one
-        pane), so the dimbar should mark all of them roi-display-dim (purple)."""
+    def test_v_mode_roi_does_not_take_over_dimbar(self, loaded_viewer, sid_3d):
+        """ROI mode should leave the dimbar as plain navigation in v-mode."""
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("v")
         page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
         page.wait_for_timeout(400)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#info.roi-scope-mode", timeout=2_000)
-        labels = page.evaluate(
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        state = page.evaluate(
             """() => Array.from(document.querySelectorAll('#info .dim-label[data-dim]')).map(el => ({
                 dim: el.getAttribute('data-dim'),
-                isDisplayDim: el.classList.contains('roi-display-dim'),
+                className: el.className,
             }))"""
         )
-        spatial = [l for l in labels if l["isDisplayDim"]]
-        assert len(spatial) == 3, f"All 3 spatial dims should be roi-display-dim in v-mode, got: {labels}"
+        assert not page.locator("#info").evaluate("el => el.classList.contains('roi-scope-mode')")
+        assert not any("roi-" in label["className"] for label in state), f"ROI mode should not mark dimbar labels, got: {state}"
 
     def test_v_mode_roi_draws_circle_on_mv_pane(self, loaded_viewer, sid_3d):
         """Circle/rect/freehand ROIs should be drawable on mv panes in v-mode,
@@ -2564,11 +2563,11 @@ class TestROIDrag:
             f"blocked histogram shortcut should explain ROI conflict, got: {state}"
         )
 
-    def test_shift_r_clears_roi_dimbar_underlines(self, loaded_viewer, sid_3d):
+    def test_shift_r_does_not_add_roi_dimbar_underlines(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_function("() => document.getElementById('info').classList.contains('roi-scope-mode')")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
 
         active = page.evaluate(
             """() => ({
@@ -2576,10 +2575,11 @@ class TestROIDrag:
                 labeled: Array.from(document.querySelectorAll('#info .dim-label')).map(el => el.className),
             })"""
         )
-        assert any("roi-" in cls for cls in active["labeled"]), f"ROI mode should mark dimbar labels, got: {active}"
+        assert "roi-scope-mode" not in active["infoClass"], f"ROI mode should not scope the dimbar, got: {active}"
+        assert not any("roi-" in cls for cls in active["labeled"]), f"ROI mode should not mark dimbar labels, got: {active}"
 
         page.keyboard.press("Shift+R")
-        page.wait_for_function("() => !document.getElementById('info').classList.contains('roi-scope-mode')")
+        page.wait_for_timeout(150)
         cleared = page.evaluate(
             """() => ({
                 infoClass: document.getElementById('info').className,
@@ -2587,7 +2587,39 @@ class TestROIDrag:
             })"""
         )
 
-        assert not any("roi-" in cls for cls in cleared["labeled"]), f"Shift+R should clear ROI dimbar classes, got: {cleared}"
+        assert "roi-scope-mode" not in cleared["infoClass"], f"Shift+R should leave ROI dimbar scope off, got: {cleared}"
+        assert not any("roi-" in cls for cls in cleared["labeled"]), f"Shift+R should leave dimbar classes clean, got: {cleared}"
+
+    def test_only_floodfill_adds_roi_dimbar_underlines(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+
+        for shape_name in ["circle", "rect", "freehand"]:
+            page.evaluate("(shapeName) => { _roiSetShape(shapeName); renderInfo(); }", shape_name)
+            page.wait_for_timeout(100)
+            state = page.evaluate(
+                """() => ({
+                    infoClass: document.getElementById('info').className,
+                    labeled: Array.from(document.querySelectorAll('#info .dim-label')).map(el => el.className),
+                })"""
+            )
+            assert "roi-scope-mode" not in state["infoClass"], f"{shape_name} should not scope dimbar, got: {state}"
+            assert not any("roi-" in cls for cls in state["labeled"]), f"{shape_name} should not mark dimbar labels, got: {state}"
+
+        page.evaluate("() => _roiSetShape('floodfill')")
+        page.wait_for_selector("#info.roi-scope-mode", timeout=2_000)
+        flood = page.evaluate(
+            """() => ({
+                included: Array.from(document.querySelectorAll('#info .dim-label.roi-included-dim')).map(el => Number(el.dataset.dim)),
+                display: Array.from(document.querySelectorAll('#info .dim-label.roi-display-dim')).map(el => Number(el.dataset.dim)),
+                resolved: _roiResolvedFloodfillScopeDim(null),
+            })"""
+        )
+        assert flood["resolved"] in flood["included"], f"floodfill should underline resolved scope dim, got: {flood}"
+        assert len(flood["included"]) == 1, f"floodfill should include one extra dim, got: {flood}"
+        assert len(flood["display"]) == 2, f"display dims should remain marked, got: {flood}"
 
     def test_roi_overlay_stays_above_image_during_slice_navigation(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -2618,41 +2650,42 @@ class TestROIDrag:
         assert state["overlayOpacity"] != "0", f"ROI overlay should not fade out during slice navigation, got: {state}"
         assert state["fadeOpacity"] == "0", f"image fade canvas should not cover ROI overlay during slice navigation, got: {state}"
 
-    def test_dimbar_pending_dim_applies_to_next_roi(self, loaded_viewer, sid_3d):
+    def test_dimbar_click_does_not_scope_or_clear_roi(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_function("() => document.getElementById('info').classList.contains('roi-scope-mode')")
+        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
+        self._draw_roi(page)
+        assert page.evaluate("() => _rois.length") == 1, "ROI should exist before dimbar click"
 
-        # The non-display dim is the one click may toggle. Find it from the client.
+        # Clicking a non-display dim should use normal dimbar navigation. It
+        # must not toggle a hidden ROI scope or clear existing ROIs.
         nondisp = page.evaluate(
             """() => {
                 const labels = Array.from(document.querySelectorAll('#info .dim-label[data-dim]'));
-                const found = labels.find(el => !el.classList.contains('roi-display-dim'));
+                const found = labels.find(el => {
+                    const d = Number(el.getAttribute('data-dim'));
+                    return d !== dim_x && d !== dim_y;
+                });
                 return found ? Number(found.getAttribute('data-dim')) : null;
             }"""
         )
-        assert nondisp is not None, "expected at least one non-display dim label in ROI scope mode"
+        assert nondisp is not None, "expected at least one non-display dim label"
 
-        # Clicking the dim label before any ROI must NOT gate on 'draw an ROI first';
-        # it should set a pending broadcast dim and mark the label included.
         page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
         page.wait_for_timeout(150)
-        pending = page.evaluate("() => _roiPendingBroadcastDims.slice()")
-        assert pending == [nondisp], f"pending broadcast dims should be [{nondisp}], got {pending}"
-        assert page.locator(f'#info .dim-label[data-dim="{nondisp}"]').evaluate(
-            "el => el.classList.contains('roi-included-dim')"
-        ), "dim label should show as included after click"
-
-        # Drawing a circle afterwards should produce an ROI whose scope spans that dim.
-        self._draw_roi(page)
-        scope = page.evaluate("() => _rois[0] && _rois[0].scope ? _rois[0].scope.broadcast_dims.slice() : null")
-        assert scope == [nondisp], f"drawn ROI should span pending dim {nondisp}, got {scope}"
-
-        # Toggling the dim off before drawing again should remove it from pending.
-        page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
-        page.wait_for_timeout(150)
-        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [], "pending dims should clear on toggle off"
+        state = page.evaluate(
+            """() => ({
+                roiCount: _rois.length,
+                activeDim,
+                scope: _rois[0] && _rois[0].scope ? _rois[0].scope.broadcast_dims.slice() : null,
+                infoClass: document.getElementById('info').className,
+            })"""
+        )
+        assert state["roiCount"] == 1, f"dimbar click should not clear ROIs, got {state}"
+        assert state["activeDim"] == nondisp, f"dimbar click should still navigate to dim {nondisp}, got {state}"
+        assert state["scope"] == [], f"ROI scope should stay 2D/current-slice, got {state}"
+        assert "roi-scope-mode" not in state["infoClass"], f"dimbar should not enter ROI scope mode, got {state}"
 
     def test_roi_preview_overlay_visible_during_drag(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -2672,10 +2705,9 @@ class TestROIDrag:
         page.mouse.up()
         assert overlay_display != "none", "ROI preview overlay should be visible during creation drag"
 
-    def test_seed_grows_in_pending_dim(self, loaded_viewer, client, tmp_path):
+    def test_normal_mode_floodfill_defaults_to_3d_spatial_scope(self, loaded_viewer, client, tmp_path):
         # A column of value 5 along dim 0 at (y=5, x=5); everything else 0.
-        # A seed there with a tight tolerance should grow across all 4 slices
-        # only when the broadcast dim is pending (3D scoped flood fill).
+        # Normal mode floodfill should grow through the non-display spatial dim by default.
         arr = np.zeros((4, 10, 10), dtype=np.float32)
         arr[:, 5, 5] = 5.0
         path = tmp_path / "roi_seed_column.npy"
@@ -2687,149 +2719,86 @@ class TestROIDrag:
         page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         page.evaluate("_roiSetShape('floodfill')")
 
-        # dim 0 is the non-display (slice) dim for this 3D array.
-        page.locator('#info .dim-label[data-dim="0"]').click()
-        page.wait_for_timeout(150)
-        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [0]
-
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
         cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         page.mouse.move(cx, cy)
         page.mouse.down()
-        page.wait_for_timeout(250)  # let the scoped flood-fill preview resolve
+        page.wait_for_timeout(250)  # let the flood-fill preview resolve
         page.mouse.up()
         page.wait_for_timeout(400)
 
-        roi = page.evaluate("() => _rois[0] ? { type: _rois[0].type, scopeDim: _rois[0].scope_dim, nSlices: (_rois[0].slices || []).length, broadcast: _rois[0].scope && _rois[0].scope.broadcast_dims } : null")
+        roi = page.evaluate("() => _rois[0] ? { type: _rois[0].type, scopeDim: _rois[0].scope_dim, nSlices: (_rois[0].slices || []).length, hasMask3d: !!_rois[0].mask3d_b64, n: _rois[0].stats && _rois[0].stats.n, broadcast: _rois[0].scope && _rois[0].scope.broadcast_dims } : null")
         assert roi is not None, "a flood-fill ROI should have been created"
         assert roi["type"] == "floodfill"
-        assert roi["scopeDim"] == 0, f"seed should grow in pending dim 0, got scopeDim={roi['scopeDim']}"
-        assert roi["broadcast"] == [0], f"committed scope should broadcast dim 0, got {roi['broadcast']}"
-        assert roi["nSlices"] == 4, f"3D grow should span all 4 slices, got {roi['nSlices']}"
+        assert roi["scopeDim"] == 0, f"normal-mode floodfill should default to spatial scope dim 0, got {roi}"
+        assert roi["broadcast"] == [0], f"committed scope should broadcast dim 0, got {roi}"
+        assert roi["nSlices"] == 4, f"3D grow should span all 4 slices, got {roi}"
+        assert roi["hasMask3d"], f"3D floodfill should carry a 3D mask, got {roi}"
+        assert roi["n"] == 4, f"3D seed column should produce one voxel per slice, got {roi}"
 
-    def test_scoped_floodfill_overlay_changes_per_slice(self, loaded_viewer, client, tmp_path):
-        # Distinct per-slice regions so the 3D component has a different shape
-        # on each slice (all share the seed voxel (5,5) so they're 3D-connected):
-        #   slice 0: (5,5),(5,6)
-        #   slice 1: (5,5)          <- seed slice
-        #   slice 2: (5,5),(6,5),(6,6)
-        #   slice 3: nothing
-        arr = np.zeros((4, 10, 10), dtype=np.float32)
-        arr[0, 5, 5] = 5.0; arr[0, 5, 6] = 5.0
-        arr[1, 5, 5] = 5.0
-        arr[2, 5, 5] = 5.0; arr[2, 6, 5] = 5.0; arr[2, 6, 6] = 5.0
-        path = tmp_path / "roi_scoped_per_slice.npy"
+    def test_floodfill_dimbar_choose_clear_change_scope(self, loaded_viewer, client, tmp_path):
+        arr = np.zeros((4, 10, 10, 5), dtype=np.float32)
+        path = tmp_path / "roi_scope_choice.npy"
         np.save(path, arr)
-        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scoped_per_slice"}).json()["sid"]
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scope_choice"}).json()["sid"]
         page = loaded_viewer(sid)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
-        page.evaluate("_roiSetShape('floodfill')")
-        # dim 0 is the non-display (slice) dim; make it the broadcast scope.
-        page.locator('#info .dim-label[data-dim="0"]').click()
-        page.wait_for_timeout(150)
-        # Seed on slice 1 at the center voxel (5,5).
-        page.evaluate(
-            """() => {
-                indices[0] = 1;
-                activeDim = 0;
-                current_slice_dim = 0;
-                updateView();
-                renderInfo();
-            }"""
+        page.evaluate("() => { _roiSetShape('floodfill'); renderInfo(); }")
+        page.wait_for_selector("#info.roi-scope-mode", timeout=2_000)
+
+        state = page.evaluate(
+            """() => ({
+                resolved: _roiResolvedFloodfillScopeDim(null),
+                included: Array.from(document.querySelectorAll('#info .dim-label.roi-included-dim')).map(el => Number(el.dataset.dim)),
+                choices: Array.from(document.querySelectorAll('#info .dim-label[data-dim]')).map(el => Number(el.dataset.dim)).filter(d => d !== dim_x && d !== dim_y),
+            })"""
         )
-        page.wait_for_timeout(400)
-        cv = page.locator("canvas#viewer")
-        box = cv.bounding_box()
-        cx = box["x"] + box["width"] * (5.5 / 10)
-        cy = box["y"] + box["height"] * (5.5 / 10)
-        page.mouse.move(cx, cy)
-        page.mouse.down()
-        page.wait_for_timeout(300)
-        page.mouse.up()
-        page.wait_for_timeout(400)
+        assert state["resolved"] in state["choices"], f"expected an initial non-display spatial scope, got {state}"
+        assert state["included"] == [state["resolved"]], f"initial underline should match resolved scope, got {state}"
 
-        roi = page.evaluate("() => _rois[0] ? { scopeDim: _rois[0].scope_dim, slices: (_rois[0].slices || []).map(s => s.index) } : null")
-        assert roi is not None, "a scoped flood-fill ROI should have been created"
-        assert roi["scopeDim"] == 0, f"expected scope dim 0, got {roi['scopeDim']}"
-        assert roi["slices"] == [0, 1, 2], f"3D region should span slices 0,1,2, got {roi['slices']}"
+        first = state["resolved"]
+        page.locator(f'#info .dim-label[data-dim="{first}"]').click()
+        page.wait_for_timeout(150)
+        cleared = page.evaluate(
+            """() => ({
+                stored: _roiFloodfillScopeDim,
+                resolved: _roiResolvedFloodfillScopeDim(null),
+                included: Array.from(document.querySelectorAll('#info .dim-label.roi-included-dim')).map(el => Number(el.dataset.dim)),
+            })"""
+        )
+        assert cleared["stored"] == -1 and cleared["resolved"] == -1, f"clicking active scope should clear to 2D, got {cleared}"
+        assert cleared["included"] == [], f"cleared floodfill scope should remove included underline, got {cleared}"
 
-        # For each slice, set the scroll position and redraw the overlay, then
-        # sample overlay alpha at the distinguishing voxels. The overlay must
-        # reflect the per-slice mask, not the seed-slice mask on every slice.
-        sample_js = r"""
-        (s) => {
-            indices[0] = s;
-            _redrawRoiOverlays();
-            const ov = document.getElementById('roi-overlay');
-            const ctx = ov.getContext('2d');
-            const dpr = window.devicePixelRatio || 1;
-            const dW = parseInt(ov.style.width) || ov.clientWidth;
-            const dH = parseInt(ov.style.height) || ov.clientHeight;
-            const mainCv = document.getElementById('viewer');
-            const sx = dW / mainCv.width;
-            const sy = dH / mainCv.height;
-            const sample = (ix, iy) => {
-                const px = Math.floor((ix + 0.5) * sx * dpr);
-                const py = Math.floor((iy + 0.5) * sy * dpr);
-                return ctx.getImageData(px, py, 1, 1).data[3];
-            };
-            return { v55: sample(5,5), v56: sample(5,6), v65: sample(6,5), v66: sample(6,6) };
-        }
-        """
-        s0 = page.evaluate(sample_js, 0)
-        assert s0["v55"] > 0 and s0["v56"] > 0, f"slice 0 overlay should cover (5,5)&(5,6), got {s0}"
-        assert s0["v65"] == 0 and s0["v66"] == 0, f"slice 0 overlay should not cover (6,*), got {s0}"
+        other = next(d for d in state["choices"] if d != first)
+        page.locator(f'#info .dim-label[data-dim="{other}"]').click()
+        page.wait_for_timeout(150)
+        changed = page.evaluate(
+            """() => ({
+                stored: _roiFloodfillScopeDim,
+                resolved: _roiResolvedFloodfillScopeDim(null),
+                included: Array.from(document.querySelectorAll('#info .dim-label.roi-included-dim')).map(el => Number(el.dataset.dim)),
+            })"""
+        )
+        assert changed["stored"] == other and changed["resolved"] == other, f"clicking another dim should choose it, got {changed}"
+        assert changed["included"] == [other], f"chosen floodfill scope should be underlined, got {changed}"
 
-        s1 = page.evaluate(sample_js, 1)
-        assert s1["v55"] > 0, f"slice 1 overlay should cover (5,5), got {s1}"
-        assert s1["v56"] == 0 and s1["v65"] == 0 and s1["v66"] == 0, f"slice 1 overlay should be a single voxel, got {s1}"
-
-        s2 = page.evaluate(sample_js, 2)
-        assert s2["v55"] > 0 and s2["v65"] > 0 and s2["v66"] > 0, f"slice 2 overlay should cover (5,5),(6,5),(6,6), got {s2}"
-        assert s2["v56"] == 0, f"slice 2 overlay should not cover (5,6), got {s2}"
-
-        # Slice 3 is outside the grown region: nothing should be drawn.
-        s3 = page.evaluate(sample_js, 3)
-        assert s3 == {"v55": 0, "v56": 0, "v65": 0, "v66": 0}, f"slice 3 overlay should be empty, got {s3}"
-
-        # On the empty slice, the ROI label (the number "1") must also be absent.
-        # Scan the full overlay for any non-transparent pixel.
-        label_present = page.evaluate(
-            r"""
-            (s) => {
-                indices[0] = s;
-                _redrawRoiOverlays();
-                const ov = document.getElementById('roi-overlay');
-                const ctx = ov.getContext('2d');
-                const dpr = window.devicePixelRatio || 1;
-                const w = ov.width, h = ov.height;
-                const img = ctx.getImageData(0, 0, w, h).data;
-                for (let i = 3; i < img.length; i += 4) { if (img[i] > 0) return true; }
-                return false;
-            }
-            """
-        , 3)
-        assert not label_present, "ROI label should not be drawn on a slice with no ROI voxels"
-
-    def test_scoped_floodfill_hidden_on_dim_mismatch(self, loaded_viewer, client, tmp_path):
-        # A scoped floodfill ROI grown on (dim_x=2, dim_y=1) must be hidden
+    def test_floodfill_hidden_on_dim_mismatch(self, loaded_viewer, client, tmp_path):
+        # A floodfill ROI grown on (dim_x=2, dim_y=1) must be hidden
         # when the user swaps the viewing dims — the per-slice masks are in
         # the original plane's coordinates and don't apply to the new plane.
         arr = np.zeros((4, 10, 10), dtype=np.float32)
         arr[:, 5, 5] = 5.0
-        path = tmp_path / "roi_scoped_dim_mismatch.npy"
+        path = tmp_path / "roi_floodfill_dim_mismatch.npy"
         np.save(path, arr)
-        sid = client.post("/load", json={"filepath": str(path), "name": "roi_scoped_dim_mismatch"}).json()["sid"]
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_floodfill_dim_mismatch"}).json()["sid"]
         page = loaded_viewer(sid)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         page.evaluate("_roiSetShape('floodfill')")
-        page.locator('#info .dim-label[data-dim="0"]').click()
-        page.wait_for_timeout(150)
         page.evaluate(
             """() => {
                 indices[0] = 1;
@@ -2942,6 +2911,44 @@ class TestROIDrag:
         assert len(per_pane) == 3
         for p in per_pane:
             assert p["present"], f"3D floodfill ROI should render in pane sliceDir={p['sliceDir']} (dimX={p['dimX']}, dimY={p['dimY']}), got present=False"
+
+    def test_vmode_roi_replace_preview_reuses_original_color(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
+        page.wait_for_timeout(700)
+
+        calls = page.evaluate(
+            """() => {
+                const view = mvViews[0];
+                const originalDraw = _roiDrawVisibleShape;
+                const seen = [];
+                _roiVisible = true;
+                _selectedRoiIdx = 0;
+                _rois = [
+                    { id: 'original', type: 'circle', cx: 6, cy: 6, r: 3, mvDimX: view.dimX, mvDimY: view.dimY, visible: true },
+                    { id: 'other', type: 'circle', cx: 14, cy: 14, r: 3, mvDimX: view.dimX, mvDimY: view.dimY, visible: true },
+                ];
+                _roiDrawVisibleShape = (_ctx, roi, _sx, _sy, color, selected) => {
+                    seen.push({ id: roi.id || 'preview', stroke: color.stroke, selected });
+                };
+                try {
+                    _drawAllMvRois({ id: 'preview', type: 'circle', cx: 8, cy: 8, r: 4, mvDimX: view.dimX, mvDimY: view.dimY, replaceIdx: 0 });
+                } finally {
+                    _roiDrawVisibleShape = originalDraw;
+                    _rois = [];
+                    _selectedRoiIdx = -1;
+                    _clearMvRoiOverlays();
+                }
+                return { seen, color0: _roiColors[0].stroke, color1: _roiColors[1].stroke, color2: _roiColors[2].stroke };
+            }"""
+        )
+        assert all(call["id"] != "original" for call in calls["seen"]), f"replace preview should skip original ROI, got {calls}"
+        preview = next((call for call in calls["seen"] if call["id"] == "preview"), None)
+        assert preview is not None, f"replace preview should be drawn, got {calls}"
+        assert preview["stroke"] == calls["color0"], f"replace preview should reuse original ROI color, got {calls}"
+        assert preview["stroke"] != calls["color2"], f"replace preview should not use next-new ROI color, got {calls}"
 
     def test_vmode_floodfill_updates_on_scroll(self, loaded_viewer, client, tmp_path):
         # A 3D block at z=4..7. Seed a 3D floodfill on pane 0 (sliceDir=2) at
@@ -3108,6 +3115,72 @@ class TestROIDrag:
         # Controls fit inside the island back face vertically.
         assert geom["controls"]["h"] <= geom["back"]["h"] + 2, f"controls ({geom['controls']['h']}px) should fit inside island back ({geom['back']['h']}px)"
 
+    def test_vmode_floodfill_hold_updates_toolbar_sensitivity_line(self, loaded_viewer, client, tmp_path):
+        arr = np.zeros((12, 12, 12), dtype=np.float32)
+        arr[4:8, 4:8, 4:8] = 5.0
+        path = tmp_path / "roi_vmode_sensitivity_line.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_sensitivity_line"}).json()["sid"]
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.evaluate("_roiSetShape('floodfill')")
+        page.wait_for_timeout(150)
+        placement = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                const flood = ctrls.querySelector('button[aria-label="flood fill"]');
+                const shapes = flood ? flood.closest('.roi-cb-shapes') : null;
+                const stats = ctrls.querySelector('button[aria-label="ROI stats"]');
+                return {
+                    lineAfterFloodfillGroup: shapes && shapes.nextElementSibling === line,
+                    lineBeforeStats: stats && stats.previousElementSibling === line,
+                };
+            }"""
+        )
+        assert placement == {"lineAfterFloodfillGroup": True, "lineBeforeStats": True}, f"sensitivity line should reuse the separator between floodfill and stats, got {placement}"
+        pane = page.evaluate("() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }")
+        page.mouse.move(pane["x"], pane["y"])
+        page.mouse.down()
+        page.wait_for_timeout(120)
+        during = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                return {
+                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
+                    height: line.getBoundingClientRect().height,
+                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
+                };
+            }"""
+        )
+        page.mouse.move(pane["x"], pane["y"] - 160, steps=8)
+        page.wait_for_timeout(180)
+        moved = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                return {
+                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
+                    height: line.getBoundingClientRect().height,
+                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
+                };
+            }"""
+        )
+        page.mouse.up()
+        page.wait_for_timeout(120)
+        after = page.evaluate("() => document.getElementById('roi-cb-controls-mv').classList.contains('floodfill-sensitivity-active')")
+
+        assert during["active"], f"sensitivity line should activate while holding floodfill, got {during}"
+        assert moved["active"], f"sensitivity line should stay active while dragging sensitivity, got {moved}"
+        assert moved["value"] > during["value"], f"dragging upward should increase sensitivity value, got before={during}, after={moved}"
+        assert moved["height"] > during["height"], f"line height should increase with sensitivity, got before={during}, after={moved}"
+        assert not after, "sensitivity line should deactivate after mouseup"
+
     def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
@@ -3134,7 +3207,7 @@ class TestROIDrag:
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0, "ROIs should be cleared after axis reassignment"
 
-    def test_rois_cleared_on_scope_click(self, loaded_viewer, sid_3d):
+    def test_rois_not_cleared_on_dimbar_click(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
@@ -3142,20 +3215,31 @@ class TestROIDrag:
         self._draw_roi(page)
         assert page.evaluate("() => _rois.length") == 1, "ROI should exist after drawing"
 
-        # Clicking a non-display dim in ROI scope mode should clear ROIs.
+        # Clicking a non-display dim is normal navigation now; it should not
+        # clear ROIs or toggle a hidden pending scope.
         nondisp = page.evaluate(
             """() => {
                 const labels = Array.from(document.querySelectorAll('#info .dim-label[data-dim]'));
-                const found = labels.find(el => !el.classList.contains('roi-display-dim'));
+                const found = labels.find(el => {
+                    const d = Number(el.getAttribute('data-dim'));
+                    return d !== dim_x && d !== dim_y;
+                });
                 return found ? Number(found.getAttribute('data-dim')) : null;
             }"""
         )
         assert nondisp is not None
         page.locator(f'#info .dim-label[data-dim="{nondisp}"]').click()
         page.wait_for_timeout(150)
-        assert page.evaluate("() => _rois.length") == 0, "ROIs should be cleared after scope dim click"
-        # Pending broadcast dim should still toggle for the next ROI.
-        assert page.evaluate("() => _roiPendingBroadcastDims.slice()") == [nondisp], "pending dim should be set for next ROI"
+        state = page.evaluate(
+            """() => ({
+                roiCount: _rois.length,
+                activeDim,
+                scope: _rois[0] && _rois[0].scope ? _rois[0].scope.broadcast_dims.slice() : null,
+            })"""
+        )
+        assert state["roiCount"] == 1, f"dimbar click should not clear ROIs, got {state}"
+        assert state["activeDim"] == nondisp, f"dimbar click should navigate to dim {nondisp}, got {state}"
+        assert state["scope"] == [], f"ROI scope should remain current-slice only, got {state}"
 
     def test_roi_transposes_with_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -3303,24 +3387,23 @@ class TestROIDrag:
 
         roi_pt = {"x": (x0 + x1) / 2, "y": (y0 + y1) / 2}
         page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
-        page.wait_for_selector("#roi-hover-tooltip.editing .roi-tip-name-input", timeout=2_000)
-        edit_height = page.locator("#roi-hover-tooltip").evaluate("el => el.getBoundingClientRect().height")
+        page.wait_for_selector("#roi-label-editor.editing .roi-tip-name-input", timeout=2_000)
+        edit_height = page.locator("#roi-label-editor").evaluate("el => el.getBoundingClientRect().height")
         assert edit_height <= hover_height + 1
-        assert page.locator("#roi-hover-tooltip .roi-tip-edit").evaluate("el => getComputedStyle(el).flexDirection") == "row"
-        assert page.locator("#roi-hover-tooltip .roi-tip-delete").is_visible()
-        assert page.locator("#roi-hover-tooltip .roi-tip-name-input").evaluate("el => getComputedStyle(el).borderBottomWidth") == "0px"
-        assert "n =" not in page.locator("#roi-hover-tooltip").inner_text()
-        assert "count" not in page.locator("#roi-hover-tooltip").inner_text().lower()
-        page.locator("#roi-hover-tooltip .roi-tip-name-input").fill("Phantom well")
+        assert page.locator("#roi-label-editor .roi-tip-edit").evaluate("el => getComputedStyle(el).flexDirection") == "row"
+        assert page.locator("#roi-label-editor .roi-tip-name-input").evaluate("el => getComputedStyle(el).borderBottomWidth") == "0px"
+        assert "n =" not in page.locator("#roi-label-editor").inner_text()
+        assert "count" not in page.locator("#roi-label-editor").inner_text().lower()
+        page.locator("#roi-label-editor .roi-tip-name-input").fill("Phantom well")
         page.keyboard.press("Enter")
         page.wait_for_timeout(200)
         assert page.evaluate("() => _roiName(0)") == "Phantom well"
         assert page.evaluate("() => _roiCanvasLabel(0)") == "Phantom well"
-        assert not page.locator("#roi-hover-tooltip").evaluate("el => el.classList.contains('editing')")
+        assert not page.locator("#roi-label-editor").evaluate("el => el.classList.contains('editing')")
 
         page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
-        page.wait_for_selector("#roi-hover-tooltip.editing .roi-tip-name-input", timeout=2_000)
-        page.locator("#roi-hover-tooltip .roi-tip-name-input").fill("Cancelled")
+        page.wait_for_selector("#roi-label-editor.editing .roi-tip-name-input", timeout=2_000)
+        page.locator("#roi-label-editor .roi-tip-name-input").fill("Cancelled")
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
         assert page.evaluate("() => _roiName(0)") == "Phantom well"
@@ -3356,26 +3439,6 @@ class TestROIDrag:
         page.locator(".roi-manager-actions").get_by_label("Delete Phantom well").click()
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
-
-    def test_manager_extent_labels_are_plain_language(self, loaded_viewer, sid_4d):
-        page = loaded_viewer(sid_4d)
-        _focus_kb(page)
-        page.keyboard.press("Shift+R")
-        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
-        self._draw_roi(page)
-        dim = page.evaluate("() => shape.findIndex((_, i) => i !== dim_x && i !== dim_y)")
-        assert dim >= 0
-        page.locator(f'#info [data-dim="{dim}"]').hover()
-        page.wait_for_timeout(200)
-        assert "CURRENT INDEX" in page.locator("#hist-tooltip").inner_text()
-
-        page.locator(f'#info [data-dim="{dim}"]').click()
-        page.wait_for_timeout(300)
-        assert page.evaluate("(d) => _rois[0].scope.broadcast_dims.includes(d)", dim)
-        page.locator(f'#info [data-dim="{dim}"]').hover()
-        page.wait_for_timeout(200)
-        assert "ALL INDICES" in page.locator("#hist-tooltip").inner_text()
-
 
 class TestColorbarWindowLevel:
     def test_colorbar_rendered_with_gradient(self, loaded_viewer, sid_2d):
