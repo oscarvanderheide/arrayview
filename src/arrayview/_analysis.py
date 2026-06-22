@@ -179,6 +179,7 @@ def _volume_histogram(
         session, dim_x, dim_y, scroll_dim, scroll_dims
     )
 
+    log_bins = qmri_role in ("t1", "t2")
     cache_key = (
         dim_x,
         dim_y,
@@ -187,6 +188,7 @@ def _volume_histogram(
         complex_mode,
         qmri_role,
         bins,
+        log_bins,
     )
     if not hasattr(session, "_volume_hist_cache"):
         session._volume_hist_cache = {}
@@ -232,7 +234,6 @@ def _volume_histogram(
             pixels.append(finite)
 
     if pixels:
-        log_bins = qmri_role in ("t1", "t2")
         result = _histogram_payload(np.concatenate(pixels), bins, log_bins=log_bins)
     else:
         result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
