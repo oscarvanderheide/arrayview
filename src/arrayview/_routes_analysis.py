@@ -547,9 +547,10 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         indices: str,
         complex_mode: int = 0,
         log_scale: bool = False,
+        qmri_role: str = "",
         session=Depends(get_session_or_404),
     ):
-        data = _lebesgue_slice(session, dim_x, dim_y, indices, complex_mode, log_scale)
+        data = _lebesgue_slice(session, dim_x, dim_y, indices, complex_mode, log_scale, qmri_role)
         return Response(
             content=data.tobytes(),
             media_type="application/octet-stream",

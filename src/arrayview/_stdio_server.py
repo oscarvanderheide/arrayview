@@ -290,8 +290,9 @@ def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
     indices_str = params.get("indices", "")
     complex_mode = int(params.get("complex_mode", "0"))
     log_scale = params.get("log_scale", "false").lower() == "true"
+    qmri_role = params.get("qmri_role", "")
 
-    data = _lebesgue_slice(session, dim_x, dim_y, indices_str, complex_mode, log_scale)
+    data = _lebesgue_slice(session, dim_x, dim_y, indices_str, complex_mode, log_scale, qmri_role)
     import base64
     _write_json({
         "_binary": True,

@@ -241,14 +241,19 @@ def _lebesgue_slice(
     indices,
     complex_mode: int = 0,
     log_scale: bool = False,
+    qmri_role: str = "",
 ) -> np.ndarray:
     """Return float32 slice data for Lebesgue mode."""
+    from arrayview._synthetic_mri import normalize_relaxation_ms
+
     idx_tuple = (
         tuple(int(v) for v in indices.split(","))
         if isinstance(indices, str)
         else tuple(indices)
     )
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    if qmri_role:
+        raw = normalize_relaxation_ms(raw, qmri_role)
     data = apply_complex_mode(raw, complex_mode).astype(np.float32)
     if log_scale:
         data = np.log10(np.abs(data) + 1).astype(np.float32)

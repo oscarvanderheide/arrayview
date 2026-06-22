@@ -10610,8 +10610,8 @@
         // Per-view hover slice cache keyed by "sid:indices:dimX:dimY:complex:log"
         const _hoverSliceCache = {};
 
-        async function _fetchHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
-            const key = fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+        async function _fetchHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole = '') {
+            const key = fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale + ':' + qmriRole;
             if (_hoverSliceCache[key]) return _hoverSliceCache[key];
             const params = new URLSearchParams({
                 dim_x: fetchDimX, dim_y: fetchDimY,
@@ -10619,6 +10619,7 @@
                 complex_mode: complexMode,
                 log_scale: logScale,
             });
+            if (qmriRole) params.set('qmri_role', qmriRole);
             try {
                 const resp = await proxyFetch(`/lebesgue/${fetchSid}?${params}`);
                 if (!resp.ok) return null;
@@ -10631,26 +10632,26 @@
             } catch (_) { return null; }
         }
 
-        function _hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
-            return fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+        function _hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole = '') {
+            return fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale + ':' + qmriRole;
         }
 
-        function _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
-            return _hoverSliceCache[_hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices)] || null;
+        function _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole = '') {
+            return _hoverSliceCache[_hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole)] || null;
         }
 
         function _prefetchHoverSlices() {
             if (qmriActive) {
                 qmriViews.forEach(v => {
                     const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
-                    _fetchHoverSlice(sid, dim_x, dim_y, qi);
+                    _fetchHoverSlice(sid, dim_x, dim_y, qi, v.qmriRole);
                 });
             } else if (multiViewActive) {
                 mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
             } else if (compareQmriActive) {
                 compareQmriViews.forEach(v => {
                     const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
-                    _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
+                    _fetchHoverSlice(v.sid, dim_x, dim_y, qi, v.qmriRole);
                 });
             } else if (compareMvActive) {
                 compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
@@ -10676,14 +10677,15 @@
             }, 80);
         }
 
-        async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY, signal = null) {
+        async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY, signal = null, qmriRole = '') {
             const params = new URLSearchParams({
                 dim_x: fetchDimX, dim_y: fetchDimY,
                 indices: indices.join(','),
                 complex_mode: complexMode,
                 log_scale: logScale,
             });
-            const ver = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+            if (qmriRole) params.set('qmri_role', qmriRole);
+            const ver = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale + ':' + qmriRole;
             const cached = _lebesguePerSession[fetchSid];
             if (cached && cached.version === ver) return cached;
             try {
@@ -10857,10 +10859,10 @@
             return true;
         }
 
-        function _drawLebesgueHighlightForCachedSlice(targetCv, fetchSid, fetchDimX, fetchDimY, fetchIndices, binLow, binHigh) {
+        function _drawLebesgueHighlightForCachedSlice(targetCv, fetchSid, fetchDimX, fetchDimY, fetchIndices, binLow, binHigh, qmriRole = '') {
             return _drawLebesgueHighlightOnCanvas(
                 targetCv,
-                _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices),
+                _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole),
                 binLow,
                 binHigh,
             );
@@ -10871,13 +10873,13 @@
             if (compareQmriActive && view.sid) {
                 const qIdx = [...indices];
                 qIdx[compareQmriDim] = view.qmriIdx;
-                _drawLebesgueHighlightForCachedSlice(view.canvas, view.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                _drawLebesgueHighlightForCachedSlice(view.canvas, view.sid, dim_x, dim_y, qIdx, binLow, binHigh, view.qmriRole);
                 return;
             }
             if (qmriActive) {
                 const qIdx = [...indices];
                 qIdx[qmriDim] = view.qmriIdx;
-                _drawLebesgueHighlightForCachedSlice(view.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                _drawLebesgueHighlightForCachedSlice(view.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh, view.qmriRole);
             }
         }
 
@@ -10932,7 +10934,7 @@
                     if (!v.canvas) return;
                     const qIdx = [...indices];
                     qIdx[compareQmriDim] = v.qmriIdx;
-                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, dim_x, dim_y, qIdx, binLow, binHigh, v.qmriRole);
                 });
             } else if (compareMvActive) {
                 compareMvViews.forEach(v => {
@@ -10944,7 +10946,7 @@
                     if (!v.canvas) return;
                     const qIdx = [...indices];
                     qIdx[qmriDim] = v.qmriIdx;
-                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh, v.qmriRole);
                 });
             } else if (multiViewActive) {
                 mvViews.forEach(v => {
