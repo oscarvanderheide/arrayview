@@ -67,7 +67,7 @@ def _safe_float(v) -> float | None:
     return f if np.isfinite(f) else None
 
 
-def _histogram_payload(finite: np.ndarray, bins: int) -> dict:
+def _histogram_payload(finite: np.ndarray, bins: int, log_bins: bool = False) -> dict:
     """Build a histogram response from finite values."""
     if finite.size == 0:
         return {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
@@ -81,7 +81,13 @@ def _histogram_payload(finite: np.ndarray, bins: int) -> dict:
             "vmax": vmax,
         }
     bins = max(8, min(int(bins), 512))
-    counts, edges = np.histogram(finite, bins=bins)
+    if log_bins and vmin > 0:
+        log_data = np.log10(finite)
+        _, log_edges = np.histogram(log_data, bins=bins)
+        edges = np.power(10.0, log_edges)
+        counts, _ = np.histogram(finite, bins=edges)
+    else:
+        counts, edges = np.histogram(finite, bins=bins)
     return {
         "counts": counts.tolist(),
         "edges": [float(e) for e in edges],
@@ -113,7 +119,8 @@ def _slice_histogram(
     data = apply_complex_mode(raw, complex_mode)
     finite = data.ravel()
     finite = finite[np.isfinite(finite)]
-    return _histogram_payload(finite, bins)
+    log_bins = qmri_role in ("t1", "t2")
+    return _histogram_payload(finite, bins, log_bins=log_bins)
 
 
 def _parse_fixed_indices(fixed_indices: str) -> dict[int, int]:
@@ -224,7 +231,8 @@ def _volume_histogram(
             pixels.append(finite)
 
     if pixels:
-        result = _histogram_payload(np.concatenate(pixels), bins)
+        log_bins = qmri_role in ("t1", "t2")
+        result = _histogram_payload(np.concatenate(pixels), bins, log_bins=log_bins)
     else:
         result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
     session._volume_hist_cache[cache_key] = {
