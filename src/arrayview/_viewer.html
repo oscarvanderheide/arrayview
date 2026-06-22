@@ -452,7 +452,7 @@
             color: var(--muted);
             opacity: 0.4;
             font-weight: normal;
-            margin: 0 0.19ch;
+            margin: 0 0.60ch;
         }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         @keyframes hist-scope-pulse {
@@ -463,12 +463,10 @@
         .dim-label.hist-scope-pulse { animation: hist-scope-pulse 500ms ease-out forwards; }
         .muted { color: var(--muted); }
         .dim-flip-sign {
-            display: inline-block;
-            width: 1ch;
             color: var(--muted);
             font-weight: normal;
         }
-        .dim-flip-sign.empty { visibility: hidden; }
+        .dim-flip-sign.empty { display: none; }
         .dim-label {
             cursor: pointer; padding: 1px 3px; margin: 0 -3px;
             border-radius: 4px; transition: background 0.12s;
@@ -631,6 +629,11 @@
         #hist-tooltip .hist-tip-state.frozen { color: var(--muted); }
         #hist-tooltip.visible { display: block; }
         .dim-idx { font-variant-numeric: tabular-nums; }
+        #info .dim-pad-zero {
+            color: var(--muted);
+            -webkit-text-fill-color: var(--muted);
+            opacity: 0.72;
+        }
         #info .dim-label {
             display: inline-flex;
             align-items: baseline;
@@ -654,8 +657,26 @@
         }
         #info .active-dim.dim-label {
             font-weight: normal;
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
+        }
+        #dim-active-underline {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 0;
+            height: 2px;
+            background: var(--active-dim);
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate3d(0, 0, 0);
+            transition: transform var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1),
+                        width var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #dim-active-underline {
+                transition: transform 80ms ease-out, width 80ms ease-out;
+            }
         }
         #info .dim-label .dim-size {
             display: inline-block;
@@ -681,12 +702,22 @@
         #info .active-dim.dim-label .dim-idx,
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
         }
         .active-dim .dim-slash:not([style*="background"]) {
-            color: var(--active-dim) !important;
-            -webkit-text-fill-color: var(--active-dim) !important;
+            color: var(--text) !important;
+            -webkit-text-fill-color: var(--text) !important;
+        }
+        #info .spatial-dim.active-dim.dim-label,
+        #info .spatial-dim.active-dim.dim-label .dim-slash,
+        #info .spatial-dim.active-dim.dim-label .dim-size {
+            color: var(--spatial-dim);
+            -webkit-text-fill-color: var(--spatial-dim);
+        }
+        #info .spatial-dim.active-dim .dim-slash:not([style*="background"]) {
+            color: var(--spatial-dim) !important;
+            -webkit-text-fill-color: var(--spatial-dim) !important;
         }
         #status { display: none !important; }
         #toast  { position: fixed; bottom: 14px; left: 16px;
@@ -14962,6 +14993,57 @@
         }
         /* ── JS: Info Bar and Pixel Display ───────────────────────── */
 
+        const DIM_UNDERLINE_MS = 80;
+        let _dimUnderlinePlaced = false;
+        function _activeDimUnderlineViewportRect(info) {
+            const label = info?.querySelector('.active-dim.dim-label, .active-vfield-t.dim-label');
+            if (!label) return null;
+            const r = label.getBoundingClientRect();
+            return { x: r.left, y: r.bottom + 1, w: r.width };
+        }
+        function _ensureDimUnderlineMarker() {
+            let marker = document.getElementById('dim-active-underline');
+            if (!marker) {
+                marker = document.createElement('span');
+                marker.id = 'dim-active-underline';
+                marker.setAttribute('aria-hidden', 'true');
+                marker.style.setProperty('--dim-underline-ms', `${DIM_UNDERLINE_MS}ms`);
+                document.body.appendChild(marker);
+            }
+            return marker;
+        }
+        function _placeDimUnderline(marker, rect, instant) {
+            if (instant) {
+                marker.style.transition = 'none';
+            }
+            marker.style.transform = `translate3d(${rect.x}px, ${rect.y}px, 0)`;
+            marker.style.width = `${Math.max(0, rect.w)}px`;
+            if (instant) {
+                marker.offsetWidth;
+                marker.style.transition = '';
+            }
+        }
+        function _updateActiveDimUnderline(info) {
+            if (!info) return;
+            const toRect = _activeDimUnderlineViewportRect(info);
+            const marker = _ensureDimUnderlineMarker();
+            if (!toRect) {
+                marker.remove();
+                _dimUnderlinePlaced = false;
+                return;
+            }
+            _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
+            _dimUnderlinePlaced = true;
+        }
+
+        function _dimIndexHtml(value, maxValue) {
+            const text = String(value);
+            const width = String(maxValue).length;
+            const nPad = Math.max(0, width - text.length);
+            const pad = nPad ? `<span class="dim-pad-zero">${'0'.repeat(nPad)}</span>` : '';
+            return `${pad}${text}`;
+        }
+
         function renderInfo() {
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
@@ -14989,25 +15071,25 @@
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
                         const sizeId = label === 'x' ? ' id="dim-x-size"' : label === 'y' ? ' id="dim-y-size"' : label === 'z' ? ' id="dim-z-size"' : '';
-                        const prefix = flipDims[i] ? '<span class="dim-flip-sign">-</span>' : '<span class="dim-flip-sign empty">-</span>';
+                        const prefix = flipDims[i] ? '<span class="dim-flip-sign">-</span>' : '';
                         const cls = (active || playing) ? `spatial-dim ${dimCls} dim-label` : 'spatial-dim dim-label';
                         return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                    const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
+                    const padded = _dimIndexHtml(v + 1, shape[i]);
                     const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
                     const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
                     if (active || playing) return `<span class="${dimCls} dim-label" ${d}>${inner}</span>`;
                     return `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
-                    const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '<span class="dim-flip-sign empty">-</span>';
+                    const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '';
                     const inner = sign + 'x' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${shape[i]}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
-                    const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '<span class="dim-flip-sign empty">-</span>';
+                    const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '';
                     const inner = sign + 'y' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${shape[i]}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
@@ -15018,7 +15100,7 @@
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
+                const padded = _dimIndexHtml(v + 1, shape[i]);
                 const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
                 const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
@@ -15027,7 +15109,7 @@
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
-                const paddedT = String(vfieldT + 1).padStart(String(vfieldNTimes).length, '\u2007');
+                const paddedT = _dimIndexHtml(vfieldT + 1, vfieldNTimes);
                 const slash = dimSlash(pct, tActive, false, true);
                 const inner = `<span class="dim-idx">${paddedT}</span>${slash}<span class="dim-size">${vfieldNTimes}</span>`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
@@ -15036,6 +15118,7 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
+            _updateActiveDimUnderline(_info);
             _applyHistPickerClasses();
             renderEggs();
         }
