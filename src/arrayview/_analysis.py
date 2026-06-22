@@ -186,6 +186,7 @@ def _volume_histogram(
         tuple(sorted(fixed.items())),
         complex_mode,
         qmri_role,
+        bins,
     )
     if not hasattr(session, "_volume_hist_cache"):
         session._volume_hist_cache = {}
