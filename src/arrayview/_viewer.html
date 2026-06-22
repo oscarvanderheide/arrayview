@@ -633,6 +633,7 @@
             color: var(--muted);
             -webkit-text-fill-color: var(--muted);
             opacity: 0.72;
+            font-size: 0.82em;
         }
         #info .dim-label {
             display: inline-flex;
@@ -671,7 +672,8 @@
             z-index: 9999;
             transform: translate3d(0, 0, 0);
             transition: transform var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1),
-                        width var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1);
+                        width var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1),
+                        opacity 0.14s ease;
         }
         @media (prefers-reduced-motion: reduce) {
             #dim-active-underline {
@@ -15033,8 +15035,23 @@
                 return;
             }
             _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
+            marker.style.opacity = info.classList.contains('dimbar-expanded') ? '0' : '';
             _dimUnderlinePlaced = true;
         }
+
+        // Re-position the underline after any mode change, once layout has
+        // settled (modechange fires at the very end of enterQmri, enterMultiView,
+        // etc. — after _reconcileUI, renderIsland, and all DOM mutations).
+        // Listen on both document and window since different call sites
+        // dispatch to different targets (both without bubbling).
+        const _onModeChangeReposUnderline = () => {
+            requestAnimationFrame(() => {
+                const info = document.getElementById('info');
+                if (info) _updateActiveDimUnderline(info);
+            });
+        };
+        document.addEventListener('modechange', _onModeChangeReposUnderline);
+        window.addEventListener('modechange', _onModeChangeReposUnderline);
 
         function _dimIndexHtml(value, maxValue) {
             const text = String(value);
@@ -15118,7 +15135,7 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
-            _updateActiveDimUnderline(_info);
+            requestAnimationFrame(() => _updateActiveDimUnderline(_info));
             _applyHistPickerClasses();
             renderEggs();
         }
@@ -15253,10 +15270,26 @@
         // so the gnomon is suppressed.
         let _dimBarHovering = false;
         let _dimbarExtentPinned = false;
+        let _dimUnderlineTimer = 0;
 
         function _reconcileDimbarExtent() {
             const el = document.getElementById('info');
-            if (el) el.classList.toggle('dimbar-expanded', _dimbarExtentPinned || _dimBarHovering);
+            if (!el) return;
+            const wasExpanded = el.classList.contains('dimbar-expanded');
+            el.classList.toggle('dimbar-expanded', _dimbarExtentPinned || _dimBarHovering);
+            const nowExpanded = el.classList.contains('dimbar-expanded');
+
+            if (wasExpanded !== nowExpanded) {
+                const marker = document.getElementById('dim-active-underline');
+                if (marker) marker.style.opacity = '0';
+                clearTimeout(_dimUnderlineTimer);
+                _dimUnderlineTimer = setTimeout(() => {
+                    _dimUnderlineTimer = 0;
+                    _updateActiveDimUnderline(el);
+                }, 200);
+            } else {
+                _updateActiveDimUnderline(el);
+            }
         }
 
         function _toggleDimbarExtents() {
@@ -19696,6 +19729,7 @@
                         showStatus('transposed x/y (all panes)');
                         _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                        renderInfo(); saveState();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
@@ -19706,10 +19740,11 @@
                     updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                    renderInfo(); saveState();
                 },
             },
             'view.rotateOrFlip': {
-                title: 'Rotate 90° / flip axis',
+                title: 'Rotate 90°',
                 when: [],
                 run: (ctx, e) => {
                     if (_segMode) { _segReset(); return; }
@@ -19744,24 +19779,13 @@
                         showStatus('rotated 90°');
                         _roiClearOnDimChange();
                         renderInfo(); saveState();
-                    } else if (activeDim === dim_x) {
-                        const _w = canvas.width;
-                        flip_x = !flip_x;
-                        _roiTransformAll((px, py) => [_w - 1 - px, py], false);
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
-                    } else if (activeDim === dim_y) {
-                        const _h = canvas.height;
-                        flip_y = !flip_y;
-                        _roiTransformAll((px, py) => [px, _h - 1 - py], false);
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
                     } else {
                         const [odx, ody, ofx, ofy] = [dim_x, dim_y, flip_x, flip_y];
                         const _w = canvas.width;
                         _roiTransformAll((px, py) => [py, _w - 1 - px], true);
                         dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
                         updateView(); triggerPreload();
+                        renderInfo();
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -20734,8 +20758,7 @@
                         vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
-                        indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
-                        _maybeAutoRecomputeRange(activeDim);
+                        flipDims[activeDim] = !flipDims[activeDim];
                         renderInfo();
                         _mvRenderAllWithRois();
                         _debouncedHoverPrefetch();
@@ -20767,8 +20790,7 @@
                         vfieldT = Math.max(0, vfieldT - 1);
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
-                        indices[activeDim] = Math.max(0, indices[activeDim] - 1);
-                        _maybeAutoRecomputeRange(activeDim);
+                        flipDims[activeDim] = !flipDims[activeDim];
                         renderInfo();
                         _mvRenderAllWithRois();
                         _debouncedHoverPrefetch();
@@ -27895,6 +27917,8 @@
             if (typeof drawMvColorbar === 'function') drawMvColorbar();
             if (typeof positionEggs === 'function') positionEggs();
             if (typeof saveState === 'function') saveState();
+            const info = document.getElementById('info');
+            if (info) _updateActiveDimUnderline(info);
         }
 
         function _mvSetOrthoLayoutMode(id, opts = {}) {
@@ -29730,6 +29754,8 @@
             if (_mainHoverPinEligible()) _renderHoverPins();
             else _clearHoverPins();
             if (!_mainLoupeEligible()) _endMainLoupe();
+            const info = document.getElementById('info');
+            if (info) _updateActiveDimUnderline(info);
         }
 
         // ── Layout container visibility reconciler ───────────────────

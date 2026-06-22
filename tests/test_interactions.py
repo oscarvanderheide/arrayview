@@ -797,12 +797,12 @@ class TestNavigation:
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         original = page.evaluate(_JS_CENTER_PIXEL)
-        page.keyboard.press("r")
-        page.wait_for_timeout(400)
-        page.keyboard.press("r")
-        page.wait_for_timeout(400)
+        # r always rotates 90°, so 4 taps (360°) restores
+        for _ in range(4):
+            page.keyboard.press("r")
+            page.wait_for_timeout(400)
         restored = page.evaluate(_JS_CENTER_PIXEL)
-        assert original == restored, "r+r should restore canvas"
+        assert original == restored, "r×4 should restore canvas"
 
     def test_space_plays_animation(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
