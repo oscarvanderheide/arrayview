@@ -706,9 +706,7 @@
             color: var(--text) !important;
             -webkit-text-fill-color: var(--text) !important;
         }
-        #info .spatial-dim.active-dim.dim-label,
-        #info .spatial-dim.active-dim.dim-label .dim-slash,
-        #info .spatial-dim.active-dim.dim-label .dim-size {
+        #info .spatial-dim.active-dim.dim-label {
             color: var(--spatial-dim);
             -webkit-text-fill-color: var(--spatial-dim);
             font-weight: bold;
@@ -717,8 +715,8 @@
             font-weight: bold;
         }
         #info .spatial-dim.active-dim .dim-slash:not([style*="background"]) {
-            color: var(--spatial-dim) !important;
-            -webkit-text-fill-color: var(--spatial-dim) !important;
+            color: var(--active-dim) !important;
+            -webkit-text-fill-color: var(--active-dim) !important;
         }
         #status { display: none !important; }
         #toast  { position: fixed; bottom: 14px; left: 16px;
