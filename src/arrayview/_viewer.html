@@ -1017,19 +1017,13 @@
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
         #cmap-picker {
-            display: flex;
-            justify-content: flex-end;
-            align-items: stretch;
-            position: fixed;
-            inset: 0;
-            padding: 14px;
+            display: block; position: fixed; inset: 0;
             background: transparent;
             z-index: 51;
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transition: opacity 0.18s ease, visibility 0s linear 0.18s;
-            box-sizing: border-box;
+            transition: opacity 0.16s ease, visibility 0s linear 0.16s;
         }
         #cmap-picker.visible {
             opacity: 1;
@@ -1059,27 +1053,28 @@
             transition-delay: 0s;
         }
         #cmap-picker-box {
-            width: min(278px, calc(100vw - 28px));
-            height: calc(100vh - 28px);
-            max-height: calc(100vh - 28px);
+            width: min(384px, calc(100vw - 40px));
+            max-width: calc(100vw - 40px);
+            max-height: min(58vh, 460px);
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            padding: 16px;
-            background: color-mix(in srgb, var(--surface) 78%, transparent);
-            border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+            gap: 2px;
+            padding: 10px 18px 14px;
+            background: rgba(30,30,30,0.78);
+            border: 1px solid rgba(255,255,255,0.08);
             border-radius: var(--radius-lg);
             box-sizing: border-box;
             pointer-events: auto;
-            overflow: hidden;
+            overflow: visible;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             color: var(--text);
-            box-shadow: var(--layout-shadow);
+            position: fixed;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             opacity: 0;
-            transform: translateX(26px);
-            transition: opacity 0.18s ease, transform 0.22s ease;
+            transform: translateY(6px) scale(0.985);
+            transition: opacity 0.16s ease, transform 0.16s ease;
         }
         #tool-drawer-box {
             width: min(278px, calc(100vw - 28px));
@@ -1106,7 +1101,7 @@
         }
         #cmap-picker.visible #cmap-picker-box {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateY(0) scale(1);
         }
         #tool-drawer.visible #tool-drawer-box {
             opacity: 1;
@@ -1116,10 +1111,7 @@
             width: min(352px, calc(100vw - 28px));
         }
         .cmap-picker-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
+            display: none;
         }
         .tool-drawer-head {
             display: flex;
@@ -1210,16 +1202,21 @@
         #cmap-picker-swatches {
             flex: 0 0 auto;
             display: flex;
-            flex-direction: column;
-            gap: 10px;
-            overflow: visible;
-            margin-bottom: 8px;
+            align-items: stretch;
+            justify-content: flex-start;
+            gap: 8px;
+            overflow-x: auto;
+            overflow-y: visible;
+            padding: 10px 4px 4px;
+            min-height: 110px;
+            margin-bottom: 0;
+            transition: opacity 0.14s ease, transform 0.14s ease;
         }
         .cmap-picker-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 105px));
-            justify-content: center;
-            gap: 10px;
+            display: flex;
+            align-items: stretch;
+            justify-content: flex-start;
+            gap: 8px;
             width: 100%;
         }
         .cmap-picker-swatch {
@@ -1227,14 +1224,14 @@
             display: flex;
             align-items: stretch;
             justify-content: center;
-            width: 105px;
-            height: 21px;
+            width: 21px;
+            height: 105px;
             padding: 0;
             border-radius: 6px;
             border: 1px solid var(--border);
             background: transparent;
             cursor: pointer;
-            overflow: hidden;
+            overflow: visible;
             box-sizing: border-box;
             flex: 0 0 auto;
             transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease, transform 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -1245,35 +1242,31 @@
         .cmap-picker-swatch.active {
             border-color: var(--active-dim);
             box-shadow: 0 0 0 1px color-mix(in srgb, var(--active-dim) 40%, transparent);
-            transform: scale(1.06);
+            transform: scale(1.12);
             z-index: 1;
         }
         .cmap-picker-swatch canvas {
             display: block;
             width: 100%;
             height: 100%;
-            min-height: 0;
             border-radius: 5px;
         }
         .cmap-picker-swatch-name {
             position: absolute;
-            left: 6px;
-            right: 6px;
-            top: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
-            transform: translateY(-50%);
+            left: 50%;
+            bottom: 4px;
+            display: block;
+            transform: translateX(-50%) rotate(180deg);
             color: rgba(255,255,255,0.92);
             font-size: 9px;
             font-weight: 600;
             letter-spacing: 0.01em;
+            line-height: 1;
+            writing-mode: vertical-rl;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            max-height: calc(100% - 10px);
             pointer-events: none;
-            -webkit-text-stroke: 1.1px rgba(0,0,0,0.35);
+            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
             paint-order: stroke fill;
             text-shadow: 0 1px 2px rgba(0,0,0,0.25);
         }
@@ -1298,13 +1291,7 @@
         }
         #cmap-picker-input:focus { border-color: var(--border); }
         #cmap-picker-results {
-            flex: 1;
-            min-height: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            overflow-y: auto;
-            padding: 4px 2px 2px 0;
+            display: none;
         }
         #cmap-picker-list {
             display: none;
@@ -22583,8 +22570,9 @@
                 return a.name.localeCompare(b.name);
             });
             const prevGlobalIdx = _cmapPickerVisible.length > 0 ? _cmapPickerVisible[_cmapPickerActiveVisIdx] : null;
-            _cmapPickerVisible = scored.map(item => item.idx);
-            _cmapPickerSetMeta(`${_cmapPickerVisible.length} match${_cmapPickerVisible.length === 1 ? '' : 'es'} · Enter to apply · Esc to cancel`);
+            const totalMatches = scored.length;
+            _cmapPickerVisible = scored.slice(0, _CMAP_PICKER_DEFAULT_COUNT).map(item => item.idx);
+            _cmapPickerSetMeta(`${totalMatches} match${totalMatches === 1 ? '' : 'es'} · Enter to apply · Esc to cancel`);
             if (_cmapPickerVisible.length === 0) {
                 _cmapPickerRenderSearchResults([], `No colormaps matched "${query}".`);
                 _cmapPickerActiveVisIdx = 0;
@@ -22682,7 +22670,7 @@
             cell.type = 'button';
             cell.className = 'cmap-picker-swatch';
             const cv = document.createElement('canvas');
-            cv.width = 105; cv.height = 21;
+            cv.width = 21; cv.height = 105;
             const label = document.createElement('span');
             label.className = 'cmap-picker-swatch-name';
             label.textContent = name;
@@ -22690,10 +22678,10 @@
             cell.appendChild(label);
             const stops = _cmapPickerGradStops[name] || COLORMAP_GRADIENT_STOPS[name];
             if (stops) {
-                _cmapPickerPaintSwatch(cv, stops);
+                _cmapPickerPaintSwatch(cv, stops, true);
             } else {
                 _fetchNamedColormapStops(name).then(loaded => {
-                    if (loaded) _cmapPickerPaintSwatch(cv, loaded);
+                    if (loaded) _cmapPickerPaintSwatch(cv, loaded, true);
                 });
             }
             return cell;
@@ -22748,8 +22736,9 @@
         }
 
         function _cmapPickerRenderSearchResults(names, emptyMessage = '') {
-            const results = document.getElementById('cmap-picker-results');
-            _cmapPickerSearchSwatchEls = _cmapPickerRenderGrid(results, names, 'search', emptyMessage);
+            const strip = document.getElementById('cmap-picker-swatches');
+            _cmapPickerBrowseSwatchEls = new Map();
+            _cmapPickerSearchSwatchEls = _cmapPickerRenderGrid(strip, names, 'search', emptyMessage);
         }
 
         function _cmapPickerClearSearchResults() {
@@ -22845,10 +22834,19 @@
             if (!_cmapPickerOpen || !_cmapPickerSpec || !_cmapPickerSpec.host) return;
             const box = document.getElementById('cmap-picker-box');
             if (!box) return;
-            box.style.top = '';
-            box.style.left = '';
             box.style.right = '';
             box.style.bottom = '';
+            const rect = _cmapPickerSpec.host.getBoundingClientRect();
+            const boxW = Math.min(box.offsetWidth || 720, window.innerWidth - 24);
+            const boxH = Math.min(box.offsetHeight || 420, window.innerHeight - 24);
+            const left = Math.max(12, Math.min(window.innerWidth - boxW - 12, rect.left + rect.width / 2 - boxW / 2));
+            const preferAbove = rect.top > (boxH + 24);
+            if (preferAbove) {
+                box.style.top = Math.max(12, rect.top - boxH - 12) + 'px';
+            } else {
+                box.style.top = Math.min(window.innerHeight - boxH - 12, rect.bottom + 12) + 'px';
+            }
+            box.style.left = left + 'px';
         }
 
         function _cmapPickerRestore() {
@@ -23010,7 +23008,6 @@
 
         function openCmapPicker(opts) {
             if (_cmapPickerOpen) {
-                _ensureToolRailVisible();
                 if (opts && opts.focusSearch) {
                     const input = document.getElementById('cmap-picker-input');
                     if (input) input.focus();
@@ -23039,7 +23036,6 @@
             box.classList.remove('search-active', 'has-query');
             input.value = '';
             _cmapPickerSetMeta('12 swatches · Search to browse the full library.');
-            _ensureToolRailVisible();
 
             const loadAndShow = (names) => {
                 _cmapPickerAllNames = names;
