@@ -448,7 +448,12 @@
         .playing-dim { font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
         .active-vfield-t { font-weight: bold; }
-        .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
+        .dim-sep {
+            color: var(--muted);
+            opacity: 0.4;
+            font-weight: normal;
+            margin: 0 0.19ch;
+        }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         @keyframes hist-scope-pulse {
             0%   { text-shadow: 0 0 10px var(--vfield-t-dim); }
@@ -465,7 +470,7 @@
         }
         .dim-flip-sign.empty { visibility: hidden; }
         .dim-label {
-            cursor: pointer; padding: 1px 5px; margin: 0 -5px;
+            cursor: pointer; padding: 1px 3px; margin: 0 -3px;
             border-radius: 4px; transition: background 0.12s;
         }
         .dim-label:hover { background: transparent; }
@@ -626,13 +631,22 @@
         #hist-tooltip .hist-tip-state.frozen { color: var(--muted); }
         #hist-tooltip.visible { display: block; }
         .dim-idx { font-variant-numeric: tabular-nums; }
+        #info .dim-label {
+            display: inline-flex;
+            align-items: baseline;
+        }
         .dim-slash {
-            display: inline;
+            display: inline-block;
+            width: 0;
+            overflow: hidden;
             font-weight: bold;
             color: transparent;
             -webkit-background-clip: text !important;
             background-clip: text !important;
             -webkit-text-fill-color: transparent !important;
+            opacity: 0;
+            transform: translateY(-1px);
+            transition: width 0.14s ease, opacity 0.12s ease, transform 0.16s ease;
         }
         .dim-slash:not([style*="background"]) {
             color: var(--muted) !important;
@@ -640,18 +654,39 @@
         }
         #info .active-dim.dim-label {
             font-weight: normal;
+            color: var(--active-dim);
+            -webkit-text-fill-color: var(--active-dim);
         }
         #info .dim-label .dim-size {
+            display: inline-block;
+            max-width: 0;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(-1px);
+            transition: max-width 0.14s ease, opacity 0.12s ease, transform 0.16s ease;
             color: var(--text);
             -webkit-text-fill-color: var(--text);
+        }
+        #info.dimbar-expanded .dim-slash {
+            width: 0.95ch;
+            overflow: visible;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #info.dimbar-expanded .dim-label .dim-size {
+            max-width: 7ch;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #info .active-dim.dim-label .dim-idx,
+        #info .active-dim.dim-label .dim-slash,
+        #info .active-dim.dim-label .dim-size {
+            color: var(--active-dim);
+            -webkit-text-fill-color: var(--active-dim);
         }
         .active-dim .dim-slash:not([style*="background"]) {
             color: var(--active-dim) !important;
             -webkit-text-fill-color: var(--active-dim) !important;
-        }
-        #info .spatial-dim.active-dim .dim-slash:not([style*="background"]) {
-            color: var(--spatial-dim) !important;
-            -webkit-text-fill-color: var(--spatial-dim) !important;
         }
         #status { display: none !important; }
         #toast  { position: fixed; bottom: 14px; left: 16px;
@@ -3775,20 +3810,20 @@
         :root.light body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
             opacity: 1;
         }
-        body:not(.fullscreen-mode) #info .dim-size {
+        body:not(.fullscreen-mode) #info.dimbar-expanded .dim-size {
             opacity: 0.6;
         }
-        :root.light body:not(.fullscreen-mode) #info .dim-size {
+        :root.light body:not(.fullscreen-mode) #info.dimbar-expanded .dim-size {
             opacity: 0.7;
         }
-        body:not(.fullscreen-mode) #info .active-dim .dim-size,
-        body:not(.fullscreen-mode) #info .playing-dim .dim-size,
-        body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+        body:not(.fullscreen-mode) #info.dimbar-expanded .active-dim .dim-size,
+        body:not(.fullscreen-mode) #info.dimbar-expanded .playing-dim .dim-size,
+        body:not(.fullscreen-mode) #info.dimbar-expanded .vfield-t-dim .dim-size {
             opacity: 0.6;
         }
-        :root.light body:not(.fullscreen-mode) #info .active-dim .dim-size,
-        :root.light body:not(.fullscreen-mode) #info .playing-dim .dim-size,
-        :root.light body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+        :root.light body:not(.fullscreen-mode) #info.dimbar-expanded .active-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info.dimbar-expanded .playing-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info.dimbar-expanded .vfield-t-dim .dim-size {
             opacity: 0.7;
         }
         body:not(.fullscreen-mode) #info .dim-sep {
@@ -14988,7 +15023,7 @@
                 const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                               : `<span class="dim-label" ${d}>${inner}</span>`;
-            }).join('<span class="dim-sep"> · </span>');
+            }).join('<span class="dim-sep">·</span>');
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
@@ -14996,7 +15031,7 @@
                 const slash = dimSlash(pct, tActive, false, true);
                 const inner = `<span class="dim-idx">${paddedT}</span>${slash}<span class="dim-size">${vfieldNTimes}</span>`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
-                idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
+                idxStr += `<span class="dim-sep">·</span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
                         let text = idxStr;
             const _info = document.getElementById('info');
@@ -15134,6 +15169,19 @@
         // In oblique mode the x/y labels no longer name axis-aligned directions,
         // so the gnomon is suppressed.
         let _dimBarHovering = false;
+        let _dimbarExtentPinned = false;
+
+        function _reconcileDimbarExtent() {
+            const el = document.getElementById('info');
+            if (el) el.classList.toggle('dimbar-expanded', _dimbarExtentPinned || _dimBarHovering);
+        }
+
+        function _toggleDimbarExtents() {
+            _dimbarExtentPinned = !_dimbarExtentPinned;
+            _reconcileDimbarExtent();
+            showStatus(_dimbarExtentPinned ? 'dimbar extents on' : 'dimbar extents off');
+        }
+
         function _gnomonAllowed() {
             if (_pixelInfoVisible) return false;
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
@@ -20533,6 +20581,14 @@
                     }
                 },
             },
+            'dimbar.toggleExtents': {
+                title: 'Toggle dimbar max indices',
+                when: [],
+                run: (ctx, e) => {
+                    e.preventDefault();
+                    _toggleDimbarExtents();
+                },
+            },
             'dim.next': {
                 title: 'Next active dim / cmap cycle forward',
                 when: [],
@@ -20910,6 +20966,7 @@
             { key: 'ArrowLeft', command: 'dim.prev' },
             { key: 'l', command: 'dim.next' },
             { key: 'ArrowRight', command: 'dim.next' },
+            { key: 'D', shift: true, command: 'dimbar.toggleExtents' },
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
             { key: 'p', command: 'projection.cycle' },
@@ -20986,6 +21043,7 @@
                         entries: [
                             { key: '← → ↑ ↓', action: 'Step through slices' },
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
+                            { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
@@ -28173,11 +28231,14 @@
         // Hover + wheel on a dim label to scroll through that dim
         let hoveredDim = -1;
         let _histDimHovering = false;
+        infoEl.addEventListener('mouseenter', () => {
+            _dimBarHovering = true;
+            _reconcileDimbarExtent();
+        });
         infoEl.addEventListener('mouseover', (e) => {
             const span = e.target.closest('[data-dim]');
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
-                _dimBarHovering = true;
                 _showAxesGnomon();
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
@@ -28188,7 +28249,6 @@
                 }
             } else {
                 hoveredDim = -1;
-                _dimBarHovering = false;
                 _histDimHovering = false;
                 if (!axesFlashTimer) _hideAxesGnomon();
                 _hideHistTooltip();
@@ -28200,6 +28260,7 @@
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
             _dimBarHovering = false;
+            _reconcileDimbarExtent();
             _histDimHovering = false;
             if (!axesFlashTimer) _hideAxesGnomon();
             _hideHistTooltip();
