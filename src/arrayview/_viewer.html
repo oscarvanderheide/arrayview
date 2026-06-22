@@ -19714,10 +19714,12 @@
                     // Transpose x and y: swap the dimension indices and flips
                     if (shape.length < 2) return;
                     if (multiViewActive) {
+                        const _otx = dim_x, _oty = dim_y;
                         mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
                         [dim_x, dim_y] = [dim_y, dim_x];
                         [flip_x, flip_y] = [flip_y, flip_x];
                         flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
+                        mvDims = [dim_y, dim_x, mvDims.find(d => d !== _otx && d !== _oty)];
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         showStatus('transposed x/y (all panes)');
                         _roiClearOnDimChange();
