@@ -10230,7 +10230,8 @@
             }
             const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
             const qmriRole = opts.qmriRole || '';
-            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}`;
+            const numBins = opts.bins || 64;
+            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
@@ -10242,7 +10243,7 @@
                 dim_x: fetchDimX,
                 dim_y: fetchDimY,
                 complex_mode: cMode,
-                bins: 64,
+                bins: numBins,
             });
             if (scrollDims.length) params.set('scroll_dims', scrollDims.join(','));
             if (fixedIndices) params.set('fixed_indices', fixedIndices);
@@ -25427,6 +25428,7 @@
                                 complexMode: complexMode,
                                 fixedIndices,
                                 qmriRole: view.qmriRole,
+                                bins: 128,
                             });
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
@@ -25951,6 +25953,7 @@
                                 complexMode: complexMode,
                                 fixedIndices,
                                 qmriRole: view.qmriRole,
+                                bins: 128,
                             });
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
@@ -27029,6 +27032,8 @@
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
                                 fixedIndices,
+                                qmriRole: v.qmriRole,
+                                bins: 128,
                             });
                         },
                         onWindowChange: () => { qvRender(v); },
