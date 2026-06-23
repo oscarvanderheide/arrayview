@@ -14985,7 +14985,12 @@
         /* ── JS: Info Bar and Pixel Display ───────────────────────── */
 
         const DIM_UNDERLINE_MS = 80;
+        const DIM_UNDERLINE_STARTUP_DELAY_MS = 720;
         let _dimUnderlinePlaced = false;
+        let _dimUnderlineStartupReady = false;
+        let _dimUnderlineStartupTimer = 0;
+        let _dimUnderlineRaf = 0;
+        let _dimUnderlineTrackUntil = 0;
         function _activeDimUnderlineViewportRect(info) {
             const label = info?.querySelector('.active-dim.dim-label, .active-vfield-t.dim-label');
             if (!label) return null;
@@ -14999,6 +15004,7 @@
                 marker.id = 'dim-active-underline';
                 marker.setAttribute('aria-hidden', 'true');
                 marker.style.setProperty('--dim-underline-ms', `${DIM_UNDERLINE_MS}ms`);
+                if (!_dimUnderlineStartupReady) marker.style.opacity = '0';
                 document.body.appendChild(marker);
             }
             return marker;
@@ -15014,6 +15020,10 @@
                 marker.style.transition = '';
             }
         }
+        function _dimUnderlineInfoVisible(info) {
+            if (!info || document.body.classList.contains('av-loading')) return false;
+            return Number(getComputedStyle(info).opacity) >= 0.99;
+        }
         function _updateActiveDimUnderline(info) {
             if (!info) return;
             const toRect = _activeDimUnderlineViewportRect(info);
@@ -15024,8 +15034,58 @@
                 return;
             }
             _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
-            marker.style.opacity = info.classList.contains('dimbar-expanded') ? '0' : '';
+            const infoVisible = _dimUnderlineInfoVisible(info);
+            const hidden = !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
+            marker.style.opacity = hidden ? '0' : '';
+            if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
+        }
+        function _scheduleActiveDimUnderline(info, trackMs = 0) {
+            if (!info) return;
+            if (trackMs > 0) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + trackMs);
+            if (_dimUnderlineRaf) return;
+            const tick = () => {
+                _dimUnderlineRaf = 0;
+                _updateActiveDimUnderline(info);
+                if (performance.now() < _dimUnderlineTrackUntil) {
+                    _dimUnderlineRaf = requestAnimationFrame(tick);
+                }
+            };
+            _dimUnderlineRaf = requestAnimationFrame(tick);
+        }
+        function _armDimUnderlineStartupFade() {
+            clearTimeout(_dimUnderlineStartupTimer);
+            _dimUnderlineStartupReady = false;
+            const marker = document.getElementById('dim-active-underline');
+            if (marker) marker.style.opacity = '0';
+            _dimUnderlineStartupTimer = setTimeout(() => {
+                _dimUnderlineStartupReady = true;
+                _dimUnderlineStartupTimer = 0;
+                _scheduleActiveDimUnderline(document.getElementById('info'), DIM_UNDERLINE_MS);
+            }, DIM_UNDERLINE_STARTUP_DELAY_MS);
+        }
+        if (document.body.classList.contains('av-loading')) {
+            const _dimUnderlineLoadingObserver = new MutationObserver(() => {
+                if (!document.body.classList.contains('av-loading')) {
+                    _dimUnderlineLoadingObserver.disconnect();
+                    _armDimUnderlineStartupFade();
+                }
+            });
+            _dimUnderlineLoadingObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        } else {
+            _armDimUnderlineStartupFade();
+        }
+        window.addEventListener('resize', () => _scheduleActiveDimUnderline(document.getElementById('info'), 240));
+        window.addEventListener('scroll', () => _scheduleActiveDimUnderline(document.getElementById('info'), 240), true);
+        if (window.ResizeObserver) {
+            const _dimUnderlineResizeObserver = new ResizeObserver(() => {
+                _scheduleActiveDimUnderline(document.getElementById('info'), 240);
+            });
+            const _dimUnderlineObserveInfo = () => {
+                const info = document.getElementById('info');
+                if (info) _dimUnderlineResizeObserver.observe(info);
+            };
+            _dimUnderlineObserveInfo();
         }
 
         // Re-position the underline after any mode change, once layout has
@@ -15036,7 +15096,7 @@
         const _onModeChangeReposUnderline = () => {
             requestAnimationFrame(() => {
                 const info = document.getElementById('info');
-                if (info) _updateActiveDimUnderline(info);
+                if (info) _scheduleActiveDimUnderline(info, 320);
             });
         };
         document.addEventListener('modechange', _onModeChangeReposUnderline);
@@ -15124,7 +15184,7 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
-            requestAnimationFrame(() => _updateActiveDimUnderline(_info));
+            _scheduleActiveDimUnderline(_info, 240);
             _applyHistPickerClasses();
             renderEggs();
         }
@@ -15274,10 +15334,10 @@
                 clearTimeout(_dimUnderlineTimer);
                 _dimUnderlineTimer = setTimeout(() => {
                     _dimUnderlineTimer = 0;
-                    _updateActiveDimUnderline(el);
+                    _scheduleActiveDimUnderline(el, 240);
                 }, 200);
             } else {
-                _updateActiveDimUnderline(el);
+                _scheduleActiveDimUnderline(el, 240);
             }
         }
 
@@ -27936,7 +27996,7 @@
             if (typeof positionEggs === 'function') positionEggs();
             if (typeof saveState === 'function') saveState();
             const info = document.getElementById('info');
-            if (info) _updateActiveDimUnderline(info);
+            if (info) _scheduleActiveDimUnderline(info, 320);
         }
 
         function _mvSetOrthoLayoutMode(id, opts = {}) {
@@ -29767,7 +29827,7 @@
             else _clearHoverPins();
             if (!_mainLoupeEligible()) _endMainLoupe();
             const info = document.getElementById('info');
-            if (info) _updateActiveDimUnderline(info);
+            if (info) _scheduleActiveDimUnderline(info, 320);
         }
 
         // ── Layout container visibility reconciler ───────────────────
