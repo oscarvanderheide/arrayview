@@ -15265,7 +15265,7 @@
             const el = document.getElementById('info');
             if (!el) return;
             const wasExpanded = el.classList.contains('dimbar-expanded');
-            el.classList.toggle('dimbar-expanded', _dimbarExtentPinned || _dimBarHovering);
+            el.classList.toggle('dimbar-expanded', _dimbarExtentPinned);
             const nowExpanded = el.classList.contains('dimbar-expanded');
 
             if (wasExpanded !== nowExpanded) {
@@ -19711,9 +19711,13 @@
                     if (shape.length < 2) return;
                     if (multiViewActive) {
                         const _otx = dim_x, _oty = dim_y;
+                        const _adOnOldX = activeDim === _otx;
+                        const _adOnOldY = activeDim === _oty;
                         mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
                         [dim_x, dim_y] = [dim_y, dim_x];
                         [flip_x, flip_y] = [flip_y, flip_x];
+                        if (_adOnOldX) activeDim = dim_x;
+                        else if (_adOnOldY) activeDim = dim_y;
                         flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
                         mvDims = [dim_y, dim_x, mvDims.find(d => d !== _otx && d !== _oty)];
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
@@ -19724,9 +19728,13 @@
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
+                    const _adOnX = activeDim === dim_x;
+                    const _adOnY = activeDim === dim_y;
                     _roiTransformAll((px, py) => [py, px], true);
                     [dim_x, dim_y] = [dim_y, dim_x];
                     [flip_x, flip_y] = [flip_y, flip_x];
+                    if (_adOnX) activeDim = dim_x;
+                    else if (_adOnY) activeDim = dim_y;
                     if (!wasMosaic) dim_z = -1;
                     updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
@@ -19741,7 +19749,11 @@
                     if (_segMode) { _segReset(); return; }
                     if (multiViewActive) {
                         const oldDimX = dim_x, oldDimY = dim_y;
+                        const _adOnOldX = activeDim === oldDimX;
+                        const _adOnOldY = activeDim === oldDimY;
                         dim_x = oldDimY; dim_y = oldDimX;
+                        if (_adOnOldX) activeDim = dim_x;
+                        else if (_adOnOldY) activeDim = dim_y;
                         const ofx = flipDims[oldDimX] || false, ofy = flipDims[oldDimY] || false;
                         flipDims[dim_x] = ofy; flipDims[dim_y] = !ofx;
                         const third = mvDims.find(d => d !== oldDimX && d !== oldDimY);
@@ -19775,6 +19787,8 @@
                         const _w = canvas.width;
                         _roiTransformAll((px, py) => [py, _w - 1 - px], true);
                         dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
+                        if (activeDim === odx) activeDim = dim_x;
+                        else if (activeDim === ody) activeDim = dim_y;
                         updateView(); triggerPreload();
                         renderInfo();
                         showStatus('rotated 90°'); saveState();
@@ -28342,10 +28356,6 @@
         // Hover + wheel on a dim label to scroll through that dim
         let hoveredDim = -1;
         let _histDimHovering = false;
-        infoEl.addEventListener('mouseenter', () => {
-            _dimBarHovering = true;
-            _reconcileDimbarExtent();
-        });
         infoEl.addEventListener('mouseover', (e) => {
             const span = e.target.closest('[data-dim]');
             if (span) {
@@ -28370,8 +28380,6 @@
         });
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
-            _dimBarHovering = false;
-            _reconcileDimbarExtent();
             _histDimHovering = false;
             if (!axesFlashTimer) _hideAxesGnomon();
             _hideHistTooltip();
