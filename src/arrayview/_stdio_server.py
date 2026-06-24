@@ -52,6 +52,7 @@ from arrayview._render import (
 )
 from arrayview._session import SESSIONS, Session
 from arrayview._synthetic_mri import (
+    _qmri_adjust_vmin_vmax,
     qmri_display_slice,
     render_qmri_mosaic_rgba,
     synthetic_qmri_slice,
@@ -638,6 +639,8 @@ def _build_slice_payload(msg: dict) -> bytes:
             session, raw, complex_mode, dr, log_scale,
             vmin_override=vmin_override, vmax_override=vmax_override,
         )
+        if qmri_role:
+            vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
 
         # Overlay compositing
         overlay_sid = msg.get("overlay_sid")

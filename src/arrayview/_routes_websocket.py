@@ -31,6 +31,7 @@ from arrayview._session import (
 )
 from arrayview._vectorfield import _compute_vfield_arrows
 from arrayview._synthetic_mri import (
+    _qmri_adjust_vmin_vmax,
     qmri_display_slice,
     render_qmri_mosaic_rgba,
     synthetic_qmri_slice,
@@ -319,6 +320,8 @@ def register_websocket_routes(app) -> None:
                         vmin_override=vmin_override,
                         vmax_override=vmax_override,
                     )
+                    if qmri_role:
+                        vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
 
                     overlay_sid = msg.get("overlay_sid")
                     overlay_colors = msg.get("overlay_colors")

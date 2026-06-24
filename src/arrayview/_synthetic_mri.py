@@ -145,6 +145,21 @@ def synthetic_window(data: np.ndarray, contrast: str) -> tuple[float, float]:
     return vmin, vmax
 
 
+def _qmri_adjust_vmin_vmax(vmin: float, vmax: float, role: str) -> tuple[float, float]:
+    """Adjust vmin/vmax for display according to qMRI role conventions."""
+    if not role:
+        return vmin, vmax
+    if role in ("t1", "t2"):
+        return float(np.floor(vmin)), float(np.ceil(vmax))
+    if role == "pd":
+        return 0.0, vmax
+    if role == "b1":
+        return round(float(vmin), 2), round(float(vmax), 2)
+    if role == "phase":
+        return -3.14, 3.14
+    return vmin, vmax
+
+
 def render_qmri_mosaic_rgba(
     session,
     dim_x: int,
@@ -174,6 +189,7 @@ def render_qmri_mosaic_rgba(
     else:
         vmin = float(np.percentile(all_data, 1))
         vmax = float(np.percentile(all_data, 99))
+    vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, role)
     grid, _, _ = _build_mosaic_grid(
         all_data, session.shape[dim_z], cols=mosaic_cols
     ) if mosaic_cols is not None else _build_mosaic_grid(all_data, session.shape[dim_z])

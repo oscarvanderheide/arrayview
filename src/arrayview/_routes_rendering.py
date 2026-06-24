@@ -25,6 +25,7 @@ from arrayview._render import (
 )
 from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS
 from arrayview._synthetic_mri import (
+    _qmri_adjust_vmin_vmax,
     qmri_display_slice,
     render_qmri_mosaic_rgba,
     synthetic_qmri_slice,
@@ -256,6 +257,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     vmin_override=vmin_override,
                     vmax_override=vmax_override,
                 )
+                if qmri_role:
+                    vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
         render_ms = (time.perf_counter() - render_t0) * 1000.0
         encode_t0 = time.perf_counter()
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
