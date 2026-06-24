@@ -8317,8 +8317,9 @@
                 if (diff > 0 && diff < minDiff) minDiff = diff;
             }
             const tolFloor = useScaled ? 1e-9 : 1e-12;
+            const effectiveMinDecimals = scaled.every(v => Math.abs(v - Math.round(v)) < 1e-6) ? 0 : minDecimals;
             let decimals = cap;
-            for (let d = minDecimals; d <= cap; d++) {
+            for (let d = effectiveMinDecimals; d <= cap; d++) {
                 const uniq = new Set();
                 let ok = true;
                 for (const val of scaled) {
@@ -15619,7 +15620,7 @@
             }
             _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
             const infoVisible = _dimUnderlineInfoVisible(info);
-            const hidden = !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
+            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
             if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
