@@ -2077,30 +2077,11 @@ def view(
             floating=floating,
         )
 
-    # VS Code tunnel/remote (non-Jupyter): direct webview mode (no port needed).
-    # Pass array via shared memory.  We must keep the process alive until the
-    # extension subprocess has read the SHM, otherwise atexit unlinks it.
-    # This must be checked BEFORE _server_alive() to avoid falling into the
-    # port-based path when a stale server happens to be running.
-    if not inline and _is_vscode_remote() and not _in_jupyter():
-        _ensure_vscode_extension()
-        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}", floating=floating)
-        print(
-            f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
-            flush=True,
-        )
-        # Block until the subprocess has read and unlinked the SHM.
-        # On Linux, shm_unlink removes /dev/shm/<name> — poll for that.
-        # Timeout after 30s to avoid hanging forever.
-        import time as _time
-        from arrayview._vscode import _ACTIVE_SHM
-        shm_paths = [f"/dev/shm/{shm.name}" for shm in _ACTIVE_SHM]
-        _deadline = _time.monotonic() + 30.0
-        while _time.monotonic() < _deadline:
-            if not any(os.path.exists(p) for p in shm_paths):
-                break
-            _time.sleep(0.2)
-        return None
+    # VS Code tunnel/remote (non-Jupyter): use the server + WebSocket path.
+    # WS works through the devtunnel when the port is public — the extension
+    # calls ensurePortPublic() before asExternalUri.  This is faster than the
+    # old direct-webview/postMessage path and avoids SHM cleanup issues.
+    # Fall through to the server-based path below (don't return early).
 
     # VS Code tunnel/remote + Jupyter: open in a VS Code webview tab via
     # direct mode (SHM).  Inline IFrames don't work in VS Code tunnel notebooks
@@ -2123,9 +2104,9 @@ def view(
             pass
         return None
 
-    # VS Code tunnel/remote with an existing --serve server: register the array
-    # via /load and open the viewer through the signal-file mechanism.
-    if not _is_vscode_remote() and _server_alive(port):
+    # With an existing --serve server: register the array via /load and open
+    # the viewer through the signal-file mechanism.
+    if _server_alive(port):
         try:
             import tempfile as _tf
 
