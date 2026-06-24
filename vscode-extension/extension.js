@@ -950,6 +950,67 @@ frame.src = arrayviewUrl;
     }
 }
 
+/**
+ * Ensure a forwarded port has public visibility so the devtunnel URL is
+ * accessible from the VS Code client.  VS Code auto-forwards ports as
+ * private by default; the devtunnel URL only works if the port is public.
+ *
+ * Two-pronged approach:
+ *   1. Write remote.portsAttributes with privacy=public via the settings
+ *      API — immediate, no file-watcher delay.  This ensures FUTURE
+ *      forwards of this port use public privacy.
+ *   2. If the port is ALREADY forwarded as private, change its privacy
+ *      via the internal `remote.tunnel.privacypublic` command.  This
+ *      closes the existing private tunnel and re-forwards with public
+ *      visibility.  The command is registered by VS Code's tunnel view
+ *      when the tunnel provider supports privacy changes (devtunnels do).
+ *      If the command doesn't exist (older VS Code, no privacy support),
+ *      the error is caught and logged — the settings write from step 1
+ *      still helps for future forwards.
+ */
+async function ensurePortPublic(port) {
+    // Step 1: write portsAttributes via the settings API
+    try {
+        const config = vscode.workspace.getConfiguration('remote');
+        let attrs = config.get('portsAttributes') || {};
+        attrs[String(port)] = Object.assign({}, attrs[String(port)], {
+            protocol: 'http',
+            label: 'ArrayView',
+            onAutoForward: 'silent',
+            privacy: 'public',
+        });
+        await config.update('portsAttributes', attrs, vscode.ConfigurationTarget.Global);
+        log(`PORT: wrote portsAttributes[${port}] privacy=public`);
+    } catch (e) {
+        log(`PORT: failed to write portsAttributes: ${e.message || e}`);
+    }
+
+    // Step 2: change privacy of already-forwarded port
+    try {
+        // The command ID is `remote.tunnel.privacy${privacyOption.id}` where
+        // privacyOption.id is "public" for devtunnels.  The argument must
+        // satisfy isITunnelItem: { tunnelType, remoteHost, source } truthy.
+        // TunnelType.Forwarded = 1 (internal enum, stable across versions).
+        const tunnelItem = {
+            tunnelType: 1,
+            remoteHost: 'localhost',
+            remotePort: port,
+            localPort: port,
+            name: 'ArrayView',
+            source: { source: 'user', description: 'ArrayView' },
+        };
+        await vscode.commands.executeCommand(
+            'remote.tunnel.privacypublic', tunnelItem
+        );
+        log(`PORT: changed privacy to public via command`);
+    } catch (e) {
+        // Command may not exist if the tunnel provider doesn't support
+        // privacy changes, or if the port isn't forwarded yet.  The
+        // settings write above still helps for future forwards.
+        log(`PORT: privacy command failed (non-fatal): ${e.message || e}`);
+    }
+}
+
 async function processSignalData(data) {
     isProcessingSignal = true;
     log(`LOCK: isProcessingSignal=true`);
@@ -1025,6 +1086,16 @@ async function _processSignalDataBody(data) {
         try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
         let origQuery = '';
         try { origQuery = new URL(url).search; } catch (_) {}
+
+        // Ensure the port is forwarded with public visibility. VS Code
+        // auto-forwards ports as private by default; the devtunnel URL
+        // is only accessible from the client if the port is public.
+        // Two-pronged approach:
+        //   1. Write remote.portsAttributes with privacy=public via the
+        //      settings API (immediate, no file-watcher delay).
+        //   2. If the port is already forwarded as private, change its
+        //      privacy to public via the internal tunnel command.
+        await ensurePortPublic(port);
 
         try {
             const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);

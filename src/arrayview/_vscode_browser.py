@@ -81,16 +81,11 @@ def _open_browser(
                     flush=True,
                 )
             else:
-                # Fallback to URL-based mode (e.g. --serve, or relay)
-                global _remote_message_shown
-                if not _remote_message_shown:
-                    _remote_message_shown = True
-                    print(
-                        f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
-                        f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.\n"
-                        f"  If the viewer tab shows an auth page, make the port Public then reload the tab.",
-                        flush=True,
-                    )
+                # URL-based mode (e.g. --serve): port is forwarded by VS Code
+                # and the viewer connects via WebSocket through the devtunnel.
+                # Write portsAttributes with privacy=public BEFORE the signal
+                # file so VS Code auto-forwards with public visibility.
+                _configure_vscode_port_preview(parsed_port)
                 _open_via_signal_file(url, title=title, floating=floating)
                 _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:
