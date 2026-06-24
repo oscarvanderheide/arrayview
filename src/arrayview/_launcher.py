@@ -876,8 +876,6 @@ def _select_arrayview_launch_path(
 ) -> str:
     if is_arrayview_server:
         return "existing_server"
-    if is_vscode_remote:
-        return "remote_direct"
     return "spawn_daemon"
 
 
@@ -3764,34 +3762,6 @@ def arrayview():
             dims_override=dims_override,
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
-            floating=args.floating,
-        )
-        return
-
-    # Direct webview mode for VS Code tunnel sessions: skip starting the
-    # WebSocket server entirely.  The extension spawns a Python subprocess
-    # with --mode stdio and bridges via postMessage — no ports needed.
-    is_remote = _is_vscode_remote()
-    if launch_path == "remote_direct":
-        _ensure_vscode_extension()
-        # Build generic extra CLI args so new flags work without touching the
-        # VS Code extension — they're forwarded verbatim to the subprocess.
-        extra_args: list[str] = []
-        if args.vectorfield:
-            extra_args += ["--vectorfield", os.path.abspath(args.vectorfield)]
-            if vfield_components_dim is not None:
-                extra_args += ["--vectorfield-components-dim", str(vfield_components_dim)]
-        for ov_path in (args.overlay or []):
-            extra_args += ["--overlay", os.path.abspath(ov_path)]
-        if args.rgb:
-            extra_args.append("--rgb")
-        # Compare files: pass as additional positional args
-        for cf in compare_files:
-            extra_args.append(cf)
-        _open_direct_via_signal_file(
-            base_file,
-            title=f"ArrayView: {name}",
-            extra_args=extra_args or None,
             floating=args.floating,
         )
         return

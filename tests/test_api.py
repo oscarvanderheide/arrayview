@@ -2100,7 +2100,7 @@ class TestLauncherDecisionHelpers:
             _select_arrayview_launch_path(
                 is_arrayview_server=False, is_vscode_remote=True
             )
-            == "remote_direct"
+            == "spawn_daemon"
         )
         assert (
             _select_arrayview_launch_path(
