@@ -29,7 +29,7 @@ AXES & VIEWS
   v               3-plane multiview         ✓ 08
   V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
-  q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full), 12d (synthetic MRI row)
+  q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full), 12d (synthetic MRI row), 12e (Alt options menu)
     /               special modes shelf       ✓ 28b
   a               stretch to square (all)   ✓ 66 (a in normal, mv, compare; default on in mv)
 
@@ -430,6 +430,16 @@ def run_smoke(page, base, client, tmp):
     }""")
     page.wait_for_timeout(1000)
     _shot(page, "12d_qmri_synthetic_t1w", wait=0)
+    _press(page, "q", wait=400)
+
+    # ── 12e: qMRI Alt options menu ───────────────────────────────────────────
+    _goto(page, base, sid4d)
+    _focus(page)
+    _press(page, "q", wait=2500)
+    page.keyboard.down("Alt")
+    page.wait_for_selector("#qmri-dimbar-popup.visible", timeout=5000)
+    _shot(page, "12e_qmri_alt_options_menu", wait=0)
+    page.keyboard.up("Alt")
     _press(page, "q", wait=400)
 
     # ── 13-14: compare mode ───────────────────────────────────────────────────

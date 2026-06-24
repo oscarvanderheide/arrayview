@@ -38,6 +38,10 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 `m` — cycles through magnitude, phase, real, and imaginary parts for complex-valued arrays.
 
+## qMRI
+
+`q` — opens qMRI for a parameter dimension. Hold Alt/Option while qMRI is active to choose quantitative parameters and synthesised contrasts. Synthetic contrasts show TE/TR/TI sliders below each pane when available.
+
 ## Navigation
 
 Scroll through slices. `/` opens the tool launcher for ortho, compare, qMRI, ROI, segmentation, FFT, projections, and overlays. The direct keys still work. `0` resets the zoom. `?` shows the full key guide.

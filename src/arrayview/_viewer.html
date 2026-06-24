@@ -1926,7 +1926,7 @@
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #tool-hint {
+        #help-hint, #tool-hint, #qmri-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -1937,8 +1937,10 @@
         }
         #help-hint { right: 16px; }
         #tool-hint { right: 46px; }
+        #qmri-hint { right: 76px; display: none; }
+        #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #help-hint:hover, #tool-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
@@ -3526,7 +3528,7 @@
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; margin-top: -4px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
-        .qv-synthetic-row { justify-content: flex-start; }
+        .qv-synthetic-row { justify-content: flex-start; align-items: flex-start; }
         .qv-row.cq-row { position: relative; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
         .qmri-pane { position: relative; }
@@ -3578,7 +3580,154 @@
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
         .cq-header-label { font-size: 16px; color: var(--fg); letter-spacing: 0.05em; text-align: center; }
-        .q-dim { color: var(--q-dim-color); font-weight: bold; }
+        .qmri-inline-controls {
+            position: fixed; display: inline-grid; grid-template-columns: 34px var(--qmri-inline-gap, 72px) 34px;
+            align-items: center; z-index: 10000; opacity: 0.62; pointer-events: none;
+            transition: opacity 0.14s ease;
+        }
+        #qmri-view-wrap:hover .qmri-inline-controls,
+        .qmri-inline-controls:focus-within,
+        .qmri-inline-controls.menu-open { opacity: 1; }
+        .qmri-inline-btn {
+            appearance: none; width: 34px; height: 34px; display: inline-grid; place-items: center;
+            border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+            padding: 0; cursor: pointer; line-height: 1; pointer-events: auto;
+            transition: color 0.14s ease, background-color 0.14s ease, opacity 0.14s ease;
+        }
+        .qmri-inline-btn svg { width: 26px; height: 26px; display: block; }
+        .qmri-inline-btn[data-kind="contrasts"] { grid-column: 3; }
+        .qmri-inline-btn:hover,
+        .qmri-inline-btn.open { color: var(--active-dim); background: var(--surface-2); }
+        .qmri-inline-btn:disabled { opacity: 0.28; cursor: default; color: var(--muted); background: transparent; }
+        .qmri-inline-menu {
+            position: absolute; top: calc(100% + 4px); min-width: 142px; pointer-events: auto;
+            display: none; flex-direction: column; gap: 2px; padding: 5px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: var(--surface-shadow-strong);
+            z-index: 20;
+        }
+        .qmri-inline-menu.visible { display: flex; }
+        .qmri-inline-menu[data-kind="maps"] { left: 0; }
+        .qmri-inline-menu[data-kind="contrasts"] { right: 0; }
+        .qmri-inline-choice {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            min-height: 22px; padding: 3px 6px; border-radius: var(--radius);
+            color: var(--muted); font: 11px var(--mono); cursor: pointer; white-space: nowrap;
+        }
+        .qmri-inline-choice:hover { color: var(--text); background: var(--surface-2); }
+        .qmri-inline-choice.on { color: var(--active-dim); }
+        .qmri-inline-choice.only { cursor: default; opacity: 0.72; }
+        .qmri-inline-choice::after { content: ""; width: 0.75em; color: var(--active-dim); }
+        .qmri-inline-choice.on::after { content: "\2713"; }
+        .q-dim { color: var(--q-dim-color); font-weight: bold; position: relative; z-index: 10020; display: inline-grid; place-items: center; min-width: 1.2em; }
+        .q-dim-icon { width: 23px; height: 23px; display: block; overflow: visible; }
+        #qmri-dimbar-popup {
+            position: fixed; inset: 0; z-index: 61;
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px; background: var(--overlay-bg);
+            backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            opacity: 0; visibility: hidden; pointer-events: none;
+            transition: opacity 180ms ease, visibility 0s linear 180ms;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+        }
+        #qmri-dimbar-popup.visible {
+            opacity: 1; visibility: visible; pointer-events: auto;
+            transition: opacity 180ms ease;
+        }
+        .q-dim-popup-panel {
+            width: min(285px, calc(100vw - 32px));
+            display: flex; flex-direction: column; gap: 24px; padding: 13px 10px;
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            background: color-mix(in srgb, var(--surface) 76%, transparent);
+            box-shadow: var(--surface-shadow-strong);
+            transform-origin: 50% 52%;
+            will-change: transform, opacity;
+        }
+        #qmri-dimbar-popup.visible .q-dim-popup-panel {
+            animation: toolLauncherPanelIn 260ms ease-out both;
+        }
+        #qmri-dimbar-popup.no-panel-anim .q-dim-popup-panel { animation: none; }
+        .q-dim-popup-section { display: flex; flex-direction: column; gap: 7px; }
+        .q-dim-popup-title {
+            color: color-mix(in srgb, var(--text) 72%, var(--muted));
+            font: 650 12px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            text-align: center;
+        }
+        .q-dim-popup-row {
+            display: grid; grid-template-columns: repeat(3, 78px); justify-content: center; gap: 6px;
+        }
+        .q-dim-popup-btn {
+            appearance: none; border: 1px solid var(--border); border-radius: var(--radius);
+            background: color-mix(in srgb, var(--text) 4%, transparent);
+            color: color-mix(in srgb, var(--text) 60%, var(--muted));
+            min-height: 30px; padding: 4px 8px;
+            font: 12px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            cursor: pointer; pointer-events: auto; opacity: 0.95; user-select: none; text-align: center;
+            transition: color 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+        }
+        .q-dim-popup-btn:hover,
+        .q-dim-popup-btn.on {
+            color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+            border-color: color-mix(in srgb, var(--active-dim) 45%, transparent);
+            font-weight: 650;
+        }
+        .q-dim-popup-btn.only,
+        .q-dim-popup-btn:disabled { opacity: 0.6; cursor: default; }
+        .qmri-synth-param-popover {
+            display: grid; grid-template-columns: 1fr; gap: 7px; padding: 7px 8px;
+            width: 100%; box-sizing: border-box; margin-top: 4px;
+            background: color-mix(in srgb, var(--surface) 78%, transparent);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            box-shadow: var(--surface-shadow-strong);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            pointer-events: auto;
+        }
+        .qmri-synthetic-pane { position: relative; }
+        .qmri-synth-param-row {
+            display: grid; grid-template-columns: 24px minmax(0, 1fr) 48px;
+            align-items: center; gap: 7px; min-height: 22px;
+            font: 10px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: var(--muted);
+        }
+        .qmri-synth-param-row input[type="range"] {
+            width: 100%; min-width: 0; height: 14px; margin: 0;
+            appearance: none; -webkit-appearance: none;
+            background: transparent;
+            --qmri-slider-fill: 0%;
+        }
+        .qmri-synth-param-row input[type="range"]::-webkit-slider-runnable-track {
+            height: 3px; border-radius: 999px;
+            background: linear-gradient(to right,
+                color-mix(in srgb, var(--active-dim) 46%, transparent) 0%,
+                color-mix(in srgb, var(--active-dim) 46%, transparent) var(--qmri-slider-fill),
+                color-mix(in srgb, var(--text) 18%, transparent) var(--qmri-slider-fill),
+                color-mix(in srgb, var(--text) 18%, transparent) 100%);
+            border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+        }
+        .qmri-synth-param-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 12px; height: 12px; margin-top: -5px; border-radius: 50%;
+            background: color-mix(in srgb, var(--active-dim) 72%, var(--surface));
+            border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+            box-shadow: none;
+        }
+        .qmri-synth-param-row input[type="range"]::-moz-range-track {
+            height: 3px; border-radius: 999px;
+            background: color-mix(in srgb, var(--text) 18%, transparent);
+            border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+        }
+        .qmri-synth-param-row input[type="range"]::-moz-range-progress {
+            height: 3px; border-radius: 999px;
+            background: color-mix(in srgb, var(--active-dim) 46%, transparent);
+        }
+        .qmri-synth-param-row input[type="range"]::-moz-range-thumb {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: color-mix(in srgb, var(--active-dim) 72%, var(--surface));
+            border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+            box-shadow: none;
+        }
+        .qmri-synth-param-value { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             position: fixed; inset: 0; z-index: 5; pointer-events: none;
@@ -3647,6 +3796,7 @@
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
         body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
+        body.zen-mode .qmri-synth-param-popover,
         body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
@@ -4533,6 +4683,7 @@
     </div>
     <div id="help-hint">?</div>
     <div id="tool-hint" title="Tool launcher (/)">/</div>
+    <div id="qmri-hint" title="qMRI options"></div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
     <div id="tool-launcher" aria-hidden="true"></div>
@@ -5575,6 +5726,316 @@
         QMRI_SYNTH_ORDER.forEach(id => {
             _qmriSyntheticState[id] = Object.assign({ enabled: false }, QMRI_SYNTH_PRESETS[id]);
         });
+        let _qmriInlineMenuOpen = null;
+        let _qmriHintHideT = 0;
+        let _qmriPopupKeepOpenUntil = 0;
+        let _qmriPopupRestoreAfterRebuild = false;
+        let _qmriSynthParamHoverPane = null;
+
+        function _qmriControlDim() {
+            if (compareQmriActive) return compareQmriDim;
+            if (qmriActive) return qmriDim;
+            return -1;
+        }
+
+        function _isQmriControlDim(dim) {
+            return (qmriActive && dim === qmriDim) || (compareQmriActive && dim === compareQmriDim);
+        }
+
+        function _firstVisibleQmriDim() {
+            const preferred = [dim_x, dim_y, dim_z, current_slice_dim, activeDim];
+            for (const d of preferred) {
+                if (Number.isInteger(d) && d >= 0 && d < shape.length && !_isQmriControlDim(d)) return d;
+            }
+            for (let d = 0; d < shape.length; d++) {
+                if (!_isQmriControlDim(d)) return d;
+            }
+            return 0;
+        }
+
+        function _ensureQmriActiveDimVisible() {
+            if (_isQmriControlDim(activeDim)) activeDim = _firstVisibleQmriDim();
+        }
+
+        function _skipQmriControlDim(direction) {
+            if (!_isQmriControlDim(activeDim)) return;
+            for (let guard = 0; guard < shape.length; guard++) {
+                activeDim = (activeDim + direction + shape.length) % shape.length;
+                if (!_isQmriControlDim(activeDim)) return;
+            }
+        }
+
+        function _qmriVisibleSet(n) {
+            return new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
+        }
+
+        function _qmriDimbarPopupHtml() {
+            const qDim = _qmriControlDim();
+            const n = shape[qDim];
+            if (![3, 4, 5, 6].includes(n)) return '';
+            const allCmaps = QMRI_COLORMAPS[n];
+            const visibleSet = _qmriVisibleSet(n);
+            const mapButtons = allCmaps.map((cmap, i) => {
+                const isVisible = visibleSet.has(i);
+                const isOnly = visibleSet.size === 1 && isVisible;
+                const cls = `q-dim-popup-btn ${isVisible ? 'on' : 'off'}${isOnly ? ' only' : ''}`;
+                const disabled = isOnly ? ' disabled' : '';
+                return `<button type="button" class="${cls}" data-qmri-map="${i}"${disabled}>${QMRI_LABELS[cmap] || cmap}</button>`;
+            }).join('');
+            const synthDisabled = (!qmriActive || !_qmriSyntheticCanRun()) ? ' disabled' : '';
+            const synthButtons = QMRI_SYNTH_ORDER.map(id => {
+                const st = _qmriSyntheticState[id];
+                const cls = `q-dim-popup-btn ${st.enabled ? 'on' : 'off'}`;
+                return `<button type="button" class="${cls}" data-qmri-synth="${id}"${synthDisabled}>${st.label}</button>`;
+            }).join('');
+            return `<div class="q-dim-popup-panel"><span class="q-dim-popup-section"><span class="q-dim-popup-title">Quantitative parameters</span><span class="q-dim-popup-row">${mapButtons}</span></span><span class="q-dim-popup-section"><span class="q-dim-popup-title">Synthetised contrasts</span><span class="q-dim-popup-row">${synthButtons}</span></span></div>`;
+        }
+
+        function _qmriDimbarHtml(active, playing, d) {
+            const cls = `${active || playing ? (playing ? 'playing-dim ' : 'active-dim ') : ''}q-dim dim-label`;
+            return `<span class="${cls}" ${d}>q</span>`;
+        }
+
+        function _ensureQmriDimbarPopup() {
+            let popup = document.getElementById('qmri-dimbar-popup');
+            if (!popup) {
+                popup = document.createElement('div');
+                popup.id = 'qmri-dimbar-popup';
+                popup.setAttribute('role', 'menu');
+                popup.setAttribute('aria-label', 'qMRI options');
+                popup.onclick = (e) => {
+                    if (e.target === popup) _hideQmriDimbarPopup(true);
+                };
+                document.body.appendChild(popup);
+            }
+            if (!popup.querySelector('.q-dim-popup-panel')) popup.innerHTML = _qmriDimbarPopupHtml();
+            return popup;
+        }
+
+        function _positionQmriDimbarPopup(anchor, popup) {
+            // Body-level overlay is centered by CSS; kept as a no-op for refresh callers.
+        }
+
+        function _showQmriDimbarPopup(anchor) {
+            const popup = _ensureQmriDimbarPopup();
+            _syncQmriDimbarPopupState(popup);
+            _wireQmriDimbarMenu(popup);
+            _positionQmriDimbarPopup(anchor, popup);
+            popup.classList.add('visible');
+            return popup;
+        }
+
+        function _hideQmriDimbarPopup(force = false) {
+            if (force) _qmriPopupRestoreAfterRebuild = false;
+            const remaining = force ? 0 : _qmriPopupKeepOpenUntil - performance.now();
+            if (remaining > 0) {
+                clearTimeout(_qmriHintHideT);
+                _qmriHintHideT = setTimeout(_hideQmriDimbarPopup, remaining);
+                return;
+            }
+            const popup = document.getElementById('qmri-dimbar-popup');
+            if (popup) popup.classList.remove('visible');
+        }
+
+        function _reconcileQmriAltOptions() {
+            const active = qmriActive || compareQmriActive;
+            if (active && _obliqueAltHeld) {
+                _showQmriDimbarPopup(document.getElementById('qmri-hint') || document.body);
+            } else if (!_obliqueAltHeld || !_qmriPopupRestoreAfterRebuild) {
+                _hideQmriDimbarPopup(true);
+            }
+        }
+
+        function _syncQmriDimbarPopupState(popup) {
+            const qDim = _qmriControlDim();
+            const n = shape[qDim];
+            if (![3, 4, 5, 6].includes(n)) return;
+            const allCmaps = QMRI_COLORMAPS[n];
+            const visibleSet = _qmriVisibleSet(n);
+            popup.querySelectorAll('[data-qmri-map]').forEach(btn => {
+                const i = Number(btn.dataset.qmriMap);
+                const isVisible = visibleSet.has(i);
+                const isOnly = visibleSet.size === 1 && isVisible;
+                btn.classList.toggle('on', isVisible);
+                btn.classList.toggle('off', !isVisible);
+                btn.classList.toggle('only', isOnly);
+                btn.disabled = isOnly;
+                btn.textContent = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
+            });
+            const synthDisabled = (!qmriActive || !_qmriSyntheticCanRun());
+            popup.querySelectorAll('[data-qmri-synth]').forEach(btn => {
+                const st = _qmriSyntheticState[btn.dataset.qmriSynth];
+                if (!st) return;
+                btn.classList.toggle('on', !!st.enabled);
+                btn.classList.toggle('off', !st.enabled);
+                btn.disabled = synthDisabled;
+                btn.textContent = st.label;
+            });
+        }
+
+        function _refreshQmriDimbarPopupIfVisible() {
+            setTimeout(() => requestAnimationFrame(() => {
+                const popup = document.getElementById('qmri-dimbar-popup');
+                const anchor = document.getElementById('qmri-hint');
+                const shouldRestore = _qmriPopupRestoreAfterRebuild && (qmriActive || compareQmriActive);
+                if (!popup || !anchor || (!popup.classList.contains('visible') && !shouldRestore)) return;
+                _qmriPopupRestoreAfterRebuild = false;
+                if (!popup.querySelector('.q-dim-popup-panel')) popup.innerHTML = _qmriDimbarPopupHtml();
+                _syncQmriDimbarPopupState(popup);
+                _wireQmriDimbarMenu(popup);
+                _positionQmriDimbarPopup(anchor, popup);
+                popup.classList.add('visible');
+            }), 170);
+        }
+
+        function _wireQmriDimbarMenu(root) {
+            if (!root) return;
+            root.querySelectorAll('[data-qmri-map]').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (btn.disabled) return;
+                    clearTimeout(_qmriHintHideT);
+                    _qmriPopupKeepOpenUntil = performance.now() + 1800;
+                    _qmriPopupRestoreAfterRebuild = true;
+                    _qmriToggleInlineMap(Number(btn.dataset.qmriMap));
+                };
+            });
+            root.querySelectorAll('[data-qmri-synth]').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (btn.disabled) return;
+                    clearTimeout(_qmriHintHideT);
+                    _qmriPopupKeepOpenUntil = performance.now() + 1800;
+                    _qmriPopupRestoreAfterRebuild = true;
+                    _qmriToggleSyntheticContrast(btn.dataset.qmriSynth);
+                };
+            });
+        }
+
+        function _wireQmriHintAnchor() {
+            const anchor = document.getElementById('qmri-hint');
+            if (!anchor) return;
+            anchor.onclick = (e) => {
+                e.stopPropagation();
+                const popup = document.getElementById('qmri-dimbar-popup');
+                if (popup?.classList.contains('visible')) _hideQmriDimbarPopup(true);
+                else _showQmriDimbarPopup(anchor);
+            };
+        }
+
+        // MRI scanner icon based on SVGRepo magnetic-resonance-imaging, CC0:
+        // https://www.svgrepo.com/svg/84332/magnetic-resonance-imaging
+        const QMRI_MAPS_ICON = `<svg class="q-dim-icon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 47V19c0-7.2 5.8-13 13-13h2c7.2 0 13 5.8 13 13v28"/><path d="M24 43V20c0-3.9 3.1-7 7-7h2c3.9 0 7 3.1 7 7v23"/><path d="M14 47h36"/><path d="M8 54h48"/><path d="M30 47h8"/><path d="M38 47l10 7"/><path d="M30 47l-10 7"/><path d="M29 31h-8"/><path d="M43 31h-8"/></g><g fill="currentColor"><circle cx="32" cy="31" r="3.2"/><rect x="17" y="53" width="30" height="4" rx="2"/></g></svg>`;
+        const QMRI_SYNTH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="qmri-synth-brain" x1="3" y1="20" x2="21" y2="4"><stop offset="0" stop-color="#5f5f5f"/><stop offset="0.5" stop-color="#aaaaaa"/><stop offset="1" stop-color="#f0f0f0"/></linearGradient></defs><g fill="none" stroke="url(#qmri-synth-brain)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></g></svg>`;
+        let _qmriInlinePositionFrame = 0;
+
+        function _positionQmriInlineControls() {
+            const controls = document.querySelector('.qmri-inline-controls');
+            const info = document.getElementById('info');
+            if (!controls || !info) return;
+            const r = info.getBoundingClientRect();
+            const icon = 34;
+            const pad = 12;
+            const gap = Math.max(48, r.width + pad * 2);
+            controls.style.setProperty('--qmri-inline-gap', `${gap}px`);
+            controls.style.left = `${Math.round(r.left - icon - pad)}px`;
+            controls.style.top = `${Math.round(r.top + (r.height - icon) / 2)}px`;
+        }
+
+        function _trackQmriInlineControls(ms = 3500) {
+            cancelAnimationFrame(_qmriInlinePositionFrame);
+            const start = performance.now();
+            const step = (now) => {
+                _positionQmriInlineControls();
+                if (now - start < ms) {
+                    _qmriInlinePositionFrame = requestAnimationFrame(step);
+                }
+            };
+            _qmriInlinePositionFrame = requestAnimationFrame(step);
+        }
+
+        function _qmriApplyInlineMenuState() {
+            document.querySelectorAll('.qmri-inline-menu').forEach(el => {
+                el.classList.toggle('visible', el.dataset.kind === _qmriInlineMenuOpen);
+            });
+            document.querySelectorAll('.qmri-inline-btn').forEach(el => {
+                el.classList.toggle('open', el.dataset.kind === _qmriInlineMenuOpen);
+            });
+            document.querySelectorAll('.qmri-inline-controls').forEach(el => {
+                el.classList.toggle('menu-open', !!_qmriInlineMenuOpen);
+            });
+        }
+
+        function _qmriSetInlineMenu(kind) {
+            _qmriInlineMenuOpen = (_qmriInlineMenuOpen === kind) ? null : kind;
+            _qmriApplyInlineMenuState();
+        }
+
+        function _renderQmriInlineControls(wrap) {
+            if (!wrap) return;
+            const qDim = _qmriControlDim();
+            const n = shape[qDim];
+            if (![3, 4, 5, 6].includes(n)) return;
+            const controls = document.createElement('div');
+            controls.className = 'qmri-inline-controls';
+            const mapBtn = document.createElement('button');
+            mapBtn.type = 'button';
+            mapBtn.className = 'qmri-inline-btn';
+            mapBtn.dataset.kind = 'maps';
+            mapBtn.innerHTML = QMRI_MAPS_ICON;
+            mapBtn.title = 'parameter maps';
+            mapBtn.setAttribute('aria-label', 'parameter maps');
+            mapBtn.onclick = (e) => { e.stopPropagation(); _qmriSetInlineMenu('maps'); };
+            controls.appendChild(mapBtn);
+            const contrastBtn = document.createElement('button');
+            contrastBtn.type = 'button';
+            contrastBtn.className = 'qmri-inline-btn';
+            contrastBtn.dataset.kind = 'contrasts';
+            contrastBtn.innerHTML = QMRI_SYNTH_ICON;
+            contrastBtn.title = 'synthesized contrasts';
+            contrastBtn.setAttribute('aria-label', 'synthesized contrasts');
+            contrastBtn.disabled = !qmriActive || !_qmriSyntheticCanRun();
+            contrastBtn.onclick = (e) => { e.stopPropagation(); _qmriSetInlineMenu('contrasts'); };
+            controls.appendChild(contrastBtn);
+
+            const mapMenu = document.createElement('div');
+            mapMenu.className = 'qmri-inline-menu';
+            mapMenu.dataset.kind = 'maps';
+            const allCmaps = QMRI_COLORMAPS[n];
+            const visibleSet = _qmriVisibleSet(n);
+            allCmaps.forEach((cmap, i) => {
+                const item = document.createElement('div');
+                const isVisible = visibleSet.has(i);
+                const isOnly = visibleSet.size === 1 && isVisible;
+                item.className = `qmri-inline-choice ${isVisible ? 'on' : 'off'}${isOnly ? ' only' : ''}`;
+                item.textContent = QMRI_LABELS[cmap] || cmap;
+                if (!isOnly) item.onclick = (e) => { e.stopPropagation(); _qmriToggleInlineMap(i); };
+                mapMenu.appendChild(item);
+            });
+            controls.appendChild(mapMenu);
+
+            const contrastMenu = document.createElement('div');
+            contrastMenu.className = 'qmri-inline-menu';
+            contrastMenu.dataset.kind = 'contrasts';
+            QMRI_SYNTH_ORDER.forEach(id => {
+                const st = _qmriSyntheticState[id];
+                const item = document.createElement('div');
+                item.className = `qmri-inline-choice ${st.enabled ? 'on' : 'off'}`;
+                item.textContent = st.label;
+                item.onclick = (e) => { e.stopPropagation(); _qmriToggleSyntheticContrast(id); };
+                contrastMenu.appendChild(item);
+            });
+            controls.appendChild(contrastMenu);
+            wrap.appendChild(controls);
+            _qmriApplyInlineMenuState();
+            _trackQmriInlineControls();
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest || e.target.closest('.qmri-inline-controls')) return;
+            if (_qmriInlineMenuOpen) _qmriSetInlineMenu(null);
+        });
+        window.addEventListener('resize', () => _trackQmriInlineControls(250));
 
         function _qmriRoleForIndex(paramSize, idx) {
             const roles = QMRI_ROLES[paramSize] || [];
@@ -5595,6 +6056,65 @@
             setVal('te', st.te);
             setVal('tr', st.tr);
             if (Array.isArray(st.params) && st.params.includes('ti')) setVal('ti', st.ti);
+        }
+
+        function _renderQmriSynthParamPopover(id) {
+            const st = _qmriSyntheticState[id];
+            if (!st || !Array.isArray(st.params)) return null;
+            const box = document.createElement('div');
+            box.className = 'qmri-synth-param-popover';
+            box.dataset.synth = id;
+            st.params.forEach(param => {
+                const meta = QMRI_SYNTH_PARAM_META[param];
+                if (!meta) return;
+                const val = Number(st[param] || 0);
+                const row = document.createElement('label');
+                row.className = 'qmri-synth-param-row';
+                row.innerHTML = `<span>${meta.label}</span><input type="range" class="qmri-synth-pane-slider" data-synth="${id}" data-param="${param}" min="${meta.min}" max="${meta.max}" step="${meta.step}" value="${val}"><span class="qmri-synth-param-value" id="qmri-pane-synth-${id}-${param}-value">${val} ms</span>`;
+                box.appendChild(row);
+            });
+            return box;
+        }
+
+        function _updateQmriSynthSliderFill(slider) {
+            if (!slider) return;
+            const min = Number(slider.min || 0);
+            const max = Number(slider.max || 100);
+            const val = Number(slider.value || 0);
+            const pct = max > min ? Math.max(0, Math.min(100, (val - min) / (max - min) * 100)) : 0;
+            slider.style.setProperty('--qmri-slider-fill', `${pct}%`);
+        }
+
+        function _reconcileQmriSynthParamPopovers() {
+            document.querySelectorAll('.qmri-synthetic-pane').forEach(pane => {
+                pane.classList.toggle('show-param-popover', _obliqueAltHeld && pane === _qmriSynthParamHoverPane);
+            });
+        }
+
+        function _wireQmriSynthParamPopover(pane, id) {
+            pane.addEventListener('mouseenter', () => {
+                _qmriSynthParamHoverPane = pane;
+                _reconcileQmriSynthParamPopovers();
+            });
+            pane.addEventListener('mouseleave', () => {
+                if (_qmriSynthParamHoverPane === pane) _qmriSynthParamHoverPane = null;
+                _reconcileQmriSynthParamPopovers();
+            });
+            pane.querySelectorAll('.qmri-synth-pane-slider').forEach(slider => {
+                _updateQmriSynthSliderFill(slider);
+                _wireIslandSlider(slider, (v) => {
+                    const st = _qmriSyntheticState[id];
+                    const param = slider.dataset.param;
+                    if (!st || !param) return;
+                    const num = Number(v);
+                    st[param] = num;
+                    slider.value = String(num);
+                    _updateQmriSynthSliderFill(slider);
+                    const lbl = document.getElementById(`qmri-pane-synth-${id}-${param}-value`);
+                    if (lbl) lbl.textContent = `${num} ms`;
+                    qmriViews.filter(qv => qv.syntheticId === id).forEach(qv => qvRender(qv));
+                });
+            });
         }
 
         function _qmriSyntheticCanRun() {
@@ -5630,6 +6150,37 @@
                 _qmriSyntheticRebuilding = false;
                 if (savedMaps) _qmriVisibleMaps = savedMaps;
                 enterQmri();
+                requestAnimationFrame(() => {
+                    const fadeBackEls = [
+                        document.getElementById('qmri-view-wrap'),
+                        document.getElementById('info'),
+                        document.getElementById('array-name'),
+                    ].filter(Boolean);
+                    for (const el of fadeBackEls) el.style.opacity = '1';
+                    setTimeout(() => {
+                        for (const el of fadeBackEls) {
+                            el.style.removeProperty('transition');
+                            el.style.removeProperty('opacity');
+                        }
+                    }, 150);
+                });
+            }, 120);
+        }
+
+        function _rebuildCompareQmriWithFade(savedMaps = null) {
+            const fadeEls = [
+                document.getElementById('qmri-view-wrap'),
+                document.getElementById('info'),
+                document.getElementById('array-name'),
+            ].filter(Boolean);
+            for (const el of fadeEls) {
+                el.style.transition = 'opacity 0.12s ease';
+                el.style.opacity = '0';
+            }
+            setTimeout(() => {
+                exitCompareQmri();
+                if (savedMaps) _qmriVisibleMaps = savedMaps;
+                enterCompareQmri();
                 requestAnimationFrame(() => {
                     const fadeBackEls = [
                         document.getElementById('qmri-view-wrap'),
@@ -14617,6 +15168,12 @@
                 if (typeof _mvRecomputeCrosshairTarget === 'function') {
                     _mvRecomputeCrosshairTarget();
                 }
+                if (typeof _reconcileQmriSynthParamPopovers === 'function') {
+                    _reconcileQmriSynthParamPopovers();
+                }
+                if (typeof _reconcileQmriAltOptions === 'function') {
+                    _reconcileQmriAltOptions();
+                }
             }
         }
         window.addEventListener('keydown',   _updateAltState, true);
@@ -14628,6 +15185,12 @@
                 _obliqueAltHeld = false;
                 _reconcileObliqueFlip();
                 _reconcileMvOrientationVisibility();
+                if (typeof _reconcileQmriSynthParamPopovers === 'function') {
+                    _reconcileQmriSynthParamPopovers();
+                }
+                if (typeof _reconcileQmriAltOptions === 'function') {
+                    _reconcileQmriAltOptions();
+                }
             }
         });
 
@@ -14945,25 +15508,41 @@
         }
         window._islandEditRoiName = _islandEditRoiName;
 
-        function _islandToggleQmriMap(idx) {
-            if (!qmriActive) return;
-            const n = shape[qmriDim];
+        function _qmriToggleInlineMap(idx) {
+            if (!qmriActive && !compareQmriActive) return;
+            const qDim = _qmriControlDim();
+            const n = shape[qDim];
             const allIndices = Array.from({length: n}, (_, i) => i);
             if (_qmriVisibleMaps === null) _qmriVisibleMaps = [...allIndices];
             const pos = _qmriVisibleMaps.indexOf(idx);
             if (pos >= 0) {
-                if (_qmriVisibleMaps.length <= 1) return; // keep at least one
+                if (_qmriVisibleMaps.length <= 1) return;
                 _qmriVisibleMaps.splice(pos, 1);
             } else {
                 _qmriVisibleMaps.push(idx);
                 _qmriVisibleMaps.sort((a, b) => a - b);
             }
             const savedMaps = [..._qmriVisibleMaps];
-            // Update pills immediately so user sees instant feedback
+            _qmriInlineMenuOpen = 'maps';
             renderIsland();
-            _rebuildQmriWithFade(savedMaps);
+            if (compareQmriActive) _rebuildCompareQmriWithFade(savedMaps);
+            else _rebuildQmriWithFade(savedMaps);
+            _refreshQmriDimbarPopupIfVisible();
         }
+        function _islandToggleQmriMap(idx) { _qmriToggleInlineMap(idx); }
         window._islandToggleQmriMap = _islandToggleQmriMap;
+        window._qmriToggleInlineMap = _qmriToggleInlineMap;
+
+        function _qmriToggleSyntheticContrast(id) {
+            if (!_qmriSyntheticState[id]) return;
+            _qmriSyntheticState[id].enabled = !_qmriSyntheticState[id].enabled;
+            _qmriSyntheticEnabled = _qmriSyntheticActiveIds().length > 0;
+            _qmriInlineMenuOpen = 'contrasts';
+            _rebuildQmriWithFade(_qmriVisibleMaps ? [..._qmriVisibleMaps] : null);
+            renderToolMenu();
+            _refreshQmriDimbarPopupIfVisible();
+        }
+        window._qmriToggleSyntheticContrast = _qmriToggleSyntheticContrast;
 
         /* Build a slash with a bottom-to-top gradient fill indicating scroll progress.
            fillColor = bright color for the filled portion, mutedColor for unfilled. */
@@ -15111,7 +15690,9 @@
         }
 
         function renderInfo() {
+            _ensureQmriActiveDimVisible();
             let idxStr = indices.map((v, i) => {
+                if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim' : 'active-dim';
@@ -15119,10 +15700,6 @@
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">X<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
-                }
-                if ((qmriActive && i === qmriDim) || (compareQmriActive && i === compareQmriDim)) {
-                    return (active || playing) ? `<span class="${dimCls} q-dim dim-label" ${d}>q</span>`
-                                  : `<span class="q-dim dim-label" ${d}>q</span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
@@ -15171,7 +15748,7 @@
                 const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                               : `<span class="dim-label" ${d}>${inner}</span>`;
-            }).join('<span class="dim-sep">·</span>');
+            }).filter(Boolean).join('<span class="dim-sep">·</span>');
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
@@ -15184,7 +15761,9 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
+            _wireQmriHintAnchor();
             _scheduleActiveDimUnderline(_info, 240);
+            if (document.querySelector('.qmri-inline-controls')) _trackQmriInlineControls();
             _applyHistPickerClasses();
             renderEggs();
         }
@@ -20744,6 +21323,7 @@
                             activeDim = shape.length - 1;
                         } else {
                             activeDim = (activeDim - 1 + shape.length) % shape.length;
+                            _skipQmriControlDim(-1);
                         }
                         if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
@@ -20804,6 +21384,7 @@
                             activeDim = 0;
                         } else {
                             activeDim = (activeDim + 1) % shape.length;
+                            _skipQmriControlDim(1);
                         }
                         if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
@@ -20924,15 +21505,11 @@
                 run: (ctx, e) => { _openDirectToolOrExplain('vectorfield'); },
             },
             'tool.qmriDirect': {
-                title: 'Open qMRI options',
+                title: 'Open qMRI',
                 when: [],
                 run: (ctx, e) => {
-                    if (qmriActive || compareQmriActive) {
-                        if (_selectedToolDrawerId() === 'qmri') closeToolPanel();
-                        else _openDirectToolOptions('qmri');
-                        return;
-                    }
-                    _openDirectToolOptions('qmri');
+                    if (_selectedToolDrawerId() === 'qmri') closeToolPanel();
+                    commands['qmri.cycle'].run(ctx, e);
                 },
             },
             'tool.comparecenterDirect': {
@@ -21357,7 +21934,8 @@
                         title: 'Direct',
                         entries: [
                             { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, and URL options' },
-                            { key: 'q', action: 'qMRI', hint: 'inspect parameter maps with contextual controls' },
+                            { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
+                            { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
                             { key: 'Shift+X', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
                             { key: 'Shift+D', action: 'Diff mode', hint: 'toggle the center diff lens for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
@@ -21406,7 +21984,8 @@
                     {
                         title: 'Controls',
                         entries: [
-                            { key: 'q', action: 'Enter or exit qMRI', hint: 'opens qMRI options directly · / also lists tools' },
+                            { key: 'q', action: 'Enter or exit qMRI', hint: 'hold Alt/Option for maps and contrasts' },
+                            { key: 'Alt/Option', action: 'Show qMRI options', hint: 'hold while qMRI is active' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
@@ -21420,7 +21999,7 @@
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: 'q', action: 'Exit qMRI', hint: 'closes qMRI and its direct options drawer' },
+                            { key: 'q', action: 'Exit qMRI' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                         ]
@@ -21428,7 +22007,7 @@
                     {
                         title: 'Map visibility',
                         entries: [
-                            { key: 'Floating panel', action: 'Toggle which parameter maps are visible', hint: 'at least one map must remain visible' },
+                            { key: 'Alt/Option', action: 'Choose maps and contrasts', hint: 'hold; at least one parameter map stays visible' },
                         ]
                     },
                     {
@@ -21877,6 +22456,13 @@
         function openToolOptions(toolId, opts = {}) {
             const tile = TOOL_TILES.find(t => t.id === toolId);
             if (!tile || !_toolTileEnabled(tile)) return;
+            if (toolId === 'qmri') {
+                if (opts.activate !== false && !_toolTileActive(tile)) _toolToggle(toolId);
+                _toolPanelState = 'closed';
+                toolMenuOpen = false;
+                renderToolMenu();
+                return;
+            }
             if (toolId === 'roi') {
                 commands['roi.cycleMode'].run(makeContext(null), null);
                 _toolPanelState = 'closed';
@@ -21933,7 +22519,7 @@
             if (_toolPanelUserClosed) return;
             const id = _activeToolId();
             if (!id) return;
-            if (id === 'roi') return;
+            if (id === 'roi' || id === 'qmri') return;
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile) return;
             _toolPanelState = { kind: 'tool-options', toolId: id, origin: 'direct' };
@@ -22272,13 +22858,7 @@
             _moreToolsExpanded = !_moreToolsExpanded;
             renderToolMenu();
         };
-        window._islandToggleQmriSyntheticContrast = function(id) {
-            if (!_qmriSyntheticState[id]) return;
-            _qmriSyntheticState[id].enabled = !_qmriSyntheticState[id].enabled;
-            _qmriSyntheticEnabled = _qmriSyntheticActiveIds().length > 0;
-            _rebuildQmriWithFade(_qmriVisibleMaps ? [..._qmriVisibleMaps] : null);
-            renderToolMenu();
-        };
+        window._islandToggleQmriSyntheticContrast = _qmriToggleSyntheticContrast;
 
         // ── Save rail ────────────────────────────────────────────
         const SAVE_MENU_ITEMS = [
@@ -25396,12 +25976,12 @@
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
             const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
-            activeDim = targetDim;
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
             qmriActive = true;
-            qmriDim = activeDim;
+            qmriDim = targetDim;
+            _ensureQmriActiveDimVisible();
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
@@ -25777,33 +26357,19 @@
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
                     pane.appendChild(area);
+                    const paramPopover = _renderQmriSynthParamPopover(synId);
+                    if (paramPopover) pane.appendChild(paramPopover);
                     synRow.appendChild(pane);
                     const view = {
                         colormap: 'gray', syntheticId: synId, qmriRole: '',
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         _cvWrap: cvWrap, pixelInfoEl: qvPiEl,
+                        paramControls: paramPopover,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _colorBar: null, _qmriGeneration: _qmriRenderGeneration,
                     };
-                    const synCb = new ColorBar({
-                        container: cvWrap,
-                        id: 'qv-synth-' + synId,
-                        orientation: 'horizontal',
-                        interactive: true,
-                        getStops: () => COLORMAP_GRADIENT_STOPS.gray || [],
-                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
-                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
-                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
-                        onWindowChange: () => { qvRender(view); },
-                        onAnimFrame: () => { qvScaleAllCanvases(); },
-                    });
-                    synCb.wrap.classList.add('qv-cb-island');
-                    view._colorBar = synCb;
-                    view.cbCanvas = synCb.canvas;
-                    view.cbVmin = synCb.vminLabel;
-                    view.cbVmax = synCb.vmaxLabel;
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = (e.deltaY > 0 ? -1 : 1) * _wheelStep(shape[current_slice_dim]);
@@ -25820,6 +26386,7 @@
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
                     }
+                    _wireQmriSynthParamPopover(pane, synId);
                     _qmriSyntheticViews.push(view);
                     qmriViews.push(view);
                 });
@@ -25911,13 +26478,13 @@
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
             const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
-            activeDim = targetDim;
             compareQmriDim = targetDim;
             // Collect SIDs being compared
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
+            _ensureQmriActiveDimVisible();
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
@@ -27257,7 +27824,8 @@
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
-            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
+            const hasSynthControls = ready.some(v => v.syntheticId && v.paramControls);
+            const cbH = hasSynthControls ? 60 : (anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33);
             const bottomPad = 24; // breathing room below last colorbar
             const totalH = window.innerHeight - uiReserveV()
                          - rows * (labelH + cbH)
@@ -27303,6 +27871,12 @@
                     const qvCbW = cbTargetWidth(qvPaneW);
                     v._colorBar.wrap.style.display = qvCbW == null ? 'none' : '';
                     if (qvCbW != null) v._colorBar.wrap.style.width = qvCbW + 'px';
+                }
+                if (v.syntheticId && v.paramControls) {
+                    const qvPaneW = parseInt(v.canvas.style.width) || 0;
+                    const qvControlW = cbTargetWidth(qvPaneW);
+                    v.paramControls.style.display = qvControlW == null ? 'none' : 'grid';
+                    if (qvControlW != null) v.paramControls.style.width = qvControlW + 'px';
                 }
             }
             // Size all invisible placeholders to a real pane width so partial
@@ -29862,6 +30436,13 @@
 
             // 6. Rounded panes — single body-level class drives CSS across all modes
             document.body.classList.toggle('rounded-panes', roundedPanes);
+
+            // 7. qMRI options hint — lives with the bottom-right help/tool hints
+            const qmriHint = document.getElementById('qmri-hint');
+            if (qmriHint) {
+                if (!qmriHint.innerHTML) qmriHint.innerHTML = QMRI_MAPS_ICON;
+                _reconcileQmriAltOptions();
+            }
             _updateMvPaneFill();
         }
 
