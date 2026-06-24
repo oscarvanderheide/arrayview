@@ -45,6 +45,7 @@
             transition: opacity 0.14s ease;
         }
         #wrapper.mode-fade { opacity: 0; }
+        #dim-active-underline.mode-fade { opacity: 0 !important; }
         body.av-loading #array-name,
         body.av-loading #info,
         body.av-loading #canvas-wrap,
@@ -663,10 +664,10 @@
             left: 0;
             top: 0;
             width: 0;
-            height: 2px;
+            height: 1px;
             background: var(--active-dim);
             pointer-events: none;
-            z-index: 9999;
+            z-index: 40;
             transform: translate3d(0, 0, 0);
             transition: transform var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1),
                         width var(--dim-underline-ms, 160ms) cubic-bezier(0.33, 0.66, 0.66, 1),
@@ -3794,7 +3795,7 @@
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
-        body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+        body.zen-mode #toast, body.zen-mode #dim-active-underline { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
         body.zen-mode .qmri-synth-param-popover,
         body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
@@ -8231,6 +8232,8 @@
             if (!w) { fn(); return; }
             _crossfading = true;
             w.classList.add('mode-fade');
+            const marker = document.getElementById('dim-active-underline');
+            if (marker) marker.classList.add('mode-fade');
             // Kill the immersive timeline — the element targets may
             // change (compare ↔ single ↔ multiview) and the cached fly
             // distances will no longer match the post-switch layout.
@@ -8246,6 +8249,8 @@
                         requestAnimationFrame(() => {
                             w.classList.remove('mode-fade');
                             _crossfading = false;
+                            const m = document.getElementById('dim-active-underline');
+                            if (m) m.classList.remove('mode-fade');
                             _syncSinkFocus();
                         });
                     });
@@ -15571,7 +15576,7 @@
         let _dimUnderlineRaf = 0;
         let _dimUnderlineTrackUntil = 0;
         function _activeDimUnderlineViewportRect(info) {
-            const label = info?.querySelector('.active-dim.dim-label, .active-vfield-t.dim-label');
+            const label = info?.querySelector('.active-dim.dim-label, .playing-dim.dim-label, .active-vfield-t.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
             return { x: r.left, y: r.bottom + 1, w: r.width };
@@ -21321,6 +21326,7 @@
                             activeDim = VFIELD_T_DIM;
                         } else if (activeDim === VFIELD_T_DIM) {
                             activeDim = shape.length - 1;
+                            _skipQmriControlDim(-1);
                         } else {
                             activeDim = (activeDim - 1 + shape.length) % shape.length;
                             _skipQmriControlDim(-1);
@@ -21382,6 +21388,7 @@
                             activeDim = VFIELD_T_DIM;
                         } else if (activeDim === VFIELD_T_DIM) {
                             activeDim = 0;
+                            _skipQmriControlDim(1);
                         } else {
                             activeDim = (activeDim + 1) % shape.length;
                             _skipQmriControlDim(1);
