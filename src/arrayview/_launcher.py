@@ -1258,24 +1258,6 @@ def _open_cli_spawned_view(
             flush=True,
         )
     _print_viewer_location(url)
-    if is_remote and sys.stdin.isatty():
-        print(
-            f"\n  VS Code Ports tab: right-click port {port} "
-            f"\u2192 Port Visibility \u2192 Public\n"
-            f"  Press Enter once done (or the viewer retries automatically)... ",
-            end="",
-            flush=True,
-        )
-        try:
-            input()
-        except KeyboardInterrupt:
-            print(flush=True)
-            sys.exit(0)
-        except EOFError:
-            print(flush=True)
-        import arrayview._vscode as _vscode_mod
-
-        _vscode_mod._remote_message_shown = True
     if watch:
         _start_watch_thread(base_file, sid, port)
     _open_browser(
@@ -3613,10 +3595,7 @@ def arrayview():
             sys.exit(1)
         print(
             f"\n  \033[1;36m\u2192 ArrayView server started on port {args.port} (PID {proc.pid})\033[0m\n"
-            f"\n  Remote tunnel setup:\n"
-            f"    1. VS Code Ports tab \u2192 port {args.port} \u2192 right-click \u2192 Port Visibility \u2192 Public\n"
-            f"       (if VS Code did not set it automatically)\n"
-            f"    2. Then run: arrayview your_file.npy\n"
+            f"\n  Run: arrayview your_file.npy\n"
             f"\n  Server stays running until you kill it (kill {proc.pid}).\n"
         )
         return
