@@ -44,7 +44,7 @@
             padding: 14px 20px 0; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
             transition: opacity 0.14s ease;
         }
-        #wrapper.mode-fade { opacity: 0; }
+        #wrapper.mode-fade, #info.mode-fade { opacity: 0; }
         #dim-active-underline.mode-fade { opacity: 0 !important; }
         body.av-loading #array-name,
         body.av-loading #info,
@@ -8232,6 +8232,8 @@
             if (!w) { fn(); return; }
             _crossfading = true;
             w.classList.add('mode-fade');
+            const info = document.getElementById('info');
+            if (info) info.classList.add('mode-fade');
             const marker = document.getElementById('dim-active-underline');
             if (marker) marker.classList.add('mode-fade');
             // Kill the immersive timeline — the element targets may
@@ -8248,6 +8250,8 @@
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
                             w.classList.remove('mode-fade');
+                            const info = document.getElementById('info');
+                            if (info) info.classList.remove('mode-fade');
                             _crossfading = false;
                             const m = document.getElementById('dim-active-underline');
                             if (m) m.classList.remove('mode-fade');
@@ -15580,7 +15584,7 @@
             const label = info?.querySelector('.active-dim.dim-label, .playing-dim.dim-label, .active-vfield-t.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
-            return { x: r.left, y: r.bottom + 1, w: r.width };
+            return { x: r.left, y: r.bottom, w: r.width };
         }
         function _ensureDimUnderlineMarker() {
             let marker = document.getElementById('dim-active-underline');
