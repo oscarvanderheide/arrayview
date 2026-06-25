@@ -351,19 +351,23 @@ def test_qmri_d_cycles_synthetic_contrast_range(loaded_viewer, sid_4d):
         _islandToggleQmriSyntheticContrast('t1w');
         await new Promise(r => setTimeout(r, 900));
         const view = qmriViews.find(v => v.syntheticId === 't1w');
-        if (!view || typeof _cycleQmriPaneRangePreset !== 'function') return { error: 'missing synthetic range hook' };
-        _hoveredQmriView = view;
+        const pane = document.querySelector('.qmri-synthetic-pane');
+        if (!view || !pane || !commands?.['histogram.openOrCycle']) return { error: 'missing synthetic range hook' };
+        _hoveredQmriView = null;
+        pane.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
         window._dQuantileIdx = 0;
         const before = { lo: view.lockedVmin, hi: view.lockedVmax };
-        await _cycleQmriPaneRangePreset();
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
         await new Promise(r => setTimeout(r, 200));
         return {
             before,
             after: { lo: view.lockedVmin, hi: view.lockedVmax },
+            hovered: _hoveredQmriView && _hoveredQmriView.syntheticId,
             syntheticId: view.syntheticId,
         };
     }""")
     assert result.get("syntheticId") == "t1w"
+    assert result.get("hovered") == "t1w"
     assert result["after"]["lo"] is not None
     assert result["after"]["hi"] is not None
     assert result["after"] != result["before"]

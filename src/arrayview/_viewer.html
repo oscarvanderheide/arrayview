@@ -26215,8 +26215,8 @@
                     view.cbCanvas = _qvCb.canvas;
                     view.cbVmin = _qvCb.vminLabel;
                     view.cbVmax = _qvCb.vmaxLabel;
-                    cv.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
-                    cv.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
+                    pane.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
+                    pane.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = (e.deltaY > 0 ? -1 : 1) * _wheelStep(shape[current_slice_dim]);
@@ -26486,8 +26486,8 @@
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _colorBar: null, _qmriGeneration: _qmriRenderGeneration,
                     };
-                    cv.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
-                    cv.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
+                    pane.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
+                    pane.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = (e.deltaY > 0 ? -1 : 1) * _wheelStep(shape[current_slice_dim]);
