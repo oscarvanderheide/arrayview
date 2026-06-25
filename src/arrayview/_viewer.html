@@ -10920,7 +10920,7 @@
                 if (i === dx || i === dy || aggSet.has(i)) continue;
                 parts.push(`${i}:${indices[i]}`);
             }
-            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}:`;
+            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}::64`;
         }
 
         // Scoped nav signal: nav paths that move along a specific dim set this
@@ -20942,6 +20942,17 @@
                         if (primaryCb.triZone) primaryCb.triZone.classList.add('expanded');
                         primaryCb.updateLabels();
                         primaryCb.draw();
+                        primaryCb.ensureHistogramData().then(() => {
+                            if (primaryCb._histData && primaryCb === window._primaryCb) {
+                                _histData = primaryCb._histData;
+                                _kdeSmooth = primaryCb._kdeSmooth;
+                            }
+                            const q = _currentQuantileFromHist(
+                                manualVmin ?? currentVmin,
+                                manualVmax ?? currentVmax,
+                            );
+                            if (q) showToast(_quantileLabel(q.lo, q.hi));
+                        }).catch(() => {});
                         _restartHistAutoDismiss();
                         setTimeout(saveState, 0);
                         return;
