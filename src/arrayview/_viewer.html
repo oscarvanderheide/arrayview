@@ -11035,6 +11035,84 @@
             return preset;
         }
 
+        function _quantileWindowFromHistogram(hist, preset) {
+            if (!hist || !hist.counts || !hist.counts.length || !preset) return null;
+            if (preset.lo === 0 && preset.hi === 1) return { vmin: hist.vmin, vmax: hist.vmax };
+            const { counts, edges, vmin: dmin, vmax: dmax } = hist;
+            const total = counts.reduce((a, b) => a + b, 0);
+            if (total <= 0) return null;
+            let cumLo = 0, cumHi = 0;
+            let qLo = dmin, qHi = dmax;
+            for (let i = 0; i < counts.length; i++) {
+                cumLo += counts[i];
+                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+            }
+            for (let i = counts.length - 1; i >= 0; i--) {
+                cumHi += counts[i];
+                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+            }
+            return { vmin: qLo, vmax: qHi };
+        }
+
+        function _qmriLocksLowerBound(view) {
+            return !!view && !view.syntheticId && ['t1', 't2', 'pd'].includes(view.qmriRole);
+        }
+
+        function _applyQmriWindowPolicy(view, win) {
+            if (!view || !win) return null;
+            let lo = Number(win.vmin);
+            let hi = Number(win.vmax);
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+            if (_qmriLocksLowerBound(view)) lo = 0;
+            if (hi <= lo) hi = lo + 1e-9;
+            view.lockedVmin = lo;
+            view.lockedVmax = hi;
+            const idx = qmriViews.indexOf(view);
+            const qv = idx >= 0 ? modeManager.currentViews[idx] : null;
+            if (qv) { qv.displayState.vmin = lo; qv.displayState.vmax = hi; }
+            return { vmin: lo, vmax: hi };
+        }
+
+        async function _cycleQmriPaneRangePreset() {
+            const view = _hoveredQmriView;
+            if (!view) { showStatus('qMRI range: hover a pane'); return true; }
+            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            let win = null;
+            if (view.syntheticId) {
+                const range = { vmin: view.vmin, vmax: view.vmax };
+                const span = Number(range.vmax) - Number(range.vmin);
+                if (Number.isFinite(span) && span > 0) {
+                    win = {
+                        vmin: range.vmin + span * preset.lo,
+                        vmax: range.vmin + span * preset.hi,
+                    };
+                }
+            } else {
+                const fixedIndices = `${qmriDim}:${view.qmriIdx}`;
+                const hist = await _fetchVolumeHistogram({
+                    dimX: dim_x, dimY: dim_y,
+                    scrollDim: current_slice_dim,
+                    complexMode: complexMode,
+                    fixedIndices,
+                    qmriRole: view.qmriRole,
+                    bins: 128,
+                });
+                win = _quantileWindowFromHistogram(hist, preset);
+            }
+            const applied = _applyQmriWindowPolicy(view, win);
+            if (!applied) { showStatus('qMRI range: unavailable'); return true; }
+            qvRender(view);
+            if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
+            const name = view.syntheticId
+                ? (QMRI_SYNTH_PRESETS[view.syntheticId]?.label || view.syntheticId)
+                : (QMRI_LABELS[view.colormap] || view.colormap);
+            showToast(`${name}: ${_quantileLabel(preset.lo, preset.hi)}`);
+            saveState();
+            return true;
+        }
+
         /** Estimate the current percentile bracket {lo, hi} ∈ [0,1] corresponding
          *  to a given (vmin, vmax) window, by integrating the cached histogram.
          *  Returns null if no histogram is available. */
@@ -20809,6 +20887,7 @@
                     // the new pair. Hold-`d` opens the participation picker.
                     if (rgbMode) return;
                     if (rectRoiMode) { showStatus('histogram: exit ROI mode first'); return; }
+                    if (qmriActive) { await _cycleQmriPaneRangePreset(); return; }
                     if (_histPickerActive) { _histPickerClose(); return; }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
@@ -26382,6 +26461,8 @@
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _colorBar: null, _qmriGeneration: _qmriRenderGeneration,
                     };
+                    cv.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
+                    cv.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = (e.deltaY > 0 ? -1 : 1) * _wheelStep(shape[current_slice_dim]);

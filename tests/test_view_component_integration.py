@@ -310,6 +310,60 @@ def test_qmri_synthetic_contrast_adds_bottom_row(loaded_viewer, sid_4d):
     assert result.get("canvasH", 0) > 0
 
 
+def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 700));
+        const view = qmriViews.find(v => v.qmriRole === 't1');
+        if (!view || typeof _cycleQmriPaneRangePreset !== 'function') return { error: 'missing qMRI range hook' };
+        _hoveredQmriView = view;
+        window._dQuantileIdx = 0;
+        const before = { lo: view.lockedVmin, hi: view.lockedVmax };
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 200));
+        return {
+            before,
+            after: { lo: view.lockedVmin, hi: view.lockedVmax },
+            role: view.qmriRole,
+        };
+    }""")
+    assert result.get("role") == "t1"
+    assert result["after"]["lo"] == 0
+    assert result["after"]["hi"] != result["before"]["hi"]
+
+
+def test_qmri_d_cycles_synthetic_contrast_range(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 500));
+        if (typeof _islandToggleQmriSyntheticContrast !== 'function') return { error: 'no synth toggle' };
+        _islandToggleQmriSyntheticContrast('t1w');
+        await new Promise(r => setTimeout(r, 900));
+        const view = qmriViews.find(v => v.syntheticId === 't1w');
+        if (!view || typeof _cycleQmriPaneRangePreset !== 'function') return { error: 'missing synthetic range hook' };
+        _hoveredQmriView = view;
+        window._dQuantileIdx = 0;
+        const before = { lo: view.lockedVmin, hi: view.lockedVmax };
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 200));
+        return {
+            before,
+            after: { lo: view.lockedVmin, hi: view.lockedVmax },
+            syntheticId: view.syntheticId,
+        };
+    }""")
+    assert result.get("syntheticId") == "t1w"
+    assert result["after"]["lo"] is not None
+    assert result["after"]["hi"] is not None
+    assert result["after"] != result["before"]
+
+
 def test_compare_mv_populates_modemanager(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     page.wait_for_timeout(500)
