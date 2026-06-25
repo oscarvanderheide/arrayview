@@ -151,7 +151,7 @@ def _qmri_adjust_vmin_vmax(vmin: float, vmax: float, role: str) -> tuple[float, 
     if not role:
         return vmin, vmax
     if role in ("t1", "t2"):
-        return float(int(np.floor(vmin))), float(int(np.ceil(vmax)))
+        return 0.0, float(int(np.ceil(vmax)))
     if role == "pd":
         return 0.0, vmax
     if role == "b1":

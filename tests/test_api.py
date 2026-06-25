@@ -1313,6 +1313,19 @@ class TestSyntheticQmri:
         value = client.get(f"/pixel/{sid}", params=params).json()["value"]
         assert value < 10
 
+    def test_qmri_t1_initial_window_starts_at_zero(self, client, tmp_path):
+        sid = self._register_qmri(client, tmp_path, n=3, seconds=False)
+        params = {
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "colormap": "magma",
+            "qmri_role": "t1",
+        }
+        resp = client.get(f"/slice/{sid}", params=params)
+        assert float(resp.headers["X-ArrayView-Vmin"]) == 0.0
+        assert float(resp.headers["X-ArrayView-Vmax"]).is_integer()
+
     def test_synthetic_render_changes_with_te(self, client, tmp_path):
         sid = self._register_qmri(client, tmp_path, n=5, seconds=False)
         base = {
