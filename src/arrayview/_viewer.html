@@ -20931,12 +20931,17 @@
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
                         _lebesgueManual = false;
+                        _stopColorbarLebesgueHover();
                         _computeCbExpandedH();
                         primaryCb._manualExpand = true;
                         primaryCb._expanded = true;
+                        primaryCb._animating = false;
                         primaryCb._animT = 1;
                         primaryCb._animTarget = 1;
+                        if (primaryCb.wrap) primaryCb.wrap.classList.add('cb-expanded');
                         if (primaryCb.triZone) primaryCb.triZone.classList.add('expanded');
+                        primaryCb.updateLabels();
+                        primaryCb.draw();
                         _restartHistAutoDismiss();
                         setTimeout(saveState, 0);
                         return;
