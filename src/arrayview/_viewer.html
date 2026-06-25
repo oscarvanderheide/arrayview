@@ -9481,7 +9481,7 @@
             ensureAnimating() {
                 if (!this._animating) {
                     this._animating = true;
-                    this._animStep();
+                    requestAnimationFrame(() => this._animStep());
                 }
             }
 
@@ -9500,8 +9500,20 @@
                 const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
                              && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
                 const labelDone = this._labelVminTarget == null ||
-                    (Math.abs((this._labelVmin ?? 0) - this._labelVminTarget) < Math.abs(this._labelVminTarget) * 0.001 + 1e-10
-                  && Math.abs((this._labelVmax ?? 0) - this._labelVmaxTarget) < Math.abs(this._labelVmaxTarget) * 0.001 + 1e-10);
+                    (Math.abs((this._labelVmin ?? 0) - this._labelVminTarget) < Math.max(Math.abs(this._labelVminTarget) * 0.001, 1e-6)
+                  && Math.abs((this._labelVmax ?? 0) - this._labelVmaxTarget) < Math.max(Math.abs(this._labelVmaxTarget) * 0.001, 1e-6));
+                if (morphDone) {
+                    this._animT = this._animTarget;
+                    this._winVminF = this._winVminTarget;
+                    this._winVmaxF = this._winVmaxTarget;
+                    if (this._labelVminTarget != null) this._labelVmin = this._labelVminTarget;
+                    if (this._labelVmaxTarget != null) this._labelVmax = this._labelVmaxTarget;
+                    this.draw();
+                    this.updateLabels();
+                    if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
+                    this._animating = false;
+                    return;
+                }
                 if (morphDone && winDone && labelDone) {
                     this._animating = false;
                     return;
@@ -9515,10 +9527,12 @@
                 this._expanded = true;
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
-                const histPromise = this.ensureHistogramData();
                 this.startAnim(true);
-                await histPromise;
-                if (this.opts.onExpand) this.opts.onExpand();
+                this.ensureHistogramData().then(() => {
+                    if (this.opts.onExpand) this.opts.onExpand();
+                    this.draw();
+                    this.updateLabels();
+                }).catch(() => {});
                 if (this._syncWith && !this._syncing) {
                     this._syncWith._syncing = true;
                     await this._syncWith.expand();
@@ -20917,24 +20931,14 @@
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
                         _lebesgueManual = false;
-                        _stopColorbarLebesgueHover();
                         _computeCbExpandedH();
                         primaryCb._manualExpand = true;
-                        primaryCb.expand().then(() => {
-                            if (primaryCb._histData) {
-                                _histData = primaryCb._histData;
-                                _kdeSmooth = primaryCb._kdeSmooth;
-                            }
-                            const q = _currentQuantileFromHist(
-                                manualVmin ?? currentVmin,
-                                manualVmax ?? currentVmax,
-                            );
-                            if (q) showToast(_quantileLabel(q.lo, q.hi));
-                        }).catch(() => {});
-                        if (multiViewActive || compareMvActive) drawMvColorbar();
-                        else drawSlimColorbar(cbMarkerFrac);
+                        primaryCb._expanded = true;
+                        primaryCb._animT = 1;
+                        primaryCb._animTarget = 1;
+                        if (primaryCb.triZone) primaryCb.triZone.classList.add('expanded');
                         _restartHistAutoDismiss();
-                        saveState();
+                        setTimeout(saveState, 0);
                         return;
                     }
                     // Histogram is already open — cycle preset.

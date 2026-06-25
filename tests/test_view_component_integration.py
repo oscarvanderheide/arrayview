@@ -37,6 +37,22 @@ def test_normal_view_has_canvas_and_colorbar(loaded_viewer, sid_3d):
     assert result["hasImageLayer"] is True
 
 
+def test_normal_d_command_expands_histogram_without_spinning(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        return {
+            expanded: primaryCb._expanded,
+            animating: primaryCb._animating,
+            hasHistogram: !!primaryCb._histData,
+        };
+    }""")
+    assert result.get("expanded") is True
+    assert result.get("animating") is False
+
+
 def test_setwindow_dual_write_propagates_to_displaystate(loaded_viewer, sid_3d):
     """Phase 17: setWindow() dual-write syncs manualVmin to displayState.vmin."""
     page = loaded_viewer(sid_3d)
