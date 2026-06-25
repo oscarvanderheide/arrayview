@@ -134,3 +134,12 @@ last_updated: 2026-04-25
 the key exists in the command registry.
 **Fix:** When changing tool UI, verify every advertised key has both a command
 and a keybind, then run `tests/test_command_reachability.py`.
+
+## qMRI Range Windows
+
+**Problem:** qMRI display ranges are owned by multiple paths: backend slice
+headers, WebSocket frame metadata, frontend pane locks, and per-pane colorbars.
+Fixing only one path can leave initial labels or keyboard range changes stale.
+**Fix:** Keep qMRI role policy in `_synthetic_mri.py`, and route qMRI `d`
+handling through hovered-pane frontend helpers so real and synthetic panes update
+their own `lockedVmin/lockedVmax` plus matching `displayState`.
