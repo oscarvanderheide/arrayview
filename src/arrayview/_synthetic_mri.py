@@ -48,7 +48,8 @@ def normalize_relaxation_ms(data: np.ndarray, role: str | None = None) -> np.nda
     if finite.size == 0:
         return arr
     central = float(np.nanmedian(finite))
-    if 0.0 < central <= 5.0:
+    seconds_threshold = 10.0 if role == "t1" else 5.0
+    if 0.0 < central <= seconds_threshold:
         return (arr * np.float32(1000.0)).astype(np.float32)
     return arr
 

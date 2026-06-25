@@ -1271,6 +1271,48 @@ class TestSyntheticQmri:
         value = client.get(f"/pixel/{sid}", params=params).json()["value"]
         assert value > 1000
 
+    def test_qmri_t1_seconds_threshold_extends_to_ten(self, client, tmp_path):
+        x = np.arange(30, dtype=np.float32)[None, :, None]
+        t1 = np.full((2, 30, 2), 8.0, dtype=np.float32) + x * 0.01
+        t2 = np.full_like(t1, 0.08)
+        pd = np.ones_like(t1)
+        arr = np.stack([t1, t2, pd]).astype(np.float32)
+        path = tmp_path / "qmri_t1_8s.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": path.stem}).json()["sid"]
+
+        params = {
+            "dim_x": 2,
+            "dim_y": 3,
+            "indices": "0,0,0,0",
+            "px": 10,
+            "py": 1,
+            "qmri_role": "t1",
+        }
+        value = client.get(f"/pixel/{sid}", params=params).json()["value"]
+        assert value > 7000
+
+    def test_qmri_t2_seconds_threshold_stays_at_five(self, client, tmp_path):
+        x = np.arange(30, dtype=np.float32)[None, :, None]
+        t1 = np.full((2, 30, 2), 900.0, dtype=np.float32)
+        t2 = np.full_like(t1, 6.0) + x * 0.01
+        pd = np.ones_like(t1)
+        arr = np.stack([t1, t2, pd]).astype(np.float32)
+        path = tmp_path / "qmri_t2_6s.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": path.stem}).json()["sid"]
+
+        params = {
+            "dim_x": 2,
+            "dim_y": 3,
+            "indices": "1,0,0,0",
+            "px": 10,
+            "py": 1,
+            "qmri_role": "t2",
+        }
+        value = client.get(f"/pixel/{sid}", params=params).json()["value"]
+        assert value < 10
+
     def test_synthetic_render_changes_with_te(self, client, tmp_path):
         sid = self._register_qmri(client, tmp_path, n=5, seconds=False)
         base = {
