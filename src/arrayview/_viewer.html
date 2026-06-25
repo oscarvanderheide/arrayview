@@ -9453,13 +9453,18 @@
                 this._labelVmax = this._labelVmaxFrom != null
                     ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
                 const labelFormatter = this._dragLabelFormatter || formatValueGroup([this._labelVmin, this._labelVmax, vmin, vmax]);
+                const formatLabel = this.opts.formatLabel;
 
                 if (this.vminLabel) {
-                    this.vminLabel.innerHTML = _cbFmt(this._labelVmin, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                    this.vminLabel.innerHTML = formatLabel
+                        ? formatLabel(this._labelVmin, 'vmin')
+                        : _cbFmt(this._labelVmin, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    this.vmaxLabel.innerHTML = _cbFmt(this._labelVmax, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                    this.vmaxLabel.innerHTML = formatLabel
+                        ? formatLabel(this._labelVmax, 'vmax')
+                        : _cbFmt(this._labelVmax, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -11058,19 +11063,38 @@
             return !!view && !view.syntheticId && ['t1', 't2', 'pd'].includes(view.qmriRole);
         }
 
-        function _applyQmriWindowPolicy(view, win) {
+        function _normalizeQmriWindowPolicy(view, win) {
             if (!view || !win) return null;
             let lo = Number(win.vmin);
             let hi = Number(win.vmax);
             if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
-            if (_qmriLocksLowerBound(view)) lo = 0;
+            if (!view.syntheticId && (view.qmriRole === 't1' || view.qmriRole === 't2')) {
+                lo = 0;
+                hi = Math.ceil(hi);
+            } else if (_qmriLocksLowerBound(view)) {
+                lo = 0;
+            }
             if (hi <= lo) hi = lo + 1e-9;
+            return { vmin: lo, vmax: hi };
+        }
+
+        function _applyQmriWindowPolicy(view, win) {
+            const normalized = _normalizeQmriWindowPolicy(view, win);
+            if (!normalized) return null;
+            const lo = normalized.vmin;
+            const hi = normalized.vmax;
             view.lockedVmin = lo;
             view.lockedVmax = hi;
             const idx = qmriViews.indexOf(view);
             const qv = idx >= 0 ? modeManager.currentViews[idx] : null;
             if (qv) { qv.displayState.vmin = lo; qv.displayState.vmax = hi; }
             return { vmin: lo, vmax: hi };
+        }
+
+        function _formatQmriColorbarLabel(view, value) {
+            if (!view || view.syntheticId) return null;
+            if (view.qmriRole === 't1' || view.qmriRole === 't2') return String(Math.round(Number(value)));
+            return null;
         }
 
         async function _cycleQmriPaneRangePreset() {
@@ -11103,8 +11127,8 @@
             }
             const applied = _applyQmriWindowPolicy(view, win);
             if (!applied) { showStatus('qMRI range: unavailable'); return true; }
-            qvRender(view);
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
+            qvRender(view);
             const name = view.syntheticId
                 ? (QMRI_SYNTH_PRESETS[view.syntheticId]?.label || view.syntheticId)
                 : (QMRI_LABELS[view.colormap] || view.colormap);
@@ -26159,6 +26183,7 @@
                         getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
+                        formatLabel: (value) => _formatQmriColorbarLabel(view, value),
                         setWindow: (lo, hi) => {
                             view.lockedVmin = lo; view.lockedVmax = hi;
                             const _qv = modeManager.currentViews[viewIdx]; if (_qv) { _qv.displayState.vmin = lo; _qv.displayState.vmax = hi; }
@@ -26877,8 +26902,9 @@
                 }
                 const frame = await fetchSliceFrame(params, v.sid);
                 if (!compareQmriActive || v._qmriGeneration !== _qmriRenderGeneration || !compareQmriViews.includes(v)) return;
-                v.vmin = frame.vmin;
-                v.vmax = frame.vmax;
+                const frameWindow = _normalizeQmriWindowPolicy(v, { vmin: frame.vmin, vmax: frame.vmax }) || frame;
+                v.vmin = frameWindow.vmin;
+                v.vmax = frameWindow.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
                     v.lockedVmin = v.vmin;
                     v.lockedVmax = v.vmax;
@@ -27673,8 +27699,9 @@
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
                 if (!qmriActive || v._qmriGeneration !== _qmriRenderGeneration || !qmriViews.includes(v)) return;
-                v.vmin = frame.vmin;
-                v.vmax = frame.vmax;
+                const frameWindow = _normalizeQmriWindowPolicy(v, { vmin: frame.vmin, vmax: frame.vmax }) || frame;
+                v.vmin = frameWindow.vmin;
+                v.vmax = frameWindow.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
                     v.lockedVmin = v.vmin;
                     v.lockedVmax = v.vmax;
@@ -28001,7 +28028,8 @@
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq && qmriActive && v._qmriGeneration === _qmriRenderGeneration && qmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
-                v.vmin = f32[0]; v.vmax = f32[1];
+                const frameWindow = _normalizeQmriWindowPolicy(v, { vmin: f32[0], vmax: f32[1] }) || { vmin: f32[0], vmax: f32[1] };
+                v.vmin = frameWindow.vmin; v.vmax = frameWindow.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
                     v.lockedVmin = v.vmin;
                     v.lockedVmax = v.vmax;

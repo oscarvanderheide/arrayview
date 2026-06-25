@@ -327,12 +327,17 @@ def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
         return {
             before,
             after: { lo: view.lockedVmin, hi: view.lockedVmax },
+            labelText: view.cbVmin && view.cbVmax ? `${view.cbVmin.textContent} ${view.cbVmax.textContent}` : '',
             role: view.qmriRole,
         };
     }""")
     assert result.get("role") == "t1"
+    assert result["before"]["lo"] == 0
+    assert float(result["before"]["hi"]).is_integer()
     assert result["after"]["lo"] == 0
+    assert float(result["after"]["hi"]).is_integer()
     assert result["after"]["hi"] != result["before"]["hi"]
+    assert "." not in result["labelText"]
 
 
 def test_qmri_d_cycles_synthetic_contrast_range(loaded_viewer, sid_4d):
