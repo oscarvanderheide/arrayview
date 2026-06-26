@@ -100,13 +100,9 @@ def _open_browser(
                 # and the viewer connects via WebSocket through the devtunnel.
                 # _print_viewer_location already emitted the localhost URL to
                 # stdout so VS Code's terminal-output detector starts the
-                # forward.  Write portsAttributes with privacy=public so that
-                # forward is public, then give VS Code a brief moment to
-                # register the forward before we hand the URL to the
-                # extension (which calls asExternalUri and expects the
-                # forward to already be up).
+                # forward.  The extension's asExternalUri + ensurePortPublic
+                # handle forwarding and privacy; no grace delay needed.
                 _configure_vscode_port_preview(parsed_port)
-                time.sleep(1.0)
                 _open_via_signal_file(url, title=title, floating=floating)
                 _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:

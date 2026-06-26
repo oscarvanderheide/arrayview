@@ -1148,10 +1148,9 @@ async function _processSignalDataBody(data) {
 
         // Step 1: pre-write privacy=public so the forward is created public.
         await ensurePortPublic(port);
-        // Give VS Code's configuration service a moment to propagate the
-        // settings change before asExternalUri uses it to decide the
-        // forward's privacy level.
-        await new Promise(r => setTimeout(r, 500));
+        // Brief pause for VS Code's config service to propagate the
+        // portsAttributes change before asExternalUri reads it.
+        await new Promise(r => setTimeout(r, 150));
 
         try {
             const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);

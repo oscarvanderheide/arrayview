@@ -2284,11 +2284,6 @@ def view(
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         if _is_vscode_remote():
             _configure_vscode_port_preview(port)
-            # Give VS Code's file watcher a moment to pick up the
-            # portsAttributes settings before the server binds.  Without
-            # this delay VS Code can auto-forward the port as private
-            # before the privacy=public setting takes effect.
-            time.sleep(0.4)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
         _script = _is_script_mode()
