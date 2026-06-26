@@ -208,7 +208,7 @@ def _build_inline_shell_html(url: str, shell_port: int) -> str | None:
 
 
 def _make_loopback_socket(port: int) -> "socket.socket":
-    """Bind a TCP listener on the same loopback host the viewer URLs use."""
+    """Bind a single TCP listener on the same loopback host the viewer URLs use."""
     for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
         _LOOPBACK_HOST,
         port,
@@ -228,6 +228,50 @@ def _make_loopback_socket(port: int) -> "socket.socket":
             except Exception:
                 pass
     raise OSError(f"Could not bind {_LOOPBACK_HOST}:{port}")
+
+
+def _make_loopback_sockets(port: int) -> list["socket.socket"]:
+    """Bind loopback listeners on every loopback address that resolves for
+    ``_LOOPBACK_HOST`` (typically both ``::1`` and ``127.0.0.1``).
+
+    VS Code's port auto-forward detection looks for IPv4 ``127.0.0.1`` /
+    ``0.0.0.0`` listening sockets; an IPv6-only ``[::1]`` listener (the first
+    result of ``getaddrinfo("localhost")`` on Linux) is not reliably detected,
+    so the tunnel is never forwarded and ``asExternalUri`` returns the
+    ``localhost`` URL unchanged — producing a blank viewer tab on the remote
+    client.  Binding both families gives VS Code an IPv4 socket to scan while
+    preserving the macOS native-shell path that connects via ``localhost`` →
+    ``::1``.
+    """
+    socks: list["socket.socket"] = []
+    seen_families: set[int] = set()
+    for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
+        _LOOPBACK_HOST,
+        port,
+        type=socket.SOCK_STREAM,
+    ):
+        if family in seen_families:
+            continue
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # On Linux, binding ::1 first then 127.0.0.1 on the same port is
+            # fine (different addresses). IPV6_V6ONLY stays default (off on
+            # Linux) which is harmless since we bind explicit addresses.
+            sock.bind(sockaddr)
+            sock.listen(128)
+            sock.set_inheritable(True)
+            socks.append(sock)
+            seen_families.add(family)
+        except OSError:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    if not socks:
+        raise OSError(f"Could not bind {_LOOPBACK_HOST}:{port}")
+    return socks
 
 
 def _open_webview(
@@ -1499,10 +1543,14 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     _loading_port = None  # reset for this server lifetime
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
     _session_mod.SERVER_PORT = port
-    # Bind on the same loopback hostname the viewer URLs use. On macOS,
-    # localhost often resolves to ::1 first, so binding only 127.0.0.1 can
-    # leave the native shell stuck on its loading overlay forever.
-    sock = _make_loopback_socket(port)
+    # Bind on every loopback address that resolves for ``localhost`` (both
+    # ``::1`` and ``127.0.0.1``).  VS Code's port auto-forward detection
+    # scans IPv4 loopback; an IPv6-only ``[::1]`` listener is not reliably
+    # forwarded in tunnel mode, leaving ``asExternalUri`` returning the
+    # localhost URL unchanged (blank viewer tab on the remote client).  The
+    # macOS native shell connects via ``localhost`` → ``::1``, so we must
+    # keep the IPv6 listener too.
+    socks = _make_loopback_sockets(port)
 
     # Bind the loading-page server on an OS-chosen ephemeral port.
     # This uses only stdlib so it starts in microseconds — well before
@@ -1529,7 +1577,7 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     server = _uvicorn().Server(config)
     if stop_when_closed:
         asyncio.create_task(_stop_server_when_viewer_closes(server))
-    await server.serve(sockets=[sock])
+    await server.serve(sockets=socks)
 
 
 def _with_loading(url: str) -> str:
@@ -2236,6 +2284,11 @@ def view(
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         if _is_vscode_remote():
             _configure_vscode_port_preview(port)
+            # Give VS Code's file watcher a moment to pick up the
+            # portsAttributes settings before the server binds.  Without
+            # this delay VS Code can auto-forward the port as private
+            # before the privacy=public setting takes effect.
+            time.sleep(0.4)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
         _script = _is_script_mode()
@@ -2674,16 +2727,18 @@ def _serve_empty(port: int) -> None:
     user to re-run ``--serve`` or re-set port visibility.
     """
     _session_mod.SERVER_PORT = port
-    threading.Thread(
-        target=lambda: _uvicorn().run(
+    socks = _make_loopback_sockets(port)
+
+    def _run_empty_uvicorn():
+        config = _uvicorn().Config(
             _server_mod().app,
-            host=_LOOPBACK_HOST,
-            port=port,
             log_level="error",
             timeout_keep_alive=30,
-        ),
-        daemon=True,
-    ).start()
+        )
+        server = _uvicorn().Server(config)
+        asyncio.run(server.serve(sockets=socks))
+
+    threading.Thread(target=_run_empty_uvicorn, daemon=True).start()
     try:
         while True:
             time.sleep(1)
@@ -2718,7 +2773,7 @@ def _serve_daemon(
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
 
-    sock = _make_loopback_socket(port)
+    sock = _make_loopback_sockets(port)
 
     def _run_uvicorn_on_socket():
         config = _uvicorn().Config(
@@ -2727,7 +2782,7 @@ def _serve_daemon(
             timeout_keep_alive=30,
         )
         server = _uvicorn().Server(config)
-        asyncio.run(server.serve(sockets=[sock]))
+        asyncio.run(server.serve(sockets=sock))
 
     # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
@@ -3546,6 +3601,11 @@ def arrayview():
                         if not alive:
                             break
                         time.sleep(0.05)
+
+        from arrayview._vscode_signal import _cleanup_zombie_registrations
+        cleaned = _cleanup_zombie_registrations(verbose=True)
+        if cleaned:
+            print(f"[ArrayView] Cleaned {cleaned} zombie window registration(s)")
         return
 
     # -- --serve: start a persistent empty server and exit --

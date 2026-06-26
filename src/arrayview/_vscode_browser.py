@@ -24,9 +24,24 @@ _ssh_message_shown = False
 
 
 def _print_viewer_location(url: str) -> None:
-    """Print a viewer location hint (verbose only)."""
-    if not _is_vscode_remote():
-        _vprint(f"[ArrayView] {url}", flush=True)
+    """Print a viewer location hint.
+
+    In VS Code remote/tunnel sessions the plain ``http://localhost:<port>/``
+    URL is printed to stdout (unconditionally, not gated on verbose) so VS
+    Code's terminal-output port-forward detector picks it up and forwards the
+    port immediately.  Without this, VS Code relies on its slow proactive
+    socket scan, which can take 10+ seconds and sometimes never fires —
+    leaving ``asExternalUri`` returning the localhost URL unchanged and the
+    viewer tab blank on the remote client.
+
+    Only the host needs to be localhost for the forward to trigger; the
+    query string is harmless and helps debugging.  We print the URL without
+    ANSI styling so VS Code's detector matches it cleanly.
+    """
+    if _is_vscode_remote():
+        print(url, flush=True)
+        return
+    _vprint(f"[ArrayView] {url}", flush=True)
 
 
 def _open_browser(
@@ -83,9 +98,15 @@ def _open_browser(
             else:
                 # URL-based mode (e.g. --serve): port is forwarded by VS Code
                 # and the viewer connects via WebSocket through the devtunnel.
-                # Write portsAttributes with privacy=public BEFORE the signal
-                # file so VS Code auto-forwards with public visibility.
+                # _print_viewer_location already emitted the localhost URL to
+                # stdout so VS Code's terminal-output detector starts the
+                # forward.  Write portsAttributes with privacy=public so that
+                # forward is public, then give VS Code a brief moment to
+                # register the forward before we hand the URL to the
+                # extension (which calls asExternalUri and expects the
+                # forward to already be up).
                 _configure_vscode_port_preview(parsed_port)
+                time.sleep(1.0)
                 _open_via_signal_file(url, title=title, floating=floating)
                 _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:

@@ -44,7 +44,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.14"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.21"  # current bundled extension version
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""
@@ -308,7 +308,13 @@ def _configure_vscode_port_preview(port: int) -> bool:
         if is_remote:
             home = os.path.expanduser("~")
             targets: list[str] = []
+            # `code tunnel` keeps its data under ~/.vscode/data/ and its
+            # extensions under ~/.vscode/extensions/.  SSH-Remote uses
+            # ~/.vscode-server/data/.  The `code tunnel` CLI server is rooted
+            # at ~/.vscode/cli/.  Write Machine/User settings to all three so
+            # the port auto-forwards as public regardless of transport.
             for root in (
+                os.path.join(home, ".vscode"),
                 os.path.join(home, ".vscode", "cli"),
                 os.path.join(home, ".vscode-server"),
             ):
@@ -321,6 +327,7 @@ def _configure_vscode_port_preview(port: int) -> bool:
                 # Fallback: write to the most common paths even if root
                 # directories don't exist yet.
                 for root in (
+                    os.path.join(home, ".vscode"),
                     os.path.join(home, ".vscode-server"),
                     os.path.join(home, ".vscode", "cli"),
                 ):

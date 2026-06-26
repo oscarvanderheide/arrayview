@@ -732,6 +732,136 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
         return False
 
 
+def _cleanup_zombie_registrations(verbose: bool = False) -> int:
+    """Remove stale window-*.json registrations from ~/.arrayview/.
+
+    Returns count of removed files.
+    """
+    signal_dir = os.path.expanduser("~/.arrayview")
+    if not os.path.isdir(signal_dir):
+        return 0
+
+    removed = 0
+    registrations = {}
+
+    try:
+        files = os.listdir(signal_dir)
+    except OSError:
+        return 0
+
+    for fn in files:
+        if not fn.startswith("window-") or not fn.endswith(".json"):
+            continue
+        wid = fn[7:-5]
+        try:
+            with open(os.path.join(signal_dir, fn)) as f:
+                registrations[wid] = json.load(f)
+        except Exception:
+            continue
+
+    for wid, data in list(registrations.items()):
+        pid = data.get("pid")
+        if pid is None:
+            continue
+        try:
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            try:
+                os.unlink(os.path.join(signal_dir, f"window-{wid}.json"))
+                removed += 1
+                del registrations[wid]
+                if verbose:
+                    print(
+                        f"[ArrayView] Removed zombie registration window-{wid} "
+                        f"(pid {pid} dead)",
+                        flush=True,
+                    )
+            except OSError:
+                pass
+
+    groups = {}
+    for wid, data in registrations.items():
+        ppids = data.get("ppids", [])
+        pp0 = ppids[0] if ppids else wid
+        groups.setdefault(pp0, []).append((wid, data))
+
+    for pp0, regs in groups.items():
+        if len(regs) <= 1:
+            continue
+        fallbacks = [(w, d) for w, d in regs if d.get("fallbackId")]
+        non_fallbacks = [(w, d) for w, d in regs if not d.get("fallbackId")]
+
+        if non_fallbacks:
+            for wid, data in fallbacks:
+                try:
+                    os.unlink(os.path.join(signal_dir, f"window-{wid}.json"))
+                    removed += 1
+                    if verbose:
+                        pid = data.get("pid", "?")
+                        print(
+                            f"[ArrayView] Removed stale fallback registration "
+                            f"window-{wid} (pid {pid})",
+                            flush=True,
+                        )
+                except OSError:
+                    pass
+        else:
+            fallbacks.sort(key=lambda x: x[1].get("ts", 0), reverse=True)
+            for wid, data in fallbacks[1:]:
+                try:
+                    os.unlink(os.path.join(signal_dir, f"window-{wid}.json"))
+                    removed += 1
+                    if verbose:
+                        pid = data.get("pid", "?")
+                        print(
+                            f"[ArrayView] Removed duplicate fallback registration "
+                            f"window-{wid} (pid {pid})",
+                            flush=True,
+                        )
+                except OSError:
+                    pass
+
+    valid_ids = set(registrations.keys())
+
+    now = time.time()
+    for fn in files:
+        try:
+            fp = os.path.join(signal_dir, fn)
+        except Exception:
+            continue
+        if fn.startswith("open-request-ipc-") or fn.startswith("open-request-pid-"):
+            parts = fn[len("open-request-"):].split("-", 1)
+            if len(parts) == 2 and parts[1].endswith(".json"):
+                wid = parts[1][:-5]
+                if wid not in valid_ids:
+                    try:
+                        os.unlink(fp)
+                        removed += 1
+                        if verbose:
+                            print(
+                                f"[ArrayView] Removed stale signal file {fn} "
+                                f"(window {wid} not registered)",
+                                flush=True,
+                            )
+                    except OSError:
+                        pass
+        elif fn in ("open-request-v0900.json", "open-request-v0800.json"):
+            try:
+                st = os.stat(fp)
+                if now - st.st_mtime > 30:
+                    os.unlink(fp)
+                    removed += 1
+                    if verbose:
+                        print(
+                            f"[ArrayView] Removed stale shared signal file {fn}",
+                            flush=True,
+                        )
+            except OSError:
+                pass
+
+    return removed
+
+
 def __getattr__(name: str):
     if name == "_ACTIVE_SHM":
         import warnings

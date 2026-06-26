@@ -604,6 +604,34 @@ function httpOk(url, timeoutMs = 1500) {
     });
 }
 
+function httpStatus2xx(url, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve(false);
+            return;
+        }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (ok) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+        };
+        const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
+            res.resume();
+            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300);
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            done(false);
+        });
+        req.on('error', () => done(false));
+    });
+}
+
 function httpPostOk(url, timeoutMs = 1500) {
     return new Promise((resolve) => {
         let parsed;
@@ -923,7 +951,23 @@ frame.src = arrayviewUrl;
     panel.onDidDispose(() => {
         panelDisposed = true;
         _openPanels.delete(url);
-        releaseUrlSession(url);
+        if (vscode.env.remoteName) {
+            // Remote/tunnel: the server runs with persist=True, so sessions
+            // should survive tab close.  VS Code's preview-tab mode disposes
+            // panels when a new file opens — releasing immediately would
+            // kill the session before the user is done (e.g., they just
+            // switched to another array in the same preview slot).  Delay
+            // release by 60s so brief preview-tab swaps don't yank the
+            // session, but stale sessions still get cleaned up.
+            const releaseUrl = url;
+            setTimeout(() => {
+                if (!_openPanels.has(releaseUrl)) {
+                    releaseUrlSession(releaseUrl);
+                }
+            }, 60000);
+        } else {
+            releaseUrlSession(url);
+        }
     });
     log(`PANEL: created "${label}" for ${url}`);
 
@@ -1078,34 +1122,53 @@ async function _processSignalDataBody(data) {
 
     let openUrl = url;
     if (vscode.env.remoteName) {
-        // Remote / tunnel: asExternalUri converts the localhost URL to the
+        // Remote / tunnel: asExternalUri forwards the port and returns the
         // public devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
         // VS Code strips query strings during this conversion, so we extract
         // ?sid=... from the original URL and re-append it manually.
+        //
+        // The forward is created as Private by default.  A Private devtunnel
+        // redirects to Microsoft/GitHub auth, which the Simple Browser iframe
+        // cannot complete (CSP frame-ancestors:none) — producing a blank
+        // tab.  We need the forward to be Public.
+        //
+        // Strategy:
+        //   1. Write portsAttributes[port].privacy=public BEFORE asExternalUri
+        //      so VS Code sees the privacy setting when it creates the
+        //      forward (not after, which only helps future forwards).
+        //   2. Call asExternalUri to create the forward.
+        //   3. Try remote.tunnel.privacypublic to flip an already-private
+        //      forward (works only if the tunnel view command is registered;
+        //      harmless if not).
+        //   4. Brief propagation delay before the iframe loads.
         let port = 8000;
         try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
         let origQuery = '';
         try { origQuery = new URL(url).search; } catch (_) {}
 
-        // Ensure the port is forwarded with public visibility. VS Code
-        // auto-forwards ports as private by default; the devtunnel URL
-        // is only accessible from the client if the port is public.
-        // Two-pronged approach:
-        //   1. Write remote.portsAttributes with privacy=public via the
-        //      settings API (immediate, no file-watcher delay).
-        //   2. If the port is already forwarded as private, change its
-        //      privacy to public via the internal tunnel command.
+        // Step 1: pre-write privacy=public so the forward is created public.
         await ensurePortPublic(port);
+        // Give VS Code's configuration service a moment to propagate the
+        // settings change before asExternalUri uses it to decide the
+        // forward's privacy level.
+        await new Promise(r => setTimeout(r, 500));
 
         try {
             const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
-            log(`REMOTE: asExternalUri(http://localhost:${port}/)...`);
+            log(`REMOTE: asExternalUri(http://localhost:${port}/)`);
             const externalUri = await Promise.race([
                 vscode.env.asExternalUri(baseUri),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('asExternalUri timeout after 8s')), 8000)),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('asExternalUri timeout after 10s')), 10000)),
             ]);
             const externalBase = externalUri.toString().replace(/\/$/, '');
             log(`REMOTE: → ${externalBase}`);
+
+            // Step 3: belt-and-suspenders — flip if still private and the
+            // command exists.  Non-fatal if "not found".
+            await ensurePortPublic(port);
+            await new Promise(r => setTimeout(r, 300));
+
             openUrl = externalBase + '/' + origQuery;
             log(`REMOTE: final URL = ${openUrl}`);
         } catch (err) {
