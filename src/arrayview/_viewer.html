@@ -5331,12 +5331,38 @@
         function _playStartupAnimation() {
             if (_startupAnimPlayed) return;
             _startupAnimPlayed = true;
+
+            const ol = document.getElementById('loading-overlay');
+
+            // Safety net: no matter what happens below (GSAP not loaded,
+            // timeline fails, element missing), force-hide the overlay
+            // after 3 s so the viewer never gets permanently stuck on
+            // the loading logo.  This is especially important in VS Code
+            // preview-tab panel replacement, where the webview context
+            // can be in a degraded state.
+            const _safety = setTimeout(() => {
+                if (ol && ol.style.display !== 'none') {
+                    document.body.classList.remove('av-loading');
+                    ol.style.opacity = '';
+                    ol.style.display = 'none';
+                    const _cw = document.getElementById('canvas-wrap');
+                    if (_cw) _cw.style.opacity = '1';
+                }
+            }, 3000);
+
+            if (typeof gsap === 'undefined') {
+                clearTimeout(_safety);
+                hideLoadingOverlay();
+                const _cw = document.getElementById('canvas-wrap');
+                if (_cw) _cw.style.opacity = '1';
+                return;
+            }
+
             if (_startupAnimTl) {
                 _startupAnimTl.kill();
                 _startupAnimTl = null;
             }
 
-            const ol         = document.getElementById('loading-overlay');
             const loadLogo   = ol ? ol.querySelector('.av-load-logo') : null;
             const loadName   = ol ? ol.querySelector('.av-load-name') : null;
             const canvasWrap = document.getElementById('canvas-wrap');
@@ -5357,6 +5383,7 @@
             if (helpHint)  gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
 
             _startupAnimTl = gsap.timeline({ onComplete: () => {
+                clearTimeout(_safety);
                 _clearStartupChromeReveal();
                 _startupAnimTl = null;
                 if (ol) ol.style.display = 'none';
