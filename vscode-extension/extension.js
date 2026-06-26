@@ -1030,28 +1030,61 @@ async function ensurePortPublic(port) {
     }
 
     // Step 2: change privacy of already-forwarded port
+    // The privacy command (remote.tunnel.privacypublic) is lazily
+    // registered by VS Code's Forwarded Ports view.  In a pure tunnel
+    // session (no Remote-SSH), it may not be loaded yet.  Try focusing
+    // the forwarded ports view first to trigger lazy loading, then retry.
+    const tunnelItem = {
+        tunnelType: 1,
+        remoteHost: 'localhost',
+        remotePort: port,
+        localPort: port,
+        name: 'ArrayView',
+        source: { source: 'user', description: 'ArrayView' },
+    };
+
+    let privacyDone = false;
     try {
-        // The command ID is `remote.tunnel.privacy${privacyOption.id}` where
-        // privacyOption.id is "public" for devtunnels.  The argument must
-        // satisfy isITunnelItem: { tunnelType, remoteHost, source } truthy.
-        // TunnelType.Forwarded = 1 (internal enum, stable across versions).
-        const tunnelItem = {
-            tunnelType: 1,
-            remoteHost: 'localhost',
-            remotePort: port,
-            localPort: port,
-            name: 'ArrayView',
-            source: { source: 'user', description: 'ArrayView' },
-        };
         await vscode.commands.executeCommand(
             'remote.tunnel.privacypublic', tunnelItem
         );
+        privacyDone = true;
         log(`PORT: changed privacy to public via command`);
     } catch (e) {
-        // Command may not exist if the tunnel provider doesn't support
-        // privacy changes, or if the port isn't forwarded yet.  The
-        // settings write above still helps for future forwards.
-        log(`PORT: privacy command failed (non-fatal): ${e.message || e}`);
+        log(`PORT: privacy command failed: ${e.message || e}`);
+    }
+
+    if (!privacyDone) {
+        // Retry: force-load forwarded ports view, then retry the command
+        log(`PORT: privacy not found — loading forwarded ports view...`);
+        try {
+            await vscode.commands.executeCommand('~remote.forwardedPorts.focus');
+            await new Promise(r => setTimeout(r, 500));
+        } catch (_) {}
+
+        // Check if the command is now registered
+        const cmds = await vscode.commands.getCommands(true);
+        if (cmds.includes('remote.tunnel.privacypublic')) {
+            try {
+                log(`PORT: privacy command found after view load — retrying`);
+
+                // Re-call asExternalUri to refresh the tunnel item reference
+                // (the privacy command needs the current forwarded tunnel item)
+                await vscode.env.asExternalUri(
+                    vscode.Uri.parse(`http://localhost:${port}/`)
+                ).catch(() => {});
+
+                await vscode.commands.executeCommand(
+                    'remote.tunnel.privacypublic', tunnelItem
+                );
+                privacyDone = true;
+                log(`PORT: changed privacy to public via command (retry)`);
+            } catch (e2) {
+                log(`PORT: privacy retry failed: ${e2.message || e2}`);
+            }
+        } else {
+            log(`PORT: privacypublic still not available after view load`);
+        }
     }
 }
 
@@ -1369,6 +1402,16 @@ function activate(context) {
     }
 
     log('=== ACTIVATE DONE ===');
+
+    // Log available tunnel/port commands for debugging privacy flip issues.
+    vscode.commands.getCommands(true).then(cmds => {
+        const relevant = cmds.filter(c =>
+            c.includes('tunnel') || c.includes('port') ||
+            c.includes('forward') || c.includes('privacy') ||
+            c.includes('preview')
+        );
+        log(`AVAILABLE CMD: ${JSON.stringify(relevant)}`);
+    }).catch(() => {});
 }
 
 function deactivate() {
