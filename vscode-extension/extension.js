@@ -1123,34 +1123,27 @@ async function _processSignalDataBody(data) {
     let openUrl = url;
     if (vscode.env.remoteName) {
         // Remote / tunnel: asExternalUri forwards the port and returns the
-        // public devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
+        // devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
         // VS Code strips query strings during this conversion, so we extract
         // ?sid=... from the original URL and re-append it manually.
         //
         // The forward is created as Private by default.  A Private devtunnel
         // redirects to Microsoft/GitHub auth, which the Simple Browser iframe
         // cannot complete (CSP frame-ancestors:none) — producing a blank
-        // tab.  We need the forward to be Public.
+        // tab.  We flip the forward to Public after asExternalUri creates it.
         //
-        // Strategy:
-        //   1. Write portsAttributes[port].privacy=public BEFORE asExternalUri
-        //      so VS Code sees the privacy setting when it creates the
-        //      forward (not after, which only helps future forwards).
-        //   2. Call asExternalUri to create the forward.
-        //   3. Try remote.tunnel.privacypublic to flip an already-private
-        //      forward (works only if the tunnel view command is registered;
-        //      harmless if not).
-        //   4. Brief propagation delay before the iframe loads.
+        // Timing: remote.tunnel.privacypublic takes ~1.1s per call and
+        // only works AFTER the forward exists (calling it before returns
+        // "Canceled" or "not found").  So we call it exactly ONCE, after
+        // asExternalUri.  The portsAttributes settings write inside
+        // ensurePortPublic is cheap (~140ms) and ensures future forwards
+        // of this port default to public, but does not reliably prevent
+        // a Private forward on the first run — the privacypublic command
+        // is the critical step.
         let port = 8000;
         try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
         let origQuery = '';
         try { origQuery = new URL(url).search; } catch (_) {}
-
-        // Step 1: pre-write privacy=public so the forward is created public.
-        await ensurePortPublic(port);
-        // Brief pause for VS Code's config service to propagate the
-        // portsAttributes change before asExternalUri reads it.
-        await new Promise(r => setTimeout(r, 150));
 
         try {
             const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
@@ -1163,10 +1156,10 @@ async function _processSignalDataBody(data) {
             const externalBase = externalUri.toString().replace(/\/$/, '');
             log(`REMOTE: → ${externalBase}`);
 
-            // Step 3: belt-and-suspenders — flip if still private and the
-            // command exists.  Non-fatal if "not found".
+            // Flip the now-existing forward to Public.  This is the only
+            // call to the privacy command — takes ~1.1s but is necessary
+            // for the iframe to load without the auth redirect.
             await ensurePortPublic(port);
-            await new Promise(r => setTimeout(r, 300));
 
             openUrl = externalBase + '/' + origQuery;
             log(`REMOTE: final URL = ${openUrl}`);
