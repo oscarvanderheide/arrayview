@@ -238,6 +238,21 @@ function scheduleKeepArrayViewEditor(uri, reason) {
     }
 }
 
+async function closeActiveArrayViewCustomEditor(uri, reason) {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    if (!isArrayViewCustomEditorTab(tab, uri)) {
+        return false;
+    }
+    try {
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        log(`CUSTOM-EDITOR: closed placeholder (${reason})`);
+        return true;
+    } catch (e) {
+        log(`CUSTOM-EDITOR: close placeholder failed (${reason}): ${e.message}`);
+        return false;
+    }
+}
+
 class ArrayViewEditorProvider {
     static viewType = 'arrayview.arrayEditor';
 
@@ -249,18 +264,13 @@ class ArrayViewEditorProvider {
         const filePath = document.uri.fsPath;
         const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
-        scheduleKeepArrayViewEditor(document.uri, 'resolve');
-        webviewPanel.onDidChangeViewState((event) => {
-            if (event.webviewPanel.active) {
-                scheduleKeepArrayViewEditor(document.uri, 'view-state');
-            }
-        });
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
             <div>Opening ${title} in ArrayView...</div></body></html>`;
         try {
             await launchArrayViewFile(filePath, title);
             log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
+            await closeActiveArrayViewCustomEditor(document.uri, 'handoff');
         } catch (e) {
             log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
             webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
@@ -782,6 +792,51 @@ async function ensurePortPublic(port) {
     }
 }
 
+async function resolveRemoteViewerUrl(url) {
+    let port = 8000;
+    try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
+    let origQuery = '';
+    try { origQuery = new URL(url).search; } catch (_) {}
+    const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+    const attempts = [
+        { timeoutMs: 10000, pauseMs: 0 },
+        { timeoutMs: 15000, pauseMs: 750 },
+        { timeoutMs: 20000, pauseMs: 1500 },
+    ];
+
+    for (let i = 0; i < attempts.length; i++) {
+        const attempt = attempts[i];
+        if (attempt.pauseMs) {
+            await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
+        }
+        try {
+            log(`REMOTE: asExternalUri(http://localhost:${port}/) attempt=${i + 1}`);
+            const externalUri = await Promise.race([
+                vscode.env.asExternalUri(baseUri),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`asExternalUri timeout after ${attempt.timeoutMs}ms`)), attempt.timeoutMs)),
+            ]);
+            const externalBase = externalUri.toString().replace(/\/$/, '');
+            log(`REMOTE: → ${externalBase}`);
+
+            await ensurePortPublic(port);
+
+            const finalUrl = externalBase + '/' + origQuery;
+            log(`REMOTE: final URL = ${finalUrl}`);
+            return finalUrl;
+        } catch (err) {
+            log(`REMOTE: asExternalUri attempt ${i + 1} failed: ${err.message}`);
+            if (i === 0) {
+                try {
+                    await vscode.commands.executeCommand('~remote.forwardedPorts.focus');
+                } catch (_) {}
+            }
+        }
+    }
+
+    return null;
+}
+
 async function processSignalData(data) {
     isProcessingSignal = true;
     log(`LOCK: isProcessingSignal=true`);
@@ -794,7 +849,7 @@ async function processSignalData(data) {
     // always releases so the 1s poll picks up queued signals again. The
     // orphaned body promise is harmless: the panel either eventually opens
     // or it doesn't, but the queue is no longer blocked.
-    const SIGNAL_HARD_TIMEOUT_MS = 45000;
+    const SIGNAL_HARD_TIMEOUT_MS = 70000;
     try {
         await Promise.race([
             _processSignalDataBody(data),
@@ -845,41 +900,16 @@ async function _processSignalDataBody(data) {
         // cannot complete (CSP frame-ancestors:none) — producing a blank
         // tab.  We flip the forward to Public after asExternalUri creates it.
         //
-        // Timing: remote.tunnel.privacypublic takes ~1.1s per call and
-        // only works AFTER the forward exists (calling it before returns
-        // "Canceled" or "not found").  So we call it exactly ONCE, after
-        // asExternalUri.  The portsAttributes settings write inside
-        // ensurePortPublic is cheap (~140ms) and ensures future forwards
-        // of this port default to public, but does not reliably prevent
-        // a Private forward on the first run — the privacypublic command
-        // is the critical step.
-        let port = 8000;
-        try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
-        let origQuery = '';
-        try { origQuery = new URL(url).search; } catch (_) {}
-
-        try {
-            const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
-            log(`REMOTE: asExternalUri(http://localhost:${port}/)`);
-            const externalUri = await Promise.race([
-                vscode.env.asExternalUri(baseUri),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('asExternalUri timeout after 10s')), 10000)),
-            ]);
-            const externalBase = externalUri.toString().replace(/\/$/, '');
-            log(`REMOTE: → ${externalBase}`);
-
-            // Flip the now-existing forward to Public.  This is the only
-            // call to the privacy command — takes ~1.1s but is necessary
-            // for the iframe to load without the auth redirect.
-            await ensurePortPublic(port);
-
-            openUrl = externalBase + '/' + origQuery;
-            log(`REMOTE: final URL = ${openUrl}`);
-        } catch (err) {
-            log(`REMOTE: asExternalUri failed (${err.message}), using localhost`);
-            openUrl = url;
+        // Timing: remote.tunnel.privacypublic only works after the forward
+        // exists. Resolve a real external URI before opening the panel; a
+        // localhost fallback inside a tunnel webview points at the wrong side
+        // of the connection and renders as a blank tab.
+        const remoteUrl = await resolveRemoteViewerUrl(url);
+        if (!remoteUrl) {
+            log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
+            return;
         }
+        openUrl = remoteUrl;
     }
 
     log(`openInWebviewPanel(${openUrl})`);
