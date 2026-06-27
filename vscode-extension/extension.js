@@ -615,7 +615,7 @@ async function openInWebviewPanel(url, title, floating = false) {
 </style>
 </head>
 <body>
-<iframe id="f" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads"></iframe>
+<iframe id="f" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
 <div id="backend-error">
   <div class="box">
     <h2>ArrayView backend is not responding</h2>
@@ -637,14 +637,18 @@ function showBackendError() {
 window.addEventListener('message', (event) => {
   const msg = event && event.data;
   if (msg && msg.type === 'backend-error') {
+    console.log('[arrayview-opener] viewer reported backend-error');
     showBackendError();
     return;
   }
   if (!msg || msg.source !== 'arrayview-viewer') return;
   if (msg.phase === 'script-loaded' || msg.phase === 'frame-rendered') {
     viewerReady = true;
+    console.log('[arrayview-opener] viewer phase ' + msg.phase);
   }
 });
+frame.addEventListener('load', () => console.log('[arrayview-opener] iframe loaded ' + arrayviewUrl));
+frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
 frame.src = arrayviewUrl;
 </script>
 </body>
