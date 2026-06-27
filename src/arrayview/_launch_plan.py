@@ -37,7 +37,6 @@ class Invocation(_StrEnum):
     PYTHON = "python"
     JUPYTER = "jupyter"
     JULIA = "julia"
-    STDIO = "stdio"
     CODEX = "codex"
 
 
@@ -52,8 +51,6 @@ class Environment(_StrEnum):
 
 class Transport(_StrEnum):
     HTTP = "http"
-    STDIO_FILE = "stdio_file"
-    STDIO_SHM = "stdio_shm"
     NONE = "none"
 
 
@@ -77,7 +74,6 @@ class Registration(_StrEnum):
     HTTP_LOAD = "http_load"
     DAEMON_STARTUP = "daemon_startup"
     IN_PROCESS_SESSION = "in_process_session"
-    STDIO_REGISTER = "stdio_register"
     RELAY = "relay"
 
 

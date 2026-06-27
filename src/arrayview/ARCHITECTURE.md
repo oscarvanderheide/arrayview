@@ -6,14 +6,12 @@
 CLI / Python API
    ├─ view() / _launcher.py → FastAPI server (_server.py)       [network mode]
    │     /ws/{sid} WebSocket, /load register arrays, /seg/* segmentation
-   └─ Stdio server (_stdio_server.py)                           [direct webview mode]
-         stdin/stdout JSON+binary, no network — VS Code extension spawns subprocess
 
-Server (either mode)
+Server
    ├─ _session.py    Session objects, caches, render thread
    ├─ _render.py     Slice extraction → RGBA → PNG pipeline
    ├─ _analysis.py / _diff.py / _overlays.py / _vectorfield.py
-   │                 Shared backend helpers used by FastAPI and stdio
+   │                 Shared backend helpers used by routes and WebSocket handlers
    └─ _io.py         File loading (numpy, nifti, zarr, DICOM, …)
 
 Frontend (_viewer.html — single self-contained HTML file)
@@ -29,7 +27,7 @@ Frontend (_viewer.html — single self-contained HTML file)
 |--------------------|------------------------------------|-------------|
 | Jupyter            | Inline iframe                      | network     |
 | VS Code local      | Webview panel (network)            | network     |
-| VS Code tunnel     | Direct webview (stdio)             | stdio       |
+| VS Code tunnel     | Webview panel (forwarded WebSocket)| network     |
 | Julia              | System browser                     | network     |
 | CLI / Python script | Native pywebview                   | network     |
 | SSH terminal       | Prints URL — user forwards port with `ssh -L` | network |
@@ -54,10 +52,9 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_segmentation.py` | 227 | nnInteractive segmentation client (pure HTTP, no nnInteractive dependency) |
 | `_server.py` | 3704 | FastAPI app, all REST + WebSocket routes, HTML template serving |
 | `_session.py` | 344 | `Session` class, global state (sockets, loops), render thread, prefetch, cache budgets, constants |
-| `_stdio_server.py` | 767 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
 | `_torch.py` | 217 | PyTorch integration: `view_batch()`, `TrainingMonitor` (lazy torch import) |
 | `_vectorfield.py` | 231 | Shared vector field layout validation and arrow sampling |
-| `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, shared-memory IPC, browser opening |
+| `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, tunnel URL opening |
 | `_viewer.html` | 24103 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
 | `_shell.html` | 174 | Tab-bar shell for native pywebview — wraps viewer iframes, manages multi-tab sessions |
 
@@ -80,7 +77,7 @@ The frontend is a single self-contained HTML file (~24k lines). No build step, n
 **JavaScript (lines ~2439–24103)**
 | Section | What it covers |
 |---------|----------------|
-| Constants and Transport Setup | WS URL construction, stdio/postMessage transport abstraction |
+| Constants and Transport Setup | HTTP/WebSocket URL construction |
 | Viewer State Variables | All mutable state: current slice indices, zoom, mode flags |
 | Mode Registry | Mode name → enter/exit function mapping |
 | PanManager | Canvas panning state machine (normal + compare modes) |
@@ -218,7 +215,7 @@ Slice data arrives as raw binary (RGBA bytes). The header format and byte offset
    └─ Open display                      # _launcher.py → _vscode.py / pywebview / browser
 
 2. Browser loads _viewer.html           # _server.py serves from package resources
-   ├─ Establish WebSocket /ws/{sid}     # or stdio transport for VS Code direct
+   ├─ Establish WebSocket /ws/{sid}
    └─ Fetch /meta/{sid}                 # Session metadata: shape, dtype, colormaps
 
 3. User scrolls / interacts
@@ -233,6 +230,3 @@ Slice data arrives as raw binary (RGBA bytes). The header format and byte offset
        ├─ drawImage() to canvas
        └─ Update info bar, colorbar, eggs
 ```
-
-### Stdio Transport Variant (VS Code Direct Webview)
-Same pipeline, but `_stdio_server.py` replaces the FastAPI+WebSocket layer. Messages are JSON on stdin, binary responses are length-prefixed on stdout. The VS Code extension bridges between the webview's `postMessage` and the subprocess stdio.

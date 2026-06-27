@@ -28,7 +28,7 @@ Compare behavior is split across a few tight surfaces:
 - command and keybinding routing near `compare.cycleCenterMode`
 - compare teardown in `exitCompareMode()`
 
-If the feature changes diff request parameters, keep HTTP and stdio parity by updating `_routes_rendering.py`, `_stdio_server.py`, and `_diff.py` together.
+If the feature changes diff request parameters, keep the HTTP/WebSocket routes and shared `_diff.py` helpers aligned by updating `_routes_rendering.py`, `_routes_websocket.py`, and `_diff.py` together.
 
 ## Steps
 

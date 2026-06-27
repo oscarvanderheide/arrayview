@@ -16,7 +16,6 @@ from arrayview._vscode_extension import (  # noqa: F401
 from arrayview._vscode_signal import (  # noqa: F401
     _find_arrayview_window_id,
     _find_current_vscode_window_id,
-    _open_direct_via_signal_file,
     _open_via_signal_file,
     _schedule_remote_open_retries,
     _write_vscode_signal,
@@ -25,7 +24,5 @@ from arrayview._vscode_signal import (  # noqa: F401
     _VSCODE_SIGNAL_FILENAME,
     _VSCODE_SIGNAL_MAX_AGE_MS,
 )
-
-from arrayview._vscode_shm import _ACTIVE_SHM, _open_direct_via_shm  # noqa: F401
 
 from arrayview._vscode_browser import _open_browser, _print_viewer_location  # noqa: F401

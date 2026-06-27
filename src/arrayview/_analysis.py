@@ -19,7 +19,7 @@ def _visible_shape(session) -> list[int]:
 
 
 def _build_metadata(session) -> dict:
-    """Build metadata for HTTP and stdio transports."""
+    """Build metadata shared by HTTP routes and WebSocket startup."""
     target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
     meta = {
         "shape": [int(s) for s in target_shape],

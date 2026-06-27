@@ -1,6 +1,6 @@
 ---
 name: add-server-endpoint
-description: Adding a new REST or WebSocket route to the FastAPI server (_server.py) — includes session lookup, render dispatch, and stdio transport parity.
+description: Adding a new REST or WebSocket route to the FastAPI server (_server.py) — includes session lookup and render dispatch.
 triggers:
   - "endpoint"
   - "route"
@@ -26,8 +26,6 @@ last_updated: 2026-06-19
 `_server.py` is the FastAPI assembly surface. Most feature routes now live in `_routes_*.py` modules, while tiny infrastructure routes stay inline. Session lookup is still the first thing every route does: `session = SESSIONS.get(sid)` with a 404 if missing.
 
 Heavy render work must go to the render thread via `_render()` from `_session.py` — never block the async event loop with CPU work.
-
-If the feature involves the VS Code direct webview (stdio transport), `_stdio_server.py` must also be updated to handle the new message type. The two servers must stay feature-equivalent.
 
 ## Steps
 
@@ -61,8 +59,6 @@ If the feature involves the VS Code direct webview (stdio transport), `_stdio_se
 
 6. **Wire the frontend:** If the route is called by JavaScript, add the fetch/WebSocket call in the correct section of `_viewer.html`. Follow the dual-write pattern if it updates display state.
 
-7. **Update `_stdio_server.py`** if the feature is needed in VS Code direct webview mode. The stdio server handles messages as JSON objects on stdin — add a new `elif msg_type == "my_type":` branch in the message dispatch loop.
-
 ## Gotchas
 
 - **Do not add logic to `_app.py`** — `_app.py` is a backward-compat shim only. New routes belong in `_routes_*.py` or `_server.py`.
@@ -70,15 +66,12 @@ If the feature involves the VS Code direct webview (stdio transport), `_stdio_se
 - **WebSocket binary protocol is tightly coupled** — the byte layout (offset, header fields, RGBA payload) is shared between `_server.py` and the WS handler in `_viewer.html`. Change one → change both. Mismatch causes the canvas to render garbage or stay blank.
 - **Never block the event loop** — even a small `np.array()` call on a large array can block for hundreds of milliseconds. Use `await _render(loop, func)` for all numpy work.
 - **`VIEWER_SOCKETS` is a module-level integer in `_session.py`** — increment/decrement via `_session_mod.VIEWER_SOCKETS` (the module reference), not the locally imported name. Same for `VIEWER_SIDS`.
-- **`_stdio_server.py` parity** — if your endpoint returns data that the viewer needs in any environment, it must work in the stdio transport too. VS Code tunnel users will silently get a broken feature otherwise.
-
 ## Verify
 
 - [ ] Route validates `sid` and returns 404 for unknown sessions
 - [ ] CPU/render work dispatched via `await _render(loop, ...)`, not called directly
 - [ ] WebSocket binary frame layout matches `_viewer.html` expectations (if applicable)
 - [ ] No new logic added to `_app.py`
-- [ ] `_stdio_server.py` updated if the feature is needed in VS Code direct webview
 - [ ] `uv run pytest` on `tests/test_view_component_integration.py` passes
 - [ ] Manual test: run `uv run arrayview` on `debug/test_array.npy` and confirm the new route is reachable
 

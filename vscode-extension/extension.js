@@ -5,7 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
@@ -93,409 +93,124 @@ function _getAncestorPids(pid, depth) {
 }
 const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 
-// ---------------------------------------------------------------------------
-// PythonBridge: spawns `python -m arrayview --mode stdio <filepath>` and
-// bridges length-prefixed binary responses from stdout / JSON requests on stdin.
-// ---------------------------------------------------------------------------
-class PythonBridge {
-    constructor(filePath, onSessionReady, pythonPath, shmParams, extraArgs) {
-        this.filePath = filePath;
-        this.shmParams = shmParams || null;  // {name, shape, dtype}
-        this.extraArgs = extraArgs || [];    // additional CLI args (e.g. --vectorfield)
-        this.process = null;
-        this.sid = null;
-        this._buffer = Buffer.alloc(0);
-        this._pendingCallbacks = [];
-        this.onSessionReady = onSessionReady;
-        this.pythonPath = pythonPath || null;
+let version = 'unknown';
+let isProcessingSignal = false;
+let logWindowId = '';
+let lastHandledRequestId = null;
+let lastHandledUrl = null;
+let lastHandledAt = 0;
+
+// Track open webview panels by URL so we can reveal instead of re-creating.
+const _openPanels = new Map(); // url -> vscode.WebviewPanel
+
+function log(message) {
+    const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
+    const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
+    try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
+    console.log(`[arrayview-opener] ${prefix}${message}`);
+}
+
+function _shellCommand(command, args) {
+    return [command, ...args].map((part) => {
+        if (/^[A-Za-z0-9_./:=+-]+$/.test(part)) return part;
+        return `'${String(part).replace(/'/g, `'\\''`)}'`;
+    }).join(' ');
+}
+
+function _arrayviewLaunchCandidates() {
+    const candidates = [];
+    const folders = vscode.workspace.workspaceFolders || [];
+    for (const folder of folders) {
+        const isWin = process.platform === 'win32';
+        const venvPy = isWin
+            ? path.join(folder.uri.fsPath, '.venv', 'Scripts', 'python.exe')
+            : path.join(folder.uri.fsPath, '.venv', 'bin', 'python');
+        if (fs.existsSync(venvPy)) {
+            candidates.push({ command: venvPy, argsPrefix: ['-m', 'arrayview'] });
+            break;
+        }
     }
+    candidates.push({ command: 'uv', argsPrefix: ['run', '--python', '3.12', '--with', 'arrayview', 'python', '-m', 'arrayview'] });
+    candidates.push({ command: 'python3', argsPrefix: ['-m', 'arrayview'] });
+    return candidates;
+}
 
-    start() {
-        return new Promise((resolve, reject) => {
-            this._startResolve = resolve;
-            this._startReject = reject;
-            // Candidate order:
-            // 1. Explicit pythonPath (from signal file — always correct)
-            // 2. Workspace .venv (covers uv sync / editable installs during dev)
-            // 3. System python3/python (might have arrayview via pip)
-            // 4. uv run --python 3.12 --with arrayview (ephemeral env from PyPI)
-            //    ArrayView requires Python >=3.12, so pin the uv fallback to a
-            //    compatible interpreter instead of inheriting an older workspace
-            //    Python (common in remote/tunnel projects).
-            if (this.pythonPath) {
-                this._candidates = [this.pythonPath];
-            } else {
-                this._candidates = ['python3', 'python', 'uv run --python 3.12 --with arrayview python'];
-                // Prepend workspace .venv if it exists
-                const folders = vscode.workspace.workspaceFolders;
-                if (folders) {
-                    for (const f of folders) {
-                        const isWin = process.platform === 'win32';
-                        const venvPy = isWin
-                            ? path.join(f.uri.fsPath, '.venv', 'Scripts', 'python.exe')
-                            : path.join(f.uri.fsPath, '.venv', 'bin', 'python');
-                        if (fs.existsSync(venvPy)) {
-                            this._candidates.unshift(venvPy);
-                            break;
-                        }
-                    }
-                }
-            }
-            this._tryNextCandidate();
-        });
-    }
+function launchArrayViewFile(filePath, title) {
+    const argsSuffix = [filePath, '--window', 'vscode'];
+    if (title) argsSuffix.push('--name', title);
 
-    _tryNextCandidate() {
-        if (this._candidates.length === 0) {
-            const msg = 'Python with arrayview not found. Install with: pip install arrayview (or uv pip install arrayview)';
-            log(`PYTHON: all candidates exhausted`);
-            if (this._startReject) { this._startReject(new Error(msg)); this._startReject = null; }
-            return;
-        }
-        const cmd = this._candidates.shift();
-        this._spawn(cmd);
-    }
+    return new Promise((resolve, reject) => {
+        const candidates = _arrayviewLaunchCandidates();
 
-    _spawn(cmd) {
-        const { spawn } = require('child_process');
-        let arrayviewArgs;
-        if (this.shmParams) {
-            arrayviewArgs = ['-m', 'arrayview', '--mode', 'stdio',
-                '--shm-name', this.shmParams.name,
-                '--shm-shape', this.shmParams.shape,
-                '--shm-dtype', this.shmParams.dtype];
-            if (this.shmParams.arrayName) {
-                arrayviewArgs.push('--name', this.shmParams.arrayName);
-            }
-        } else {
-            arrayviewArgs = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
-        }
-        if (this.extraArgs.length > 0) {
-            arrayviewArgs.push(...this.extraArgs);
-        }
-
-        // Support compound commands like "uv run python"
-        let spawnCmd, spawnArgs;
-        const parts = cmd.split(/\s+/);
-        if (parts.length > 1) {
-            spawnCmd = parts[0];
-            spawnArgs = [...parts.slice(1), ...arrayviewArgs];
-        } else {
-            spawnCmd = cmd;
-            spawnArgs = arrayviewArgs;
-        }
-
-        log(`PYTHON: spawning ${spawnCmd} ${spawnArgs.join(' ')}`);
-        this.process = spawn(spawnCmd, spawnArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-
-        this._currentCmd = cmd;
-
-        this.process.on('error', (err) => {
-            if (err.code === 'ENOENT' && this._candidates.length > 0) {
-                log(`PYTHON: ${spawnCmd} not found, trying next candidate`);
-                this._tryNextCandidate();
+        const tryNext = () => {
+            const candidate = candidates.shift();
+            if (!candidate) {
+                reject(new Error('Python with arrayview not found. Install with: uv pip install -e . or pip install arrayview'));
                 return;
             }
-            log(`PYTHON: spawn error: ${err.message}`);
-            if (this._startReject) {
-                this._startReject(new Error(err.message));
-                this._startReject = null;
-            }
-        });
 
-        // Handle stderr for SESSION: lines and errors
-        this.process.stderr.on('data', (data) => {
-            const lines = data.toString().split('\n');
-            for (const line of lines) {
-                if (line.startsWith('SESSION:')) {
-                    try {
-                        const info = JSON.parse(line.slice(8));
-                        this.sid = info.sid;
-                        this.sessionInfo = info;  // preserve full session info (overlay_sid, etc.)
-                        if (this.onSessionReady) this.onSessionReady(info);
-                        if (this._startResolve) {
-                            this._startResolve(info);
-                            this._startResolve = null;
-                        }
-                    } catch (_) {}
-                } else if (line.trim()) {
-                    log(`PYTHON: ${line}`);
-                }
-            }
-        });
-
-        // Handle stdout: read length-prefixed responses
-        this.process.stdout.on('data', (chunk) => {
-            this._buffer = Buffer.concat([this._buffer, chunk]);
-            this._processBuffer();
-        });
-
-        this.process.on('exit', (code) => {
-            log(`PYTHON: ${this._currentCmd} exited with code ${code}`);
-            // If we haven't started yet and there are more candidates, try next
-            if (code !== 0 && this._startResolve && this._candidates && this._candidates.length > 0) {
-                log(`PYTHON: trying next candidate after exit code ${code}`);
-                this._tryNextCandidate();
+            const args = [...candidate.argsPrefix, ...argsSuffix];
+            log(`PYTHON: launching ${_shellCommand(candidate.command, args)}`);
+            let child;
+            try {
+                child = spawn(candidate.command, args, {
+                    cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath),
+                    detached: true,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                });
+            } catch (error) {
+                log(`PYTHON: launch failed for ${candidate.command}: ${error.message}`);
+                tryNext();
                 return;
             }
-            // Reject any pending request callbacks
-            for (const cb of this._pendingCallbacks) {
-                cb(Buffer.from(JSON.stringify({ error: `process exited with code ${code}` })));
-            }
-            this._pendingCallbacks = [];
-            // Reject start promise if still pending
-            if (this._startReject) {
-                this._startReject(new Error(`Python process exited with code ${code}`));
-                this._startReject = null;
-            }
-        });
-    }
 
-    _processBuffer() {
-        while (this._buffer.length >= 4) {
-            const len = this._buffer.readUInt32LE(0);
-            if (this._buffer.length < 4 + len) break;
+            let settled = false;
+            const settleOk = () => {
+                if (settled) return;
+                settled = true;
+                child.unref();
+                resolve();
+            };
+            const settleRetry = (message) => {
+                if (settled) return;
+                settled = true;
+                log(`PYTHON: ${message}`);
+                tryNext();
+            };
 
-            const payload = this._buffer.slice(4, 4 + len);
-            this._buffer = this._buffer.slice(4 + len);
-
-            const cb = this._pendingCallbacks.shift();
-            if (cb) {
-                cb(payload);
-            } else {
-                log(`WARNING: response (${payload.length} bytes) with no pending callback — FIFO misaligned`);
-            }
-        }
-    }
-
-    sendRequest(msg) {
-        return new Promise((resolve) => {
-            this._pendingCallbacks.push(resolve);
-            const ok = this.process.stdin.write(JSON.stringify(msg) + '\n');
-            if (!ok) log(`WARNING: stdin.write returned false (backpressure) for ${msg.type}, pending=${this._pendingCallbacks.length}`);
-        });
-    }
-
-    destroy() {
-        if (this.process) {
-            this.process.kill();
-            this.process = null;
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Direct webview: embeds the viewer HTML directly (no iframe/server)
-// ---------------------------------------------------------------------------
-
-/**
- * Wire up a webview panel to a PythonBridge: set HTML, bridge messages,
- * clean up on dispose.  Shared by openDirectWebview and the custom editor.
- */
-async function setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extraArgs) {
-    const bridge = new PythonBridge(filePath, (sessionInfo) => {
-        log(`SESSION READY: sid=${sessionInfo.sid} name=${sessionInfo.name}`);
-    }, pythonPath, shmParams, extraArgs);
-    const sessionInfo = await Promise.race([
-        bridge.start(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for Python session (30s)')), 30000)),
-    ]);
-
-    // Get the rendered viewer HTML from the Python subprocess.
-    // Forward the full sessionInfo so the stdio server can build the correct
-    // query string (overlay_sid, etc.) without the extension needing to know
-    // about each feature.
-    const htmlPayload = await bridge.sendRequest({
-        type: 'get-viewer-html',
-        sid: bridge.sid,
-        ...(bridge.sessionInfo || {}),
-    });
-
-    let viewerHtml;
-    try {
-        const response = JSON.parse(htmlPayload.toString());
-        viewerHtml = response.html;
-    } catch (e) {
-        bridge.destroy();
-        throw new Error(`Failed to get viewer HTML: ${e.message}`);
-    }
-
-    panel.webview.html = viewerHtml;
-
-    // Bridge messages between webview and Python subprocess
-    panel.webview.onDidReceiveMessage(async (msg) => {
-        if (msg.type === 'ws-send') {
-            // Slice request from viewer -> forward to Python.
-            // The entire block is wrapped in try/catch so that any unexpected
-            // error still sends a synthetic frame — preventing the viewer's
-            // isRendering flag from getting stuck forever.
-            try {
-                const request = {
-                    type: 'slice',
-                    sid: msg.sid || bridge.sid,
-                    ...msg.data,
-                };
-                const payload = await bridge.sendRequest(request);
-
-                // Check if this is a binary slice response or a JSON error
-                // JSON responses start with '{' (0x7b)
-                if (payload[0] === 0x7b) {
-                    let errorMsg = 'Unknown slice error';
-                    try {
-                        const err = JSON.parse(payload.toString());
-                        errorMsg = err.error || errorMsg;
-                        log(`SLICE ERROR: ${errorMsg}`);
-                    } catch (_) {}
-                    // Synthesize a minimal 1×1 transparent frame so the viewer
-                    // resets isRendering.  Header: seq(u32)+width(u32)+height(u32)
-                    // +vmin(f32)+vmax(f32) = 20 bytes, then 4 bytes RGBA.
-                    const frame = Buffer.alloc(24);
-                    frame.writeUInt32LE(msg.data.seq || 0, 0);
-                    frame.writeUInt32LE(1, 4);   // width
-                    frame.writeUInt32LE(1, 8);   // height
-                    // vmin, vmax, RGBA all zeros (transparent)
-                    const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
-                    const delivered = await panel.webview.postMessage({
-                        type: 'slice-data',
-                        channelId: msg.channelId,
-                        buffer: bytes,
-                    });
-                    if (!delivered) log(`WARNING: error-frame postMessage not delivered for ${msg.channelId}`);
-                    return;
+            child.stdout.on('data', (chunk) => {
+                const text = chunk.toString().trim();
+                if (text) log(`PYTHON: ${text}`);
+                if (text.includes('http://localhost:') || text.includes('ArrayView')) {
+                    settleOk();
                 }
-
-                // VS Code postMessage uses structured clone which handles
-                // Uint8Array but NOT raw ArrayBuffer reliably across the IPC bridge.
-                // Send as Uint8Array — the viewer side reconstructs the ArrayBuffer.
-                const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
-
-                const delivered = await panel.webview.postMessage({
-                    type: 'slice-data',
-                    channelId: msg.channelId,
-                    buffer: bytes,
-                });
-                if (!delivered) log(`WARNING: slice-data postMessage not delivered for ${msg.channelId}`);
-            } catch (e) {
-                log(`SLICE RELAY ERROR: ${e.message}`);
-                // Synthesize a 1×1 frame so the viewer can recover
-                try {
-                    const frame = Buffer.alloc(24);
-                    frame.writeUInt32LE(msg.data.seq || 0, 0);
-                    frame.writeUInt32LE(1, 4);
-                    frame.writeUInt32LE(1, 8);
-                    const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
-                    await panel.webview.postMessage({ type: 'slice-data', channelId: msg.channelId, buffer: bytes });
-                } catch (_) {}
-            }
-        } else if (msg.type === 'fetch-proxy') {
-            // Proxied fetch from viewer -> forward to Python
-            const url = msg.url;
-            const parts = url.replace(/^\//, '').split('/');
-            const route = parts[0];
-            const sid = parts[1] || bridge.sid;
-
-            let request;
-            if (route === 'metadata') {
-                request = { type: 'metadata', sid };
-            } else if (route === 'clearcache') {
-                request = { type: 'clearcache', sid };
-            } else if (route === 'sessions') {
-                request = { type: 'sessions' };
-            } else {
-                request = { type: 'fetch-proxy', endpoint: url };
-            }
-
-            try {
-                const payload = await bridge.sendRequest(request);
-                const data = JSON.parse(payload.toString());
-
-                // Binary responses (e.g. lebesgue) are base64-encoded by the
-                // stdio server with a _binary flag and custom headers.
-                if (data._binary && data.data) {
-                    const buf = Buffer.from(data.data, 'base64');
-                    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-                    panel.webview.postMessage({
-                        type: 'fetch-response',
-                        id: msg.id,
-                        ok: true,
-                        status: 200,
-                        data: bytes,
-                        headers: data.headers || {},
-                    });
-                    return;
+            });
+            child.stderr.on('data', (chunk) => {
+                const text = chunk.toString().trim();
+                if (text) log(`PYTHON: ${text}`);
+            });
+            child.on('error', (error) => {
+                settleRetry(`${candidate.command} failed: ${error.message}`);
+            });
+            child.on('exit', (code) => {
+                if (settled) return;
+                if (code === 0 || code === null) {
+                    settleOk();
+                } else {
+                    settleRetry(`${candidate.command} exited with code ${code}`);
                 }
+            });
 
-                panel.webview.postMessage({
-                    type: 'fetch-response',
-                    id: msg.id,
-                    ok: !data.error,
-                    status: data.error ? 500 : 200,
-                    data,
-                    headers: data.headers || {},
-                });
-            } catch (e) {
-                panel.webview.postMessage({
-                    type: 'fetch-response',
-                    id: msg.id,
-                    ok: false,
-                    status: 500,
-                    data: { error: e.message },
-                    headers: {},
-                });
-            }
-        }
+            setTimeout(settleOk, 1200);
+        };
+
+        tryNext();
     });
-
-    // Clean up on panel close
-    panel.onDidDispose(() => {
-        bridge.destroy();
-    });
-
-    log(`DIRECT: setup complete for ${filePath}`);
-    return bridge;
 }
 
-async function openDirectWebview(filePath, title, pythonPath, shmParams, extraArgs, floating = false) {
-    const label = title || (filePath ? `ArrayView: ${path.basename(filePath)}` : (shmParams && shmParams.arrayName) || 'Array');
-
-    const viewColumn = vscode.window.activeTextEditor
-        ? vscode.ViewColumn.Beside
-        : vscode.ViewColumn.Active;
-
-    const panel = vscode.window.createWebviewPanel(
-        'arrayview.viewer',
-        label,
-        { viewColumn, preserveFocus: false },
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-        }
-    );
-
-    try {
-        await setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extraArgs);
-    } catch (e) {
-        panel.dispose();
-        throw e;
-    }
-    log(`DIRECT: opened "${label}" for ${filePath}`);
-
-    const cfg = vscode.workspace.getConfiguration('arrayview');
-    if ((floating || cfg.get('openInFloatingWindow')) && vscode.env.uiKind !== vscode.UIKind.Web) {
-        try {
-            await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
-        } catch (e) {
-            log(`FLOAT: moveEditorToNewWindow failed: ${e}`);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Custom editor provider: "Open With..." from Explorer
-// ---------------------------------------------------------------------------
-function isArrayViewCustomEditorTab(tab, uri) {
+function isArrayViewCustomEditorTab(tab, uri = null) {
     const input = tab && tab.input;
-    if (!input || input.viewType !== ArrayViewEditorProvider.viewType || !input.uri) {
+    if (!input || input.viewType !== ArrayViewEditorProvider.viewType) {
         return false;
     }
     return !uri || input.uri.toString() === uri.toString();
@@ -527,17 +242,13 @@ class ArrayViewEditorProvider {
     static viewType = 'arrayview.arrayEditor';
 
     openCustomDocument(uri, _openContext, _token) {
-        // Minimal document — just wraps the URI.  No data loading here;
-        // PythonBridge handles everything in resolveCustomEditor.
         return { uri, dispose: () => {} };
     }
 
     async resolveCustomEditor(document, webviewPanel, _token) {
         const filePath = document.uri.fsPath;
+        const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
-        // Single-clicked Explorer files normally open in VS Code's preview tab,
-        // which gets replaced by the next file. Pin once VS Code has actually
-        // made this custom editor the active preview tab.
         scheduleKeepArrayViewEditor(document.uri, 'resolve');
         webviewPanel.onDidChangeViewState((event) => {
             if (event.webviewPanel.active) {
@@ -545,35 +256,18 @@ class ArrayViewEditorProvider {
             }
         });
         webviewPanel.webview.options = { enableScripts: true };
-        webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui">
-            <div>Loading ${path.basename(filePath)}…</div></body></html>`;
+        webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
+            <div>Opening ${title} in ArrayView...</div></body></html>`;
         try {
-            await setupArrayViewPanel(webviewPanel, filePath);
-            log(`CUSTOM-EDITOR: setup complete for ${filePath}`);
+            await launchArrayViewFile(filePath, title);
+            log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
         } catch (e) {
-            log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack}`);
+            log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
             webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
                 <h2>ArrayView failed to open</h2><pre>${e.message}</pre>
-                <p>Check Output → "ArrayView" for details.</p></body></html>`;
+                <p>Check ~/.arrayview/extension.log for details.</p></body></html>`;
         }
     }
-}
-
-let version = 'unknown';
-let isProcessingSignal = false;
-let logWindowId = '';
-let lastHandledRequestId = null;
-let lastHandledUrl = null;
-let lastHandledAt = 0;
-
-// Track open webview panels by URL so we can reveal instead of re-creating.
-const _openPanels = new Map(); // url -> vscode.WebviewPanel
-
-function log(message) {
-    const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
-    const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
-    try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
-    console.log(`[arrayview-opener] ${prefix}${message}`);
 }
 
 function httpOk(url, timeoutMs = 1500) {
@@ -835,7 +529,7 @@ async function tryOpenSignalFile() {
 
         if (isExpiredSignal(data)) continue;
 
-        log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasFilepath=${!!data.filepath} hasShm=${!!data.shm} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
+        log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
         try {
             await processSignalData(data);
         } catch (error) {
@@ -1119,21 +813,7 @@ async function processSignalData(data) {
 }
 
 async function _processSignalDataBody(data) {
-    log(`SIGNAL-DATA: mode=${data.mode} filepath=${data.filepath || '(none)'} shm=${data.shm ? JSON.stringify(data.shm) : '(none)'} url=${data.url || '(none)'}`);
-    // Direct webview mode: bypass iframe and use embedded viewer
-    if (data.mode === 'direct' && (data.filepath || data.shm)) {
-        // Clean up any compat signal duplicates to prevent double-processing
-        for (const compat of ['open-request-v0800.json', 'open-request-v0400.json']) {
-            try { fs.unlinkSync(path.join(SIGNAL_DIR, compat)); } catch (_) {}
-        }
-        const shmParams = data.shm ? { ...data.shm, arrayName: data.arrayName } : null;
-        // Forward extra CLI args generically — Python builds this list from
-        // its argparse namespace so new flags work without extension changes.
-        const extraArgs = Array.isArray(data.extraArgs) ? data.extraArgs : [];
-        await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs, !!data.floating);
-        return;
-    }
-
+    log(`SIGNAL-DATA: mode=${data.mode} url=${data.url || '(none)'}`);
     const url = data.url;
     if (!url) { log('SIGNAL: missing url'); return; }
 
@@ -1358,7 +1038,6 @@ function activate(context) {
         log(`WATCH: fs.watch failed (polling still active): ${err.message}`);
     }
 
-    // Register arrayview.openFile command for direct webview mode
     const openFileCmd = vscode.commands.registerCommand('arrayview.openFile', async (uri) => {
         let filePath;
         if (uri && uri.fsPath) {
@@ -1368,7 +1047,7 @@ function activate(context) {
                 canSelectFiles: true,
                 canSelectMany: false,
                 filters: {
-                    'Array files': ['npy', 'npz', 'nii', 'gz', 'h5', 'hdf5', 'zarr', 'mat', 'tif', 'tiff', 'png', 'jpg', 'jpeg'],
+                    'Array files': ['npy', 'npz', 'nii', 'gz', 'h5', 'hdf5', 'zarr', 'mat', 'tif', 'tiff', 'pt', 'pth'],
                 },
             });
             if (!selected || !selected.length) return;
@@ -1376,14 +1055,14 @@ function activate(context) {
         }
 
         try {
-            await openDirectWebview(filePath);
+            await launchArrayViewFile(filePath, path.basename(filePath));
         } catch (e) {
+            log(`COMMAND: openFile failed: ${e.message}`);
             vscode.window.showErrorMessage(`ArrayView: ${e.message}`);
         }
     });
     context.subscriptions.push(openFileCmd);
 
-    // Register custom editor provider for "Open With..." support
     const editorProvider = vscode.window.registerCustomEditorProvider(
         ArrayViewEditorProvider.viewType,
         new ArrayViewEditorProvider(),

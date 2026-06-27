@@ -60,14 +60,6 @@ def _ensure_vscode_extension(*args, **kwargs):
     return _vscode_mod()._ensure_vscode_extension(*args, **kwargs)
 
 
-def _open_direct_via_signal_file(*args, **kwargs):
-    return _vscode_mod()._open_direct_via_signal_file(*args, **kwargs)
-
-
-def _open_direct_via_shm(*args, **kwargs):
-    return _vscode_mod()._open_direct_via_shm(*args, **kwargs)
-
-
 def _print_viewer_location(*args, **kwargs):
     return _vscode_mod()._print_viewer_location(*args, **kwargs)
 
@@ -2001,28 +1993,6 @@ def view(
                 "Multi-array view() is not yet supported in Julia mode"
             )
 
-        # VS Code tunnel/remote: use direct webview mode (SHM + postMessage),
-        # same as the Python path.  The subprocess/WebSocket approach doesn't
-        # work on tunnels because the port isn't accessible.
-        if _is_vscode_remote():
-            arr = np.array(data) if not isinstance(data, np.ndarray) else data
-            _ensure_vscode_extension()
-            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}", floating=floating)
-            print(
-                f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
-                flush=True,
-            )
-            # Block until the subprocess has read and unlinked the SHM.
-            import time as _time
-            from arrayview._vscode import _ACTIVE_SHM
-            shm_paths = [f"/dev/shm/{shm.name}" for shm in _ACTIVE_SHM]
-            _deadline = _time.monotonic() + 30.0
-            while _time.monotonic() < _deadline:
-                if not any(os.path.exists(p) for p in shm_paths):
-                    break
-                _time.sleep(0.2)
-            return None
-
         if window is True:
             _inline, _window = False, True
         elif inline is True or window is False:
@@ -2079,24 +2049,6 @@ def view(
             raise NotImplementedError(
                 "Multi-array view() is not yet supported in Julia mode"
             )
-        # VS Code tunnel/remote: use direct webview mode (SHM + postMessage).
-        if _is_vscode_remote():
-            arr = np.array(data) if not isinstance(data, np.ndarray) else data
-            _ensure_vscode_extension()
-            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}", floating=floating)
-            print(
-                f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
-                flush=True,
-            )
-            import time as _time
-            from arrayview._vscode import _ACTIVE_SHM
-            shm_paths = [f"/dev/shm/{shm.name}" for shm in _ACTIVE_SHM]
-            _deadline = _time.monotonic() + 30.0
-            while _time.monotonic() < _deadline:
-                if not any(os.path.exists(p) for p in shm_paths):
-                    break
-                _time.sleep(0.2)
-            return None
         return _view_julia(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
@@ -2105,32 +2057,15 @@ def view(
             floating=floating,
         )
 
-    # VS Code tunnel/remote (non-Jupyter): use the server + WebSocket path.
+    if _is_vscode_remote() and _in_jupyter() and inline is not False:
+        inline = False
+        window = False
+        _force_vscode = True
+
+    # VS Code tunnel/remote: use the server + WebSocket path.
     # WS works through the devtunnel when the port is public — the extension
-    # calls ensurePortPublic() before asExternalUri.  This is faster than the
-    # old direct-webview/postMessage path and avoids SHM cleanup issues.
+    # calls ensurePortPublic() before asExternalUri.
     # Fall through to the server-based path below (don't return early).
-
-    # VS Code tunnel/remote + Jupyter: open in a VS Code webview tab via
-    # direct mode (SHM).  Inline IFrames don't work in VS Code tunnel notebooks
-    # because the notebook webview can't reach localhost through the tunnel.
-    # The kernel stays alive, so SHM won't be cleaned up prematurely.
-    if _is_vscode_remote() and _in_jupyter():
-        _ensure_vscode_extension()
-        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}", floating=floating)
-        try:
-            from IPython.display import HTML, display as _ipy_display
-
-            _ipy_display(
-                HTML(
-                    f"<div style='padding:8px;color:#888;font-family:monospace;font-size:13px'>"
-                    f"[ArrayView] Opened <b>{name}</b> in VS Code tab"
-                    f" (inline not available in tunnel sessions)</div>"
-                )
-            )
-        except Exception:
-            pass
-        return None
 
     # With an existing --serve server: register the array via /load and open
     # the viewer through the signal-file mechanism.
@@ -3207,145 +3142,14 @@ def arrayview():
         ),
     )
     parser.add_argument(
-        "--mode",
-        choices=["server", "stdio"],
-        default="server",
-        help="Run mode: server (default HTTP/WS) or stdio (VS Code extension subprocess)",
-    )
-    parser.add_argument(
-        "--shm-name",
-        default=None,
-        help="Shared memory block name (stdio mode: read array from shared memory instead of file)",
-    )
-    parser.add_argument(
-        "--shm-shape",
-        default=None,
-        help="Array shape as comma-separated ints (required with --shm-name)",
-    )
-    parser.add_argument(
-        "--shm-dtype",
-        default=None,
-        help="Array dtype string (required with --shm-name)",
-    )
-    parser.add_argument(
         "--name",
         default=None,
         dest="array_name",
-        help="Display name for the array (stdio mode)",
+        help="Display name for the array",
     )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
-
-    # --mode stdio: run the stdio server (for VS Code extension subprocess)
-    if args.mode == "stdio":
-        from pathlib import Path as _Path
-
-        from arrayview._render import _setup_rgb
-        from arrayview._stdio_server import run_stdio_server
-
-        if args.shm_name:
-            # Read array from shared memory (passed by view() via signal file)
-            from multiprocessing.shared_memory import SharedMemory
-
-            import numpy as np
-            from arrayview._session import SESSIONS, Session
-
-            shm = SharedMemory(name=args.shm_name)
-            shape = tuple(int(x) for x in args.shm_shape.split(","))
-            dtype = np.dtype(args.shm_dtype)
-            data = np.ndarray(shape, dtype=dtype, buffer=shm.buf).copy()
-            shm.close()
-            try:
-                shm.unlink()
-            except FileNotFoundError:
-                pass
-            session = Session(
-                data=data,
-                name=args.array_name or "array",
-            )
-            if getattr(args, "rgb", False):
-                _setup_rgb(session)
-            SESSIONS[session.sid] = session
-            info = json.dumps(
-                {
-                    "sid": session.sid,
-                    "name": session.name,
-                    "shape": [int(s) for s in session.shape],
-                }
-            )
-            print(f"SESSION:{info}", file=sys.stderr)
-        elif args.files:
-            from arrayview._io import default_array_key, load_data
-            from arrayview._session import SESSIONS, Session
-
-            # First file is the main array
-            base_path = args.files[0]
-            data = load_data(base_path, key=default_array_key(base_path))
-            session = Session(
-                data=data,
-                filepath=base_path,
-                name=_Path(base_path).name,
-            )
-            if getattr(args, "rgb", False):
-                _setup_rgb(session)
-
-            # Attach vector field if provided
-            if getattr(args, "vectorfield", None):
-                from arrayview._vectorfield import _configure_vectorfield
-
-                vf_data = load_data(
-                    args.vectorfield,
-                    key=default_array_key(args.vectorfield),
-                )
-                _configure_vectorfield(
-                    session, vf_data,
-                    getattr(args, "vectorfield_components_dim", None),
-                )
-
-            SESSIONS[session.sid] = session
-
-            # Load overlay(s) as separate sessions
-            overlay_sids = []
-            for ov_path in (getattr(args, "overlay", None) or []):
-                ov_data = load_data(ov_path, key=default_array_key(ov_path))
-                ov_session = Session(
-                    data=ov_data,
-                    filepath=ov_path,
-                    name=_Path(ov_path).name or "overlay",
-                )
-                SESSIONS[ov_session.sid] = ov_session
-                overlay_sids.append(ov_session.sid)
-            overlay_sid = ",".join(overlay_sids) if overlay_sids else None
-
-            # Load compare files (additional positional args + --compare)
-            compare_sids = []
-            compare_paths = list(args.files[1:])
-            if getattr(args, "compare", None):
-                compare_paths.append(args.compare)
-            for cp in compare_paths:
-                cmp_data = load_data(cp, key=default_array_key(cp))
-                cmp_session = Session(
-                    data=cmp_data,
-                    filepath=cp,
-                    name=_Path(cp).name,
-                )
-                SESSIONS[cmp_session.sid] = cmp_session
-                compare_sids.append(cmp_session.sid)
-
-            info = json.dumps(
-                {
-                    "sid": session.sid,
-                    "name": session.name,
-                    "shape": [int(s) for s in session.shape],
-                    "has_vectorfield": session.vfield is not None,
-                    "overlay_sid": overlay_sid,
-                    "compare_sids": compare_sids or None,
-                }
-            )
-            print(f"SESSION:{info}", file=sys.stderr)
-        run_stdio_server()
-        return
 
     # --diagnose: print detection results and exit
     if getattr(args, "diagnose", False):

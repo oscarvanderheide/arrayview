@@ -4796,12 +4796,11 @@
         // drives Shift+O cycling; the island toggles _overlayVisible[i] directly.
         let _overlayVisible = _overlaySids.map(() => true);
         let _overlayLabels = _overlaySids.map((_, i) => `overlay ${i + 1}`);
-        const transport = urlParams.get('transport') || (typeof acquireVsCodeApi !== 'undefined' ? 'postMessage' : 'ws');
+        const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
         const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
-        const postMessageTransport = transport === 'postMessage';
         const _embeddedServerOrigin = typeof window.__ARRAYVIEW_SERVER_ORIGIN__ === 'string'
             ? window.__ARRAYVIEW_SERVER_ORIGIN__.replace(/\/$/, '')
             : '';
@@ -4867,15 +4866,10 @@
         const _metadataFromWs = new Promise(r => { _metadataResolve = r; });
         let _metadataProcessed = false;
 
-        /* ── VS Code postMessage transport plumbing ── */
-        let _vscodeApi = null;
-        const _postMessageChannels = new Map();
-        let _pendingFetches = new Map();
-        let _fetchSeq = 0;
         let _qmriRenderGeneration = 0;
 
         function resolveServerPath(path) {
-            if (!path || postMessageTransport) return path;
+            if (!path) return path;
             if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//')) return path;
             if (_embeddedServerOrigin) {
                 const normalized = path.startsWith('/') ? path : `/${path}`;
@@ -4887,154 +4881,46 @@
             return path;
         }
 
-        if (postMessageTransport) {
-            _vscodeApi = acquireVsCodeApi();
-            window.addEventListener('message', (event) => {
-                const msg = event.data;
-                if (!msg || msg.source === 'arrayview-viewer') return;
-
-                if (msg.type === 'slice-data') {
-                    const channel = _postMessageChannels.get(msg.channelId);
-                    if (channel && channel.readyState === WebSocket.OPEN && channel.onmessage) {
-                        // Buffer may arrive as Uint8Array (VS Code structured clone).
-                        // Ensure we pass a plain ArrayBuffer to the binary parser.
-                        let buf = msg.buffer;
-                        if (buf && !(buf instanceof ArrayBuffer)) {
-                            if (buf.buffer instanceof ArrayBuffer) {
-                                buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-                            } else {
-                                buf = new Uint8Array(buf).buffer;
-                            }
-                        }
-                        channel.onmessage({ data: buf });
-                    }
-                } else if (msg.type === 'fetch-response') {
-                    const pending = _pendingFetches.get(msg.id);
-                    if (pending) {
-                        _pendingFetches.delete(msg.id);
-                        const _d = msg.data;
-                        // Binary responses arrive as Uint8Array via structured clone.
-                        const _isBinary = _d && (_d instanceof ArrayBuffer || (_d.buffer instanceof ArrayBuffer && _d.byteLength !== undefined));
-                        const _ab = _isBinary
-                            ? (_d instanceof ArrayBuffer ? _d : _d.buffer.slice(_d.byteOffset, _d.byteOffset + _d.byteLength))
-                            : null;
-                        pending.resolve({
-                            ok: msg.ok,
-                            status: msg.status,
-                            headers: { get: (key) => (msg.headers || {})[key] || null },
-                            json: () => Promise.resolve(_isBinary ? {} : _d),
-                            text: () => Promise.resolve(_isBinary ? '' : (typeof _d === 'string' ? _d : JSON.stringify(_d))),
-                            blob: () => Promise.resolve(new Blob([_isBinary ? _ab : JSON.stringify(_d)])),
-                            arrayBuffer: () => Promise.resolve(_ab || new TextEncoder().encode(JSON.stringify(_d)).buffer),
-                        });
-                    }
-                }
-            });
-        }
-
         /**
-         * Create a transport connection (WebSocket or postMessage channel).
-         * Returns an object with the same interface as WebSocket:
-         *   .readyState, .send(data), .close(), .onopen, .onmessage, .onclose, .onerror
+         * Create a WebSocket transport connection.
          */
         function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
-            if (postMessageTransport) {
-                const channelId = 'ch_' + Math.random().toString(36).slice(2, 10);
-                const t = {
-                    readyState: WebSocket.OPEN,
-                    send(data) {
-                        _vscodeApi.postMessage({ type: 'ws-send', channelId, sid: transportSid, data: JSON.parse(data) });
-                    },
-                    close() {
-                        t.readyState = WebSocket.CLOSED;
-                        _postMessageChannels.delete(channelId);
-                    },
-                    onopen: onOpen || null,
-                    onmessage: onMessage || null,
-                    onclose: onClose || null,
-                    onerror: onError || null,
-                };
-                _postMessageChannels.set(channelId, t);
-                setTimeout(() => { if (t.onopen) t.onopen(); }, 0);
-                return t;
+            const wsTarget = resolveServerPath(`/ws/${transportSid}`);
+            let ws;
+            if (_embeddedServerOrigin) {
+                const wsUrl = new URL(wsTarget);
+                const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`);
             } else {
-                const wsTarget = resolveServerPath(`/ws/${transportSid}`);
-                let ws;
-                if (_embeddedServerOrigin) {
-                    const wsUrl = new URL(wsTarget);
-                    const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-                    ws = new WebSocket(`${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`);
-                } else {
-                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    ws = new WebSocket(`${proto}//${location.host}${wsTarget}`);
-                }
-                ws.binaryType = 'arraybuffer';
-                if (onOpen) ws.onopen = onOpen;
-                if (onMessage) ws.onmessage = onMessage;
-                if (onClose) ws.onclose = onClose;
-                if (onError) ws.onerror = onError;
-                return ws;
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${location.host}${wsTarget}`);
             }
+            ws.binaryType = 'arraybuffer';
+            if (onOpen) ws.onopen = onOpen;
+            if (onMessage) ws.onmessage = onMessage;
+            if (onClose) ws.onclose = onClose;
+            if (onError) ws.onerror = onError;
+            return ws;
         }
 
         /**
          * Kick the initial render for every pane in a multi-pane mode
          * (ortho/multiview, qMRI, and their compare variants).
-         *
-         * Why this helper exists: in VS Code tab (postMessage transport) each
-         * `vscodeApi.postMessage` landed in its own event-loop tick when panes
-         * were rendered from per-view WS `onopen` callbacks. That staggered
-         * requests into stdin one-by-one, defeating the server's parallel
-         * render pool and making panes pop in visibly. Batching them through
-         * one `setTimeout(..., 0)` flushes all N sends in a single tick so the
-         * server can coalesce + parallelise them.
-         *
-         * Callers must also skip the per-view `onopen` render callback in
-         * postMessage mode (pass `postMessageTransport ? null : () => ...`)
-         * — otherwise the staggered onopen fires anyway.
-         *
-         * WebSocket (native pywebview) does not need batching because local
-         * `ws.onopen` callbacks all fire in the same tick.
          */
         function _kickInitialRenders(views, renderFn) {
             if (httpTransport) {
                 views.forEach(v => renderFn(v));
-            } else if (postMessageTransport) {
-                setTimeout(() => views.forEach(v => renderFn(v)), 0);
             }
             // else: WebSocket — per-view onopen handles it.
         }
 
-        /**
-         * Proxy fetch through the VS Code extension in postMessage mode.
-         * In ws/http mode, just calls native fetch.
-         */
         function proxyFetch(url, options) {
-            if (!postMessageTransport) return fetch(resolveServerPath(url), options);
-            return new Promise((resolve, reject) => {
-                const id = ++_fetchSeq;
-                _pendingFetches.set(id, { resolve, reject });
-                _vscodeApi.postMessage({
-                    type: 'fetch-proxy',
-                    id,
-                    url,
-                    method: (options && options.method) || 'GET',
-                    body: (options && options.body) || null,
-                    headers: (options && options.headers) || null,
-                });
-            });
+            return fetch(resolveServerPath(url), options);
         }
 
         function reportParent(phase, detail) {
             try {
-                if (postMessageTransport && _vscodeApi) {
-                    _vscodeApi.postMessage({
-                        source: 'arrayview-viewer',
-                        type: 'viewer-event',
-                        phase,
-                        detail: detail || null,
-                    });
-                } else if (window.parent && window.parent !== window) {
+                if (window.parent && window.parent !== window) {
                     window.parent.postMessage({
                         source: 'arrayview-viewer',
                         phase,
@@ -5286,8 +5172,6 @@
         let pendingRequest = false;
         let wsSlowTimer = null;   // show loading overlay only after threshold
         const WS_SLOW_THRESHOLD_MS = 80; // ms before spinner appears
-        let wsWatchdogTimer = null;  // postMessage mode: reset isRendering if no response
-        const WS_WATCHDOG_MS = 2000;
 
         let preloadPolling = null;
         let preloadActiveDim = -1;
@@ -12384,7 +12268,6 @@
                 const height = headerU32[2];
                 // Phase 3: cancel delayed spinner — frame arrived in time
                 if (wsSlowTimer) { clearTimeout(wsSlowTimer); wsSlowTimer = null; }
-                if (wsWatchdogTimer) { clearTimeout(wsWatchdogTimer); wsWatchdogTimer = null; }
                 if (compareActive) {
                     isRendering = false;
                     if (pendingRequest) {
@@ -12503,7 +12386,7 @@
         }
 
         function _withTimeout(options, timeoutMs) {
-            if (!timeoutMs || timeoutMs <= 0 || postMessageTransport) return options || {};
+            if (!timeoutMs || timeoutMs <= 0) return options || {};
             const ctrl = new AbortController();
             const next = Object.assign({}, options || {}, { signal: ctrl.signal });
             const timer = setTimeout(() => ctrl.abort(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
@@ -12978,9 +12861,7 @@
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
 
             // Open WebSocket early — server pushes metadata as first text message.
-            // (Skip for postMessage transport — VS Code extension proxies binary
-            // frames only; the server's JSON metadata push won't arrive.)
-            const _useWsMeta = !httpTransport && !postMessageTransport;
+            const _useWsMeta = !httpTransport;
             if (_useWsMeta) initWebSocket();
 
             reportParent('metadata-request', { sid });
@@ -13128,7 +13009,7 @@
 
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
             // new-tab signals so CLI tab injection still works.
-            if (window === window.top && !postMessageTransport) {
+            if (window === window.top) {
                 try {
                     const _shellProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const _shellWs = new WebSocket(`${_shellProto}//${location.host}${resolveServerPath('/ws/shell')}`);
@@ -17464,20 +17345,6 @@
                     document.getElementById('loading-overlay').style.display = '';
                 }
             }, WS_SLOW_THRESHOLD_MS);
-            // Watchdog: in postMessage mode, if no response arrives within
-            // WS_WATCHDOG_MS, assume the message was lost and reset state.
-            if (postMessageTransport) {
-                if (wsWatchdogTimer) clearTimeout(wsWatchdogTimer);
-                wsWatchdogTimer = setTimeout(() => {
-                    wsWatchdogTimer = null;
-                    if (isRendering) {
-                        console.warn('[arrayview] watchdog: no response in ' + WS_WATCHDOG_MS + 'ms, resetting');
-                        isRendering = false;
-                        if (pendingRequest) { pendingRequest = false; updateView(); }
-                        else if (isPlaying) { playNext(); }
-                    }
-                }, WS_WATCHDOG_MS);
-            }
         }
 
         let playLastFrameTime = 0;
@@ -25478,9 +25345,7 @@
                 mvViews.forEach(v => {
                     v.ws = createTransport(sid,
                         (event) => mvOnMessage(v, event),
-                        // Skip per-view onopen in postMessage so all 3 initial
-                        // renders fire in one tick via _kickInitialRenders below.
-                        postMessageTransport ? null : () => mvRender(v),
+                        () => mvRender(v),
                         () => { v.rendering = false; },
                         () => { v.rendering = false; if (v.ws) v.ws.close(); }
                     );
@@ -26474,10 +26339,7 @@
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
-                            // In postMessage mode the transport is instantly ready, so skip
-                            // per-view onopen callbacks — all panes are batched below in one
-                            // setTimeout so their requests hit the server simultaneously.
-                            postMessageTransport ? null : () => qvRender(view),
+                            () => qvRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -26546,7 +26408,7 @@
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
-                            postMessageTransport ? null : () => qvRender(view),
+                            () => qvRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -26815,7 +26677,7 @@
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
                             (event) => compareQmriOnMessage(view, event),
-                            postMessageTransport ? null : () => compareQmriRender(view),
+                            () => compareQmriRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -27340,9 +27202,7 @@
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
                             (event) => compareMvOnMessage(view, event),
-                            // Skip per-view onopen in postMessage — _kickInitialRenders
-                            // below batches all panes into one tick.
-                            postMessageTransport ? null : () => compareMvRender(view),
+                            () => compareMvRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );

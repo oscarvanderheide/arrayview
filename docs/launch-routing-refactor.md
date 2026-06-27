@@ -1,8 +1,12 @@
 # Launch Routing Refactor
 
+> Note: this plan predates the WebSocket-only VS Code tunnel refactor. Mentions
+> of stdio/direct webview and SHM describe retired transport work, not current
+> implementation guidance.
+
 ArrayView currently opens displays through several partially overlapping paths:
 CLI, `view()`, Jupyter, Julia, VS Code local, VS Code tunnel, SSH, native
-pywebview, browser fallback, and stdio/direct webview mode.  The same policy is
+pywebview, and browser fallback.  The same policy is
 encoded in multiple places, so fixes in one path can leave another path broken.
 
 This refactor makes launch routing explicit, shared, and inspectable.
@@ -14,15 +18,15 @@ The brittle behavior comes from policy being split across:
 - environment detection in `_platform.py`
 - CLI planning in `_launcher.py`
 - Python `view()` planning in `_launcher.py`
-- VS Code signal/direct-mode fallback in `_vscode_browser.py` and `_vscode_signal.py`
-- separate HTTP and stdio session registration paths
+- VS Code signal handling in `_vscode_browser.py` and `_vscode_signal.py`
+- separate daemon, `/load`, and in-process session registration paths
 
 Symptoms seen recently:
 
 - CLI diagnose says native pywebview should open, but runtime falls back to a browser.
 - Linux native detection allows GTK systems while native launch forced Qt.
 - `view()` and CLI had different native readiness checks.
-- Existing-server remote behavior can accidentally switch from registered URL mode to direct stdio mode.
+- Existing-server remote behavior must keep using the registered URL path.
 
 ## Target Model
 
@@ -31,16 +35,16 @@ Create a single launch plan used by both CLI and `view()`.
 The plan should be data-only:
 
 ```python
-Invocation = "cli" | "python" | "jupyter" | "julia" | "stdio" | "codex"
+Invocation = "cli" | "python" | "jupyter" | "julia" | "codex"
 Environment = "terminal" | "vscode_local" | "vscode_remote" | "ssh" | "jupyter" | "julia"
-Transport = "http" | "stdio_file" | "stdio_shm" | "none"
+Transport = "http" | "none"
 ServerOwner = "existing" | "spawned_daemon" | "in_process" | "persistent" | "external"
 Display = "native" | "browser" | "vscode" | "inline" | "none"
-Registration = "http_load" | "daemon_startup" | "in_process_session" | "stdio_register" | "relay"
+Registration = "http_load" | "daemon_startup" | "in_process_session" | "relay"
 ```
 
 Executors may perform work, but should not invent policy.  Browser fallback,
-VS Code direct mode, native readiness, and remote behavior must be selected by
+native readiness and remote behavior must be selected by
 the plan.
 
 ## Phase 1: Snapshot And Diagnose
@@ -74,10 +78,10 @@ plan_launch(invocation, request, env) -> LaunchPlan
 
 The planner decides:
 
-- transport: HTTP, stdio file, stdio SHM, or none
+- transport: HTTP or none
 - display: native, browser, vscode, inline, none
 - server owner: existing, spawned daemon, in-process, persistent, external
-- registration: HTTP load, daemon startup, in-process session, stdio register, relay
+- registration: HTTP load, daemon startup, in-process session, relay
 - fallback policy: whether fallback is allowed and where it goes
 
 CLI and `view()` should both call this planner.
@@ -104,29 +108,21 @@ Rules:
 Separate these cases explicitly:
 
 - `Display=vscode`, `Transport=http`: open the registered HTTP URL in VS Code
-- `Display=vscode`, `Transport=stdio_file`: open direct stdio file session
+Do not let display-opening helpers implicitly switch an existing registered URL
+into a different transport.
 
-Do not let `_open_browser(..., filepath=...)` implicitly switch an existing
-registered URL into direct stdio mode.
+## Phase 5: Retired VS Code Direct Mode
 
-## Phase 5: VS Code Direct Mode
-
-Consolidate SHM/direct mode:
-
-- one `_open_direct_via_shm()` implementation
-- one SHM wait loop
-- Julia remote, Python remote, and tunnel notebook paths call the same helper
-
-Remove or clearly deprecate duplicate direct-mode helpers.
+Obsolete. The direct stdio/SHM transport was removed in favor of the forwarded
+HTTP/WebSocket path.
 
 ## Phase 6: Registration Semantics
 
-Align HTTP `/load` and stdio registration:
+Align `/load`, daemon startup, and in-process registration:
 
 - shared file/key selection behavior
 - shared RAM guard behavior where possible
 - shared RGB/vectorfield/overlay/compare semantics where possible
-- documented differences where transports genuinely diverge
 
 ## Contract Tests
 
@@ -138,7 +134,7 @@ Prefer contract tests over broad visual smoke for launch routing:
 - Linux no display browser fallback
 - plain SSH guidance
 - VS Code local tab
-- VS Code remote direct stdio
+- VS Code remote forwarded HTTP/WebSocket
 - VS Code remote existing HTTP URL
 - Jupyter inline
 - VS Code remote notebook direct
@@ -149,7 +145,7 @@ Execution contracts:
 - existing server native shell does not fall back only because viewer socket is late
 - spawned daemon native shell does not fall back only because viewer socket is late
 - `view()` native shell does not fall back only because viewer socket is late
-- remote existing server opens registered URL, not direct stdio
+- remote existing server opens registered URL
 - GTK-only Linux passes `gui="gtk"` to pywebview
 
 ## Migration Order
@@ -160,8 +156,8 @@ Execution contracts:
 4. Move `view()` planning into `plan_launch()`.
 5. Unify native readiness for CLI and `view()`.
 6. Fix remote existing-server URL/direct ambiguity.
-7. Consolidate SHM direct mode.
-8. Align HTTP and stdio registration semantics.
+7. Remove retired stdio/SHM direct mode.
+8. Align `/load`, daemon startup, and in-process registration semantics.
 
 Each step should have focused invocation tests and should avoid unrelated UI or
 rendering changes.

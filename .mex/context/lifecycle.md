@@ -28,11 +28,10 @@ This contract describes who owns the backend, when it starts, and what closes it
 | Invocation | Display owner | Backend model | Shutdown/release |
 |---|---|---|---|
 | Local VS Code CLI `arrayview file.npy` | VS Code URL webview panel | Shared transient daemon | Panel close releases URL sessions; last viewer WebSocket close stops daemon |
-| VS Code file click/custom editor | VS Code extension | Extension-owned stdio subprocess | Panel close kills subprocess |
 | Plain Python script `view(arr)` | Browser/native/VS Code display | Non-daemon background server thread | Survives caller until viewer connects then closes |
 | Jupyter `view(arr)` | Notebook kernel inline iframe | Kernel-owned daemon server thread | Iframe disappearance must not hard-kill backend |
 | Julia/PythonCall | Browser/VS Code route from subprocess | Detached subprocess | Never in-process; avoid GIL deadlock |
-| Remote/tunnel | VS Code direct webview when possible | stdio direct webview or intentional persistent server | Persistence allowed only when transport requires it |
+| Remote/tunnel | VS Code URL webview panel | Forwarded WebSocket server | Persistent only when `--serve` or tunnel ownership requires it |
 | Plain SSH | User-forwarded localhost URL | Transient server unless `--serve` requested | Viewer close ends transient session |
 
 ## Local VS Code CLI
@@ -42,13 +41,6 @@ This contract describes who owns the backend, when it starts, and what closes it
 - Closing one tab releases only that tab's arrays/sessions.
 - Closing the last viewer tab should stop the transient daemon.
 - The VS Code wrapper must not show "backend unavailable" based on a webview-side `fetch()`; backend health checks belong in the extension host.
-
-## VS Code File Click And Custom Editor
-
-- Prefer direct extension-owned stdio subprocesses.
-- Do not require localhost or a shared port when direct mode is available.
-- Closing the tab should terminate the subprocess.
-- This path is transient and owned by the extension session, not by a long-lived server.
 
 ## Python Script
 
@@ -66,8 +58,8 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 ## Remote, Tunnel, And SSH
 
-- Remote or tunnel launches may persist when `--serve` or direct-server constraints require it.
-- Direct VS Code tunnel display should prefer stdio direct webview to avoid forwarded-port auth and public-port setup.
+- Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it.
+- VS Code tunnel display uses forwarded localhost URLs; the extension should configure the port, promote privacy when available, and resolve the URL with `asExternalUri`.
 - With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` must fail closed with a diagnostic rather than broadcasting to whichever window is focused.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.

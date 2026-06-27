@@ -31,8 +31,7 @@ All file parsing goes through `_io.load_data(filepath)` or `_io.load_data_with_m
 Transport/session creation is separate from parsing:
 
 - FastAPI `/load`: `src/arrayview/_routes_loading.py`
-- CLI spawned daemon and direct stdio CLI mode: `src/arrayview/_launcher.py`
-- VS Code tunnel direct webview: `src/arrayview/_stdio_server.py`
+- CLI spawned daemon and in-process sessions: `src/arrayview/_launcher.py`
 
 The server and CLI must not import format libraries directly. They may call generic `_io` helpers such as `list_array_keys()` or `default_array_key()` when they need to choose a key before creating a session.
 
@@ -82,7 +81,7 @@ The server and CLI must not import format libraries directly. They may call gene
 
 7. **Keep key/default selection consistent across transports** for multi-array formats (`.npz`, `.mat`, HDF5-like containers):
    - Put filtering and default-key logic in `_io.py`, not in a route or launcher branch.
-   - Use the same helper from FastAPI `/load`, CLI daemon/direct paths, and `_stdio_server.py`.
+   - Use the same helper from FastAPI `/load`, CLI daemon startup, and in-process session creation.
    - If `/load` returns picker keys for multiple arrays, define what non-picker transports do (usually first displayable key).
 
 ## Gotchas
@@ -90,8 +89,8 @@ The server and CLI must not import format libraries directly. They may call gene
 - **Do not import the format library at the top of `_io.py`** without checking import cost first. Nibabel is the reference: it is lazy because it costs ~200 ms on first import.
 - **`.nii.gz` is two extensions** — the dispatch checks the full suffix, not just the last dot. New formats with compound extensions (`.foo.bar`) need special suffix handling in `load_data()`.
 - **Zarr is not loaded via `load_data()`** in all paths — zarr arrays can also be passed directly to `view()` as array objects. Ensure zarr-specific logic lives in `_session.py` / `_render.py`, not only in the file-load path.
-- **No format-specific parsing code in `_server.py`, `_launcher.py`, or `_stdio_server.py`** — if you find yourself adding a format import or dtype/shape filter in those modules, move it to `_io.py`.
-- **VS Code tunnel is stdio, not HTTP** — `arrayview file.ext` in a VS Code tunnel writes a signal file; the extension then runs `python -m arrayview --mode stdio file.ext`. A `/load` fix alone does not cover this path.
+- **No format-specific parsing code in `_server.py` or `_launcher.py`** — if you find yourself adding a format import or dtype/shape filter in those modules, move it to `_io.py`.
+- **VS Code tunnel uses the WebSocket server path** — remote/tunnel launches still need `/load` and daemon startup behavior to stay consistent.
 
 ## Verify
 
@@ -100,8 +99,7 @@ The server and CLI must not import format libraries directly. They may call gene
 - [ ] `load_data("myfile.myext")` returns a numpy array with correct shape and dtype
 - [ ] If the format can contain multiple arrays or non-displayable members, add tests for `list_array_keys()` / `default_array_key()` and direct `load_data(..., key=...)`
 - [ ] FastAPI `/load` works for the file, including picker/default-key behavior
-- [ ] `_stdio_server._handle_register()` works for the file, because VS Code tunnel direct webview uses stdio instead of `/load`
-- [ ] CLI daemon/direct paths use generic `_io` helpers for key selection instead of duplicating format rules
+- [ ] CLI daemon and in-process paths use generic `_io` helpers for key selection instead of duplicating format rules
 - [ ] `view(load_data("myfile.myext"))` opens the viewer without errors
 - [ ] If full-load format, added to `FULL_LOAD_EXTS`
 - [ ] `uv run pytest` on `tests/test_mode_consistency.py` still passes (no dtype regressions)

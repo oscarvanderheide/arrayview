@@ -2379,7 +2379,7 @@ class TestCliOpenHelpers:
             }
         ]
 
-    def test_open_cli_existing_server_view_opens_registered_url_not_direct_stdio(
+    def test_open_cli_existing_server_view_opens_registered_url(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -4467,31 +4467,35 @@ class TestViewDisplayRouting:
 
     def test_remote_vscode_jupyter_auto_opens_vscode_tab(self, monkeypatch):
         """VS Code tunnel notebook can't reach localhost through the webview sandbox,
-        so `view(arr)` automatically routes to a VS Code webview tab instead of inline."""
+        so `view(arr)` routes to the WebSocket VS Code tab path instead of inline."""
         import arrayview._launcher as launcher
 
-        calls = []
+        opened = []
 
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: True)
         monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: True)
-        monkeypatch.setattr(launcher, "_ensure_vscode_extension", lambda: True)
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: port == 8123)
         monkeypatch.setattr(
             launcher,
-            "_open_direct_via_shm",
-            lambda data, name="array", title=None, floating=False: calls.append(
-                {"shape": data.shape, "name": name, "title": title, "floating": floating}
-            )
-            or True,
+            "_load_session_from_filepath",
+            lambda port, path, name, rgb=False: {"sid": "sid_remote"},
         )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
 
         result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="remote-tab")
 
-        assert result is None
-        assert calls == [
+        assert result.sid == "sid_remote"
+        assert opened == [
             {
-                "shape": (4, 4),
-                "name": "remote-tab",
+                "url": "http://localhost:8123/?sid=sid_remote",
+                "force_vscode": True,
+                "blocking": True,
                 "title": "ArrayView: remote-tab",
                 "floating": False,
             }

@@ -53,13 +53,12 @@ last_updated: 2026-06-19
 **Alternatives considered:** `ThreadPoolExecutor` (rejected — shutdown race); `asyncio.run_in_executor` with default executor (same issue).
 **Consequences:** The prefetch pool *does* use `concurrent.futures.ThreadPoolExecutor` (it submits non-critical background work and gracefully handles `RuntimeError` on shutdown). Only the critical render path must stay on `SimpleQueue`.
 
-### stdio transport for VS Code tunnel (direct webview)
+### VS Code tunnel uses forwarded WebSocket transport
 **Date:** 2024
-**Status:** Active
-**Decision:** When a VS Code tunnel is detected, `_stdio_server.py` replaces FastAPI+WebSocket. Messages are JSON on stdin, length-prefixed binary on stdout. The VS Code extension bridges `postMessage` ↔ subprocess stdio.
-**Reasoning:** VS Code tunnel environments block arbitrary TCP ports. The Direct WebView API bypasses the network entirely by running the viewer as a subprocess of the extension. This gives reliable display without requiring port forwarding.
-**Alternatives considered:** Port forwarding via VS Code tunnel (rejected — unreliable, depends on tunnel configuration); WebSocket over stdio tunnel (rejected — more complex than length-prefixed binary).
-**Consequences:** `_stdio_server.py` must mirror every route and feature of `_server.py`. New server features must be implemented in both. The `_vscode.py` signal-file and shared-memory IPC are part of this same display path.
+**Status:** Superseded
+**Decision:** Older tunnel builds used `_stdio_server.py` and direct webview `postMessage` IPC to avoid unreliable forwarded ports. Current builds use the same FastAPI/WebSocket transport as local VS Code and have the extension expose/promote the tunnel port before opening the tab.
+**Reasoning:** The direct transport duplicated every server feature and created drift between FastAPI and stdio behavior. The VS Code port-forwarding path is now reliable enough to make one transport simpler and easier to test.
+**Consequences:** New viewer features only need the FastAPI routes/WebSocket path; the VS Code extension remains responsible for signal-file routing, external URI resolution, and port privacy.
 
 ### ROI in qMRI uses per-pane overlay canvases, not a shared overlay
 **Date:** 2026-04-16

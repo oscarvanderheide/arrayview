@@ -83,7 +83,6 @@ def test_launch_data_enums_match_refactor_contract():
         "python",
         "jupyter",
         "julia",
-        "stdio",
         "codex",
     }
     assert {item.value for item in Environment} == {
@@ -96,8 +95,6 @@ def test_launch_data_enums_match_refactor_contract():
     }
     assert {item.value for item in Transport} == {
         "http",
-        "stdio_file",
-        "stdio_shm",
         "none",
     }
     assert {item.value for item in ServerOwner} == {
@@ -118,7 +115,6 @@ def test_launch_data_enums_match_refactor_contract():
         "http_load",
         "daemon_startup",
         "in_process_session",
-        "stdio_register",
         "relay",
     }
 

@@ -30,13 +30,12 @@ last_updated: 2026-06-11
 ```
 CLI / Python API (view() or uvx arrayview <file>)
   └─ _launcher.py  →  FastAPI server (_server.py + _routes_*.py, uvicorn)   [network mode]
-                    →  _stdio_server.py                        [VS Code direct webview]
 
-Server (either mode)
+Server
    ├─ _session.py   Session objects, global state, render thread, caches
    ├─ _render.py    extract_slice → apply_complex_mode → render_rgba → PNG pipeline
    ├─ _analysis.py / _diff.py / _overlays.py / _vectorfield.py
-   │                Shared helpers used by FastAPI and stdio transports
+   │                Shared helpers used by route modules and WebSocket handlers
    └─ _io.py        load_data() — npy/npz/nii/zarr/h5/mat/tif/pt routing
 
 Browser (_viewer.html — single self-contained HTML+JS+CSS file)
@@ -47,7 +46,7 @@ Browser (_viewer.html — single self-contained HTML+JS+CSS file)
 
 A `view()` call creates a `Session`, starts the FastAPI server if not running,
 registers the session via HTTP POST `/load`, then opens a display for the detected
-environment (Jupyter inline, VS Code webview panel or direct webview, native
+environment (Jupyter inline, VS Code webview panel, native
 pywebview, or system browser).
 
 ## Key Components
@@ -57,12 +56,11 @@ pywebview, or system browser).
 - **`_routes_*.py`** — Feature-route modules grouped by domain (analysis, loading, persistence, segmentation, state, query, export, preload, vectorfield, rendering, websocket transport). Each module exposes `register_*_routes(app, ...)` and keeps `_server.py` focused on assembly and shared dependencies.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`). Also provides `_build_mosaic_grid()` (shared grid builder) and `_evict_lru()` (shared cache eviction).
-- **`_imaging.py`** — Shared lazy PIL accessors (`ensure_image()`, `ensure_imageops()`) used by `_diff`, `_server`, `_routes_rendering`, `_routes_websocket`, `_stdio_server`.
-- **`_analysis.py`, `_diff.py`, `_overlays.py`, `_vectorfield.py`** — Shared backend helpers for metadata, analysis endpoints, compare/diff rendering, overlay compositing, vector field validation, and arrow sampling. Imported by both `_server.py` and `_stdio_server.py`.
+- **`_imaging.py`** — Shared lazy PIL accessors (`ensure_image()`, `ensure_imageops()`) used by `_diff`, `_server`, `_routes_rendering`, and `_routes_websocket`.
+- **`_analysis.py`, `_diff.py`, `_overlays.py`, `_vectorfield.py`** — Shared backend helpers for metadata, analysis endpoints, compare/diff rendering, overlay compositing, vector field validation, and arrow sampling.
 - **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii` and `.nii.gz`, `.zarr`, `.zarr.zip`, `.pt` and `.pth`, `.h5` and `.hdf5`, `.tif` and `.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
-- **`_vscode.py`** — VS Code integration facade. Submodules: `_vscode_extension.py` (install), `_vscode_signal.py` (signal-file IPC), `_vscode_shm.py` (shared-memory transport), `_vscode_browser.py` (browser/SSH guidance).
-- **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
+- **`_vscode.py`** — VS Code integration facade. Submodules: `_vscode_extension.py` (install), `_vscode_signal.py` (signal-file IPC), `_vscode_browser.py` (browser/SSH guidance).
 - **`_viewer.html`** — The entire frontend (~24 100 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 
 ## Frontend Tool Lifecycle
@@ -83,7 +81,7 @@ Tool launch, tool activation, and drawer visibility are separate states.
 |---|---|---|
 | Jupyter | Inline iframe | network |
 | VS Code local | Webview panel | network |
-| VS Code tunnel | Direct webview (stdio) | stdio |
+| VS Code tunnel | Webview panel (forwarded WebSocket) | network |
 | Julia | System browser | network |
 | CLI / Python script | Native pywebview | network |
 | SSH terminal | Prints URL — user forwards port with `ssh -L` | network |
@@ -96,8 +94,7 @@ File parsing belongs in `_io.py`, but session registration happens through diffe
 
 - **Network `/load`**: existing FastAPI server path in `_routes_loading.py`.
 - **Spawned CLI daemon**: `_launcher._serve_daemon()` loads before publishing the pending session.
-- **VS Code tunnel direct webview**: `_stdio_server._handle_register()` handles `python -m arrayview --mode stdio <file>` spawned by the extension.
-- **Direct stdio CLI mode**: `_launcher.arrayview()` preloads positional files before starting `run_stdio_server()`.
+All file registration paths use either FastAPI `/load`, spawned daemon startup, or in-process `Session` creation. Keep format-specific key filtering/default selection in `_io.py` helpers so every launch path sees the same behavior.
 
 For multi-array formats or formats with non-displayable members, keep key filtering/default selection in `_io.py` helpers and call those helpers from every registration path. A fix in `/load` alone does not cover VS Code tunnel.
 

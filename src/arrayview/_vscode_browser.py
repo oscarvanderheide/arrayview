@@ -11,7 +11,7 @@ import time
 from arrayview._session import _vprint
 from arrayview._platform import _in_vscode_terminal, _is_vscode_remote
 from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_vscode_extension, _VSCODE_EXT_FRESH_INSTALL
-from arrayview._vscode_signal import _open_via_signal_file, _open_direct_via_signal_file, _schedule_remote_open_retries
+from arrayview._vscode_signal import _open_via_signal_file, _schedule_remote_open_retries
 
 # Whether the "set port to Public" message has been printed this session.
 _remote_message_shown = False
@@ -49,7 +49,6 @@ def _open_browser(
     blocking: bool = False,
     force_vscode: bool = False,
     title: str | None = None,
-    filepath: str | None = None,
     floating: bool = False,
 ) -> None:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
@@ -86,25 +85,11 @@ def _open_browser(
             if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
                 time.sleep(1.5)
 
-            if filepath:
-                # Direct webview mode: no ports, no WebSocket, no auth needed.
-                # The extension spawns a Python subprocess and bridges via
-                # postMessage — completely bypasses the port-forwarding issue.
-                _open_direct_via_signal_file(filepath, title=title, floating=floating)
-                _vprint(
-                    "[ArrayView] Remote tunnel → direct webview mode (no port needed)",
-                    flush=True,
-                )
-            else:
-                # URL-based mode (e.g. --serve): port is forwarded by VS Code
-                # and the viewer connects via WebSocket through the devtunnel.
-                # _print_viewer_location already emitted the localhost URL to
-                # stdout so VS Code's terminal-output detector starts the
-                # forward.  The extension's asExternalUri + ensurePortPublic
-                # handle forwarding and privacy; no grace delay needed.
-                _configure_vscode_port_preview(parsed_port)
-                _open_via_signal_file(url, title=title, floating=floating)
-                _schedule_remote_open_retries(url, interval=10.0, count=2)
+            # URL-based mode: port is forwarded by VS Code and the viewer
+            # connects via WebSocket through the devtunnel.
+            _configure_vscode_port_preview(parsed_port)
+            _open_via_signal_file(url, title=title, floating=floating)
+            _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:
                 _vprint(
                     "[ArrayView] extension install could not be verified — signal file written anyway",

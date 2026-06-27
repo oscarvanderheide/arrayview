@@ -186,53 +186,6 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     assert not (signal_dir / "open-request-pid-200.json").exists()
 
 
-def test_vscode_signal_shm_helper_delegates_to_canonical(monkeypatch):
-    import arrayview._vscode_signal as signal
-    import arrayview._vscode_shm as shm
-
-    calls = []
-
-    def fake_open(data, name="array", title=None, floating=False):
-        calls.append(
-            {
-                "data": data,
-                "name": name,
-                "title": title,
-                "floating": floating,
-            }
-        )
-        return True
-
-    payload = object()
-    monkeypatch.setattr(shm, "_open_direct_via_shm", fake_open)
-
-    with pytest.warns(DeprecationWarning, match="_vscode_signal._open_direct_via_shm"):
-        opened = signal._open_direct_via_shm(
-            payload,
-            name="remote-array",
-            title="ArrayView: remote-array",
-            floating=True,
-        )
-
-    assert opened is True
-    assert calls == [
-        {
-            "data": payload,
-            "name": "remote-array",
-            "title": "ArrayView: remote-array",
-            "floating": True,
-        }
-    ]
-
-
-def test_vscode_signal_active_shm_alias_uses_canonical_list():
-    import arrayview._vscode_signal as signal
-    import arrayview._vscode_shm as shm
-
-    with pytest.warns(DeprecationWarning, match="_vscode_signal._ACTIVE_SHM"):
-        assert signal._ACTIVE_SHM is shm._ACTIVE_SHM
-
-
 def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     import arrayview._launcher as launcher
     import arrayview._session as session_mod

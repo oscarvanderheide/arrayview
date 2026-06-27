@@ -242,66 +242,6 @@ def _open_via_signal_file(
     return _write_vscode_signal(payload, delay=delay)
 
 
-def _open_direct_via_signal_file(
-    filepath: str,
-    title: str | None = None,
-    extra_args: list[str] | None = None,
-    floating: bool = False,
-) -> bool:
-    """Write a direct-mode signal file for the VS Code extension.
-
-    Instead of opening a URL in an iframe, the extension spawns a Python
-    subprocess (``python -m arrayview --mode stdio <filepath>``) and hosts
-    the viewer HTML directly in a webview panel with postMessage transport.
-    No ports, no WebSocket, no authentication — just IPC.
-
-    *extra_args* are forwarded verbatim to the subprocess command line so
-    that new CLI flags (``--vectorfield``, ``--overlay``, ``--rgb``, …)
-    work without touching the extension.
-    """
-    import sys as _sys
-
-    payload: dict = {
-        "action": "open-preview",
-        "mode": "direct",
-        "filepath": os.path.abspath(filepath),
-        "pythonPath": _sys.executable,
-        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
-    }
-    if title:
-        payload["title"] = title
-    if extra_args:
-        payload["extraArgs"] = extra_args
-    if floating:
-        payload["floating"] = True
-    return _write_vscode_signal(payload, skip_compat=True)
-
-
-def _open_direct_via_shm(
-    data: "np.ndarray",
-    name: str = "array",
-    title: str | None = None,
-    floating: bool = False,
-) -> bool:
-    """Compatibility shim for the canonical SHM direct-mode helper."""
-    import warnings
-
-    from arrayview._vscode_shm import _open_direct_via_shm as _canonical_open_direct_via_shm
-
-    warnings.warn(
-        "arrayview._vscode_signal._open_direct_via_shm is deprecated; "
-        "use arrayview._vscode_shm._open_direct_via_shm",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _canonical_open_direct_via_shm(
-        data,
-        name=name,
-        title=title,
-        floating=floating,
-    )
-
-
 def _schedule_remote_open_retries(
     url: str, interval: float = 15.0, count: int = 2
 ) -> None:
@@ -861,18 +801,3 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
 
     return removed
 
-
-def __getattr__(name: str):
-    if name == "_ACTIVE_SHM":
-        import warnings
-
-        from arrayview._vscode_shm import _ACTIVE_SHM
-
-        warnings.warn(
-            "arrayview._vscode_signal._ACTIVE_SHM is deprecated; "
-            "use arrayview._vscode_shm._ACTIVE_SHM",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return _ACTIVE_SHM
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
