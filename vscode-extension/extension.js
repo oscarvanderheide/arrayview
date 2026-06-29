@@ -264,6 +264,9 @@ class ArrayViewEditorProvider {
         const filePath = document.uri.fsPath;
         const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
+        // This custom editor is only a VS Code file-association handoff. It
+        // starts ArrayView normally, then the signal-file path opens the
+        // URL-backed HTTP/WebSocket viewer and this placeholder closes.
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
             <div>Opening ${title} in ArrayView...</div></body></html>`;
@@ -549,8 +552,9 @@ async function tryOpenSignalFile() {
     }
 }
 
-// Open or reveal a VS Code WebviewPanel for the given URL.
-// The webview wraps the arrayview server URL in a full-page iframe.
+// Open or reveal a VS Code WebviewPanel for the given server URL.
+// The panel is only a URL wrapper: ArrayView data and controls still flow
+// through the FastAPI/WebSocket backend, never direct Python/webview IPC.
 async function openInWebviewPanel(url, title, floating = false) {
     const label = title || 'ArrayView';
 

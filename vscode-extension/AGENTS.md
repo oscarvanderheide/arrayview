@@ -9,7 +9,7 @@
 ## Transport
 
 - **Network**: FastAPI + WebSocket, extension opens a VS Code webview panel tab.
-- Remote/tunnel sessions use VS Code forwarded ports plus `asExternalUri`; there is no stdio, PythonBridge, or SHM transport.
+- Remote/tunnel sessions use VS Code forwarded ports plus `asExternalUri`; do not add a second backend transport inside the extension.
 
 `_VSCODE_EXT_VERSION` in `src/arrayview/_vscode_extension.py` must match `vscode-extension/package.json`.
 Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-opener.vsix`

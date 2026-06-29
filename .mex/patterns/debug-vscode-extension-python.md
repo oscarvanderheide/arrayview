@@ -32,8 +32,8 @@ the backend with `/ping`.
 
 2. **Confirm the signal file contains a URL**
    Signal payloads should have `mode: "url"` and a `http://localhost:<port>/...`
-   URL. Payloads with `filepath`, `shm`, or `mode: "direct"` are stale and should
-   not be produced by current Python code.
+   URL. Payloads without a URL are stale and should not be produced by current
+   Python code.
 
 3. **Check the backend directly from the extension host**
    The extension probes `/ping`. From the same remote shell:
@@ -57,8 +57,8 @@ the backend with `/ping`.
 
 - Always use `localhost`, not `127.0.0.1`; VS Code port forwarding keys off
   localhost URLs.
-- The extension is a URL opener only. Do not reintroduce Python interpreter
-  selection, stdio, or shared-memory code.
+- The extension is a URL opener only. Do not reintroduce a second backend
+  transport inside the extension.
 - If `uv run arrayview --serve --port <port>` reports success but the port
   refuses connections, start the empty server directly as described in the repo
   AGENTS instructions.

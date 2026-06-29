@@ -871,7 +871,7 @@ def _resolve_cli_window_mode(
         window_mode = "vscode"
     return {
         "window_mode": window_mode,
-        "use_webview": (window_mode == "native")
+        "use_native_shell": (window_mode == "native")
         or (window_mode is None and can_native_window),
         "force_vscode": window_mode == "vscode",
         "requires_vscode_terminal": window_mode == "vscode" and not in_vscode_terminal,
@@ -879,8 +879,10 @@ def _resolve_cli_window_mode(
     }
 
 
-def _should_notify_webview(use_webview: bool, overlay_sid: str | None) -> bool:
-    return use_webview and overlay_sid is None
+def _should_notify_native_shell(
+    use_native_shell: bool, overlay_sid: str | None
+) -> bool:
+    return use_native_shell and overlay_sid is None
 
 
 def _plan_cli_port_strategy(
@@ -976,7 +978,7 @@ def _open_cli_existing_server_view(
     compare_sids: _CompareSids | None,
     overlay_sid: str | None,
     dims_override: tuple[int, int] | None,
-    notify_webview: bool,
+    notify_native_shell: bool,
     notified: bool,
     name: str,
     base_file: str,
@@ -991,10 +993,10 @@ def _open_cli_existing_server_view(
         overlay_sids=overlay_sid,
         dims=dims_override,
     )
-    if notify_webview and notified:
+    if notify_native_shell and notified:
         _vprint(f"Injected into existing window (port {port})")
         return
-    if notify_webview and not notified:
+    if notify_native_shell and not notified:
         native_ready = _open_cli_native_shell_after_server(
             port=port,
             sid=sid,
@@ -1032,7 +1034,7 @@ def _register_cli_session_with_existing_server(
     base_file: str,
     name: str,
     rgb: bool,
-    use_webview: bool,
+    use_native_shell: bool,
     vectorfield: str | None,
     vfield_components_dim: int | None,
 ) -> dict[str, object]:
@@ -1053,12 +1055,12 @@ def _register_cli_session_with_existing_server(
     overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
 
     compare_sids = _load_compare_sids(port, compare_files)
-    notify_webview = _should_notify_webview(use_webview, overlay_sid)
+    notify_native_shell = _should_notify_native_shell(use_native_shell, overlay_sid)
     result = _load_session_from_filepath(
         port,
         base_file,
         name,
-        notify=notify_webview,
+        notify=notify_native_shell,
         rgb=rgb,
         compare_sids=compare_sids,
     )
@@ -1079,7 +1081,7 @@ def _register_cli_session_with_existing_server(
         "sid": result["sid"],
         "overlay_sid": overlay_sid,
         "compare_sids": compare_sids,
-        "notify_webview": notify_webview,
+        "notify_native_shell": notify_native_shell,
         "notified": bool(result.get("notified", False)),
     }
 
@@ -1094,7 +1096,7 @@ def _handle_cli_existing_server(
     rgb: bool,
     vectorfield: str | None,
     vfield_components_dim: int | None,
-    use_webview: bool,
+    use_native_shell: bool,
     dims_override: tuple[int, int] | None,
     watch: bool,
     window_mode: str | None,
@@ -1108,7 +1110,7 @@ def _handle_cli_existing_server(
             base_file=base_file,
             name=name,
             rgb=rgb,
-            use_webview=use_webview,
+            use_native_shell=use_native_shell,
             vectorfield=vectorfield,
             vfield_components_dim=vfield_components_dim,
         )
@@ -1125,7 +1127,7 @@ def _handle_cli_existing_server(
         compare_sids=session_info["compare_sids"],
         overlay_sid=session_info["overlay_sid"],
         dims_override=dims_override,
-        notify_webview=bool(session_info["notify_webview"]),
+        notify_native_shell=bool(session_info["notify_native_shell"]),
         notified=bool(session_info["notified"]),
         name=name,
         base_file=base_file,
@@ -1143,7 +1145,7 @@ def _handle_cli_spawned_daemon(
     compare_files: list[str],
     overlay_files: list[str],
     dims_override: tuple[int, int] | None,
-    use_webview: bool,
+    use_native_shell: bool,
     watch: bool,
     window_mode: str | None,
     floating: bool,
@@ -1158,7 +1160,7 @@ def _handle_cli_spawned_daemon(
     overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
 
-    if not use_webview:
+    if not use_native_shell:
         _configure_vscode_port_preview(port)
 
     vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
@@ -1185,17 +1187,17 @@ def _handle_cli_spawned_daemon(
         start_new_session=(sys.platform != "win32"),
     )
 
-    early_webview_opened = False
-    early_webview_proc = None
-    early_webview_connected = False
+    early_native_shell_opened = False
+    early_native_shell_proc = None
+    early_native_shell_connected = False
     if (
-        use_webview
+        use_native_shell
         and not is_remote
         and not overlay_files
         and not compare_files
     ):
         url_shell_early = _shell_url(port, sid, name)
-        early_webview_opened, early_webview_proc = _open_webview_cli_tracked(
+        early_native_shell_opened, early_native_shell_proc = _open_webview_cli_tracked(
             url_shell_early, 1400, 900, shell_port=port
         )
 
@@ -1212,16 +1214,16 @@ def _handle_cli_spawned_daemon(
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
 
-    if early_webview_opened:
-        early_webview_connected = _activate_early_cli_native_shell(
+    if early_native_shell_opened:
+        early_native_shell_connected = _activate_early_cli_native_shell(
             port=port,
             sid=sid,
             name=name,
-            proc=early_webview_proc,
+            proc=early_native_shell_proc,
         )
 
-    should_retry_webview = use_webview and not (
-        early_webview_opened and not early_webview_connected
+    should_retry_native_shell = use_native_shell and not (
+        early_native_shell_opened and not early_native_shell_connected
     )
 
     _open_cli_spawned_view(
@@ -1230,14 +1232,14 @@ def _handle_cli_spawned_daemon(
         compare_sids=compare_sids,
         overlay_sid=overlay_sid,
         dims_override=dims_override,
-        use_webview=should_retry_webview,
+        use_native_shell=should_retry_native_shell,
         name=name,
         base_file=base_file,
         watch=watch,
         window_mode=window_mode,
         floating=floating,
         is_remote=is_remote,
-        webview_already_opened=early_webview_connected,
+        native_shell_already_opened=early_native_shell_connected,
     )
 
 
@@ -1248,14 +1250,14 @@ def _open_cli_spawned_view(
     compare_sids: _CompareSids | None,
     overlay_sid: str | None,
     dims_override: tuple[int, int] | None,
-    use_webview: bool,
+    use_native_shell: bool,
     name: str,
     base_file: str,
     watch: bool,
     window_mode: str | None,
     floating: bool,
     is_remote: bool,
-    webview_already_opened: bool = False,
+    native_shell_already_opened: bool = False,
 ) -> None:
     url = _viewer_url(
         port,
@@ -1264,8 +1266,8 @@ def _open_cli_spawned_view(
         overlay_sids=overlay_sid,
         dims=dims_override,
     )
-    if _should_notify_webview(use_webview, overlay_sid):
-        if webview_already_opened:
+    if _should_notify_native_shell(use_native_shell, overlay_sid):
+        if native_shell_already_opened:
             return
         native_ready = _open_cli_native_shell_after_server(
             port=port,
@@ -1286,9 +1288,9 @@ def _open_cli_spawned_view(
                 floating=floating,
             )
         return
-    if use_webview and overlay_sid:
+    if use_native_shell and overlay_sid:
         _vprint(
-            "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
+            "[ArrayView] Overlay mode: opening browser (native shell injection not supported with overlay)",
             flush=True,
         )
     _print_viewer_location(url)
@@ -3579,7 +3581,7 @@ def arrayview():
         can_native_window=_can_native_window(),
     )
     window_mode = window_plan["window_mode"]
-    use_webview = bool(window_plan["use_webview"])
+    use_native_shell = bool(window_plan["use_native_shell"])
     launch_path = _select_arrayview_launch_path(
         is_arrayview_server=is_arrayview_server,
         is_vscode_remote=_is_vscode_remote(),
@@ -3617,7 +3619,7 @@ def arrayview():
             rgb=args.rgb,
             vectorfield=args.vectorfield,
             vfield_components_dim=vfield_components_dim,
-            use_webview=use_webview,
+            use_native_shell=use_native_shell,
             dims_override=dims_override,
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
@@ -3635,7 +3637,7 @@ def arrayview():
         compare_files=compare_files,
         overlay_files=list(args.overlay or []),
         dims_override=dims_override,
-        use_webview=use_webview,
+        use_native_shell=use_native_shell,
         watch=getattr(args, "watch", False),
         window_mode=window_mode,
         floating=args.floating,

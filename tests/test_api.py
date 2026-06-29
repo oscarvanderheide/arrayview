@@ -1976,7 +1976,7 @@ class TestLauncherDecisionHelpers:
 
         assert plan == {
             "window_mode": "browser",
-            "use_webview": False,
+            "use_native_shell": False,
             "force_vscode": False,
             "requires_vscode_terminal": False,
             "warn_native_to_vscode": False,
@@ -1996,7 +1996,7 @@ class TestLauncherDecisionHelpers:
 
         assert plan == {
             "window_mode": "vscode",
-            "use_webview": False,
+            "use_native_shell": False,
             "force_vscode": True,
             "requires_vscode_terminal": False,
             "warn_native_to_vscode": True,
@@ -2016,18 +2016,18 @@ class TestLauncherDecisionHelpers:
 
         assert plan == {
             "window_mode": None,
-            "use_webview": True,
+            "use_native_shell": True,
             "force_vscode": False,
             "requires_vscode_terminal": False,
             "warn_native_to_vscode": False,
         }
 
-    def test_should_notify_webview_disables_overlay_path(self):
-        from arrayview._launcher import _should_notify_webview
+    def test_should_notify_native_shell_disables_overlay_path(self):
+        from arrayview._launcher import _should_notify_native_shell
 
-        assert _should_notify_webview(True, None) is True
-        assert _should_notify_webview(True, "sid_overlay") is False
-        assert _should_notify_webview(False, None) is False
+        assert _should_notify_native_shell(True, None) is True
+        assert _should_notify_native_shell(True, "sid_overlay") is False
+        assert _should_notify_native_shell(False, None) is False
 
     def test_plan_cli_port_strategy_for_busy_ssh_tunnel(self):
         from arrayview._launcher import _plan_cli_port_strategy
@@ -2323,7 +2323,7 @@ class TestCliOpenHelpers:
             compare_sids=["sid_cmp"],
             overlay_sid=None,
             dims_override=None,
-            notify_webview=True,
+            notify_native_shell=True,
             notified=True,
             name="base.npy",
             base_file="/tmp/base.npy",
@@ -2358,7 +2358,7 @@ class TestCliOpenHelpers:
             compare_sids=["sid_cmp"],
             overlay_sid=None,
             dims_override=(1, 2),
-            notify_webview=True,
+            notify_native_shell=True,
             notified=False,
             name="base.npy",
             base_file="/tmp/base.npy",
@@ -2397,7 +2397,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid=None,
             dims_override=None,
-            notify_webview=False,
+            notify_native_shell=False,
             notified=False,
             name="base.npy",
             base_file="/tmp/base.npy",
@@ -2455,7 +2455,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid=None,
             dims_override=None,
-            notify_webview=True,
+            notify_native_shell=True,
             notified=False,
             name="base.npy",
             base_file="/tmp/base.npy",
@@ -2506,7 +2506,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid=None,
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             name="base.npy",
             watch=False,
             window_mode="native",
@@ -2557,7 +2557,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid=None,
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             name="base.npy",
             watch=False,
             window_mode="vscode",
@@ -2614,7 +2614,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid=None,
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             name="base.npy",
             watch=False,
             window_mode="native",
@@ -2658,7 +2658,7 @@ class TestCliOpenHelpers:
             compare_sids=[],
             overlay_sid="sid_overlay",
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             name="base.npy",
             watch=True,
             window_mode="browser",
@@ -2710,7 +2710,7 @@ class TestCliOpenHelpers:
             base_file="/tmp/base.npy",
             name="base.npy",
             rgb=True,
-            use_webview=True,
+            use_native_shell=True,
             vectorfield="/tmp/vf.npy",
             vfield_components_dim=2,
         )
@@ -2719,7 +2719,7 @@ class TestCliOpenHelpers:
             "sid": "sid_base",
             "overlay_sid": "sid_overlay",
             "compare_sids": ["sid_cmp"],
-            "notify_webview": False,
+            "notify_native_shell": False,
             "notified": True,
         }
         assert attach_calls == [(8000, "sid_base", "/tmp/vf.npy", 2)]
@@ -2735,7 +2735,7 @@ class TestCliOpenHelpers:
                 "sid": "sid_base",
                 "overlay_sid": None,
                 "compare_sids": ["sid_cmp"],
-                "notify_webview": True,
+                "notify_native_shell": True,
                 "notified": False,
             },
         )
@@ -2754,7 +2754,7 @@ class TestCliOpenHelpers:
             rgb=False,
             vectorfield=None,
             vfield_components_dim=None,
-            use_webview=True,
+            use_native_shell=True,
             dims_override=(1, 2),
             watch=True,
             window_mode="native",
@@ -2768,7 +2768,7 @@ class TestCliOpenHelpers:
                 "compare_sids": ["sid_cmp"],
                 "overlay_sid": None,
                 "dims_override": (1, 2),
-                "notify_webview": True,
+                "notify_native_shell": True,
                 "notified": False,
                 "name": "base.npy",
                 "base_file": "/tmp/base.npy",
@@ -2810,7 +2810,7 @@ class TestCliOpenHelpers:
             compare_files=["/tmp/cmp.npy"],
             overlay_files=["/tmp/overlay.npy"],
             dims_override=(1, 2),
-            use_webview=False,
+            use_native_shell=False,
             watch=True,
             window_mode="browser",
             floating=False,
@@ -2837,14 +2837,14 @@ class TestCliOpenHelpers:
                 "compare_sids": ["sid_cmp"],
                 "overlay_sid": "sid_base",
                 "dims_override": (1, 2),
-                "use_webview": False,
+                "use_native_shell": False,
                 "name": "base.npy",
                 "base_file": "/tmp/base.npy",
                 "watch": True,
                 "window_mode": "browser",
                 "floating": False,
                 "is_remote": False,
-                "webview_already_opened": False,
+                "native_shell_already_opened": False,
             }
         ]
 
@@ -2860,12 +2860,14 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
-            lambda cmd, *args, **kwargs: events.append(("spawn", cmd, kwargs)) or object(),
+            lambda cmd, *args, **kwargs: events.append(("spawn", cmd, kwargs))
+            or object(),
         )
         monkeypatch.setattr(
             launcher,
             "_open_webview_cli_tracked",
-            lambda *args, **kwargs: events.append(("webview", args, kwargs)) or (True, proc),
+            lambda *args, **kwargs: events.append(("native_shell", args, kwargs))
+            or (True, proc),
         )
         monkeypatch.setattr(
             launcher,
@@ -2899,7 +2901,7 @@ class TestCliOpenHelpers:
             compare_files=[],
             overlay_files=[],
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             watch=False,
             window_mode="native",
             floating=False,
@@ -2912,10 +2914,10 @@ class TestCliOpenHelpers:
         )
 
         event_names = [event[0] for event in events]
-        assert event_names[:3] == ["spawn", "webview", "wait"]
+        assert event_names[:3] == ["spawn", "native_shell", "wait"]
         assert "notify" in event_names
         assert events[1][2]["shell_port"] == 8000
-        assert opened[0]["webview_already_opened"] is True
+        assert opened[0]["native_shell_already_opened"] is True
 
     def test_handle_cli_spawned_daemon_falls_back_when_early_native_never_connects(
         self, monkeypatch
@@ -2968,7 +2970,7 @@ class TestCliOpenHelpers:
             compare_files=[],
             overlay_files=[],
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             watch=False,
             window_mode="native",
             floating=False,
@@ -2981,8 +2983,8 @@ class TestCliOpenHelpers:
         )
 
         assert terminated == [True]
-        assert opened[0]["use_webview"] is False
-        assert opened[0]["webview_already_opened"] is False
+        assert opened[0]["use_native_shell"] is False
+        assert opened[0]["native_shell_already_opened"] is False
 
     def test_handle_cli_spawned_daemon_keeps_native_when_early_shell_connects(
         self, monkeypatch
@@ -3037,7 +3039,7 @@ class TestCliOpenHelpers:
             compare_files=[],
             overlay_files=[],
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             watch=False,
             window_mode="native",
             floating=False,
@@ -3050,10 +3052,10 @@ class TestCliOpenHelpers:
         )
 
         assert terminated == []
-        assert opened[0]["use_webview"] is True
-        assert opened[0]["webview_already_opened"] is True
+        assert opened[0]["use_native_shell"] is True
+        assert opened[0]["native_shell_already_opened"] is True
 
-    def test_handle_cli_spawned_daemon_does_not_early_open_remote_webview(
+    def test_handle_cli_spawned_daemon_does_not_early_open_remote_native_shell(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -3086,7 +3088,7 @@ class TestCliOpenHelpers:
             compare_files=[],
             overlay_files=[],
             dims_override=None,
-            use_webview=True,
+            use_native_shell=True,
             watch=False,
             window_mode="native",
             floating=False,
@@ -3100,7 +3102,7 @@ class TestCliOpenHelpers:
 
         assert events[0][0] == "spawn"
         assert events[1][0] == "open"
-        assert events[1][1]["webview_already_opened"] is False
+        assert events[1][1]["native_shell_already_opened"] is False
 
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint

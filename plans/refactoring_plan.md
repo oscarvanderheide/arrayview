@@ -57,6 +57,9 @@ Gap=2, row/col division, NaN-mask mosaic grid duplicated in:
 
 **Risk: Medium | New files: 4**
 
+> Note: the SHM/direct transport item below was superseded and removed. Current
+> VS Code local and tunnel paths use signal files plus forwarded HTTP/WebSocket.
+
 `_vscode.py` is 1,333 lines. Split path:
 
 | Current function(s) | → New file | Lines |

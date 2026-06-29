@@ -1,5 +1,9 @@
 # Webview Message Passing Debug Log
 
+> Archival note: this log predates the WebSocket-only VS Code tunnel path.
+> Mentions of direct webview, stdio mode, PythonBridge, or SHM describe retired
+> debugging history, not current ArrayView transport architecture.
+
 ## Problem Statement
 `uv run arrayview medium_array.npy` in VS Code tunnel: opens webview tab the first time, but subsequent runs (after closing tab + Ctrl+C) do nothing.
 

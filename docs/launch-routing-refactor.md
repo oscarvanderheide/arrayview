@@ -1,9 +1,5 @@
 # Launch Routing Refactor
 
-> Note: this plan predates the WebSocket-only VS Code tunnel refactor. Mentions
-> of stdio/direct webview and SHM describe retired transport work, not current
-> implementation guidance.
-
 ArrayView currently opens displays through several partially overlapping paths:
 CLI, `view()`, Jupyter, Julia, VS Code local, VS Code tunnel, SSH, native
 pywebview, and browser fallback.  The same policy is
@@ -111,12 +107,7 @@ Separate these cases explicitly:
 Do not let display-opening helpers implicitly switch an existing registered URL
 into a different transport.
 
-## Phase 5: Retired VS Code Direct Mode
-
-Obsolete. The direct stdio/SHM transport was removed in favor of the forwarded
-HTTP/WebSocket path.
-
-## Phase 6: Registration Semantics
+## Phase 5: Registration Semantics
 
 Align `/load`, daemon startup, and in-process registration:
 
@@ -137,8 +128,8 @@ Prefer contract tests over broad visual smoke for launch routing:
 - VS Code remote forwarded HTTP/WebSocket
 - VS Code remote existing HTTP URL
 - Jupyter inline
-- VS Code remote notebook direct
-- Julia subprocess/direct
+- VS Code remote notebook
+- Julia subprocess
 
 Execution contracts:
 
@@ -155,9 +146,8 @@ Execution contracts:
 3. Move CLI planning into `plan_launch()`.
 4. Move `view()` planning into `plan_launch()`.
 5. Unify native readiness for CLI and `view()`.
-6. Fix remote existing-server URL/direct ambiguity.
-7. Remove retired stdio/SHM direct mode.
-8. Align `/load`, daemon startup, and in-process registration semantics.
+6. Fix remote existing-server URL ambiguity.
+7. Align `/load`, daemon startup, and in-process registration semantics.
 
 Each step should have focused invocation tests and should avoid unrelated UI or
 rendering changes.
