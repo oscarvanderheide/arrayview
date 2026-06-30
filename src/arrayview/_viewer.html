@@ -12202,8 +12202,8 @@
         }
 
         function applyMvFlips(v, imageData, w, h) {
-            const fx = flipDims[v.dimX] || false;
-            const fy = flipDims[v.dimY] || false;
+            const fx = _mvFlipX(v);
+            const fy = _mvFlipY(v);
             if (!fx && !fy) return imageData;
             const src = imageData.data;
             const out = new Uint8ClampedArray(src.length);
@@ -12218,6 +12218,16 @@
                 }
             }
             return new ImageData(out, w, h);
+        }
+
+        function _mvFlipX(v) {
+            if (!v) return false;
+            return v.flipX !== undefined ? !!v.flipX : !!flipDims[v.dimX];
+        }
+
+        function _mvFlipY(v) {
+            if (!v) return false;
+            return v.flipY !== undefined ? !!v.flipY : !!flipDims[v.dimY];
         }
 
         let _wsRetryTimer = null;
@@ -20369,18 +20379,14 @@
                     // Transpose x and y: swap the dimension indices and flips
                     if (shape.length < 2) return;
                     if (multiViewActive) {
-                        const _otx = dim_x, _oty = dim_y;
-                        const _adOnOldX = activeDim === _otx;
-                        const _adOnOldY = activeDim === _oty;
-                        mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
-                        [dim_x, dim_y] = [dim_y, dim_x];
-                        [flip_x, flip_y] = [flip_y, flip_x];
-                        if (_adOnOldX) activeDim = dim_x;
-                        else if (_adOnOldY) activeDim = dim_y;
-                        flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
-                        mvDims = [dim_y, dim_x, mvDims.find(d => d !== _otx && d !== _oty)];
-                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                        showStatus('transposed x/y (all panes)');
+                        const v = _mvCurrentPane();
+                        if (!v) return;
+                        const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
+                        [v.dimX, v.dimY] = [v.dimY, v.dimX];
+                        v.flipX = ofy; v.flipY = ofx;
+                        _mvUpdatePaneAxisLabels(v);
+                        _mvRenderPaneOnly(v);
+                        showStatus('transposed pane x/y');
                         _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         renderInfo(); saveState();
@@ -20407,38 +20413,14 @@
                 run: (ctx, e) => {
                     if (_segMode) { _segReset(); return; }
                     if (multiViewActive) {
-                        const oldDimX = dim_x, oldDimY = dim_y;
-                        const _adOnOldX = activeDim === oldDimX;
-                        const _adOnOldY = activeDim === oldDimY;
-                        dim_x = oldDimY; dim_y = oldDimX;
-                        if (_adOnOldX) activeDim = dim_x;
-                        else if (_adOnOldY) activeDim = dim_y;
-                        const ofx = flipDims[oldDimX] || false, ofy = flipDims[oldDimY] || false;
-                        flipDims[dim_x] = ofy; flipDims[dim_y] = !ofx;
-                        const third = mvDims.find(d => d !== oldDimX && d !== oldDimY);
-                        mvDims = [dim_y, dim_x, third];
-                        const newDefs = [
-                            { dimX: mvDims[1], dimY: mvDims[0], sliceDir: mvDims[2] },
-                            { dimX: mvDims[2], dimY: mvDims[0], sliceDir: mvDims[1] },
-                            { dimX: mvDims[2], dimY: mvDims[1], sliceDir: mvDims[0] },
-                        ];
-                        mvViews.forEach((v, i) => {
-                            v.dimX = newDefs[i].dimX; v.dimY = newDefs[i].dimY;
-                            v.sliceDir = newDefs[i].sliceDir;
-                            v.seq++;
-                        });
-                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                        const _axLetters = ['x', 'y', 'z'];
-                        mvViews.forEach((v, i) => {
-                            const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
-                            const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
-                            v.axLblX = newX; v.axLblY = newY;
-                            if (v.axesSvg) {
-                                v.axesSvg.querySelector('.axes-lbl-x').textContent = newX;
-                                v.axesSvg.querySelector('.axes-lbl-y').textContent = newY;
-                            }
-                        });
-                        showStatus('rotated 90°');
+                        const v = _mvCurrentPane();
+                        if (!v) return;
+                        const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
+                        [v.dimX, v.dimY] = [v.dimY, v.dimX];
+                        v.flipX = ofy; v.flipY = !ofx;
+                        _mvUpdatePaneAxisLabels(v);
+                        _mvRenderPaneOnly(v);
+                        showStatus('rotated pane 90°');
                         _roiClearOnDimChange();
                         renderInfo(); saveState();
                     } else {
@@ -24781,6 +24763,40 @@
 
         /* ── JS: Mode Transitions (Compare, MultiView, qMRI) ───── */
 
+        let _mvCurrentView = null;
+
+        function _mvSetCurrentView(view) {
+            if (view && mvViews.includes(view)) _mvCurrentView = view;
+        }
+
+        function _mvCurrentPane() {
+            if (_mvCurrentView && mvViews.includes(_mvCurrentView)) return _mvCurrentView;
+            return mvViews.find(v => v && v.canvas && v.canvas.matches(':hover')) || mvViews[0] || null;
+        }
+
+        function _mvUpdatePaneAxisLabels(v) {
+            const _axLetters = ['x', 'y', 'z'];
+            const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
+            const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
+            v.axLblX = newX; v.axLblY = newY;
+            if (v.axesSvg) {
+                const xEl = v.axesSvg.querySelector('.axes-lbl-x');
+                const yEl = v.axesSvg.querySelector('.axes-lbl-y');
+                if (xEl) xEl.textContent = newX;
+                if (yEl) yEl.textContent = newY;
+            }
+        }
+
+        function _mvRenderPaneOnly(v) {
+            _mvSetCurrentView(v);
+            v.seq++;
+            v.lastImageData = null;
+            v.lastW = 0; v.lastH = 0;
+            v.rendering = false; v.pending = false;
+            mvDrawFrame(v);
+            mvRender(v);
+        }
+
         function exitCompareMode() {
             if (compareQmriActive) exitCompareQmri();
             if (compareMvActive) exitCompareMv();
@@ -24896,6 +24912,7 @@
             }
             multiViewActive = true;
             _orthoAutoLayoutMode = null;
+            _mvCurrentView = null;
             _mvOrientationHidden = false;
             document.getElementById('mini-map').classList.remove('visible');
             _mvPrevZoom = userZoom;
@@ -25021,8 +25038,11 @@
                     pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
+                pane.addEventListener('mouseenter', () => _mvSetCurrentView(view));
+                cv.addEventListener('mouseenter', () => _mvSetCurrentView(view));
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
+                    _mvSetCurrentView(view);
                     if (obliqueVecs) {
                         // Oblique mode: scroll along the hovered pane normal so the
                         // wheel gesture still feels like "step through slices" even
@@ -25054,6 +25074,7 @@
                 cv.addEventListener('mousedown', (e) => {
                     if (e.button !== 0) return;
                     e.preventDefault();
+                    _mvSetCurrentView(view);
                     sink.focus();
                     if (!view.lastW || !view.lastH) return;
                     const rect = cv.getBoundingClientRect();
@@ -25408,6 +25429,7 @@
             if (mipActive) exitMipMode();
             multiViewActive = false;
             _orthoAutoLayoutMode = null;
+            _mvCurrentView = null;
             // Clean up multiview vector field state
             _mvVfieldCache.clear();
             _mvVfieldAborts.forEach(ac => ac.abort());
@@ -28009,8 +28031,8 @@
                     }, 60);
                 }
             } else {
-                const fx = flipDims[view.dimX] || false;
-                const fy = flipDims[view.dimY] || false;
+                const fx = _mvFlipX(view);
+                const fy = _mvFlipY(view);
                 indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1,
                     fx ? shape[view.dimX] - 1 - Math.floor(px) : Math.floor(px)));
                 indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1,
@@ -28484,7 +28506,7 @@
                         _chCtx.stroke();
                     });
                 } else {
-                    const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+                    const fx = _mvFlipX(v), fy = _mvFlipY(v);
                     const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
                     const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                     // Convert to CSS coords
