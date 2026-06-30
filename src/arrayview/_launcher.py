@@ -809,6 +809,7 @@ def _load_session_from_filepath(
     notify: bool = False,
     rgb: bool = False,
     compare_sids: _CompareSids | None = None,
+    select: list[str] | None = None,
 ) -> dict:
     payload = {
         "filepath": filepath,
@@ -817,6 +818,8 @@ def _load_session_from_filepath(
     }
     if rgb:
         payload["rgb"] = True
+    if select:
+        payload["select"] = select
     if notify and compare_sids:
         payload["compare_sid"] = compare_sids[0]
         payload["compare_sids"] = _join_query_values(compare_sids)
@@ -1037,6 +1040,7 @@ def _register_cli_session_with_existing_server(
     use_native_shell: bool,
     vectorfield: str | None,
     vfield_components_dim: int | None,
+    select: list[str] | None = None,
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
     for ov_path in overlay_paths:
@@ -1063,6 +1067,7 @@ def _register_cli_session_with_existing_server(
         notify=notify_native_shell,
         rgb=rgb,
         compare_sids=compare_sids,
+        select=select,
     )
     if "error" in result:
         raise RuntimeError(f"Error from server: {result['error']}")
@@ -1101,6 +1106,7 @@ def _handle_cli_existing_server(
     watch: bool,
     window_mode: str | None,
     floating: bool,
+    select: list[str] | None = None,
 ) -> None:
     try:
         session_info = _register_cli_session_with_existing_server(
@@ -1113,6 +1119,7 @@ def _handle_cli_existing_server(
             use_native_shell=use_native_shell,
             vectorfield=vectorfield,
             vfield_components_dim=vfield_components_dim,
+            select=select,
         )
     except Exception as e:
         print(
@@ -1155,6 +1162,7 @@ def _handle_cli_spawned_daemon(
     rgb: bool,
     demo_name: str | None,
     demo_cleanup: bool,
+    select: list[str] | None = None,
 ) -> None:
     sid = uuid.uuid4().hex
     overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
@@ -1176,6 +1184,7 @@ def _handle_cli_spawned_daemon(
         f" vfield_components_dim={repr(vfield_components_dim)},"
         f" persist={is_remote},"
         f" rgb={rgb},"
+        f" stack_select={repr(select)},"
         f")"
     )
     subprocess.Popen(
@@ -1939,7 +1948,12 @@ def view(
     def _convert_array(data):
         if not isinstance(data, np.ndarray):
             _mod = type(data).__module__ or ""
-            _is_lazy = "nibabel" in _mod or "zarr" in _mod or "h5py" in _mod
+            _is_lazy = (
+                "nibabel" in _mod
+                or "zarr" in _mod
+                or "h5py" in _mod
+                or getattr(data, "_av_lazy", False)
+            )
             if not _is_lazy:
                 if (
                     hasattr(data, "detach")  # PyTorch
@@ -2690,9 +2704,10 @@ def _serve_daemon(
     compare_filepath: str = None,
     compare_sid: str = None,
     vfield_filepath: str = None,
-    vfield_components_dim: int = None,
+    vfield_components_dim: int | None = None,
     persist: bool = False,
     rgb: bool = False,
+    stack_select: list[str] | None = None,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -2744,7 +2759,7 @@ def _serve_daemon(
                 except Exception:
                     pass
             _load_key = _array_keys[0]["key"] if _array_keys else None
-            data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
+            data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
             if cleanup:
                 try:
                     os.unlink(filepath)
@@ -3011,6 +3026,41 @@ def _handle_config_command(args: list[str]) -> None:
     sys.exit(1)
 
 
+# ── NIfTI Series Helper ───────────────────────────────────────────
+
+
+def view_dir(
+    path,
+    *,
+    select=None,
+    port: int = 8123,
+    name=None,
+    **view_kwargs,
+):
+    """View a directory of NIfTI files as a single lazy 4D/5D array.
+
+    Walks *path* recursively, groups ``.nii``/``.nii.gz`` by immediate parent
+    folder (= patient).  With one file per patient → 4D ``(*vol, P)``.
+    Pass *select* (a list of fnmatch patterns) to pick multiple modalities
+    per patient → 5D ``(*vol, P, M)``.
+
+    Example::
+
+        arrayview.view_dir("patients/")
+        arrayview.view_dir("patients/", select=["*t1*", "*t2*", "*flair*"])
+
+    Only the requested slice is loaded — RAM stays bounded regardless of
+    series size.  Accepts the same keyword arguments as :func:`view`
+    (``window``, ``inline``, ``port``, etc.).
+    """
+    from arrayview._io import load_data_with_meta
+
+    data, _meta = load_data_with_meta(path, select=select)
+    if name is None:
+        name = os.path.basename(os.path.abspath(path)) or "nifti_series"
+    return view(data, name=name, port=port, **view_kwargs)
+
+
 # ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
@@ -3149,6 +3199,30 @@ def arrayview():
         dest="array_name",
         help="Display name for the array",
     )
+    parser.add_argument(
+        "--stack-nifti",
+        action="store_true",
+        dest="stack_nifti",
+        help=(
+            "Stack a directory of NIfTI files into a single 4D/5D array. "
+            "FILE must be a directory; .nii/.nii.gz files are discovered "
+            "recursively, grouped by immediate parent folder (= patient). "
+            "With one file per patient → 4D (*vol, P). Use --select to pick "
+            "multiple modalities per patient → 5D (*vol, P, M)."
+        ),
+    )
+    parser.add_argument(
+        "--select",
+        metavar="PATTERN",
+        action="append",
+        default=None,
+        dest="stack_select",
+        help=(
+            "fnmatch pattern to select one NIfTI per patient (use with "
+            "--stack-nifti). Repeatable: each pattern picks one modality. "
+            "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
+        ),
+    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
@@ -3271,6 +3345,24 @@ def arrayview():
                 f"--dims {args.dims!r} is invalid. "
                 "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
             )
+    if args.stack_select and not args.stack_nifti:
+        parser.error("--select requires --stack-nifti.")
+    if args.stack_nifti:
+        if len(args.files) != 1:
+            parser.error(
+                "--stack-nifti requires exactly one FILE argument (a directory)."
+            )
+        if args.compare or args.overlay or args.vectorfield or args.watch:
+            parser.error(
+                "--stack-nifti is incompatible with --compare, --overlay, "
+                "--vectorfield, and --watch."
+            )
+        _stack_dir = os.path.abspath(args.files[0])
+        if not os.path.isdir(_stack_dir):
+            print(f"Error: not a directory: {_stack_dir}")
+            sys.exit(1)
+        if dims_override is None:
+            dims_override = (0, 1)
     if not args.serve and not args.kill and not args.files:
         # No files given: launch the animated pixel-art demo
         import tempfile as _tempfile
@@ -3464,7 +3556,7 @@ def arrayview():
     if args.compare:
         compare_files.append(os.path.abspath(args.compare))
 
-    if not os.path.isfile(base_file):
+    if not args.stack_nifti and not os.path.isfile(base_file):
         print(f"Error: file not found: {base_file}")
         sys.exit(1)
 
@@ -3624,6 +3716,7 @@ def arrayview():
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
             floating=args.floating,
+            select=args.stack_select,
         )
         return
 
@@ -3647,4 +3740,5 @@ def arrayview():
         rgb=args.rgb,
         demo_name=demo_name,
         demo_cleanup=demo_cleanup,
+        select=args.stack_select,
     )

@@ -7,12 +7,13 @@ __all__ = [
     "arrayview",
     "view",
     "view_batch",
+    "view_dir",
     "zarr_chunk_preset",
 ]
 
 
 def __getattr__(name: str):
-    if name in {"arrayview", "view", "ViewHandle"}:
+    if name in {"arrayview", "view", "view_dir", "ViewHandle"}:
         from arrayview import _launcher
 
         return getattr(_launcher, name)

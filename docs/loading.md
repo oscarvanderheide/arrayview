@@ -87,6 +87,41 @@ uvx arrayview base.npy moving.npy           # compare mode
 uvx arrayview volume.nii.gz --overlay mask.nii.gz
 ```
 
+## NIfTI Series (4D/5D from a directory)
+
+Stack a directory of NIfTI files into a single lazy 4D/5D array — only the
+viewed slice is loaded, so RAM stays bounded regardless of series size.
+
+```bash
+uvx arrayview patients/ --stack-nifti
+```
+
+Discovers `.nii`/`.nii.gz` recursively, groups by immediate parent folder
+(= patient). One file per patient → 4D `(*vol, P)`. The viewer opens with
+X/Y on screen, Z as primary scroll, patient index as a slider.
+
+Multiple files per patient (e.g. `t1`, `t2`, `flair`) → use `--select`:
+
+```bash
+uvx arrayview patients/ --stack-nifti --select '*t1*' --select '*t2*' --select '*flair*'
+```
+
+Each `--select` pattern picks one file per patient (fnmatch on basename).
+Produces 5D `(*vol, P, M)` with modality as the last axis. Every patient
+must match exactly one file per pattern.
+
+Python API:
+
+```python
+from arrayview import view_dir
+
+view_dir("patients/")
+view_dir("patients/", select=["*t1*", "*t2*", "*flair*"])
+```
+
+Patient folders with no NIfTI files (e.g. only `.dcm`) raise an error —
+convert DICOM to NIfTI first (e.g. `dcm2niix`).
+
 ## Zarr
 
 Use `zarr_chunk_preset` to get chunk shapes optimized for slice navigation:
