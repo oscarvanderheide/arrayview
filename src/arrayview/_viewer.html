@@ -8302,6 +8302,7 @@
         function _syncPrimaryCb() {
             primaryCb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
             primaryCb._histData = _histData;
+            primaryCb._histVersion = _histDataVersion;
             primaryCb._kdeSmooth = _kdeSmooth;
         }
 
@@ -8842,6 +8843,41 @@
                 this._kdeSmooth = out;
             }
 
+            _expectedHistVersion() {
+                return typeof this.opts.getHistogramVersion === 'function'
+                    ? this.opts.getHistogramVersion()
+                    : null;
+            }
+
+            _histDataCurrent() {
+                if (!this._histData) return false;
+                const expected = this._expectedHistVersion();
+                return expected == null || this._histVersion === expected;
+            }
+
+            _syncWindowFractionsToCurrent() {
+                if (!this._histData || typeof this.opts.getWindow !== 'function') return;
+                const { vmin: dmin, vmax: dmax } = this._histData;
+                const win = this.opts.getWindow();
+                if (!win || !Number.isFinite(win.vmin) || !Number.isFinite(win.vmax)) return;
+                const range = dmax - dmin || 1;
+                let vminFrac = (win.vmin - dmin) / range;
+                let vmaxFrac = (win.vmax - dmin) / range;
+                vminFrac = Math.max(0, Math.min(1, vminFrac));
+                vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
+                this._winVminF = vminFrac;
+                this._winVmaxF = vmaxFrac;
+                this._winVminTarget = vminFrac;
+                this._winVmaxTarget = vmaxFrac;
+                this._winVminFrom = vminFrac;
+                this._winVmaxFrom = vmaxFrac;
+            }
+
+            _snapWindowFractionsOnNextDraw() {
+                this._syncWindowFractionsToCurrent();
+                this._snapWindowFractions = true;
+            }
+
             /** Interpolate KDE value at fraction t (0..1). */
             _kdeAt(t) {
                 if (!this._kdeSmooth) return 0;
@@ -8993,8 +9029,8 @@
                     vmaxFrac = (win.vmax - dmin) / range;
                     // Snap to the data extrema so the dim check doesn't flag a
                     // 1-pixel sliver when the window sits at full range.
-                    if (vminFrac <= 0) vminFrac = 0;
-                    if (vmaxFrac >= 1) vmaxFrac = 1;
+                    vminFrac = Math.max(0, Math.min(1, vminFrac));
+                    vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
                 }
                 if (this._dragActive) {
                     this._winVminF = vminFrac;
@@ -9133,8 +9169,19 @@
                     vmaxFrac = (win.vmax - dmin) / range;
                     // Snap to the data extrema so the dim check doesn't flag a
                     // 1-pixel sliver when the window sits at full range.
-                    if (vminFrac <= 0) vminFrac = 0;
-                    if (vmaxFrac >= 1) vmaxFrac = 1;
+                    vminFrac = Math.max(0, Math.min(1, vminFrac));
+                    vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
+                }
+
+                if (this._snapWindowFractions) {
+                    this._snapWindowFractions = false;
+                    this._winVminF = vminFrac;
+                    this._winVmaxF = vmaxFrac;
+                    this._winVminTarget = vminFrac;
+                    this._winVmaxTarget = vmaxFrac;
+                    this._winVminFrom = vminFrac;
+                    this._winVmaxFrom = vmaxFrac;
+                    this._winTransStart = performance.now();
                 }
 
                 // Lerp animated window fractions toward target (snap during drag)
@@ -9365,17 +9412,16 @@
                     ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
                 const labelFormatter = this._dragLabelFormatter || formatValueGroup([this._labelVmin, this._labelVmax, vmin, vmax]);
                 const formatLabel = this.opts.formatLabel;
+                const defaultLabel = (value) => _cbFmt(value, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
 
                 if (this.vminLabel) {
-                    this.vminLabel.innerHTML = formatLabel
-                        ? formatLabel(this._labelVmin, 'vmin')
-                        : _cbFmt(this._labelVmin, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                    const custom = formatLabel ? formatLabel(this._labelVmin, 'vmin') : null;
+                    this.vminLabel.innerHTML = custom ?? defaultLabel(this._labelVmin);
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    this.vmaxLabel.innerHTML = formatLabel
-                        ? formatLabel(this._labelVmax, 'vmax')
-                        : _cbFmt(this._labelVmax, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                    const custom = formatLabel ? formatLabel(this._labelVmax, 'vmax') : null;
+                    this.vmaxLabel.innerHTML = custom ?? defaultLabel(this._labelVmax);
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -9403,18 +9449,18 @@
                 // Ease-out (fast start, gentle finish) for both expand and collapse
                 const easedT = 1 - Math.pow(1 - rawT, 3);
                 this._animT = this._animFrom + (this._animTarget - this._animFrom) * easedT;
+                const morphDone = rawT >= 1;
+                if (morphDone) this._animT = this._animTarget;
                 if (this.wrap) this.wrap.classList.toggle('cb-expanded', this._animT > 0.05);
                 this.draw();
                 this.updateLabels();
                 if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
-                const morphDone = rawT >= 1;
                 const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
                              && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
                 const labelDone = this._labelVminTarget == null ||
                     (Math.abs((this._labelVmin ?? 0) - this._labelVminTarget) < Math.max(Math.abs(this._labelVminTarget) * 0.001, 1e-6)
                   && Math.abs((this._labelVmax ?? 0) - this._labelVmaxTarget) < Math.max(Math.abs(this._labelVmaxTarget) * 0.001, 1e-6));
-                if (morphDone) {
-                    this._animT = this._animTarget;
+                if (morphDone && winDone && labelDone) {
                     this._winVminF = this._winVminTarget;
                     this._winVmaxF = this._winVmaxTarget;
                     if (this._labelVminTarget != null) this._labelVmin = this._labelVminTarget;
@@ -9422,10 +9468,6 @@
                     this.draw();
                     this.updateLabels();
                     if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
-                    this._animating = false;
-                    return;
-                }
-                if (morphDone && winDone && labelDone) {
                     this._animating = false;
                     return;
                 }
@@ -9480,6 +9522,7 @@
                 if (!this._expanded || this._histFetching || !this.opts.fetchHistogram) return;
                 this._histFetching = true;
                 this._histData = await this.opts.fetchHistogram();
+                this._histVersion = this._expectedHistVersion();
                 this._histFetching = false;
                 this._buildKDE();
                 this.draw();
@@ -9487,10 +9530,16 @@
 
             /** Ensure histogram data exists without forcing the bar open. */
             async ensureHistogramData() {
+                if (this._histData && !this._histDataCurrent()) {
+                    this._histData = null;
+                    this._kdeSmooth = null;
+                    this._histVersion = null;
+                }
                 if (this._histData || this._histFetching || !this.opts.fetchHistogram) return this._histData;
                 this._histFetching = true;
                 try {
                     this._histData = await this.opts.fetchHistogram();
+                    this._histVersion = this._expectedHistVersion();
                 } finally {
                     this._histFetching = false;
                 }
@@ -10618,6 +10667,7 @@
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } } },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
+            getHistogramVersion: () => compareActive ? null : _volumeHistCacheKey(_volHistSpatialOpts()),
             onAnimFrame: (cb) => {
                 // Layout recalculation during expand/collapse animation
                 if (multiViewActive || compareMvActive) {
@@ -10691,6 +10741,34 @@
         // _fetchHistogram removed (Task 4) — replaced by _fetchVolumeHistogram
 
         let _volHistCache = {};
+
+        function _volumeHistCacheKey(opts = {}) {
+            const fetchDimX = opts.dimX ?? dim_x;
+            const fetchDimY = opts.dimY ?? dim_y;
+            let scrollDims = opts.scrollDims;
+            if (!Array.isArray(scrollDims)) {
+                if (opts.scrollDim != null && opts.scrollDim >= 0) scrollDims = [opts.scrollDim];
+                else scrollDims = [];
+            }
+            scrollDims = scrollDims.filter(d =>
+                Number.isInteger(d) && d >= 0 && d < shape.length && d !== fetchDimX && d !== fetchDimY
+            );
+            const cMode = opts.complexMode ?? complexMode;
+            let fixedIndices = opts.fixedIndices;
+            if (fixedIndices == null) {
+                const agg = new Set(scrollDims);
+                const parts = [];
+                for (let i = 0; i < shape.length; i++) {
+                    if (i === fetchDimX || i === fetchDimY || agg.has(i)) continue;
+                    parts.push(`${i}:${indices[i]}`);
+                }
+                fixedIndices = parts.join(',');
+            }
+            const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
+            const qmriRole = opts.qmriRole || '';
+            const numBins = opts.bins || 64;
+            return `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
+        }
 
         async function _fetchVolumeHistogram(opts = {}) {
             if (_histFetching) return null;
@@ -10962,6 +11040,7 @@
                 const mv = modeManager.currentViews[i];
                 if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
             });
+            if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
             return preset;
         }
 
@@ -11003,6 +11082,13 @@
             return { vmin: lo, vmax: hi };
         }
 
+        function _normalizeQmriHistogramForColorbar(view, hist) {
+            if (!view || !hist) return hist;
+            const normalized = _normalizeQmriWindowPolicy(view, { vmin: hist.vmin, vmax: hist.vmax });
+            if (!normalized) return hist;
+            return Object.assign({}, hist, { vmin: normalized.vmin, vmax: normalized.vmax });
+        }
+
         function _applyQmriWindowPolicy(view, win) {
             const normalized = _normalizeQmriWindowPolicy(view, win);
             if (!normalized) return null;
@@ -11019,6 +11105,7 @@
         function _formatQmriColorbarLabel(view, value) {
             if (!view || view.syntheticId) return null;
             if (view.qmriRole === 't1' || view.qmriRole === 't2') return String(Math.round(Number(value)));
+            if (Math.abs(Number(value)) < 1e-8) return '0';
             return null;
         }
 
@@ -11029,6 +11116,7 @@
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
             let win = null;
+            let hist = null;
             if (view.syntheticId) {
                 const range = { vmin: view.vmin, vmax: view.vmax };
                 const span = Number(range.vmax) - Number(range.vmin);
@@ -11040,7 +11128,7 @@
                 }
             } else {
                 const fixedIndices = `${qmriDim}:${view.qmriIdx}`;
-                const hist = await _fetchVolumeHistogram({
+                hist = await _fetchVolumeHistogram({
                     dimX: dim_x, dimY: dim_y,
                     scrollDim: current_slice_dim,
                     complexMode: complexMode,
@@ -11049,9 +11137,19 @@
                     bins: 128,
                 });
                 win = _quantileWindowFromHistogram(hist, preset);
+                hist = _normalizeQmriHistogramForColorbar(view, hist);
             }
             const applied = _applyQmriWindowPolicy(view, win);
             if (!applied) { showStatus('qMRI range: unavailable'); return true; }
+            if (hist) {
+                [view._colorBar, view._mosaicColorBar].forEach(cb => {
+                    if (!cb) return;
+                    cb._histData = hist;
+                    cb._histVersion = cb._expectedHistVersion();
+                    cb._buildKDE();
+                    cb._syncWindowFractionsToCurrent();
+                });
+            }
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
             qvRender(view);
             const name = view.syntheticId
@@ -20816,6 +20914,7 @@
                         primaryCb._animTarget = 1;
                         if (primaryCb.wrap) primaryCb.wrap.classList.add('cb-expanded');
                         if (primaryCb.triZone) primaryCb.triZone.classList.add('expanded');
+                        primaryCb._snapWindowFractionsOnNextDraw();
                         primaryCb.updateLabels();
                         primaryCb.draw();
                         primaryCb.ensureHistogramData().then(() => {
@@ -20823,6 +20922,7 @@
                                 _histData = primaryCb._histData;
                                 _kdeSmooth = primaryCb._kdeSmooth;
                             }
+                            primaryCb._snapWindowFractionsOnNextDraw();
                             const q = _currentQuantileFromHist(
                                 manualVmin ?? currentVmin,
                                 manualVmax ?? currentVmax,
@@ -26126,7 +26226,7 @@
                             const fixedPairs = [];
                             fixedPairs.push(qmriDim + ':' + view.qmriIdx);
                             const fixedIndices = fixedPairs.join(',');
-                            return _fetchVolumeHistogram({
+                            const hist = await _fetchVolumeHistogram({
                                 dimX: dim_x, dimY: dim_y,
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
@@ -26134,7 +26234,16 @@
                                 qmriRole: view.qmriRole,
                                 bins: 128,
                             });
+                            return _normalizeQmriHistogramForColorbar(view, hist);
                         },
+                        getHistogramVersion: () => _volumeHistCacheKey({
+                            dimX: dim_x, dimY: dim_y,
+                            scrollDim: current_slice_dim,
+                            complexMode: complexMode,
+                            fixedIndices: qmriDim + ':' + view.qmriIdx,
+                            qmriRole: view.qmriRole,
+                            bins: 128,
+                        }),
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
                         onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                         onDragStart: () => { _stopColorbarLebesgueHover(); },
@@ -26637,7 +26746,7 @@
                             const fixedPairs = [];
                             fixedPairs.push(compareQmriDim + ':' + view.qmriIdx);
                             const fixedIndices = fixedPairs.join(',');
-                            return _fetchVolumeHistogram({
+                            const hist = await _fetchVolumeHistogram({
                                 dimX: dim_x, dimY: dim_y,
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
@@ -26645,7 +26754,16 @@
                                 qmriRole: view.qmriRole,
                                 bins: 128,
                             });
+                            return _normalizeQmriHistogramForColorbar(view, hist);
                         },
+                        getHistogramVersion: () => _volumeHistCacheKey({
+                            dimX: dim_x, dimY: dim_y,
+                            scrollDim: current_slice_dim,
+                            complexMode: complexMode,
+                            fixedIndices: compareQmriDim + ':' + view.qmriIdx,
+                            qmriRole: view.qmriRole,
+                            bins: 128,
+                        }),
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
                         onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                         onDragStart: () => { _stopColorbarLebesgueHover(); },
@@ -27717,7 +27835,7 @@
                             const fixedPairs = [];
                             fixedPairs.push(qmriDim + ':' + v.qmriIdx);
                             const fixedIndices = fixedPairs.join(',');
-                            return _fetchVolumeHistogram({
+                            const hist = await _fetchVolumeHistogram({
                                 dimX: dim_x, dimY: dim_y,
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
@@ -27725,7 +27843,16 @@
                                 qmriRole: v.qmriRole,
                                 bins: 128,
                             });
+                            return _normalizeQmriHistogramForColorbar(v, hist);
                         },
+                        getHistogramVersion: () => _volumeHistCacheKey({
+                            dimX: dim_x, dimY: dim_y,
+                            scrollDim: current_slice_dim,
+                            complexMode: complexMode,
+                            fixedIndices: qmriDim + ':' + v.qmriIdx,
+                            qmriRole: v.qmriRole,
+                            bins: 128,
+                        }),
                         onWindowChange: () => { qvRender(v); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
                     });
@@ -31897,6 +32024,7 @@
                 const mv = modeManager.currentViews[i];
                 if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
             });
+            if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
         }
 
         // ── 4. A/B wipe comparator (cursor-following) ──────────────

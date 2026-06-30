@@ -53,6 +53,73 @@ def test_normal_d_command_expands_histogram_without_spinning(loaded_viewer, sid_
     assert result.get("animating") is False
 
 
+def test_normal_repeated_d_cycles_keep_histogram_handles_aligned(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        if (!primaryCb._histData) return { error: 'missing histogram' };
+        window._dQuantileIdx = _QUANTILE_PRESETS.length - 2;
+        const samples = [];
+        for (let i = 0; i < _QUANTILE_PRESETS.length + 2; i++) {
+            await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+            await new Promise(r => setTimeout(r, 120));
+            const hist = primaryCb._histData;
+            const win = primaryCb.opts.getWindow();
+            const range = hist.vmax - hist.vmin || 1;
+            samples.push({
+                targetLo: primaryCb._winVminTarget,
+                targetHi: primaryCb._winVmaxTarget,
+                drawLo: primaryCb._winVminF,
+                drawHi: primaryCb._winVmaxF,
+                expectedLo: Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range)),
+                expectedHi: Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range)),
+            });
+        }
+        return { samples };
+    }""")
+    assert "error" not in result
+    for sample in result["samples"]:
+        assert sample["drawLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
+        assert sample["drawHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+        assert sample["targetLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
+        assert sample["targetHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+
+
+def test_normal_d_open_after_collapse_snaps_full_range_handles(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        if (!primaryCb._histData) return { error: 'missing histogram' };
+        manualVmin = primaryCb._histData.vmin;
+        manualVmax = primaryCb._histData.vmax;
+        primaryCb._expanded = false;
+        primaryCb._animT = 1;
+        primaryCb._winVminF = 0.25;
+        primaryCb._winVmaxF = 0.75;
+        primaryCb._winVminTarget = 0.25;
+        primaryCb._winVmaxTarget = 0.75;
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 120));
+        return {
+            expanded: primaryCb._expanded,
+            drawLo: primaryCb._winVminF,
+            drawHi: primaryCb._winVmaxF,
+            targetLo: primaryCb._winVminTarget,
+            targetHi: primaryCb._winVmaxTarget,
+        };
+    }""")
+    assert "error" not in result
+    assert result["expanded"] is True
+    assert result["drawLo"] == pytest.approx(0, abs=1e-9)
+    assert result["drawHi"] == pytest.approx(1, abs=1e-9)
+    assert result["targetLo"] == pytest.approx(0, abs=1e-9)
+    assert result["targetHi"] == pytest.approx(1, abs=1e-9)
+
+
 def test_setwindow_dual_write_propagates_to_displaystate(loaded_viewer, sid_3d):
     """Phase 17: setWindow() dual-write syncs manualVmin to displayState.vmin."""
     page = loaded_viewer(sid_3d)
@@ -355,6 +422,120 @@ def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
     assert result["after"]["hi"] != result["before"]["hi"]
     assert "." not in result["labelText"]
 
+
+def test_qmri_non_relaxation_maps_show_colorbar_labels(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 700));
+        const views = qmriViews
+            .filter(v => v.qmriRole !== 't1' && v.qmriRole !== 't2')
+            .map(v => ({
+                role: v.qmriRole,
+                vminText: v.cbVmin ? v.cbVmin.textContent.trim() : '',
+                vmaxText: v.cbVmax ? v.cbVmax.textContent.trim() : '',
+            }));
+        return { count: views.length, views };
+    }""")
+    assert result.get("count", 0) > 0
+    for view in result["views"]:
+        assert view["vminText"], view
+        assert view["vmaxText"], view
+
+
+def test_qmri_near_zero_labels_do_not_use_scientific_notation(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    result = page.evaluate("""() => {
+        const view = { qmriRole: 'db0' };
+        return {
+            zero: _formatQmriColorbarLabel(view, 0),
+            tinyPositive: _formatQmriColorbarLabel(view, 1e-9),
+            tinyNegative: _formatQmriColorbarLabel(view, -1e-9),
+        };
+    }""")
+    assert result == {
+        "zero": "0",
+        "tinyPositive": "0",
+        "tinyNegative": "0",
+    }
+
+
+def test_qmri_repeated_d_cycles_keep_histogram_handles_aligned(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 700));
+        const view = qmriViews.find(v => v.qmriRole === 't1');
+        if (!view || !view._colorBar || typeof _cycleQmriPaneRangePreset !== 'function') {
+            return { error: 'missing qMRI colorbar hook' };
+        }
+        _hoveredQmriView = view;
+        window._dQuantileIdx = _QUANTILE_PRESETS.length - 2;
+        const samples = [];
+        for (let i = 0; i < _QUANTILE_PRESETS.length + 2; i++) {
+            await _cycleQmriPaneRangePreset();
+            const cb = view._colorBar;
+            const hist = cb._histData;
+            const win = cb.opts.getWindow();
+            const range = hist.vmax - hist.vmin || 1;
+            samples.push({
+                targetLo: cb._winVminTarget,
+                targetHi: cb._winVmaxTarget,
+                drawLo: cb._winVminF,
+                drawHi: cb._winVmaxF,
+                expectedLo: Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range)),
+                expectedHi: Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range)),
+            });
+        }
+        return { role: view.qmriRole, samples };
+    }""")
+    assert result.get("role") == "t1"
+    for sample in result["samples"]:
+        assert sample["drawLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
+        assert sample["drawHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+        assert sample["targetLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
+        assert sample["targetHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+
+
+def test_qmri_d_full_range_refreshes_colorbar_histogram_domain(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 700));
+        const view = qmriViews.find(v => v.qmriRole === 't1');
+        if (!view || !view._colorBar || typeof _cycleQmriPaneRangePreset !== 'function') {
+            return { error: 'missing qMRI colorbar hook' };
+        }
+        const staleHist = { vmin: 0, vmax: 999, counts: [1, 1], edges: [0, 500, 999] };
+        view._colorBar._histData = staleHist;
+        view._colorBar._histVersion = 'stale-histogram-key';
+        view._colorBar._buildKDE();
+        _hoveredQmriView = view;
+        window._dQuantileIdx = _QUANTILE_PRESETS.length - 1;
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 350));
+        return {
+            role: view.qmriRole,
+            histVmax: view._colorBar._histData && view._colorBar._histData.vmax,
+            lockedVmax: view.lockedVmax,
+            winMinTarget: view._colorBar._winVminTarget,
+            winMaxTarget: view._colorBar._winVmaxTarget,
+            histVersion: view._colorBar._histVersion,
+            expectedVersion: view._colorBar._expectedHistVersion(),
+        };
+    }""")
+    assert result.get("role") == "t1"
+    assert result.get("histVmax") != 999
+    assert result.get("histVersion") == result.get("expectedVersion")
+    assert result.get("winMinTarget") == 0
+    assert result.get("winMaxTarget") == 1
+    assert result.get("lockedVmax") >= result.get("histVmax")
 
 def test_qmri_d_cycles_synthetic_contrast_range(loaded_viewer, sid_4d):
     page = loaded_viewer(sid_4d)
