@@ -2778,6 +2778,89 @@ class TestCliOpenHelpers:
             }
         ]
 
+    def test_handle_cli_existing_server_reports_stale_stack_nifti_server(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        import arrayview._launcher as launcher
+
+        base_dir = tmp_path / "nifti-stack"
+        base_dir.mkdir()
+
+        def fail_register(**kwargs):
+            raise RuntimeError("Error from server: Unsupported format. Supported: .npy")
+
+        monkeypatch.setattr(
+            launcher,
+            "_register_cli_session_with_existing_server",
+            fail_register,
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            launcher._handle_cli_existing_server(
+                port=8000,
+                base_file=str(base_dir),
+                name="nifti-stack",
+                compare_files=[],
+                overlay_files=[],
+                rgb=False,
+                vectorfield=None,
+                vfield_components_dim=None,
+                use_native_shell=False,
+                dims_override=None,
+                watch=False,
+                window_mode="browser",
+                floating=False,
+            )
+
+        assert excinfo.value.code == 1
+        out = capsys.readouterr().out
+        assert "existing ArrayView server on port 8000" in out
+        assert "directory NIfTI stacking" in out
+        assert "arrayview --kill --port 8000" in out
+
+    def test_handle_cli_existing_server_reports_load_error_without_port_conflict(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        import arrayview._launcher as launcher
+
+        base_dir = tmp_path / "nifti-stack"
+        base_dir.mkdir()
+
+        def fail_register(**kwargs):
+            raise RuntimeError(
+                "Error from server: Shape mismatch: 'T2_W.nii.gz' has shape "
+                "(400, 400, 83), expected (704, 704, 83)."
+            )
+
+        monkeypatch.setattr(
+            launcher,
+            "_register_cli_session_with_existing_server",
+            fail_register,
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            launcher._handle_cli_existing_server(
+                port=8000,
+                base_file=str(base_dir),
+                name="nifti-stack",
+                compare_files=[],
+                overlay_files=[],
+                rgb=False,
+                vectorfield=None,
+                vfield_components_dim=None,
+                use_native_shell=False,
+                dims_override=None,
+                watch=False,
+                window_mode="browser",
+                floating=False,
+            )
+
+        assert excinfo.value.code == 1
+        out = capsys.readouterr().out
+        assert "Error loading" in out
+        assert "Shape mismatch" in out
+        assert "port 8000 is in use" not in out
+
     def test_handle_cli_spawned_daemon_opens_spawned_session(self, monkeypatch):
         import arrayview._launcher as launcher
 

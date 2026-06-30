@@ -1122,6 +1122,18 @@ def _handle_cli_existing_server(
             select=select,
         )
     except Exception as e:
+        err = str(e)
+        if os.path.isdir(base_file) and "Unsupported format" in str(e):
+            print(
+                f"Error: existing ArrayView server on port {port} does not support "
+                "directory NIfTI stacking. Restart it with "
+                f"`arrayview --kill --port {port}` or choose a free port with "
+                f"`--port`. ({e})"
+            )
+            sys.exit(1)
+        if "Error from server" in err:
+            print(f"Error loading {base_file} on ArrayView server port {port}: {e}")
+            sys.exit(1)
         print(
             f"Error: port {port} is in use by another process. "
             f"Use --port to pick another. ({e})"

@@ -291,7 +291,7 @@ def _load_nifti_series(path, select=None):
     nib = _nib()
 
     patients: dict[str, list[str]] = {}
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
         nii_files = sorted(
             os.path.join(root, f)
             for f in files
@@ -299,6 +299,9 @@ def _load_nifti_series(path, select=None):
         )
         if nii_files:
             patients[root] = nii_files
+            # A directory with NIfTI files is the series unit.  Do not treat
+            # nested mask/derived-output folders as additional patients.
+            dirs[:] = []
 
     if not patients:
         raise ValueError(

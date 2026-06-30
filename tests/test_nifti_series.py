@@ -87,6 +87,19 @@ class TestNiftiSeries4D:
         series, _ = load_data_with_meta(str(tmp_path))
         assert series.shape == (4, 5, 6, 1)
 
+    def test_nested_nifti_dirs_ignored_when_parent_has_series_files(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001", n_files=2, prefix="mod")
+        pdir = tmp_path / "p001"
+        (pdir / "mod_0.nii.gz").rename(pdir / "T2_W.nii.gz")
+        (pdir / "mod_1.nii.gz").rename(pdir / "MRCAT_W.nii.gz")
+        masks_dir = pdir / "masks"
+        masks_dir.mkdir()
+        _save_nifti(masks_dir / "Brainstem.nii.gz", np.zeros((4, 5, 6), dtype=np.float32))
+
+        series, _ = load_data_with_meta(str(tmp_path), select=["*T2_W*"])
+
+        assert series.shape == (4, 5, 6, 1)
+
 
 # ---------------------------------------------------------------------------
 # 5D: multiple files per patient via --select

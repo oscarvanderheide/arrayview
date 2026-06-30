@@ -97,8 +97,9 @@ uvx arrayview patients/ --stack-nifti
 ```
 
 Discovers `.nii`/`.nii.gz` recursively, groups by immediate parent folder
-(= patient). One file per patient → 4D `(*vol, P)`. The viewer opens with
-X/Y on screen, Z as primary scroll, patient index as a slider.
+(= patient), and ignores nested NIfTI folders once the parent has series files.
+One file per patient → 4D `(*vol, P)`. The viewer opens with X/Y on screen,
+Z as primary scroll, patient index as a slider.
 
 Multiple files per patient (e.g. `t1`, `t2`, `flair`) → use `--select`:
 
