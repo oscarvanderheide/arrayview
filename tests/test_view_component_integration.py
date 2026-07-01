@@ -53,38 +53,74 @@ def test_normal_d_command_expands_histogram_without_spinning(loaded_viewer, sid_
     assert result.get("animating") is False
 
 
-def test_normal_repeated_d_cycles_keep_histogram_handles_aligned(loaded_viewer, sid_2d):
+def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || typeof enterMultiView !== 'function') return { error: 'missing command' };
+        enterMultiView([0, 1, 2]);
+        await new Promise(r => setTimeout(r, 700));
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        return {
+            primaryExpanded: primaryCb && primaryCb._expanded,
+            mvExpanded: window._mvColorBar && window._mvColorBar._expanded,
+            mvAnimT: window._mvColorBar && window._mvColorBar._animT,
+            hasHistogram: !!(window._mvColorBar && window._mvColorBar._histData),
+        };
+    }""")
+    assert "error" not in result
+    assert result.get("primaryExpanded") is True
+    assert result.get("mvExpanded") is True
+    assert result.get("mvAnimT") == pytest.approx(1)
+    assert result.get("hasHistogram") is True
+
+
+def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     result = page.evaluate("""async () => {
         if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
         await commands['histogram.openOrCycle'].run({}, { key: 'd' });
         await new Promise(r => setTimeout(r, 700));
         if (!primaryCb._histData) return { error: 'missing histogram' };
-        window._dQuantileIdx = _QUANTILE_PRESETS.length - 2;
-        const samples = [];
-        for (let i = 0; i < _QUANTILE_PRESETS.length + 2; i++) {
-            await commands['histogram.openOrCycle'].run({}, { key: 'd' });
-            await new Promise(r => setTimeout(r, 120));
-            const hist = primaryCb._histData;
-            const win = primaryCb.opts.getWindow();
-            const range = hist.vmax - hist.vmin || 1;
-            samples.push({
-                targetLo: primaryCb._winVminTarget,
-                targetHi: primaryCb._winVmaxTarget,
-                drawLo: primaryCb._winVminF,
-                drawHi: primaryCb._winVmaxF,
-                expectedLo: Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range)),
-                expectedHi: Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range)),
-            });
-        }
-        return { samples };
+        window._dQuantileIdx = 3;
+        const before = {
+            drawLo: primaryCb._winVminF,
+            drawHi: primaryCb._winVmaxF,
+        };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        const hist = primaryCb._histData;
+        const win = primaryCb.opts.getWindow();
+        const range = hist.vmax - hist.vmin || 1;
+        const expectedLo = Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range));
+        const expectedHi = Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range));
+        const immediate = {
+            targetLo: primaryCb._winVminTarget,
+            targetHi: primaryCb._winVmaxTarget,
+            drawLo: primaryCb._winVminF,
+            drawHi: primaryCb._winVmaxF,
+            animating: primaryCb._animating,
+        };
+        await new Promise(r => setTimeout(r, 80));
+        const mid = {
+            drawLo: primaryCb._winVminF,
+            drawHi: primaryCb._winVmaxF,
+            animating: primaryCb._animating,
+        };
+        await new Promise(r => setTimeout(r, 350));
+        const after = {
+            drawLo: primaryCb._winVminF,
+            drawHi: primaryCb._winVmaxF,
+            animating: primaryCb._animating,
+        };
+        return { before, immediate, mid, after, expectedLo, expectedHi };
     }""")
     assert "error" not in result
-    for sample in result["samples"]:
-        assert sample["drawLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
-        assert sample["drawHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
-        assert sample["targetLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
-        assert sample["targetHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+    assert result["immediate"]["targetLo"] == pytest.approx(result["expectedLo"], abs=1e-9)
+    assert result["immediate"]["targetHi"] == pytest.approx(result["expectedHi"], abs=1e-9)
+    assert result["immediate"]["drawHi"] > result["expectedHi"]
+    assert result["mid"]["drawHi"] < result["immediate"]["drawHi"]
+    assert result["mid"]["drawHi"] > result["expectedHi"]
+    assert result["after"]["drawHi"] == pytest.approx(result["expectedHi"], abs=0.002)
 
 
 def test_normal_d_open_after_collapse_snaps_full_range_handles(loaded_viewer, sid_2d):
@@ -406,9 +442,18 @@ def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
         window._dQuantileIdx = 0;
         const before = { lo: view.lockedVmin, hi: view.lockedVmax };
         await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 700));
+        const opened = {
+            expanded: view._colorBar && view._colorBar._expanded,
+            hasHistogram: view._colorBar && !!view._colorBar._histData,
+            lo: view.lockedVmin,
+            hi: view.lockedVmax,
+        };
+        await _cycleQmriPaneRangePreset();
         await new Promise(r => setTimeout(r, 200));
         return {
             before,
+            opened,
             after: { lo: view.lockedVmin, hi: view.lockedVmax },
             labelText: view.cbVmin && view.cbVmax ? `${view.cbVmin.textContent} ${view.cbVmax.textContent}` : '',
             role: view.qmriRole,
@@ -417,6 +462,10 @@ def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
     assert result.get("role") == "t1"
     assert result["before"]["lo"] == 0
     assert float(result["before"]["hi"]).is_integer()
+    assert result["opened"]["expanded"] is True
+    assert result["opened"]["hasHistogram"] is True
+    assert result["opened"]["lo"] == result["before"]["lo"]
+    assert result["opened"]["hi"] == result["before"]["hi"]
     assert result["after"]["lo"] == 0
     assert float(result["after"]["hi"]).is_integer()
     assert result["after"]["hi"] != result["before"]["hi"]
@@ -462,7 +511,7 @@ def test_qmri_near_zero_labels_do_not_use_scientific_notation(loaded_viewer, sid
     }
 
 
-def test_qmri_repeated_d_cycles_keep_histogram_handles_aligned(loaded_viewer, sid_4d):
+def test_qmri_repeated_d_cycles_animate_histogram_handles_to_target(loaded_viewer, sid_4d):
     page = loaded_viewer(sid_4d)
     page.wait_for_timeout(500)
     result = page.evaluate("""async () => {
@@ -474,31 +523,40 @@ def test_qmri_repeated_d_cycles_keep_histogram_handles_aligned(loaded_viewer, si
             return { error: 'missing qMRI colorbar hook' };
         }
         _hoveredQmriView = view;
-        window._dQuantileIdx = _QUANTILE_PRESETS.length - 2;
-        const samples = [];
-        for (let i = 0; i < _QUANTILE_PRESETS.length + 2; i++) {
-            await _cycleQmriPaneRangePreset();
-            const cb = view._colorBar;
-            const hist = cb._histData;
-            const win = cb.opts.getWindow();
-            const range = hist.vmax - hist.vmin || 1;
-            samples.push({
-                targetLo: cb._winVminTarget,
-                targetHi: cb._winVmaxTarget,
-                drawLo: cb._winVminF,
-                drawHi: cb._winVmaxF,
-                expectedLo: Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range)),
-                expectedHi: Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range)),
-            });
-        }
-        return { role: view.qmriRole, samples };
+        await view._colorBar.ensureHistogramData();
+        view._colorBar._syncWindowFractionsToCurrent();
+        window._dQuantileIdx = 0;
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 350));
+        window._dQuantileIdx = 3;
+        const cb = view._colorBar;
+        const before = { drawLo: cb._winVminF, drawHi: cb._winVmaxF };
+        await _cycleQmriPaneRangePreset();
+        const hist = cb._histData;
+        const win = cb.opts.getWindow();
+        const range = hist.vmax - hist.vmin || 1;
+        const expectedLo = Math.max(0, Math.min(1, (win.vmin - hist.vmin) / range));
+        const expectedHi = Math.max(0, Math.min(1, (win.vmax - hist.vmin) / range));
+        const immediate = {
+            targetLo: cb._winVminTarget,
+            targetHi: cb._winVmaxTarget,
+            drawLo: cb._winVminF,
+            drawHi: cb._winVmaxF,
+            animating: cb._animating,
+        };
+        await new Promise(r => setTimeout(r, 80));
+        const mid = { drawLo: cb._winVminF, drawHi: cb._winVmaxF, animating: cb._animating };
+        await new Promise(r => setTimeout(r, 350));
+        const after = { drawLo: cb._winVminF, drawHi: cb._winVmaxF, animating: cb._animating };
+        return { role: view.qmriRole, before, immediate, mid, after, expectedLo, expectedHi };
     }""")
     assert result.get("role") == "t1"
-    for sample in result["samples"]:
-        assert sample["drawLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
-        assert sample["drawHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
-        assert sample["targetLo"] == pytest.approx(sample["expectedLo"], abs=1e-9)
-        assert sample["targetHi"] == pytest.approx(sample["expectedHi"], abs=1e-9)
+    assert result["immediate"]["targetLo"] == pytest.approx(result["expectedLo"], abs=1e-9)
+    assert result["immediate"]["targetHi"] == pytest.approx(result["expectedHi"], abs=1e-9)
+    assert result["immediate"]["drawHi"] > result["expectedHi"]
+    assert result["mid"]["drawHi"] < result["immediate"]["drawHi"]
+    assert result["mid"]["drawHi"] > result["expectedHi"]
+    assert result["after"]["drawHi"] == pytest.approx(result["expectedHi"], abs=0.002)
 
 
 def test_qmri_d_full_range_refreshes_colorbar_histogram_domain(loaded_viewer, sid_4d):
@@ -512,11 +570,13 @@ def test_qmri_d_full_range_refreshes_colorbar_histogram_domain(loaded_viewer, si
         if (!view || !view._colorBar || typeof _cycleQmriPaneRangePreset !== 'function') {
             return { error: 'missing qMRI colorbar hook' };
         }
+        _hoveredQmriView = view;
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 700));
         const staleHist = { vmin: 0, vmax: 999, counts: [1, 1], edges: [0, 500, 999] };
         view._colorBar._histData = staleHist;
         view._colorBar._histVersion = 'stale-histogram-key';
         view._colorBar._buildKDE();
-        _hoveredQmriView = view;
         window._dQuantileIdx = _QUANTILE_PRESETS.length - 1;
         await _cycleQmriPaneRangePreset();
         await new Promise(r => setTimeout(r, 350));

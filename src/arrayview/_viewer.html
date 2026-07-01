@@ -455,7 +455,7 @@
             font-weight: normal;
             margin: 0 0.60ch;
         }
-        .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
+        .spatial-dim { color: var(--text); -webkit-text-fill-color: var(--text); font-weight: normal; }
         @keyframes hist-scope-pulse {
             0%   { text-shadow: 0 0 10px var(--vfield-t-dim); }
             60%  { text-shadow: 0 0 5px var(--vfield-t-dim); }
@@ -659,6 +659,9 @@
             color: var(--text);
             -webkit-text-fill-color: var(--text);
         }
+        #info .playing-dim.dim-label {
+            font-weight: normal;
+        }
         #dim-active-underline {
             position: fixed;
             left: 0;
@@ -710,12 +713,12 @@
             -webkit-text-fill-color: var(--text) !important;
         }
         #info .spatial-dim.active-dim.dim-label {
-            color: var(--spatial-dim);
-            -webkit-text-fill-color: var(--spatial-dim);
-            font-weight: bold;
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
+            font-weight: normal;
         }
         #info .spatial-dim.playing-dim.dim-label {
-            font-weight: bold;
+            font-weight: normal;
         }
         #info .spatial-dim.active-dim .dim-slash:not([style*="background"]) {
             color: var(--active-dim) !important;
@@ -9413,15 +9416,34 @@
                 const labelFormatter = this._dragLabelFormatter || formatValueGroup([this._labelVmin, this._labelVmax, vmin, vmax]);
                 const formatLabel = this.opts.formatLabel;
                 const defaultLabel = (value) => _cbFmt(value, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                const labelHtml = (value, which) => {
+                    const custom = formatLabel ? formatLabel(value, which) : null;
+                    return custom ?? defaultLabel(value);
+                };
+                const labelTextLen = (html) => String(html ?? '')
+                    .replace(/<[^>]*>/g, '')
+                    .replace(/&minus;/g, '-')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&times;/g, 'x')
+                    .length;
+                const stableCh = Math.max(5, ...[
+                    labelHtml(this._labelVmin, 'vmin'),
+                    labelHtml(this._labelVmax, 'vmax'),
+                    labelHtml(this._labelVminFrom ?? this._labelVmin, 'vmin'),
+                    labelHtml(this._labelVmaxFrom ?? this._labelVmax, 'vmax'),
+                    labelHtml(vmin, 'vmin'),
+                    labelHtml(vmax, 'vmax'),
+                ].map(labelTextLen));
+                const stableWidth = stableCh + 'ch';
 
                 if (this.vminLabel) {
-                    const custom = formatLabel ? formatLabel(this._labelVmin, 'vmin') : null;
-                    this.vminLabel.innerHTML = custom ?? defaultLabel(this._labelVmin);
+                    this.vminLabel.innerHTML = labelHtml(this._labelVmin, 'vmin');
+                    this.vminLabel.style.minWidth = stableWidth;
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    const custom = formatLabel ? formatLabel(this._labelVmax, 'vmax') : null;
-                    this.vmaxLabel.innerHTML = custom ?? defaultLabel(this._labelVmax);
+                    this.vmaxLabel.innerHTML = labelHtml(this._labelVmax, 'vmax');
+                    this.vmaxLabel.style.minWidth = stableWidth;
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -11040,7 +11062,6 @@
                 const mv = modeManager.currentViews[i];
                 if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
             });
-            if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
             return preset;
         }
 
@@ -11112,6 +11133,27 @@
         async function _cycleQmriPaneRangePreset() {
             const view = _hoveredQmriView;
             if (!view) { showStatus('qMRI range: hover a pane'); return true; }
+            const activeCb = qmriMosaicActive && view._mosaicColorBar ? view._mosaicColorBar : view._colorBar;
+            if (activeCb && !activeCb._expanded) {
+                activeCb._manualExpand = true;
+                activeCb._expanded = true;
+                activeCb._animating = false;
+                activeCb._animT = 1;
+                activeCb._animTarget = 1;
+                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
+                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
+                activeCb._snapWindowFractionsOnNextDraw();
+                activeCb.updateLabels();
+                activeCb.draw();
+                activeCb.ensureHistogramData().then(() => {
+                    activeCb._snapWindowFractionsOnNextDraw();
+                    activeCb.draw();
+                    activeCb.updateLabels();
+                    qvScaleAllCanvases();
+                }).catch(() => {});
+                qvScaleAllCanvases();
+                return true;
+            }
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
@@ -11144,10 +11186,12 @@
             if (hist) {
                 [view._colorBar, view._mosaicColorBar].forEach(cb => {
                     if (!cb) return;
+                    const oldVersion = cb._histVersion;
+                    const nextVersion = cb._expectedHistVersion();
                     cb._histData = hist;
-                    cb._histVersion = cb._expectedHistVersion();
+                    cb._histVersion = nextVersion;
                     cb._buildKDE();
-                    cb._syncWindowFractionsToCurrent();
+                    if (oldVersion !== nextVersion) cb._syncWindowFractionsToCurrent();
                 });
             }
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
@@ -20917,12 +20961,30 @@
                         primaryCb._snapWindowFractionsOnNextDraw();
                         primaryCb.updateLabels();
                         primaryCb.draw();
+                        if (multiViewActive || compareMvActive) {
+                            if (window._mvColorBar) {
+                                window._mvColorBar._expanded = true;
+                                window._mvColorBar._animating = false;
+                                window._mvColorBar._animT = 1;
+                                window._mvColorBar._animTarget = 1;
+                            }
+                            drawMvColorbar();
+                        } else drawSlimColorbar(cbMarkerFrac);
                         primaryCb.ensureHistogramData().then(() => {
                             if (primaryCb._histData && primaryCb === window._primaryCb) {
                                 _histData = primaryCb._histData;
                                 _kdeSmooth = primaryCb._kdeSmooth;
                             }
                             primaryCb._snapWindowFractionsOnNextDraw();
+                            if (multiViewActive || compareMvActive) {
+                                if (window._mvColorBar) {
+                                    window._mvColorBar._expanded = true;
+                                    window._mvColorBar._animating = false;
+                                    window._mvColorBar._animT = 1;
+                                    window._mvColorBar._animTarget = 1;
+                                }
+                                drawMvColorbar();
+                            } else drawSlimColorbar(cbMarkerFrac);
                             const q = _currentQuantileFromHist(
                                 manualVmin ?? currentVmin,
                                 manualVmax ?? currentVmax,
