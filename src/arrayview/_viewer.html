@@ -656,8 +656,8 @@
         }
         #info .active-dim.dim-label {
             font-weight: normal;
-            color: var(--text);
-            -webkit-text-fill-color: var(--text);
+            color: var(--active-dim);
+            -webkit-text-fill-color: var(--active-dim);
         }
         #info .playing-dim.dim-label {
             font-weight: normal;
@@ -705,16 +705,16 @@
         #info .active-dim.dim-label .dim-idx,
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
-            color: var(--text);
-            -webkit-text-fill-color: var(--text);
+            color: var(--active-dim);
+            -webkit-text-fill-color: var(--active-dim);
         }
         .active-dim .dim-slash:not([style*="background"]) {
-            color: var(--text) !important;
-            -webkit-text-fill-color: var(--text) !important;
+            color: var(--active-dim) !important;
+            -webkit-text-fill-color: var(--active-dim) !important;
         }
         #info .spatial-dim.active-dim.dim-label {
-            color: var(--text);
-            -webkit-text-fill-color: var(--text);
+            color: var(--active-dim);
+            -webkit-text-fill-color: var(--active-dim);
             font-weight: normal;
         }
         #info .spatial-dim.playing-dim.dim-label {
@@ -15800,7 +15800,7 @@
             }
             _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
             const infoVisible = _dimUnderlineInfoVisible(info);
-            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
+            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || !info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
             if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
