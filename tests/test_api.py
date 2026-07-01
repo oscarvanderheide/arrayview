@@ -2778,7 +2778,7 @@ class TestCliOpenHelpers:
             }
         ]
 
-    def test_handle_cli_existing_server_reports_stale_stack_nifti_server(
+    def test_handle_cli_existing_server_reports_stale_stack_server(
         self, monkeypatch, tmp_path, capsys
     ):
         import arrayview._launcher as launcher
@@ -2815,7 +2815,7 @@ class TestCliOpenHelpers:
         assert excinfo.value.code == 1
         out = capsys.readouterr().out
         assert "existing ArrayView server on port 8000" in out
-        assert "directory NIfTI stacking" in out
+        assert "directory stacking" in out
         assert "arrayview --kill --port 8000" in out
 
     def test_handle_cli_existing_server_reports_load_error_without_port_conflict(

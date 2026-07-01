@@ -1,4 +1,4 @@
-"""Tests for --stack-nifti: lazy 4D/5D view over a directory of NIfTI files."""
+"""Tests for --stack: lazy 4D/5D view over a directory of array files."""
 import os
 
 import numpy as np
@@ -153,11 +153,11 @@ class TestNiftiSeriesErrors:
         (tmp_path / "p001").mkdir()
         (tmp_path / "p001" / "scan.dcm").write_bytes(b"\x00")
         (tmp_path / "p001" / "notes.txt").write_text("hello")
-        with pytest.raises(ValueError, match="dcm2niix"):
+        with pytest.raises(ValueError, match="No supported array files"):
             load_data_with_meta(str(tmp_path))
 
     def test_empty_dir(self, tmp_path):
-        with pytest.raises(ValueError, match="No NIfTI files"):
+        with pytest.raises(ValueError, match="No supported array files"):
             load_data_with_meta(str(tmp_path))
 
     def test_multiple_files_without_select(self, tmp_path):
@@ -197,3 +197,67 @@ class TestViewDir:
 
         series, _ = load_data_with_meta(str(tmp_path))
         assert getattr(series, "_av_lazy", False) is True
+
+
+# ---------------------------------------------------------------------------
+# Non-NIfTI file series  (.npy, .npz, etc.)
+# ---------------------------------------------------------------------------
+
+
+class TestFileSeries:
+    """Walk-and-stack with non-NIfTI array formats."""
+
+    def test_npy_subdirs_4d(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for name in ("p001", "p002", "p003"):
+            pdir = tmp_path / name
+            pdir.mkdir()
+            np.save(str(pdir / "vol.npy"), np.arange(120, dtype=np.float32).reshape(shape) + hash(name) % 100)
+
+        series, meta = _io.load_data_with_meta(str(tmp_path))
+        assert isinstance(series, _io._FileSeries)
+        assert series.shape == (4, 5, 6, 3)
+        assert meta is None
+
+    def test_npy_5d_with_select(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for name in ("p001", "p002"):
+            pdir = tmp_path / name
+            pdir.mkdir()
+            np.save(str(pdir / "t1.npy"), np.arange(120, dtype=np.float32).reshape(shape))
+            np.save(str(pdir / "t2.npy"), np.arange(120, 240, dtype=np.float32).reshape(shape))
+
+        series, _ = _io.load_data_with_meta(str(tmp_path), select=["*t1*", "*t2*"])
+        assert isinstance(series, _io._FileSeries)
+        assert series.shape == (4, 5, 6, 2, 2)
+
+    def test_slicing_npy_series(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        vol0 = np.arange(120, dtype=np.float32).reshape(shape)
+        vol1 = vol0 + 100
+        (tmp_path / "p001").mkdir()
+        (tmp_path / "p002").mkdir()
+        np.save(str(tmp_path / "p001" / "vol.npy"), vol0)
+        np.save(str(tmp_path / "p002" / "vol.npy"), vol1)
+
+        series, _ = _io.load_data_with_meta(str(tmp_path))
+        assert np.array_equal(series[:, :, :, 0], vol0)
+        assert np.array_equal(series[:, :, :, 1], vol1)
+        assert np.array_equal(series[:, :, 2, 0], vol0[:, :, 2])
+
+    def test_shape_mismatch_error(self, tmp_path):
+        import arrayview._io as _io
+
+        (tmp_path / "p001").mkdir()
+        (tmp_path / "p002").mkdir()
+        np.save(str(tmp_path / "p001" / "vol.npy"), np.zeros((4, 5, 6)))
+        np.save(str(tmp_path / "p002" / "vol.npy"), np.zeros((4, 5, 7)))
+
+        with pytest.raises(ValueError, match="Shape mismatch"):
+            _io.load_data_with_meta(str(tmp_path))

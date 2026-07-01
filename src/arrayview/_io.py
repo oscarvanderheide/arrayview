@@ -178,7 +178,7 @@ def _load_nifti_with_meta(filepath):
 
 
 # ---------------------------------------------------------------------------
-# NIfTI series — lazy 4D/5D view over a directory of same-shape volumes
+# File series — lazy 4D/5D view over a directory of same-shape volumes
 # ---------------------------------------------------------------------------
 
 
@@ -276,6 +276,220 @@ class _NiftiSeries:
         if dtype is not None:
             result = result.astype(dtype)
         return result
+
+
+class _FileSeries:
+    """Lazy 4D/5D view over a directory of same-shape array files.
+
+    Like ``_NiftiSeries`` but works with any supported file format
+    (.npy, .npz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat).
+    Uses ``load_data`` for each volume — no nibabel reorientation.
+    """
+
+    _av_lazy = True
+
+    def __init__(self, file_matrix, vol_shape, dtype, spatial_meta=None):
+        self._file_matrix = file_matrix
+        self._vol_shape = tuple(vol_shape)
+        self._dtype = np.dtype(dtype)
+        self._spatial_meta = spatial_meta
+        n_patients = len(file_matrix)
+        n_modalities = len(file_matrix[0]) if file_matrix else 0
+        if n_modalities <= 1:
+            self.shape = (*self._vol_shape, n_patients)
+            self._stack_axes = (len(self.shape) - 1,)
+        else:
+            self.shape = (*self._vol_shape, n_patients, n_modalities)
+            self._stack_axes = (len(self.shape) - 2, len(self.shape) - 1)
+        self.ndim = len(self.shape)
+        self._vol_cache: OrderedDict = OrderedDict()
+        self._vol_cache_cap = int(
+            os.environ.get("ARRAYVIEW_FILE_SERIES_VOL_CACHE", 3)
+        )
+        self._cache_lock = threading.Lock()
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    def _get_volume(self, p_idx, m_idx):
+        cache_key = (p_idx, m_idx)
+        with self._cache_lock:
+            if cache_key in self._vol_cache:
+                self._vol_cache.move_to_end(cache_key)
+                return self._vol_cache[cache_key]
+        filepath = self._file_matrix[p_idx][m_idx]
+        vol = load_data(filepath)
+        with self._cache_lock:
+            self._vol_cache[cache_key] = vol
+            while len(self._vol_cache) > self._vol_cache_cap:
+                self._vol_cache.popitem(last=False)
+        return vol
+
+    def __getitem__(self, key):
+        if not isinstance(key, tuple):
+            key = (key,)
+        has_special = any(k is None or k is Ellipsis for k in key)
+        if not has_special and len(key) <= self.ndim:
+            padded = list(key) + [slice(None)] * (self.ndim - len(key))
+            stack_vals = [padded[i] for i in self._stack_axes]
+            if all(isinstance(s, (int, np.integer)) for s in stack_vals):
+                spatial_positions = [
+                    i for i in range(self.ndim) if i not in self._stack_axes
+                ]
+                spatial_key = tuple(padded[i] for i in spatial_positions)
+                n_p = len(self._file_matrix)
+                n_m = len(self._file_matrix[0]) if self._file_matrix else 0
+                p_idx = int(stack_vals[0])
+                if p_idx < 0:
+                    p_idx += n_p
+                if len(self._stack_axes) == 1:
+                    m_idx = 0
+                else:
+                    m_idx = int(stack_vals[1])
+                    if m_idx < 0:
+                        m_idx += n_m
+                vol = self._get_volume(p_idx, m_idx)
+                return vol[spatial_key]
+        return np.asarray(self)[key]
+
+    def __array__(self, dtype=None):
+        result = np.empty(self.shape, dtype=self._dtype)
+        for p, row in enumerate(self._file_matrix):
+            for m, fpath in enumerate(row):
+                vol = self._get_volume(p, m)
+                if len(self._stack_axes) == 1:
+                    result[..., p] = vol
+                else:
+                    result[..., p, m] = vol
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+
+def _is_nifti_path(filepath):
+    """True if *filepath* ends with .nii or .nii.gz."""
+    return filepath.endswith(".nii") or filepath.endswith(".nii.gz")
+
+
+def _get_ext(filepath):
+    """Return the extension of *filepath*, normalising .nii.gz and .zarr.zip."""
+    lower = filepath.lower()
+    if lower.endswith(".nii.gz"):
+        return ".nii.gz"
+    if lower.endswith(".zarr.zip"):
+        return ".zarr.zip"
+    return os.path.splitext(lower)[1]
+
+
+def _load_file_series(path, select=None):
+    """Build a lazy series from a directory of supported array files.
+
+    Walks *path* recursively, groups files of any supported format by
+    immediate parent folder (= patient).  With *select* (a list of fnmatch
+    patterns), picks one file per pattern per patient → 5D ``(*vol, P, M)``.
+    Without *select*, requires exactly one file per patient → 4D ``(*vol, P)``.
+
+    If every file is NIfTI (.nii/.nii.gz), delegates to
+    ``_load_nifti_series`` for canonical reorientation.  Otherwise builds
+    a ``_FileSeries`` using ``load_data`` per volume.
+
+    Returns ``(series, spatial_meta)``.
+    """
+    # ── collect files by parent directory ──────────────────────────
+    patients: dict[str, list[str]] = {}
+    all_nifti = True
+
+    for root, dirs, files in os.walk(path):
+        supported = sorted(
+            os.path.join(root, f)
+            for f in files
+            if _get_ext(f) in _SUPPORTED_EXTS
+        )
+        if supported:
+            patients[root] = supported
+            if all_nifti:
+                all_nifti = all(_is_nifti_path(p) for p in supported)
+            # A directory with supported files is the series unit.  Do not
+            # treat nested sub-folders as additional patients.
+            dirs[:] = []
+
+    if not patients:
+        raise ValueError(
+            f"No supported array files found under {path!r}. "
+            f"Supported: {', '.join(sorted(_SUPPORTED_EXTS))}"
+        )
+
+    # NIfTI-only → preserve canonical reorientation + lazy dataobj slicing
+    if all_nifti:
+        return _load_nifti_series(path, select=select)
+
+    # ── build file matrix ──────────────────────────────────────────
+    select_patterns = select or []
+    patient_dirs = sorted(patients.keys())
+    file_matrix: list[list[str]] = []
+
+    if select_patterns:
+        for pdir in patient_dirs:
+            selected: list[str] = []
+            for pattern in select_patterns:
+                matches = [
+                    f
+                    for f in patients[pdir]
+                    if fnmatch.fnmatch(os.path.basename(f), pattern)
+                ]
+                if not matches:
+                    raise ValueError(
+                        f"Folder {pdir!r}: no file matches --select "
+                        f"pattern {pattern!r}. Available: "
+                        f"{[os.path.basename(f) for f in patients[pdir]]}"
+                    )
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"Folder {pdir!r}: multiple files match "
+                        f"--select pattern {pattern!r}: "
+                        f"{[os.path.basename(f) for f in matches]}. "
+                        "Make patterns more specific."
+                    )
+                selected.append(matches[0])
+            file_matrix.append(selected)
+    else:
+        for pdir in patient_dirs:
+            files = patients[pdir]
+            if len(files) == 1:
+                file_matrix.append([files[0]])
+            else:
+                raise ValueError(
+                    f"Folder {pdir!r} contains {len(files)} files: "
+                    f"{[os.path.basename(f) for f in files]}. "
+                    "Use --select PATTERN to pick one (or more) per folder. "
+                    "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
+                )
+
+    # ── validate shape / dtype uniformity ──────────────────────────
+    ref_shape = None
+    ref_dtype = None
+    for row in file_matrix:
+        for fpath in row:
+            arr = load_data(fpath)
+            shape = arr.shape
+            dtype = arr.dtype
+            if ref_shape is None:
+                ref_shape = shape
+                ref_dtype = dtype
+            elif shape != ref_shape:
+                raise ValueError(
+                    f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
+                    f"{shape}, expected {ref_shape}."
+                )
+            elif dtype != ref_dtype:
+                raise ValueError(
+                    f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
+                    f"{dtype}, expected {ref_dtype}."
+                )
+
+    series = _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None)
+    return series, None
 
 
 def _load_nifti_series(path, select=None):
@@ -381,11 +595,11 @@ def load_data_with_meta(filepath, key=None, select=None):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
-    When *filepath* is a directory, loads it as a NIfTI series (see
-    ``_load_nifti_series``).
+    When *filepath* is a directory, loads it as a file series (see
+    ``_load_file_series``).
     """
     if os.path.isdir(filepath):
-        return _load_nifti_series(filepath, select=select)
+        return _load_file_series(filepath, select=select)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
     return load_data(filepath, key=key), None
@@ -393,7 +607,7 @@ def load_data_with_meta(filepath, key=None, select=None):
 
 def load_data(filepath, key=None):
     if os.path.isdir(filepath):
-        series, _meta = _load_nifti_series(filepath)
+        series, _meta = _load_file_series(filepath)
         return series
     if filepath.endswith(".npy"):
         # Eager-load small-to-medium files into RAM.  mmap_mode="r" on a C-order
@@ -537,7 +751,7 @@ def _peek_file_shape(fpath: str, ext: str):
     """Try to return shape quickly without loading the full array. Returns None on failure."""
     try:
         if os.path.isdir(fpath):
-            series, _ = _load_nifti_series(fpath)
+            series, _ = _load_file_series(fpath)
             return list(series.shape)
         if ext == ".npy":
             arr = np.load(fpath, mmap_mode="r", allow_pickle=False)

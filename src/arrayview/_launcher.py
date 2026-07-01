@@ -1126,7 +1126,7 @@ def _handle_cli_existing_server(
         if os.path.isdir(base_file) and "Unsupported format" in str(e):
             print(
                 f"Error: existing ArrayView server on port {port} does not support "
-                "directory NIfTI stacking. Restart it with "
+                "directory stacking. Restart it with "
                 f"`arrayview --kill --port {port}` or choose a free port with "
                 f"`--port`. ({e})"
             )
@@ -3049,12 +3049,13 @@ def view_dir(
     name=None,
     **view_kwargs,
 ):
-    """View a directory of NIfTI files as a single lazy 4D/5D array.
+    """View a directory of array files as a single lazy 4D/5D array.
 
-    Walks *path* recursively, groups ``.nii``/``.nii.gz`` by immediate parent
-    folder (= patient).  With one file per patient → 4D ``(*vol, P)``.
-    Pass *select* (a list of fnmatch patterns) to pick multiple modalities
-    per patient → 5D ``(*vol, P, M)``.
+    Walks *path* recursively, groups supported array files (.npy, .npz,
+    .nii/.nii.gz, .zarr, .pt/.pth, .h5, .tif/.tiff, .mat) by immediate
+    parent folder.  With one file per folder → 4D ``(*vol, P)``.
+    Pass *select* (a list of fnmatch patterns) to pick multiple files
+    per folder → 5D ``(*vol, P, M)``.
 
     Example::
 
@@ -3069,7 +3070,7 @@ def view_dir(
 
     data, _meta = load_data_with_meta(path, select=select)
     if name is None:
-        name = os.path.basename(os.path.abspath(path)) or "nifti_series"
+        name = os.path.basename(os.path.abspath(path)) or "file_series"
     return view(data, name=name, port=port, **view_kwargs)
 
 
@@ -3212,15 +3213,16 @@ def arrayview():
         help="Display name for the array",
     )
     parser.add_argument(
-        "--stack-nifti",
+        "--stack",
         action="store_true",
-        dest="stack_nifti",
+        dest="stack",
         help=(
-            "Stack a directory of NIfTI files into a single 4D/5D array. "
-            "FILE must be a directory; .nii/.nii.gz files are discovered "
-            "recursively, grouped by immediate parent folder (= patient). "
-            "With one file per patient → 4D (*vol, P). Use --select to pick "
-            "multiple modalities per patient → 5D (*vol, P, M)."
+            "Stack a directory of array files into a single 4D/5D array. "
+            "FILE must be a directory; supported files (.npy, .npz, .nii/.nii.gz, "
+            ".zarr, .pt/.pth, .h5, .tif/.tiff, .mat) are discovered "
+            "recursively, grouped by immediate parent folder. "
+            "With one file per folder → 4D (*vol, P). Use --select to pick "
+            "multiple files per folder → 5D (*vol, P, M)."
         ),
     )
     parser.add_argument(
@@ -3230,8 +3232,8 @@ def arrayview():
         default=None,
         dest="stack_select",
         help=(
-            "fnmatch pattern to select one NIfTI per patient (use with "
-            "--stack-nifti). Repeatable: each pattern picks one modality. "
+            "fnmatch pattern to select one file per folder (use with "
+            "--stack). Repeatable: each pattern picks one item. "
             "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
         ),
     )
@@ -3357,16 +3359,16 @@ def arrayview():
                 f"--dims {args.dims!r} is invalid. "
                 "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
             )
-    if args.stack_select and not args.stack_nifti:
-        parser.error("--select requires --stack-nifti.")
-    if args.stack_nifti:
+    if args.stack_select and not args.stack:
+        parser.error("--select requires --stack.")
+    if args.stack:
         if len(args.files) != 1:
             parser.error(
-                "--stack-nifti requires exactly one FILE argument (a directory)."
+                "--stack requires exactly one FILE argument (a directory)."
             )
         if args.compare or args.overlay or args.vectorfield or args.watch:
             parser.error(
-                "--stack-nifti is incompatible with --compare, --overlay, "
+                "--stack is incompatible with --compare, --overlay, "
                 "--vectorfield, and --watch."
             )
         _stack_dir = os.path.abspath(args.files[0])
@@ -3568,7 +3570,7 @@ def arrayview():
     if args.compare:
         compare_files.append(os.path.abspath(args.compare))
 
-    if not args.stack_nifti and not os.path.isfile(base_file):
+    if not args.stack and not os.path.isfile(base_file):
         print(f"Error: file not found: {base_file}")
         sys.exit(1)
 
