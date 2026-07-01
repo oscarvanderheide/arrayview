@@ -18,7 +18,7 @@ edges:
     condition: when applying frontend conventions (section separators, reconcilers, command registry)
   - target: context/render-pipeline.md
     condition: when applying render pipeline conventions (pipeline order, cache patterns, LUT usage)
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Conventions
@@ -34,11 +34,11 @@ last_updated: 2026-06-19
 ## Structure
 
 - **Lazy imports everywhere** — any import that costs >10 ms must be deferred. Pattern: module-level `_cache = None` + accessor function (see `_server_mod()`, `_uvicorn()`, `_nib()`, `_init_luts()`). The CLI fast path (server already running) must stay near-zero cost.
-- **Global state lives in `_session.py`** — `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `SHELL_SOCKETS`. Other modules import these by name, never redefine them.
+- **Global state lives in `_session.py`** — `SESSIONS`, `SERVER_LOOP`, `SERVER_PORT`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `VIEWER_SID_COUNTS`, `VIEWER_CONNECTIONS_SEEN`, `SHELL_SOCKETS`, `PENDING_SESSIONS`, `PENDING_SESSION_EVENTS`, `_window_process`, plus the render pool (`_RENDER_QUEUE`, `_RENDER_THREADS`, `_RENDER_WORKERS`). Other modules import these by name, never redefine them.
 - **Render pipeline is pure functions** — `_render.py` exports stateless functions that take `session` + parameters. No class hierarchy.
 - **One HTML file for the entire frontend** — all CSS and JS live in `_viewer.html`. Do not split into separate files.
 - **Tests live in `tests/`** — not next to source files. Visual/browser tests use playwright and are marked `@pytest.mark.browser`.
-- **All file-format loading goes through `_io.load_data(filepath)`** — no direct format imports in `_server.py` or `_launcher.py`.
+- **All file-format loading goes through `_io.py`** — `load_data_with_meta(filepath, key=None, select=None)` is the canonical primary-load path (returns `(data, spatial_meta)` and is what `_launcher.py` uses). `load_data(filepath, key=None)` still exists for loads that don't need spatial metadata. No direct format imports in `_server.py` or `_launcher.py`.
 - **Server features usually live in `_routes_*.py`** — keep `_server.py` as the assembly layer unless the route is tiny infrastructure.
 
 ## Patterns
@@ -90,7 +90,7 @@ Always check in this priority order. Never short-circuit.
 Before presenting any code change:
 - [ ] New heavy imports are lazy (wrapped in a `_mod = None` / accessor function pattern)
 - [ ] Any new `Session` field is initialized in `Session.__init__` and cleared in `reset_caches()` if it's cache-related
-- [ ] New file format support goes through `_io.load_data()` and adds the extension to `_SUPPORTED_EXTS`
+- [ ] New file format support goes through `_io.load_data_with_meta()` (and `load_data()`), and adds the extension to `_SUPPORTED_EXTS`
 - [ ] Frontend changes are in `_viewer.html` only — no new JS/CSS files
 - [ ] New rendering functions follow the `extract_slice → apply_complex_mode → apply_colormap_rgba` pipeline order
 - [ ] Environment detection changes go in `_platform.py`, not inline in `_launcher.py` or `_vscode.py`

@@ -18,7 +18,7 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-06-05
+last_updated: 2026-07-01
 ---
 
 # Frontend (_viewer.html)
@@ -46,7 +46,7 @@ For a small follow-up tweak, prefer exact code search in `_viewer.html` and skip
 - Section separators: `/* ── Section Name ── */` in CSS, `// ── Section Name ──` in JS
 - Reconcilers: grep `UI Validation and Reconciliation`, `_reconcileUI`, `_reconcileLayout`
 - Keybinds/help: grep `commands`, `keybinds`, `GUIDE_TABS`, `dispatchCommand`
-- Mode system: grep `Mode Registry`, `modeManager`, `enterMultiView`, `enterCompare`, `enterQmri`
+- Mode system: grep `Mode Registry`, `modeManager`, `enterMultiView`, `enterCompareModeBySid`, `enterQmri`
 - Layout/scale: grep `scaleCanvas`, `mvScaleAllCanvases`, `compareScaleCanvases`, `qvScaleAllCanvases`
 - Colorbars: grep `ColorBar class`, `drawSlimColorbar`, `drawMvColorbar`
 
@@ -73,7 +73,7 @@ For a small follow-up tweak, prefer exact code search in `_viewer.html` and skip
 
 - **Reconcilers** — UI visibility/state should converge here after mode changes
 - **Command registry** — `commands`, `keybinds`, `dispatchCommand`, `GUIDE_TABS`
-- **View component system** — `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager`; still coexists with legacy rendering
+- **View component system** — `View`, `Slicer`, `LayoutStrategy`, `modeManager`, plus concrete layer classes `VectorFieldLayer`, `OverlayLayer`, `CrosshairLayer`; still coexists with legacy rendering
 - **Dual-write state** — when legacy globals are changed, matching `displayState` fields may need updating too
 - **Manual range state** — `manualVmin` / `manualVmax` and per-view locked ranges are real state, not derived UI
 - **Tool menu and dynamic island** — central owners for several multi-feature UI surfaces; touch deliberately

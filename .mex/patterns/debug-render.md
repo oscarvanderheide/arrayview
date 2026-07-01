@@ -22,7 +22,7 @@ edges:
     condition: only after Step 1 points to `_viewer.html` rather than the Python pipeline
   - target: context/conventions.md
     condition: for the Verify Checklist after fixing
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Debug Render
@@ -95,7 +95,7 @@ print(vmin, vmax)  # should not be equal
 
 **Step 5 — Check WebSocket binary frame format**
 In the browser console: look for `ArrayBuffer` size. Expected: `H * W * 4` bytes (RGBA, row-major).
-If size is wrong → server is sending wrong shape. Add a print to the `/ws/{sid}` handler in `_server.py`.
+If size is wrong → server is sending wrong shape. Add a print to the `/ws/{sid}` handler in `_routes_websocket.py` (registered into the app via `register_websocket_routes(app)`; the handler is no longer in `_server.py`).
 
 **Step 6 — Check mosaic grid layout**
 For mosaic artifacts: `mosaic_shape(n)` returns `(rows, cols)`. Verify `rows * cols >= n`.
@@ -107,7 +107,7 @@ Run `_composite_overlay_mask(rgba, ov_raw, is_label=True)` on a test RGBA and ma
 ## Gotchas
 
 - **Cache stale after data change** — if `session.data` is modified without calling `session.reset_caches()`, stale slices will be served. Always call `reset_caches()` after modifying session data.
-- **Complex dtype from `.mat`** — scipy structured dtypes with `real`/`imag` fields are converted in `extract_slice`, not in `_io.load_data`. If you bypass `extract_slice`, you must call `_fix_mat_complex()` yourself.
+- **Complex dtype from `.mat`** — scipy structured dtypes with `real`/`imag` fields are converted in `_io.load_data()` (via `_fix_mat_complex()`), not in `extract_slice`. If you bypass `load_data()`, you must call `_fix_mat_complex()` yourself.
 - **RGB arrays skip colormap** — `render_rgb_rgba` does NOT call `apply_colormap_rgba`. If your code assumes all renders go through colormap, it breaks for RGB sessions.
 - **Mosaic gap pixels** — the grid is filled with `np.nan` first, then NaN pixels are colored `[22, 22, 22, 255]`. A NaN in actual data will look like a grid gap — use `extract_slice` which calls `nan_to_num`.
 - **Colormap not in LUTS** — custom colormaps added after `_init_luts()` go through `_ensure_lut()`. Never access `LUTS[name]` without calling `_ensure_lut(name)` first.

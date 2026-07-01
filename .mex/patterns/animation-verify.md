@@ -16,7 +16,7 @@ triggers:
 edges:
   - target: patterns/frontend-change.md
     condition: always — animation changes are always frontend changes
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Animation Verify
@@ -101,18 +101,17 @@ Open the frame directory and scan the sequence:
 
 ### 3. Scrub at key progress points
 
-For pinch immersive crossfade: exercise `rawP` at 0 → 0.25 → 0.5 → 0.75 → 1.0 via
-`window.__pinchDebug = true` and the Playwright console:
+For pinch immersive crossfade: drive `immersiveTl.progress()` at 0 → 0.25 → 0.5 → 0.75 → 1.0 from the Playwright console (the pinch path writes `immersiveTl.progress()` directly; `_crossfadeP` mirrors the same value):
 
 - [ ] Canvas size progresses monotonically (grows without shrinking mid-transition)
 - [ ] Chrome elements stay at freeze position until their fade-out begins
-- [ ] No layout jump at the rawP=0 or rawP=1 boundary
+- [ ] No layout jump at the progress=0 or progress=1 boundary
 - [ ] After `_settleImmersive()` fires: chrome visible at overlay positions, `_scrubDetached` is false
 
 ### 4. Verify reverse path
 
 - [ ] Exit animation (reverse scrub) shows the same freeze behavior as entry
-- [ ] Chrome elements rejoin document flow cleanly at rawP=0 (no leftover fixed positioning)
+- [ ] Chrome elements rejoin document flow cleanly at progress=0 (no leftover fixed positioning)
 - [ ] `_resetImmersiveTransforms()` clears all detach inline styles
 
 ## Regression Table

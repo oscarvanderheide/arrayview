@@ -16,7 +16,7 @@ edges:
     condition: for shared conventions and the Verify Checklist
   - target: patterns/debug-render.md
     condition: when the change produces wrong visual output
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Frontend Change
@@ -42,7 +42,7 @@ Section separators are the navigation primitive:
 4. Read only the local CSS/JS slice you need.
 5. Make the change in place and preserve section separator style.
 6. If adding a keyboard shortcut: update both the command/keybind registry and `GUIDE_TABS`.
-7. If adding a new mode: register it in the `Mode Registry`.
+7. If adding a new mode: add a standalone `enter<Mode>()` function and route to it via `modeManager.enterMode()` (the `ModeRegistry` helper is stateless — it has no `enter()` registration table).
 8. Run narrow verification for the touched behavior.
 9. If the change affects mode routing/layout behavior across modes, run the targeted mode test.
 10. Only run the broader visual audit path when explicitly requested or doing release validation.
@@ -68,5 +68,5 @@ Section separators are the navigation primitive:
 ## Debug
 
 If `visual_smoke.py` fails: see `patterns/debug-render.md`.
-If the mode doesn't activate: check Mode Registry — the `enter()` function must be registered by exact mode name string.
+If the mode doesn't activate: check the `enter<Mode>()` function and `modeManager.enterMode()` dispatch — `ModeRegistry` is a stateless scaler/helper, not a registration table.
 If layout breaks in one environment but not others: check mode-specific CSS rules; immersive/compact mode may override your styles.

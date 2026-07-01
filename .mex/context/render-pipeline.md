@@ -20,7 +20,7 @@ edges:
     condition: when writing new render functions or extending the pipeline
   - target: patterns/debug-render.md
     condition: when a render produces wrong output or the wrong cache is hit
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Render Pipeline
@@ -34,29 +34,34 @@ Every slice request follows this fixed order. Do not skip steps or reorder.
    → returns float32 2D numpy array (raw slice from ND array)
    → result cached in session.raw_cache (LRU, keyed by (dim_x, dim_y, key_idx))
 
-2. apply_complex_mode(arr, mode)
-   → applies FFT, magnitude, phase, real, imag transforms to complex arrays
-   → skip if data is not complex
+2. _prepare_display(session, raw, complex_mode, dr, log_scale, vmin_override, vmax_override)
+   → calls apply_complex_mode(raw, complex_mode) internally (mag/phase/real/imag)
+   → returns (float32 data, vmin, vmax) — NOT uint8; normalization to [0,255]
+     happens later inside apply_colormap_rgba
 
-3. _prepare_display(arr, vmin, vmax, log_scale)
-   → normalizes to [0, 255] uint8
-
-4. render_rgba(arr_uint8, lut_name) / render_rgb_rgba(arr) / render_mosaic(...)
-   → applies LUT (colormap) → returns RGBA uint8 2D array
+3. render_rgba(session, ...) / render_rgb_rgba(session, ...) / render_mosaic(session, ...)
+   → each takes a session + dims/idx/colormap params (NOT a pre-extracted array),
+     calls extract_slice internally, then applies LUT → RGBA uint8 2D array
    → result cached in session.rgba_cache or session.mosaic_cache
 
-5. PNG encode (Pillow)
-   → sent as binary WebSocket frame
+4. WebSocket binary frame
+   → raw RGBA bytes prefixed by a binary header (seq, w, h as uint32 +
+     vmin, vmax as float32). Pillow PNG encoding is ONLY used by the
+     HTTP export endpoints (e.g. /grid/{sid}), not the live WS render path.
 ```
+
+Note: FFT is NOT part of `apply_complex_mode`. It is a separate data-level
+transform applied in the `/fft/{sid}` endpoint (`_routes_state.py`), which
+mutates `session.data` and stashes the original in `session.fft_original_data`.
 
 ## Colormap LUTs
 
 `LUTS` dict in `_render.py` — maps colormap name → 256×4 uint8 numpy array (RGBA).
 
 - Initialized lazily by `_init_luts()` on first use. Not initialized at import time.
-- Available colormaps: `gray`, `lipari`, `navia`, `viridis`, `plasma`, `magma`, `inferno`, `cividis`, `rainbow`, `RdBu_r`, `twilight_shifted`, plus `RdBu_r_black` (diff mode).
+- Available colormaps: `gray`, `lipari`, `navia`, `viridis`, `plasma`, `magma`, `inferno`, `cividis`, `rainbow`, `RdBu_r`, `twilight_shifted`, `turbo`, plus `RdBu_r_black` (diff mode).
 - `lipari` and `navia` require `qmricolors` to be imported first (done inside `_init_luts()`).
-- To add a colormap: add name to `COLORMAPS` list in `_session.py`, then add LUT construction in `_init_luts()` in `_render.py`. Restart required.
+- To add a colormap: add the name to `COLORMAPS` in `_session.py`. `_init_luts()` iterates `COLORMAPS` and builds each LUT from `matplotlib.colormaps[name]` automatically, so standard matplotlib colormaps need no extra work. Only a custom (non-matplotlib) colormap like `RdBu_r_black` needs manual LUT construction in `_init_luts()`. Env vars are read once at import, so a restart is required.
 
 ## Session Caches
 
@@ -68,7 +73,7 @@ Each `Session` has three LRU caches, all `OrderedDict`:
 | `rgba_cache` | derived | RGBA uint8 tiles | `ARRAYVIEW_RGBA_CACHE_MB` (10% RAM) |
 | `mosaic_cache` | derived | mosaic RGBA | `ARRAYVIEW_MOSAIC_CACHE_MB` (2.5% RAM) |
 
-Cache budgets are computed once at import time from available RAM (via `psutil`). Override per-session via env vars.
+Cache budgets are computed once at module import time from available RAM (via `psutil`), with a 64 MB floor. The env vars below are read once at import — there is no per-session override; changing a value requires a process restart.
 
 LRU eviction pattern:
 ```python
@@ -83,14 +88,14 @@ while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
 
 ## Render Thread
 
-`_RENDER_QUEUE: SimpleQueue` in `_session.py`. The render thread (`arrayview-render`, daemon) drains the queue and resolves `asyncio.Future`s on the server event loop.
+`_RENDER_QUEUE: SimpleQueue` in `_session.py`. A pool of `_RENDER_WORKERS = max(2, min(4, os.cpu_count() or 2))` daemon threads (named `arrayview-render-{N}`, tracked in `_RENDER_THREADS`) drains the queue and resolves `asyncio.Future`s on the server event loop. `_ensure_render_thread()` keeps the pool at the configured worker count.
 
 ```python
 await _render(loop, lambda: extract_slice(session, dim_x, dim_y, idx))
 ```
 
 - Never use `asyncio.run_in_executor` for render work — the executor's `_global_shutdown` flag races with daemon thread cleanup.
-- The queue accepts `None` as a sentinel to stop the thread.
+- The queue accepts `None` as a sentinel to stop a worker.
 
 ## Prefetch Pool
 
@@ -99,7 +104,7 @@ Separate 1-thread `ThreadPoolExecutor` (`arrayview-prefetch`). Warms `raw_cache`
 ## Special Array Types
 
 - **RGB arrays** — detected by `_setup_rgb()`. Skip colormap; go directly to `render_rgb_rgba()`. `session.rgb_axis` holds the axis index; `session.spatial_shape` is shape without that axis.
-- **Complex arrays** — `apply_complex_mode()` transforms to real before colormapping. Supported modes: magnitude, phase, real, imag, FFT (various).
+- **Complex arrays** — `apply_complex_mode()` transforms to real before colormapping. Supported modes: magnitude, phase, real, imag. FFT is a separate data-level transform (see note above).
 - **NIfTI** — canonical-reoriented on load by `_load_nifti_with_meta()`. `session.spatial_meta` holds affine, voxel sizes, axis labels. RAS resample cached in `session.resampled_volume`.
 - **Large memmap arrays** — `_default_start_dims_for_data()` may override the default startup axes to avoid high-stride reads.
 

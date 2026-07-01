@@ -56,7 +56,7 @@ last_updated: 2026-06-19
 ### VS Code tunnel uses forwarded WebSocket transport
 **Date:** 2024
 **Status:** Superseded
-**Decision:** Older tunnel builds used `_stdio_server.py` and direct webview `postMessage` IPC to avoid unreliable forwarded ports. Current builds use the same FastAPI/WebSocket transport as local VS Code and have the extension expose/promote the tunnel port before opening the tab.
+**Decision:** Older tunnel builds used a now-removed stdio-based server module and direct webview `postMessage` IPC to avoid unreliable forwarded ports. Current builds use the same FastAPI/WebSocket transport as local VS Code and have the extension expose/promote the tunnel port before opening the tab.
 **Reasoning:** The direct transport duplicated every server feature and created drift between FastAPI and stdio behavior. The VS Code port-forwarding path is now reliable enough to make one transport simpler and easier to test.
 **Consequences:** New viewer features only need the FastAPI routes/WebSocket path; the VS Code extension remains responsible for signal-file routing, external URI resolution, and port privacy.
 

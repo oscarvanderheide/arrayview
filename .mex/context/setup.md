@@ -13,7 +13,7 @@ edges:
     condition: when specific technology versions or library details are needed
   - target: context/architecture.md
     condition: when understanding how components connect during setup
-last_updated: 2026-06-19
+last_updated: 2026-07-01
 ---
 
 # Setup
@@ -29,7 +29,7 @@ last_updated: 2026-06-19
 1. Clone the repo
 2. `uv sync --all-groups` — installs all dependencies including dev and test groups
 3. Run `uv run arrayview` on `debug/cig_meeting_examples/BraTS2021_00009_t1.nii.gz` — smoke test: should open the viewer with a sample array
-4. Run `uv run pytest` on `tests/test_mode_consistency.py` — verify core render consistency passes
+4. Run `uv run pytest` on `tests/test_mode_consistency.py` — verify core render consistency passes (this is a browser-marked suite: run `uv run playwright install chromium` first, see step below)
 
 For browser-based tests (playwright):
 - `uv run playwright install chromium` — one-time browser install
@@ -48,7 +48,7 @@ No `.env` file is needed. All env vars are optional overrides; the server runs w
 - `uv run arrayview <file>` — launch viewer on a file (CLI entry point)
 - `uvx arrayview <file>` — launch from anywhere without activating the venv
 - Run `uv run pytest` on `tests/<target>` — run a specific test file
-- Run `uv run pytest` on `tests/test_mode_consistency.py` — mode consistency suite after render changes
+- Run `uv run pytest` on `tests/test_mode_consistency.py` — mode consistency suite after render changes (browser-marked; requires `uv run playwright install chromium`)
 - Run `uv run python` on `tests/visual_smoke.py` — browser smoke tests (requires playwright)
 - `uv run pytest -m "not browser"` — all non-browser tests
 - `uv build` — build wheel + sdist in the default build output directory
