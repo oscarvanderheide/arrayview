@@ -103,6 +103,11 @@ let lastHandledAt = 0;
 // Track open webview panels by URL so we can reveal instead of re-creating.
 const _openPanels = new Map(); // url -> vscode.WebviewPanel
 
+// Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
+// When a signal file arrives, we navigate the placeholder instead of
+// creating a second panel, avoiding a visible flicker.
+const _pendingPlaceholders = new Map(); // filePath -> { panel, basename }
+
 function log(message) {
     const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
     const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
@@ -157,6 +162,7 @@ function launchArrayViewFile(filePath, title) {
                     cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath),
                     detached: true,
                     stdio: ['ignore', 'pipe', 'pipe'],
+                    env: { ...process.env, TERM_PROGRAM: 'vscode' },
                 });
             } catch (error) {
                 log(`PYTHON: launch failed for ${candidate.command}: ${error.message}`);
@@ -264,16 +270,30 @@ class ArrayViewEditorProvider {
         const filePath = document.uri.fsPath;
         const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
-        // This custom editor is only a VS Code file-association handoff. It
-        // starts ArrayView normally, then the signal-file path opens the
-        // URL-backed HTTP/WebSocket viewer and this placeholder closes.
+        // This custom editor is a handoff placeholder.  We keep it open and
+        // navigate its webview when the signal-file URL arrives — no flicker.
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
             <div>Opening ${title} in ArrayView...</div></body></html>`;
         try {
             await launchArrayViewFile(filePath, title);
             log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
-            await closeActiveArrayViewCustomEditor(document.uri, 'handoff');
+            _pendingPlaceholders.set(filePath, { panel: webviewPanel, basename: title });
+            webviewPanel.onDidDispose(() => {
+                _pendingPlaceholders.delete(filePath);
+                log(`CUSTOM-EDITOR: placeholder disposed for ${title}`);
+            });
+            // Safety timeout: if no signal arrives within 30 s, show an error.
+            setTimeout(() => {
+                if (_pendingPlaceholders.has(filePath)) {
+                    _pendingPlaceholders.delete(filePath);
+                    try {
+                        webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                            <h2>ArrayView failed to start</h2>
+                            <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
+                    } catch (_) { /* panel already disposed */ }
+                }
+            }, 30000);
         } catch (e) {
             log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
             webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
@@ -555,44 +575,10 @@ async function tryOpenSignalFile() {
 // Open or reveal a VS Code WebviewPanel for the given server URL.
 // The panel is only a URL wrapper: ArrayView data and controls still flow
 // through the FastAPI/WebSocket backend, never direct Python/webview IPC.
-async function openInWebviewPanel(url, title, floating = false) {
-    const label = title || 'ArrayView';
-
-    // Reveal existing panel for this URL if still open.
-    const existing = _openPanels.get(url);
-    if (existing) {
-        try {
-            existing.reveal(undefined, false);
-            log(`PANEL: revealed existing panel for ${url}`);
-            return;
-        } catch (_) {
-            _openPanels.delete(url);
-        }
-    }
-
-    const viewColumn = vscode.window.activeTextEditor
-        ? vscode.ViewColumn.Beside
-        : vscode.ViewColumn.Active;
-
-    const panel = vscode.window.createWebviewPanel(
-        'arrayview.preview',
-        label,
-        { viewColumn, preserveFocus: false },
-        {
-            enableScripts: true,
-            enableForms: true,
-            retainContextWhenHidden: true,
-        }
-    );
-
-    // Use a nonce so the CSP allows exactly our inline script and nothing else.
-    // The iframe src is set via JS (not as an HTML attribute) to avoid any
-    // attribute-encoding issues.
+function _viewerPanelHtml(url) {
     const nonce = crypto.randomBytes(16).toString('hex');
-    const jsonUrl = JSON.stringify(url); // safe JS string literal embedding
-    const pingUrl = pingUrlFromViewerUrl(url);
-
-    panel.webview.html = `<!DOCTYPE html>
+    const jsonUrl = JSON.stringify(url);
+    return `<!DOCTYPE html>
 <html>
 <head>
 <meta http-equiv="Content-Security-Policy"
@@ -657,6 +643,39 @@ frame.src = arrayviewUrl;
 </script>
 </body>
 </html>`;
+}
+
+async function openInWebviewPanel(url, title, floating = false) {
+    const label = title || 'ArrayView';
+
+    // Reveal existing panel for this URL if still open.
+    const existing = _openPanels.get(url);
+    if (existing) {
+        try {
+            existing.reveal(undefined, false);
+            log(`PANEL: revealed existing panel for ${url}`);
+            return;
+        } catch (_) {
+            _openPanels.delete(url);
+        }
+    }
+
+    const viewColumn = vscode.window.activeTextEditor
+        ? vscode.ViewColumn.Beside
+        : vscode.ViewColumn.Active;
+
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.preview',
+        label,
+        { viewColumn, preserveFocus: false },
+        {
+            enableScripts: true,
+            enableForms: true,
+            retainContextWhenHidden: true,
+        }
+    );
+
+    panel.webview.html = _viewerPanelHtml(url);
 
     _openPanels.set(url, panel);
     let panelDisposed = false;
@@ -919,6 +938,26 @@ async function _processSignalDataBody(data) {
         }
         openUrl = remoteUrl;
     }
+
+    // Check for a pending placeholder (resolveCustomEditor handoff).
+    // If one matches this signal, navigate the existing placeholder tab
+    // instead of creating a second panel — eliminates the flicker.
+    let handedOff = false;
+    for (const [filePath, placeholder] of _pendingPlaceholders) {
+        if (data.title && data.title.includes(placeholder.basename)) {
+            _pendingPlaceholders.delete(filePath);
+            try {
+                placeholder.panel.webview.html = _viewerPanelHtml(openUrl);
+                placeholder.panel.title = data.title || placeholder.title;
+                log(`HANDOFF: navigated placeholder for ${placeholder.basename} to ${openUrl}`);
+                handedOff = true;
+            } catch (_) {
+                log(`HANDOFF: placeholder panel disposed for ${placeholder.basename}`);
+            }
+            break;
+        }
+    }
+    if (handedOff) return;
 
     log(`openInWebviewPanel(${openUrl})`);
     await openInWebviewPanel(openUrl, data.title, !!data.floating);
