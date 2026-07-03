@@ -702,6 +702,10 @@
             opacity: 1;
             transform: translateY(0);
         }
+        #info.dimbar-expanded .spatial-dim.dim-label {
+            color: var(--spatial-dim);
+            -webkit-text-fill-color: var(--spatial-dim);
+        }
         #info .active-dim.dim-label .dim-idx,
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
@@ -15800,7 +15804,7 @@
             }
             _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
             const infoVisible = _dimUnderlineInfoVisible(info);
-            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || !info.classList.contains('dimbar-expanded');
+            const hidden = true;
             marker.style.opacity = hidden ? '0' : '';
             if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
@@ -15881,7 +15885,7 @@
                 if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
-                const dimCls = playing ? 'playing-dim' : 'active-dim';
+                const dimCls = playing ? 'playing-dim active-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
@@ -17506,7 +17510,8 @@
         function stopPlay() {
             if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
-            isPlaying = false; playingVfieldT = false; playingDim = -1; setStatus('');
+            isPlaying = false; playingVfieldT = false; playingDim = -1;
+            setStatus('');
             renderInfo();
         }
 
@@ -17541,7 +17546,6 @@
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
-            setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
@@ -17549,6 +17553,10 @@
                 playNextVfieldT();
             } else {
                 playingDim = current_slice_dim;
+                const sz = shape[playingDim];
+                playFps = Math.max(3, Math.min(30, Math.round(Math.log2(Math.max(1, sz)) * 6)));
+                setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
+                playLastFrameTime = performance.now();
                 playNext();
             }
         }
@@ -21577,11 +21585,19 @@
                         vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
-                        flipDims[activeDim] = !flipDims[activeDim];
-                        renderInfo();
-                        _mvRenderAllWithRois();
-                        _debouncedHoverPrefetch();
-                        saveState();
+                        if (mvDims.includes(activeDim)) {
+                            flipDims[activeDim] = !flipDims[activeDim];
+                            renderInfo();
+                            _mvRenderAllWithRois();
+                            _debouncedHoverPrefetch();
+                            saveState();
+                        } else {
+                            lastDirection = 1;
+                            indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                            _pendingNavDim = activeDim;
+                            updateView();
+                            saveState();
+                        }
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
                         if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
@@ -21609,11 +21625,19 @@
                         vfieldT = Math.max(0, vfieldT - 1);
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
-                        flipDims[activeDim] = !flipDims[activeDim];
-                        renderInfo();
-                        _mvRenderAllWithRois();
-                        _debouncedHoverPrefetch();
-                        saveState();
+                        if (mvDims.includes(activeDim)) {
+                            flipDims[activeDim] = !flipDims[activeDim];
+                            renderInfo();
+                            _mvRenderAllWithRois();
+                            _debouncedHoverPrefetch();
+                            saveState();
+                        } else {
+                            lastDirection = -1;
+                            indices[activeDim] = Math.max(0, indices[activeDim] - 1);
+                            _pendingNavDim = activeDim;
+                            updateView();
+                            saveState();
+                        }
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
                         if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
