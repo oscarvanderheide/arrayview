@@ -162,7 +162,7 @@ function launchArrayViewFile(filePath, title) {
                     cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath),
                     detached: true,
                     stdio: ['ignore', 'pipe', 'pipe'],
-                    env: { ...process.env, TERM_PROGRAM: 'vscode' },
+                    env: { ...process.env, TERM_PROGRAM: 'vscode', ARRAYVIEW_WINDOW_ID: logWindowId || '' },
                 });
             } catch (error) {
                 log(`PYTHON: launch failed for ${candidate.command}: ${error.message}`);
@@ -618,26 +618,50 @@ function _viewerPanelHtml(url) {
 const arrayviewUrl = ${jsonUrl};
 const frame = document.getElementById('f');
 let viewerReady = false;
+let reloadTimer = null;
+let reloadCount = 0;
+const MAX_RELOADS = 12;
+const RELOAD_DELAY_MS = 1500;
 function showBackendError() {
-  if (viewerReady) return;
-  document.getElementById('backend-url').textContent = arrayviewUrl;
-  document.getElementById('backend-error').classList.add('visible');
-  frame.style.display = 'none';
+    if (viewerReady) return;
+    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+    document.getElementById('backend-url').textContent = arrayviewUrl;
+    document.getElementById('backend-error').classList.add('visible');
+    frame.style.display = 'none';
+}
+function scheduleReload() {
+    if (viewerReady) return;
+    if (reloadTimer) { clearTimeout(reloadTimer); }
+    reloadTimer = setTimeout(() => {
+        reloadTimer = null;
+        if (viewerReady) return;
+        if (reloadCount >= MAX_RELOADS) { showBackendError(); return; }
+        reloadCount++;
+        console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
+        const sep = arrayviewUrl.includes('?') ? '&' : '?';
+        frame.src = arrayviewUrl + sep + '_avretry=' + reloadCount;
+    }, RELOAD_DELAY_MS);
 }
 window.addEventListener('message', (event) => {
-  const msg = event && event.data;
-  if (msg && msg.type === 'backend-error') {
-    console.log('[arrayview-opener] viewer reported backend-error');
-    showBackendError();
-    return;
-  }
-  if (!msg || msg.source !== 'arrayview-viewer') return;
-  if (msg.phase === 'script-loaded' || msg.phase === 'frame-rendered') {
-    viewerReady = true;
-    console.log('[arrayview-opener] viewer phase ' + msg.phase);
-  }
+    const msg = event && event.data;
+    if (msg && msg.type === 'backend-error') {
+        console.log('[arrayview-opener] viewer reported backend-error');
+        showBackendError();
+        return;
+    }
+    if (!msg || msg.source !== 'arrayview-viewer') return;
+    if (msg.phase === 'script-loaded' || msg.phase === 'frame-rendered') {
+        if (!viewerReady) {
+            viewerReady = true;
+            if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+            console.log('[arrayview-opener] viewer phase ' + msg.phase);
+        }
+    }
 });
-frame.addEventListener('load', () => console.log('[arrayview-opener] iframe loaded ' + arrayviewUrl));
+frame.addEventListener('load', () => {
+    console.log('[arrayview-opener] iframe loaded ' + arrayviewUrl);
+    scheduleReload();
+});
 frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
 frame.src = arrayviewUrl;
 </script>
