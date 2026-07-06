@@ -110,12 +110,6 @@
         #canvas-viewport, #mv-panes .mv-canvas-wrap, .compare-canvas-area, .qv-canvas-area {
             transition: filter 0.16s ease;
         }
-        #viewer-row.hist-picker-open #canvas-viewport,
-        #viewer-row.hist-picker-open #mv-panes .mv-canvas-wrap,
-        #viewer-row.hist-picker-open .compare-canvas-area,
-        #viewer-row.hist-picker-open .qv-canvas-area {
-            filter: blur(6px);
-        }
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
         #canvas-viewport { position: relative; overflow: hidden; display: inline-block; user-select: none; -webkit-user-select: none; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
@@ -475,27 +469,40 @@
             border-radius: 4px; transition: background 0.12s;
         }
         .dim-label:hover { background: transparent; }
-        /* Histogram dim participation: three underline states per dim.
+        /* Histogram dim participation: three hover-only pill states per dim.
          *   hist-scope     — in scope
          *   hist-recompute — vmin/vmax recomputes on nav
          *   hist-frozen    — vmin/vmax stays put
          * x/y get hist-locked-dim (not togglable). */
         #info.hist-pick-mode .dim-label {
             cursor: pointer;
-            background-image: linear-gradient(var(--hist-underline, transparent), var(--hist-underline, transparent));
-            background-repeat: no-repeat;
-            background-position: left calc(100% - 1px);
-            background-size: 100% 2px;
-            transition: background 0.1s, opacity 0.1s;
+            transition: opacity 0.1s;
+        }
+        #info.hist-pick-mode .dim-label::after {
+            content: "";
+            position: absolute;
+            inset: -1px -4px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--hist-pill, transparent) 18%, transparent);
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+            transition: opacity 0.12s ease;
+        }
+        #info.hist-pick-mode:hover .dim-label::after {
+            opacity: 1;
+        }
+        #info.hist-pick-mode:hover .dim-label:hover::after {
+            background: color-mix(in srgb, var(--hist-pill, transparent) 28%, transparent);
         }
         #info.hist-pick-mode .dim-label.hist-scope {
-            --hist-underline: var(--vfield-t-dim);
+            --hist-pill: var(--vfield-t-dim);
         }
         #info.hist-pick-mode .dim-label.hist-recompute {
-            --hist-underline: var(--playing-dim);
+            --hist-pill: var(--playing-dim);
         }
         #info.hist-pick-mode .dim-label.hist-frozen {
-            --hist-underline: var(--muted);
+            --hist-pill: var(--muted);
             opacity: 0.7;
         }
         #info.hist-pick-mode .dim-label.hist-frozen:hover    { opacity: 1; }
@@ -520,89 +527,126 @@
             opacity: 0.72;
         }
         #info.roi-scope-mode .dim-label.roi-current-dim:hover { opacity: 1; }
-        /* In-pane legend for the legacy expanded histogram picker. It stays visible
-         * while picker mode is open so the three dim states remain legible
-         * without relying on hover. */
-        #hist-picker-legend {
+        /* d-key histogram / range menu. Fixed overlay, separate from viewer layout. */
+        #dmenu-picker {
+            position: fixed;
+            inset: 0;
+            z-index: 58;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.14s ease, visibility 0s linear 0.14s;
+        }
+        #dmenu-picker.visible {
+            opacity: 1;
+            visibility: visible;
+            transition-delay: 0s;
+        }
+        #dmenu-picker.closing .dmenu-bound-label,
+        #dmenu-picker.closing .dmenu-percent-label {
+            opacity: 0;
+            transition: opacity 0.06s ease;
+        }
+        #dmenu-picker-box {
+            position: fixed;
+            width: min(286px, calc(100vw - 28px));
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-height: calc(var(--dmenu-cb-reserve, 0px) + 36px);
+            padding: 8px 10px calc(8px + var(--dmenu-cb-reserve, 0px));
+            background: color-mix(in srgb, var(--surface) 82%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--layout-shadow);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            box-sizing: border-box;
+            pointer-events: none;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text);
+            transform: none;
+        }
+        #dmenu-picker.visible #dmenu-picker-box {
+            transform: none;
+        }
+        .dmenu-list {
             position: absolute;
-            top: 12px;
-            left: 50%;
+            inset: 0;
+            min-height: 26px;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .dmenu-bound-label {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            font-size: 12px;
+            text-align: center;
+            cursor: pointer;
+            box-sizing: border-box;
+            pointer-events: auto;
+            transform: translateX(-50%);
+        }
+        .dmenu-bound-label:hover,
+        .dmenu-bound-label.is-locked {
+            color: var(--active-dim);
+        }
+        .dmenu-bound-label:hover {
+            background: color-mix(in srgb, var(--active-dim) 13%, transparent);
+        }
+        .dmenu-bound-lock {
+            display: block;
+            color: inherit;
+            font-size: 12px;
+            line-height: 1;
+        }
+        .dmenu-percent-label {
+            position: absolute;
+            color: var(--active-dim);
+            font-size: 10px;
+            line-height: 1;
+            white-space: nowrap;
+            pointer-events: none;
+            transform: translateX(-50%);
+        }
+        .dmenu-percent-label.edge-start {
+            transform: none;
+        }
+        .dmenu-percent-label.edge-end {
+            transform: translateX(-100%);
+        }
+        .dmenu-percent-divider {
+            position: absolute;
+            width: 1px;
+            height: 10px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--active-dim) 78%, transparent);
             opacity: 0;
             pointer-events: none;
-            width: min(560px, calc(100% - 24px));
             transform: translateX(-50%);
-            padding: 12px;
-            background: var(--surface);
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: 0 10px 28px rgba(0,0,0,0.32);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            pointer-events: none;
-            z-index: 55;
-            transition: opacity 0.25s ease;
         }
-        #hist-picker-legend.visible { opacity: 1; pointer-events: auto; }
-        #hist-picker-legend-title {
-            font-size: 12px;
-            line-height: 1.35;
-            color: var(--text);
-            margin-bottom: 8px;
+        .hist-tip-common {
+            margin-bottom: 7px;
         }
-        .hist-picker-legend-row {
-            display: grid;
-            grid-template-columns: 120px minmax(0, 1fr);
-            gap: 10px;
-            align-items: start;
-            padding: 8px 10px;
-            border-radius: var(--radius);
-            background: rgba(255,255,255,0.03);
+        .hist-tip-current {
+            margin-top: 7px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+            min-height: 1.45em;
         }
-        .hist-picker-legend-row + .hist-picker-legend-row {
-            margin-top: 6px;
-        }
-        .hist-picker-legend-state {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            line-height: 1.35;
-            letter-spacing: 0.05em;
-            color: var(--text);
-            white-space: nowrap;
-        }
-        .hist-picker-legend-state.scope { color: var(--vfield-t-dim); }
-        .hist-picker-legend-state.recompute { color: var(--playing-dim); }
-        .hist-picker-legend-state.frozen { color: var(--muted); }
-        .hist-picker-legend-swatch {
-            width: 14px;
-            height: 14px;
-            border-radius: 4px;
-            border: 1px solid var(--border);
-            flex: 0 0 auto;
-        }
-        .hist-picker-legend-swatch.scope {
-            border-color: var(--vfield-t-dim);
-            background: color-mix(in srgb, var(--vfield-t-dim) 12%, transparent);
-        }
-        .hist-picker-legend-swatch.recompute {
-            border-color: var(--playing-dim);
-            background: color-mix(in srgb, var(--playing-dim) 12%, transparent);
-        }
-        .hist-picker-legend-swatch.frozen {
-            border-style: dashed;
-            border-color: var(--muted);
-            background: transparent;
-        }
-        .hist-picker-legend-copy {
-            font-size: 11px;
-            line-height: 1.5;
-            color: var(--muted);
-        }
-        .hist-picker-legend-copy strong {
-            color: var(--text);
-            font-weight: 600;
+        .hist-tip-current-empty {
+            visibility: hidden;
         }
 
         /* Fast custom tooltip for the picker. Native `title` has a ~600 ms
@@ -624,9 +668,15 @@
             z-index: 200;
             white-space: normal;
         }
-        #hist-tooltip .hist-tip-title { margin-bottom: 6px; }
-        #hist-tooltip .hist-tip-list { margin: 0; padding-left: 16px; list-style: disc; }
-        #hist-tooltip .hist-tip-list li + li { margin-top: 4px; }
+        #hist-tooltip .hist-tip-title { margin-bottom: 7px; }
+        #hist-tooltip .hist-tip-table {
+            display: grid;
+            grid-template-columns: max-content minmax(0, 1fr);
+            gap: 4px 12px;
+            align-items: baseline;
+        }
+        #hist-tooltip .hist-tip-label { white-space: nowrap; }
+        #hist-tooltip .hist-tip-desc { color: var(--muted); }
         #hist-tooltip .hist-tip-state.scope { color: var(--vfield-t-dim); }
         #hist-tooltip .hist-tip-state.recompute { color: var(--playing-dim); }
         #hist-tooltip .hist-tip-state.frozen { color: var(--muted); }
@@ -3965,6 +4015,20 @@
             border: none !important;
             box-shadow: none !important;
         }
+        body:not(.fullscreen-mode) #slim-cb-wrap.dmenu-attached {
+            z-index: 59;
+            pointer-events: none !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            transition: none !important;
+        }
+        body:not(.fullscreen-mode) #slim-cb-wrap.dmenu-attached #slim-cb {
+            box-shadow: none;
+            pointer-events: auto;
+        }
         body:not(.fullscreen-mode) #mv-cb-wrap {
             background: transparent !important;
             backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
@@ -4354,37 +4418,12 @@
         <span id="array-name-text"></span>
     </div>
     <div id="info">Connecting...</div>
-    <div id="viewer-row">
-        <div id="hist-picker-legend" aria-hidden="true">
-            <div id="hist-picker-legend-title">The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen.</div>
-            <div class="hist-picker-legend-row">
-                <div class="hist-picker-legend-state scope">
-                    <span class="hist-picker-legend-swatch scope"></span>
-                    IN SCOPE
-                </div>
-                <div class="hist-picker-legend-copy">
-                    <strong>Full range in volume. Scrolling doesn't change limits.</strong>
-                </div>
-            </div>
-            <div class="hist-picker-legend-row">
-                <div class="hist-picker-legend-state recompute">
-                    <span class="hist-picker-legend-swatch recompute"></span>
-                    RECOMPUTE
-                </div>
-                <div class="hist-picker-legend-copy">
-                    <strong>Current position only. Scrolling recalculates limits.</strong>
-                </div>
-            </div>
-            <div class="hist-picker-legend-row">
-                <div class="hist-picker-legend-state frozen">
-                    <span class="hist-picker-legend-swatch frozen"></span>
-                    FROZEN
-                </div>
-                <div class="hist-picker-legend-copy">
-                    <strong>Current position only. Limits stay fixed.</strong>
-                </div>
-            </div>
+    <div id="dmenu-picker" aria-hidden="true">
+        <div id="dmenu-picker-box" role="menu" aria-label="Histogram range controls" tabindex="-1">
+            <div id="dmenu-list" class="dmenu-list"></div>
         </div>
+    </div>
+    <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <div id="canvas-viewport">
             <div id="canvas-inner">
@@ -5005,6 +5044,13 @@
         // 'recompute' (when !rangeLocked).
         let _histDimState = new Map();    // Map<int, 'scope'|'recompute'|'frozen'>
         let _histPickerActive = false;    // Legacy expanded picker mode toggle
+        let _dmenuPickerOpen = false;
+        let _dmenuSelectedIdx = 0;
+        let _dmenuPositionTrackToken = 0;
+        let _dmenuAttachToken = 0;
+        let _dmenuCbReservePx = null;
+        let _dmenuVminPresetIdx = null;
+        let _dmenuVmaxPresetIdx = null;
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
@@ -5027,6 +5073,7 @@
         let _qmriLoupeDrag = null; // {active,canvas,view}
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
+        let _dmenuZeroFloorVminUnlocked = false;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
         // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
         const cmpManualVmin = Array(6).fill(null);
@@ -5352,6 +5399,9 @@
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
         let rangeLocked = true; // when true, d-set limits never auto-recompute on navigation
+        let vminLocked = false;  // lock lower bound independently
+        let vmaxLocked = false;  // lock upper bound independently
+        let excludeZeros = false; // exclude zero-valued voxels from histogram computation
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
         let rasResampleActive = false;
         let multiViewActive = false;
@@ -6207,7 +6257,7 @@
             apply() { this.opts.apply(this.x, this.y); }
             startDrag(e) {
                 this._drag = { startX: e.clientX, startY: e.clientY, panX0: this.x, panY0: this.y };
-                if (this.opts.onDragStart) this.opts.onDragStart();
+                if (this.opts.onDragStart) this.opts.onDragStart(target);
             }
             updateDrag(e) {
                 if (!this._drag) return false;
@@ -8984,6 +9034,11 @@
             /** Show a percentile tooltip above the active drag handle. */
             _showDragPercentileTooltip(frac, val) {
                 if (!this.tooltip || this.orientation !== 'horizontal') return;
+                if (typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen) {
+                    this.tooltip.classList.remove('percentile');
+                    this.tooltip.style.display = 'none';
+                    return;
+                }
                 const pct = this._percentileAtValue(val);
                 if (pct == null) {
                     this.tooltip.classList.remove('percentile');
@@ -9284,8 +9339,8 @@
                     [effVmin, effVmax].forEach(f => {
                         const x = Math.max(1, Math.min(cssW - 1, Math.round(f * cssW)));
 
-                        const lineH = cssH - labelH;
                         const lineTop = labelH;
+                        const lineH = cssH - lineTop;
 
                         // Sample colormap at this position to determine line visibility
                         const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
@@ -9662,25 +9717,21 @@
                         }
                     }
                     this._dragX = e.clientX;
-                    if (this.opts.onDragStart) this.opts.onDragStart();
+                    if (this.opts.onDragStart) this.opts.onDragStart('pan');
                 });
 
-                // Dblclick toggles histogram expand/collapse
+                // Dblclick follows the same histogram/range menu path as `d`.
                 this.canvas.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this._dragX = null;
                     this._dragTarget = null;
                     this._dragActive = false;
                     document.body.style.cursor = '';
                     if (this.opts.onMouseLeave) this.opts.onMouseLeave();
-                    if (this._expanded) {
-                        this._manualExpand = false;
-                        this.collapse();
-                        this.cancelAutoDismiss();
-                    } else {
-                        this._manualExpand = true;
-                        this.expand();
-                        // No auto-dismiss — user explicitly toggled via dblclick
-                        this.cancelAutoDismiss();
+                    const cmd = typeof commands !== 'undefined' ? commands['histogram.openOrCycle'] : null;
+                    if (cmd && typeof cmd.run === 'function') {
+                        Promise.resolve(cmd.run({}, { key: 'd', source: 'colorbar-dblclick' })).catch(() => {});
                     }
                 });
 
@@ -9783,7 +9834,7 @@
                 this._dragTarget = target;
                 this._dragActive = true;
                 document.body.style.cursor = 'ew-resize';
-                if (this.opts.onDragStart) this.opts.onDragStart();
+                if (this.opts.onDragStart) this.opts.onDragStart(target);
                 const win = this.opts.getWindow();
                 const hd = this._histData;
                 if (hd) {
@@ -9863,7 +9914,7 @@
                         // Show floating tooltip with value above the colorbar,
                         // even when the histogram is collapsed.
                         const hoverVal = this._hoverBarValueAt(frac);
-                        if (this.tooltip && hoverVal != null) {
+                        if (this.tooltip && hoverVal != null && !(typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen)) {
                             const hoverFormatter = this._dragLabelFormatter
                                 || formatValueGroup([
                                     hoverVal,
@@ -10747,7 +10798,10 @@
                     _restartHistAutoDismiss();
                 }
             },
-            onDragStart: () => { _stopColorbarLebesgueHover(); },
+            onDragStart: (target) => {
+                _stopColorbarLebesgueHover();
+                _dmenuClearPresetForManualRange(target);
+            },
             onDragEnd: () => { if (primaryCb._mouseOver) _startColorbarLebesgueHover(); },
             onBinHover: (binIdx, frac) => {
                 _drawLebesgueHighlightForColorbar(primaryCb, binIdx);
@@ -10826,7 +10880,8 @@
             const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
             const qmriRole = opts.qmriRole || '';
             const numBins = opts.bins || 64;
-            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
+            const exclZ = excludeZeros ? '1' : '0';
+            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}:ez${exclZ}`;
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
@@ -10843,6 +10898,7 @@
             if (scrollDims.length) params.set('scroll_dims', scrollDims.join(','));
             if (fixedIndices) params.set('fixed_indices', fixedIndices);
             if (qmriRole) params.set('qmri_role', qmriRole);
+            if (excludeZeros) params.set('exclude_zeros', '1');
             try {
                 const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
                 if (!resp.ok) return null;
@@ -10935,7 +10991,8 @@
                 if (i === dx || i === dy || aggSet.has(i)) continue;
                 parts.push(`${i}:${indices[i]}`);
             }
-            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}::64`;
+            const exclZ = excludeZeros ? '1' : '0';
+            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}::64:ez${exclZ}`;
         }
 
         // Scoped nav signal: nav paths that move along a specific dim set this
@@ -10956,35 +11013,45 @@
          * rangeLocked boolean for back-compat.
          */
         function _maybeAutoRecomputeRange(navDim) {
+            if (vminLocked && vmaxLocked) return;
             if (Number.isInteger(navDim) && navDim >= 0) {
                 if (_dimStateFor(navDim) !== 'recompute') return;
             } else if (rangeLocked) {
                 return;
             }
-            manualVmin = null;
-            manualVmax = null;
-            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; } }
-            cmpManualVmin.fill(null);
-            cmpManualVmax.fill(null);
+            if (!vminLocked) {
+                manualVmin = null;
+                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) _dv.displayState.vmin = null; }
+                cmpManualVmin.fill(null);
+            }
+            if (!vmaxLocked) {
+                manualVmax = null;
+                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) _dv.displayState.vmax = null; }
+                cmpManualVmax.fill(null);
+            }
             if (multiViewActive) {
                 mvViews.forEach((v, i) => {
-                    v.lockedVmin = null; v.lockedVmax = null;
-                    const mv = modeManager.currentViews[i];
-                    if (mv) { mv.displayState.vmin = null; mv.displayState.vmax = null; }
+                    if (!vminLocked) { v.lockedVmin = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = null; }
+                    if (!vmaxLocked) { v.lockedVmax = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = null; }
                 });
             }
             if (qmriActive) {
                 qmriViews.forEach((v, i) => {
-                    v.lockedVmin = null; v.lockedVmax = null;
-                    const qv = modeManager.currentViews[i];
-                    if (qv) { qv.displayState.vmin = null; qv.displayState.vmax = null; }
+                    if (!vminLocked) { v.lockedVmin = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmin = null; }
+                    if (!vmaxLocked) { v.lockedVmax = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmax = null; }
                 });
             }
             if (compareMvActive) {
-                compareMvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+                compareMvViews.forEach(v => {
+                    if (!vminLocked) v.lockedVmin = null;
+                    if (!vmaxLocked) v.lockedVmax = null;
+                });
             }
             if (compareQmriActive) {
-                compareQmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+                compareQmriViews.forEach(v => {
+                    if (!vminLocked) v.lockedVmin = null;
+                    if (!vmaxLocked) v.lockedVmax = null;
+                });
             }
         }
 
@@ -11039,9 +11106,10 @@
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
             if (preset.lo === 0 && preset.hi === 1) {
-                manualVmin = _histData.vmin;
-                manualVmax = _histData.vmax;
+                if (!vminEffectivelyLocked) { manualVmin = _histData.vmin; _dmenuVminPresetIdx = window._dQuantileIdx; }
+                if (!vmaxLocked) { manualVmax = _histData.vmax; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             } else {
                 const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
@@ -11052,20 +11120,22 @@
                     cumLo += counts[i];
                     if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
                 }
+                qLo = _dmenuMaybeLiftUnlockedZeroFloor(_histData, preset, qLo);
                 for (let i = counts.length - 1; i >= 0; i--) {
                     cumHi += counts[i];
                     if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
                 }
-                manualVmin = qLo;
-                manualVmax = qHi;
+                if (!vminEffectivelyLocked) { manualVmin = qLo; _dmenuVminPresetIdx = window._dQuantileIdx; }
+                if (!vmaxLocked) { manualVmax = qHi; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             }
-            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+            if (!vminEffectivelyLocked) cmpManualVmin.fill(null);
+            if (!vmaxLocked) cmpManualVmax.fill(null);
             if (multiViewActive) mvViews.forEach((v, i) => {
-                v.lockedVmin = manualVmin; v.lockedVmax = manualVmax;
-                const mv = modeManager.currentViews[i];
-                if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
+                if (!vminEffectivelyLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
+                if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
             });
+            _updateDmenuPreset();
             return preset;
         }
 
@@ -11081,11 +11151,24 @@
                 cumLo += counts[i];
                 if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
             }
+            qLo = _dmenuMaybeLiftUnlockedZeroFloor(hist, preset, qLo);
             for (let i = counts.length - 1; i >= 0; i--) {
                 cumHi += counts[i];
                 if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
             }
             return { vmin: qLo, vmax: qHi };
+        }
+
+        function _dmenuMaybeLiftUnlockedZeroFloor(hist, preset, qLo) {
+            if (!_dmenuZeroFloorVminUnlocked || !hist || !preset || preset.lo <= 0) return qLo;
+            if (!Number.isFinite(qLo) || qLo > 0) return qLo;
+            const edges = hist.edges || [];
+            const counts = hist.counts || [];
+            for (let i = 0; i < counts.length; i++) {
+                const upper = Number(edges[i + 1]);
+                if (Number.isFinite(upper) && upper > 0 && counts[i] > 0) return upper;
+            }
+            return qLo;
         }
 
         function _qmriLocksLowerBound(view) {
@@ -11247,6 +11330,10 @@
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
+                if (_dmenuPickerOpen) {
+                    _restartHistAutoDismiss();
+                    return;
+                }
                 // If mouse is over the colorbar or dimbar, leave handlers will restart the timer.
                 if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
                     lebesgueMode = false;
@@ -11262,6 +11349,11 @@
                     } else {
                         drawSlimColorbar(cbMarkerFrac);
                     }
+                }
+                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+                    _histPickerActive = false;
+                    closeDmenuPicker();
+                    _reconcileHistPicker();
                 }
             }, 3000);
         }
@@ -12439,9 +12531,6 @@
                         const serverVmin = headerF32[0];
                         const serverVmax = headerF32[1];
                         if (manualVmin === null) {
-                            manualVmin = serverVmin;
-                            manualVmax = serverVmax;
-                            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             currentVmin = serverVmin;
                             currentVmax = serverVmax;
                         }
@@ -12687,11 +12776,6 @@
                 if (Number.isFinite(vmin) && Number.isFinite(vmax)) {
                     currentVmin = vmin;
                     currentVmax = vmax;
-                    if (manualVmin === null) {
-                        manualVmin = vmin;
-                        manualVmax = vmax;
-                        { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
-                    }
                 }
 
                 lastImageData = frame.imageData;
@@ -17871,6 +17955,7 @@
                 if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
                 closeToolPanel();
                 closeToolLauncher();
+                if (_histPickerActive) _histPickerClose(true);
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
@@ -17975,6 +18060,10 @@
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
+                if (_dmenuPickerOpen) {
+                    _bcAutoDismiss();
+                    return;
+                }
                 if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
                     lebesgueMode = false;
                     primaryCb._expanded = false;
@@ -17985,6 +18074,11 @@
                     if (tz) tz.classList.remove('expanded');
                     primaryCb.startAnim(false);
                     _bcRedrawCb();
+                }
+                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+                    _histPickerActive = false;
+                    closeDmenuPicker();
+                    _reconcileHistPicker();
                 }
             }, 3000);
         }
@@ -20940,19 +21034,12 @@
                 },
             },
             'histogram.openOrCycle': {
-                title: 'Open histogram / cycle percentile preset',
+                title: 'Open histogram / range menu / cycle percentile preset',
                 when: ['!rgbMode'],
                 run: async (ctx, e) => {
-                    // First tap `d`: open the histogram colorbar only — no
-                    // preset cycle, no vmin/vmax change. Auto-dismisses back
-                    // to the colorbar after the usual timer if the user does
-                    // nothing. Each subsequent tap while the histogram is
-                    // visible cycles to the next percentile preset and toasts
-                    // the new pair. Hold-`d` opens the participation picker.
                     if (rgbMode) return;
                     if (rectRoiMode) { showStatus('histogram: exit ROI mode first'); return; }
                     if (qmriActive) { await _cycleQmriPaneRangePreset(); return; }
-                    if (_histPickerActive) { _histPickerClose(); return; }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
@@ -20998,12 +21085,20 @@
                                 manualVmax ?? currentVmax,
                             );
                             if (q) showToast(_quantileLabel(q.lo, q.hi));
+                            _restartHistAutoDismiss();
+                            _histPickerOpen();
                         }).catch(() => {});
                         _restartHistAutoDismiss();
                         setTimeout(saveState, 0);
                         return;
                     }
-                    // Histogram is already open — cycle preset.
+                    // Histogram is already open.
+                    if (!_histPickerActive) {
+                        _histPickerOpen();
+                        _restartHistAutoDismiss();
+                        return;
+                    }
+                    // Legend is showing — cycle preset.
                     const preset = _cycleQuantilePreset();
                     if (preset) {
                         showToast(_quantileLabel(preset.lo, preset.hi));
@@ -22036,7 +22131,7 @@
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Open colormap picker / cycle', hint: 'opens the swatch island · repeated taps cycle browse selection · Enter accepts · Esc cancels' },
-                            { key: 'd', action: 'Open histogram / cycle percentile', hint: '1st tap opens the histogram · each subsequent tap cycles the percentile preset (full · 0.1–99.9% · 1–99% · 5–95% · 10–90%)' },
+                            { key: 'd', action: 'Open histogram / range menu', hint: 'repeat d to cycle presets · arrows select · Enter commits and closes · click dims to cycle scope' },
                             { key: 'Histogram open', action: 'Dim participation underlines', hint: 'Click a dim to cycle in scope → recompute → frozen. Hover a dim for the explanation.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light' },
@@ -24025,6 +24120,29 @@
             });
         })();
 
+        (function _wireDmenuPicker() {
+            const box = document.getElementById('dmenu-picker-box');
+            if (!box) return;
+            box.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+            });
+            box.addEventListener('keydown', (e) => {
+                _histPickerKey(e);
+            }, true);
+            document.addEventListener('mousedown', (e) => {
+                if (!_dmenuPickerOpen) return;
+                if (box.contains(e.target)) return;
+                const dimLabel = e.target && e.target.closest ? e.target.closest('#info .dim-label[data-dim]') : null;
+                if (dimLabel) return;
+                const cbHit = e.target && e.target.closest ? e.target.closest('#slim-cb-wrap') : null;
+                if (cbHit) return;
+                _histPickerClose(false);
+            }, true);
+            window.addEventListener('resize', () => {
+                if (_dmenuPickerOpen) _dmenuPickerPosition();
+            });
+        })();
+
         function evalWhen(whenArr, ctx) {
             if (!whenArr || whenArr.length === 0) return true;
             for (const cond of whenArr) {
@@ -24851,7 +24969,8 @@
                             } else {
                                 window.location.href = '/?sid=' + item.sid;
                             }
-                        })();
+        })();
+
                         return;
                     }
                     const items = [...listEl.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)')];
@@ -29260,13 +29379,19 @@
                 _showAxesGnomon();
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
-                    _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
+                    _showHistTooltip(_tooltipTextForDim(hoveredDim), infoEl.getBoundingClientRect());
                 } else if (_roiFloodfillScopeControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_roiFloodfillTooltipTextForDim(hoveredDim), span.getBoundingClientRect());
                 }
             } else {
                 hoveredDim = -1;
+                if (_histDimControlsVisible()) {
+                    _histDimHovering = true;
+                    _showAxesGnomon();
+                    _showHistTooltip(_tooltipTextForDim(null), infoEl.getBoundingClientRect());
+                    return;
+                }
                 _histDimHovering = false;
                 if (!axesFlashTimer) _hideAxesGnomon();
                 _hideHistTooltip();
@@ -31871,20 +31996,645 @@
 
         function _reconcileHistPicker() {
             _applyHistPickerClasses();
-            const viewerRow = document.getElementById('viewer-row');
-            if (viewerRow) viewerRow.classList.toggle('hist-picker-open', !!_histPickerActive);
-            const legend = document.getElementById('hist-picker-legend');
-            if (legend) {
-                legend.classList.toggle('visible', !!_histPickerActive);
-                legend.setAttribute('aria-hidden', _histPickerActive ? 'false' : 'true');
-            }
+            _updateDmenuPreset();
+            _reconcileRangeToggles();
             if (!_histPickerActive) _hideHistTooltip();
         }
 
+        function _reconcileRangeToggles() {
+            _dmenuPickerRender();
+        }
+
+        function _updateDmenuPreset() {
+            _dmenuPickerRender();
+        }
+
+        function _dmenuCurrentPresetIdx() {
+            const n = _QUANTILE_PRESETS.length;
+            if (!n) return 0;
+            return ((window._dQuantileIdx != null ? window._dQuantileIdx : 0) % n + n) % n;
+        }
+
+        function _dmenuPolicyLocksVmin() {
+            if (qmriActive && Array.isArray(qmriViews)) {
+                return qmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (compareQmriActive && Array.isArray(compareQmriViews)) {
+                return compareQmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (_dmenuZeroFloorLocksVmin()) return true;
+            const view = modeManager.getFocusedView() || modeManager.currentViews[0];
+            return typeof _qmriLocksLowerBound === 'function' && _qmriLocksLowerBound(view);
+        }
+
+        function _dmenuQmriPolicyLocksVmin() {
+            if (qmriActive && Array.isArray(qmriViews)) {
+                return qmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (compareQmriActive && Array.isArray(compareQmriViews)) {
+                return compareQmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            const view = modeManager.getFocusedView() || modeManager.currentViews[0];
+            return typeof _qmriLocksLowerBound === 'function' && _qmriLocksLowerBound(view);
+        }
+
+        function _dmenuZeroFloorLocksVmin() {
+            if (_dmenuZeroFloorVminUnlocked) return false;
+            if (qmriActive || compareQmriActive) return false;
+            const hMin = _histData && Number(_histData.vmin);
+            const curMin = Number(currentVmin);
+            return (Number.isFinite(hMin) && Math.abs(hMin) < 1e-12)
+                || (Number.isFinite(curMin) && Math.abs(curMin) < 1e-12);
+        }
+
+        function _dmenuEffectiveVminLocked() {
+            return vminLocked || _dmenuPolicyLocksVmin();
+        }
+
+        function _dmenuRows() {
+            const qmriPolicyLocksVmin = _dmenuQmriPolicyLocksVmin();
+            const zeroFloorLocksVmin = _dmenuZeroFloorLocksVmin();
+            const policyLocksVmin = qmriPolicyLocksVmin || zeroFloorLocksVmin;
+            return [
+                { kind: 'lock', action: 'vmin', label: 'vmin', policyLocked: policyLocksVmin, zeroFloorLocked: zeroFloorLocksVmin, qmriPolicyLocked: qmriPolicyLocksVmin, note: _dmenuEffectiveVminLocked() ? 'locked' : '' },
+                { kind: 'lock', action: 'vmax', label: 'vmax', note: vmaxLocked ? 'locked' : '' },
+            ];
+        }
+
+        function _dmenuClampSelection() {
+            const rows = _dmenuRows();
+            if (!rows.length) {
+                _dmenuSelectedIdx = 0;
+                return rows;
+            }
+            _dmenuSelectedIdx = Math.max(0, Math.min(rows.length - 1, _dmenuSelectedIdx));
+            return rows;
+        }
+
+        function _dmenuSelectCurrentPreset() {
+            _dmenuSelectedIdx = _dmenuEffectiveVminLocked() && !vmaxLocked ? 1 : 0;
+        }
+
+        function _dmenuRenderRangePanel(rows) {
+            const makeLock = (row, idx, locked) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `dmenu-bound-label dmenu-lock-${row.action}`;
+                btn.setAttribute('role', 'menuitemcheckbox');
+                btn.setAttribute('aria-checked', locked ? 'true' : 'false');
+                if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
+                if (locked) btn.classList.add('is-locked');
+                const lockLabel = row.qmriPolicyLocked
+                    ? `${row.label}: locked at 0 by qMRI role`
+                    : row.zeroFloorLocked
+                        ? `${row.label}: locked at 0`
+                        : (locked ? `${row.label}: locked` : `${row.label}: unlocked`);
+                btn.title = lockLabel;
+                btn.setAttribute('aria-label', lockLabel);
+                btn.innerHTML = `<span class="dmenu-bound-lock" aria-hidden="true">${locked ? '&#128274;' : '&#128275;'}</span>`;
+                btn.addEventListener('mouseenter', () => {
+                    _dmenuSelectedIdx = idx;
+                    _dmenuPickerRender();
+                });
+                btn.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _dmenuSelectedIdx = idx;
+                    _dmenuActivateSelected(false);
+                });
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+                return btn;
+            };
+            return [makeLock(rows[0], 0, _dmenuEffectiveVminLocked()), makeLock(rows[1], 1, vmaxLocked)];
+        }
+
+        function _dmenuSetBoundManual(action, value) {
+            if (!Number.isFinite(value)) return;
+            if (action === 'vmin') {
+                manualVmin = value;
+                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+                if (dv) dv.displayState.vmin = manualVmin;
+                cmpManualVmin.fill(null);
+                if (multiViewActive) mvViews.forEach((v, i) => {
+                    v.lockedVmin = manualVmin;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) mv.displayState.vmin = manualVmin;
+                });
+                if (qmriActive) qmriViews.forEach((v, i) => {
+                    v.lockedVmin = manualVmin;
+                    const qv = modeManager.currentViews[i];
+                    if (qv) qv.displayState.vmin = manualVmin;
+                });
+                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmin = manualVmin; });
+                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmin = manualVmin; });
+            } else if (action === 'vmax') {
+                manualVmax = value;
+                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+                if (dv) dv.displayState.vmax = manualVmax;
+                cmpManualVmax.fill(null);
+                if (multiViewActive) mvViews.forEach((v, i) => {
+                    v.lockedVmax = manualVmax;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) mv.displayState.vmax = manualVmax;
+                });
+                if (qmriActive) qmriViews.forEach((v, i) => {
+                    v.lockedVmax = manualVmax;
+                    const qv = modeManager.currentViews[i];
+                    if (qv) qv.displayState.vmax = manualVmax;
+                });
+                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmax = manualVmax; });
+                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmax = manualVmax; });
+            }
+        }
+
+        function _dmenuClearPresetForManualRange(target) {
+            if (target === 'vmin') _dmenuVminPresetIdx = null;
+            else if (target === 'vmax') _dmenuVmaxPresetIdx = null;
+            else if (target === 'pan') {
+                _dmenuVminPresetIdx = null;
+                _dmenuVmaxPresetIdx = null;
+            }
+            if (_dmenuPickerOpen) _dmenuPickerRender();
+        }
+
+        function _dmenuApplyBoundPreset(action, index) {
+            if (!_histData || !_histData.counts) {
+                showStatus('histogram: still loading');
+                return false;
+            }
+            if ((action === 'vmin' && vminLocked) || (action === 'vmax' && vmaxLocked)) {
+                showToast(`${action}: locked`);
+                return false;
+            }
+            const preset = _QUANTILE_PRESETS[index];
+            const win = _quantileWindowFromHistogram(_histData, preset);
+            if (!preset || !win) return false;
+            if (action === 'vmin') {
+                _dmenuSetBoundManual('vmin', win.vmin);
+                _dmenuVminPresetIdx = index;
+            } else {
+                _dmenuSetBoundManual('vmax', win.vmax);
+                _dmenuVmaxPresetIdx = index;
+            }
+            window._dQuantileIdx = index;
+            if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
+            _dmenuRefreshAfterRangeChange();
+            _restartHistAutoDismiss();
+            saveState();
+            return true;
+        }
+
+        function _dmenuPickerRender() {
+            const list = document.getElementById('dmenu-list');
+            if (!list) return;
+            const rows = _dmenuClampSelection();
+            list.innerHTML = '';
+            _dmenuRenderRangePanel(rows).forEach(el => list.appendChild(el));
+            const box = document.getElementById('dmenu-picker-box');
+            if (box) {
+                box.querySelectorAll('.dmenu-percent-label').forEach(el => el.remove());
+                box.querySelectorAll('.dmenu-percent-divider').forEach(el => el.remove());
+                ['vmin', 'vmax'].forEach(kind => {
+                    const el = document.createElement('div');
+                    el.className = `dmenu-percent-label dmenu-percent-${kind}`;
+                    el.dataset.kind = kind;
+                    box.appendChild(el);
+                });
+                const divider = document.createElement('div');
+                divider.className = 'dmenu-percent-divider';
+                divider.setAttribute('aria-hidden', 'true');
+                box.appendChild(divider);
+            }
+            _dmenuPositionPercentLabels();
+        }
+
+        function _dmenuPositionPercentLabels() {
+            if (!_dmenuPickerOpen || !primaryCb || !primaryCb._histData || !primaryCb.canvas) return;
+            const box = document.getElementById('dmenu-picker-box');
+            if (!box) return;
+            const boxRect = box.getBoundingClientRect();
+            const canvasRect = primaryCb.canvas.getBoundingClientRect();
+            const outerWrap = document.getElementById('slim-cb-wrap');
+            const wrapRect = outerWrap ? outerWrap.getBoundingClientRect() : canvasRect;
+            const valueLabels = {
+                vmin: document.getElementById('slim-cb-vmin'),
+                vmax: document.getElementById('slim-cb-vmax'),
+            };
+            const win = primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
+                ? primaryCb.opts.getWindow()
+                : null;
+            if (!win || !canvasRect.width) return;
+            const hd = primaryCb._histData;
+            const span = hd.vmax - hd.vmin || 1;
+            const animT = Number.isFinite(primaryCb._animT) ? primaryCb._animT : 1;
+            const vals = [
+                {
+                    kind: 'vmin',
+                    value: win.vmin,
+                    frac: (Number.isFinite(primaryCb._winVminF)
+                        ? primaryCb._winVminF
+                        : (win.vmin - hd.vmin) / span) * animT,
+                },
+                {
+                    kind: 'vmax',
+                    value: win.vmax,
+                    frac: 1 - (1 - (Number.isFinite(primaryCb._winVmaxF)
+                        ? primaryCb._winVmaxF
+                        : (win.vmax - hd.vmin) / span)) * animT,
+                },
+            ];
+            const topBand = Math.max(4, Math.min(8, wrapRect.top - boxRect.top - 7));
+            const positioned = {};
+            const shiftPercentLabel = (el, dx) => {
+                if (!el || !dx) return;
+                const currentLeft = Number.parseFloat(el.style.left) || 0;
+                el.style.left = `${currentLeft + dx}px`;
+            };
+            const clampPercentLabel = (el) => {
+                if (!el) return;
+                const r = el.getBoundingClientRect();
+                let dx = 0;
+                if (r.left < boxRect.left + 4) dx = boxRect.left + 4 - r.left;
+                else if (r.right > boxRect.right - 4) dx = boxRect.right - 4 - r.right;
+                shiftPercentLabel(el, dx);
+            };
+            vals.forEach(item => {
+                const el = box.querySelector(`.dmenu-percent-${item.kind}`);
+                const lock = box.querySelector(`.dmenu-lock-${item.kind}`);
+                if (!el || !Number.isFinite(item.value)) return;
+                const frac = Math.max(0, Math.min(1, item.frac));
+                const pct = primaryCb._percentileAtValue(item.value);
+                const left = canvasRect.left - boxRect.left + frac * canvasRect.width;
+                el.textContent = `${_fmtPct(((pct == null ? frac : pct) * 100))}%`;
+                el.classList.toggle('edge-start', frac <= 0.02);
+                el.classList.toggle('edge-end', frac >= 0.98);
+                el.style.left = `${left}px`;
+                el.style.top = `${topBand}px`;
+                positioned[item.kind] = el;
+                clampPercentLabel(el);
+                if (lock) {
+                    const valueRect = valueLabels[item.kind]
+                        ? valueLabels[item.kind].getBoundingClientRect()
+                        : null;
+                    const lockLeft = valueRect
+                        ? valueRect.left - boxRect.left + valueRect.width / 2
+                        : left;
+                    lock.style.left = `${lockLeft}px`;
+                    lock.style.top = `${Math.max(0, topBand - 4)}px`;
+                }
+            });
+            const vminLabel = positioned.vmin;
+            const vmaxLabel = positioned.vmax;
+            if (vminLabel && vmaxLabel) {
+                const divider = box.querySelector('.dmenu-percent-divider');
+                const labelGap = 4;
+                const closeGap = 12;
+                const measureGap = () => {
+                    const vminRect = vminLabel.getBoundingClientRect();
+                    const vmaxRect = vmaxLabel.getBoundingClientRect();
+                    return {
+                        vminRect,
+                        vmaxRect,
+                        gap: vmaxRect.left - vminRect.right,
+                    };
+                };
+                let measured = measureGap();
+                if (measured.gap < labelGap) {
+                    const overlap = labelGap - measured.gap;
+                    shiftPercentLabel(vminLabel, -overlap / 2);
+                    shiftPercentLabel(vmaxLabel, overlap / 2);
+                    clampPercentLabel(vminLabel);
+                    clampPercentLabel(vmaxLabel);
+                    measured = measureGap();
+                    if (measured.gap < labelGap) {
+                        const remaining = labelGap - measured.gap;
+                        const canMoveVminLeft = measured.vminRect.left - (boxRect.left + 4);
+                        const canMoveVmaxRight = (boxRect.right - 4) - measured.vmaxRect.right;
+                        const moveVmin = Math.min(canMoveVminLeft, remaining);
+                        shiftPercentLabel(vminLabel, -moveVmin);
+                        shiftPercentLabel(vmaxLabel, Math.min(canMoveVmaxRight, remaining - moveVmin));
+                        clampPercentLabel(vminLabel);
+                        clampPercentLabel(vmaxLabel);
+                        measured = measureGap();
+                    }
+                }
+                if (divider) {
+                    measured = measureGap();
+                    const near = measured.gap < closeGap;
+                    divider.style.opacity = near ? '1' : '0';
+                    if (near) {
+                        const dividerLeft = (measured.vminRect.right + measured.vmaxRect.left) / 2 - boxRect.left;
+                        divider.style.left = `${dividerLeft}px`;
+                        divider.style.top = `${topBand}px`;
+                    }
+                }
+            }
+        }
+
+        function _dmenuPickerPosition() {
+            if (!_dmenuPickerOpen) return;
+            const box = document.getElementById('dmenu-picker-box');
+            if (!box) return;
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            const viewportW = document.documentElement.clientWidth || window.innerWidth;
+            const viewportH = document.documentElement.clientHeight || window.innerHeight;
+            const cbRect = cbWrap && getComputedStyle(cbWrap).display !== 'none'
+                ? cbWrap.getBoundingClientRect()
+                : null;
+            const host = cbRect && cbRect.width > 0 && cbRect.height > 0
+                ? cbWrap
+                : document.getElementById('canvas-viewport')
+                || document.getElementById('viewer-row')
+                || document.body;
+            const rect = cbRect || host.getBoundingClientRect();
+            const targetW = cbRect ? Math.max(286, Math.round(cbRect.width)) : 286;
+            box.style.width = Math.min(targetW, viewportW - 28) + 'px';
+            if (_dmenuCbReservePx == null) {
+                const cbCanvas = primaryCb && primaryCb.canvas ? primaryCb.canvas : document.getElementById('slim-cb');
+                const canvasRect = cbCanvas ? cbCanvas.getBoundingClientRect() : null;
+                const reserveRect = canvasRect && canvasRect.height > 0 ? canvasRect : cbRect;
+                _dmenuCbReservePx = reserveRect ? Math.min(42, Math.ceil(reserveRect.height + 2)) : 0;
+            }
+            const cbReserve = _dmenuCbReservePx;
+            box.style.setProperty('--dmenu-cb-reserve', cbReserve + 'px');
+            const measured = box.getBoundingClientRect();
+            const boxW = Math.min(measured.width || box.offsetWidth || targetW, viewportW - 28);
+            const boxH = Math.min(measured.height || box.offsetHeight || 260, viewportH - 28);
+            const left = Math.max(14, Math.min(viewportW - boxW - 14, rect.left + rect.width / 2 - boxW / 2));
+            const preferredTop = cbRect ? rect.bottom - boxH : rect.top + 14;
+            const top = cbRect
+                ? Math.max(14, preferredTop)
+                : Math.max(14, Math.min(viewportH - boxH - 14, preferredTop));
+            box.style.left = left + 'px';
+            box.style.top = top + 'px';
+            _dmenuPositionPercentLabels();
+        }
+
+        function _dmenuStartPositionTracking() {
+            const token = ++_dmenuPositionTrackToken;
+            const step = () => {
+                if (!_dmenuPickerOpen || token !== _dmenuPositionTrackToken) return;
+                _dmenuPickerPosition();
+                requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        }
+
+        function _dmenuStopPositionTracking() {
+            _dmenuPositionTrackToken++;
+        }
+
+        function openDmenuPicker() {
+            const root = document.getElementById('dmenu-picker');
+            if (!root) return;
+            _dmenuPickerOpen = true;
+            _dmenuAttachToken++;
+            _dmenuCbReservePx = null;
+            _dmenuSelectCurrentPreset();
+            _dmenuPickerRender();
+            root.classList.remove('closing');
+            root.classList.add('visible');
+            root.setAttribute('aria-hidden', 'false');
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) cbWrap.classList.add('dmenu-attached');
+            _dmenuStartPositionTracking();
+            requestAnimationFrame(() => {
+                const box = document.getElementById('dmenu-picker-box');
+                if (box) {
+                    try { box.focus({ preventScroll: true }); } catch (_) { try { box.focus(); } catch (_) {} }
+                }
+            });
+        }
+
+        function closeDmenuPicker() {
+            if (!_dmenuPickerOpen) return;
+            _dmenuPickerOpen = false;
+            _dmenuStopPositionTracking();
+            const attachToken = ++_dmenuAttachToken;
+            _dmenuCbReservePx = null;
+            const root = document.getElementById('dmenu-picker');
+            if (root) {
+                root.classList.add('closing');
+                root.classList.remove('visible');
+                root.setAttribute('aria-hidden', 'true');
+            }
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) {
+                setTimeout(() => {
+                    if (!_dmenuPickerOpen && attachToken === _dmenuAttachToken) {
+                        cbWrap.classList.remove('dmenu-attached');
+                        if (root) root.classList.remove('closing');
+                    }
+                }, 150);
+            } else if (root) {
+                setTimeout(() => {
+                    if (!_dmenuPickerOpen && attachToken === _dmenuAttachToken) root.classList.remove('closing');
+                }, 150);
+            }
+            try { sink.focus({ preventScroll: true }); } catch (_) { try { sink.focus(); } catch (_) {} }
+        }
+
+        function _dmenuMoveSelection(delta) {
+            const rows = _dmenuRows();
+            if (!rows.length) return;
+            _dmenuSelectedIdx = (_dmenuSelectedIdx + delta + rows.length) % rows.length;
+            _dmenuPickerRender();
+            _restartHistAutoDismiss();
+        }
+
+        function _dmenuRefreshAfterRangeChange(skipDmenuRender) {
+            if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            else if (compareActive) compareRender();
+            else if (qmriActive) qmriViews.forEach(v => qvRender(v));
+            else if (compareMvActive) compareMvViews.forEach(v => compareMvRender(v));
+            else if (compareQmriActive) compareQmriViews.forEach(v => compareQmriRender(v));
+            else updateView();
+            if (primaryCb && primaryCb._expanded) {
+                primaryCb.draw();
+                if (typeof primaryCb.ensureAnimating === 'function') primaryCb.ensureAnimating();
+            }
+            if (multiViewActive || compareMvActive) drawMvColorbar();
+            else drawSlimColorbar(cbMarkerFrac);
+            if (!skipDmenuRender) _dmenuPickerRender();
+            if (_dmenuPickerOpen) _dmenuPickerPosition();
+        }
+
+        function _dmenuApplyPresetIndex(index) {
+            if (!_histData || !_histData.counts) {
+                showStatus('histogram: still loading');
+                return false;
+            }
+            window._dQuantileIdx = index;
+            if (!_dmenuEffectiveVminLocked()) _dmenuVminPresetIdx = index;
+            if (!vmaxLocked) _dmenuVmaxPresetIdx = index;
+            _reapplyCurrentQuantilePreset();
+            const preset = _QUANTILE_PRESETS[index];
+            if (preset) showToast(_quantileLabel(preset.lo, preset.hi));
+            _dmenuRefreshAfterRangeChange();
+            _restartHistAutoDismiss();
+            saveState();
+            return true;
+        }
+
+        function _dmenuCyclePresetFromKey() {
+            const preset = _cycleQuantilePreset();
+            if (preset) {
+                showToast(_quantileLabel(preset.lo, preset.hi));
+                _dmenuSelectCurrentPreset();
+                _dmenuRefreshAfterRangeChange();
+                _restartHistAutoDismiss();
+                saveState();
+            }
+            return !!preset;
+        }
+
+        function _dmenuRefreshHistogramForZeros() {
+            _invalidateVolHistCache();
+            const fetchPromise = compareActive
+                ? _fetchHistogramCompare().then(() => _histData)
+                : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => {
+                    if (d) _histData = d;
+                    return d;
+                });
+            fetchPromise.then(d => {
+                if (d || _histData) _buildKDE();
+                if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+                _reapplyCurrentQuantilePreset();
+                _dmenuRefreshAfterRangeChange();
+            }).catch(() => {
+                showStatus('histogram: could not refresh');
+                _dmenuPickerRender();
+            });
+        }
+
+        function _dmenuCloseAfterSelection() {
+            _histPickerActive = false;
+            closeDmenuPicker();
+            _reconcileHistPicker();
+            if (primaryCb && primaryCb._expanded) {
+                if (multiViewActive || compareMvActive) drawMvColorbar();
+                else drawSlimColorbar(cbMarkerFrac);
+            }
+            _restartHistAutoDismiss();
+        }
+
+        function _dmenuCurrentWindow() {
+            const win = primaryCb && primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
+                ? primaryCb.opts.getWindow()
+                : null;
+            return {
+                vmin: Number.isFinite(win && win.vmin) ? win.vmin : (manualVmin ?? currentVmin),
+                vmax: Number.isFinite(win && win.vmax) ? win.vmax : (manualVmax ?? currentVmax),
+            };
+        }
+
+        function _dmenuCaptureBoundLock(action) {
+            const win = _dmenuCurrentWindow();
+            if (action === 'vmin') {
+                manualVmin = win.vmin;
+                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+                if (dv) dv.displayState.vmin = manualVmin;
+                cmpManualVmin.fill(manualVmin);
+                if (multiViewActive) mvViews.forEach((v, i) => {
+                    v.lockedVmin = manualVmin;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) mv.displayState.vmin = manualVmin;
+                });
+                if (qmriActive) qmriViews.forEach((v, i) => {
+                    v.lockedVmin = manualVmin;
+                    const qv = modeManager.currentViews[i];
+                    if (qv) qv.displayState.vmin = manualVmin;
+                });
+                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmin = manualVmin; });
+                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmin = manualVmin; });
+            } else if (action === 'vmax') {
+                manualVmax = win.vmax;
+                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+                if (dv) dv.displayState.vmax = manualVmax;
+                cmpManualVmax.fill(manualVmax);
+                if (multiViewActive) mvViews.forEach((v, i) => {
+                    v.lockedVmax = manualVmax;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) mv.displayState.vmax = manualVmax;
+                });
+                if (qmriActive) qmriViews.forEach((v, i) => {
+                    v.lockedVmax = manualVmax;
+                    const qv = modeManager.currentViews[i];
+                    if (qv) qv.displayState.vmax = manualVmax;
+                });
+                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmax = manualVmax; });
+                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmax = manualVmax; });
+            }
+            _dmenuRefreshAfterRangeChange();
+            saveState();
+        }
+
+        function _dmenuActivateSelected(closeAfterSelection = true) {
+            const rows = _dmenuClampSelection();
+            const row = rows[_dmenuSelectedIdx];
+            if (!row) return;
+            if (row.kind === 'boundPreset') {
+                if (_dmenuApplyBoundPreset(row.action, row.index)) _dmenuCloseAfterSelection();
+                return;
+            }
+            if (row.action === 'vmin') {
+                if (row.zeroFloorLocked) {
+                    _dmenuZeroFloorVminUnlocked = true;
+                    showToast('vmin: unlocked');
+                    _dmenuPickerRender();
+                    _restartHistAutoDismiss();
+                    if (closeAfterSelection) _dmenuCloseAfterSelection();
+                    return;
+                }
+                if (row.qmriPolicyLocked) {
+                    if (!vminLocked) {
+                        vminLocked = true;
+                        _dmenuCaptureBoundLock('vmin');
+                    }
+                    showToast('vmin: locked at 0');
+                    _dmenuPickerRender();
+                    _restartHistAutoDismiss();
+                    if (closeAfterSelection) _dmenuCloseAfterSelection();
+                    return;
+                }
+                vminLocked = !vminLocked;
+                if (vminLocked) _dmenuCaptureBoundLock('vmin');
+                showToast(vminLocked ? 'vmin: locked' : 'vmin: unlocked');
+                _dmenuPickerRender();
+                _restartHistAutoDismiss();
+                if (closeAfterSelection) _dmenuCloseAfterSelection();
+                return;
+            }
+            if (row.action === 'vmax') {
+                vmaxLocked = !vmaxLocked;
+                if (vmaxLocked) _dmenuCaptureBoundLock('vmax');
+                showToast(vmaxLocked ? 'vmax: locked' : 'vmax: unlocked');
+                _dmenuPickerRender();
+                _restartHistAutoDismiss();
+                if (closeAfterSelection) _dmenuCloseAfterSelection();
+                return;
+            }
+            if (row.action === 'zeros') {
+                excludeZeros = !excludeZeros;
+                showToast(excludeZeros ? 'zeros: excluded' : 'zeros: included');
+                _dmenuPickerRender();
+                _restartHistAutoDismiss();
+                _dmenuRefreshHistogramForZeros();
+                _dmenuCloseAfterSelection();
+            }
+        }
+
         function _histPickerOpen() {
-            if (_histPickerActive) return;
+            if (_histPickerActive) {
+                openDmenuPicker();
+                return;
+            }
             _histPickerActive = true;
             _reconcileHistPicker();
+            openDmenuPicker();
         }
 
         /** Open histogram colorbar + enter legacy picker mode. */
@@ -31921,6 +32671,7 @@
         function _histPickerClose(silent) {
             if (!_histPickerActive) return;
             _histPickerActive = false;
+            closeDmenuPicker();
             _reconcileHistPicker();
             if (!silent) showStatus('');
             // Collapse the histogram right away — leaving it expanded means
@@ -31992,15 +32743,40 @@
 
         function _histPickerKey(e) {
             if (!_histPickerActive) return false;
-            if (e.key === 'Escape') { e.preventDefault(); _histPickerClose(); return true; }
-            // Enter cycles the state of the current activeDim (keyboard
-            // alternative to clicking). h/l / j/k still move activeDim
-            // and scroll indices through the normal key paths.
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                _histPickerClose();
+                return true;
+            }
+            if (e.key === 'd' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                _dmenuCyclePresetFromKey();
+                return true;
+            }
+            if (e.key === 'ArrowDown' || e.key === 'j') {
+                e.preventDefault();
+                e.stopPropagation();
+                _dmenuMoveSelection(1);
+                return true;
+            }
+            if (e.key === 'ArrowUp' || e.key === 'k') {
+                e.preventDefault();
+                e.stopPropagation();
+                _dmenuMoveSelection(-1);
+                return true;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                e.stopPropagation();
+                _dmenuMoveSelection(e.shiftKey ? -1 : 1);
+                return true;
+            }
             if (e.key === 'Enter') {
                 e.preventDefault();
-                if (Number.isInteger(activeDim) && activeDim >= 0 && activeDim < shape.length) {
-                    _histPickerCycleDim(activeDim);
-                }
+                e.stopPropagation();
+                _dmenuActivateSelected();
                 return true;
             }
             return false;
@@ -32047,32 +32823,35 @@
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
             const stateLabel = (state, text) => `<span class="hist-tip-state ${state}">${text}</span>`;
-            const list = (first, second, third) => (
-                `<ul class="hist-tip-list">`
-                + `<li>${first}: include every slice along this dim in the histogram</li>`
-                + `<li>${second}: use current index; recompute vmin/vmax when scrolling</li>`
-                + `<li>${third}: use current index; keep vmin/vmax fixed</li>`
-                + `</ul>`
+            const table = (first, second, third) => (
+                `<div class="hist-tip-table">`
+                + `<div class="hist-tip-label">${first}</div><div class="hist-tip-desc">all slices in histogram</div>`
+                + `<div class="hist-tip-label">${second}</div><div class="hist-tip-desc">current slice only; recompute vmin/vmax when slice changes</div>`
+                + `<div class="hist-tip-label">${third}</div><div class="hist-tip-desc">current slice only; keep vmin/vmax when slice changes</div>`
+                + `</div>`
             );
+            const common = `<div class="hist-tip-common">`
+                + `<div class="hist-tip-title">Click dims to cycle histogram participation:</div>`
+                + table(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'))
+                + `</div>`;
+            if (!Number.isInteger(i)) {
+                return common + `<div class="hist-tip-current hist-tip-current-empty">Current:</div>`;
+            }
             if (i === dx || i === dy) {
-                return `<div class="hist-tip-title">DISPLAY AXIS — always ${stateLabel('scope', 'IN SCOPE')}.</div>`
-                    + `<div class="hist-tip-title">Click other dims to cycle:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: display axis, always ${stateLabel('scope', 'IN SCOPE')}.</div>`;
             }
             const s = _dimStateFor(i);
             if (s === 'scope') {
-                return `<div class="hist-tip-title">Current: ${stateLabel('scope', 'IN SCOPE')}</div>`
-                    + `<div class="hist-tip-title">Click cycles through:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: ${stateLabel('scope', 'IN SCOPE')}</div>`;
             }
             if (s === 'recompute') {
-                return `<div class="hist-tip-title">Current: ${stateLabel('recompute', 'RECOMPUTE')}</div>`
-                    + `<div class="hist-tip-title">Click cycles through:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: ${stateLabel('recompute', 'RECOMPUTE')}</div>`;
             }
-            return `<div class="hist-tip-title">Current: ${stateLabel('frozen', 'FROZEN')}</div>`
-                + `<div class="hist-tip-title">Click cycles through:</div>`
-                + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+            return common
+                + `<div class="hist-tip-current">Current: ${stateLabel('frozen', 'FROZEN')}</div>`;
         }
 
         /** Re-apply the most recently used percentile preset to _histData.
@@ -32080,35 +32859,21 @@
          *  opens histogram only, leaving vmin/vmax at their auto value). */
         function _reapplyCurrentQuantilePreset() {
             if (!_histData || !_histData.counts) return;
-            if (window._dQuantileIdx == null) return;
-            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-            if (!preset) return;
-            if (preset.lo === 0 && preset.hi === 1) {
-                manualVmin = _histData.vmin;
-                manualVmax = _histData.vmax;
-            } else {
-                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                const total = counts.reduce((a, b) => a + b, 0);
-                let cumLo = 0, cumHi = 0;
-                let qLo = dmin, qHi = dmax;
-                for (let i = 0; i < counts.length; i++) {
-                    cumLo += counts[i];
-                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                }
-                for (let i = counts.length - 1; i >= 0; i--) {
-                    cumHi += counts[i];
-                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                }
-                manualVmin = qLo;
-                manualVmax = qHi;
+            if (_dmenuVminPresetIdx != null && !_dmenuEffectiveVminLocked()) {
+                const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVminPresetIdx]);
+                if (win) manualVmin = win.vmin;
+            }
+            if (_dmenuVmaxPresetIdx != null && !vmaxLocked) {
+                const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVmaxPresetIdx]);
+                if (win) manualVmax = win.vmax;
             }
             const _dv = modeManager.getFocusedView() || modeManager.currentViews[0];
             if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
-            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+            if (!vminLocked) cmpManualVmin.fill(null);
+            if (!vmaxLocked) cmpManualVmax.fill(null);
             if (multiViewActive) mvViews.forEach((v, i) => {
-                v.lockedVmin = manualVmin; v.lockedVmax = manualVmax;
-                const mv = modeManager.currentViews[i];
-                if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
+                if (!vminLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
+                if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
             });
             if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
         }

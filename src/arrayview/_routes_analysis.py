@@ -465,6 +465,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         complex_mode: int = 0,
         bins: int = 64,
         qmri_role: str = "",
+        exclude_zeros: int = 0,
         session=Depends(get_session_or_404),
     ):
         return _volume_histogram(
@@ -477,6 +478,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             complex_mode,
             bins,
             qmri_role,
+            exclude_zeros=bool(exclude_zeros),
         )
 
     @app.get("/volume_data/{sid}")

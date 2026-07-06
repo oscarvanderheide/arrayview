@@ -3282,6 +3282,27 @@ class TestVolumeHistogram:
         resp2 = client.get(f"/volume-histogram/{sid_3d}", params=params)
         assert resp1.json() == resp2.json()
 
+    def test_volume_histogram_exclude_zeros(self, client, tmp_path):
+        arr = np.array([
+            [[0, 0], [1, 2]],
+            [[0, 3], [4, 5]],
+        ], dtype=np.float32)
+        path = tmp_path / "zeros.npy"
+        np.save(path, arr)
+        load = client.post("/load", json={"filepath": str(path), "name": "zeros"})
+        load.raise_for_status()
+        sid = load.json()["sid"]
+        params = {"dim_x": 1, "dim_y": 2, "scroll_dim": 0, "bins": 5}
+
+        included = client.get(f"/volume-histogram/{sid}", params=params)
+        excluded = client.get(f"/volume-histogram/{sid}", params={**params, "exclude_zeros": "1"})
+
+        assert included.status_code == 200
+        assert excluded.status_code == 200
+        assert included.json()["vmin"] == 0
+        assert excluded.json()["vmin"] > 0
+        assert sum(included.json()["counts"]) - sum(excluded.json()["counts"]) == 3
+
 
 # ---------------------------------------------------------------------------
 # Memory-aware cache (byte limits)
