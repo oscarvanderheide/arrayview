@@ -1616,6 +1616,9 @@ _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
 # closes. Keeping a warm idle daemon around caused native-window sessions to
 # appear orphaned after close.
 _CLI_DAEMON_IDLE_SECONDS = 0.0
+_PERSIST_DAEMON_IDLE_SECONDS = float(
+    os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "1800")
+)
 
 
 def _join_query_values(values: _CSVValues) -> str:
@@ -2842,11 +2845,10 @@ def _serve_daemon(
     threading.Thread(target=_load, daemon=True).start()
 
     if persist:
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
+        _wait_for_viewer_close(
+            idle_seconds=_PERSIST_DAEMON_IDLE_SECONDS,
+            connect_timeout=None,
+        )
     else:
         # Transient CLI launches should stop as soon as the last viewer is
         # really gone, aside from the short grace period inside
