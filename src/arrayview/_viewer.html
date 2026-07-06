@@ -469,27 +469,40 @@
             border-radius: 4px; transition: background 0.12s;
         }
         .dim-label:hover { background: transparent; }
-        /* Histogram dim participation: three underline states per dim.
+        /* Histogram dim participation: three hover-only pill states per dim.
          *   hist-scope     — in scope
          *   hist-recompute — vmin/vmax recomputes on nav
          *   hist-frozen    — vmin/vmax stays put
          * x/y get hist-locked-dim (not togglable). */
         #info.hist-pick-mode .dim-label {
             cursor: pointer;
-            background-image: linear-gradient(var(--hist-underline, transparent), var(--hist-underline, transparent));
-            background-repeat: no-repeat;
-            background-position: left calc(100% - 1px);
-            background-size: 100% 2px;
-            transition: background 0.1s, opacity 0.1s;
+            transition: opacity 0.1s;
+        }
+        #info.hist-pick-mode .dim-label::after {
+            content: "";
+            position: absolute;
+            inset: -1px -4px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--hist-pill, transparent) 18%, transparent);
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+            transition: opacity 0.12s ease;
+        }
+        #info.hist-pick-mode:hover .dim-label::after {
+            opacity: 1;
+        }
+        #info.hist-pick-mode:hover .dim-label:hover::after {
+            background: color-mix(in srgb, var(--hist-pill, transparent) 28%, transparent);
         }
         #info.hist-pick-mode .dim-label.hist-scope {
-            --hist-underline: var(--vfield-t-dim);
+            --hist-pill: var(--vfield-t-dim);
         }
         #info.hist-pick-mode .dim-label.hist-recompute {
-            --hist-underline: var(--playing-dim);
+            --hist-pill: var(--playing-dim);
         }
         #info.hist-pick-mode .dim-label.hist-frozen {
-            --hist-underline: var(--muted);
+            --hist-pill: var(--muted);
             opacity: 0.7;
         }
         #info.hist-pick-mode .dim-label.hist-frozen:hover    { opacity: 1; }
@@ -529,13 +542,19 @@
             visibility: visible;
             transition-delay: 0s;
         }
+        #dmenu-picker.closing .dmenu-bound-label,
+        #dmenu-picker.closing .dmenu-percent-label {
+            opacity: 0;
+            transition: opacity 0.06s ease;
+        }
         #dmenu-picker-box {
             position: fixed;
             width: min(286px, calc(100vw - 28px));
             display: flex;
             flex-direction: column;
-            gap: 6px;
-            padding: 10px 10px calc(10px + var(--dmenu-cb-reserve, 0px));
+            gap: 4px;
+            min-height: calc(var(--dmenu-cb-reserve, 0px) + 36px);
+            padding: 8px 10px calc(8px + var(--dmenu-cb-reserve, 0px));
             background: color-mix(in srgb, var(--surface) 82%, transparent);
             border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
             border-radius: var(--radius-lg);
@@ -553,154 +572,81 @@
             transform: none;
         }
         .dmenu-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            pointer-events: auto;
-        }
-        .dmenu-section-label {
-            color: var(--muted);
-            font-size: 10px;
-            line-height: 1;
-            padding: 0 3px;
-        }
-        .dmenu-range-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            pointer-events: auto;
-        }
-        .dmenu-bound-row {
-            display: grid;
-            grid-template-columns: 54px minmax(0, 1fr);
-            align-items: center;
-            gap: 5px;
+            position: absolute;
+            inset: 0;
+            min-height: 26px;
+            z-index: 1;
+            pointer-events: none;
         }
         .dmenu-bound-label {
+            position: absolute;
             display: flex;
             align-items: center;
-            gap: 3px;
-            min-width: 0;
-            min-height: 22px;
-            padding: 3px 4px;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
             border: 0;
-            border-radius: var(--radius);
+            border-radius: 50%;
             background: transparent;
             color: var(--muted);
             font: inherit;
-            text-align: left;
-            cursor: pointer;
-        }
-            box-sizing: border-box;
-        }
-        .dmenu-bound-label:hover,
-        .dmenu-bound-label.is-selected,
-        .dmenu-bound-label.is-locked {
-            color: var(--active-dim);
-        }
-        .dmenu-bound-label.is-selected {
-            background: color-mix(in srgb, var(--active-dim) 13%, transparent);
-        }
-        .dmenu-bound-lock {
-            color: var(--active-dim);
-            font-size: 10px;
-        }
-        .dmenu-preset-strip {
-            display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 2px;
-            pointer-events: auto;
-        }
-        .dmenu-preset-chip {
-            min-width: 0;
-            min-height: 22px;
-            padding: 3px 4px;
-            border: 0;
-            border-radius: var(--radius);
-            background: transparent;
-            color: var(--text);
-            font-family: inherit;
-            font-size: 10px;
-            line-height: 1.15;
+            font-size: 12px;
             text-align: center;
             cursor: pointer;
             box-sizing: border-box;
-            opacity: 0.58;
-        }
-        .dmenu-preset-chip:hover,
-        .dmenu-preset-chip.is-selected {
-            background: color-mix(in srgb, var(--active-dim) 13%, transparent);
-            color: var(--active-dim);
-            opacity: 1;
-        }
-        .dmenu-preset-chip.is-current {
-            color: var(--active-dim);
-            opacity: 1;
-        }
-        .dmenu-preset-chip-main {
-            display: block;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .dmenu-toggle-list {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        .dmenu-row {
-            width: 100%;
-            display: grid;
-            grid-template-columns: 12px minmax(0, 1fr) auto;
-            align-items: center;
-            gap: 8px;
-            min-height: 25px;
-            padding: 3px 7px;
-            border: 0;
-            border-radius: var(--radius);
-            background: transparent;
-            color: var(--text);
-            font-family: inherit;
-            font-size: inherit;
-            line-height: 1.2;
-            text-align: left;
-            cursor: pointer;
-            box-sizing: border-box;
-        }
-        .dmenu-row:hover,
-        .dmenu-row.is-selected {
-            background: color-mix(in srgb, var(--active-dim) 13%, transparent);
-            color: var(--active-dim);
-        }
-        .dmenu-row-main {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .dmenu-row-note {
-            color: var(--muted);
-            font-size: 10px;
-        }
-        .dmenu-indicator {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            border: 1px solid currentColor;
-            opacity: 0.5;
-            box-sizing: border-box;
-        }
-        .dmenu-row.is-current .dmenu-indicator,
-        .dmenu-row.is-on .dmenu-indicator {
-            background: var(--active-dim);
-            border-color: var(--active-dim);
-            opacity: 1;
-        }
-        .dmenu-hint {
-            color: var(--muted);
-            font-size: 10px;
-            line-height: 1.35;
-            padding: 2px 3px 0;
             pointer-events: auto;
+            transform: translateX(-50%);
+        }
+        .dmenu-bound-label:hover,
+        .dmenu-bound-label.is-locked {
+            color: var(--active-dim);
+        }
+        .dmenu-bound-label:hover {
+            background: color-mix(in srgb, var(--active-dim) 13%, transparent);
+        }
+        .dmenu-bound-lock {
+            display: block;
+            color: inherit;
+            font-size: 12px;
+            line-height: 1;
+        }
+        .dmenu-percent-label {
+            position: absolute;
+            color: var(--active-dim);
+            font-size: 10px;
+            line-height: 1;
+            white-space: nowrap;
+            pointer-events: none;
+            transform: translateX(-50%);
+        }
+        .dmenu-percent-label.edge-start {
+            transform: none;
+        }
+        .dmenu-percent-label.edge-end {
+            transform: translateX(-100%);
+        }
+        .dmenu-percent-divider {
+            position: absolute;
+            width: 1px;
+            height: 10px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--active-dim) 78%, transparent);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%);
+        }
+        .hist-tip-common {
+            margin-bottom: 7px;
+        }
+        .hist-tip-current {
+            margin-top: 7px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+            min-height: 1.45em;
+        }
+        .hist-tip-current-empty {
+            visibility: hidden;
         }
 
         /* Fast custom tooltip for the picker. Native `title` has a ~600 ms
@@ -722,9 +668,15 @@
             z-index: 200;
             white-space: normal;
         }
-        #hist-tooltip .hist-tip-title { margin-bottom: 6px; }
-        #hist-tooltip .hist-tip-list { margin: 0; padding-left: 16px; list-style: disc; }
-        #hist-tooltip .hist-tip-list li + li { margin-top: 4px; }
+        #hist-tooltip .hist-tip-title { margin-bottom: 7px; }
+        #hist-tooltip .hist-tip-table {
+            display: grid;
+            grid-template-columns: max-content minmax(0, 1fr);
+            gap: 4px 12px;
+            align-items: baseline;
+        }
+        #hist-tooltip .hist-tip-label { white-space: nowrap; }
+        #hist-tooltip .hist-tip-desc { color: var(--muted); }
         #hist-tooltip .hist-tip-state.scope { color: var(--vfield-t-dim); }
         #hist-tooltip .hist-tip-state.recompute { color: var(--playing-dim); }
         #hist-tooltip .hist-tip-state.frozen { color: var(--muted); }
@@ -4065,16 +4017,17 @@
         }
         body:not(.fullscreen-mode) #slim-cb-wrap.dmenu-attached {
             z-index: 59;
-            background: var(--surface) !important;
+            pointer-events: none !important;
+            background: transparent !important;
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;
-            border: 1px solid var(--border) !important;
-            border-radius: var(--radius-lg) !important;
+            border: none !important;
             box-shadow: none !important;
             transition: none !important;
         }
         body:not(.fullscreen-mode) #slim-cb-wrap.dmenu-attached #slim-cb {
             box-shadow: none;
+            pointer-events: auto;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap {
             background: transparent !important;
@@ -4468,7 +4421,6 @@
     <div id="dmenu-picker" aria-hidden="true">
         <div id="dmenu-picker-box" role="menu" aria-label="Histogram range controls" tabindex="-1">
             <div id="dmenu-list" class="dmenu-list"></div>
-            <div class="dmenu-hint">Click dims to adjust histogram participation.</div>
         </div>
     </div>
     <div id="viewer-row">
@@ -5095,6 +5047,8 @@
         let _dmenuPickerOpen = false;
         let _dmenuSelectedIdx = 0;
         let _dmenuPositionTrackToken = 0;
+        let _dmenuAttachToken = 0;
+        let _dmenuCbReservePx = null;
         let _dmenuVminPresetIdx = null;
         let _dmenuVmaxPresetIdx = null;
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
@@ -5119,6 +5073,7 @@
         let _qmriLoupeDrag = null; // {active,canvas,view}
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
+        let _dmenuZeroFloorVminUnlocked = false;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
         // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
         const cmpManualVmin = Array(6).fill(null);
@@ -9079,6 +9034,11 @@
             /** Show a percentile tooltip above the active drag handle. */
             _showDragPercentileTooltip(frac, val) {
                 if (!this.tooltip || this.orientation !== 'horizontal') return;
+                if (typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen) {
+                    this.tooltip.classList.remove('percentile');
+                    this.tooltip.style.display = 'none';
+                    return;
+                }
                 const pct = this._percentileAtValue(val);
                 if (pct == null) {
                     this.tooltip.classList.remove('percentile');
@@ -9379,8 +9339,8 @@
                     [effVmin, effVmax].forEach(f => {
                         const x = Math.max(1, Math.min(cssW - 1, Math.round(f * cssW)));
 
-                        const lineH = cssH - labelH;
                         const lineTop = labelH;
+                        const lineH = cssH - lineTop;
 
                         // Sample colormap at this position to determine line visibility
                         const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
@@ -9760,22 +9720,18 @@
                     if (this.opts.onDragStart) this.opts.onDragStart('pan');
                 });
 
-                // Dblclick toggles histogram expand/collapse
+                // Dblclick follows the same histogram/range menu path as `d`.
                 this.canvas.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this._dragX = null;
                     this._dragTarget = null;
                     this._dragActive = false;
                     document.body.style.cursor = '';
                     if (this.opts.onMouseLeave) this.opts.onMouseLeave();
-                    if (this._expanded) {
-                        this._manualExpand = false;
-                        this.collapse();
-                        this.cancelAutoDismiss();
-                    } else {
-                        this._manualExpand = true;
-                        this.expand();
-                        // No auto-dismiss — user explicitly toggled via dblclick
-                        this.cancelAutoDismiss();
+                    const cmd = typeof commands !== 'undefined' ? commands['histogram.openOrCycle'] : null;
+                    if (cmd && typeof cmd.run === 'function') {
+                        Promise.resolve(cmd.run({}, { key: 'd', source: 'colorbar-dblclick' })).catch(() => {});
                     }
                 });
 
@@ -9958,7 +9914,7 @@
                         // Show floating tooltip with value above the colorbar,
                         // even when the histogram is collapsed.
                         const hoverVal = this._hoverBarValueAt(frac);
-                        if (this.tooltip && hoverVal != null) {
+                        if (this.tooltip && hoverVal != null && !(typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen)) {
                             const hoverFormatter = this._dragLabelFormatter
                                 || formatValueGroup([
                                     hoverVal,
@@ -11150,8 +11106,9 @@
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
             if (preset.lo === 0 && preset.hi === 1) {
-                if (!vminLocked) { manualVmin = _histData.vmin; _dmenuVminPresetIdx = window._dQuantileIdx; }
+                if (!vminEffectivelyLocked) { manualVmin = _histData.vmin; _dmenuVminPresetIdx = window._dQuantileIdx; }
                 if (!vmaxLocked) { manualVmax = _histData.vmax; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             } else {
@@ -11163,18 +11120,19 @@
                     cumLo += counts[i];
                     if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
                 }
+                qLo = _dmenuMaybeLiftUnlockedZeroFloor(_histData, preset, qLo);
                 for (let i = counts.length - 1; i >= 0; i--) {
                     cumHi += counts[i];
                     if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
                 }
-                if (!vminLocked) { manualVmin = qLo; _dmenuVminPresetIdx = window._dQuantileIdx; }
+                if (!vminEffectivelyLocked) { manualVmin = qLo; _dmenuVminPresetIdx = window._dQuantileIdx; }
                 if (!vmaxLocked) { manualVmax = qHi; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             }
-            if (!vminLocked) cmpManualVmin.fill(null);
+            if (!vminEffectivelyLocked) cmpManualVmin.fill(null);
             if (!vmaxLocked) cmpManualVmax.fill(null);
             if (multiViewActive) mvViews.forEach((v, i) => {
-                if (!vminLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
+                if (!vminEffectivelyLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
                 if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
             });
             _updateDmenuPreset();
@@ -11193,11 +11151,24 @@
                 cumLo += counts[i];
                 if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
             }
+            qLo = _dmenuMaybeLiftUnlockedZeroFloor(hist, preset, qLo);
             for (let i = counts.length - 1; i >= 0; i--) {
                 cumHi += counts[i];
                 if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
             }
             return { vmin: qLo, vmax: qHi };
+        }
+
+        function _dmenuMaybeLiftUnlockedZeroFloor(hist, preset, qLo) {
+            if (!_dmenuZeroFloorVminUnlocked || !hist || !preset || preset.lo <= 0) return qLo;
+            if (!Number.isFinite(qLo) || qLo > 0) return qLo;
+            const edges = hist.edges || [];
+            const counts = hist.counts || [];
+            for (let i = 0; i < counts.length; i++) {
+                const upper = Number(edges[i + 1]);
+                if (Number.isFinite(upper) && upper > 0 && counts[i] > 0) return upper;
+            }
+            return qLo;
         }
 
         function _qmriLocksLowerBound(view) {
@@ -11379,7 +11350,11 @@
                         drawSlimColorbar(cbMarkerFrac);
                     }
                 }
-                if (_histPickerActive) { _histPickerActive = false; closeDmenuPicker(); _reconcileHistPicker(); }
+                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+                    _histPickerActive = false;
+                    closeDmenuPicker();
+                    _reconcileHistPicker();
+                }
             }, 3000);
         }
 
@@ -12556,9 +12531,6 @@
                         const serverVmin = headerF32[0];
                         const serverVmax = headerF32[1];
                         if (manualVmin === null) {
-                            manualVmin = serverVmin;
-                            manualVmax = serverVmax;
-                            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             currentVmin = serverVmin;
                             currentVmax = serverVmax;
                         }
@@ -12804,11 +12776,6 @@
                 if (Number.isFinite(vmin) && Number.isFinite(vmax)) {
                     currentVmin = vmin;
                     currentVmax = vmax;
-                    if (manualVmin === null) {
-                        manualVmin = vmin;
-                        manualVmax = vmax;
-                        { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
-                    }
                 }
 
                 lastImageData = frame.imageData;
@@ -18108,7 +18075,11 @@
                     primaryCb.startAnim(false);
                     _bcRedrawCb();
                 }
-                if (_histPickerActive) { _histPickerActive = false; closeDmenuPicker(); _reconcileHistPicker(); }
+                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+                    _histPickerActive = false;
+                    closeDmenuPicker();
+                    _reconcileHistPicker();
+                }
             }, 3000);
         }
         async function _bcStartDrag(e) {
@@ -24163,6 +24134,8 @@
                 if (box.contains(e.target)) return;
                 const dimLabel = e.target && e.target.closest ? e.target.closest('#info .dim-label[data-dim]') : null;
                 if (dimLabel) return;
+                const cbHit = e.target && e.target.closest ? e.target.closest('#slim-cb-wrap') : null;
+                if (cbHit) return;
                 _histPickerClose(false);
             }, true);
             window.addEventListener('resize', () => {
@@ -29406,13 +29379,19 @@
                 _showAxesGnomon();
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
-                    _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
+                    _showHistTooltip(_tooltipTextForDim(hoveredDim), infoEl.getBoundingClientRect());
                 } else if (_roiFloodfillScopeControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_roiFloodfillTooltipTextForDim(hoveredDim), span.getBoundingClientRect());
                 }
             } else {
                 hoveredDim = -1;
+                if (_histDimControlsVisible()) {
+                    _histDimHovering = true;
+                    _showAxesGnomon();
+                    _showHistTooltip(_tooltipTextForDim(null), infoEl.getBoundingClientRect());
+                    return;
+                }
                 _histDimHovering = false;
                 if (!axesFlashTimer) _hideAxesGnomon();
                 _hideHistTooltip();
@@ -32036,25 +32015,50 @@
             return ((window._dQuantileIdx != null ? window._dQuantileIdx : 0) % n + n) % n;
         }
 
+        function _dmenuPolicyLocksVmin() {
+            if (qmriActive && Array.isArray(qmriViews)) {
+                return qmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (compareQmriActive && Array.isArray(compareQmriViews)) {
+                return compareQmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (_dmenuZeroFloorLocksVmin()) return true;
+            const view = modeManager.getFocusedView() || modeManager.currentViews[0];
+            return typeof _qmriLocksLowerBound === 'function' && _qmriLocksLowerBound(view);
+        }
+
+        function _dmenuQmriPolicyLocksVmin() {
+            if (qmriActive && Array.isArray(qmriViews)) {
+                return qmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            if (compareQmriActive && Array.isArray(compareQmriViews)) {
+                return compareQmriViews.some(v => _qmriLocksLowerBound(v));
+            }
+            const view = modeManager.getFocusedView() || modeManager.currentViews[0];
+            return typeof _qmriLocksLowerBound === 'function' && _qmriLocksLowerBound(view);
+        }
+
+        function _dmenuZeroFloorLocksVmin() {
+            if (_dmenuZeroFloorVminUnlocked) return false;
+            if (qmriActive || compareQmriActive) return false;
+            const hMin = _histData && Number(_histData.vmin);
+            const curMin = Number(currentVmin);
+            return (Number.isFinite(hMin) && Math.abs(hMin) < 1e-12)
+                || (Number.isFinite(curMin) && Math.abs(curMin) < 1e-12);
+        }
+
+        function _dmenuEffectiveVminLocked() {
+            return vminLocked || _dmenuPolicyLocksVmin();
+        }
+
         function _dmenuRows() {
-            const rows = [
-                { kind: 'lock', action: 'vmin', label: 'vmin', note: vminLocked ? 'locked' : '' },
-                ..._QUANTILE_PRESETS.map((preset, index) => ({
-                    kind: 'boundPreset',
-                    action: 'vmin',
-                    index,
-                    label: preset.label,
-                })),
+            const qmriPolicyLocksVmin = _dmenuQmriPolicyLocksVmin();
+            const zeroFloorLocksVmin = _dmenuZeroFloorLocksVmin();
+            const policyLocksVmin = qmriPolicyLocksVmin || zeroFloorLocksVmin;
+            return [
+                { kind: 'lock', action: 'vmin', label: 'vmin', policyLocked: policyLocksVmin, zeroFloorLocked: zeroFloorLocksVmin, qmriPolicyLocked: qmriPolicyLocksVmin, note: _dmenuEffectiveVminLocked() ? 'locked' : '' },
                 { kind: 'lock', action: 'vmax', label: 'vmax', note: vmaxLocked ? 'locked' : '' },
-                ..._QUANTILE_PRESETS.map((preset, index) => ({
-                    kind: 'boundPreset',
-                    action: 'vmax',
-                    index,
-                    label: preset.label,
-                })),
-                { kind: 'toggle', action: 'zeros', label: 'background', note: excludeZeros ? 'on' : 'off' },
             ];
-            return rows;
         }
 
         function _dmenuClampSelection() {
@@ -32068,86 +32072,43 @@
         }
 
         function _dmenuSelectCurrentPreset() {
-            const idx = _dmenuCurrentPresetIdx();
-            _dmenuSelectedIdx = vminLocked ? 7 + idx : 1 + idx;
-        }
-
-        function _dmenuPresetShortLabel(preset) {
-            if (!preset) return '';
-            if (preset.lo === 0 && preset.hi === 1) return '0-100';
-            return `${_fmtPct(preset.lo * 100)}-${_fmtPct(preset.hi * 100)}`;
-        }
-
-        function _dmenuBoundPresetLabel(preset, action) {
-            if (!preset) return '';
-            const pct = action === 'vmin' ? preset.lo * 100 : preset.hi * 100;
-            return _fmtPct(pct);
+            _dmenuSelectedIdx = _dmenuEffectiveVminLocked() && !vmaxLocked ? 1 : 0;
         }
 
         function _dmenuRenderRangePanel(rows) {
-            const panel = document.createElement('div');
-            panel.className = 'dmenu-range-panel';
             const makeLock = (row, idx, locked) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'dmenu-bound-label';
+                btn.className = `dmenu-bound-label dmenu-lock-${row.action}`;
                 btn.setAttribute('role', 'menuitemcheckbox');
                 btn.setAttribute('aria-checked', locked ? 'true' : 'false');
                 if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
                 if (locked) btn.classList.add('is-locked');
-                btn.title = locked ? `${row.label}: locked` : `${row.label}: unlocked`;
-                btn.innerHTML = row.label
-                    + (locked ? '<span class="dmenu-bound-lock" aria-hidden="true">&#128274;</span>' : '');
+                const lockLabel = row.qmriPolicyLocked
+                    ? `${row.label}: locked at 0 by qMRI role`
+                    : row.zeroFloorLocked
+                        ? `${row.label}: locked at 0`
+                        : (locked ? `${row.label}: locked` : `${row.label}: unlocked`);
+                btn.title = lockLabel;
+                btn.setAttribute('aria-label', lockLabel);
+                btn.innerHTML = `<span class="dmenu-bound-lock" aria-hidden="true">${locked ? '&#128274;' : '&#128275;'}</span>`;
                 btn.addEventListener('mouseenter', () => {
                     _dmenuSelectedIdx = idx;
                     _dmenuPickerRender();
                 });
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('pointerdown', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     _dmenuSelectedIdx = idx;
-                    _dmenuActivateSelected();
+                    _dmenuActivateSelected(false);
+                });
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                 });
                 return btn;
             };
-            const makePresetStrip = (action, startIdx, activeIdx, locked) => {
-                const strip = document.createElement('div');
-                strip.className = 'dmenu-preset-strip';
-                _QUANTILE_PRESETS.forEach((preset, i) => {
-                    const idx = startIdx + i;
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'dmenu-preset-chip';
-                    btn.setAttribute('role', 'menuitem');
-                    btn.title = `${action} ${_fmtPct((action === 'vmin' ? preset.lo : preset.hi) * 100)}%`;
-                    if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
-                    if (activeIdx === i) btn.classList.add('is-current');
-                    btn.innerHTML = `<span class="dmenu-preset-chip-main">${_dmenuBoundPresetLabel(preset, action)}</span>`;
-                    btn.addEventListener('mouseenter', () => {
-                        _dmenuSelectedIdx = idx;
-                        _dmenuPickerRender();
-                    });
-                    btn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        _dmenuSelectedIdx = idx;
-                        _dmenuActivateSelected();
-                    });
-                    strip.appendChild(btn);
-                });
-                return strip;
-            };
-            const vminRow = document.createElement('div');
-            vminRow.className = 'dmenu-bound-row';
-            vminRow.appendChild(makeLock(rows[0], 0, vminLocked));
-            vminRow.appendChild(makePresetStrip('vmin', 1, _dmenuVminPresetIdx, vminLocked));
-            const vmaxRow = document.createElement('div');
-            vmaxRow.className = 'dmenu-bound-row';
-            vmaxRow.appendChild(makeLock(rows[6], 6, vmaxLocked));
-            vmaxRow.appendChild(makePresetStrip('vmax', 7, _dmenuVmaxPresetIdx, vmaxLocked));
-            panel.appendChild(vminRow);
-            panel.appendChild(vmaxRow);
-            return panel;
+            return [makeLock(rows[0], 0, _dmenuEffectiveVminLocked()), makeLock(rows[1], 1, vmaxLocked)];
         }
 
         function _dmenuSetBoundManual(action, value) {
@@ -32231,40 +32192,146 @@
             if (!list) return;
             const rows = _dmenuClampSelection();
             list.innerHTML = '';
-            const presetLabel = document.createElement('div');
-            presetLabel.className = 'dmenu-section-label';
-            presetLabel.textContent = 'percentile presets';
-            const rangePanel = _dmenuRenderRangePanel(rows);
-            const toggleList = document.createElement('div');
-            toggleList.className = 'dmenu-toggle-list';
-            rows.forEach((row, idx) => {
-                if (row.action !== 'zeros') return;
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.dataset.index = String(idx);
-                btn.setAttribute('role', 'menuitemcheckbox');
-                btn.className = 'dmenu-row';
-                if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
-                btn.innerHTML = '<span class="dmenu-indicator"></span>'
-                    + `<span class="dmenu-row-main">${row.label}</span>`
-                    + `<span class="dmenu-row-note">${row.note}</span>`;
-                btn.setAttribute('aria-checked', excludeZeros ? 'true' : 'false');
-                if (excludeZeros) btn.classList.add('is-on');
-                btn.addEventListener('mouseenter', () => {
-                    _dmenuSelectedIdx = idx;
-                    _dmenuPickerRender();
+            _dmenuRenderRangePanel(rows).forEach(el => list.appendChild(el));
+            const box = document.getElementById('dmenu-picker-box');
+            if (box) {
+                box.querySelectorAll('.dmenu-percent-label').forEach(el => el.remove());
+                box.querySelectorAll('.dmenu-percent-divider').forEach(el => el.remove());
+                ['vmin', 'vmax'].forEach(kind => {
+                    const el = document.createElement('div');
+                    el.className = `dmenu-percent-label dmenu-percent-${kind}`;
+                    el.dataset.kind = kind;
+                    box.appendChild(el);
                 });
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    _dmenuSelectedIdx = idx;
-                    _dmenuActivateSelected();
-                });
-                toggleList.appendChild(btn);
+                const divider = document.createElement('div');
+                divider.className = 'dmenu-percent-divider';
+                divider.setAttribute('aria-hidden', 'true');
+                box.appendChild(divider);
+            }
+            _dmenuPositionPercentLabels();
+        }
+
+        function _dmenuPositionPercentLabels() {
+            if (!_dmenuPickerOpen || !primaryCb || !primaryCb._histData || !primaryCb.canvas) return;
+            const box = document.getElementById('dmenu-picker-box');
+            if (!box) return;
+            const boxRect = box.getBoundingClientRect();
+            const canvasRect = primaryCb.canvas.getBoundingClientRect();
+            const outerWrap = document.getElementById('slim-cb-wrap');
+            const wrapRect = outerWrap ? outerWrap.getBoundingClientRect() : canvasRect;
+            const valueLabels = {
+                vmin: document.getElementById('slim-cb-vmin'),
+                vmax: document.getElementById('slim-cb-vmax'),
+            };
+            const win = primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
+                ? primaryCb.opts.getWindow()
+                : null;
+            if (!win || !canvasRect.width) return;
+            const hd = primaryCb._histData;
+            const span = hd.vmax - hd.vmin || 1;
+            const animT = Number.isFinite(primaryCb._animT) ? primaryCb._animT : 1;
+            const vals = [
+                {
+                    kind: 'vmin',
+                    value: win.vmin,
+                    frac: (Number.isFinite(primaryCb._winVminF)
+                        ? primaryCb._winVminF
+                        : (win.vmin - hd.vmin) / span) * animT,
+                },
+                {
+                    kind: 'vmax',
+                    value: win.vmax,
+                    frac: 1 - (1 - (Number.isFinite(primaryCb._winVmaxF)
+                        ? primaryCb._winVmaxF
+                        : (win.vmax - hd.vmin) / span)) * animT,
+                },
+            ];
+            const topBand = Math.max(4, Math.min(8, wrapRect.top - boxRect.top - 7));
+            const positioned = {};
+            const shiftPercentLabel = (el, dx) => {
+                if (!el || !dx) return;
+                const currentLeft = Number.parseFloat(el.style.left) || 0;
+                el.style.left = `${currentLeft + dx}px`;
+            };
+            const clampPercentLabel = (el) => {
+                if (!el) return;
+                const r = el.getBoundingClientRect();
+                let dx = 0;
+                if (r.left < boxRect.left + 4) dx = boxRect.left + 4 - r.left;
+                else if (r.right > boxRect.right - 4) dx = boxRect.right - 4 - r.right;
+                shiftPercentLabel(el, dx);
+            };
+            vals.forEach(item => {
+                const el = box.querySelector(`.dmenu-percent-${item.kind}`);
+                const lock = box.querySelector(`.dmenu-lock-${item.kind}`);
+                if (!el || !Number.isFinite(item.value)) return;
+                const frac = Math.max(0, Math.min(1, item.frac));
+                const pct = primaryCb._percentileAtValue(item.value);
+                const left = canvasRect.left - boxRect.left + frac * canvasRect.width;
+                el.textContent = `${_fmtPct(((pct == null ? frac : pct) * 100))}%`;
+                el.classList.toggle('edge-start', frac <= 0.02);
+                el.classList.toggle('edge-end', frac >= 0.98);
+                el.style.left = `${left}px`;
+                el.style.top = `${topBand}px`;
+                positioned[item.kind] = el;
+                clampPercentLabel(el);
+                if (lock) {
+                    const valueRect = valueLabels[item.kind]
+                        ? valueLabels[item.kind].getBoundingClientRect()
+                        : null;
+                    const lockLeft = valueRect
+                        ? valueRect.left - boxRect.left + valueRect.width / 2
+                        : left;
+                    lock.style.left = `${lockLeft}px`;
+                    lock.style.top = `${Math.max(0, topBand - 4)}px`;
+                }
             });
-            list.appendChild(presetLabel);
-            list.appendChild(rangePanel);
-            list.appendChild(toggleList);
+            const vminLabel = positioned.vmin;
+            const vmaxLabel = positioned.vmax;
+            if (vminLabel && vmaxLabel) {
+                const divider = box.querySelector('.dmenu-percent-divider');
+                const labelGap = 4;
+                const closeGap = 12;
+                const measureGap = () => {
+                    const vminRect = vminLabel.getBoundingClientRect();
+                    const vmaxRect = vmaxLabel.getBoundingClientRect();
+                    return {
+                        vminRect,
+                        vmaxRect,
+                        gap: vmaxRect.left - vminRect.right,
+                    };
+                };
+                let measured = measureGap();
+                if (measured.gap < labelGap) {
+                    const overlap = labelGap - measured.gap;
+                    shiftPercentLabel(vminLabel, -overlap / 2);
+                    shiftPercentLabel(vmaxLabel, overlap / 2);
+                    clampPercentLabel(vminLabel);
+                    clampPercentLabel(vmaxLabel);
+                    measured = measureGap();
+                    if (measured.gap < labelGap) {
+                        const remaining = labelGap - measured.gap;
+                        const canMoveVminLeft = measured.vminRect.left - (boxRect.left + 4);
+                        const canMoveVmaxRight = (boxRect.right - 4) - measured.vmaxRect.right;
+                        const moveVmin = Math.min(canMoveVminLeft, remaining);
+                        shiftPercentLabel(vminLabel, -moveVmin);
+                        shiftPercentLabel(vmaxLabel, Math.min(canMoveVmaxRight, remaining - moveVmin));
+                        clampPercentLabel(vminLabel);
+                        clampPercentLabel(vmaxLabel);
+                        measured = measureGap();
+                    }
+                }
+                if (divider) {
+                    measured = measureGap();
+                    const near = measured.gap < closeGap;
+                    divider.style.opacity = near ? '1' : '0';
+                    if (near) {
+                        const dividerLeft = (measured.vminRect.right + measured.vmaxRect.left) / 2 - boxRect.left;
+                        divider.style.left = `${dividerLeft}px`;
+                        divider.style.top = `${topBand}px`;
+                    }
+                }
+            }
         }
 
         function _dmenuPickerPosition() {
@@ -32285,7 +32352,14 @@
             const rect = cbRect || host.getBoundingClientRect();
             const targetW = cbRect ? Math.max(286, Math.round(cbRect.width)) : 286;
             box.style.width = Math.min(targetW, viewportW - 28) + 'px';
-            box.style.setProperty('--dmenu-cb-reserve', cbRect ? Math.ceil(cbRect.height + 2) + 'px' : '0px');
+            if (_dmenuCbReservePx == null) {
+                const cbCanvas = primaryCb && primaryCb.canvas ? primaryCb.canvas : document.getElementById('slim-cb');
+                const canvasRect = cbCanvas ? cbCanvas.getBoundingClientRect() : null;
+                const reserveRect = canvasRect && canvasRect.height > 0 ? canvasRect : cbRect;
+                _dmenuCbReservePx = reserveRect ? Math.min(42, Math.ceil(reserveRect.height + 2)) : 0;
+            }
+            const cbReserve = _dmenuCbReservePx;
+            box.style.setProperty('--dmenu-cb-reserve', cbReserve + 'px');
             const measured = box.getBoundingClientRect();
             const boxW = Math.min(measured.width || box.offsetWidth || targetW, viewportW - 28);
             const boxH = Math.min(measured.height || box.offsetHeight || 260, viewportH - 28);
@@ -32296,6 +32370,7 @@
                 : Math.max(14, Math.min(viewportH - boxH - 14, preferredTop));
             box.style.left = left + 'px';
             box.style.top = top + 'px';
+            _dmenuPositionPercentLabels();
         }
 
         function _dmenuStartPositionTracking() {
@@ -32316,8 +32391,11 @@
             const root = document.getElementById('dmenu-picker');
             if (!root) return;
             _dmenuPickerOpen = true;
+            _dmenuAttachToken++;
+            _dmenuCbReservePx = null;
             _dmenuSelectCurrentPreset();
             _dmenuPickerRender();
+            root.classList.remove('closing');
             root.classList.add('visible');
             root.setAttribute('aria-hidden', 'false');
             const cbWrap = document.getElementById('slim-cb-wrap');
@@ -32335,13 +32413,27 @@
             if (!_dmenuPickerOpen) return;
             _dmenuPickerOpen = false;
             _dmenuStopPositionTracking();
+            const attachToken = ++_dmenuAttachToken;
+            _dmenuCbReservePx = null;
             const root = document.getElementById('dmenu-picker');
             if (root) {
+                root.classList.add('closing');
                 root.classList.remove('visible');
                 root.setAttribute('aria-hidden', 'true');
             }
             const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) cbWrap.classList.remove('dmenu-attached');
+            if (cbWrap) {
+                setTimeout(() => {
+                    if (!_dmenuPickerOpen && attachToken === _dmenuAttachToken) {
+                        cbWrap.classList.remove('dmenu-attached');
+                        if (root) root.classList.remove('closing');
+                    }
+                }, 150);
+            } else if (root) {
+                setTimeout(() => {
+                    if (!_dmenuPickerOpen && attachToken === _dmenuAttachToken) root.classList.remove('closing');
+                }, 150);
+            }
             try { sink.focus({ preventScroll: true }); } catch (_) { try { sink.focus(); } catch (_) {} }
         }
 
@@ -32376,7 +32468,7 @@
                 return false;
             }
             window._dQuantileIdx = index;
-            if (!vminLocked) _dmenuVminPresetIdx = index;
+            if (!_dmenuEffectiveVminLocked()) _dmenuVminPresetIdx = index;
             if (!vmaxLocked) _dmenuVmaxPresetIdx = index;
             _reapplyCurrentQuantilePreset();
             const preset = _QUANTILE_PRESETS[index];
@@ -32480,7 +32572,7 @@
             saveState();
         }
 
-        function _dmenuActivateSelected() {
+        function _dmenuActivateSelected(closeAfterSelection = true) {
             const rows = _dmenuClampSelection();
             const row = rows[_dmenuSelectedIdx];
             if (!row) return;
@@ -32489,21 +32581,40 @@
                 return;
             }
             if (row.action === 'vmin') {
+                if (row.zeroFloorLocked) {
+                    _dmenuZeroFloorVminUnlocked = true;
+                    showToast('vmin: unlocked');
+                    _dmenuPickerRender();
+                    _restartHistAutoDismiss();
+                    if (closeAfterSelection) _dmenuCloseAfterSelection();
+                    return;
+                }
+                if (row.qmriPolicyLocked) {
+                    if (!vminLocked) {
+                        vminLocked = true;
+                        _dmenuCaptureBoundLock('vmin');
+                    }
+                    showToast('vmin: locked at 0');
+                    _dmenuPickerRender();
+                    _restartHistAutoDismiss();
+                    if (closeAfterSelection) _dmenuCloseAfterSelection();
+                    return;
+                }
                 vminLocked = !vminLocked;
                 if (vminLocked) _dmenuCaptureBoundLock('vmin');
-                showToast(vminLocked ? 'vmin: locked' : 'vmin: auto');
+                showToast(vminLocked ? 'vmin: locked' : 'vmin: unlocked');
                 _dmenuPickerRender();
                 _restartHistAutoDismiss();
-                _dmenuCloseAfterSelection();
+                if (closeAfterSelection) _dmenuCloseAfterSelection();
                 return;
             }
             if (row.action === 'vmax') {
                 vmaxLocked = !vmaxLocked;
                 if (vmaxLocked) _dmenuCaptureBoundLock('vmax');
-                showToast(vmaxLocked ? 'vmax: locked' : 'vmax: auto');
+                showToast(vmaxLocked ? 'vmax: locked' : 'vmax: unlocked');
                 _dmenuPickerRender();
                 _restartHistAutoDismiss();
-                _dmenuCloseAfterSelection();
+                if (closeAfterSelection) _dmenuCloseAfterSelection();
                 return;
             }
             if (row.action === 'zeros') {
@@ -32712,32 +32823,35 @@
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
             const stateLabel = (state, text) => `<span class="hist-tip-state ${state}">${text}</span>`;
-            const list = (first, second, third) => (
-                `<ul class="hist-tip-list">`
-                + `<li>${first}: include every slice along this dim in the histogram</li>`
-                + `<li>${second}: use current index; recompute vmin/vmax when scrolling</li>`
-                + `<li>${third}: use current index; keep vmin/vmax fixed</li>`
-                + `</ul>`
+            const table = (first, second, third) => (
+                `<div class="hist-tip-table">`
+                + `<div class="hist-tip-label">${first}</div><div class="hist-tip-desc">all slices in histogram</div>`
+                + `<div class="hist-tip-label">${second}</div><div class="hist-tip-desc">current slice only; recompute vmin/vmax when slice changes</div>`
+                + `<div class="hist-tip-label">${third}</div><div class="hist-tip-desc">current slice only; keep vmin/vmax when slice changes</div>`
+                + `</div>`
             );
+            const common = `<div class="hist-tip-common">`
+                + `<div class="hist-tip-title">Click dims to cycle histogram participation:</div>`
+                + table(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'))
+                + `</div>`;
+            if (!Number.isInteger(i)) {
+                return common + `<div class="hist-tip-current hist-tip-current-empty">Current:</div>`;
+            }
             if (i === dx || i === dy) {
-                return `<div class="hist-tip-title">DISPLAY AXIS — always ${stateLabel('scope', 'IN SCOPE')}.</div>`
-                    + `<div class="hist-tip-title">Click other dims to cycle:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: display axis, always ${stateLabel('scope', 'IN SCOPE')}.</div>`;
             }
             const s = _dimStateFor(i);
             if (s === 'scope') {
-                return `<div class="hist-tip-title">Current: ${stateLabel('scope', 'IN SCOPE')}</div>`
-                    + `<div class="hist-tip-title">Click cycles through:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: ${stateLabel('scope', 'IN SCOPE')}</div>`;
             }
             if (s === 'recompute') {
-                return `<div class="hist-tip-title">Current: ${stateLabel('recompute', 'RECOMPUTE')}</div>`
-                    + `<div class="hist-tip-title">Click cycles through:</div>`
-                    + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+                return common
+                    + `<div class="hist-tip-current">Current: ${stateLabel('recompute', 'RECOMPUTE')}</div>`;
             }
-            return `<div class="hist-tip-title">Current: ${stateLabel('frozen', 'FROZEN')}</div>`
-                + `<div class="hist-tip-title">Click cycles through:</div>`
-                + list(stateLabel('scope', 'IN SCOPE'), stateLabel('recompute', 'RECOMPUTE'), stateLabel('frozen', 'FROZEN'));
+            return common
+                + `<div class="hist-tip-current">Current: ${stateLabel('frozen', 'FROZEN')}</div>`;
         }
 
         /** Re-apply the most recently used percentile preset to _histData.
@@ -32745,7 +32859,7 @@
          *  opens histogram only, leaving vmin/vmax at their auto value). */
         function _reapplyCurrentQuantilePreset() {
             if (!_histData || !_histData.counts) return;
-            if (_dmenuVminPresetIdx != null && !vminLocked) {
+            if (_dmenuVminPresetIdx != null && !_dmenuEffectiveVminLocked()) {
                 const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVminPresetIdx]);
                 if (win) manualVmin = win.vmin;
             }

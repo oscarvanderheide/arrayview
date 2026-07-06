@@ -53,6 +53,137 @@ def test_normal_d_command_expands_histogram_without_spinning(loaded_viewer, sid_
     assert result.get("animating") is False
 
 
+def test_normal_first_render_does_not_create_manual_range_lock(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        await new Promise(r => setTimeout(r, 500));
+        return {
+            manualVmin,
+            manualVmax,
+            currentVmin,
+            currentVmax,
+            vminLocked,
+            displayVmin: modeManager.currentViews[0]?.displayState?.vmin,
+            displayVmax: modeManager.currentViews[0]?.displayState?.vmax,
+        };
+    }""")
+    assert result["manualVmin"] is None
+    assert result["manualVmax"] is None
+    assert result["vminLocked"] is False
+    assert result["currentVmin"] < result["currentVmax"]
+    assert result["displayVmin"] is None
+    assert result["displayVmax"] is None
+
+
+def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        const sample = () => {
+            const cb = primaryCb.canvas.getBoundingClientRect();
+            const box = document.getElementById('dmenu-picker-box').getBoundingClientRect();
+            const lockVmin = document.querySelector('.dmenu-lock-vmin').getBoundingClientRect();
+            const lockVmax = document.querySelector('.dmenu-lock-vmax').getBoundingClientRect();
+            const pctVmin = document.querySelector('.dmenu-percent-vmin').getBoundingClientRect();
+            const pctVmax = document.querySelector('.dmenu-percent-vmax').getBoundingClientRect();
+            const divider = document.querySelector('.dmenu-percent-divider');
+            const percentGap = pctVmax.left - pctVmin.right;
+            return {
+                cbH: cb.height,
+                boxH: box.height,
+                expandedH: primaryCb._expandedH,
+                reserve: getComputedStyle(document.getElementById('dmenu-picker-box')).getPropertyValue('--dmenu-cb-reserve').trim(),
+                percentNoOverlap: percentGap >= 4,
+                dividerVisible: divider ? Number(getComputedStyle(divider).opacity) > 0.5 : false,
+                inside: [lockVmin, lockVmax, pctVmin, pctVmax].every(r =>
+                    r.top >= box.top - 0.5
+                    && r.bottom <= box.bottom + 0.5
+                    && r.left >= box.left - 0.5
+                    && r.right <= box.right + 0.5
+                ),
+            };
+        };
+        const first = sample();
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 120));
+        const second = sample();
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 120));
+        const third = sample();
+        primaryCb._winVminF = 0.18;
+        primaryCb._winVmaxF = 0.185;
+        primaryCb._winVminTarget = 0.18;
+        primaryCb._winVmaxTarget = 0.185;
+        _dmenuPositionPercentLabels();
+        const closeLabels = sample();
+        _dmenuZeroFloorVminUnlocked = true;
+        _dmenuPickerRender();
+        document.querySelector('.dmenu-lock-vmin').dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+        );
+        await new Promise(r => setTimeout(r, 80));
+        return {
+                first,
+                second,
+                third,
+                closeLabels,
+                vminLocked,
+                menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+            };
+    }""")
+    assert "error" not in result
+    assert result["second"]["cbH"] == pytest.approx(result["first"]["cbH"], abs=0.5)
+    assert result["third"]["cbH"] == pytest.approx(result["first"]["cbH"], abs=0.5)
+    assert result["second"]["boxH"] == pytest.approx(result["first"]["boxH"], abs=0.5)
+    assert result["third"]["boxH"] == pytest.approx(result["first"]["boxH"], abs=0.5)
+    assert result["second"]["expandedH"] == pytest.approx(result["first"]["expandedH"], abs=0.01)
+    assert result["third"]["reserve"] == result["first"]["reserve"]
+    assert result["first"]["inside"] is True
+    assert result["second"]["inside"] is True
+    assert result["third"]["inside"] is True
+    assert result["closeLabels"]["inside"] is True
+    assert result["closeLabels"]["percentNoOverlap"] is True
+    assert result["closeLabels"]["dividerVisible"] is True
+    assert result["vminLocked"] is True
+    assert result["menuVisible"] is True
+
+
+def test_dmenu_colorbar_handles_remain_draggable(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    start = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        const before = primaryCb.opts.getWindow().vmin;
+        const rect = primaryCb.canvas.getBoundingClientRect();
+        return {
+            before,
+            x: rect.left + primaryCb._hitVminX,
+            y: rect.top + rect.height / 2,
+            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+        };
+    }""")
+    assert "error" not in start
+    assert start["menuVisible"] is True
+
+    page.mouse.move(start["x"], start["y"])
+    page.mouse.down()
+    page.mouse.move(start["x"] + 24, start["y"], steps=4)
+    page.mouse.up()
+    page.wait_for_timeout(120)
+
+    result = page.evaluate("""() => ({
+        after: primaryCb.opts.getWindow().vmin,
+        dragging: primaryCb._dragActive,
+        menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+    })""")
+    assert result["after"] != pytest.approx(start["before"])
+    assert result["dragging"] is False
+    assert result["menuVisible"] is True
+
+
 def test_normal_d_exclude_zero_histogram_key_matches_expected(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     result = page.evaluate("""async () => {
@@ -74,6 +205,61 @@ def test_normal_d_exclude_zero_histogram_key_matches_expected(loaded_viewer, sid
     assert result["menuVisible"] is True
     assert result["version"] == result["expected"]
     assert result["expected"].endswith(":ez1")
+
+
+def test_dmenu_zero_floor_lock_can_be_unlocked(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        _histData = {
+            vmin: 0,
+            vmax: 100,
+            counts: [10, 10, 10, 10, 10],
+            edges: [0, 20, 40, 60, 80, 100],
+        };
+        primaryCb._histData = _histData;
+        currentVmin = 0;
+        currentVmax = 100;
+        manualVmin = null;
+        manualVmax = 100;
+        vminLocked = false;
+        _dmenuZeroFloorVminUnlocked = false;
+        window._dQuantileIdx = 0;
+        _dmenuPickerRender();
+        const before = {
+            icon: document.querySelector('.dmenu-lock-vmin')?.innerText,
+            aria: document.querySelector('.dmenu-lock-vmin')?.getAttribute('aria-checked'),
+            title: document.querySelector('.dmenu-lock-vmin')?.getAttribute('title'),
+            effective: _dmenuEffectiveVminLocked(),
+        };
+        _dmenuCyclePresetFromKey();
+        await new Promise(r => setTimeout(r, 80));
+        const lockedCycle = { manualVmin, q: window._dQuantileIdx, effective: _dmenuEffectiveVminLocked() };
+        document.querySelector('.dmenu-lock-vmin').dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+        );
+        await new Promise(r => setTimeout(r, 80));
+        const afterUnlock = {
+            icon: document.querySelector('.dmenu-lock-vmin')?.innerText,
+            aria: document.querySelector('.dmenu-lock-vmin')?.getAttribute('aria-checked'),
+            title: document.querySelector('.dmenu-lock-vmin')?.getAttribute('title'),
+            effective: _dmenuEffectiveVminLocked(),
+        };
+        _dmenuCyclePresetFromKey();
+        await new Promise(r => setTimeout(r, 80));
+        return { before, lockedCycle, afterUnlock, manualVmin, q: window._dQuantileIdx };
+    }""")
+    assert "error" not in result
+    assert result["before"]["icon"] == "🔒"
+    assert result["before"]["aria"] == "true"
+    assert result["before"]["effective"] is True
+    assert result["lockedCycle"]["manualVmin"] is None
+    assert result["afterUnlock"]["icon"] == "🔓"
+    assert result["afterUnlock"]["aria"] == "false"
+    assert result["afterUnlock"]["effective"] is False
+    assert result["manualVmin"] > 0
 
 
 def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
@@ -99,34 +285,6 @@ def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
     assert "error" not in result
     assert result["vminLocked"] is True
     assert result["manualVmin"] == pytest.approx(result["before"])
-    assert result["menuVisible"] is False
-    assert result["active"] is False
-    assert result["expanded"] is True
-
-
-def test_dmenu_enter_commits_exclude_zeros_and_closes_menu(loaded_viewer, sid_3d):
-    page = loaded_viewer(sid_3d)
-    result = page.evaluate("""async () => {
-        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
-        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
-        await new Promise(r => setTimeout(r, 700));
-        _dmenuSelectedIdx = 12;  // background detection
-        _dmenuPickerRender();
-        _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-        await new Promise(r => setTimeout(r, 700));
-        return {
-            excludeZeros,
-            version: _histDataVersion,
-            expected: _expectedHistKey(),
-            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
-            active: _histPickerActive,
-            expanded: primaryCb._expanded,
-        };
-    }""")
-    assert "error" not in result
-    assert result["excludeZeros"] is True
-    assert result["version"] == result["expected"]
-    assert result["expected"].endswith(":ez1")
     assert result["menuVisible"] is False
     assert result["active"] is False
     assert result["expanded"] is True
@@ -160,26 +318,6 @@ def test_dmenu_locked_bound_does_not_cycle_preset(loaded_viewer, sid_3d):
     assert result["vmaxIdx"] == 2
     assert result["q"] == 2
     assert result["after"] == pytest.approx(result["before"])
-
-
-def test_dmenu_manual_histogram_drag_unpresses_matching_bound(loaded_viewer, sid_3d):
-    page = loaded_viewer(sid_3d)
-    result = page.evaluate("""async () => {
-        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
-        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
-        await new Promise(r => setTimeout(r, 700));
-        _dmenuVminPresetIdx = 1;
-        _dmenuVmaxPresetIdx = 1;
-        _dmenuClearPresetForManualRange('vmin');
-        return {
-            vminIdx: _dmenuVminPresetIdx,
-            vmaxIdx: _dmenuVmaxPresetIdx,
-        };
-    }""")
-    assert "error" not in result
-    assert result["vminIdx"] is None
-    assert result["vmaxIdx"] == 1
-
 
 def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
