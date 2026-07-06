@@ -67,8 +67,10 @@ def _safe_float(v) -> float | None:
     return f if np.isfinite(f) else None
 
 
-def _histogram_payload(finite: np.ndarray, bins: int, log_bins: bool = False) -> dict:
+def _histogram_payload(finite: np.ndarray, bins: int, log_bins: bool = False, exclude_zeros: bool = False) -> dict:
     """Build a histogram response from finite values."""
+    if exclude_zeros:
+        finite = finite[finite != 0]
     if finite.size == 0:
         return {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
     vmin = float(finite.min())
@@ -172,6 +174,7 @@ def _volume_histogram(
     complex_mode: int = 0,
     bins: int = 64,
     qmri_role: str = "",
+    exclude_zeros: bool = False,
 ) -> dict:
     """Return a sampled volume histogram."""
     fixed = _parse_fixed_indices(fixed_indices)
@@ -189,6 +192,7 @@ def _volume_histogram(
         qmri_role,
         bins,
         log_bins,
+        exclude_zeros,
     )
     if not hasattr(session, "_volume_hist_cache"):
         session._volume_hist_cache = {}
@@ -234,7 +238,9 @@ def _volume_histogram(
             pixels.append(finite)
 
     if pixels:
-        result = _histogram_payload(np.concatenate(pixels), bins, log_bins=log_bins)
+        result = _histogram_payload(
+            np.concatenate(pixels), bins, log_bins=log_bins, exclude_zeros=exclude_zeros
+        )
     else:
         result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
     session._volume_hist_cache[cache_key] = {

@@ -53,6 +53,134 @@ def test_normal_d_command_expands_histogram_without_spinning(loaded_viewer, sid_
     assert result.get("animating") is False
 
 
+def test_normal_d_exclude_zero_histogram_key_matches_expected(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        excludeZeros = true;
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        return {
+            expanded: primaryCb._expanded,
+            active: _histPickerActive,
+            version: _histDataVersion,
+            expected: _expectedHistKey(),
+            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+        };
+    }""")
+    assert "error" not in result
+    assert result["expanded"] is True
+    assert result["active"] is True
+    assert result["menuVisible"] is True
+    assert result["version"] == result["expected"]
+    assert result["expected"].endswith(":ez1")
+
+
+def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        const before = primaryCb.opts.getWindow().vmin;
+        _dmenuSelectedIdx = 0;  // vmin label
+        _dmenuPickerRender();
+        _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 120));
+        return {
+            vminLocked,
+            manualVmin,
+            before,
+            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+            active: _histPickerActive,
+            expanded: primaryCb._expanded,
+        };
+    }""")
+    assert "error" not in result
+    assert result["vminLocked"] is True
+    assert result["manualVmin"] == pytest.approx(result["before"])
+    assert result["menuVisible"] is False
+    assert result["active"] is False
+    assert result["expanded"] is True
+
+
+def test_dmenu_enter_commits_exclude_zeros_and_closes_menu(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        _dmenuSelectedIdx = 12;  // background detection
+        _dmenuPickerRender();
+        _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 700));
+        return {
+            excludeZeros,
+            version: _histDataVersion,
+            expected: _expectedHistKey(),
+            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+            active: _histPickerActive,
+            expanded: primaryCb._expanded,
+        };
+    }""")
+    assert "error" not in result
+    assert result["excludeZeros"] is True
+    assert result["version"] == result["expected"]
+    assert result["expected"].endswith(":ez1")
+    assert result["menuVisible"] is False
+    assert result["active"] is False
+    assert result["expanded"] is True
+
+
+def test_dmenu_locked_bound_does_not_cycle_preset(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        _dmenuVminPresetIdx = 1;
+        _dmenuVmaxPresetIdx = 1;
+        window._dQuantileIdx = 1;
+        vminLocked = true;
+        const before = primaryCb.opts.getWindow().vmin;
+        _dmenuCyclePresetFromKey();
+        await new Promise(r => setTimeout(r, 120));
+        return {
+            vminLocked,
+            vminIdx: _dmenuVminPresetIdx,
+            vmaxIdx: _dmenuVmaxPresetIdx,
+            q: window._dQuantileIdx,
+            before,
+            after: primaryCb.opts.getWindow().vmin,
+        };
+    }""")
+    assert "error" not in result
+    assert result["vminLocked"] is True
+    assert result["vminIdx"] == 1
+    assert result["vmaxIdx"] == 2
+    assert result["q"] == 2
+    assert result["after"] == pytest.approx(result["before"])
+
+
+def test_dmenu_manual_histogram_drag_unpresses_matching_bound(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        _dmenuVminPresetIdx = 1;
+        _dmenuVmaxPresetIdx = 1;
+        _dmenuClearPresetForManualRange('vmin');
+        return {
+            vminIdx: _dmenuVminPresetIdx,
+            vmaxIdx: _dmenuVmaxPresetIdx,
+        };
+    }""")
+    assert "error" not in result
+    assert result["vminIdx"] is None
+    assert result["vmaxIdx"] == 1
+
+
 def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     result = page.evaluate("""async () => {
