@@ -12759,9 +12759,12 @@
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
                 });
-                if (manualVmin !== null && manualVmax !== null) {
-                    params.set('vmin_override', String(manualVmin));
-                    params.set('vmax_override', String(manualVmax));
+                const _hasManualWindow = manualVmin !== null || manualVmax !== null;
+                const _effectiveVmin = _hasManualWindow ? (manualVmin ?? currentVmin) : null;
+                const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
+                if (_effectiveVmin !== null && _effectiveVmax !== null) {
+                    params.set('vmin_override', String(_effectiveVmin));
+                    params.set('vmax_override', String(_effectiveVmax));
                 }
                 { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
@@ -17553,6 +17556,9 @@
             const _dpr = window.devicePixelRatio || 1;
             const canvas_w = Math.round((parseInt(canvas.style.width)  || window.innerWidth)  * _dpr);
             const canvas_h = Math.round((parseInt(canvas.style.height) || window.innerHeight) * _dpr);
+            const _hasManualWindow = manualVmin !== null || manualVmax !== null;
+            const _effectiveVmin = _hasManualWindow ? (manualVmin ?? currentVmin) : null;
+            const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
             ws.send(JSON.stringify({
                 seq: wsSentSeq,
                 dim_x, dim_y, dim_z,
@@ -17563,8 +17569,8 @@
                 log_scale: logScale,
                 slice_dim: current_slice_dim,
                 direction: lastDirection,
-                vmin_override: manualVmin,
-                vmax_override: manualVmax,
+                vmin_override: _effectiveVmin,
+                vmax_override: _effectiveVmax,
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alpha: overlayAlpha,

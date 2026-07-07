@@ -389,6 +389,50 @@ def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_vie
     assert result["after"]["drawHi"] == pytest.approx(result["expectedHi"], abs=0.002)
 
 
+def test_normal_repeated_d_cycles_update_slice_pixels(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb || !canvas) return { error: 'missing command' };
+        const checksum = () => {
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let sum = 0;
+            for (let i = 0; i < data.length; i += 97) sum = (sum + data[i] * (i + 1)) % 1000000007;
+            return sum;
+        };
+        const waitForRender = async () => {
+            for (let i = 0; i < 40; i++) {
+                if (!isRendering && !pendingRequest) break;
+                await new Promise(r => setTimeout(r, 25));
+            }
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        if (!primaryCb._histData) return { error: 'missing histogram' };
+        _histData = primaryCb._histData;
+        primaryCb._expanded = true;
+        _histPickerOpen();
+        window._dQuantileIdx = 3;
+        const before = {
+            checksum: checksum(),
+            manualVmax,
+            wsSentSeq,
+        };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await waitForRender();
+        const after = {
+            checksum: checksum(),
+            manualVmax,
+            wsSentSeq,
+        };
+        return { before, after };
+    }""")
+    assert "error" not in result
+    assert result["after"]["manualVmax"] != pytest.approx(result["before"]["manualVmax"])
+    assert result["after"]["wsSentSeq"] > result["before"]["wsSentSeq"]
+    assert result["after"]["checksum"] != result["before"]["checksum"]
+
+
 def test_normal_d_open_after_collapse_snaps_full_range_handles(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     result = page.evaluate("""async () => {
