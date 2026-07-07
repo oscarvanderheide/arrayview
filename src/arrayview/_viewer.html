@@ -16292,6 +16292,9 @@
         let _dimUnderlineTimer = 0;
         let _dimbarDblClickWired = false;
         let _dimbarLastToggleAt = 0;
+        let _dimbarClickCandidate = null;
+        const DIMBAR_DBLCLICK_MS = 260;
+        const DIMBAR_DBLCLICK_PX = 6;
 
         function _eventWithinDimbar(e) {
             const el = document.getElementById('info');
@@ -16315,13 +16318,27 @@
         }
 
         function _handleDimbarDblClick(e) {
-            if (e._dimbarDblClickHandled || !_eventWithinDimbar(e)) return;
-            _toggleDimbarFromPointer(e);
+            e.preventDefault();
+            e.stopPropagation();
         }
 
         function _handleDimbarClick(e) {
-            if (e.detail < 2 || !_eventWithinDimbar(e)) return;
-            _toggleDimbarFromPointer(e);
+            if (e._dimbarDblClickHandled || !_eventWithinDimbar(e)) return;
+            const now = performance.now();
+            const prev = _dimbarClickCandidate;
+            _dimbarClickCandidate = {
+                t: now,
+                x: e.clientX,
+                y: e.clientY,
+            };
+            if (!prev) return;
+            const dt = now - prev.t;
+            const dx = Math.abs(e.clientX - prev.x);
+            const dy = Math.abs(e.clientY - prev.y);
+            if (dt <= DIMBAR_DBLCLICK_MS && dx <= DIMBAR_DBLCLICK_PX && dy <= DIMBAR_DBLCLICK_PX) {
+                _dimbarClickCandidate = null;
+                _toggleDimbarFromPointer(e);
+            }
         }
 
         function _wireDimbarDblClick(el = document.getElementById('info')) {

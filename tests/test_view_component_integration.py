@@ -84,7 +84,8 @@ def test_dimbar_double_click_toggles_extent_mode(loaded_viewer, sid_3d):
         if (!info) return { error: 'missing info' };
         _dimbarExtentPinned = false;
         _reconcileDimbarExtent();
-        const r = info.getBoundingClientRect();
+        const label = info.querySelector('.dim-label[data-dim]');
+        const r = label.getBoundingClientRect();
         return {
             x: r.left + r.width / 2,
             y: r.top + r.height / 2,
@@ -93,7 +94,9 @@ def test_dimbar_double_click_toggles_extent_mode(loaded_viewer, sid_3d):
         };
     }""")
     assert "error" not in before
-    page.locator("#info").dblclick()
+    page.mouse.click(before["x"], before["y"])
+    page.wait_for_timeout(80)
+    page.mouse.click(before["x"], before["y"])
     page.wait_for_timeout(120)
     after_first = page.evaluate("""() => {
         const info = document.getElementById('info');
@@ -102,7 +105,9 @@ def test_dimbar_double_click_toggles_extent_mode(loaded_viewer, sid_3d):
             expanded: info.classList.contains('dimbar-expanded'),
         };
     }""")
-    page.locator("#info").dblclick()
+    page.mouse.click(before["x"], before["y"])
+    page.wait_for_timeout(80)
+    page.mouse.click(before["x"], before["y"])
     page.wait_for_timeout(120)
     after_second = page.evaluate("""() => {
         const info = document.getElementById('info');
@@ -145,6 +150,36 @@ def test_dimbar_double_click_on_label_toggles_extent_mode(loaded_viewer, sid_3d)
     }""")
     assert result["pinned"] is True
     assert result["expanded"] is True
+
+
+def test_dimbar_slow_two_clicks_do_not_toggle_extent_mode(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    target = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        if (!info) return { error: 'missing info' };
+        _dimbarExtentPinned = false;
+        _dimbarClickCandidate = null;
+        _reconcileDimbarExtent();
+        const r = info.getBoundingClientRect();
+        return {
+            x: r.left + r.width / 2,
+            y: r.top + r.height / 2,
+        };
+    }""")
+    assert "error" not in target
+    page.mouse.click(target["x"], target["y"])
+    page.wait_for_timeout(360)
+    page.mouse.click(target["x"], target["y"])
+    page.wait_for_timeout(120)
+    result = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        return {
+            pinned: _dimbarExtentPinned,
+            expanded: info.classList.contains('dimbar-expanded'),
+        };
+    }""")
+    assert result["pinned"] is False
+    assert result["expanded"] is False
 
 
 def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, sid_2d):
