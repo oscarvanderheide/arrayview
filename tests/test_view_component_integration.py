@@ -947,6 +947,44 @@ def test_compare_mode_populates_modemanager(loaded_viewer, sid_2d):
     assert result["count"] >= 2
 
 
+def test_detached_split_wheel_on_active_split_dim_moves_both_panes(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    result = page.evaluate("""async () => {
+        if (typeof enterDetachedDimMode !== 'function') return { error: 'missing split mode' };
+        const splitDim = shape.map((_, i) => i).find(i => _canDetachDim(i));
+        if (!Number.isInteger(splitDim)) return { error: 'no detachable dim' };
+        activeDim = splitDim;
+        const ok = await enterDetachedDimMode(splitDim);
+        await new Promise(r => setTimeout(r, 700));
+        if (!ok || !detachedDimMode || !compareCanvases[0]) return { error: 'split failed' };
+        activeDim = detachedDim;
+        detachedDimIndexA = 0;
+        detachedDimIndexB = 1;
+        indices[detachedDim] = detachedDimIndexA;
+        compareRender();
+        await new Promise(r => setTimeout(r, 500));
+        const before = { a: detachedDimIndexA, b: detachedDimIndexB, idx: indices[detachedDim] };
+        const rect = compareCanvases[0].getBoundingClientRect();
+        compareCanvases[0].dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            deltaY: -100,
+            clientX: rect.left + 10,
+            clientY: rect.top + 10,
+        }));
+        await new Promise(r => setTimeout(r, 500));
+        return {
+            before,
+            after: { a: detachedDimIndexA, b: detachedDimIndexB, idx: indices[detachedDim] },
+            size: shape[detachedDim],
+        };
+    }""")
+    assert "error" not in result
+    assert result["after"]["a"] == (result["before"]["a"] + 1) % result["size"]
+    assert result["after"]["b"] == (result["before"]["b"] + 1) % result["size"]
+    assert result["after"]["idx"] == result["after"]["a"]
+
+
 def test_cmp_vmin_dual_write(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     page.wait_for_timeout(500)

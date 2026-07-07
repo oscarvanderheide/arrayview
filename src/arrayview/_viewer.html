@@ -7565,6 +7565,23 @@
             return true;
         }
 
+        function _bumpDetachedDimPair(delta) {
+            if (!detachedDimMode || detachedDim < 0 || !Number.isFinite(delta)) return false;
+            const size = Number(shape[detachedDim]) || 0;
+            if (size < 2) return false;
+            const step = Math.trunc(delta);
+            if (!step) return false;
+            detachedDimIndexA = (detachedDimIndexA + step + size) % size;
+            detachedDimIndexB = (detachedDimIndexB + step + size) % size;
+            indices[detachedDim] = detachedDimIndexA;
+            updateCompareTitles();
+            renderInfo();
+            compareRender();
+            saveState();
+            showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            return true;
+        }
+
         function _updateHeaderNameForCompare() {
             const el = document.getElementById('array-name-text');
             if (!el) return;
@@ -29664,6 +29681,10 @@
                 _applyZoomAnchor(anchor);
                 saveState();
                 return;
+            }
+            if (detachedDimMode && compareActive && activeDim === detachedDim) {
+                const delta = (e.deltaY > 0 ? -1 : 1) * _wheelStep(shape[detachedDim]);
+                if (_bumpDetachedDimPair(delta)) return;
             }
             if (multiViewActive) return;
             // Prefer a hovered, non-display dim over the committed scroll dim;
