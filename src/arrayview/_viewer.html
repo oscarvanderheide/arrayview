@@ -3323,6 +3323,7 @@
         #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
         #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(8px - var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap .cb-col { flex: 1; min-width: 60px; width: auto; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
 
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
@@ -4057,8 +4058,8 @@
             -webkit-backdrop-filter: none !important;
             border: none !important;
             box-shadow: none !important;
-            padding-top: calc(3px + var(--cb-extra-top)) !important;
-            padding-bottom: 3px !important;
+            padding-top: calc(5px + var(--cb-extra-top)) !important;
+            padding-bottom: 5px !important;
             transition: none !important;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap.dmenu-attached #mv-cb {
@@ -8670,11 +8671,15 @@
                 } else {
                     labelValues = [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
                 }
+                if (!compareActive && primaryCb) primaryCb.updateLabels();
+                const displayValues = (!compareActive && primaryCb)
+                    ? [primaryCb._labelVmin ?? labelValues[0], primaryCb._labelVmax ?? labelValues[1]]
+                    : labelValues;
                 const labelFmt = primaryCb && primaryCb._dragLabelFormatter
                     ? primaryCb._dragLabelFormatter
                     : formatValueGroup(labelValues);
-                slimVmin.innerHTML = _cbFmt(labelValues[0], labelValues, labelFmt);
-                slimVmax.innerHTML = _cbFmt(labelValues[1], labelValues, labelFmt);
+                slimVmin.innerHTML = _cbFmt(displayValues[0], labelValues, labelFmt);
+                slimVmax.innerHTML = _cbFmt(displayValues[1], labelValues, labelFmt);
                 // Equalize vmin/vmax span widths so gradient is centered.
                 // Use a session high-water mark so the colorbar doesn't flicker
                 // in width when digit count shifts between slices.
@@ -8815,6 +8820,7 @@
                 this._labelVmaxFrom = null;
                 this._labelTransStart = 0;
                 this._labelTransDur = 300;
+                this._labelWidthHwmPx = 0;
 
                 // Hover / drag state
                 this._hoverFrac = -1;
@@ -9550,38 +9556,36 @@
                     ? this._labelVminFrom + (this._labelVminTarget - this._labelVminFrom) * t : vmin;
                 this._labelVmax = this._labelVmaxFrom != null
                     ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
-                const labelFormatter = this._dragLabelFormatter || formatValueGroup([this._labelVmin, this._labelVmax, vmin, vmax]);
+                const targetLabelValues = [vmin, vmax];
+                const labelFormatter = this._dragLabelFormatter || formatValueGroup(targetLabelValues);
                 const formatLabel = this.opts.formatLabel;
-                const defaultLabel = (value) => _cbFmt(value, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
+                const defaultLabel = (value) => _cbFmt(value, targetLabelValues, labelFormatter);
                 const labelHtml = (value, which) => {
                     const custom = formatLabel ? formatLabel(value, which) : null;
                     return custom ?? defaultLabel(value);
                 };
-                const labelTextLen = (html) => String(html ?? '')
-                    .replace(/<[^>]*>/g, '')
-                    .replace(/&minus;/g, '-')
-                    .replace(/&nbsp;/g, ' ')
-                    .replace(/&times;/g, 'x')
-                    .length;
-                const stableCh = Math.max(5, ...[
-                    labelHtml(this._labelVmin, 'vmin'),
-                    labelHtml(this._labelVmax, 'vmax'),
-                    labelHtml(this._labelVminFrom ?? this._labelVmin, 'vmin'),
-                    labelHtml(this._labelVmaxFrom ?? this._labelVmax, 'vmax'),
-                    labelHtml(vmin, 'vmin'),
-                    labelHtml(vmax, 'vmax'),
-                ].map(labelTextLen));
-                const stableWidth = stableCh + 'ch';
-
                 if (this.vminLabel) {
                     this.vminLabel.innerHTML = labelHtml(this._labelVmin, 'vmin');
-                    this.vminLabel.style.minWidth = stableWidth;
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
                     this.vmaxLabel.innerHTML = labelHtml(this._labelVmax, 'vmax');
-                    this.vmaxLabel.style.minWidth = stableWidth;
                     this.vmaxLabel.style.display = '';
+                }
+                if (this.vminLabel && this.vmaxLabel) {
+                    const frozenWidth = this._dragLabelWidthPx;
+                    if (frozenWidth != null) {
+                        this.vminLabel.style.minWidth = frozenWidth + 'px';
+                        this.vmaxLabel.style.minWidth = frozenWidth + 'px';
+                    } else {
+                        this.vminLabel.style.minWidth = '';
+                        this.vmaxLabel.style.minWidth = '';
+                        const natMw = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
+                        if (natMw > this._labelWidthHwmPx) this._labelWidthHwmPx = natMw;
+                        const stableWidth = Math.max(1, Math.ceil(this._labelWidthHwmPx)) + 'px';
+                        this.vminLabel.style.minWidth = stableWidth;
+                        this.vmaxLabel.style.minWidth = stableWidth;
+                    }
                 }
             }
 
@@ -10830,9 +10834,6 @@
                 // Layout recalculation during expand/collapse animation
                 if (multiViewActive || compareMvActive) {
                     drawMvColorbar();
-                    const _savedZoom = userZoom;
-                    mvScaleAllCanvases();
-                    userZoom = _savedZoom;
                 } else {
                     drawSlimColorbar(cbMarkerFrac);
                 }
@@ -21203,6 +21204,7 @@
                         primaryCb.draw();
                         if (multiViewActive || compareMvActive) {
                             if (window._mvColorBar) {
+                                window._mvColorBar._manualExpand = true;
                                 window._mvColorBar._expanded = true;
                                 window._mvColorBar._animating = false;
                                 window._mvColorBar._animT = 1;
@@ -21218,6 +21220,7 @@
                             primaryCb._snapWindowFractionsOnNextDraw();
                             if (multiViewActive || compareMvActive) {
                                 if (window._mvColorBar) {
+                                    window._mvColorBar._manualExpand = true;
                                     window._mvColorBar._expanded = true;
                                     window._mvColorBar._animating = false;
                                     window._mvColorBar._animT = 1;
@@ -25381,15 +25384,8 @@
                     id: 'mv',
                     orientation: 'horizontal',
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
-                    getRange: () => {
-                        const v0 = mvViews.find(v => v.lastW);
-                        return v0 ? { vmin: v0.vmin, vmax: v0.vmax } : { vmin: 0, vmax: 1 };
-                    },
-                    getWindow: () => {
-                        const v0 = mvViews.find(v => v.lastW);
-                        if (v0) return { vmin: v0.lockedVmin ?? v0.vmin, vmax: v0.lockedVmax ?? v0.vmax };
-                        return { vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax };
-                    },
+                    getRange: () => ({ vmin: currentVmin, vmax: currentVmax }),
+                    getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
                     setWindow: (lo, hi) => {
                         manualVmin = lo; manualVmax = hi;
                         mvViews.forEach((v, i) => {
@@ -32380,6 +32376,7 @@
                 {
                     kind: 'vmin',
                     value: win.vmin,
+                    presetIdx: _dmenuVminPresetIdx,
                     frac: (Number.isFinite(activeCb._winVminF)
                         ? activeCb._winVminF
                         : (win.vmin - hd.vmin) / span) * animT,
@@ -32387,11 +32384,21 @@
                 {
                     kind: 'vmax',
                     value: win.vmax,
+                    presetIdx: _dmenuVmaxPresetIdx,
                     frac: 1 - (1 - (Number.isFinite(activeCb._winVmaxF)
                         ? activeCb._winVmaxF
                         : (win.vmax - hd.vmin) / span)) * animT,
                 },
             ];
+            const displayPercentFor = (item, frac) => {
+                const preset = Number.isInteger(item.presetIdx) ? _QUANTILE_PRESETS[item.presetIdx] : null;
+                if (preset) return (item.kind === 'vmin' ? preset.lo : preset.hi) * 100;
+                if (item.kind === 'vmin' && _dmenuEffectiveVminLocked()) return 0;
+                if (item.kind === 'vmin' && frac <= 0.0005) return 0;
+                if (item.kind === 'vmax' && frac >= 0.9995) return 100;
+                const pct = activeCb._percentileAtValue(item.value);
+                return (pct == null ? frac : pct) * 100;
+            };
             const percentTop = Math.max(2, canvasRect.top - boxRect.top - 14);
             const positioned = {};
             const shiftPercentLabel = (el, dx) => {
@@ -32412,9 +32419,8 @@
                 const lock = box.querySelector(`.dmenu-lock-${item.kind}`);
                 if (!el || !Number.isFinite(item.value)) return;
                 const frac = Math.max(0, Math.min(1, item.frac));
-                const pct = activeCb._percentileAtValue(item.value);
                 const left = canvasRect.left - boxRect.left + frac * canvasRect.width;
-                el.textContent = `${_fmtPct(((pct == null ? frac : pct) * 100))}%`;
+                el.textContent = `${_fmtPct(displayPercentFor(item, frac))}%`;
                 el.classList.toggle('edge-start', frac <= 0.02);
                 el.classList.toggle('edge-end', frac >= 0.98);
                 el.style.left = `${left}px`;
@@ -32965,7 +32971,7 @@
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
-                _dmenuActivateSelected();
+                _histPickerClose();
                 return true;
             }
             return false;

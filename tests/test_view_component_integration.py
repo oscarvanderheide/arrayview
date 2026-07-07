@@ -1,5 +1,7 @@
 """Integration tests for the View Component System.
 Drives modeManager via page.evaluate() and asserts DOM + rendering."""
+import re
+
 import pytest
 
 pytestmark = pytest.mark.browser
@@ -332,21 +334,40 @@ def test_dmenu_zero_floor_lock_can_be_unlocked(loaded_viewer, sid_2d):
     assert result["manualVmin"] > 0
 
 
-def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
+def test_dmenu_enter_closes_without_mutating_locks(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     result = page.evaluate("""async () => {
         if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        vminLocked = false;
+        vmaxLocked = false;
+        manualVmin = null;
+        manualVmax = null;
+        _dmenuVminPresetIdx = null;
+        _dmenuVmaxPresetIdx = null;
         await commands['histogram.openOrCycle'].run({}, { key: 'd' });
         await new Promise(r => setTimeout(r, 700));
-        const before = primaryCb.opts.getWindow().vmin;
-        _dmenuSelectedIdx = 0;  // vmin label
+        const before = {
+            vminLocked,
+            vmaxLocked,
+            manualVmin,
+            manualVmax,
+        };
+        _dmenuSelectedIdx = 0;  // vmin label would toggle if Enter activated rows.
+        _dmenuPickerRender();
+        _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 120));
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        _dmenuSelectedIdx = 1;  // vmax label would toggle if Enter activated rows.
         _dmenuPickerRender();
         _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await new Promise(r => setTimeout(r, 120));
         return {
-            vminLocked,
-            manualVmin,
             before,
+            vminLocked,
+            vmaxLocked,
+            manualVmin,
+            manualVmax,
             menuVisible: !!document.querySelector('#dmenu-picker.visible'),
             active: _histPickerActive,
             expanded: primaryCb._expanded,
@@ -354,8 +375,12 @@ def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
         };
     }""")
     assert "error" not in result
-    assert result["vminLocked"] is True
-    assert result["manualVmin"] == pytest.approx(result["before"])
+    assert result["before"]["vminLocked"] is False
+    assert result["before"]["vmaxLocked"] is False
+    assert result["vminLocked"] is False
+    assert result["vmaxLocked"] is False
+    assert result["manualVmin"] is None
+    assert result["manualVmax"] is None
     assert result["menuVisible"] is False
     assert result["active"] is False
     assert result["expanded"] is False
@@ -402,7 +427,12 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
         if (!commands?.['histogram.openOrCycle'] || typeof enterMultiView !== 'function') return { error: 'missing command' };
         enterMultiView([0, 1, 2]);
         await new Promise(r => setTimeout(r, 700));
+        const beforeOpenCb = document.getElementById('mv-cb-wrap').getBoundingClientRect();
+        const beforeOpenPanes = document.getElementById('mv-panes').getBoundingClientRect();
         await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 80));
+        const midOpenCb = document.getElementById('mv-cb-wrap').getBoundingClientRect();
+        const midOpenPanes = document.getElementById('mv-panes').getBoundingClientRect();
         await new Promise(r => setTimeout(r, 700));
         const box = document.getElementById('dmenu-picker-box').getBoundingClientRect();
         const mvCb = document.getElementById('mv-cb-wrap').getBoundingClientRect();
@@ -410,31 +440,100 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
         const flipWrap = document.getElementById('mv-cb-wrap')?.closest('.oblique-flip-wrap');
         const mvVmin = document.getElementById('mv-cb-vmin');
         const mvVmax = document.getElementById('mv-cb-vmax');
+        const normalVmin = document.getElementById('slim-cb-vmin');
+        const normalVmax = document.getElementById('slim-cb-vmax');
         const mvValueRects = [mvVmin, mvVmax].map(el => el?.getBoundingClientRect());
         const pctLabels = [...document.querySelectorAll('.dmenu-percent-label')]
             .map(el => el.getBoundingClientRect());
-        return {
+        const mvLabelText = [mvVmin?.innerText, mvVmax?.innerText];
+        const normalLabelText = [normalVmin?.innerText, normalVmax?.innerText];
+        const widthBeforeLongLabels = {
+            wrap: mvCb.width,
+            canvas: document.getElementById('mv-cb').getBoundingClientRect().width,
+        };
+        manualVmin = -12345.6789;
+        manualVmax = 98765.4321;
+        drawMvColorbar();
+        await new Promise(r => requestAnimationFrame(r));
+        const widthWithLongLabels = {
+            wrap: document.getElementById('mv-cb-wrap').getBoundingClientRect().width,
+            canvas: document.getElementById('mv-cb').getBoundingClientRect().width,
+        };
+        manualVmin = -1.2;
+        manualVmax = 3.4;
+        drawMvColorbar();
+        await new Promise(r => requestAnimationFrame(r));
+        const widthAfterShortLabels = {
+            wrap: document.getElementById('mv-cb-wrap').getBoundingClientRect().width,
+            canvas: document.getElementById('mv-cb').getBoundingClientRect().width,
+        };
+        const shortLabelText = [
+            document.getElementById('mv-cb-vmin')?.innerText,
+            document.getElementById('mv-cb-vmax')?.innerText,
+        ];
+        await new Promise(r => setTimeout(r, 360));
+        const finalShortLabelText = [
+            document.getElementById('mv-cb-vmin')?.innerText,
+            document.getElementById('mv-cb-vmax')?.innerText,
+        ];
+        const openState = {
             primaryExpanded: primaryCb && primaryCb._expanded,
             mvExpanded: window._mvColorBar && window._mvColorBar._expanded,
+            mvManualExpand: window._mvColorBar && window._mvColorBar._manualExpand,
             mvAnimT: window._mvColorBar && window._mvColorBar._animT,
             hasHistogram: !!(window._mvColorBar && window._mvColorBar._histData),
-            autoDismissActive: !!_histAutoDismissTimer,
             menuVisible: !!document.querySelector('#dmenu-picker.visible'),
             menuAnchoredToMvColorbar: (
                 Math.abs((box.left + box.width / 2) - (mvCb.left + mvCb.width / 2)) < 4
                 && Math.abs(box.bottom - mvCb.bottom) < 4
             ),
+            flipWrapAttached: !!(flipWrap && flipWrap.classList.contains('dmenu-attached')),
+        };
+        const beforeCloseTop = document.getElementById('mv-panes').getBoundingClientRect().top;
+        const beforeCloseCbTop = document.getElementById('mv-cb-wrap').getBoundingClientRect().top;
+        document.getElementById('mv-cb-wrap')?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+        await new Promise(r => setTimeout(r, 20));
+        document.getElementById('mv-cb-wrap')?.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+        await new Promise(r => setTimeout(r, 260));
+        const afterHoverLeaveExpanded = window._mvColorBar && window._mvColorBar._expanded;
+        const afterHoverLeaveMenuVisible = !!document.querySelector('#dmenu-picker.visible');
+        _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 80));
+        const midCloseTop = document.getElementById('mv-panes').getBoundingClientRect().top;
+        const midCloseCbTop = document.getElementById('mv-cb-wrap').getBoundingClientRect().top;
+        await new Promise(r => setTimeout(r, 360));
+        const afterCloseTop = document.getElementById('mv-panes').getBoundingClientRect().top;
+        const afterCloseCbTop = document.getElementById('mv-cb-wrap').getBoundingClientRect().top;
+        return {
+            ...openState,
+            autoDismissActive: !!_histAutoDismissTimer,
             colorbarGap: mvCb.top - mvPanes.bottom,
             pctLabelsBelowPane: pctLabels.every(r => r.top >= mvPanes.bottom),
-            flipWrapAttached: !!(flipWrap && flipWrap.classList.contains('dmenu-attached')),
             notTopLeft: box.left > 40 && box.top > 40,
-            mvLabelText: [mvVmin?.innerText, mvVmax?.innerText],
+            mvLabelText,
+            normalLabelText,
             mvLabelWidths: mvValueRects.map(r => r?.width || 0),
+            widthBeforeLongLabels,
+            widthWithLongLabels,
+            widthAfterShortLabels,
+            shortLabelText,
+            finalShortLabelText,
+            afterHoverLeaveExpanded,
+            afterHoverLeaveMenuVisible,
+            openCbTopDeltaMid: midOpenCb.top - beforeOpenCb.top,
+            openCbTopDeltaAfter: mvCb.top - beforeOpenCb.top,
+            openPaneTopDeltaMid: midOpenPanes.top - beforeOpenPanes.top,
+            openPaneTopDeltaAfter: mvPanes.top - beforeOpenPanes.top,
+            closePaneTopDeltaMid: midCloseTop - beforeCloseTop,
+            closePaneTopDeltaAfter: afterCloseTop - beforeCloseTop,
+            closeCbTopDeltaMid: midCloseCbTop - beforeCloseCbTop,
+            closeCbTopDeltaAfter: afterCloseCbTop - beforeCloseCbTop,
         };
     }""")
     assert "error" not in result
     assert result.get("primaryExpanded") is True
     assert result.get("mvExpanded") is True
+    assert result.get("mvManualExpand") is True
     assert result.get("mvAnimT") == pytest.approx(1)
     assert result.get("hasHistogram") is True
     assert result.get("autoDismissActive") is False
@@ -445,7 +544,23 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     assert result.get("flipWrapAttached") is True
     assert result.get("notTopLeft") is True
     assert all(result.get("mvLabelText"))
+    assert result.get("mvLabelText") == result.get("normalLabelText")
     assert all(w > 0 for w in result.get("mvLabelWidths"))
+    assert result.get("widthWithLongLabels")["wrap"] == pytest.approx(result.get("widthBeforeLongLabels")["wrap"], abs=1)
+    assert result.get("widthAfterShortLabels")["wrap"] == pytest.approx(result.get("widthWithLongLabels")["wrap"], abs=1)
+    assert result.get("widthAfterShortLabels")["canvas"] == pytest.approx(result.get("widthWithLongLabels")["canvas"], abs=1)
+    assert all(re.match(r"^-?\d+\.\d{2}$", t) for t in result.get("shortLabelText"))
+    assert result.get("finalShortLabelText") == ["-1.20", "3.40"]
+    assert result.get("afterHoverLeaveExpanded") is True
+    assert result.get("afterHoverLeaveMenuVisible") is True
+    assert abs(result.get("openCbTopDeltaMid")) <= 1
+    assert abs(result.get("openCbTopDeltaAfter")) <= 1
+    assert abs(result.get("openPaneTopDeltaMid")) <= 1
+    assert abs(result.get("openPaneTopDeltaAfter")) <= 1
+    assert abs(result.get("closePaneTopDeltaMid")) <= 1
+    assert abs(result.get("closePaneTopDeltaAfter")) <= 1
+    assert abs(result.get("closeCbTopDeltaMid")) <= 1
+    assert abs(result.get("closeCbTopDeltaAfter")) <= 1
 
 
 def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_viewer, sid_2d):
@@ -456,9 +571,21 @@ def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_vie
         await new Promise(r => setTimeout(r, 700));
         if (!primaryCb._histData) return { error: 'missing histogram' };
         window._dQuantileIdx = 3;
+        const readLabels = () => [
+            document.getElementById('slim-cb-vmin')?.innerText,
+            document.getElementById('slim-cb-vmax')?.innerText,
+        ];
+        const readPercentLabels = () => [...document.querySelectorAll('.dmenu-percent-label')]
+            .map(el => el.innerText)
+            .sort();
+        const expectedPercentLabels = () => [
+            `${_fmtPct(_dmenuVminPresetIdx == null && _dmenuEffectiveVminLocked() ? 0 : _QUANTILE_PRESETS[_dmenuVminPresetIdx]?.lo * 100)}%`,
+            `${_fmtPct(_QUANTILE_PRESETS[_dmenuVmaxPresetIdx]?.hi * 100)}%`,
+        ].sort();
         const before = {
             drawLo: primaryCb._winVminF,
             drawHi: primaryCb._winVmaxF,
+            labels: readLabels(),
         };
         await commands['histogram.openOrCycle'].run({}, { key: 'd' });
         const hist = primaryCb._histData;
@@ -472,18 +599,23 @@ def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_vie
             drawLo: primaryCb._winVminF,
             drawHi: primaryCb._winVmaxF,
             animating: primaryCb._animating,
+            labels: readLabels(),
         };
         await new Promise(r => setTimeout(r, 80));
         const mid = {
             drawLo: primaryCb._winVminF,
             drawHi: primaryCb._winVmaxF,
             animating: primaryCb._animating,
+            labels: readLabels(),
+            percentLabels: readPercentLabels(),
+            expectedPercentLabels: expectedPercentLabels(),
         };
         await new Promise(r => setTimeout(r, 350));
         const after = {
             drawLo: primaryCb._winVminF,
             drawHi: primaryCb._winVmaxF,
             animating: primaryCb._animating,
+            labels: readLabels(),
         };
         return { before, immediate, mid, after, expectedLo, expectedHi };
     }""")
@@ -494,6 +626,13 @@ def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_vie
     assert result["mid"]["drawHi"] < result["immediate"]["drawHi"]
     assert result["mid"]["drawHi"] > result["expectedHi"]
     assert result["after"]["drawHi"] == pytest.approx(result["expectedHi"], abs=0.002)
+    assert result["immediate"]["labels"] != result["after"]["labels"]
+    assert result["mid"]["labels"] != result["after"]["labels"]
+    for mid_label, final_label in zip(result["mid"]["labels"], result["after"]["labels"]):
+        mid_decimals = len(mid_label.split(".", 1)[1]) if "." in mid_label else 0
+        final_decimals = len(final_label.split(".", 1)[1]) if "." in final_label else 0
+        assert mid_decimals == final_decimals
+    assert result["mid"]["percentLabels"] == result["mid"]["expectedPercentLabels"]
 
 
 def test_normal_repeated_d_cycles_update_slice_pixels(loaded_viewer, sid_2d):
