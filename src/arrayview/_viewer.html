@@ -2009,6 +2009,7 @@
         #help-hint { right: 16px; }
         #tool-hint { right: 46px; }
         #qmri-hint { right: 76px; display: none; }
+        #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
         #help-hint:hover, #tool-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
@@ -3321,7 +3322,7 @@
         }
         #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(8px - var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
 
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
@@ -4056,6 +4057,8 @@
             -webkit-backdrop-filter: none !important;
             border: none !important;
             box-shadow: none !important;
+            padding-top: calc(3px + var(--cb-extra-top)) !important;
+            padding-bottom: 3px !important;
             transition: none !important;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap.dmenu-attached #mv-cb {
@@ -5765,6 +5768,8 @@
             return new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
         }
 
+        let _qmriOptionsPinned = false;
+
         function _qmriDimbarPopupHtml() {
             const qDim = _qmriControlDim();
             const n = shape[qDim];
@@ -5799,8 +5804,16 @@
                 popup.id = 'qmri-dimbar-popup';
                 popup.setAttribute('role', 'menu');
                 popup.setAttribute('aria-label', 'qMRI options');
+                popup.tabIndex = -1;
                 popup.onclick = (e) => {
                     if (e.target === popup) _hideQmriDimbarPopup(true);
+                };
+                popup.onkeydown = (e) => {
+                    if (e.key === 'Escape' || e.key === 'Enter') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        _hideQmriDimbarPopup(true);
+                    }
                 };
                 document.body.appendChild(popup);
             }
@@ -5812,17 +5825,35 @@
             // Body-level overlay is centered by CSS; kept as a no-op for refresh callers.
         }
 
-        function _showQmriDimbarPopup(anchor) {
+        function _qmriPopupKeyClose(e) {
+            const popup = document.getElementById('qmri-dimbar-popup');
+            if (!popup || !popup.classList.contains('visible')) return;
+            if (e.key !== 'Escape' && e.key !== 'Enter') return;
+            e.preventDefault();
+            e.stopPropagation();
+            _hideQmriDimbarPopup(true);
+        }
+        window.addEventListener('keydown', _qmriPopupKeyClose, true);
+
+        function _showQmriDimbarPopup(anchor, opts = {}) {
+            if (opts.pinned) _qmriOptionsPinned = true;
             const popup = _ensureQmriDimbarPopup();
             _syncQmriDimbarPopupState(popup);
             _wireQmriDimbarMenu(popup);
             _positionQmriDimbarPopup(anchor, popup);
             popup.classList.add('visible');
+            popup.removeEventListener('keydown', _qmriPopupKeyClose, true);
+            popup.addEventListener('keydown', _qmriPopupKeyClose, true);
+            document.addEventListener('keydown', _qmriPopupKeyClose, true);
+            try { popup.focus({ preventScroll: true }); } catch (_) { try { popup.focus(); } catch (_) {} }
             return popup;
         }
 
         function _hideQmriDimbarPopup(force = false) {
-            if (force) _qmriPopupRestoreAfterRebuild = false;
+            if (force) {
+                _qmriPopupRestoreAfterRebuild = false;
+                _qmriOptionsPinned = false;
+            }
             const remaining = force ? 0 : _qmriPopupKeepOpenUntil - performance.now();
             if (remaining > 0) {
                 clearTimeout(_qmriHintHideT);
@@ -5830,12 +5861,17 @@
                 return;
             }
             const popup = document.getElementById('qmri-dimbar-popup');
-            if (popup) popup.classList.remove('visible');
+            if (popup) {
+                popup.classList.remove('visible');
+                popup.removeEventListener('keydown', _qmriPopupKeyClose, true);
+            }
+            document.removeEventListener('keydown', _qmriPopupKeyClose, true);
         }
 
         function _reconcileQmriAltOptions() {
             const active = qmriActive || compareQmriActive;
-            if (active && _obliqueAltHeld) {
+            if (!active && !_qmriPopupRestoreAfterRebuild) _qmriOptionsPinned = false;
+            if (active && (_obliqueAltHeld || _qmriOptionsPinned)) {
                 _showQmriDimbarPopup(document.getElementById('qmri-hint') || document.body);
             } else if (!_obliqueAltHeld || !_qmriPopupRestoreAfterRebuild) {
                 _hideQmriDimbarPopup(true);
@@ -5873,7 +5909,7 @@
             setTimeout(() => requestAnimationFrame(() => {
                 const popup = document.getElementById('qmri-dimbar-popup');
                 const anchor = document.getElementById('qmri-hint');
-                const shouldRestore = _qmriPopupRestoreAfterRebuild && (qmriActive || compareQmriActive);
+                const shouldRestore = (_qmriPopupRestoreAfterRebuild || _qmriOptionsPinned) && (qmriActive || compareQmriActive);
                 if (!popup || !anchor || (!popup.classList.contains('visible') && !shouldRestore)) return;
                 _qmriPopupRestoreAfterRebuild = false;
                 if (!popup.querySelector('.q-dim-popup-panel')) popup.innerHTML = _qmriDimbarPopupHtml();
@@ -5891,7 +5927,8 @@
                     e.stopPropagation();
                     if (btn.disabled) return;
                     clearTimeout(_qmriHintHideT);
-                    _qmriPopupKeepOpenUntil = performance.now() + 1800;
+                    _qmriPopupKeepOpenUntil = 0;
+                    _qmriOptionsPinned = true;
                     _qmriPopupRestoreAfterRebuild = true;
                     _qmriToggleInlineMap(Number(btn.dataset.qmriMap));
                 };
@@ -5901,7 +5938,8 @@
                     e.stopPropagation();
                     if (btn.disabled) return;
                     clearTimeout(_qmriHintHideT);
-                    _qmriPopupKeepOpenUntil = performance.now() + 1800;
+                    _qmriPopupKeepOpenUntil = 0;
+                    _qmriOptionsPinned = true;
                     _qmriPopupRestoreAfterRebuild = true;
                     _qmriToggleSyntheticContrast(btn.dataset.qmriSynth);
                 };
@@ -5915,13 +5953,14 @@
                 e.stopPropagation();
                 const popup = document.getElementById('qmri-dimbar-popup');
                 if (popup?.classList.contains('visible')) _hideQmriDimbarPopup(true);
-                else _showQmriDimbarPopup(anchor);
+                else _showQmriDimbarPopup(anchor, { pinned: true });
             };
         }
 
         // MRI scanner icon based on SVGRepo magnetic-resonance-imaging, CC0:
         // https://www.svgrepo.com/svg/84332/magnetic-resonance-imaging
         const QMRI_MAPS_ICON = `<svg class="q-dim-icon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 47V19c0-7.2 5.8-13 13-13h2c7.2 0 13 5.8 13 13v28"/><path d="M24 43V20c0-3.9 3.1-7 7-7h2c3.9 0 7 3.1 7 7v23"/><path d="M14 47h36"/><path d="M8 54h48"/><path d="M30 47h8"/><path d="M38 47l10 7"/><path d="M30 47l-10 7"/><path d="M29 31h-8"/><path d="M43 31h-8"/></g><g fill="currentColor"><circle cx="32" cy="31" r="3.2"/><rect x="17" y="53" width="30" height="4" rx="2"/></g></svg>`;
+        const QMRI_SETTINGS_ICON = `<svg class="q-dim-icon" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.04.04a2 2 0 1 1-2.83 2.83l-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.06A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.04.04a2 2 0 1 1-2.83-2.83l.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.06A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.04-.04a2 2 0 1 1 2.83-2.83l.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.06A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.04-.04a2 2 0 1 1 2.83 2.83l-.04.04A1.7 1.7 0 0 0 19.4 9c.39.15.72.36 1 .6.28.25.66.4 1.1.4H21a2 2 0 1 1 0 4h-.06a1.7 1.7 0 0 0-1.54 1Z"/></g></svg>`;
         const QMRI_SYNTH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="qmri-synth-brain" x1="3" y1="20" x2="21" y2="4"><stop offset="0" stop-color="#5f5f5f"/><stop offset="0.5" stop-color="#aaaaaa"/><stop offset="1" stop-color="#f0f0f0"/></linearGradient></defs><g fill="none" stroke="url(#qmri-synth-brain)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></g></svg>`;
         let _qmriInlinePositionFrame = 0;
 
@@ -6131,6 +6170,7 @@
         }
 
         function _rebuildQmriWithFade(savedMaps = null) {
+            const restorePopup = _qmriOptionsPinned || _qmriPopupRestoreAfterRebuild;
             const fadeEls = [
                 document.getElementById('qmri-view-wrap'),
                 document.getElementById('info'),
@@ -6147,6 +6187,11 @@
                 if (savedMaps) _qmriVisibleMaps = savedMaps;
                 enterQmri();
                 requestAnimationFrame(() => {
+                    if (restorePopup) {
+                        _qmriOptionsPinned = true;
+                        _qmriPopupRestoreAfterRebuild = false;
+                        _showQmriDimbarPopup(document.getElementById('qmri-hint') || document.body, { pinned: true });
+                    }
                     const fadeBackEls = [
                         document.getElementById('qmri-view-wrap'),
                         document.getElementById('info'),
@@ -6164,6 +6209,7 @@
         }
 
         function _rebuildCompareQmriWithFade(savedMaps = null) {
+            const restorePopup = _qmriOptionsPinned || _qmriPopupRestoreAfterRebuild;
             const fadeEls = [
                 document.getElementById('qmri-view-wrap'),
                 document.getElementById('info'),
@@ -6178,6 +6224,11 @@
                 if (savedMaps) _qmriVisibleMaps = savedMaps;
                 enterCompareQmri();
                 requestAnimationFrame(() => {
+                    if (restorePopup) {
+                        _qmriOptionsPinned = true;
+                        _qmriPopupRestoreAfterRebuild = false;
+                        _showQmriDimbarPopup(document.getElementById('qmri-hint') || document.body, { pinned: true });
+                    }
                     const fadeBackEls = [
                         document.getElementById('qmri-view-wrap'),
                         document.getElementById('info'),
@@ -11159,6 +11210,7 @@
                 if (!vmaxLocked) { manualVmax = qHi; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             }
+            _dmenuNormalizeManualWindow();
             if (!vminEffectivelyLocked) cmpManualVmin.fill(null);
             if (!vmaxLocked) cmpManualVmax.fill(null);
             if (multiViewActive) mvViews.forEach((v, i) => {
@@ -11199,6 +11251,27 @@
                 if (Number.isFinite(upper) && upper > 0 && counts[i] > 0) return upper;
             }
             return qLo;
+        }
+
+        function _dmenuNormalizeManualWindow() {
+            const win = primaryCb && primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
+                ? primaryCb.opts.getWindow()
+                : null;
+            let lo = Number.isFinite(manualVmin) ? manualVmin : Number(win && win.vmin);
+            let hi = Number.isFinite(manualVmax) ? manualVmax : Number(win && win.vmax);
+            if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi > lo) return;
+            const spanSource = _histData && Number.isFinite(_histData.vmax) && Number.isFinite(_histData.vmin)
+                ? Math.abs(_histData.vmax - _histData.vmin)
+                : Math.max(Math.abs(lo), Math.abs(hi), 1);
+            const eps = Math.max(spanSource * 1e-9, 1e-9);
+            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
+            if (vminEffectivelyLocked && !vmaxLocked) {
+                manualVmax = lo + eps;
+            } else if (!vminEffectivelyLocked && vmaxLocked) {
+                manualVmin = hi - eps;
+            } else if (!vminEffectivelyLocked && !vmaxLocked) {
+                manualVmax = lo + eps;
+            }
         }
 
         function _qmriLocksLowerBound(view) {
@@ -11372,39 +11445,12 @@
         }
 
         /**
-         * (Re)start the 3-second auto-dismiss timer for the expanded histogram.
-         * If the mouse is still hovering when the timer fires, defer until mouseleave.
+         * Legacy no-op: histogram mode is now explicit. It opens with `d` and
+         * exits through the picker close path instead of a timed auto-dismiss.
          */
         function _restartHistAutoDismiss() {
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-            _histAutoDismissTimer = setTimeout(() => {
-                _histAutoDismissTimer = null;
-                if (_dmenuPickerOpen) {
-                    _restartHistAutoDismiss();
-                    return;
-                }
-                // If mouse is over the colorbar or dimbar, leave handlers will restart the timer.
-                if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
-                    lebesgueMode = false;
-                    primaryCb._expanded = false;
-                    primaryCb._manualExpand = false;
-                    renderInfo();
-                    _clearLebesgueOverlay();
-                    const tz = document.getElementById('slim-cb-tri-zone');
-                    if (tz) tz.classList.remove('expanded');
-                    primaryCb.startAnim(false);
-                    if (multiViewActive || compareMvActive) {
-                        drawMvColorbar();
-                    } else {
-                        drawSlimColorbar(cbMarkerFrac);
-                    }
-                }
-                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
-                    _histPickerActive = false;
-                    closeDmenuPicker();
-                    _reconcileHistPicker();
-                }
-            }, 3000);
+            _histAutoDismissTimer = null;
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
@@ -16087,6 +16133,7 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
+            _wireDimbarDblClick(_info);
             _wireQmriHintAnchor();
             _scheduleActiveDimUnderline(_info, 240);
             if (document.querySelector('.qmri-inline-controls')) _trackQmriInlineControls();
@@ -16225,10 +16272,53 @@
         let _dimBarHovering = false;
         let _dimbarExtentPinned = false;
         let _dimUnderlineTimer = 0;
+        let _dimbarDblClickWired = false;
+        let _dimbarLastToggleAt = 0;
+
+        function _eventWithinDimbar(e) {
+            const el = document.getElementById('info');
+            if (!el) return false;
+            const rect = el.getBoundingClientRect();
+            const inside = e.clientX >= rect.left && e.clientX <= rect.right
+                && e.clientY >= rect.top && e.clientY <= rect.bottom;
+            return inside || !!(e.target && el.contains(e.target));
+        }
+
+        function _toggleDimbarFromPointer(e) {
+            const now = performance.now();
+            if (now - _dimbarLastToggleAt < 120) return;
+            _dimbarLastToggleAt = now;
+            e._dimbarDblClickHandled = true;
+            e.preventDefault();
+            e.stopPropagation();
+            const cmd = typeof commands !== 'undefined' ? commands['dimbar.toggleExtents'] : null;
+            if (cmd && typeof cmd.run === 'function') cmd.run({}, e);
+            else _toggleDimbarExtents();
+        }
+
+        function _handleDimbarDblClick(e) {
+            if (e._dimbarDblClickHandled || !_eventWithinDimbar(e)) return;
+            _toggleDimbarFromPointer(e);
+        }
+
+        function _handleDimbarClick(e) {
+            if (e.detail < 2 || !_eventWithinDimbar(e)) return;
+            _toggleDimbarFromPointer(e);
+        }
+
+        function _wireDimbarDblClick(el = document.getElementById('info')) {
+            if (!el) return;
+            if (!_dimbarDblClickWired) {
+                document.addEventListener('click', _handleDimbarClick, true);
+                document.addEventListener('dblclick', _handleDimbarDblClick, true);
+                _dimbarDblClickWired = true;
+            }
+        }
 
         function _reconcileDimbarExtent() {
             const el = document.getElementById('info');
             if (!el) return;
+            _wireDimbarDblClick(el);
             const wasExpanded = el.classList.contains('dimbar-expanded');
             el.classList.toggle('dimbar-expanded', _dimbarExtentPinned);
             const nowExpanded = el.classList.contains('dimbar-expanded');
@@ -30878,7 +30968,11 @@
             // 7. qMRI options hint — lives with the bottom-right help/tool hints
             const qmriHint = document.getElementById('qmri-hint');
             if (qmriHint) {
-                if (!qmriHint.innerHTML) qmriHint.innerHTML = QMRI_MAPS_ICON;
+                const qmriHintActive = qmriActive || compareQmriActive;
+                if (!qmriHint.innerHTML) qmriHint.innerHTML = QMRI_SETTINGS_ICON;
+                qmriHint.classList.toggle('visible', qmriHintActive);
+                qmriHint.setAttribute('aria-hidden', qmriHintActive ? 'false' : 'true');
+                if (!qmriHintActive) _qmriOptionsPinned = false;
                 _reconcileQmriAltOptions();
             }
             _updateMvPaneFill();
@@ -32618,11 +32712,7 @@
             _histPickerActive = false;
             closeDmenuPicker();
             _reconcileHistPicker();
-            if (primaryCb && primaryCb._expanded) {
-                if (multiViewActive || compareMvActive) drawMvColorbar();
-                else drawSlimColorbar(cbMarkerFrac);
-            }
-            _restartHistAutoDismiss();
+            _collapseHistogramImmediately();
         }
 
         function _dmenuCurrentWindow() {
@@ -32966,6 +33056,7 @@
                 const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVmaxPresetIdx]);
                 if (win) manualVmax = win.vmax;
             }
+            _dmenuNormalizeManualWindow();
             const _dv = modeManager.getFocusedView() || modeManager.currentViews[0];
             if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
             if (!vminLocked) cmpManualVmin.fill(null);

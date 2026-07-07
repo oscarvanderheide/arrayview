@@ -75,6 +75,76 @@ def test_normal_first_render_does_not_create_manual_range_lock(loaded_viewer, si
     assert result["displayVmax"] is None
 
 
+def test_dimbar_double_click_toggles_extent_mode(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    before = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        if (!info) return { error: 'missing info' };
+        _dimbarExtentPinned = false;
+        _reconcileDimbarExtent();
+        const r = info.getBoundingClientRect();
+        return {
+            x: r.left + r.width / 2,
+            y: r.top + r.height / 2,
+            pinned: _dimbarExtentPinned,
+            expanded: info.classList.contains('dimbar-expanded'),
+        };
+    }""")
+    assert "error" not in before
+    page.locator("#info").dblclick()
+    page.wait_for_timeout(120)
+    after_first = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        return {
+            pinned: _dimbarExtentPinned,
+            expanded: info.classList.contains('dimbar-expanded'),
+        };
+    }""")
+    page.locator("#info").dblclick()
+    page.wait_for_timeout(120)
+    after_second = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        return {
+            pinned: _dimbarExtentPinned,
+            expanded: info.classList.contains('dimbar-expanded'),
+        };
+    }""")
+    assert before["pinned"] is False
+    assert before["expanded"] is False
+    assert after_first["pinned"] is True
+    assert after_first["expanded"] is True
+    assert after_second["pinned"] is False
+    assert after_second["expanded"] is False
+
+
+def test_dimbar_double_click_on_label_toggles_extent_mode(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    before = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        const label = info?.querySelector('.dim-label[data-dim]');
+        if (!info || !label) return { error: 'missing dim label' };
+        _dimbarExtentPinned = false;
+        _reconcileDimbarExtent();
+        const r = label.getBoundingClientRect();
+        return {
+            x: r.left + r.width / 2,
+            y: r.top + r.height / 2,
+        };
+    }""")
+    assert "error" not in before
+    page.locator("#info .dim-label[data-dim]").first.dblclick()
+    page.wait_for_timeout(120)
+    result = page.evaluate("""() => {
+        const info = document.getElementById('info');
+        return {
+            pinned: _dimbarExtentPinned,
+            expanded: info.classList.contains('dimbar-expanded'),
+        };
+    }""")
+    assert result["pinned"] is True
+    assert result["expanded"] is True
+
+
 def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     result = page.evaluate("""async () => {
@@ -280,6 +350,7 @@ def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
             menuVisible: !!document.querySelector('#dmenu-picker.visible'),
             active: _histPickerActive,
             expanded: primaryCb._expanded,
+            autoDismissActive: !!_histAutoDismissTimer,
         };
     }""")
     assert "error" not in result
@@ -287,7 +358,8 @@ def test_dmenu_enter_commits_lock_and_closes_menu(loaded_viewer, sid_3d):
     assert result["manualVmin"] == pytest.approx(result["before"])
     assert result["menuVisible"] is False
     assert result["active"] is False
-    assert result["expanded"] is True
+    assert result["expanded"] is False
+    assert result["autoDismissActive"] is False
 
 
 def test_dmenu_locked_bound_does_not_cycle_preset(loaded_viewer, sid_3d):
@@ -300,16 +372,20 @@ def test_dmenu_locked_bound_does_not_cycle_preset(loaded_viewer, sid_3d):
         _dmenuVmaxPresetIdx = 1;
         window._dQuantileIdx = 1;
         vminLocked = true;
+        manualVmin = primaryCb._histData.vmax;
+        primaryCb.updateLabels();
         const before = primaryCb.opts.getWindow().vmin;
         _dmenuCyclePresetFromKey();
         await new Promise(r => setTimeout(r, 120));
+        const afterWin = primaryCb.opts.getWindow();
         return {
             vminLocked,
             vminIdx: _dmenuVminPresetIdx,
             vmaxIdx: _dmenuVmaxPresetIdx,
             q: window._dQuantileIdx,
             before,
-            after: primaryCb.opts.getWindow().vmin,
+            after: afterWin.vmin,
+            afterVmax: afterWin.vmax,
         };
     }""")
     assert "error" not in result
@@ -318,6 +394,7 @@ def test_dmenu_locked_bound_does_not_cycle_preset(loaded_viewer, sid_3d):
     assert result["vmaxIdx"] == 2
     assert result["q"] == 2
     assert result["after"] == pytest.approx(result["before"])
+    assert result["afterVmax"] > result["after"]
 
 def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
@@ -327,11 +404,32 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
         await new Promise(r => setTimeout(r, 700));
         await commands['histogram.openOrCycle'].run({}, { key: 'd' });
         await new Promise(r => setTimeout(r, 700));
+        const box = document.getElementById('dmenu-picker-box').getBoundingClientRect();
+        const mvCb = document.getElementById('mv-cb-wrap').getBoundingClientRect();
+        const mvPanes = document.getElementById('mv-panes').getBoundingClientRect();
+        const flipWrap = document.getElementById('mv-cb-wrap')?.closest('.oblique-flip-wrap');
+        const mvVmin = document.getElementById('mv-cb-vmin');
+        const mvVmax = document.getElementById('mv-cb-vmax');
+        const mvValueRects = [mvVmin, mvVmax].map(el => el?.getBoundingClientRect());
+        const pctLabels = [...document.querySelectorAll('.dmenu-percent-label')]
+            .map(el => el.getBoundingClientRect());
         return {
             primaryExpanded: primaryCb && primaryCb._expanded,
             mvExpanded: window._mvColorBar && window._mvColorBar._expanded,
             mvAnimT: window._mvColorBar && window._mvColorBar._animT,
             hasHistogram: !!(window._mvColorBar && window._mvColorBar._histData),
+            autoDismissActive: !!_histAutoDismissTimer,
+            menuVisible: !!document.querySelector('#dmenu-picker.visible'),
+            menuAnchoredToMvColorbar: (
+                Math.abs((box.left + box.width / 2) - (mvCb.left + mvCb.width / 2)) < 4
+                && Math.abs(box.bottom - mvCb.bottom) < 4
+            ),
+            colorbarGap: mvCb.top - mvPanes.bottom,
+            pctLabelsBelowPane: pctLabels.every(r => r.top >= mvPanes.bottom),
+            flipWrapAttached: !!(flipWrap && flipWrap.classList.contains('dmenu-attached')),
+            notTopLeft: box.left > 40 && box.top > 40,
+            mvLabelText: [mvVmin?.innerText, mvVmax?.innerText],
+            mvLabelWidths: mvValueRects.map(r => r?.width || 0),
         };
     }""")
     assert "error" not in result
@@ -339,6 +437,15 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     assert result.get("mvExpanded") is True
     assert result.get("mvAnimT") == pytest.approx(1)
     assert result.get("hasHistogram") is True
+    assert result.get("autoDismissActive") is False
+    assert result.get("menuVisible") is True
+    assert result.get("menuAnchoredToMvColorbar") is True
+    assert result.get("colorbarGap") >= 16
+    assert result.get("pctLabelsBelowPane") is True
+    assert result.get("flipWrapAttached") is True
+    assert result.get("notTopLeft") is True
+    assert all(result.get("mvLabelText"))
+    assert all(w > 0 for w in result.get("mvLabelWidths"))
 
 
 def test_normal_repeated_d_cycles_animate_histogram_handles_to_target(loaded_viewer, sid_2d):
@@ -713,6 +820,79 @@ def test_qmri_mode_populates_modemanager(loaded_viewer, sid_4d):
     page.wait_for_timeout(500)
     assert result.get("mode") == "qmri"
     assert result.get("count", 0) >= 2
+
+
+def test_qmri_settings_hint_toggles_alt_options_popup(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        const hint = document.getElementById('qmri-hint');
+        const before = hint ? getComputedStyle(hint).display : '';
+        enterQmri();
+        await new Promise(r => setTimeout(r, 500));
+        const afterEnter = {
+            display: getComputedStyle(hint).display,
+            visible: hint.classList.contains('visible'),
+            ariaHidden: hint.getAttribute('aria-hidden'),
+            leftOfTool: hint.getBoundingClientRect().right <= document.getElementById('tool-hint').getBoundingClientRect().left,
+            hasSettingsIcon: !!hint.querySelector('svg'),
+        };
+        hint.click();
+        await new Promise(r => setTimeout(r, 120));
+        const popup = document.getElementById('qmri-dimbar-popup');
+        const afterOpen = {
+            popupVisible: popup?.classList.contains('visible'),
+            pinned: _qmriOptionsPinned,
+            hasPanel: !!popup?.querySelector('.q-dim-popup-panel'),
+        };
+        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 120));
+        const afterMouseMove = {
+            popupVisible: popup?.classList.contains('visible'),
+            pinned: _qmriOptionsPinned,
+        };
+        const mapBtn = popup.querySelector('[data-qmri-map]:not(:disabled)');
+        if (!mapBtn) return { error: 'missing map button' };
+        mapBtn.click();
+        await new Promise(r => setTimeout(r, 2100));
+        const popupAfterMap = document.getElementById('qmri-dimbar-popup');
+        const afterMapClick = {
+            popupVisible: popupAfterMap?.classList.contains('visible'),
+            pinned: _qmriOptionsPinned,
+            restoreAfterRebuild: _qmriPopupRestoreAfterRebuild,
+        };
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 120));
+        return {
+            before,
+            afterEnter,
+            afterOpen,
+            afterMouseMove,
+            afterMapClick,
+            afterEnterClose: {
+                popupVisible: popupAfterMap?.classList.contains('visible'),
+                pinned: _qmriOptionsPinned,
+            },
+        };
+    }""")
+    assert "error" not in result
+    assert result["before"] == "none"
+    assert result["afterEnter"]["display"] == "flex"
+    assert result["afterEnter"]["visible"] is True
+    assert result["afterEnter"]["ariaHidden"] == "false"
+    assert result["afterEnter"]["leftOfTool"] is True
+    assert result["afterEnter"]["hasSettingsIcon"] is True
+    assert result["afterOpen"]["popupVisible"] is True
+    assert result["afterOpen"]["pinned"] is True
+    assert result["afterOpen"]["hasPanel"] is True
+    assert result["afterMouseMove"]["popupVisible"] is True
+    assert result["afterMouseMove"]["pinned"] is True
+    assert result["afterMapClick"]["popupVisible"] is True
+    assert result["afterMapClick"]["pinned"] is True
+    assert result["afterMapClick"]["restoreAfterRebuild"] is False
+    assert result["afterEnterClose"]["popupVisible"] is False
+    assert result["afterEnterClose"]["pinned"] is False
 
 
 def test_qmri_mosaic_updates_mode_name(loaded_viewer, sid_4d):
