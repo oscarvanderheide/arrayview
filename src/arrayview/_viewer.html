@@ -24277,8 +24277,8 @@
                 if (box.contains(e.target)) return;
                 const dimLabel = e.target && e.target.closest ? e.target.closest('#info .dim-label[data-dim]') : null;
                 if (dimLabel) return;
-                const cbHit = e.target && e.target.closest ? e.target.closest('#slim-cb-wrap') : null;
-                if (cbHit) return;
+                const activeCbWrap = _dmenuActiveColorbarWrap();
+                if (activeCbWrap && activeCbWrap.contains(e.target)) return;
                 _histPickerClose(false);
             }, true);
             window.addEventListener('resize', () => {

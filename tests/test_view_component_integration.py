@@ -497,6 +497,31 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
         await new Promise(r => setTimeout(r, 260));
         const afterHoverLeaveExpanded = window._mvColorBar && window._mvColorBar._expanded;
         const afterHoverLeaveMenuVisible = !!document.querySelector('#dmenu-picker.visible');
+        document.getElementById('mv-cb')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 40));
+        const afterHistogramMouseDownExpanded = window._mvColorBar && window._mvColorBar._expanded;
+        const afterHistogramMouseDownMenuVisible = !!document.querySelector('#dmenu-picker.visible');
+        const mvCanvas = document.getElementById('mv-cb');
+        const mvCanvasRect = mvCanvas?.getBoundingClientRect();
+        const vmaxClientX = mvCanvasRect && window._mvColorBar
+            ? mvCanvasRect.left + window._mvColorBar._hitVmaxX
+            : 0;
+        mvCanvas?.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX: vmaxClientX,
+            clientY: mvCanvasRect ? mvCanvasRect.top + mvCanvasRect.height / 2 : 0,
+        }));
+        window.dispatchEvent(new MouseEvent('mousemove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: vmaxClientX - 20,
+            clientY: mvCanvasRect ? mvCanvasRect.top + mvCanvasRect.height / 2 : 0,
+        }));
+        await new Promise(r => setTimeout(r, 40));
+        const afterHandleMouseDownExpanded = window._mvColorBar && window._mvColorBar._expanded;
+        const afterHandleMouseDownMenuVisible = !!document.querySelector('#dmenu-picker.visible');
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
         _histPickerKey(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await new Promise(r => setTimeout(r, 80));
         const midCloseTop = document.getElementById('mv-panes').getBoundingClientRect().top;
@@ -520,6 +545,10 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
             finalShortLabelText,
             afterHoverLeaveExpanded,
             afterHoverLeaveMenuVisible,
+            afterHistogramMouseDownExpanded,
+            afterHistogramMouseDownMenuVisible,
+            afterHandleMouseDownExpanded,
+            afterHandleMouseDownMenuVisible,
             openCbTopDeltaMid: midOpenCb.top - beforeOpenCb.top,
             openCbTopDeltaAfter: mvCb.top - beforeOpenCb.top,
             openPaneTopDeltaMid: midOpenPanes.top - beforeOpenPanes.top,
@@ -553,6 +582,10 @@ def test_multiview_d_command_expands_visible_histogram(loaded_viewer, sid_3d):
     assert result.get("finalShortLabelText") == ["-1.20", "3.40"]
     assert result.get("afterHoverLeaveExpanded") is True
     assert result.get("afterHoverLeaveMenuVisible") is True
+    assert result.get("afterHistogramMouseDownExpanded") is True
+    assert result.get("afterHistogramMouseDownMenuVisible") is True
+    assert result.get("afterHandleMouseDownExpanded") is True
+    assert result.get("afterHandleMouseDownMenuVisible") is True
     assert abs(result.get("openCbTopDeltaMid")) <= 1
     assert abs(result.get("openCbTopDeltaAfter")) <= 1
     assert abs(result.get("openPaneTopDeltaMid")) <= 1
