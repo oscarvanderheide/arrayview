@@ -868,12 +868,53 @@ def test_mv_views_have_crosshair_layer(loaded_viewer, sid_3d):
     page.focus("#keyboard-sink")
     page.keyboard.press("v")
     page.wait_for_timeout(800)
-    result = page.evaluate("""() => modeManager.currentViews.map(v => ({
-        id: v.id,
-        hasCrosshair: !!v.findLayer('crosshair'),
-    }))""")
-    assert len(result) == 3
-    assert all(r["hasCrosshair"] for r in result)
+    result = page.evaluate("""() => {
+        _mvCrosshairAlpha = 1;
+        mvViews.forEach(v => mvDrawFrame(v));
+        const viewInfo = modeManager.currentViews.map(v => ({
+            id: v.id,
+            hasCrosshair: !!v.findLayer('crosshair'),
+        }));
+        const v = mvViews[0];
+        const ov = v._chOverlay;
+        const r = getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim();
+        const expected = r.match(/^#([0-9a-f]{6})$/i)
+            ? [
+                parseInt(r.slice(1, 3), 16),
+                parseInt(r.slice(3, 5), 16),
+                parseInt(r.slice(5, 7), 16),
+            ]
+            : null;
+        let sample = null;
+        if (ov) {
+            const metrics = _getMvCrosshairMetrics(v);
+            const fx = _mvFlipX(v), fy = _mvFlipY(v);
+            const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+            const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+            const cssCx = metrics.offsetX + cx * metrics.scaleX;
+            const cssCy = metrics.offsetY + cy * metrics.scaleY;
+            const dpr = window.devicePixelRatio || 1;
+            const ctx = ov.getContext('2d');
+            const sx = Math.round(cssCx * dpr);
+            const sy = Math.round(cssCy * dpr);
+            let best = [0, 0, 0, 0];
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const x = Math.max(0, Math.min(ov.width - 1, sx + dx));
+                    const y = Math.max(0, Math.min(ov.height - 1, sy + dy));
+                    const px = Array.from(ctx.getImageData(x, y, 1, 1).data);
+                    if (px[3] > best[3]) best = px;
+                }
+            }
+            sample = best;
+        }
+        return { viewInfo, expected, sample };
+    }""")
+    assert len(result["viewInfo"]) == 3
+    assert all(r["hasCrosshair"] for r in result["viewInfo"])
+    assert result["expected"]
+    assert result["sample"][3] > 0
+    assert result["sample"][:3] == pytest.approx(result["expected"], abs=3)
 
 
 def test_compare_layout_creates_views_for_each_sid(loaded_viewer, sid_2d, sid_3d):

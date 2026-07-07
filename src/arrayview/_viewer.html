@@ -28829,6 +28829,9 @@
             const idx = Array.isArray(mvDims) ? mvDims.indexOf(dim) : -1;
             return MV_PLANE_STROKES[idx] || 'rgba(255,255,255,0.75)';
         }
+        function _mvCrosshairStroke() {
+            return getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim() || '#ebcb8b';
+        }
 
         // ── Crosshair fade animation helpers ──
         // Smoothly animate crosshair opacity for multiview panes on hover.
@@ -28948,6 +28951,7 @@
                 _chCtx.clearRect(0, 0, paneW, paneH);
                 if (_chAlpha > 0.005) {
                 _chCtx.globalAlpha = _chAlpha;
+                const crosshairStroke = _mvCrosshairStroke();
                 const i = mvViews.indexOf(v);
                 if (obliqueVecs && i >= 0) {
                     const vi = obliqueVecs[i];
@@ -28967,7 +28971,7 @@
                         const ext = Math.max(paneW, paneH) * 2;
                         const ndh = dh / cssLen * ext, ndv = dv / cssLen * ext;
                         _chCtx.lineWidth = 1;
-                        _chCtx.strokeStyle = _mvPlaneColorForDim(mvViews[j]?.sliceDir);
+                        _chCtx.strokeStyle = crosshairStroke;
                         _chCtx.beginPath();
                         _chCtx.moveTo(chx - ndh, chy - ndv);
                         _chCtx.lineTo(chx + ndh, chy + ndv);
@@ -28980,9 +28984,9 @@
                     // Convert to CSS coords
                     const cssCx = offsetX + cx * scaleX, cssCy = offsetY + cy * scaleY;
                     _chCtx.lineWidth = 1;
-                    _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimX);
+                    _chCtx.strokeStyle = crosshairStroke;
                     _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, paneH); _chCtx.stroke();
-                    _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimY);
+                    _chCtx.strokeStyle = crosshairStroke;
                     _chCtx.beginPath(); _chCtx.moveTo(0, cssCy); _chCtx.lineTo(paneW, cssCy); _chCtx.stroke();
                 }
                 } // end if (_chAlpha > 0.005)
