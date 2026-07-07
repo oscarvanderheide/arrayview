@@ -1390,18 +1390,19 @@ class TestKeyboard:
         assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceBottomClipRect"]["height"] - early["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
 
-    def test_d_first_opens_second_cycles_percentile(self, loaded_viewer, sid_2d):
-        # First tap `d` opens the histogram only. Second tap cycles + toasts.
+    def test_d_first_opens_second_cycles_without_status_text(self, loaded_viewer, sid_2d):
+        # First tap `d` opens the histogram only. Second tap cycles quietly.
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
+        before = page.evaluate("() => ({ manualVmin, manualVmax, status: document.getElementById('status')?.textContent || '', toast: document.getElementById('toast')?.textContent || '' })")
         page.keyboard.press("d")
         page.wait_for_timeout(500)
-        toast = page.evaluate(
-            "() => (document.getElementById('toast') || {}).textContent || ''"
-        ).lower()
-        assert "percentile" in toast, f"Expected 'percentile' toast after 2 taps, got: '{toast}'"
+        after = page.evaluate("() => ({ manualVmin, manualVmax, status: document.getElementById('status')?.textContent || '', toast: document.getElementById('toast')?.textContent || '' })")
+        assert after["manualVmax"] != before["manualVmax"]
+        assert after["status"] == ""
+        assert after["toast"] == ""
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

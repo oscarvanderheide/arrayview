@@ -550,17 +550,14 @@
         #dmenu-picker-box {
             position: fixed;
             width: min(286px, calc(100vw - 28px));
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            min-height: calc(var(--dmenu-cb-reserve, 0px) + 36px);
-            padding: 8px 10px calc(8px + var(--dmenu-cb-reserve, 0px));
-            background: color-mix(in srgb, var(--surface) 82%, transparent);
-            border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--layout-shadow);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
+            min-height: 42px;
+            padding: 0;
+            background: transparent;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
             box-sizing: border-box;
             pointer-events: none;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
@@ -583,8 +580,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 24px;
-            height: 24px;
+            width: 18px;
+            height: 18px;
             padding: 0;
             border: 0;
             border-radius: 50%;
@@ -597,24 +594,40 @@
             box-sizing: border-box;
             pointer-events: auto;
             transform: translateX(-50%);
+            opacity: 0.7;
         }
-        .dmenu-bound-label:hover,
-        .dmenu-bound-label.is-locked {
+        .dmenu-bound-label:hover {
             color: var(--active-dim);
+            opacity: 1;
+        }
+        .dmenu-bound-label.is-locked {
+            color: var(--muted);
+            opacity: 0.92;
         }
         .dmenu-bound-label:hover {
             background: color-mix(in srgb, var(--active-dim) 13%, transparent);
         }
         .dmenu-bound-lock {
             display: block;
+            position: relative;
+            width: 15px;
+            height: 15px;
             color: inherit;
-            font-size: 12px;
-            line-height: 1;
+        }
+        .dmenu-bound-lock svg {
+            display: block;
+            width: 15px;
+            height: 15px;
+            stroke: currentColor;
+            stroke-width: 2.2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
         }
         .dmenu-percent-label {
             position: absolute;
             color: var(--active-dim);
-            font-size: 10px;
+            font-size: 11px;
             line-height: 1;
             white-space: nowrap;
             pointer-events: none;
@@ -4034,6 +4047,20 @@
             backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
             border: none !important;
             box-shadow: none !important;
+        }
+        body:not(.fullscreen-mode) #mv-cb-wrap.dmenu-attached {
+            z-index: 59;
+            pointer-events: none !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            transition: none !important;
+        }
+        body:not(.fullscreen-mode) #mv-cb-wrap.dmenu-attached #mv-cb {
+            box-shadow: none;
+            pointer-events: auto;
         }
         body:not(.fullscreen-mode) .cb-island {
             background: transparent !important;
@@ -9937,13 +9964,16 @@
                             this.tooltip.classList.remove('percentile');
                             this.tooltip.style.display = 'none';
                         }
-                        if (this._onBinHover && this._histData && this._hoverFrac >= 0) {
+                        const dmenuOpen = typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen;
+                        if (this._onBinHover && this._histData && this._hoverFrac >= 0 && !dmenuOpen) {
                             const binIdx = this._hoverBinIndexForPoint(
                                 this._hoverFrac,
                                 e.clientY - rect.top,
                                 rect.height || this.canvas.clientHeight || CB_COLLAPSED_H
                             );
                             this._onBinHover(binIdx, this._hoverFrac);
+                        } else if (dmenuOpen && this._onBinHover) {
+                            this._onBinHover(-1, -1);
                         }
                     } else if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
@@ -11217,33 +11247,8 @@
             return null;
         }
 
-        async function _cycleQmriPaneRangePreset() {
-            const view = _hoveredQmriView;
-            if (!view) { showStatus('qMRI range: hover a pane'); return true; }
-            const activeCb = qmriMosaicActive && view._mosaicColorBar ? view._mosaicColorBar : view._colorBar;
-            if (activeCb && !activeCb._expanded) {
-                activeCb._manualExpand = true;
-                activeCb._expanded = true;
-                activeCb._animating = false;
-                activeCb._animT = 1;
-                activeCb._animTarget = 1;
-                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
-                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
-                activeCb._snapWindowFractionsOnNextDraw();
-                activeCb.updateLabels();
-                activeCb.draw();
-                activeCb.ensureHistogramData().then(() => {
-                    activeCb._snapWindowFractionsOnNextDraw();
-                    activeCb.draw();
-                    activeCb.updateLabels();
-                    qvScaleAllCanvases();
-                }).catch(() => {});
-                qvScaleAllCanvases();
-                return true;
-            }
-            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
-            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
-            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+        async function _applyQmriRangePresetToView(view, preset) {
+            if (!view || !preset) return false;
             let win = null;
             let hist = null;
             if (view.syntheticId) {
@@ -11268,8 +11273,18 @@
                 win = _quantileWindowFromHistogram(hist, preset);
                 hist = _normalizeQmriHistogramForColorbar(view, hist);
             }
+            if (!win) {
+                const range = { vmin: view.vmin, vmax: view.vmax };
+                const span = Number(range.vmax) - Number(range.vmin);
+                if (Number.isFinite(span) && span > 0) {
+                    win = {
+                        vmin: range.vmin + span * preset.lo,
+                        vmax: range.vmin + span * preset.hi,
+                    };
+                }
+            }
             const applied = _applyQmriWindowPolicy(view, win);
-            if (!applied) { showStatus('qMRI range: unavailable'); return true; }
+            if (!applied) return false;
             if (hist) {
                 [view._colorBar, view._mosaicColorBar].forEach(cb => {
                     if (!cb) return;
@@ -11283,10 +11298,44 @@
             }
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
             qvRender(view);
-            const name = view.syntheticId
-                ? (QMRI_SYNTH_PRESETS[view.syntheticId]?.label || view.syntheticId)
-                : (QMRI_LABELS[view.colormap] || view.colormap);
-            showToast(`${name}: ${_quantileLabel(preset.lo, preset.hi)}`);
+            return true;
+        }
+
+        async function _cycleQmriPaneRangePreset() {
+            const view = _hoveredQmriView;
+            const activeCb = view
+                ? (qmriMosaicActive && view._mosaicColorBar ? view._mosaicColorBar : view._colorBar)
+                : null;
+            if (view && activeCb && !activeCb._expanded) {
+                activeCb._manualExpand = true;
+                activeCb._expanded = true;
+                activeCb._animating = false;
+                activeCb._animT = 1;
+                activeCb._animTarget = 1;
+                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
+                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
+                activeCb._snapWindowFractionsOnNextDraw();
+                activeCb.updateLabels();
+                activeCb.draw();
+                activeCb.ensureHistogramData().then(() => {
+                    activeCb._snapWindowFractionsOnNextDraw();
+                    activeCb.draw();
+                    activeCb.updateLabels();
+                    qvScaleAllCanvases();
+                    _histPickerOpen();
+                }).catch(() => {});
+                qvScaleAllCanvases();
+                return true;
+            }
+            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            if (view) {
+                await _applyQmriRangePresetToView(view, preset);
+            } else {
+                await Promise.all(qmriViews.map(v => _applyQmriRangePresetToView(v, preset)));
+                qvScaleAllCanvases();
+            }
             saveState();
             return true;
         }
@@ -21090,7 +21139,6 @@
                                 manualVmin ?? currentVmin,
                                 manualVmax ?? currentVmax,
                             );
-                            if (q) showToast(_quantileLabel(q.lo, q.hi));
                             _restartHistAutoDismiss();
                             _histPickerOpen();
                         }).catch(() => {});
@@ -21106,9 +21154,6 @@
                     }
                     // Legend is showing — cycle preset.
                     const preset = _cycleQuantilePreset();
-                    if (preset) {
-                        showToast(_quantileLabel(preset.lo, preset.hi));
-                    }
                     if (multiViewActive) {
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                     } else if (compareActive) {
@@ -21132,7 +21177,6 @@
                 when: [],
                 run: (ctx, e) => {
                     rangeLocked = !rangeLocked;
-                    showToast(rangeLocked ? 'range: locked' : 'range: unlocked');
                     if (!rangeLocked) {
                         // Immediately re-render with per-slice values
                         _maybeAutoRecomputeRange();
@@ -32097,7 +32141,9 @@
                         : (locked ? `${row.label}: locked` : `${row.label}: unlocked`);
                 btn.title = lockLabel;
                 btn.setAttribute('aria-label', lockLabel);
-                btn.innerHTML = `<span class="dmenu-bound-lock" aria-hidden="true">${locked ? '&#128274;' : '&#128275;'}</span>`;
+                btn.innerHTML = locked
+                    ? `<span class="dmenu-bound-lock" aria-hidden="true"><svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>`
+                    : `<span class="dmenu-bound-lock" aria-hidden="true"><svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg></span>`;
                 btn.addEventListener('mouseenter', () => {
                     _dmenuSelectedIdx = idx;
                     _dmenuPickerRender();
@@ -32168,11 +32214,9 @@
 
         function _dmenuApplyBoundPreset(action, index) {
             if (!_histData || !_histData.counts) {
-                showStatus('histogram: still loading');
                 return false;
             }
             if ((action === 'vmin' && vminLocked) || (action === 'vmax' && vmaxLocked)) {
-                showToast(`${action}: locked`);
                 return false;
             }
             const preset = _QUANTILE_PRESETS[index];
@@ -32218,41 +32262,43 @@
         }
 
         function _dmenuPositionPercentLabels() {
-            if (!_dmenuPickerOpen || !primaryCb || !primaryCb._histData || !primaryCb.canvas) return;
+            const activeCb = _dmenuActiveColorbar();
+            if (!_dmenuPickerOpen || !activeCb || !activeCb._histData || !activeCb.canvas) return;
             const box = document.getElementById('dmenu-picker-box');
             if (!box) return;
             const boxRect = box.getBoundingClientRect();
-            const canvasRect = primaryCb.canvas.getBoundingClientRect();
-            const outerWrap = document.getElementById('slim-cb-wrap');
+            const canvasRect = activeCb.canvas.getBoundingClientRect();
+            const outerWrap = _dmenuActiveColorbarWrap();
             const wrapRect = outerWrap ? outerWrap.getBoundingClientRect() : canvasRect;
+            const labelPrefix = outerWrap && outerWrap.id === 'mv-cb-wrap' ? 'mv-cb' : 'slim-cb';
             const valueLabels = {
-                vmin: document.getElementById('slim-cb-vmin'),
-                vmax: document.getElementById('slim-cb-vmax'),
+                vmin: document.getElementById(`${labelPrefix}-vmin`),
+                vmax: document.getElementById(`${labelPrefix}-vmax`),
             };
-            const win = primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
-                ? primaryCb.opts.getWindow()
+            const win = activeCb.opts && typeof activeCb.opts.getWindow === 'function'
+                ? activeCb.opts.getWindow()
                 : null;
             if (!win || !canvasRect.width) return;
-            const hd = primaryCb._histData;
+            const hd = activeCb._histData;
             const span = hd.vmax - hd.vmin || 1;
-            const animT = Number.isFinite(primaryCb._animT) ? primaryCb._animT : 1;
+            const animT = Number.isFinite(activeCb._animT) ? activeCb._animT : 1;
             const vals = [
                 {
                     kind: 'vmin',
                     value: win.vmin,
-                    frac: (Number.isFinite(primaryCb._winVminF)
-                        ? primaryCb._winVminF
+                    frac: (Number.isFinite(activeCb._winVminF)
+                        ? activeCb._winVminF
                         : (win.vmin - hd.vmin) / span) * animT,
                 },
                 {
                     kind: 'vmax',
                     value: win.vmax,
-                    frac: 1 - (1 - (Number.isFinite(primaryCb._winVmaxF)
-                        ? primaryCb._winVmaxF
+                    frac: 1 - (1 - (Number.isFinite(activeCb._winVmaxF)
+                        ? activeCb._winVmaxF
                         : (win.vmax - hd.vmin) / span)) * animT,
                 },
             ];
-            const topBand = Math.max(4, Math.min(8, wrapRect.top - boxRect.top - 7));
+            const percentTop = Math.max(2, canvasRect.top - boxRect.top - 14);
             const positioned = {};
             const shiftPercentLabel = (el, dx) => {
                 if (!el || !dx) return;
@@ -32272,13 +32318,13 @@
                 const lock = box.querySelector(`.dmenu-lock-${item.kind}`);
                 if (!el || !Number.isFinite(item.value)) return;
                 const frac = Math.max(0, Math.min(1, item.frac));
-                const pct = primaryCb._percentileAtValue(item.value);
+                const pct = activeCb._percentileAtValue(item.value);
                 const left = canvasRect.left - boxRect.left + frac * canvasRect.width;
                 el.textContent = `${_fmtPct(((pct == null ? frac : pct) * 100))}%`;
                 el.classList.toggle('edge-start', frac <= 0.02);
                 el.classList.toggle('edge-end', frac >= 0.98);
                 el.style.left = `${left}px`;
-                el.style.top = `${topBand}px`;
+                el.style.top = `${percentTop}px`;
                 positioned[item.kind] = el;
                 clampPercentLabel(el);
                 if (lock) {
@@ -32286,10 +32332,17 @@
                         ? valueLabels[item.kind].getBoundingClientRect()
                         : null;
                     const lockLeft = valueRect
-                        ? valueRect.left - boxRect.left + valueRect.width / 2
+                        ? (
+                            item.kind === 'vmin'
+                                ? valueRect.left - boxRect.left - 11
+                                : valueRect.right - boxRect.left + 11
+                        )
                         : left;
                     lock.style.left = `${lockLeft}px`;
-                    lock.style.top = `${Math.max(0, topBand - 4)}px`;
+                    const lockTop = valueRect
+                        ? valueRect.top - boxRect.top + valueRect.height / 2 - 9
+                        : canvasRect.bottom - boxRect.top + 2;
+                    lock.style.top = `${Math.max(0, lockTop)}px`;
                 }
             });
             const vminLabel = positioned.vmin;
@@ -32334,7 +32387,7 @@
                     if (near) {
                         const dividerLeft = (measured.vminRect.right + measured.vmaxRect.left) / 2 - boxRect.left;
                         divider.style.left = `${dividerLeft}px`;
-                        divider.style.top = `${topBand}px`;
+                        divider.style.top = `${percentTop}px`;
                     }
                 }
             }
@@ -32344,7 +32397,8 @@
             if (!_dmenuPickerOpen) return;
             const box = document.getElementById('dmenu-picker-box');
             if (!box) return;
-            const cbWrap = document.getElementById('slim-cb-wrap');
+            const cbWrap = _dmenuActiveColorbarWrap();
+            const activeCb = _dmenuActiveColorbar();
             const viewportW = document.documentElement.clientWidth || window.innerWidth;
             const viewportH = document.documentElement.clientHeight || window.innerHeight;
             const cbRect = cbWrap && getComputedStyle(cbWrap).display !== 'none'
@@ -32359,10 +32413,10 @@
             const targetW = cbRect ? Math.max(286, Math.round(cbRect.width)) : 286;
             box.style.width = Math.min(targetW, viewportW - 28) + 'px';
             if (_dmenuCbReservePx == null) {
-                const cbCanvas = primaryCb && primaryCb.canvas ? primaryCb.canvas : document.getElementById('slim-cb');
+                const cbCanvas = activeCb && activeCb.canvas ? activeCb.canvas : document.getElementById('slim-cb');
                 const canvasRect = cbCanvas ? cbCanvas.getBoundingClientRect() : null;
                 const reserveRect = canvasRect && canvasRect.height > 0 ? canvasRect : cbRect;
-                _dmenuCbReservePx = reserveRect ? Math.min(42, Math.ceil(reserveRect.height + 2)) : 0;
+                _dmenuCbReservePx = reserveRect ? Math.max(42, Math.ceil(reserveRect.height + 28)) : 42;
             }
             const cbReserve = _dmenuCbReservePx;
             box.style.setProperty('--dmenu-cb-reserve', cbReserve + 'px');
@@ -32377,6 +32431,54 @@
             box.style.left = left + 'px';
             box.style.top = top + 'px';
             _dmenuPositionPercentLabels();
+        }
+
+        function _dmenuActiveColorbarWrap() {
+            if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
+                const cb = _dmenuActiveColorbar();
+                if (cb && cb.wrap) return cb.wrap;
+            }
+            if (multiViewActive || compareMvActive) {
+                return document.getElementById('mv-cb-wrap') || document.getElementById('slim-cb-wrap');
+            }
+            return document.getElementById('slim-cb-wrap');
+        }
+
+        function _dmenuActiveColorbar() {
+            if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
+                return (qmriMosaicActive && _hoveredQmriView._mosaicColorBar)
+                    ? _hoveredQmriView._mosaicColorBar
+                    : (_hoveredQmriView._colorBar || primaryCb);
+            }
+            if (multiViewActive || compareMvActive) return window._mvColorBar || primaryCb;
+            return primaryCb;
+        }
+
+        function _dmenuActiveAttachTarget() {
+            const wrap = _dmenuActiveColorbarWrap();
+            return wrap ? (wrap.closest('.oblique-flip-wrap') || wrap) : null;
+        }
+
+        function _dmenuMarkActiveAttached() {
+            const wrap = _dmenuActiveColorbarWrap();
+            if (wrap) wrap.classList.add('dmenu-attached');
+            const attachTarget = _dmenuActiveAttachTarget();
+            if (attachTarget) attachTarget.classList.add('dmenu-attached');
+        }
+
+        function _dmenuClearAttachedTargets() {
+            ['slim-cb-wrap', 'mv-cb-wrap'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('dmenu-attached');
+            });
+            document.querySelectorAll('.oblique-flip-wrap.dmenu-attached').forEach(el => {
+                el.classList.remove('dmenu-attached');
+            });
+        }
+
+        function _dmenuClearHistogramHover() {
+            const cb = _dmenuActiveColorbar();
+            if (cb && cb._onBinHover) cb._onBinHover(-1, -1);
         }
 
         function _dmenuStartPositionTracking() {
@@ -32404,8 +32506,9 @@
             root.classList.remove('closing');
             root.classList.add('visible');
             root.setAttribute('aria-hidden', 'false');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) cbWrap.classList.add('dmenu-attached');
+            _dmenuClearHistogramHover();
+            _dmenuClearAttachedTargets();
+            _dmenuMarkActiveAttached();
             _dmenuStartPositionTracking();
             requestAnimationFrame(() => {
                 const box = document.getElementById('dmenu-picker-box');
@@ -32427,11 +32530,11 @@
                 root.classList.remove('visible');
                 root.setAttribute('aria-hidden', 'true');
             }
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) {
+            const attachTarget = _dmenuActiveAttachTarget();
+            if (attachTarget) {
                 setTimeout(() => {
                     if (!_dmenuPickerOpen && attachToken === _dmenuAttachToken) {
-                        cbWrap.classList.remove('dmenu-attached');
+                        _dmenuClearAttachedTargets();
                         if (root) root.classList.remove('closing');
                     }
                 }, 150);
@@ -32470,15 +32573,12 @@
 
         function _dmenuApplyPresetIndex(index) {
             if (!_histData || !_histData.counts) {
-                showStatus('histogram: still loading');
                 return false;
             }
             window._dQuantileIdx = index;
             if (!_dmenuEffectiveVminLocked()) _dmenuVminPresetIdx = index;
             if (!vmaxLocked) _dmenuVmaxPresetIdx = index;
             _reapplyCurrentQuantilePreset();
-            const preset = _QUANTILE_PRESETS[index];
-            if (preset) showToast(_quantileLabel(preset.lo, preset.hi));
             _dmenuRefreshAfterRangeChange();
             _restartHistAutoDismiss();
             saveState();
@@ -32488,7 +32588,6 @@
         function _dmenuCyclePresetFromKey() {
             const preset = _cycleQuantilePreset();
             if (preset) {
-                showToast(_quantileLabel(preset.lo, preset.hi));
                 _dmenuSelectCurrentPreset();
                 _dmenuRefreshAfterRangeChange();
                 _restartHistAutoDismiss();
@@ -32511,7 +32610,6 @@
                 _reapplyCurrentQuantilePreset();
                 _dmenuRefreshAfterRangeChange();
             }).catch(() => {
-                showStatus('histogram: could not refresh');
                 _dmenuPickerRender();
             });
         }
@@ -32589,7 +32687,6 @@
             if (row.action === 'vmin') {
                 if (row.zeroFloorLocked) {
                     _dmenuZeroFloorVminUnlocked = true;
-                    showToast('vmin: unlocked');
                     _dmenuPickerRender();
                     _restartHistAutoDismiss();
                     if (closeAfterSelection) _dmenuCloseAfterSelection();
@@ -32600,7 +32697,6 @@
                         vminLocked = true;
                         _dmenuCaptureBoundLock('vmin');
                     }
-                    showToast('vmin: locked at 0');
                     _dmenuPickerRender();
                     _restartHistAutoDismiss();
                     if (closeAfterSelection) _dmenuCloseAfterSelection();
@@ -32608,7 +32704,6 @@
                 }
                 vminLocked = !vminLocked;
                 if (vminLocked) _dmenuCaptureBoundLock('vmin');
-                showToast(vminLocked ? 'vmin: locked' : 'vmin: unlocked');
                 _dmenuPickerRender();
                 _restartHistAutoDismiss();
                 if (closeAfterSelection) _dmenuCloseAfterSelection();
@@ -32617,7 +32712,6 @@
             if (row.action === 'vmax') {
                 vmaxLocked = !vmaxLocked;
                 if (vmaxLocked) _dmenuCaptureBoundLock('vmax');
-                showToast(vmaxLocked ? 'vmax: locked' : 'vmax: unlocked');
                 _dmenuPickerRender();
                 _restartHistAutoDismiss();
                 if (closeAfterSelection) _dmenuCloseAfterSelection();
@@ -32625,7 +32719,6 @@
             }
             if (row.action === 'zeros') {
                 excludeZeros = !excludeZeros;
-                showToast(excludeZeros ? 'zeros: excluded' : 'zeros: included');
                 _dmenuPickerRender();
                 _restartHistAutoDismiss();
                 _dmenuRefreshHistogramForZeros();

@@ -433,6 +433,30 @@ def test_normal_repeated_d_cycles_update_slice_pixels(loaded_viewer, sid_2d):
     assert result["after"]["checksum"] != result["before"]["checksum"]
 
 
+def test_dmenu_hover_does_not_forward_histogram_bin_highlight(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    result = page.evaluate("""async () => {
+        if (!commands?.['histogram.openOrCycle'] || !primaryCb) return { error: 'missing command' };
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        if (!primaryCb._histData || !primaryCb.canvas) return { error: 'missing histogram' };
+        _histPickerOpen();
+        const calls = [];
+        primaryCb._onBinHover = (binIdx, frac) => calls.push({ binIdx, frac });
+        const rect = primaryCb.canvas.getBoundingClientRect();
+        primaryCb._mouseOver = true;
+        primaryCb._handleMouseMove(new MouseEvent('mousemove', {
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+        }));
+        await new Promise(r => requestAnimationFrame(r));
+        return { calls };
+    }""")
+    assert "error" not in result
+    assert result["calls"]
+    assert all(call["binIdx"] == -1 for call in result["calls"])
+
+
 def test_normal_d_open_after_collapse_snaps_full_range_handles(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     result = page.evaluate("""async () => {
@@ -780,6 +804,46 @@ def test_qmri_d_cycles_hovered_t1_range_with_zero_floor(loaded_viewer, sid_4d):
     assert float(result["after"]["hi"]).is_integer()
     assert result["after"]["hi"] != result["before"]["hi"]
     assert "." not in result["labelText"]
+
+
+def test_qmri_d_without_hover_cycles_all_panes(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 700));
+        if (!qmriViews.length || typeof _cycleQmriPaneRangePreset !== 'function') return { error: 'missing qMRI range hook' };
+        _hoveredQmriView = null;
+        window._dQuantileIdx = 3;
+        setStatus('');
+        const toastEl = document.getElementById('toast');
+        if (toastEl) toastEl.textContent = '';
+        qmriViews.forEach(v => {
+            v.lockedVmin = -999;
+            v.lockedVmax = -999;
+        });
+        const before = qmriViews.map(v => ({ role: v.qmriRole, lo: v.lockedVmin, hi: v.lockedVmax }));
+        await _cycleQmriPaneRangePreset();
+        await new Promise(r => setTimeout(r, 300));
+        const after = qmriViews.map(v => ({ role: v.qmriRole, lo: v.lockedVmin, hi: v.lockedVmax }));
+        return {
+            before,
+            after,
+            status: document.getElementById('status')?.textContent || '',
+            toast: document.getElementById('toast')?.textContent || '',
+        };
+    }""")
+    assert "error" not in result
+    assert len(result["after"]) > 1
+    changed = [
+        (before, after)
+        for before, after in zip(result["before"], result["after"])
+        if after["hi"] != pytest.approx(before["hi"])
+    ]
+    assert len(changed) == len(result["after"])
+    assert result["status"] == ""
+    assert result["toast"] == ""
 
 
 def test_qmri_non_relaxation_maps_show_colorbar_labels(loaded_viewer, sid_4d):
