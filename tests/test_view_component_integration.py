@@ -1020,6 +1020,49 @@ def test_detached_split_wheel_on_active_split_dim_moves_both_panes(loaded_viewer
     assert result["after"]["idx"] == result["after"]["a"]
 
 
+def test_compare_p_cycles_modes_without_drawer_or_exit(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    result = page.evaluate("""async () => {
+        if (typeof enterDetachedDimMode !== 'function') return { error: 'missing split mode' };
+        const splitDim = shape.map((_, i) => i).find(i => _canDetachDim(i));
+        if (!Number.isInteger(splitDim)) return { error: 'no detachable dim' };
+        activeDim = splitDim;
+        const ok = await enterDetachedDimMode(splitDim);
+        await new Promise(r => setTimeout(r, 700));
+        if (!ok || !detachedDimMode || !compareActive) return { error: 'split failed' };
+        const modes = [];
+        for (let i = 0; i < 8; i++) {
+            commands['compare.cycleCenterMode'].run({}, { key: 'P' });
+            await new Promise(r => setTimeout(r, 250));
+            modes.push(compareCenterMode);
+        }
+        const buttonsBeforeClick = [...document.querySelectorAll('.compare-title.compare-center-title .compare-center-mode-btn')]
+            .filter(btn => btn.getClientRects().length > 0);
+        buttonsBeforeClick.find(btn => btn.getAttribute('aria-label') === 'wipe')?.click();
+        await new Promise(r => setTimeout(r, 250));
+        const afterClickMode = compareCenterMode;
+        commands['tool.exit'].run({}, new KeyboardEvent('keydown', { key: 'Escape' }));
+        await new Promise(r => setTimeout(r, 250));
+        return {
+            modes,
+            afterClickMode,
+            compareActive,
+            detachedDimMode,
+            afterEscapeMode: compareCenterMode,
+            drawerVisible: document.getElementById('tool-drawer')?.classList.contains('visible'),
+            buttonCount: buttonsBeforeClick.length,
+        };
+    }""")
+    assert "error" not in result
+    assert result["modes"] == [1, 2, 3, 4, 5, 6, 7, 1]
+    assert result["buttonCount"] == 7
+    assert result["afterClickMode"] == 5
+    assert result["drawerVisible"] is False
+    assert result["compareActive"] is True
+    assert result["detachedDimMode"] is True
+    assert result["afterEscapeMode"] == 0
+
+
 def test_cmp_vmin_dual_write(loaded_viewer, sid_2d):
     page = loaded_viewer(sid_2d)
     page.wait_for_timeout(500)

@@ -7690,7 +7690,7 @@
         function _nextCompareCenterModeValue() {
             if (!_compareCenterSupported()) return 0;
             return compareCenterMode === 0 ? 1
-                : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
+                : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 1
                 : compareCenterMode + 1;
         }
 
@@ -7713,11 +7713,11 @@
             const supported = _compareCenterSupported();
             const diffTitle = document.getElementById('compare-diff-title');
             const wipeTitle = document.getElementById('compare-wipe-title');
-            const currentMode = compareCenterMode > 0 ? compareCenterMode : (_lastCompareCenterMode || 1);
-            const currentLabel = COMPARE_CENTER_LABELS[currentMode] || 'compare center';
-            const buttonHtml = supported
-                ? `<div class="compare-center-title-controls"><button type="button" class="compare-center-mode-btn active" title="${currentLabel} · click to advance" aria-label="${currentLabel}" onclick="_cycleCompareCenterMode(event)"><span class="compare-center-mode-glyph">${_centerModeButtonGlyphHTML(currentMode)}</span></button></div>`
-                : null;
+            const buttonHtml = supported ? _renderCompareCenterModeButtons({
+                compact: true,
+                activeMode: compareCenterMode,
+                showLabels: false,
+            }) : null;
             if (diffTitle) {
                 diffTitle.classList.toggle('compare-center-title', supported);
                 diffTitle.innerHTML = supported ? buttonHtml : 'A − B';
@@ -21982,14 +21982,9 @@
                 },
             },
             'tool.comparecenterDirect': {
-                title: 'Open compare center options',
+                title: 'Cycle compare center mode',
                 when: [],
                 run: (ctx, e) => {
-                    if (compareCenterMode > 0) {
-                        if (_selectedToolDrawerId() === 'comparecenter') closeToolPanel();
-                        else _openDirectToolOptions('comparecenter');
-                        return;
-                    }
                     commands['compare.cycleCenterMode'].run(ctx, e);
                 },
             },
@@ -22011,19 +22006,7 @@
                         return;
                     }
                     const nextMode = _nextCompareCenterModeValue();
-                    if (detachedDimMode && nextMode === 0) {
-                        exitCompareMode();
-                        return;
-                    }
                     _setCompareCenterMode(nextMode);
-                    if (nextMode > 0) {
-                        if (_selectedToolDrawerId() !== 'comparecenter') _openDirectToolOptions('comparecenter');
-                    } else {
-                        const directOpen = _toolPanelState && _toolPanelState.kind === 'tool-options'
-                            && _toolPanelState.toolId === 'comparecenter'
-                            && _toolPanelState.origin === 'direct';
-                        if (directOpen) closeToolPanel();
-                    }
                     return;
                 },
             },
@@ -22385,8 +22368,8 @@
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
                             { key: 'Shift+X', action: 'Split current array', hint: 'with one array on a non-spatial dim, opens two side-by-side slices from that dim' },
-                            { key: 'Shift+D', action: 'Diff mode', hint: 'toggles the center diff lens when exactly two panes are present; otherwise does nothing' },
-                            { key: 'Shift+P', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard → off' },
+                            { key: 'Shift+P', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
+                            { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons above the center pane select a specific operation directly' },
                             { key: '[ ]', action: 'Adjust operation parameter / split A index', hint: 'in split compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
                             { key: '{ }', action: 'Adjust split B index', hint: 'in split compare, scrubs the right pane index' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when a center operation is active; outside compare, Z toggles full zen mode' },
@@ -22406,7 +22389,7 @@
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
                             { key: 'Shift+X', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
-                            { key: 'Shift+D', action: 'Diff mode', hint: 'toggle the center diff lens for a valid two-pane pair' },
+                            { key: 'Shift+P', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
                             { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
