@@ -8,7 +8,7 @@ set -euo pipefail
 BUMP="minor"
 DRY_RUN=true
 NO_AI=false
-AI_TOOL="claude"
+AI_TOOL="codex"
 
 usage() {
     cat <<EOF
@@ -16,7 +16,7 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --bump {major,minor,patch}   Version bump type (default: minor)
-  --ai {claude,codex}          AI tool for release notes (default: claude)
+  --ai {claude,codex}          AI tool for release notes (default: codex)
   --execute                    Actually run (default is dry-run)
   --no-ai                      Skip AI release notes, use GitHub's --generate-notes
   -h, --help                   Show this help
@@ -116,9 +116,13 @@ Rules:
             if command -v "$CODEX_BIN" &>/dev/null; then
                 echo "Generating release notes with Codex..."
                 tmpfile=$(mktemp)
-                trap 'rm -f "$tmpfile"' EXIT
-                if printf '%s\n' "$PROMPT" | "$CODEX_BIN" exec --output-last-message "$tmpfile" - >/dev/null 2>/dev/null; then
+                errfile=$(mktemp)
+                trap 'rm -f "$tmpfile" "$errfile"' EXIT
+                if printf '%s\n' "$PROMPT" | "$CODEX_BIN" exec --output-last-message "$tmpfile" - >/dev/null 2>"$errfile"; then
                     NOTES=$(<"$tmpfile")
+                elif [[ -s "$errfile" ]]; then
+                    echo "Codex release notes failed:"
+                    sed 's/^/  /' "$errfile"
                 fi
             fi
             ;;
@@ -127,7 +131,19 @@ fi
 
 if [[ -z "$NOTES" ]]; then
     if [[ "$NO_AI" == false ]]; then
-        echo "AI notes unavailable, falling back to --generate-notes"
+        echo "AI notes unavailable, falling back to commit-based notes"
+    fi
+    NOTES="## What's new in $TAG"
+    if [[ -n "$COMMITS" ]]; then
+        while IFS= read -r commit; do
+            [[ -z "$commit" ]] && continue
+            message="${commit#* }"
+            NOTES+=$'\n'
+            NOTES+="- ${message}"
+        done <<< "$COMMITS"
+    else
+        NOTES+=$'\n'
+        NOTES+="- Maintenance release."
     fi
 fi
 
@@ -146,17 +162,10 @@ run git push origin main
 run git tag "$TAG"
 run git push origin "$TAG"
 
-if [[ -n "$NOTES" ]]; then
-    run gh release create "$TAG" \
-        --title "$TAG" \
-        --notes "$NOTES" \
-        --prerelease
-else
-    run gh release create "$TAG" \
-        --title "$TAG" \
-        --generate-notes \
-        --prerelease
-fi
+run gh release create "$TAG" \
+    --title "$TAG" \
+    --notes "$NOTES" \
+    --prerelease
 
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
