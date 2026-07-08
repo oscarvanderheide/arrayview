@@ -4436,27 +4436,43 @@
             font-size: 9px; color: var(--muted); font-family: monospace;
         }
         #compare-param-wrap {
-            width: 100%; padding: 2px 4px 0;
-            display: none; flex-direction: column; align-items: stretch; gap: 2px;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 14px 8px 0;
+            display: none; flex-direction: column; align-items: stretch; gap: 7px;
         }
         #compare-param-range {
             -webkit-appearance: none; appearance: none;
-            width: 100%; height: 6px; border-radius: 3px;
-            background: var(--surface);
-            outline: none; cursor: ew-resize; border: 1px solid var(--border);
+            width: 100%; height: 16px;
+            background: transparent;
+            outline: none; cursor: ew-resize; border: 0;
+            margin: 0;
+        }
+        #compare-param-range::-webkit-slider-runnable-track {
+            height: 1px;
+            background: var(--border);
+            border: 0;
+            border-radius: 0;
+        }
+        #compare-param-range::-moz-range-track {
+            height: 1px;
+            background: var(--border);
+            border: 0;
+            border-radius: 0;
         }
         #compare-param-range::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 14px; height: 14px;
+            -webkit-appearance: none; width: 15px; height: 15px;
             border-radius: 50%; background: var(--active-dim);
-            border: 2px solid var(--bg); cursor: ew-resize;
+            border: 0; cursor: ew-resize;
+            margin-top: -7px;
         }
         #compare-param-range::-moz-range-thumb {
-            width: 14px; height: 14px; border-radius: 50%;
-            background: var(--active-dim); border: 2px solid var(--bg); cursor: ew-resize;
+            width: 15px; height: 15px; border-radius: 50%;
+            background: var(--active-dim); border: 0; cursor: ew-resize;
         }
         #compare-param-labels {
             display: flex; justify-content: space-between;
-            font-size: 9px; color: var(--muted); font-family: monospace;
+            font-size: 13px; line-height: 1.1; color: var(--muted); font-family: monospace;
         }
 
         /* ── Ruler overlay ───────────────────────────────────────── */
