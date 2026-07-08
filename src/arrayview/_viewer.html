@@ -4472,7 +4472,7 @@
         }
         #compare-param-labels {
             display: flex; justify-content: space-between;
-            font-size: 13px; line-height: 1.1; color: var(--muted); font-family: monospace;
+            font-size: 12px; line-height: 1.1; color: var(--muted); font-family: monospace;
         }
 
         /* ── Ruler overlay ───────────────────────────────────────── */
@@ -5190,6 +5190,8 @@
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
+        let _pixelInfoHeld = false;
+        function _pixelInfoActive() { return _pixelInfoVisible || _pixelInfoHeld; }
         let _hoverPins = []; // [{id, rawX, rawY, valueText, version}]
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
@@ -11836,11 +11838,11 @@
 
         /** Debounced prefetch — safe to call on every wheel / key event. */
         function _debouncedHoverPrefetch() {
-            if (!_pixelInfoVisible && !lebesgueMode) return;
+            if (!_pixelInfoActive() && !lebesgueMode) return;
             clearTimeout(_hoverPrefetchTimer);
             _hoverPrefetchTimer = setTimeout(() => {
                 _fetchLebesgueSlice();
-                if (_pixelInfoVisible) _prefetchHoverSlices();
+                if (_pixelInfoActive()) _prefetchHoverSlices();
             }, 80);
         }
 
@@ -16606,7 +16608,7 @@
         }
 
         function _gnomonAllowed() {
-            if (_pixelInfoVisible) return false;
+            if (_pixelInfoActive()) return false;
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
             return true;
         }
@@ -16667,7 +16669,7 @@
                 && !_cropActive;
         }
         function _mainHoverPinEligible() {
-            return _pixelInfoVisible
+            return _pixelInfoActive()
                 && _mainInspectEligible()
                 && !rectRoiMode
                 && !_segMode
@@ -16899,7 +16901,10 @@
             mainLoupeCtx.imageSmoothingEnabled = false;
             const src = (_mainLoupeSourceCanvas.width && _mainLoupeSourceCanvas.height) ? _mainLoupeSourceCanvas : canvas;
             mainLoupeCtx.drawImage(src, sx, sy, srcW, srcH, 0, 0, size, size);
-            
+            mainLoupeCtx.fillStyle = '#ffff00';
+            mainLoupeCtx.beginPath();
+            mainLoupeCtx.arc(size / 2, size / 2, 2, 0, Math.PI * 2);
+            mainLoupeCtx.fill();
         }
         function _loupeModifierHeld(e = null) {
             if (e) return !!(e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
@@ -17144,7 +17149,7 @@
             el.style.top  = y + 'px';
         }
         function showPixelInfo(el, payload, cx, cy) {
-            if (!el || !_pixelInfoVisible) return;
+            if (!el || !_pixelInfoActive()) return;
             if (rectRoiMode && _roiSuppressPixelInfo) {
                 el.style.display = 'none';
                 delete el.dataset.pixelInfoKey;
@@ -17913,7 +17918,7 @@
             if (_hscKeys.length > 64) _hscKeys.slice(0, _hscKeys.length - 32).forEach(k => delete _hoverSliceCache[k]);
             const _lpsKeys = Object.keys(_lebesguePerSession);
             if (_lpsKeys.length > 32) _lpsKeys.slice(0, _lpsKeys.length - 16).forEach(k => delete _lebesguePerSession[k]);
-            if (lebesgueMode || _pixelInfoVisible) {
+            if (lebesgueMode || _pixelInfoActive()) {
                 if (lebesgueMode) _clearLebesgueOverlay();
                 _debouncedHoverPrefetch();
             }
@@ -18631,6 +18636,12 @@
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
+            // Hold left mouse button to activate pixel info readout
+            if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+                && !_cropActive && !_segMode && !_rulerMode) {
+                _pixelInfoHeld = true;
+                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+            }
         });
         canvas.addEventListener('dblclick', e => {
             if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -19979,7 +19990,7 @@
                     ttipQ.classList.add('visible');
                 }
                 const piEl = document.getElementById('main-pixel-info');
-                if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
+                if (_pixelInfoActive() && piEl) piEl.style.display = 'none';
                 return;
             }
             const fmt = _roiStatsFmt;
@@ -19988,7 +19999,7 @@
             ttip.innerHTML = `${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
             ttip.style.display = 'block';
             const piEl = document.getElementById('main-pixel-info');
-            if (_pixelInfoVisible && piEl) piEl.style.display = 'none';
+            if (_pixelInfoActive() && piEl) piEl.style.display = 'none';
             _positionRoiTooltipAtClient(ttip, e.clientX, e.clientY);
         });
         // ROI right-click: delete the ROI under the cursor
@@ -20058,7 +20069,7 @@
 
             // Mosaic mode: compute tile and local coordinates
             if (dim_z >= 0) {
-                if (!_pixelInfoVisible) return;
+                if (!_pixelInfoActive()) return;
                 const rect = canvas.getBoundingClientRect();
                 const mx = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
                 const my = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
@@ -20121,7 +20132,7 @@
                 imgH: canvas.height,
                 displayEl: document.getElementById('main-pixel-info'),
                 onResult: (d, px, py) => {
-                    if (_pixelInfoVisible && !multiViewActive && !compareActive) {
+                    if (_pixelInfoActive() && !multiViewActive && !compareActive) {
                         _updateDimbarHover(px, py);
                     }
                 },
@@ -20138,6 +20149,15 @@
             _hideRoiRowTooltip();
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
+        });
+        document.addEventListener('mouseup', () => {
+            if (_pixelInfoHeld) {
+                _pixelInfoHeld = false;
+                if (!_pixelInfoVisible) {
+                    const piEl = document.getElementById('main-pixel-info');
+                    if (piEl) piEl.style.display = 'none';
+                }
+            }
         });
 
         // Click-to-copy pixel value: shared helper
@@ -21450,6 +21470,29 @@
                     if (rgbMode) return;
                     if (rectRoiMode) { showStatus('histogram: exit ROI mode first'); return; }
                     if (qmriActive) { await _cycleQmriPaneRangePreset(); return; }
+                    if (compareActive && diffMode > 0 && _diffCenterCb) {
+                        const pos = modeManager._lastMouseXY;
+                        if (pos) {
+                            const el = document.elementFromPoint(pos.x, pos.y);
+                            if (el && el.closest('#compare-diff-pane')) {
+                                if (!_diffCenterCb._expanded) {
+                                    _diffCenterCb._expanded = true;
+                                    _diffCenterCb._animating = false;
+                                    _diffCenterCb._animT = 1;
+                                    _diffCenterCb._animTarget = 1;
+                                    if (_diffCenterCb.wrap) _diffCenterCb.wrap.classList.add('cb-expanded');
+                                    _diffCenterCb._snapWindowFractionsOnNextDraw();
+                                    _diffCenterCb.updateLabels();
+                                    _diffCenterCb.draw();
+                                    _diffCenterCb.ensureHistogramData().then(() => {
+                                        _diffCenterCb._snapWindowFractionsOnNextDraw();
+                                        _diffCenterCb.draw();
+                                    }).catch(() => {});
+                                }
+                                return;
+                            }
+                        }
+                    }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
@@ -22342,9 +22385,9 @@
             { key: 'q', command: 'tool.qmriDirect' },
             { key: 'c', command: 'colormap.openOrCycle' },
             { key: 'C', command: 'tool.cropDirect' },
-            { key: 'X', shift: true, command: 'compare.toggleDetachedSplit' },
+            { key: 'S', shift: true, command: 'compare.toggleDetachedSplit' },
             { key: 'D', shift: true, command: 'compare.toggleDiffMode' },
-            { key: 'P', shift: true, command: 'compare.cycleCenterMode' },
+            { key: 'X', shift: true, command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
             { key: '-', command: 'zoom.out' },
@@ -22598,8 +22641,8 @@
                     {
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
-                            { key: 'Shift+X', action: 'Split current array', hint: 'with one array on a non-spatial dim, opens two side-by-side slices from that dim' },
-                            { key: 'Shift+P', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
+                            { key: 'S', action: 'Split current array', hint: 'with one array on a non-spatial dim, opens two side-by-side slices from that dim' },
+                            { key: 'X', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
                             { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons replace the dimbar briefly and select a specific operation directly' },
                             { key: '[ ]', action: 'Adjust operation parameter / split A index', hint: 'in split compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
                             { key: '{ }', action: 'Adjust split B index', hint: 'in split compare, scrubs the right pane index' },
@@ -22619,8 +22662,8 @@
                             { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, and URL options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 'Shift+X', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
-                            { key: 'Shift+P', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
+                            { key: 'S', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
+                            { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
                             { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
@@ -26005,7 +26048,7 @@
                         view,
                         displayEl: view.pixelInfoEl,
                         onResult: (d, px, py) => {
-                            if (_pixelInfoVisible) {
+                            if (_pixelInfoActive()) {
                                 // Map pane dims to dimbar x/y/z labels
                                 const labels = ['x','y','z'];
                                 const activeDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : []);
@@ -26029,7 +26072,7 @@
                     if (tq) tq.classList.remove('visible');
                     _roiSuppressPixelInfo = false;
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                    if (_pixelInfoVisible) _resetDimbarHover();
+                    if (_pixelInfoActive()) _resetDimbarHover();
                 });
                 // Click-to-copy: multiview canvases
                 let _mvClickDown = null;
@@ -26086,7 +26129,7 @@
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
-            if (_pixelInfoVisible) _prefetchHoverSlices();
+            if (_pixelInfoActive()) _prefetchHoverSlices();
             _reconcileUI();
             if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
             showStatus('3-plane view — press v to exit', 3000);
@@ -26891,7 +26934,7 @@
                             qmriRole: view.qmriRole,
                             view,
                             onResult: (d, px, py) => {
-                                if (_pixelInfoVisible) {
+                                if (_pixelInfoActive()) {
                                     _updateDimbarHover(px, py);
                                     return; // hover mode: only show hovered pane's value
                                 }
@@ -26921,7 +26964,7 @@
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
-                        if (_pixelInfoVisible) _resetDimbarHover();
+                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
@@ -26938,7 +26981,7 @@
                         if (!_roiSuppressPixelInfo) {
                             const t = document.getElementById('roi-hover-tooltip');
                             if (t) t.style.display = 'none';
-                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                             return;
                         }
                         const q = _rois[hitIdx].qmriStats;
@@ -26951,7 +26994,7 @@
                                 _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
                                 tq.classList.add('visible');
                             }
-                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                             return;
                         }
                         const s = _rois[hitIdx].stats;
@@ -26961,7 +27004,7 @@
                             t.style.setProperty('--roi-tip-color', c.stroke);
                             t.innerHTML = fmt(s.mean) + ' +/- ' + fmt(s.std);
                             t.style.display = 'block';
-                            if (_pixelInfoVisible && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                         }
                     });
                     cv.addEventListener('mouseleave', () => {
@@ -27162,7 +27205,7 @@
             qvScaleAllCanvases();
             _kickInitialRenders(qmriViews, qvRender);
             renderInfo();
-            if (_pixelInfoVisible) _prefetchHoverSlices();
+            if (_pixelInfoActive()) _prefetchHoverSlices();
             _reconcileUI();
             showStatus(`qMRI mode — / to exit · use the panel to show/hide maps`, 3000);
             renderIsland();
@@ -27407,14 +27450,14 @@
                             displayEl: view.pixelInfoEl,
                             qmriRole: view.qmriRole,
                             onResult: (d, px, py) => {
-                                if (_pixelInfoVisible) _updateDimbarHover(px, py);
+                                if (_pixelInfoActive()) _updateDimbarHover(px, py);
                             },
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
-                        if (_pixelInfoVisible) _resetDimbarHover();
+                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
@@ -27894,7 +27937,7 @@
                             view,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
-                                if (_pixelInfoVisible) {
+                                if (_pixelInfoActive()) {
                                     const labels = ['x','y','z'];
                                     const activeDims = compareMvDims || [];
                                     const posX = activeDims.indexOf(view.dimX);
@@ -27914,7 +27957,7 @@
                         if (!cmvDraggingView) {
                             compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         }
-                        if (_pixelInfoVisible) _resetDimbarHover();
+                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     // Click-to-copy: compare-multiview canvases
                     let _cmvClickDown = null;
@@ -30072,7 +30115,7 @@
                     contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
                     displayEl: piEl,
                     onResult: (d, px, py) => {
-                        if (!_pixelInfoVisible) return;
+                        if (!_pixelInfoActive()) return;
                         _updateDimbarHover(px, py);
                         // Show value on other compare panes at the same pixel
                         const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
@@ -30102,7 +30145,7 @@
             cv.addEventListener('mouseleave', () => {
                 _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
                 hideCompareCrosshairs();
-                if (_pixelInfoVisible) _resetDimbarHover();
+                if (_pixelInfoActive()) _resetDimbarHover();
             });
          });
         // Click-to-copy: compare canvases

@@ -777,9 +777,9 @@ class TestKeyboard:
         assert not page.is_visible("canvas#compare-third-canvas")
         assert page.is_visible("#slim-cb-wrap")
 
-        # Cycle compare center mode to overlay (mode 4): Shift+P×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
+        # Cycle compare center mode to overlay (mode 4): Shift+X×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
         for _ in range(4):
-            page.keyboard.press("Shift+P")
+            page.keyboard.press("Shift+X")
             page.wait_for_timeout(200)
         page.wait_for_timeout(400)
         diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
@@ -798,10 +798,10 @@ class TestKeyboard:
         page.wait_for_timeout(800)
         assert "arr2d_compare_2" in page.inner_text("#compare-right-title").lower()
 
-        # Press Shift+P twice more to go past wipe (mode 5).
-        page.keyboard.press("Shift+P")
+        # Press Shift+X twice more to go past wipe (mode 5).
+        page.keyboard.press("Shift+X")
         page.wait_for_timeout(200)
-        page.keyboard.press("Shift+P")
+        page.keyboard.press("Shift+X")
         page.wait_for_timeout(400)
         diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
         assert "overlay-center" not in diff_classes
@@ -868,7 +868,7 @@ class TestKeyboard:
         )
 
         assert detached_state["dim"] is not None
-        page.keyboard.press("Shift+X")
+        page.keyboard.press("Shift+S")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(500)
 
@@ -968,7 +968,7 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert not page.is_visible("#compare-diff-canvas")
 
-        page.keyboard.press("Shift+X")
+        page.keyboard.press("Shift+S")
         page.wait_for_timeout(300)
         assert not page.is_visible("#compare-view-wrap.active")
 

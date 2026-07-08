@@ -1032,7 +1032,7 @@ def test_compare_p_cycles_modes_without_drawer_or_exit(loaded_viewer, sid_4d):
         if (!ok || !detachedDimMode || !compareActive) return { error: 'split failed' };
         const modes = [];
         for (let i = 0; i < 8; i++) {
-            commands['compare.cycleCenterMode'].run({}, { key: 'P' });
+            commands['compare.cycleCenterMode'].run({}, { key: 'X' });
             await new Promise(r => setTimeout(r, 250));
             modes.push(compareCenterMode);
         }
