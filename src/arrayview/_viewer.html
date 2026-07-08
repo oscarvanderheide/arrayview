@@ -3516,6 +3516,17 @@
         }
         .compare-source-pane-badge.source-a { color: var(--playing-dim); }
         .compare-source-pane-badge.source-b { color: var(--help-key); }
+        .compare-center-mode-badge {
+            color: var(--active-dim);
+            font-weight: 600;
+            gap: 0;
+        }
+        .compare-center-mode-badge .compare-center-mode-glyph {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
         .compare-pane-cb-island { --cb-base-margin-top: 10px; margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top)); display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; transition: opacity 0.25s ease, margin 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; width: 100%; position: absolute; bottom: 0; left: 0; background: transparent; }
         .compare-pane-cb-labels { display: none; }
@@ -4424,6 +4435,29 @@
             display: flex; justify-content: space-between;
             font-size: 9px; color: var(--muted); font-family: monospace;
         }
+        #compare-param-wrap {
+            width: 100%; padding: 2px 4px 0;
+            display: none; flex-direction: column; align-items: stretch; gap: 2px;
+        }
+        #compare-param-range {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; border-radius: 3px;
+            background: var(--surface);
+            outline: none; cursor: ew-resize; border: 1px solid var(--border);
+        }
+        #compare-param-range::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: var(--active-dim);
+            border: 2px solid var(--bg); cursor: ew-resize;
+        }
+        #compare-param-range::-moz-range-thumb {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--active-dim); border: 2px solid var(--bg); cursor: ew-resize;
+        }
+        #compare-param-labels {
+            display: flex; justify-content: space-between;
+            font-size: 9px; color: var(--muted); font-family: monospace;
+        }
 
         /* ── Ruler overlay ───────────────────────────────────────── */
         #ruler-svg { position:absolute; top:0; left:0; pointer-events:none; overflow:visible; display:none; }
@@ -4583,6 +4617,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                                <div class="compare-source-pane-badge compare-center-mode-badge" id="compare-diff-mode-badge"></div>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmin"></span>
@@ -4606,10 +4641,15 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-wipe-canvas" class="compare-canvas"></canvas>
+                                <div class="compare-source-pane-badge compare-center-mode-badge" id="compare-wipe-mode-badge"></div>
                             </div>
                             <div id="wipe-range-wrap">
                                 <input id="wipe-range" type="range" min="0" max="100" value="50">
                                 <div id="wipe-range-labels"><span>A</span><span>B</span></div>
+                            </div>
+                            <div id="compare-param-wrap">
+                                <input id="compare-param-range" type="range" min="1" max="30" value="3">
+                                <div id="compare-param-labels"><span id="compare-param-label-left"></span><span id="compare-param-label-value"></span><span id="compare-param-label-right"></span></div>
                             </div>
                         </div>
                     </div>
@@ -7759,7 +7799,7 @@
                 diffTitle.classList.toggle('compare-center-title', supported);
                 if (isCenter) {
                     diffTitle.classList.add('compare-center-title');
-                    diffTitle.innerHTML = COMPARE_CENTER_LABELS[compareCenterMode];
+                    diffTitle.innerHTML = '';
                 } else {
                     diffTitle.innerHTML = 'A − B';
                 }
@@ -7768,7 +7808,7 @@
                 wipeTitle.classList.toggle('compare-center-title', supported);
                 if (isCenter) {
                     wipeTitle.classList.add('compare-center-title');
-                    wipeTitle.innerHTML = COMPARE_CENTER_LABELS[compareCenterMode];
+                    wipeTitle.innerHTML = '';
                 } else {
                     wipeTitle.innerHTML = 'A ◁▷ B';
                 }
@@ -8035,6 +8075,22 @@
             _compareCenterPickerTimer = null;
         }
 
+        function _reconcileCompareCenterModeBadge() {
+            const show = compareActive && compareCenterMode > 0 && _isCompareBigLeftLayout();
+            const diffBadge = document.getElementById('compare-diff-mode-badge');
+            const wipeBadge = document.getElementById('compare-wipe-mode-badge');
+            const activeBadge = (_wipeActive || _flickerActive || _checkerActive) ? wipeBadge : diffBadge;
+            [diffBadge, wipeBadge].forEach(badge => {
+                if (!badge) return;
+                const visible = show && badge === activeBadge;
+                badge.style.display = visible ? 'inline-flex' : 'none';
+                if (visible) {
+                    badge.innerHTML = `<span class="compare-center-mode-glyph">${_centerModeButtonGlyphHTML(compareCenterMode)}</span>`;
+                    badge.setAttribute('aria-label', COMPARE_CENTER_LABELS[compareCenterMode] || 'compare mode');
+                }
+            });
+        }
+
         function _setCompareCenterMode(newMode) {
             compareCenterMode = newMode;
             if (newMode > 0) _lastCompareCenterMode = newMode;
@@ -8104,6 +8160,7 @@
             _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileCompareCenterPicker();
+            _reconcileCompareCenterModeBadge();
             // Center-mode entry can flip the shared compare source bar from hidden
             // to visible after compareScaleCanvases() already ran once. Redraw it
             // immediately so X→G doesn't depend on a later scroll or async diff
@@ -8260,6 +8317,7 @@
             });
             updateCompareTitles();
             _updateHeaderNameForCompare();
+            _reconcileCompareCenterModeBadge();
             if (_compareCenterActive()) requestAnimationFrame(_positionCompareCenterChrome);
         }
 
@@ -20762,6 +20820,7 @@
                         // Flicker rate
                         _flickerFps = Math.max(1, Math.min(30, _flickerFps + (e.key === ']' ? 1 : -1)));
                         _startFlicker();
+                        _syncCompareParamControl();
                         showStatus(`flicker: ${_flickerFps} Hz`);
                         saveState();
                     } else if (compareActive && _checkerActive) {
@@ -20773,6 +20832,7 @@
                             : Math.max(0, (curIdx < 0 ? 3 : curIdx) - 1);
                         _checkerSize = sizes[nextIdx];
                         _drawCheckerboard();
+                        _syncCompareParamControl();
                         showStatus(`checker tile: ${_checkerSize}px`);
                         saveState();
                     } else if (compareActive && _wipeActive) {
@@ -31202,6 +31262,8 @@
             if (panesEl) {
                 panesEl.style.flexWrap = (compareActive && isCenter && compareDisplaySids.length === 2) ? 'nowrap' : '';
             }
+            _reconcileCompareCenterModeBadge();
+            _syncCompareParamControl();
         }
 
         // ── Centralized CB / island visibility reconciler ────────────
@@ -33261,6 +33323,11 @@
         const _wipeCanvas = document.getElementById('compare-wipe-canvas');
         const _wipeCtx = _wipeCanvas ? _wipeCanvas.getContext('2d') : null;
         const _wipeRange = document.getElementById('wipe-range');
+        const _compareParamWrap = document.getElementById('compare-param-wrap');
+        const _compareParamRange = document.getElementById('compare-param-range');
+        const _compareParamLabelLeft = document.getElementById('compare-param-label-left');
+        const _compareParamLabelValue = document.getElementById('compare-param-label-value');
+        const _compareParamLabelRight = document.getElementById('compare-param-label-right');
 
         function _sizeWipeCanvas() {
             if (!_wipeCtx || compareFrames.length < 2) return null;
@@ -33301,6 +33368,34 @@
             }
         }
 
+        function _syncCompareParamControl() {
+            if (!_compareParamWrap || !_compareParamRange) return;
+            const visible = compareActive && (_flickerActive || _checkerActive);
+            _compareParamWrap.style.display = visible ? 'flex' : 'none';
+            if (!visible) return;
+            if (_flickerActive) {
+                _compareParamRange.min = '1';
+                _compareParamRange.max = '30';
+                _compareParamRange.step = '1';
+                _compareParamRange.value = String(_flickerFps);
+                if (_compareParamLabelLeft) _compareParamLabelLeft.textContent = '1 Hz';
+                if (_compareParamLabelValue) _compareParamLabelValue.textContent = `${_flickerFps} Hz`;
+                if (_compareParamLabelRight) _compareParamLabelRight.textContent = '30 Hz';
+            } else if (_checkerActive) {
+                const frame = compareFrames.find(Boolean);
+                const maxDim = frame ? Math.max(frame.width || 1, frame.height || 1) : 128;
+                const maxSquares = Math.max(2, Math.min(32, Math.floor(maxDim / 4)));
+                const squares = Math.max(2, Math.min(maxSquares, Math.round(maxDim / Math.max(1, _checkerSize))));
+                _compareParamRange.min = '2';
+                _compareParamRange.max = String(maxSquares);
+                _compareParamRange.step = '1';
+                _compareParamRange.value = String(squares);
+                if (_compareParamLabelLeft) _compareParamLabelLeft.textContent = '2';
+                if (_compareParamLabelValue) _compareParamLabelValue.textContent = `${squares} squares`;
+                if (_compareParamLabelRight) _compareParamLabelRight.textContent = String(maxSquares);
+            }
+        }
+
         // Wipe follows cursor over the canvas
         if (_wipeCanvas) {
             _wipeCanvas.addEventListener('mousemove', (e) => {
@@ -33338,12 +33433,32 @@
                 _drawWipe();
             });
         }
+        if (_compareParamRange) {
+            _compareParamRange.addEventListener('input', () => {
+                const v = _compareParamRange.valueAsNumber;
+                if (_flickerActive) {
+                    _flickerFps = Math.max(1, Math.min(30, Math.round(v)));
+                    _startFlicker();
+                    showStatus(`flicker: ${_flickerFps} Hz`);
+                } else if (_checkerActive) {
+                    const frame = compareFrames.find(Boolean);
+                    const maxDim = frame ? Math.max(frame.width || 1, frame.height || 1) : 128;
+                    const squares = Math.max(2, Math.round(v));
+                    _checkerSize = Math.max(1, Math.round(maxDim / squares));
+                    _drawCheckerboard();
+                    showStatus(`checker: ${squares} squares`);
+                }
+                _syncCompareParamControl();
+                saveState();
+            });
+        }
 
         // ── 4b. Flicker mode (auto-toggle A/B at ~3 Hz) ─────────────
         function _startFlicker() {
             if (_flickerTimer) clearInterval(_flickerTimer);
             _flickerShowA = true;
             _drawFlickerFrame();
+            _syncCompareParamControl();
             _flickerTimer = setInterval(() => {
                 _flickerShowA = !_flickerShowA;
                 _drawFlickerFrame();
@@ -33400,6 +33515,7 @@
                 _wipeCtx.beginPath(); _wipeCtx.moveTo(0, y); _wipeCtx.lineTo(W, y); _wipeCtx.stroke();
             }
             _wipeCtx.restore();
+            _syncCompareParamControl();
             _syncCompareCenterIsland();
         }
 
