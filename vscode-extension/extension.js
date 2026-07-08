@@ -702,6 +702,7 @@ async function openInWebviewPanel(url, title, floating = false) {
     panel.webview.html = _viewerPanelHtml(url);
 
     _openPanels.set(url, panel);
+    const pingUrl = pingUrlFromViewerUrl(url);
     let panelDisposed = false;
     panel.onDidDispose(() => {
         panelDisposed = true;

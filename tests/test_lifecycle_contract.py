@@ -186,6 +186,123 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     assert not (signal_dir / "open-request-pid-200.json").exists()
 
 
+def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
+
+    (signal_dir / "window-100.json").write_text(
+        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1})
+    )
+    (signal_dir / "window-200.json").write_text(
+        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2})
+    )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is True
+    assert (signal_dir / "open-request-pid-100.json").exists()
+    assert not (signal_dir / "open-request-pid-200.json").exists()
+
+
+def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
+    monkeypatch, tmp_path, capsys
+):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale")
+    monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)
+
+    for wid in ("100", "200"):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps({"pid": int(wid), "ppids": [10], "fallbackId": True})
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is False
+    assert "VS Code window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
+
+
+def test_vscode_local_missing_window_match_with_multiple_windows_fails_closed(
+    monkeypatch, tmp_path, capsys
+):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
+    monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)
+    monkeypatch.setattr("arrayview._platform._find_vscode_ipc_hook", lambda: None)
+    monkeypatch.setattr("arrayview._platform._in_vscode_terminal", lambda: True)
+
+    for wid in ("100", "200"):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps({"pid": int(wid), "ppids": [10], "fallbackId": True})
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is False
+    assert "VS Code window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
+
+
+def test_tmux_multiple_window_ids_are_ambiguous(monkeypatch):
+    import arrayview._vscode_signal as signal
+
+    monkeypatch.delenv("ARRAYVIEW_WINDOW_ID", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "tmux")
+    monkeypatch.setattr(signal, "get_ppid", lambda _pid: -1)
+
+    class _Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def _run(cmd, *args, **kwargs):
+        if cmd[:3] == ["tmux", "display-message", "-p"]:
+            return _Result("$1\n")
+        if cmd[:3] == ["tmux", "list-clients", "-t"]:
+            return _Result("111\n222\n")
+        if cmd[:3] == ["ps", "ewwww", "-p"]:
+            pid = cmd[-1]
+            wid = "win-a" if pid == "111" else "win-b"
+            return _Result(f"COMMAND ARRAYVIEW_WINDOW_ID={wid}\n")
+        return _Result("")
+
+    monkeypatch.setattr(signal.subprocess, "run", _run)
+
+    assert signal._find_arrayview_window_id() is None
+
+
 def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     import arrayview._launcher as launcher
     import arrayview._session as session_mod

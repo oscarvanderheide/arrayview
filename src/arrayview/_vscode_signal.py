@@ -163,7 +163,11 @@ def _find_arrayview_window_id() -> str | None:
             pass
 
     # tmux: process tree is detached from VS Code terminal; check all session clients.
+    # Only accept the fallback if every attached client for this tmux session
+    # reports the same window ID. Returning the first client is unsafe when the
+    # same session is attached from multiple VS Code windows.
     if os.environ.get("TERM_PROGRAM") == "tmux":
+        tmux_window_ids: set[str] = set()
         try:
             r_sid = subprocess.run(
                 ["tmux", "display-message", "-p", "#{session_id}"],
@@ -187,7 +191,9 @@ def _find_arrayview_window_id() -> str | None:
                         with open(f"/proc/{client_pid}/environ", "rb") as fh:
                             for entry in fh.read().split(b"\0"):
                                 if entry.startswith(b"ARRAYVIEW_WINDOW_ID="):
-                                    return entry[len(b"ARRAYVIEW_WINDOW_ID="):].decode()
+                                    val = entry[len(b"ARRAYVIEW_WINDOW_ID="):].decode()
+                                    if val:
+                                        tmux_window_ids.add(val)
                     except Exception:
                         pass
                     # macOS: ps ewwww
@@ -198,11 +204,21 @@ def _find_arrayview_window_id() -> str | None:
                         )
                         for token in r.stdout.split():
                             if token.startswith("ARRAYVIEW_WINDOW_ID="):
-                                return token[len("ARRAYVIEW_WINDOW_ID="):]
+                                val = token[len("ARRAYVIEW_WINDOW_ID="):]
+                                if val:
+                                    tmux_window_ids.add(val)
                     except Exception:
                         pass
         except Exception:
             pass
+        if len(tmux_window_ids) == 1:
+            return next(iter(tmux_window_ids))
+        if len(tmux_window_ids) > 1:
+            _vprint(
+                "[ArrayView] signal: tmux clients report multiple "
+                f"ARRAYVIEW_WINDOW_ID values: {sorted(tmux_window_ids)}",
+                flush=True,
+            )
 
     return None
 
@@ -323,53 +339,8 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                 except Exception:
                     uses_pid = env_wid.isdigit()
 
-                # Guard against stale ARRAYVIEW_WINDOW_ID: when the extension
-                # host restarts (e.g. tunnel reconnection), the old process may
-                # still be alive but is no longer connected to a VS Code client.
-                # Detect this by looking for a newer registration from the same
-                # server (same first ppid — the tunnel/server parent process).
-                # Only needed for PID-based IDs (fallbackId=True); hookTag IDs
-                # are unique per IPC socket and never go stale across restarts.
-                #
-                # Skip on macOS: all extension hosts are direct children of the
-                # same main Electron process (ppids[0] == Electron PID for every
-                # window), so the "same ppids[0]" heuristic matches ALL concurrent
-                # windows and incorrectly redirects signals to the wrong window.
-                # The stable window ID feature (v0.14.0+) already handles restart
-                # continuity on macOS via EnvironmentVariableCollection, making
-                # this stale-redirect unnecessary there.
-                if uses_pid and sys.platform != "darwin" and not _is_vscode_remote():
-                    _env_ts = _reg_data.get("ts", 0)
-                    _env_ppids = _reg_data.get("ppids", [])
-                    try:
-                        for _fname in os.listdir(signal_dir):
-                            if not (_fname.startswith("window-") and _fname.endswith(".json")):
-                                continue
-                            _other_wid = _fname[7:-5]
-                            if _other_wid == env_wid:
-                                continue
-                            with open(os.path.join(signal_dir, _fname)) as _f:
-                                _other = json.load(_f)
-                            _other_ts = _other.get("ts", 0)
-                            _other_ppids = _other.get("ppids", [])
-                            if (
-                                _other_ts > _env_ts
-                                and len(_env_ppids) >= 1
-                                and len(_other_ppids) >= 1
-                                and _env_ppids[0] == _other_ppids[0]
-                            ):
-                                _vprint(
-                                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} is stale "
-                                    f"(newer registration {_other_wid} found), redirecting",
-                                    flush=True,
-                                )
-                                env_wid = _other_wid
-                                _reg_data = _other
-                                uses_pid = _other.get("fallbackId", False)
-                                _env_ts = _other_ts
-                    except Exception:
-                        pass
-
+                # Trust an exact window ID. Redirecting to a newer same-parent
+                # registration can silently open the tab in a live sibling window.
                 _prefix = "pid" if uses_pid else "ipc"
                 filenames = (f"open-request-{_prefix}-{env_wid}.json",)
                 targeted_via_env = True
@@ -410,33 +381,15 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                         flush=True,
                     )
                 elif len(_all_windows) > 1:
-                    if _is_vscode_remote():
-                        print(
-                            "[ArrayView] VS Code tunnel window is ambiguous: "
-                            f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
-                            f"and {len(_all_windows)} VS Code windows are active. "
-                            "Open a fresh terminal in the target VS Code window "
-                            "and run ArrayView again.",
-                            flush=True,
-                        )
-                        return False
-                    else:
-                        _wfiles = []
-                        for _fn in _all_windows:
-                            _wid = _fn[7:-5]
-                            _wfiles.append(
-                                f"open-request-pid-{_wid}.json"
-                                if _wid.isdigit()
-                                else f"open-request-ipc-{_wid}.json"
-                            )
-                        data["broadcast"] = True
-                        filenames = tuple(_wfiles)
-                        targeted_via_env = True
-                        _vprint(
-                            f"[ArrayView] signal: {len(_all_windows)} windows registered, "
-                            f"broadcasting with focus guard",
-                            flush=True,
-                        )
+                    print(
+                        "[ArrayView] VS Code window is ambiguous: "
+                        f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
+                        f"and {len(_all_windows)} VS Code windows are active. "
+                        "Open a fresh terminal in the target VS Code window "
+                        "and run ArrayView again.",
+                        flush=True,
+                    )
+                    return False
                 # else: 0 windows — fall through to subsequent targeting
 
         if targeted_via_env:
@@ -491,10 +444,16 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                         except Exception:
                             pass
                         if len(_wfiles) > 1:
-                            data["broadcast"] = True
-                        filenames = (
-                            tuple(_wfiles) if _wfiles else (_VSCODE_SIGNAL_FILENAME,)
-                        )
+                            print(
+                                "[ArrayView] VS Code window is ambiguous: "
+                                "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
+                                f"and {len(_wfiles)} VS Code windows are active. "
+                                "Open a fresh terminal in the target VS Code window "
+                                "and run ArrayView again.",
+                                flush=True,
+                            )
+                            return False
+                        filenames = tuple(_wfiles) if _wfiles else (_VSCODE_SIGNAL_FILENAME,)
                     else:
                         filenames = (
                             _VSCODE_SIGNAL_FILENAME,
@@ -535,12 +494,17 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                     except Exception:
                         pass
                     if len(window_files) > 1:
-                        # Mark as broadcast so extensions check focus before opening
-                        data["broadcast"] = True
+                        print(
+                            "[ArrayView] VS Code window is ambiguous: "
+                            "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
+                            f"and {len(window_files)} VS Code windows are active. "
+                            "Open a fresh terminal in the target VS Code window "
+                            "and run ArrayView again.",
+                            flush=True,
+                        )
+                        return False
                     filenames = (
-                        tuple(window_files)
-                        if window_files
-                        else (_VSCODE_SIGNAL_FILENAME,)
+                        tuple(window_files) if window_files else (_VSCODE_SIGNAL_FILENAME,)
                     )
                 else:
                     # Not in VS Code terminal: use shared file
@@ -800,4 +764,3 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
                 pass
 
     return removed
-
