@@ -67,7 +67,8 @@
             position: relative;
             transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             --fly-y: 0px;
-            transform: translateY(var(--fly-y, 0px));
+            --compare-center-info-x: 0px;
+            transform: translateX(var(--compare-center-info-x, 0px)) translateY(var(--fly-y, 0px));
         }
         /* Param-flash edge layer: a colored border overlay clipped to the
            left --av-fill-px portion of the pill. Sits on top of the existing
@@ -4005,16 +4006,53 @@
 
         #compare-center-island {
             position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--surface);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 10px;
-            padding: 4px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--surface-shadow);
+            padding: 5px 10px;
             font-size: 13px; font-family: monospace;
-            color: #ccc;
+            color: var(--text);
             pointer-events: none;
             display: none;
             white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+        #compare-center-island.visible { opacity: 1; }
+        #compare-center-island.mode-picker { pointer-events: auto; }
+        #compare-center-island .compare-center-mode-row {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px;
+        }
+        #compare-center-island .compare-center-mode-btn {
+            min-width: 28px; height: 24px; padding: 0 2px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 7px; border: 1px solid transparent;
+            background: transparent; color: var(--muted);
+            font-family: inherit; font-size: 12px; line-height: 1;
+            cursor: pointer;
+            transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+        }
+        #compare-center-island .compare-center-mode-btn:hover,
+        #compare-center-island .compare-center-mode-btn:focus-visible {
+            color: var(--text);
+            border-color: var(--border);
+            background: var(--surface-2);
+        }
+        #compare-center-island .compare-center-mode-btn.active {
+            color: var(--active-dim);
+            border-color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 14%, transparent);
+        }
+        #compare-center-island .compare-center-mode-glyph {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 18px; min-height: 14px;
+        }
+        #info.compare-center-picker-suppressed {
+            opacity: 0;
+            pointer-events: none;
         }
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
@@ -7651,6 +7689,9 @@
         const COMPARE_CENTER_BUTTON_TEXT = ['off', 'A−B', '|A−B|', 'relative', 'overlay', 'wipe', 'flicker', 'checker'];
         const _COMPARE_CENTER_BUTTON_MODES = [1, 2, 3, 4, 5, 6, 7];
         let _lastCompareCenterMode = 1;
+        let _compareCenterPickerVisible = false;
+        let _compareCenterPickerTimer = null;
+        const COMPARE_CENTER_PICKER_FADE_MS = 180;
 
         function _compareCenterPaneCount() {
             if (Array.isArray(_compareExplicitSids) && _compareExplicitSids.length) return _compareExplicitSids.length;
@@ -7713,25 +7754,46 @@
             const supported = _compareCenterSupported();
             const diffTitle = document.getElementById('compare-diff-title');
             const wipeTitle = document.getElementById('compare-wipe-title');
-            const buttonHtml = supported ? _renderCompareCenterModeButtons({
-                compact: true,
-                activeMode: compareCenterMode,
-                showLabels: false,
-            }) : null;
+            const isCenter = supported && compareCenterMode > 0;
             if (diffTitle) {
                 diffTitle.classList.toggle('compare-center-title', supported);
-                diffTitle.innerHTML = supported ? buttonHtml : 'A − B';
+                if (isCenter) {
+                    diffTitle.classList.add('compare-center-title');
+                    diffTitle.innerHTML = COMPARE_CENTER_LABELS[compareCenterMode];
+                } else {
+                    diffTitle.innerHTML = 'A − B';
+                }
             }
             if (wipeTitle) {
                 wipeTitle.classList.toggle('compare-center-title', supported);
-                wipeTitle.innerHTML = supported ? buttonHtml : 'A ◁▷ B';
+                if (isCenter) {
+                    wipeTitle.classList.add('compare-center-title');
+                    wipeTitle.innerHTML = COMPARE_CENTER_LABELS[compareCenterMode];
+                } else {
+                    wipeTitle.innerHTML = 'A ◁▷ B';
+                }
             }
         }
 
         function _syncCompareCenterIsland() {
-            if (!_fullscreenActive || compareCenterMode <= 0) return;
             const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland) centerIsland.innerHTML = _compareCenterIndicatorForState();
+            if (!centerIsland) return;
+            if (!_compareCenterSupported() || compareCenterMode <= 0) {
+                centerIsland.innerHTML = '';
+                centerIsland.classList.remove('mode-picker');
+                return;
+            }
+            if (_compareCenterPickerVisible) {
+                centerIsland.innerHTML = _renderCompareCenterModeButtons({
+                    compact: false,
+                    activeMode: compareCenterMode,
+                    showLabels: false,
+                });
+                centerIsland.classList.add('mode-picker');
+            } else {
+                centerIsland.innerHTML = _compareCenterIndicatorForState();
+                centerIsland.classList.remove('mode-picker');
+            }
         }
 
         function _onCompareCenterModeButton(event, mode) {
@@ -7741,6 +7803,7 @@
             }
             if (!_compareCenterSupported() || compareCenterMode === mode) return;
             _setCompareCenterMode(mode);
+            _showCompareCenterModePicker();
         }
         window._onCompareCenterModeButton = _onCompareCenterModeButton;
 
@@ -7886,6 +7949,92 @@
             _updateComparePaneSyncPairing();
         }
 
+        function _compareCenterActive() {
+            return compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+        }
+
+        function _compareCenterAnchorRect() {
+            const pane = _wipeActive || _flickerActive || _checkerActive
+                ? document.getElementById('compare-wipe-pane')
+                : document.getElementById('compare-diff-pane');
+            const clip = pane?.querySelector('.compare-canvas-clip') || pane?.querySelector('.compare-canvas-inner');
+            const rect = (clip || pane)?.getBoundingClientRect();
+            if (rect && rect.width && rect.height) return rect;
+            return document.getElementById('compare-panes')?.getBoundingClientRect() || null;
+        }
+
+        function _positionCompareCenterChrome() {
+            const rect = _compareCenterAnchorRect();
+            if (!rect) return;
+            const centerX = rect.left + rect.width / 2;
+            const info = document.getElementById('info');
+            const island = document.getElementById('compare-center-island');
+            if (info && !_infoDragPos && _compareCenterActive()) {
+                if (_fullscreenActive) {
+                    info.style.left = centerX + 'px';
+                    info.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
+                } else {
+                    const parentRect = info.offsetParent?.getBoundingClientRect();
+                    const baseCenter = (parentRect ? parentRect.left : 0) + info.offsetLeft + info.offsetWidth / 2;
+                    info.style.setProperty('--compare-center-info-x', (centerX - baseCenter) + 'px');
+                }
+            }
+            if (island && island.style.display !== 'none') {
+                const infoRect = info?.getBoundingClientRect();
+                island.style.left = centerX + 'px';
+                island.style.transform = 'translateX(-50%)';
+                if (island.classList.contains('mode-picker')) {
+                    island.style.top = ((infoRect && infoRect.height) ? infoRect.top : (rect.top + 2)) + 'px';
+                } else {
+                    island.style.top = ((infoRect && infoRect.height) ? infoRect.bottom + 6 : (rect.top + 39)) + 'px';
+                }
+            }
+        }
+
+        function _reconcileCompareCenterPicker() {
+            const active = _compareCenterActive();
+            const centerIsland = document.getElementById('compare-center-island');
+            const info = document.getElementById('info');
+            if (!_compareCenterPickerVisible || !active) {
+                _compareCenterPickerVisible = false;
+                if (_compareCenterPickerTimer) { clearTimeout(_compareCenterPickerTimer); _compareCenterPickerTimer = null; }
+            }
+            if (!active && info && !_fullscreenActive) info.style.removeProperty('--compare-center-info-x');
+            const shouldShowIsland = active && (_fullscreenActive || _compareCenterPickerVisible);
+            if (shouldShowIsland) _syncCompareCenterIsland();
+            if (centerIsland) {
+                if (shouldShowIsland) {
+                    const wasHidden = centerIsland.style.display === 'none';
+                    centerIsland.style.display = 'block';
+                    if (wasHidden) centerIsland.classList.remove('visible');
+                    requestAnimationFrame(() => {
+                        if (_compareCenterActive() && (_fullscreenActive || _compareCenterPickerVisible)) {
+                            centerIsland.classList.add('visible');
+                            _positionCompareCenterChrome();
+                        }
+                    });
+                } else {
+                    centerIsland.classList.remove('visible');
+                    setTimeout(() => {
+                        if (!_compareCenterActive() || (!_fullscreenActive && !_compareCenterPickerVisible)) {
+                            centerIsland.style.display = 'none';
+                            _syncCompareCenterIsland();
+                        }
+                    }, COMPARE_CENTER_PICKER_FADE_MS);
+                }
+            }
+            if (info) info.classList.toggle('compare-center-picker-suppressed', active && _compareCenterPickerVisible);
+            requestAnimationFrame(_positionCompareCenterChrome);
+        }
+
+        function _showCompareCenterModePicker() {
+            if (!_compareCenterActive()) return;
+            _compareCenterPickerVisible = true;
+            _reconcileCompareCenterPicker();
+            if (_compareCenterPickerTimer) clearTimeout(_compareCenterPickerTimer);
+            _compareCenterPickerTimer = null;
+        }
+
         function _setCompareCenterMode(newMode) {
             compareCenterMode = newMode;
             if (newMode > 0) _lastCompareCenterMode = newMode;
@@ -7903,6 +8052,7 @@
             } else if (prevDiffMode > 0 && diffMode === 0) {
                 _destroyDiffColorBars();
             }
+
             // Refresh pane 0/1 sync pairing (on iff diffMode > 0)
             _updateComparePaneSyncPairing();
 
@@ -7953,6 +8103,7 @@
             if (newMode > 0) _syncCompareCenterIsland();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            _reconcileCompareCenterPicker();
             // Center-mode entry can flip the shared compare source bar from hidden
             // to visible after compareScaleCanvases() already ran once. Redraw it
             // immediately so X→G doesn't depend on a later scroll or async diff
@@ -7960,6 +8111,7 @@
             drawSlimColorbar(cbMarkerFrac);
             if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
             if (_fullscreenActive) _positionFullscreenChrome();
+            else _positionCompareCenterChrome();
             renderEggs();
             saveState();
             if (toolMenuOpen) renderToolMenu();
@@ -8040,6 +8192,7 @@
             } else {
                 modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-composite-center');
             }
+            if (_compareCenterPickerVisible) _showCompareCenterModePicker();
         }
 
         function _positionCompareModeStrip(el) {
@@ -8107,6 +8260,7 @@
             });
             updateCompareTitles();
             _updateHeaderNameForCompare();
+            if (_compareCenterActive()) requestAnimationFrame(_positionCompareCenterChrome);
         }
 
         function drawCompareFramesFromCache() {
@@ -22007,6 +22161,7 @@
                     }
                     const nextMode = _nextCompareCenterModeValue();
                     _setCompareCenterMode(nextMode);
+                    _showCompareCenterModePicker();
                     return;
                 },
             },
@@ -22369,7 +22524,7 @@
                         entries: [
                             { key: 'Shift+X', action: 'Split current array', hint: 'with one array on a non-spatial dim, opens two side-by-side slices from that dim' },
                             { key: 'Shift+P', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
-                            { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons above the center pane select a specific operation directly' },
+                            { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons replace the dimbar briefly and select a specific operation directly' },
                             { key: '[ ]', action: 'Adjust operation parameter / split A index', hint: 'in split compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
                             { key: '{ }', action: 'Adjust split B index', hint: 'in split compare, scrubs the right pane index' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when a center operation is active; outside compare, Z toggles full zen mode' },
@@ -24362,6 +24517,19 @@
         function _handleViewerShortcutKeydown(e) {
             e.preventDefault();
             e.stopImmediatePropagation();
+            if (e.key === 'Enter' && _compareCenterPickerVisible) {
+                _compareCenterPickerVisible = false;
+                if (_compareCenterPickerTimer) { clearTimeout(_compareCenterPickerTimer); _compareCenterPickerTimer = null; }
+                _reconcileCompareCenterPicker();
+                return;
+            }
+            if (e.key === 'Escape' && _compareCenterPickerVisible) {
+                _compareCenterPickerVisible = false;
+                if (_compareCenterPickerTimer) { clearTimeout(_compareCenterPickerTimer); _compareCenterPickerTimer = null; }
+                _setCompareCenterMode(0);
+                _reconcileCompareCenterPicker();
+                return;
+            }
             if (_cmapPickerOpen) {
                 if (_cmapPickerKey(e)) return;
             }
@@ -30412,13 +30580,7 @@
                     _setImmersiveOverlayHold(overlayEls, false);
                     try { _positionFullscreenChrome(); } catch (_) {}
                     try { _reconcileCbVisibility({ animPhase: 'enter-2' }); } catch (_) {}
-                    if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                        const centerIsland = document.getElementById('compare-center-island');
-                        if (centerIsland) {
-                            const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
-                            try { centerIsland.innerHTML = _centerModeIndicatorHTML(mode); } catch (_) {}
-                        }
-                    }
+                    try { _reconcileCompareCenterPicker(); } catch (_) {}
                     if (typeof gsap !== 'undefined' && overlayEls.length) {
                         gsap.to(overlayEls, { opacity: 1, duration: 0.15, ease: 'power1.out', overwrite: 'auto' });
                     } else {
@@ -30677,12 +30839,7 @@
                     infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
                 }
             }
-            // Position center-mode island below dimbar (visibility managed by reconciler)
-            const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland && centerIsland.style.display !== 'none' && compareActive && infoEl) {
-                const infoRect = infoEl.getBoundingClientRect();
-                centerIsland.style.top = (infoRect.bottom + 6) + 'px';
-            }
+            if (compareActive) _positionCompareCenterChrome();
             // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
@@ -30832,7 +30989,7 @@
             const _vCenterIsland = document.getElementById('compare-center-island');
             if (_vCenterIsland) {
                 const _vIsCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
-                const expectedVisible = compareActive && _vIsCenter && _fullscreenActive;
+                const expectedVisible = compareActive && _vIsCenter && (_fullscreenActive || _compareCenterPickerVisible);
                 const actuallyVisible = _vCenterIsland.style.display !== 'none';
                 if (actuallyVisible !== expectedVisible) {
                     w.push(`Rule 25: compare-center-island display=${_vCenterIsland.style.display} but expected visible=${expectedVisible}`);
@@ -31081,10 +31238,10 @@
                 });
             }
 
-            // 4. Center island (display only — positioning stays in _positionFullscreenChrome)
+            // 4. Center island (display only — positioning stays in compare-center chrome helpers)
             const centerIsland = document.getElementById('compare-center-island');
             if (centerIsland && !animPhase) {
-                centerIsland.style.display = (compareActive && isCenter && _fullscreenActive) ? 'block' : 'none';
+                _reconcileCompareCenterPicker();
             }
         }
 
