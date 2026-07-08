@@ -16319,7 +16319,7 @@
                 const d = `data-dim="${i}"`;
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
-                    return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">X<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                    return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">S<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
