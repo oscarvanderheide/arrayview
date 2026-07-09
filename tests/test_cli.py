@@ -234,6 +234,7 @@ def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
     assert opened["url"] == (
         "http://localhost:8000/?sid=sid_base"
         "&overlay_sid=sid_overlay"
+        "&overlay_names=overlay.npy"
         "&dim_x=1"
         "&dim_y=2"
     )

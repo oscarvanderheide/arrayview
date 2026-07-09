@@ -1086,6 +1086,53 @@
         #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
+        #overlay-palette {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 19;
+            display: none;
+            max-width: min(280px, calc(100vw - 24px));
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 7px;
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+        }
+        #overlay-palette.visible { display: block; }
+        .overlay-palette-row {
+            display: grid;
+            grid-template-columns: 12px minmax(0, 1fr) 18px;
+            align-items: center;
+            gap: 7px;
+            min-height: 22px;
+            padding: 2px 3px;
+            border-radius: var(--radius);
+            cursor: pointer;
+        }
+        .overlay-palette-row:hover { background: var(--surface-2); }
+        .overlay-palette-row.off { color: var(--muted); opacity: 0.55; }
+        .overlay-palette-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+        }
+        .overlay-palette-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .overlay-palette-eye {
+            color: var(--muted);
+            text-align: center;
+            font-size: 12px;
+        }
+        .overlay-palette-row:not(.off) .overlay-palette-eye { color: var(--active-dim); }
         #cmap-picker {
             display: block; position: fixed; inset: 0;
             background: transparent;
@@ -4564,6 +4611,7 @@
                 <svg id="ruler-svg" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
                 <div id="line-profile-overlay"></div>
             </div>
+            <div id="overlay-palette" aria-hidden="true"></div>
             <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
                 <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
                 <polygon points="32,39 37,42 32,45" fill="currentColor"/>
@@ -4966,7 +5014,9 @@
         // Per-overlay visibility + display labels. _overlayVisibility (legacy) still
         // drives Shift+O cycling; the island toggles _overlayVisible[i] directly.
         let _overlayVisible = _overlaySids.map(() => true);
-        let _overlayLabels = _overlaySids.map((_, i) => `overlay ${i + 1}`);
+        const _overlayNamesParam = urlParams.get('overlay_names') || '';
+        const _overlayNamesArr = _overlayNamesParam ? _overlayNamesParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+        let _overlayLabels = _overlaySids.map((_, i) => _overlayNamesArr[i] || `overlay ${i + 1}`);
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
@@ -15793,6 +15843,9 @@
                 if (typeof _reconcileQmriAltOptions === 'function') {
                     _reconcileQmriAltOptions();
                 }
+                if (typeof _reconcileOverlayPalette === 'function') {
+                    _reconcileOverlayPalette();
+                }
             }
         }
         window.addEventListener('keydown',   _updateAltState, true);
@@ -15809,6 +15862,9 @@
                 }
                 if (typeof _reconcileQmriAltOptions === 'function') {
                     _reconcileQmriAltOptions();
+                }
+                if (typeof _reconcileOverlayPalette === 'function') {
+                    _reconcileOverlayPalette();
                 }
             }
         });
@@ -15924,11 +15980,72 @@
             return html;
         }
 
+        let _overlayPalettePinned = false;
+
+        function _overlayActuallyVisible(idx) {
+            if (idx < 0 || idx >= _overlaySids.length) return false;
+            if (!_overlayVisible[idx]) return false;
+            if (_overlayVisibility === 'none') return false;
+            if (typeof _overlayVisibility === 'number') return _overlayVisibility === idx;
+            return true;
+        }
+
+        function _renderOverlayPalette() {
+            const el = document.getElementById('overlay-palette');
+            if (!el) return;
+            if (!_overlaySids.length) {
+                el.innerHTML = '';
+                return;
+            }
+            let html = '';
+            for (let i = 0; i < _overlaySids.length; i++) {
+                const visible = _overlayActuallyVisible(i);
+                const name = _roiHtmlEscape(_overlayLabels[i] || `overlay ${i + 1}`);
+                const color = `#${_overlayColors[i]}`;
+                html += `<div class="overlay-palette-row${visible ? '' : ' off'}" onclick="_overlayPaletteToggle(${i})" title="Toggle ${name}">`;
+                html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
+                html += `<span class="overlay-palette-name">${name}</span>`;
+                html += `<span class="overlay-palette-eye">${visible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
+                html += `</div>`;
+            }
+            el.innerHTML = html;
+        }
+
+        function _reconcileOverlayPalette() {
+            const el = document.getElementById('overlay-palette');
+            if (!el) return;
+            const show = _overlaySids.length > 0 && (_overlayPalettePinned || _obliqueAltHeld);
+            if (show) _renderOverlayPalette();
+            el.classList.toggle('visible', show);
+            el.setAttribute('aria-hidden', show ? 'false' : 'true');
+        }
+
+        function _overlayPaletteToggle(idx) {
+            _islandToggleOverlay(idx);
+            _overlayPalettePinned = true;
+            _reconcileOverlayPalette();
+        }
+        window._overlayPaletteToggle = _overlayPaletteToggle;
+
+        function _toggleOverlayPalettePinned() {
+            if (!_overlaySids.length) { showStatus('no overlays loaded'); return; }
+            _overlayPalettePinned = !_overlayPalettePinned;
+            _reconcileOverlayPalette();
+        }
+        window._toggleOverlayPalettePinned = _toggleOverlayPalettePinned;
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || !_overlayPalettePinned) return;
+            _overlayPalettePinned = false;
+            _reconcileOverlayPalette();
+        }, true);
+
         function _islandToggleOverlay(idx) {
             if (idx < 0 || idx >= _overlayVisible.length) return;
             _overlayVisible[idx] = !_overlayVisible[idx];
             _overlayVisibility = 'all';  // break out of legacy cycle state
             renderIsland();
+            _renderOverlayPalette();
             updateView();
             saveState();
         }
@@ -15940,7 +16057,9 @@
             _overlayColors.splice(idx, 1);
             _overlayVisible.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
+            if (!_overlaySids.length) _overlayPalettePinned = false;
             renderIsland();
+            _reconcileOverlayPalette();
             updateView();
             saveState();
         }
@@ -15960,6 +16079,7 @@
                 const val = input.value.trim();
                 _overlayLabels[idx] = val || `overlay ${idx + 1}`;
                 renderIsland();
+                _renderOverlayPalette();
             };
             input.addEventListener('blur', commit);
             input.addEventListener('keydown', e => {
@@ -15999,6 +16119,7 @@
                 _overlayLabels.push(result.name || `overlay ${_overlaySids.length}`);
                 _overlayVisibility = 'all';
                 renderIsland();
+                _reconcileOverlayPalette();
                 updateView();
                 saveState();
                 showStatus(`overlay added: ${result.name}`);
@@ -21221,6 +21342,7 @@
                         showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
                     }
                     updateView();
+                    _renderOverlayPalette();
                     if (typeof renderIsland === 'function') renderIsland();
                     saveState();
                 },
@@ -21264,6 +21386,7 @@
                     const showing = _overlayVisibility !== 'none';
                     _overlayVisibility = showing ? 'none' : 'all';
                     updateView();
+                    _renderOverlayPalette();
                     if (typeof renderIsland === 'function') renderIsland();
                     showStatus(`overlays: ${_overlayVisibility === 'none' ? 'off' : 'on'}`);
                     saveState();
@@ -22201,9 +22324,9 @@
                 run: (ctx, e) => { _openDirectToolOrExplain('segmentation'); },
             },
             'tool.overlayDirect': {
-                title: 'Open overlay options',
+                title: 'Show overlay palette',
                 when: [],
-                run: (ctx, e) => { _openDirectToolOrExplain('overlay'); },
+                run: (ctx, e) => { _toggleOverlayPalettePinned(); },
             },
             'tool.vectorfieldDirect': {
                 title: 'Open vector field options',
@@ -22638,7 +22761,7 @@
                         entries: [
                             { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
-                            { key: '/ o', action: 'Overlays', hint: 'inspect loaded masks and overlay opacity' },
+                            { key: '/ o', action: 'Overlays', hint: 'show mask names and visibility' },
                             { key: '/ v', action: 'Vector field', hint: 'leader namespace; bare v still toggles ortho-view' },
                         ]
                     }
@@ -23209,7 +23332,7 @@
             if (_toolPanelUserClosed) return;
             const id = _activeToolId();
             if (!id) return;
-            if (id === 'roi' || id === 'qmri') return;
+            if (id === 'roi' || id === 'qmri' || id === 'overlay') return;
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile) return;
             _toolPanelState = { kind: 'tool-options', toolId: id, origin: 'direct' };

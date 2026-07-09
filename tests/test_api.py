@@ -1941,6 +1941,20 @@ class TestLauncherUrlHelpers:
             "&inline=1"
         )
 
+    def test_viewer_url_includes_overlay_names(self):
+        from arrayview._launcher import _viewer_url
+
+        assert _viewer_url(
+            8123,
+            "base",
+            overlay_sids=["ov1", "ov2"],
+            overlay_names=["gt", "pred mask"],
+        ) == (
+            "http://localhost:8123/?sid=base"
+            "&overlay_sid=ov1,ov2"
+            "&overlay_names=gt,pred%20mask"
+        )
+
     def test_viewer_path_matches_browser_url_path(self):
         from arrayview._launcher import _viewer_path
 

@@ -986,12 +986,14 @@ def _open_cli_existing_server_view(
     watch: bool,
     window_mode: str | None,
     floating: bool,
+    overlay_names: list[str] | None = None,
 ) -> None:
     url = _viewer_url(
         port,
         sid,
         compare_sids=compare_sids,
         overlay_sids=overlay_sid,
+        overlay_names=overlay_names,
         dims=dims_override,
     )
     if notify_native_shell and notified:
@@ -1143,6 +1145,7 @@ def _handle_cli_existing_server(
         sid=str(session_info["sid"]),
         compare_sids=session_info["compare_sids"],
         overlay_sid=session_info["overlay_sid"],
+        overlay_names=[os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)],
         dims_override=dims_override,
         notify_native_shell=bool(session_info["notify_native_shell"]),
         notified=bool(session_info["notified"]),
@@ -1181,6 +1184,11 @@ def _handle_cli_spawned_daemon(
     overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
     overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
+    overlay_names = (
+        [name for name, _pattern in (dir_overlay_specs or [])]
+        if dir_patterns is not None
+        else [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
+    )
 
     if not use_native_shell:
         _configure_vscode_port_preview(port)
@@ -1262,6 +1270,7 @@ def _handle_cli_spawned_daemon(
         sid=sid,
         compare_sids=compare_sids,
         overlay_sid=overlay_sid,
+        overlay_names=overlay_names,
         dims_override=dims_override,
         use_native_shell=should_retry_native_shell,
         name=name,
@@ -1289,12 +1298,14 @@ def _open_cli_spawned_view(
     floating: bool,
     is_remote: bool,
     native_shell_already_opened: bool = False,
+    overlay_names: list[str] | None = None,
 ) -> None:
     url = _viewer_url(
         port,
         sid,
         compare_sids=compare_sids,
         overlay_sids=overlay_sid,
+        overlay_names=overlay_names,
         dims=dims_override,
     )
     if _should_notify_native_shell(use_native_shell, overlay_sid):
@@ -1643,6 +1654,7 @@ def _viewer_query(
     compare_sids: _CompareSids | None = None,
     overlay_sids: _CSVValues | None = None,
     overlay_colors: _CSVValues | None = None,
+    overlay_names: _CSVValues | None = None,
     dims: tuple[int, int] | None = None,
     inline: bool = False,
 ) -> str:
@@ -1651,6 +1663,11 @@ def _viewer_query(
         parts.append(f"overlay_sid={_join_query_values(overlay_sids)}")
     if overlay_colors:
         parts.append(f"overlay_colors={_join_query_values(overlay_colors)}")
+    if overlay_names:
+        parts.append(
+            "overlay_names="
+            + ",".join(urllib.parse.quote(str(value)) for value in overlay_names)
+        )
     if compare_sids:
         parts.append(f"compare_sid={compare_sids[0]}")
         parts.append(f"compare_sids={_join_query_values(compare_sids)}")
@@ -1668,6 +1685,7 @@ def _viewer_path(
     compare_sids: _CompareSids | None = None,
     overlay_sids: _CSVValues | None = None,
     overlay_colors: _CSVValues | None = None,
+    overlay_names: _CSVValues | None = None,
     dims: tuple[int, int] | None = None,
     inline: bool = False,
 ) -> str:
@@ -1676,6 +1694,7 @@ def _viewer_path(
         compare_sids=compare_sids,
         overlay_sids=overlay_sids,
         overlay_colors=overlay_colors,
+        overlay_names=overlay_names,
         dims=dims,
         inline=inline,
     )
@@ -1688,6 +1707,7 @@ def _viewer_url(
     compare_sids: _CompareSids | None = None,
     overlay_sids: _CSVValues | None = None,
     overlay_colors: _CSVValues | None = None,
+    overlay_names: _CSVValues | None = None,
     dims: tuple[int, int] | None = None,
     inline: bool = False,
 ) -> str:
@@ -1696,6 +1716,7 @@ def _viewer_url(
         compare_sids=compare_sids,
         overlay_sids=overlay_sids,
         overlay_colors=overlay_colors,
+        overlay_names=overlay_names,
         dims=dims,
         inline=inline,
     )
