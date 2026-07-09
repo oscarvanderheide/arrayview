@@ -1087,12 +1087,12 @@
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
         #overlay-palette {
-            position: fixed;
-            top: 12px;
-            right: 12px;
-            z-index: 19;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 6;
             display: none;
-            max-width: min(280px, calc(100vw - 24px));
+            max-width: min(240px, calc(100% - 20px));
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1100,13 +1100,14 @@
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-size: 11px;
             padding: 7px;
+            opacity: 0.86;
             backdrop-filter: var(--blur);
             -webkit-backdrop-filter: var(--blur);
         }
         #overlay-palette.visible { display: block; }
         .overlay-palette-row {
             display: grid;
-            grid-template-columns: 12px minmax(0, 1fr) 18px;
+            grid-template-columns: 12px minmax(0, 1fr) 16px;
             align-items: center;
             gap: 7px;
             min-height: 22px;
@@ -1127,12 +1128,25 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .overlay-palette-eye {
+        .overlay-palette-glyph {
             color: var(--muted);
-            text-align: center;
-            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
         }
-        .overlay-palette-row:not(.off) .overlay-palette-eye { color: var(--active-dim); }
+        .overlay-palette-glyph svg {
+            width: 13px;
+            height: 13px;
+            display: block;
+        }
+        .overlay-palette-row:not(.off) .overlay-palette-glyph { color: var(--active-dim); }
+        .dim-boundary-sep {
+            color: var(--active-dim);
+            opacity: 0.78;
+            padding: 0 1px;
+        }
         #cmap-picker {
             display: block; position: fixed; inset: 0;
             background: transparent;
@@ -5002,7 +5016,7 @@
         window.currentSid = sid;  // expose for page.evaluate() access in tests and embeds
         const overlay_sid = urlParams.get('overlay_sid') || null;
         // overlay_colors: comma-separated hex palette for multiple overlays (auto-assigned if absent)
-        const _OVERLAY_PALETTE = ['ff4444','44cc44','4488ff','ffcc00','ff44ff','44ffff'];
+        const _OVERLAY_PALETTE = ['d65b5b','5aa66a','5f84d7','d5ad4f','c06bb7','55b9bd'];
         const _overlaySids = overlay_sid ? overlay_sid.split(',').map(s => s.trim()).filter(Boolean) : [];
         const _overlayColorsParam = urlParams.get('overlay_colors') || '';
         const _overlayColorsArr = _overlayColorsParam ? _overlayColorsParam.split(',').map(s => s.trim()) : [];
@@ -5017,6 +5031,7 @@
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
         const _overlayNamesArr = _overlayNamesParam ? _overlayNamesParam.split(',').map(s => s.trim()).filter(Boolean) : [];
         let _overlayLabels = _overlaySids.map((_, i) => _overlayNamesArr[i] || `overlay ${i + 1}`);
+        const _LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path><path d="m22 12.5-8.58 3.91a2 2 0 0 1-1.66 0L3 12.5"></path><path d="m22 17.5-8.58 3.91a2 2 0 0 1-1.66 0L3 17.5"></path></svg>';
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
@@ -5167,6 +5182,7 @@
 
         /* ── JS: Viewer State Variables ───────────────────────────── */
         let shape = [];
+        let collectionSpatialNdim = -1;
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
         let indices = [];
@@ -13538,6 +13554,9 @@
                 is_complex: data.is_complex || false,
             });
             shape = data.shape;
+            collectionSpatialNdim = Number.isInteger(data.collection_spatial_ndim)
+                ? data.collection_spatial_ndim
+                : -1;
             isComplex = data.is_complex || false;
             _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
@@ -15669,6 +15688,7 @@
         // rotateX(180deg) to reveal oblique controls: 90\u00b0 lock, Save, Load.
         // Drive visibility via `.flipped` class only — no inline style toggles.
         let _obliqueAltHeld = false;
+        let _overlayAltHeld = false;
         let _obliqueBackHovered = false;
 
         function _setObliqueStatus(msg, _cls = '') {
@@ -15830,6 +15850,7 @@
         // state fresh even if a keyboard event is ever missed.
         function _updateAltState(e) {
             const held = !!(e.altKey || (e.getModifierState && e.getModifierState('Alt')));
+            _overlayAltHeld = held;
             if (held !== _obliqueAltHeld) {
                 _obliqueAltHeld = held;
                 _reconcileObliqueFlip();
@@ -15847,12 +15868,16 @@
                     _reconcileOverlayPalette();
                 }
             }
+            if (typeof _reconcileOverlayPalette === 'function') {
+                _reconcileOverlayPalette();
+            }
         }
         window.addEventListener('keydown',   _updateAltState, true);
         window.addEventListener('keyup',     _updateAltState, true);
         window.addEventListener('mousemove', _updateAltState, true);
         // Alt can get "stuck" on blur (user tabs away while holding) — clear.
         window.addEventListener('blur', () => {
+            _overlayAltHeld = false;
             if (_obliqueAltHeld) {
                 _obliqueAltHeld = false;
                 _reconcileObliqueFlip();
@@ -15866,6 +15891,9 @@
                 if (typeof _reconcileOverlayPalette === 'function') {
                     _reconcileOverlayPalette();
                 }
+            }
+            if (typeof _reconcileOverlayPalette === 'function') {
+                _reconcileOverlayPalette();
             }
         });
 
@@ -16005,7 +16033,7 @@
                 html += `<div class="overlay-palette-row${visible ? '' : ' off'}" onclick="_overlayPaletteToggle(${i})" title="Toggle ${name}">`;
                 html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
                 html += `<span class="overlay-palette-name">${name}</span>`;
-                html += `<span class="overlay-palette-eye">${visible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
+                html += `<span class="overlay-palette-glyph">${_LAYERS_ICON}</span>`;
                 html += `</div>`;
             }
             el.innerHTML = html;
@@ -16014,7 +16042,7 @@
         function _reconcileOverlayPalette() {
             const el = document.getElementById('overlay-palette');
             if (!el) return;
-            const show = _overlaySids.length > 0 && (_overlayPalettePinned || _obliqueAltHeld);
+            const show = _overlaySids.length > 0 && (_overlayPalettePinned || _overlayAltHeld);
             if (show) _renderOverlayPalette();
             el.classList.toggle('visible', show);
             el.setAttribute('aria-hidden', show ? 'false' : 'true');
@@ -16431,7 +16459,7 @@
 
         function renderInfo() {
             _ensureQmriActiveDimVisible();
-            let idxStr = indices.map((v, i) => {
+            const idxParts = indices.map((v, i) => {
                 if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
@@ -16488,7 +16516,18 @@
                 const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                               : `<span class="dim-label" ${d}>${inner}</span>`;
-            }).filter(Boolean).join('<span class="dim-sep">·</span>');
+            }).filter(Boolean);
+            let idxStr = '';
+            idxParts.forEach((part, j) => {
+                if (j > 0) {
+                    const isCollectionBoundary = collectionSpatialNdim >= 0
+                        && part.includes(`data-dim="${collectionSpatialNdim}"`);
+                    idxStr += isCollectionBoundary
+                        ? '<span class="dim-sep dim-boundary-sep">|</span>'
+                        : '<span class="dim-sep">·</span>';
+                }
+                idxStr += part;
+            });
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);

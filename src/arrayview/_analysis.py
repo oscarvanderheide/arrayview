@@ -45,6 +45,9 @@ def _build_metadata(session) -> dict:
         )
     if getattr(session, "array_keys", None):
         meta["array_keys"] = session.array_keys
+    collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
+    if collection_spatial_ndim is not None:
+        meta["collection_spatial_ndim"] = int(collection_spatial_ndim)
     return meta
 
 

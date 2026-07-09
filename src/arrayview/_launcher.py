@@ -1629,7 +1629,7 @@ def _with_loading(url: str) -> str:
     return url
 
 
-_OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
+_OVERLAY_PALETTE = ["d65b5b", "5aa66a", "5f84d7", "d5ad4f", "c06bb7", "55b9bd"]
 
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
 _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
@@ -2813,6 +2813,7 @@ def _serve_daemon(
                     overlays=dir_overlay_specs or [],
                     case_regex=dir_case_regex,
                 )
+                collection_spatial_ndim = len(_summary["spatial_shape"])
             elif (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
                 try:
                     _array_keys = list_array_keys(filepath)
@@ -2821,10 +2822,12 @@ def _serve_daemon(
                 _load_key = _array_keys[0]["key"] if _array_keys else None
                 data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
                 dir_overlay_items = None
+                collection_spatial_ndim = None
             else:
                 _load_key = None
                 data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
                 dir_overlay_items = None
+                collection_spatial_ndim = None
             if cleanup:
                 try:
                     os.unlink(filepath)
@@ -2835,6 +2838,8 @@ def _serve_daemon(
             )
             session.sid = sid
             session.spatial_meta = spatial_meta
+            if collection_spatial_ndim is not None:
+                session.collection_spatial_ndim = collection_spatial_ndim
             if _array_keys and len(_array_keys) > 1:
                 session.array_keys = _array_keys
                 session.array_filepath = filepath
@@ -3170,6 +3175,7 @@ def view_dir_patterns(
         session = _session_mod.SESSIONS.get(sid)
         if session is not None:
             session.spatial_meta = spatial_meta
+            session.collection_spatial_ndim = len(_summary["spatial_shape"])
     return handle
 
 
