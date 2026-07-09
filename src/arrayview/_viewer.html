@@ -17678,13 +17678,18 @@
 
         function saveState() {
             if (!sid) return;
-            sessionStorage.setItem('av_' + sid, JSON.stringify(collectStateSnapshot()));
+            try {
+                sessionStorage.setItem('av_' + sid, JSON.stringify(collectStateSnapshot()));
+            } catch (e) {
+                // Some embedded webviews deny storage access. Viewing must keep
+                // working even when this optional convenience is unavailable.
+            }
         }
 
         function restoreStateFromSessionStorage() {
-            const raw = sessionStorage.getItem('av_' + sid);
-            if (!raw) return false;
             try {
+                const raw = sessionStorage.getItem('av_' + sid);
+                if (!raw) return false;
                 return applyStateSnapshot(JSON.parse(raw));
             } catch (e) {
                 return false;

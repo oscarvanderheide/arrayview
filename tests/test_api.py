@@ -2936,6 +2936,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher.sys, "platform", "darwin")
         events = []
         opened = []
         proc = type("P", (), {"poll": lambda self: None, "terminate": lambda self: None})()
@@ -3003,11 +3004,71 @@ class TestCliOpenHelpers:
         assert events[1][2]["shell_port"] == 8000
         assert opened[0]["native_shell_already_opened"] is True
 
+    def test_handle_cli_spawned_daemon_defers_linux_native_shell_until_server_ready(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        monkeypatch.setattr(launcher.sys, "platform", "linux")
+        events = []
+        opened = []
+
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd, *args, **kwargs: events.append(("spawn", cmd, kwargs))
+            or object(),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_cli_tracked",
+            lambda *args, **kwargs: events.append(("native_shell", args, kwargs))
+            or (True, object()),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_port",
+            lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
+        )
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+        monkeypatch.setattr(
+            launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})()
+        )
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_native_shell=True,
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
+        assert [event[0] for event in events] == ["spawn", "wait"]
+        assert opened[0]["use_native_shell"] is True
+        assert opened[0]["native_shell_already_opened"] is False
+
     def test_handle_cli_spawned_daemon_falls_back_when_early_native_never_connects(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher.sys, "platform", "darwin")
         opened = []
         terminated = []
         proc = type(
@@ -3075,6 +3136,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher.sys, "platform", "darwin")
         opened = []
         terminated = []
         proc = type(

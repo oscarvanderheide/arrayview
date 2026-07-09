@@ -1214,10 +1214,11 @@ def _handle_cli_spawned_daemon(
         and not is_remote
         and not overlay_files
         and not compare_files
+        and not sys.platform.startswith("linux")
     ):
-        # Open only the shell chrome before the daemon is listening. Loading
-        # the viewer iframe here can leave WebKitGTK stuck on its failed first
-        # request forever. The tab is injected after the port becomes ready.
+        # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
+        # parent shell was created from inline data. Let Linux open the normal
+        # HTTP shell after the daemon is listening instead.
         url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
         early_native_shell_opened, early_native_shell_proc = _open_webview_cli_tracked(
             url_shell_early, 1400, 900, shell_port=port
