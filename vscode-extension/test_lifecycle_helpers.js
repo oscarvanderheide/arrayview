@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
 } = require('./lifecycle_helpers');
 
@@ -37,5 +38,10 @@ assert.strictEqual(
     shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [20] }, false),
     false
 );
+
+assert.strictEqual(shouldDeferBroadcast(false, false, { broadcast: true }), true);
+assert.strictEqual(shouldDeferBroadcast(false, true, { broadcast: true }), false);
+assert.strictEqual(shouldDeferBroadcast(true, false, { broadcast: true }), false);
+assert.strictEqual(shouldDeferBroadcast(false, false, { broadcast: false }), false);
 
 console.log('lifecycle helper tests passed');

@@ -129,7 +129,9 @@ def test_plain_ssh_keeps_script_mode_transient(monkeypatch):
     assert launcher._is_script_mode() is True
 
 
-def test_vscode_tunnel_ambiguous_windows_fail_closed(monkeypatch, tmp_path, capsys):
+def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
+    monkeypatch, tmp_path
+):
     import json
     import arrayview._vscode_signal as signal
 
@@ -151,9 +153,11 @@ def test_vscode_tunnel_ambiguous_windows_fail_closed(monkeypatch, tmp_path, caps
         skip_compat=True,
     )
 
-    assert opened is False
-    assert "VS Code tunnel window is ambiguous" in capsys.readouterr().out
-    assert not list(signal_dir.glob("open-request-*"))
+    assert opened is True
+    request = json.loads(
+        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+    )
+    assert request["broadcast"] is True
 
 
 def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
@@ -245,7 +249,47 @@ def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
     assert not list(signal_dir.glob("open-request-*"))
 
 
-def test_vscode_local_missing_window_match_with_multiple_windows_fails_closed(
+def test_vscode_local_missing_window_match_uses_focused_window_fallback(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
+    monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)
+    monkeypatch.setattr("arrayview._platform._find_vscode_ipc_hook", lambda: None)
+    monkeypatch.setattr("arrayview._platform._in_vscode_terminal", lambda: True)
+
+    for wid in ("100", "200"):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps(
+                {
+                    "pid": int(wid),
+                    "ppids": [10],
+                    "fallbackId": True,
+                    "remoteName": "tunnel",
+                }
+            )
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+    )
+
+    assert opened is True
+    request = json.loads(
+        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+    )
+    assert request["broadcast"] is True
+
+
+def test_vscode_local_missing_window_match_with_local_windows_fails_closed(
     monkeypatch, tmp_path, capsys
 ):
     import json

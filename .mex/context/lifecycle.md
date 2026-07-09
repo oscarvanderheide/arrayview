@@ -60,7 +60,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 - Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it.
 - VS Code tunnel display uses forwarded localhost URLs; the extension should configure the port, promote privacy when available, and resolve the URL with `asExternalUri`.
-- With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` must fail closed with a diagnostic rather than broadcasting to whichever window is focused.
+- With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` uses the shared broadcast signal; only the focused VS Code window may claim it.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
 

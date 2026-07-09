@@ -9,6 +9,7 @@ const { spawn, spawnSync } = require('child_process');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
 } = require('./lifecycle_helpers');
 
@@ -502,6 +503,16 @@ async function tryOpenSignalFile() {
     const isOwnTargetedFile = (f) => TARGETED_SIGNAL_FILE && f === TARGETED_SIGNAL_FILE;
 
     for (const signalFile of candidates) {
+        // An untargeted broadcast belongs to whichever VS Code window is
+        // focused. Leave it untouched here so an unfocused extension host
+        // cannot win the filesystem race and discard the request.
+        if (!isOwnTargetedFile(signalFile) && !isFocused) {
+            try {
+                const pending = JSON.parse(fs.readFileSync(signalFile, 'utf8'));
+                if (shouldDeferBroadcast(false, isFocused, pending)) continue;
+            } catch (_) {}
+        }
+
         // If not our targeted file and window not focused, delay briefly
         if (!isOwnTargetedFile(signalFile) && !isFocused) {
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -1073,7 +1084,8 @@ function activate(context) {
             pid: process.pid,
             ppids: EXT_PPIDS,   // ancestor PIDs for multi-window matching by Python
             ts: Date.now(),
-            fallbackId: !OWN_HOOK_TAG  // true if using PID fallback
+            fallbackId: !OWN_HOOK_TAG,  // true if using PID fallback
+            remoteName: vscode.env.remoteName || null
         }));
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);
         context.subscriptions.push({ dispose: () => {

@@ -42,8 +42,13 @@ function shouldRemoveSameTunnelRegistration(currentWindowId, currentPpids, candi
     return candidatePpids[0] === currentPpids[0];
 }
 
+function shouldDeferBroadcast(isOwnTargetedFile, isFocused, data) {
+    return !isOwnTargetedFile && !isFocused && data?.broadcast === true;
+}
+
 module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
 };
