@@ -439,7 +439,6 @@
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
-        .dim-hover-idx { font-size: 0.68em; font-weight: normal; color: var(--dim-hover, #777); opacity: 1; }
         .active-dim { font-weight: bold; }
         .playing-dim { font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
@@ -3338,6 +3337,7 @@
         #mv-panes.mv-crosshair-active .mv-pane::after {
             content: ''; position: absolute; inset: 0; z-index: 4;
             box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1px) var(--mv-plane-border, var(--active-dim));
+            opacity: 0.45;
             border-radius: inherit; box-sizing: border-box;
             pointer-events: none;
         }
@@ -13885,7 +13885,6 @@
             if (!['circle', 'rect', 'freehand', 'floodfill'].includes(_roiShape)) _roiShape = 'circle';
             _roiVisible = true;
             hideAllPixelInfo();
-            _resetDimbarHover();
             canvas.style.cursor = 'crosshair';
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
             if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
@@ -16479,38 +16478,6 @@
             const color = _axesColorForColormap();
             document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
             _updateMvPaneFill();
-        }
-
-        function _dimHoverPadded(val, maxVal) {
-            const maxStr = String(maxVal);
-            const valStr = String(val);
-            const padLen = maxStr.length - valStr.length;
-            if (padLen <= 0) return '/' + valStr;
-            return '/<span style="opacity:0.28">' + '0'.repeat(padLen) + '</span>' + valStr;
-        }
-        function _updateDimbarHover(px, py, xLabel, yLabel, pz) {
-            // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
-            // pz: optional z index (for mosaic mode)
-            const xl = xLabel || 'x', yl = yLabel || 'y';
-            const xEl = document.getElementById('dim-' + xl + '-size');
-            const yEl = document.getElementById('dim-' + yl + '-size');
-            const zEl = document.getElementById('dim-z-size');
-            // Resolve label to shape dim index for padding width
-            const labelToDim = (multiViewActive || compareMvActive)
-                ? { x: (multiViewActive ? mvDims : compareMvDims)[0], y: (multiViewActive ? mvDims : compareMvDims)[1], z: (multiViewActive ? mvDims : compareMvDims)[2] }
-                : { x: dim_x, y: dim_y, z: dim_z };
-            const xMax = labelToDim[xl] >= 0 ? shape[labelToDim[xl]] : 1;
-            const yMax = labelToDim[yl] >= 0 ? shape[labelToDim[yl]] : 1;
-            if (xEl) { xEl.innerHTML = _dimHoverPadded(px, xMax); xEl.className = 'dim-hover-idx'; }
-            if (yEl) { yEl.innerHTML = _dimHoverPadded(py, yMax); yEl.className = 'dim-hover-idx'; }
-            if (zEl && pz != null) {
-                const zMax = dim_z >= 0 ? shape[dim_z] : 1;
-                zEl.innerHTML = _dimHoverPadded(pz + 1, zMax); zEl.className = 'dim-hover-idx';
-            }
-        }
-        function _resetDimbarHover() {
-            // Re-render dimbar to restore correct max sizes for all modes
-            renderInfo();
         }
 
         // Gnomon visibility: shown while a dim-bar token is hovered, or flashed
@@ -20117,7 +20084,6 @@
                             showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }).catch(() => {});
                 }
-                _updateDimbarHover(localX, localY, null, null, zIdx);
                 return;
             }
 
@@ -20131,11 +20097,6 @@
                 imgW: canvas.width,
                 imgH: canvas.height,
                 displayEl: document.getElementById('main-pixel-info'),
-                onResult: (d, px, py) => {
-                    if (_pixelInfoActive() && !multiViewActive && !compareActive) {
-                        _updateDimbarHover(px, py);
-                    }
-                },
             });
         });
         canvas.addEventListener('mouseleave', () => {
@@ -20154,8 +20115,7 @@
             if (_pixelInfoHeld) {
                 _pixelInfoHeld = false;
                 if (!_pixelInfoVisible) {
-                    const piEl = document.getElementById('main-pixel-info');
-                    if (piEl) piEl.style.display = 'none';
+                    hideAllPixelInfo();
                 }
             }
         });
@@ -20924,7 +20884,6 @@
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
-                        _resetDimbarHover();
                         const axEl = document.getElementById('main-axes-svg');
                         if (axEl) {
                             axEl.querySelector('.axes-lbl-x').textContent = 'x';
@@ -26047,21 +26006,6 @@
                         imgH: view.lastH,
                         view,
                         displayEl: view.pixelInfoEl,
-                        onResult: (d, px, py) => {
-                            if (_pixelInfoActive()) {
-                                // Map pane dims to dimbar x/y/z labels
-                                const labels = ['x','y','z'];
-                                const activeDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : []);
-                                const posX = activeDims.indexOf(view.dimX);
-                                const posY = activeDims.indexOf(view.dimY);
-                                const lblX = labels[posX] || 'x';
-                                const lblY = labels[posY] || 'y';
-                                const elX = document.getElementById('dim-' + lblX + '-size');
-                                const elY = document.getElementById('dim-' + lblY + '-size');
-                                if (elX) { elX.textContent = '/' + px; elX.className = 'dim-hover-idx'; }
-                                if (elY) { elY.textContent = '/' + py; elY.className = 'dim-hover-idx'; }
-                            }
-                        },
                     });
                 });
                 cv.addEventListener('mouseleave', () => {
@@ -26072,7 +26016,6 @@
                     if (tq) tq.classList.remove('visible');
                     _roiSuppressPixelInfo = false;
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                    if (_pixelInfoActive()) _resetDimbarHover();
                 });
                 // Click-to-copy: multiview canvases
                 let _mvClickDown = null;
@@ -26935,7 +26878,6 @@
                             view,
                             onResult: (d, px, py) => {
                                 if (_pixelInfoActive()) {
-                                    _updateDimbarHover(px, py);
                                     return; // hover mode: only show hovered pane's value
                                 }
                                 // Non-hover: fetch for all other qmri views at same pixel
@@ -26962,10 +26904,9 @@
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
-                        if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
-                        qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
-                        if (_pixelInfoActive()) _resetDimbarHover();
-                    });
+                    if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
+                    qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
                     cv.addEventListener('mousemove', (e) => {
@@ -27029,6 +26970,11 @@
                         }
                     });
                     cv.addEventListener('mousedown', (e) => {
+                        if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+                            && !_cropActive && !_segMode && !_rulerMode) {
+                            _pixelInfoHeld = true;
+                            cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+                        }
                         if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey) return;
                         e.preventDefault(); sink.focus();
                         const rect = cv.getBoundingClientRect();
@@ -27449,15 +27395,17 @@
                             view,
                             displayEl: view.pixelInfoEl,
                             qmriRole: view.qmriRole,
-                            onResult: (d, px, py) => {
-                                if (_pixelInfoActive()) _updateDimbarHover(px, py);
-                            },
                         });
+                    });
+                    cv.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey
+                            || _cropActive || _segMode || _rulerMode) return;
+                        _pixelInfoHeld = true;
+                        cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
                     });
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
-                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
@@ -27936,20 +27884,6 @@
                             imgH: view.lastH,
                             view,
                             displayEl: view.pixelInfoEl,
-                            onResult: (d, px, py) => {
-                                if (_pixelInfoActive()) {
-                                    const labels = ['x','y','z'];
-                                    const activeDims = compareMvDims || [];
-                                    const posX = activeDims.indexOf(view.dimX);
-                                    const posY = activeDims.indexOf(view.dimY);
-                                    const lblX = labels[posX] || 'x';
-                                    const lblY = labels[posY] || 'y';
-                                    const elX = document.getElementById('dim-' + lblX + '-size');
-                                    const elY = document.getElementById('dim-' + lblY + '-size');
-                                    if (elX) { elX.textContent = '/' + px; elX.className = 'dim-hover-idx'; }
-                                    if (elY) { elY.textContent = '/' + py; elY.className = 'dim-hover-idx'; }
-                                }
-                            },
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
@@ -27957,7 +27891,6 @@
                         if (!cmvDraggingView) {
                             compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         }
-                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     // Click-to-copy: compare-multiview canvases
                     let _cmvClickDown = null;
@@ -30116,7 +30049,6 @@
                     displayEl: piEl,
                     onResult: (d, px, py) => {
                         if (!_pixelInfoActive()) return;
-                        _updateDimbarHover(px, py);
                         // Show value on other compare panes at the same pixel
                         const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
                         compareCanvases.forEach((ocv, j) => {
@@ -30145,7 +30077,6 @@
             cv.addEventListener('mouseleave', () => {
                 _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
                 hideCompareCrosshairs();
-                if (_pixelInfoActive()) _resetDimbarHover();
             });
          });
         // Click-to-copy: compare canvases

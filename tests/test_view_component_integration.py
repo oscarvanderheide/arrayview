@@ -1151,6 +1151,28 @@ def test_qmri_mode_populates_modemanager(loaded_viewer, sid_4d):
     assert result.get("count", 0) >= 2
 
 
+def test_qmri_mouse_hold_reveals_pixel_info(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.evaluate("enterQmri()")
+    page.wait_for_timeout(500)
+
+    canvas = page.locator(".qv-canvas").first
+    pixel_info = page.locator(".qv-pane .cv-pixel-info").first
+    box = canvas.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(100)
+    assert pixel_info.is_hidden()
+
+    page.mouse.down()
+    page.wait_for_timeout(300)
+    assert pixel_info.is_visible()
+    assert pixel_info.inner_text().strip()
+
+    page.mouse.up()
+    assert pixel_info.is_hidden()
+
+
 def test_qmri_settings_hint_toggles_alt_options_popup(loaded_viewer, sid_4d):
     page = loaded_viewer(sid_4d)
     page.wait_for_timeout(500)
