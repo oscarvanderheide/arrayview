@@ -677,9 +677,7 @@ def _activate_early_cli_native_shell(
         notified = bool(notify_result.get("notified"))
     except Exception:
         notified = False
-    if notified and _wait_for_native_shell_or_viewer_connection(
-        port, viewer_before=viewer_before
-    ):
+    if notified and _wait_for_viewer_connection(port, before=viewer_before):
         return True
     _vprint(
         "[ArrayView] Native window did not connect to the backend; falling back to browser",
@@ -1217,7 +1215,10 @@ def _handle_cli_spawned_daemon(
         and not overlay_files
         and not compare_files
     ):
-        url_shell_early = _shell_url(port, sid, name)
+        # Open only the shell chrome before the daemon is listening. Loading
+        # the viewer iframe here can leave WebKitGTK stuck on its failed first
+        # request forever. The tab is injected after the port becomes ready.
+        url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
         early_native_shell_opened, early_native_shell_proc = _open_webview_cli_tracked(
             url_shell_early, 1400, 900, shell_port=port
         )

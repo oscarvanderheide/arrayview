@@ -2960,7 +2960,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_viewer_connection",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
@@ -2999,6 +2999,7 @@ class TestCliOpenHelpers:
         event_names = [event[0] for event in events]
         assert event_names[:3] == ["spawn", "native_shell", "wait"]
         assert "notify" in event_names
+        assert events[1][1][0] == "http://localhost:8000/shell"
         assert events[1][2]["shell_port"] == 8000
         assert opened[0]["native_shell_already_opened"] is True
 
@@ -3031,7 +3032,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_viewer_connection",
             lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(
@@ -3069,7 +3070,7 @@ class TestCliOpenHelpers:
         assert opened[0]["use_native_shell"] is False
         assert opened[0]["native_shell_already_opened"] is False
 
-    def test_handle_cli_spawned_daemon_keeps_native_when_early_shell_connects(
+    def test_handle_cli_spawned_daemon_keeps_native_when_early_viewer_connects(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -3098,7 +3099,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_viewer_connection",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(
