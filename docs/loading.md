@@ -87,6 +87,40 @@ uvx arrayview base.npy moving.npy           # compare mode
 uvx arrayview volume.nii.gz --overlay mask.nii.gz
 ```
 
+## Directory Pattern Collections
+
+Use `--dir` when reviewing many same-shape arrays. Positional arguments become
+recursive image patterns; repeated patterns become a channel/modality axis.
+
+```bash
+uvx arrayview --dir "data/**/*_0000.nii.gz" "data/**/*_0001.nii.gz"
+```
+
+Overlays become named recursive patterns:
+
+```bash
+uvx arrayview --dir \
+  "data/**/*_0000.nii.gz" \
+  "data/**/*_0001.nii.gz" \
+  --overlay "gt=data/**/labels/**/*.nii.gz" \
+  --overlay "pred=data/**/pred/**/*.nii.gz"
+```
+
+ArrayView pairs files by sorted match order. The first match from each pattern
+belongs to the first case, the second match belongs to the second case, and so
+on. Use `--dry-run` to inspect matches without opening a viewer.
+
+```bash
+uvx arrayview --dir "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz" --dry-run
+```
+
+If sorted order is not enough, pass a regex with a `case` group to pair files
+by case id instead:
+
+```bash
+uvx arrayview --dir "data/**/*.nii.gz" --case-regex "(?P<case>patient-[0-9]+)"
+```
+
 ## NIfTI Series (4D/5D from a directory)
 
 Stack a directory of NIfTI files into a single lazy 4D/5D array — only the

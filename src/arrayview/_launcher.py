@@ -1173,9 +1173,13 @@ def _handle_cli_spawned_daemon(
     demo_name: str | None,
     demo_cleanup: bool,
     select: list[str] | None = None,
+    dir_patterns: list[str] | None = None,
+    dir_overlay_specs: list[tuple[str, str]] | None = None,
+    dir_case_regex: str | None = None,
 ) -> None:
     sid = uuid.uuid4().hex
-    overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
+    overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
+    overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
 
     if not use_native_shell:
@@ -1195,6 +1199,9 @@ def _handle_cli_spawned_daemon(
         f" persist={is_remote},"
         f" rgb={rgb},"
         f" stack_select={repr(select)},"
+        f" dir_patterns={repr(dir_patterns)},"
+        f" dir_overlay_specs={repr(dir_overlay_specs)},"
+        f" dir_case_regex={repr(dir_case_regex)},"
         f")"
     )
     subprocess.Popen(
@@ -1213,6 +1220,7 @@ def _handle_cli_spawned_daemon(
         use_native_shell
         and not is_remote
         and not overlay_files
+        and not dir_overlay_specs
         and not compare_files
         and not sys.platform.startswith("linux")
     ):
@@ -2725,6 +2733,9 @@ def _serve_daemon(
     persist: bool = False,
     rgb: bool = False,
     stack_select: list[str] | None = None,
+    dir_patterns: list[str] | None = None,
+    dir_overlay_specs: list[tuple[str, str]] | None = None,
+    dir_case_regex: str | None = None,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -2764,19 +2775,35 @@ def _serve_daemon(
     threading.Thread(target=_warm_luts, daemon=True).start()
 
     def _load():
-        from arrayview._io import load_data, load_data_with_meta, list_array_keys
+        from arrayview._io import (
+            load_data,
+            load_data_with_meta,
+            load_dir_collection,
+            list_array_keys,
+        )
 
         try:
             # Multi-array .npz/.mat: load the first array so the session is
             # created, then store keys so the viewer can show a picker.
             _array_keys = None
-            if (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
+            if dir_patterns is not None:
+                data, spatial_meta, dir_overlay_items, _summary = load_dir_collection(
+                    dir_patterns,
+                    overlays=dir_overlay_specs or [],
+                    case_regex=dir_case_regex,
+                )
+            elif (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
                 try:
                     _array_keys = list_array_keys(filepath)
                 except Exception:
                     pass
-            _load_key = _array_keys[0]["key"] if _array_keys else None
-            data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
+                _load_key = _array_keys[0]["key"] if _array_keys else None
+                data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
+                dir_overlay_items = None
+            else:
+                _load_key = None
+                data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
+                dir_overlay_items = None
             if cleanup:
                 try:
                     os.unlink(filepath)
@@ -2812,6 +2839,13 @@ def _serve_daemon(
                         flush=True,
                     )
             _session_mod.SESSIONS[session.sid] = session
+            if dir_overlay_items is not None:
+                for item, ov_sid in zip(dir_overlay_items, overlay_sids or []):
+                    ov_session = _session_mod.Session(
+                        item["data"], filepath=None, name=item["name"]
+                    )
+                    ov_session.sid = ov_sid
+                    _session_mod.SESSIONS[ov_sid] = ov_session
             for ov_path, ov_sid in zip(overlay_filepaths or [], overlay_sids or []):
                 try:
                     ov_data = load_data(ov_path)
@@ -3078,6 +3112,91 @@ def view_dir(
     return view(data, name=name, port=port, **view_kwargs)
 
 
+def view_dir_patterns(
+    *patterns,
+    overlay=None,
+    case_regex=None,
+    port: int = 8123,
+    name=None,
+    **view_kwargs,
+):
+    """View recursive file patterns as an aligned collection.
+
+    Positional patterns define the base image channel/modality stack.  Overlay
+    patterns may be passed as ``{"name": pattern}``, ``[(name, pattern)]``, or
+    ``["name=pattern", ...]``.
+    """
+    from arrayview._io import load_dir_collection
+
+    overlay_pairs = _normalize_dir_overlay_specs(overlay or [])
+    data, spatial_meta, overlay_items, _summary = load_dir_collection(
+        list(patterns),
+        overlays=overlay_pairs,
+        case_regex=case_regex,
+    )
+    if name is None:
+        name = "dir collection"
+    overlay_data = [item["data"] for item in overlay_items]
+    handle = view(
+        data,
+        name=name,
+        port=port,
+        overlay=overlay_data if overlay_data else None,
+        **view_kwargs,
+    )
+    sid = getattr(handle, "sid", None)
+    if sid:
+        session = _session_mod.SESSIONS.get(sid)
+        if session is not None:
+            session.spatial_meta = spatial_meta
+    return handle
+
+
+def _normalize_dir_overlay_specs(specs):
+    if specs is None:
+        return []
+    if isinstance(specs, dict):
+        specs = list(specs.items())
+    elif isinstance(specs, str):
+        specs = [specs]
+
+    out = []
+    for idx, spec in enumerate(specs, start=1):
+        if isinstance(spec, (tuple, list)) and len(spec) == 2:
+            name, pattern = spec
+        elif isinstance(spec, str):
+            if "=" in spec:
+                name, pattern = spec.split("=", 1)
+            else:
+                name, pattern = f"overlay {idx}", spec
+        else:
+            raise ValueError(f"Invalid overlay spec {spec!r}.")
+        name = str(name).strip()
+        pattern = str(pattern).strip()
+        if not name or not pattern:
+            raise ValueError(f"Invalid overlay spec {spec!r}.")
+        out.append((name, pattern))
+    return out
+
+
+def _print_dir_collection_summary(summary):
+    print("[ArrayView] --dir matched collection:")
+    print(f"  cases: {len(summary['cases'])}")
+    print(f"  spatial shape: {summary['spatial_shape']}")
+    print(f"  image shape: {summary['shape']}")
+    for i, pattern in enumerate(summary["base_patterns"], start=1):
+        print(f"  image pattern {i}: {pattern}")
+    for ov in summary["overlays"]:
+        extra = ""
+        if ov["ignored_cases"]:
+            extra = f" ({len(ov['ignored_cases'])} ignored extra case(s))"
+        print(f"  overlay {ov['name']}: {ov['pattern']}{extra}")
+    preview = ", ".join(summary["cases"][:6])
+    if len(summary["cases"]) > 6:
+        preview += ", ..."
+    print(f"  case order: {preview}")
+
+
 # ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
@@ -3133,11 +3252,12 @@ def arrayview():
     )
     parser.add_argument(
         "--overlay",
-        metavar="FILE",
+        metavar="FILE|NAME=PATTERN",
         action="append",
         default=None,
         help=(
-            "Segmentation mask to overlay (binary 0/1 array, same spatial shape). "
+            "Segmentation mask overlay. In file mode, pass a concrete mask file. "
+            "In --dir mode, pass NAME=PATTERN to add a named overlay role. "
             "Repeat --overlay to load multiple overlays."
         ),
     )
@@ -3215,6 +3335,31 @@ def arrayview():
         default=None,
         dest="array_name",
         help="Display name for the array",
+    )
+    parser.add_argument(
+        "--dir",
+        action="store_true",
+        dest="dir_mode",
+        help=(
+            "Treat positional FILE arguments as recursive image patterns for an "
+            "aligned collection. Repeated patterns become image channels; "
+            "--overlay values become overlay role patterns."
+        ),
+    )
+    parser.add_argument(
+        "--case-regex",
+        default=None,
+        dest="case_regex",
+        help=(
+            "Regex used in --dir mode to extract a case id. Must define "
+            "a named (?P<case>...) group."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="In --dir mode, print matched cases and roles without opening a viewer.",
     )
     parser.add_argument(
         "--stack",
@@ -3365,6 +3510,20 @@ def arrayview():
             )
     if args.stack_select and not args.stack:
         parser.error("--select requires --stack.")
+    if args.dry_run and not args.dir_mode:
+        parser.error("--dry-run requires --dir.")
+    if args.dir_mode:
+        if args.stack:
+            parser.error("--dir is incompatible with --stack.")
+        if not args.files:
+            parser.error("--dir requires at least one image pattern.")
+        if args.compare or args.vectorfield or args.watch or args.rgb:
+            parser.error(
+                "--dir is incompatible with --compare, --vectorfield, "
+                "--watch, and --rgb."
+            )
+        if args.relay:
+            parser.error("--dir is incompatible with --relay.")
     if args.stack:
         if len(args.files) != 1:
             parser.error(
@@ -3396,11 +3555,11 @@ def arrayview():
         args._demo_name = "welcome"
         args._demo_cleanup = True
         args.rgb = True
-    if args.files and len(args.files) > 6:
+    if args.files and len(args.files) > 6 and not args.dir_mode:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
         )
-    if args.compare and len(args.files) > 1:
+    if args.compare and len(args.files) > 1 and not args.dir_mode:
         parser.error("Use either positional compare files or --compare, not both.")
 
     # -- --relay: send array bytes to a remote ArrayView server --
@@ -3569,16 +3728,42 @@ def arrayview():
         )
         return
 
-    base_file = os.path.abspath(args.files[0])
-    compare_files = [os.path.abspath(p) for p in args.files[1:]]
-    if args.compare:
-        compare_files.append(os.path.abspath(args.compare))
+    if args.dir_mode:
+        dir_patterns = [os.path.abspath(p) for p in args.files]
+        dir_overlay_specs = [
+            (role, os.path.abspath(pattern))
+            for role, pattern in _normalize_dir_overlay_specs(args.overlay or [])
+        ]
+        base_file = dir_patterns[0]
+        compare_files = []
+        name = args.array_name or "dir collection"
+        try:
+            from arrayview._io import load_dir_collection
 
-    if not args.stack and not os.path.isfile(base_file):
+            data, spatial_meta, overlay_items, summary = load_dir_collection(
+                dir_patterns,
+                overlays=dir_overlay_specs,
+                case_regex=args.case_regex,
+            )
+        except Exception as e:
+            print(f"Error: --dir could not match collection: {e}")
+            sys.exit(1)
+        _print_dir_collection_summary(summary)
+        if args.dry_run:
+            return
+    else:
+        dir_patterns = None
+        dir_overlay_specs = None
+        base_file = os.path.abspath(args.files[0])
+        compare_files = [os.path.abspath(p) for p in args.files[1:]]
+        if args.compare:
+            compare_files.append(os.path.abspath(args.compare))
+        data = spatial_meta = overlay_items = summary = None
+        name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
+
+    if not args.stack and not args.dir_mode and not os.path.isfile(base_file):
         print(f"Error: file not found: {base_file}")
         sys.exit(1)
-
-    name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
     if args.vectorfield:
         try:
@@ -3618,7 +3803,7 @@ def arrayview():
         is_ssh=_is_ssh,
         is_vscode_remote=_is_vscode_remote(),
     )
-    if port_plan["attempt_ssh_relay_before_scan"]:
+    if port_plan["attempt_ssh_relay_before_scan"] and not args.dir_mode:
         # Port occupied but not responding to a fast HTTP check.  When port 8000
         # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
         # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
@@ -3667,7 +3852,7 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    if port_plan["should_check_existing_ssh_relay"]:
+    if port_plan["should_check_existing_ssh_relay"] and not args.dir_mode:
         import socket as _socket
 
         # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
@@ -3720,6 +3905,12 @@ def arrayview():
         )
 
     if launch_path == "existing_server":
+        if args.dir_mode:
+            print(
+                "Error: --dir cannot register with an already-running ArrayView server yet. "
+                f"Run `arrayview --kill --port {args.port}` or choose a free --port."
+            )
+            sys.exit(1)
         _handle_cli_existing_server(
             port=args.port,
             base_file=base_file,
@@ -3746,7 +3937,7 @@ def arrayview():
         base_file=base_file,
         name=name,
         compare_files=compare_files,
-        overlay_files=list(args.overlay or []),
+        overlay_files=[] if args.dir_mode else list(args.overlay or []),
         dims_override=dims_override,
         use_native_shell=use_native_shell,
         watch=getattr(args, "watch", False),
@@ -3759,4 +3950,7 @@ def arrayview():
         demo_name=demo_name,
         demo_cleanup=demo_cleanup,
         select=args.stack_select,
+        dir_patterns=dir_patterns,
+        dir_overlay_specs=dir_overlay_specs,
+        dir_case_regex=args.case_regex,
     )

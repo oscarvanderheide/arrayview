@@ -239,6 +239,38 @@ def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
     )
 
 
+def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
+    shape = (4, 5, 6)
+    (tmp_path / "images").mkdir()
+    (tmp_path / "gt").mkdir()
+    for case in ("caseA", "caseB"):
+        np.save(tmp_path / "images" / f"{case}_0000.npy", np.zeros(shape))
+        np.save(tmp_path / "gt" / f"{case}.npy", np.ones(shape, dtype=np.uint8))
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--dir",
+            str(tmp_path / "images" / "*_0000.npy"),
+            "--overlay",
+            f"gt={tmp_path / 'gt' / '*.npy'}",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert "--dir matched collection" in text
+    assert "cases: 2" in text
+    assert "overlay gt:" in text
+    assert "caseA, caseB" in text
+
+
 def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_path):
     base = str(tmp_path / "base.npy")
     np.save(base, np.zeros((8, 8), dtype=np.float32))

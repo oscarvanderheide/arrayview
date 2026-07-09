@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import fnmatch
+import glob
 import os
+import re
 import threading
 from collections import OrderedDict
 
@@ -380,6 +382,204 @@ def _get_ext(filepath):
     if lower.endswith(".zarr.zip"):
         return ".zarr.zip"
     return os.path.splitext(lower)[1]
+
+
+def _is_supported_collection_path(filepath):
+    return _get_ext(filepath) in _SUPPORTED_EXTS and os.path.exists(filepath)
+
+
+def _strip_array_ext(filepath):
+    base = os.path.basename(filepath)
+    lower = base.lower()
+    for suffix in (".nii.gz", ".zarr.zip"):
+        if lower.endswith(suffix):
+            return base[: -len(suffix)]
+    return os.path.splitext(base)[0]
+
+
+def _default_collection_case_key(filepath):
+    stem = _strip_array_ext(filepath)
+    return re.sub(r"_[0-9]{4}$", "", stem)
+
+
+def _collection_case_key(filepath, case_regex=None):
+    if not case_regex:
+        return _default_collection_case_key(filepath)
+    match = re.search(case_regex, filepath)
+    if match is None:
+        raise ValueError(
+            f"{filepath!r} does not match --case-regex {case_regex!r}."
+        )
+    groups = match.groupdict()
+    if "case" not in groups:
+        raise ValueError("--case-regex must define a named (?P<case>...) group.")
+    return groups["case"]
+
+
+def _collection_pattern_paths(pattern):
+    paths = sorted(
+        os.path.abspath(p)
+        for p in glob.glob(pattern, recursive=True)
+        if _is_supported_collection_path(p)
+    )
+    if not paths:
+        raise ValueError(f"No supported array files match pattern {pattern!r}.")
+    return paths
+
+
+def _collection_pattern_map(pattern, case_regex):
+    paths = _collection_pattern_paths(pattern)
+    by_case = {}
+    for path in paths:
+        case = _collection_case_key(path, case_regex=case_regex)
+        if case in by_case:
+            raise ValueError(
+                f"Pattern {pattern!r} matched multiple files for case {case!r}: "
+                f"{os.path.basename(by_case[case])!r} and {os.path.basename(path)!r}."
+            )
+        by_case[case] = path
+    return by_case
+
+
+def _series_from_file_matrix(file_matrix):
+    if not file_matrix or not file_matrix[0]:
+        raise ValueError("Cannot build an empty file series.")
+
+    all_paths = [path for row in file_matrix for path in row]
+    all_nifti = all(_is_nifti_path(path) for path in all_paths)
+    ref_shape = None
+    ref_dtype = None
+    spatial_meta = None
+
+    if all_nifti:
+        nib = _nib()
+        for fpath in all_paths:
+            img = nib.load(fpath)
+            shape = tuple(int(s) for s in img.shape)
+            dtype = img.get_data_dtype()
+            if ref_shape is None:
+                ref_shape = shape
+                ref_dtype = dtype
+                _, spatial_meta = _load_nifti_with_meta(fpath)
+            elif shape != ref_shape:
+                raise ValueError(
+                    f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
+                    f"{shape}, expected {ref_shape}."
+                )
+            elif dtype != ref_dtype:
+                raise ValueError(
+                    f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
+                    f"{dtype}, expected {ref_dtype}."
+                )
+        return _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta), spatial_meta
+
+    for fpath in all_paths:
+        arr = load_data(fpath)
+        shape = arr.shape
+        dtype = arr.dtype
+        if ref_shape is None:
+            ref_shape = shape
+            ref_dtype = dtype
+        elif shape != ref_shape:
+            raise ValueError(
+                f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
+                f"{shape}, expected {ref_shape}."
+            )
+        elif dtype != ref_dtype:
+            raise ValueError(
+                f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
+                f"{dtype}, expected {ref_dtype}."
+            )
+    return _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None), None
+
+
+def load_dir_collection(base_patterns, overlays=None, case_regex=None):
+    """Load recursive collection patterns as aligned lazy image/overlay stacks.
+
+    *base_patterns* are image channel/modality patterns.  *overlays* is an
+    ordered list of ``(name, pattern)`` pairs.  By default, each pattern's
+    sorted matches are paired by position.  With *case_regex*, files are paired
+    by the regex's named ``case`` group instead.
+    """
+    if not base_patterns:
+        raise ValueError("--dir requires at least one positional image pattern.")
+    overlays = overlays or []
+
+    if case_regex:
+        base_maps = [
+            _collection_pattern_map(pattern, case_regex=case_regex)
+            for pattern in base_patterns
+        ]
+        case_ids = sorted(base_maps[0].keys())
+        missing = []
+        for idx, by_case in enumerate(base_maps[1:], start=2):
+            for case in case_ids:
+                if case not in by_case:
+                    missing.append(f"image pattern {idx} missing case {case!r}")
+        if missing:
+            raise ValueError("; ".join(missing))
+        base_matrix = [[by_case[case] for by_case in base_maps] for case in case_ids]
+    else:
+        base_lists = [_collection_pattern_paths(pattern) for pattern in base_patterns]
+        n_cases = len(base_lists[0])
+        for idx, paths in enumerate(base_lists[1:], start=2):
+            if len(paths) != n_cases:
+                raise ValueError(
+                    f"Image pattern {idx} matched {len(paths)} file(s), "
+                    f"expected {n_cases} to match image pattern 1."
+                )
+        case_ids = [
+            _default_collection_case_key(path)
+            for path in base_lists[0]
+        ]
+        if len(set(case_ids)) != len(case_ids):
+            case_ids = [
+                os.path.basename(os.path.dirname(path)) or _default_collection_case_key(path)
+                for path in base_lists[0]
+            ]
+        base_matrix = [list(row) for row in zip(*base_lists)]
+    data, spatial_meta = _series_from_file_matrix(base_matrix)
+    spatial_shape = data._vol_shape
+
+    overlay_items = []
+    overlay_reports = []
+    for name, pattern in overlays:
+        if case_regex:
+            by_case = _collection_pattern_map(pattern, case_regex=case_regex)
+            missing_cases = [case for case in case_ids if case not in by_case]
+            if missing_cases:
+                raise ValueError(
+                    f"Overlay {name!r} is missing case(s): "
+                    f"{', '.join(repr(c) for c in missing_cases)}."
+                )
+            matrix = [[by_case[case]] for case in case_ids]
+            extras = sorted(set(by_case.keys()) - set(case_ids))
+        else:
+            paths = _collection_pattern_paths(pattern)
+            if len(paths) != len(case_ids):
+                raise ValueError(
+                    f"Overlay {name!r} matched {len(paths)} file(s), "
+                    f"expected {len(case_ids)} to match image pattern 1."
+                )
+            matrix = [[path] for path in paths]
+            extras = []
+        ov_data, _ov_meta = _series_from_file_matrix(matrix)
+        if ov_data._vol_shape != spatial_shape:
+            raise ValueError(
+                f"Overlay {name!r} has spatial shape {ov_data._vol_shape}, "
+                f"expected {spatial_shape}."
+            )
+        overlay_items.append({"name": name, "data": ov_data, "pattern": pattern})
+        overlay_reports.append({"name": name, "pattern": pattern, "ignored_cases": extras})
+
+    summary = {
+        "cases": case_ids,
+        "base_patterns": list(base_patterns),
+        "overlays": overlay_reports,
+        "shape": tuple(int(s) for s in data.shape),
+        "spatial_shape": tuple(int(s) for s in spatial_shape),
+    }
+    return data, spatial_meta, overlay_items, summary
 
 
 def _load_file_series(path, select=None):

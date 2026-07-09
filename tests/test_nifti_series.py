@@ -189,6 +189,8 @@ class TestViewDir:
 
         assert hasattr(arrayview, "view_dir")
         assert callable(arrayview.view_dir)
+        assert hasattr(arrayview, "view_dir_patterns")
+        assert callable(arrayview.view_dir_patterns)
 
     def test_view_dir_is_lazy_marker(self, tmp_path):
         _make_patient_dir(tmp_path, "p001")
@@ -261,3 +263,127 @@ class TestFileSeries:
 
         with pytest.raises(ValueError, match="Shape mismatch"):
             _io.load_data_with_meta(str(tmp_path))
+
+
+class TestDirCollection:
+    def test_image_patterns_stack_channels_and_overlay_roles(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case_idx, case in enumerate(("caseA", "caseB")):
+            for sub in ("images", "gt", "pred"):
+                (tmp_path / sub).mkdir(exist_ok=True)
+            np.save(
+                tmp_path / "images" / f"{case}_0000.npy",
+                np.full(shape, case_idx, dtype=np.float32),
+            )
+            np.save(
+                tmp_path / "images" / f"{case}_0001.npy",
+                np.full(shape, case_idx + 10, dtype=np.float32),
+            )
+            np.save(
+                tmp_path / "gt" / f"{case}.npy",
+                np.full(shape, case_idx + 1, dtype=np.uint8),
+            )
+            np.save(
+                tmp_path / "pred" / f"{case}.npy",
+                np.full(shape, case_idx + 2, dtype=np.uint8),
+            )
+
+        data, meta, overlays, summary = _io.load_dir_collection(
+            [
+                str(tmp_path / "images" / "*_0000.npy"),
+                str(tmp_path / "images" / "*_0001.npy"),
+            ],
+            overlays=[
+                ("gt", str(tmp_path / "gt" / "*.npy")),
+                ("pred", str(tmp_path / "pred" / "*.npy")),
+            ],
+        )
+
+        assert isinstance(data, _io._FileSeries)
+        assert meta is None
+        assert data.shape == (4, 5, 6, 2, 2)
+        assert overlays[0]["name"] == "gt"
+        assert overlays[0]["data"].shape == (4, 5, 6, 2)
+        assert overlays[1]["name"] == "pred"
+        assert summary["cases"] == ["caseA", "caseB"]
+        assert np.array_equal(data[:, :, :, 1, 1], np.full(shape, 11, dtype=np.float32))
+        assert np.array_equal(overlays[0]["data"][:, :, :, 1], np.full(shape, 2, dtype=np.uint8))
+
+    def test_overlay_missing_case_errors(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case in ("caseA", "caseB"):
+            (tmp_path / "images").mkdir(exist_ok=True)
+            np.save(tmp_path / "images" / f"{case}_0000.npy", np.zeros(shape))
+        (tmp_path / "gt").mkdir()
+        np.save(tmp_path / "gt" / "caseA.npy", np.zeros(shape, dtype=np.uint8))
+
+        with pytest.raises(ValueError, match="missing case"):
+            _io.load_dir_collection(
+                [str(tmp_path / "images" / "*_0000.npy")],
+                overlays=[("gt", str(tmp_path / "gt" / "*.npy"))],
+                case_regex=r"(?P<case>case[A-Z])",
+            )
+
+    def test_ordered_pairing_without_case_regex(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case_idx, case in enumerate(("patient_001", "patient_002")):
+            pdir = tmp_path / case
+            pdir.mkdir()
+            np.save(pdir / "T1.npy", np.full(shape, case_idx, dtype=np.float32))
+            np.save(pdir / "T2.npy", np.full(shape, case_idx + 10, dtype=np.float32))
+            np.save(pdir / "ground_truth.npy", np.full(shape, case_idx + 1, dtype=np.uint8))
+
+        data, _meta, overlays, summary = _io.load_dir_collection(
+            [
+                str(tmp_path / "*" / "T1.npy"),
+                str(tmp_path / "*" / "T2.npy"),
+            ],
+            overlays=[("gt", str(tmp_path / "*" / "ground_truth.npy"))],
+        )
+
+        assert data.shape == (4, 5, 6, 2, 2)
+        assert overlays[0]["data"].shape == (4, 5, 6, 2)
+        assert summary["cases"] == ["patient_001", "patient_002"]
+        assert np.array_equal(data[:, :, :, 1, 1], np.full(shape, 11, dtype=np.float32))
+        assert np.array_equal(overlays[0]["data"][:, :, :, 1], np.full(shape, 2, dtype=np.uint8))
+
+    def test_ordered_pairing_mismatched_counts_error(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case in ("patient_001", "patient_002"):
+            pdir = tmp_path / case
+            pdir.mkdir()
+            np.save(pdir / "T1.npy", np.zeros(shape))
+        np.save(tmp_path / "patient_001" / "ground_truth.npy", np.zeros(shape, dtype=np.uint8))
+
+        with pytest.raises(ValueError, match="matched 1 file"):
+            _io.load_dir_collection(
+                [str(tmp_path / "*" / "T1.npy")],
+                overlays=[("gt", str(tmp_path / "*" / "ground_truth.npy"))],
+            )
+
+    def test_case_regex_overrides_default_key(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        (tmp_path / "images").mkdir()
+        (tmp_path / "labels").mkdir()
+        np.save(tmp_path / "images" / "img_case-a_ch0.npy", np.zeros(shape))
+        np.save(tmp_path / "labels" / "label_case-a.npy", np.ones(shape, dtype=np.uint8))
+
+        data, _meta, overlays, summary = _io.load_dir_collection(
+            [str(tmp_path / "images" / "img_*.npy")],
+            overlays=[("label", str(tmp_path / "labels" / "label_*.npy"))],
+            case_regex=r"(?:img|label)_(?P<case>case-[^_/.]+)",
+        )
+
+        assert data.shape == (4, 5, 6, 1)
+        assert overlays[0]["data"].shape == (4, 5, 6, 1)
+        assert summary["cases"] == ["case-a"]
