@@ -3376,7 +3376,7 @@
         #mip-canvas { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; z-index: 5; }
         #mip-canvas:active { cursor: grabbing; }
 
-        #multi-view-wrap { display: none; width: 100%; height: 100%; }
+        #multi-view-wrap { display: none; position: relative; width: 100%; height: 100%; }
         #multi-view-wrap.active {
             display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 8px;
             box-sizing: border-box; padding-bottom: var(--mv-colorbar-bottom-clearance, 42px);
@@ -3443,7 +3443,7 @@
             font-size: 8px; color: var(--muted); text-align: center; opacity: 0.6;
             font-family: monospace; margin-top: 1px;
         }
-        #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
+        #compare-view-wrap { display: none; position: relative; width: 100%; height: 100%; gap: 8px; }
         #compare-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
         #compare-panes {
             flex: 1; min-height: 0; width: 100%;
@@ -3671,7 +3671,7 @@
         #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-pane-cb-island {
             display: none !important;
         }
-        #qmri-view-wrap { display: none; width: 100%; }
+        #qmri-view-wrap { display: none; position: relative; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; margin-top: -4px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
         .qv-synthetic-row { justify-content: flex-start; align-items: flex-start; }
@@ -3940,7 +3940,8 @@
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
-        body.zen-mode #toast, body.zen-mode #dim-active-underline { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+        body.zen-mode #toast, body.zen-mode #dim-active-underline,
+        body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
         body.zen-mode .qmri-synth-param-popover,
         body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
@@ -15688,7 +15689,6 @@
         // rotateX(180deg) to reveal oblique controls: 90\u00b0 lock, Save, Load.
         // Drive visibility via `.flipped` class only — no inline style toggles.
         let _obliqueAltHeld = false;
-        let _overlayAltHeld = false;
         let _obliqueBackHovered = false;
 
         function _setObliqueStatus(msg, _cls = '') {
@@ -15850,7 +15850,6 @@
         // state fresh even if a keyboard event is ever missed.
         function _updateAltState(e) {
             const held = !!(e.altKey || (e.getModifierState && e.getModifierState('Alt')));
-            _overlayAltHeld = held;
             if (held !== _obliqueAltHeld) {
                 _obliqueAltHeld = held;
                 _reconcileObliqueFlip();
@@ -15864,12 +15863,6 @@
                 if (typeof _reconcileQmriAltOptions === 'function') {
                     _reconcileQmriAltOptions();
                 }
-                if (typeof _reconcileOverlayPalette === 'function') {
-                    _reconcileOverlayPalette();
-                }
-            }
-            if (typeof _reconcileOverlayPalette === 'function') {
-                _reconcileOverlayPalette();
             }
         }
         window.addEventListener('keydown',   _updateAltState, true);
@@ -15877,7 +15870,6 @@
         window.addEventListener('mousemove', _updateAltState, true);
         // Alt can get "stuck" on blur (user tabs away while holding) — clear.
         window.addEventListener('blur', () => {
-            _overlayAltHeld = false;
             if (_obliqueAltHeld) {
                 _obliqueAltHeld = false;
                 _reconcileObliqueFlip();
@@ -15888,12 +15880,6 @@
                 if (typeof _reconcileQmriAltOptions === 'function') {
                     _reconcileQmriAltOptions();
                 }
-                if (typeof _reconcileOverlayPalette === 'function') {
-                    _reconcileOverlayPalette();
-                }
-            }
-            if (typeof _reconcileOverlayPalette === 'function') {
-                _reconcileOverlayPalette();
             }
         });
 
@@ -16008,7 +15994,7 @@
             return html;
         }
 
-        let _overlayPalettePinned = false;
+        let _overlayPaletteHidden = false;
 
         function _overlayActuallyVisible(idx) {
             if (idx < 0 || idx >= _overlaySids.length) return false;
@@ -16039,32 +16025,59 @@
             el.innerHTML = html;
         }
 
+        function _overlayPaletteAnchor() {
+            if (compareQmriActive || qmriActive) return document.getElementById('qmri-view-wrap');
+            if (compareMvActive || multiViewActive) return document.getElementById('multi-view-wrap');
+            if (compareActive) return document.getElementById('compare-view-wrap');
+            return document.getElementById('canvas-viewport');
+        }
+
+        function _reconcileOverlayPaletteAnchor() {
+            const el = document.getElementById('overlay-palette');
+            const host = document.getElementById('viewer-row');
+            const anchor = _overlayPaletteAnchor();
+            if (!el || !host || !anchor) return;
+            if (el.parentElement !== host) host.appendChild(el);
+            const hostRect = host.getBoundingClientRect();
+            const anchorRect = anchor.getBoundingClientRect();
+            const top = Math.max(0, Math.round(anchorRect.top - hostRect.top + 10));
+            const right = Math.max(0, Math.round(hostRect.right - anchorRect.right + 10));
+            el.style.top = `${top}px`;
+            el.style.right = `${right}px`;
+        }
+
         function _reconcileOverlayPalette() {
             const el = document.getElementById('overlay-palette');
             if (!el) return;
-            const show = _overlaySids.length > 0 && (_overlayPalettePinned || _overlayAltHeld);
+            const show = _overlaySids.length > 0 && !_overlayPaletteHidden;
             if (show) _renderOverlayPalette();
+            _reconcileOverlayPaletteAnchor();
+            if (show) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => _reconcileOverlayPaletteAnchor());
+                });
+            }
             el.classList.toggle('visible', show);
             el.setAttribute('aria-hidden', show ? 'false' : 'true');
         }
 
         function _overlayPaletteToggle(idx) {
             _islandToggleOverlay(idx);
-            _overlayPalettePinned = true;
+            _overlayPaletteHidden = false;
             _reconcileOverlayPalette();
         }
         window._overlayPaletteToggle = _overlayPaletteToggle;
 
         function _toggleOverlayPalettePinned() {
             if (!_overlaySids.length) { showStatus('no overlays loaded'); return; }
-            _overlayPalettePinned = !_overlayPalettePinned;
+            _overlayPaletteHidden = !_overlayPaletteHidden;
             _reconcileOverlayPalette();
         }
         window._toggleOverlayPalettePinned = _toggleOverlayPalettePinned;
 
         window.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape' || !_overlayPalettePinned) return;
-            _overlayPalettePinned = false;
+            if (e.key !== 'Escape' || _overlayPaletteHidden) return;
+            _overlayPaletteHidden = true;
             _reconcileOverlayPalette();
         }, true);
 
@@ -16085,7 +16098,7 @@
             _overlayColors.splice(idx, 1);
             _overlayVisible.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
-            if (!_overlaySids.length) _overlayPalettePinned = false;
+            if (!_overlaySids.length) _overlayPaletteHidden = false;
             renderIsland();
             _reconcileOverlayPalette();
             updateView();
@@ -18464,7 +18477,7 @@
             },
             crop: { kind: 'transient', activateOnOpen: true, deactivateOnClose: false },
         };
-        const _TOOL_ORTHO_ALLOWED = new Set(['crop', 'roi']);
+        const _TOOL_ORTHO_ALLOWED = new Set(['crop', 'overlay', 'roi']);
         const TOOL_HELP = {
             comparecenter: 'compare',
             qmri:         'tool-qmri',
@@ -22363,7 +22376,7 @@
                 run: (ctx, e) => { _openDirectToolOrExplain('segmentation'); },
             },
             'tool.overlayDirect': {
-                title: 'Show overlay palette',
+                title: 'Toggle overlay HUD',
                 when: [],
                 run: (ctx, e) => { _toggleOverlayPalettePinned(); },
             },
@@ -31320,6 +31333,7 @@
             _reconcileRoiColorbarControls();
             if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
+            if (typeof _reconcileOverlayPalette === 'function') _reconcileOverlayPalette();
             if (_mainHoverPinEligible()) _renderHoverPins();
             else _clearHoverPins();
             if (!_mainLoupeEligible()) _endMainLoupe();
