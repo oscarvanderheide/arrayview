@@ -3425,11 +3425,153 @@ def _print_dir_collection_summary(summary):
 # ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
+def _instance_public_dict(record) -> dict[str, object]:
+    value = record.to_dict()
+    value.pop("control_token", None)
+    return value
+
+
+def _handle_management_command(argv: list[str]) -> bool:
+    """Handle dependency-light management subcommands before the file CLI."""
+    if not argv or argv[0] not in {"doctor", "instances", "stop"}:
+        return False
+    command = argv[0]
+    parser = argparse.ArgumentParser(prog=f"arrayview {command}")
+    from arrayview._instance_registry import InstanceRegistry
+
+    if command == "instances":
+        parser.add_argument("--json", action="store_true")
+        args = parser.parse_args(argv[1:])
+        rows = [
+            _instance_public_dict(record)
+            for record in InstanceRegistry().discover(clean_stale=True)
+        ]
+        if args.json:
+            print(json.dumps({"instances": rows}, indent=2, sort_keys=True))
+        elif not rows:
+            print("No running ArrayView instances.")
+        else:
+            for row in rows:
+                print(
+                    f"{row['instance_id']}  port={row['port']}  "
+                    f"pid={row['pid']}  owner={row['owner_mode']}  "
+                    f"version={row['package_version']}"
+                )
+        return True
+
+    if command == "stop":
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("instance_id", nargs="?")
+        group.add_argument("--all", action="store_true")
+        args = parser.parse_args(argv[1:])
+        records = InstanceRegistry().discover(clean_stale=True)
+        selected = (
+            records
+            if args.all
+            else [record for record in records if record.instance_id == args.instance_id]
+        )
+        if not selected:
+            parser.error("no matching running ArrayView instance")
+        for record in selected:
+            message, _pid = _stop_verified_server(record.port)
+            print(f"[ArrayView] {record.instance_id}: {message}")
+        return True
+
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--window",
+        choices=["native", "browser", "vscode", "inline", "none"],
+    )
+    args = parser.parse_args(argv[1:])
+    from arrayview._launch_plan import (
+        Invocation,
+        LaunchIntent,
+        plan_launch,
+        snapshot_launch_environment,
+    )
+
+    snapshot = snapshot_launch_environment(
+        args.port,
+        Invocation.CLI,
+        requested_window=args.window,
+    )
+    plan = plan_launch(
+        LaunchIntent(
+            Invocation.CLI,
+            args.port,
+            requested_window=args.window,
+            window_explicit=args.window is not None,
+        ),
+        snapshot,
+    )
+    rows = [
+        _instance_public_dict(record)
+        for record in InstanceRegistry().discover(clean_stale=True)
+    ]
+    snapshot_dict = snapshot.to_dict()
+    snapshot_dict["env_vars"] = {
+        key: "<redacted>"
+        for key in sorted(snapshot_dict.get("env_vars", {}))
+    }
+    remediation = []
+    if plan.failure is not None:
+        messages = {
+            "invalid_port": "Choose a port between 1 and 65535.",
+            "invalid_window": "Choose native, browser, vscode, inline, or none.",
+            "vscode_unavailable": "Open from a VS Code terminal or choose browser.",
+            "remote_port_conflict": "Stop the recorded instance or choose a free forwarded port.",
+        }
+        remediation.append(
+            {
+                "code": plan.failure.value,
+                "message": messages[plan.failure.value],
+            }
+        )
+    elif snapshot.server.port_busy and not snapshot.server.arrayview_server_alive:
+        remediation.append(
+            {
+                "code": "foreign_port_occupant",
+                "message": (
+                    "Choose a different port; ArrayView will not stop this listener."
+                ),
+            }
+        )
+    report = {
+        "snapshot": snapshot_dict,
+        "plan": plan.to_dict(),
+        "instances": rows,
+        "remediation": remediation,
+    }
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"Environment: {plan.environment.value}")
+        print(
+            f"Server: {plan.server_owner.value} on port {plan.effective_port} "
+            f"({plan.registration.value})"
+        )
+        print(f"Display: {plan.display.value}")
+        print("Reasons: " + (", ".join(plan.reasons) or "default policy"))
+        print(f"Instances: {len(rows)}")
+        for row in rows:
+            print(
+                f"  {row['instance_id']} port={row['port']} pid={row['pid']} "
+                f"owner={row['owner_mode']} package={row['package_version']} "
+                f"protocol={row['protocol_version']}"
+            )
+        for action in remediation:
+            print(f"Remediation [{action['code']}]: {action['message']}")
+    return True
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
     # Handle "arrayview config ..." subcommand before argparse
     if len(sys.argv) > 1 and sys.argv[1] == "config":
         _handle_config_command(sys.argv[2:])
+        return
+    if _handle_management_command(sys.argv[1:]):
         return
 
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
