@@ -2,10 +2,12 @@
 
 ## SSH
 
-Forward port 8000 when connecting over SSH:
+Start ArrayView on the remote host, then forward its port when connecting over
+SSH:
 
 ```bash
 ssh -L 8000:localhost:8000 user@remote
+arrayview data.npy --port 8000
 ```
 
 Then open `http://localhost:8000` in your local browser.
@@ -13,6 +15,9 @@ Then open `http://localhost:8000` in your local browser.
 ## VS Code
 
 Auto-detects VS Code terminals and opens in a VS Code tab. Works automatically.
+
+The same routing applies when `view()` is called from Python, MATLAB, or Julia.
+See [MATLAB and Julia](foreign-hosts.md).
 
 ## VS Code tunnel
 
@@ -38,8 +43,8 @@ HTTP/WebSocket routes as local browser mode.
 
 ### Persistent server mode
 
-For multi-hop setups or when sharing the viewer URL, you can run the server
-explicitly:
+Normal launches start or reuse the required server automatically. For multi-hop
+setups or a shared viewer URL, run a persistent server explicitly:
 
 ```bash
 arrayview --serve
