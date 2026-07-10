@@ -4658,6 +4658,13 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: True)
         monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: True)
+        monkeypatch.setattr(launcher._platform_mod, "_in_jupyter", lambda: True)
+        monkeypatch.setattr(
+            launcher._platform_mod, "_in_vscode_terminal", lambda: True
+        )
+        monkeypatch.setattr(
+            launcher._platform_mod, "_is_vscode_remote", lambda: True
+        )
         monkeypatch.setattr(launcher, "_server_alive", lambda port: port == 8123)
         monkeypatch.setattr(
             launcher,

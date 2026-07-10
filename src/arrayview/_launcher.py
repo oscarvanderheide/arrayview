@@ -2031,6 +2031,7 @@ def view(
     rgb_primary = rgbs[0]
 
     # --- Normalise string window modes ---
+    _raw_window = window
     _window_request = _normalize_view_window_request(window, inline)
     window = _window_request["window"]
     inline = _window_request["inline"]
@@ -2039,90 +2040,76 @@ def view(
     _explicit_inline = bool(_window_request["explicit_inline"])
     _explicit_window = bool(_window_request["explicit_window"])
 
-    # Remote/tunnel: if the caller didn't override the port and a --serve server
-    # is already running on the CLI default (8000), use that instead of 8123.
-    _CLI_DEFAULT_PORT = 8000
-    port = _resolve_view_port(
-        port,
-        is_vscode_remote=_is_vscode_remote(),
-        cli_default_port_alive=_server_alive(_CLI_DEFAULT_PORT),
+    from arrayview._launch_plan import (
+        Display,
+        Invocation,
+        LaunchIntent,
+        plan_launch,
+        snapshot_launch_environment,
     )
 
-    # --- Julia path: only single-array supported ---
     if _is_julia_env():
+        _invocation = Invocation.JULIA
+    elif _platform_mod._in_matlab():
+        _invocation = Invocation.MATLAB
+    else:
+        _invocation = Invocation.PYTHON
+
+    if isinstance(_raw_window, str):
+        _requested_window = _raw_window
+    elif _raw_window is True:
+        _requested_window = "native"
+    elif _raw_window is False:
+        _requested_window = "none"
+    else:
+        _requested_window = None
+
+    # PythonCall historically treats window=False as an inline Julia display.
+    # Keep that public quirk while routing the resulting mode through the plan.
+    if _invocation is Invocation.JULIA and _raw_window is False:
+        _requested_window = "inline"
+        inline = True
+
+    _launch_snapshot = snapshot_launch_environment(
+        port, _invocation, _requested_window
+    )
+    _launch_plan = plan_launch(
+        LaunchIntent(
+            invocation=_invocation,
+            port=port,
+            requested_window=_requested_window,
+            inline=inline,
+            window_explicit=_explicit_window,
+            inline_explicit=_explicit_inline,
+        ),
+        _launch_snapshot,
+    )
+    if not _launch_plan.ok:
+        raise ValueError(f"Cannot launch ArrayView: {_launch_plan.failure.value}")
+
+    port = _launch_plan.effective_port
+    inline = _launch_plan.display is Display.INLINE
+    window = _launch_plan.display is Display.NATIVE
+    _force_browser = _launch_plan.display is Display.BROWSER
+    _force_vscode = _launch_plan.display is Display.VSCODE
+    _suppress_open = _launch_plan.display is Display.NONE
+
+    # --- Julia path: only single-array supported ---
+    if _invocation is Invocation.JULIA:
         if n_arrays > 1:
             raise NotImplementedError(
                 "Multi-array view() is not yet supported in Julia mode"
             )
 
-        if window is True:
-            _inline, _window = False, True
-        elif inline is True or window is False:
-            _inline, _window = True, False
-        elif inline is False:
-            _inline, _window = False, False
-        else:
-            _inline = _in_julia_jupyter()
-            _window = False
         return _view_julia(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
             port,
-            window=_window,
-            inline=_inline,
+            window=window,
+            inline=inline,
             height=height,
             floating=floating,
         )
-
-    is_jupyter = _in_jupyter()
-    from arrayview._config import get_window_default
-    from arrayview._platform import detect_environment
-
-    display_plan = _resolve_view_display_defaults(
-        inline=inline,
-        window=window,
-        is_jupyter=is_jupyter,
-        explicit_window=_explicit_window,
-        explicit_inline=_explicit_inline,
-        force_browser=_force_browser,
-        force_vscode=_force_vscode,
-        config_window=get_window_default(detect_environment()),
-    )
-    inline = display_plan["inline"]
-    window = display_plan["window"]
-    _force_browser = bool(display_plan["force_browser"])
-    _force_vscode = bool(display_plan["force_vscode"])
-
-    vscode_promotion = _promote_view_to_vscode_terminal(
-        in_vscode_terminal=_in_vscode_terminal(),
-        inline=inline,
-        window=window,
-        explicit_window=_explicit_window,
-        explicit_inline=_explicit_inline,
-        force_vscode=_force_vscode,
-        force_browser=_force_browser,
-    )
-    window = vscode_promotion["window"]
-    _force_vscode = bool(vscode_promotion["force_vscode"])
-
-    # Julia/PythonCall (second check after inline/window resolution)
-    if not inline and _is_julia_env():
-        if n_arrays > 1:
-            raise NotImplementedError(
-                "Multi-array view() is not yet supported in Julia mode"
-            )
-        return _view_julia(
-            np.array(data) if not isinstance(data, np.ndarray) else data,
-            name,
-            port,
-            window,
-            floating=floating,
-        )
-
-    if _is_vscode_remote() and _in_jupyter() and inline is not False:
-        inline = False
-        window = False
-        _force_vscode = True
 
     # VS Code tunnel/remote: use the server + WebSocket path.
     # WS works through the devtunnel when the port is public — the extension
@@ -2187,9 +2174,22 @@ def view(
                 _ipy_display(iframe)
                 return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
 
-            _open_browser(
-                url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}", floating=floating
-            )
+            if _launch_plan.display is Display.NATIVE:
+                _session_mod._window_process = _open_webview_with_fallback(
+                    _shell_url(port, sid, name, compare_sids=_compare_sids),
+                    1400,
+                    900,
+                    shell_port=port,
+                    floating=floating,
+                )
+            elif not _suppress_open:
+                _open_browser(
+                    url_viewer,
+                    force_vscode=_force_vscode,
+                    blocking=True,
+                    title=f"ArrayView: {name}",
+                    floating=floating,
+                )
             _print_viewer_location(url_viewer)
             if n_arrays == 1:
                 return ViewHandle(url_viewer, sid, port)
@@ -2420,7 +2420,7 @@ def view(
                 _open_browser(
                     _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
                 )
-    else:
+    elif not _suppress_open:
         if (
             window
             and not can_native_window
