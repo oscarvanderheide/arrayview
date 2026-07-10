@@ -1,8 +1,23 @@
 # Launch Reliability Plan
 
-Status: planning, 2026-07-10. This supersedes the first launch-routing plan.
+Status: implementation in progress, 2026-07-10. This supersedes the first
+launch-routing plan.
 The earlier work added environment snapshots and several targeted fixes, but the
 shared planner and end-to-end recovery protocol were not completed.
+
+Current implementation status:
+
+- complete locally: executable planner, CLI and `view()` display execution,
+  diagnostics, invocation matrix, instance identity/registry/startup lock,
+  identity-safe stop, explicit handle cleanup, structured opener results,
+  versioned VS Code request/ACK, verified backend readiness, doctor/instances/
+  stop commands, host docs, bundled VSIX, and three-OS CI configuration;
+- foundation complete: shared `SessionSpec` and registration capability model;
+- requires real tunnel evidence: exact multi-window routing, forwarded URL and
+  privacy behavior, reconnect/reload recovery, and ACK timing;
+- still future work: authenticated viewer access for public tunnel exposure,
+  full registration migration to `SessionSpec`, and automatic browser/notebook
+  lease expiry beyond explicit close/panel release.
 
 ## Outcome
 

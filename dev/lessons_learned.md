@@ -2,6 +2,27 @@
 
 Hard-won knowledge from past development sessions. Check this before starting work on related areas.
 
+## Launch Identity and Ownership
+
+**Problem:** A port and PID are not sufficient evidence that a server is stale
+or belongs to ArrayView. Concurrent launchers can also both observe a free port
+before either child binds it.
+**Solution:** Use an instance UUID, process-start identity, protocol/package
+version, ownership mode, per-user registry record, and startup lock. Recheck the
+server after acquiring the lock. Stop only when `/ping`, the live process birth
+identity, and the registry record all agree. Never enumerate and kill arbitrary
+port listeners.
+
+## VS Code Viewer Readiness
+
+**Problem:** Writing a signal file proves neither that the intended VS Code
+window claimed it nor that the forwarded backend is reachable.
+**Solution:** Correlate request, window, and server IDs through atomic ACK states:
+`claimed`, `port_resolved`, `panel_opened`, `visibility_verified`, and
+`backend_ready`. Validate `/ping` JSON and the expected instance ID through the
+resolved URL. A blocking VS Code launch fails closed unless `backend_ready`
+arrives; local mocks do not replace a real tunnel handoff.
+
 ## mex Scaffold Drift
 
 **Problem:** `mex check` can produce noisy `MISSING_PATH` errors when `.mex` docs put a whole shell command or raw URL in one inline code span.
