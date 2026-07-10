@@ -81,6 +81,113 @@ def _server_mod():
     return _server_mod_cache
 
 
+def _register_server_runtime(port: int, owner_mode: str):
+    """Register this process identity after its listener has been reserved."""
+    from arrayview import __version__
+    from arrayview._instance_registry import InstanceRecord, InstanceRegistry
+
+    registry = InstanceRegistry()
+    log_directory = registry.directory / "logs"
+    log_directory.mkdir(parents=True, exist_ok=True)
+    record = InstanceRecord.create(
+        port=port,
+        protocol_version=_server_mod().SERVER_PROTOCOL_VERSION,
+        package_version=__version__,
+        owner_mode=owner_mode,
+        log_path=str(log_directory / f"server-{os.getpid()}.log"),
+    )
+    registry.write(record)
+    _server_mod().configure_server_runtime(
+        instance_id=record.instance_id,
+        process_start=record.process_start,
+        owner_mode=record.owner_mode,
+        started_at=record.started_at,
+        port=record.port,
+    )
+    return registry, record
+
+
+def _stop_verified_server(port: int) -> tuple[str, int | None]:
+    """Stop the verified ArrayView process on *port*, never a port occupant."""
+    from arrayview._instance_registry import (  # noqa: PLC0415
+        InstanceRegistry,
+        process_start_identity,
+    )
+
+    try:
+        with urllib.request.urlopen(
+            f"http://localhost:{port}/ping", timeout=1.0
+        ) as response:
+            status = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return "No verified ArrayView server found", None
+
+    if status.get("service") != "arrayview" or status.get("port") != port:
+        return "Refusing to stop an unverified listener", None
+    try:
+        pid = int(status["pid"])
+        claimed_start = str(status["process_start"])
+        instance_id = str(status["instance_id"])
+    except (KeyError, TypeError, ValueError):
+        return "Refusing to stop an unverified listener", None
+    if not claimed_start or not instance_id or process_start_identity(pid) != claimed_start:
+        return "Refusing to stop an unverified or stale process", None
+
+    registry = InstanceRegistry()
+    matching_record = next(
+        (
+            record
+            for record in registry.discover(clean_stale=True)
+            if record.instance_id == instance_id
+            and record.port == port
+            and record.pid == pid
+            and record.process_start == claimed_start
+        ),
+        None,
+    )
+    if matching_record is None:
+        return "Refusing to stop an unowned ArrayView process", None
+
+    import signal as _signal
+
+    try:
+        os.kill(pid, _signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except (OSError, PermissionError) as exc:
+        return f"Failed to stop ArrayView process {pid}: {exc}", None
+
+    deadline = time.monotonic() + 1.0
+    while process_start_identity(pid) == claimed_start and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if process_start_identity(pid) == claimed_start:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                os.kill(pid, _signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"Failed to stop ArrayView process {pid}: {exc}", None
+        deadline = time.monotonic() + 2.0
+        while (
+            process_start_identity(pid) == claimed_start
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        if process_start_identity(pid) == claimed_start:
+            return f"Failed to stop ArrayView process {pid}: still running", None
+
+    registry.remove(matching_record.instance_id)
+    return f"Killed process {pid} on port {port}", pid
+
+
 # ---------------------------------------------------------------------------
 # Lazy uvicorn import
 # ---------------------------------------------------------------------------
@@ -1212,40 +1319,73 @@ def _handle_cli_spawned_daemon(
         f" dir_case_regex={repr(dir_case_regex)},"
         f")"
     )
-    subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=(sys.platform != "win32"),
-    )
-
     early_native_shell_opened = False
     early_native_shell_proc = None
     early_native_shell_connected = False
-    if (
-        use_native_shell
-        and not is_remote
-        and not overlay_files
-        and not dir_overlay_specs
-        and not compare_files
-        and not sys.platform.startswith("linux")
-    ):
-        # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
-        # parent shell was created from inline data. Let Linux open the normal
-        # HTTP shell after the daemon is listening instead.
-        url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
-        early_native_shell_opened, early_native_shell_proc = _open_webview_cli_tracked(
-            url_shell_early, 1400, 900, shell_port=port
+
+    from arrayview._instance_registry import InstanceRegistry
+
+    with InstanceRegistry().startup_lock(timeout=20.0):
+        if _server_alive(port):
+            if dir_patterns is not None:
+                print(
+                    "Error: a concurrent ArrayView launch claimed the requested "
+                    f"port {port}, and --dir cannot register with an existing server. "
+                    "Retry with a different --port.",
+                    flush=True,
+                )
+                sys.exit(1)
+            _handle_cli_existing_server(
+                port=port,
+                base_file=base_file,
+                name=name,
+                compare_files=compare_files,
+                overlay_files=overlay_files,
+                rgb=rgb,
+                vectorfield=vectorfield,
+                vfield_components_dim=vfield_components_dim,
+                use_native_shell=use_native_shell,
+                dims_override=dims_override,
+                watch=watch,
+                window_mode=window_mode,
+                floating=floating,
+                select=select,
+            )
+            return
+
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=(sys.platform != "win32"),
         )
 
-    if not _wait_for_port(port, timeout=15.0, tcp_only=True):
-        print(
-            f"Error: ArrayView server failed to start on port {port}. "
-            "Use --port to pick another."
-        )
-        sys.exit(1)
+        if (
+            use_native_shell
+            and not is_remote
+            and not overlay_files
+            and not dir_overlay_specs
+            and not compare_files
+            and not sys.platform.startswith("linux")
+        ):
+            # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
+            # parent shell was created from inline data. Let Linux open the normal
+            # HTTP shell after the daemon is listening instead.
+            url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
+            early_native_shell_opened, early_native_shell_proc = (
+                _open_webview_cli_tracked(
+                    url_shell_early, 1400, 900, shell_port=port
+                )
+            )
+
+        if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+            print(
+                f"Error: ArrayView server failed to start on port {port}. "
+                "Use --port to pick another."
+            )
+            sys.exit(1)
 
     try:
         compare_sids = _load_compare_sids(port, compare_files)
@@ -1583,7 +1723,6 @@ async def _serve_background(
     _loading_port = None  # reset for this server lifetime
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
     _session_mod.SERVER_PORT = port
-    _server_mod().configure_server_runtime(port=port, owner_mode=owner_mode)
     # Bind on every loopback address that resolves for ``localhost`` (both
     # ``::1`` and ``127.0.0.1``).  VS Code's port auto-forward detection
     # scans IPv4 loopback; an IPv6-only ``[::1]`` listener is not reliably
@@ -1592,6 +1731,7 @@ async def _serve_background(
     # macOS native shell connects via ``localhost`` → ``::1``, so we must
     # keep the IPv6 listener too.
     socks = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(port, owner_mode)
 
     # Bind the loading-page server on an OS-chosen ephemeral port.
     # This uses only stdlib so it starts in microseconds — well before
@@ -1618,7 +1758,10 @@ async def _serve_background(
     server = _uvicorn().Server(config)
     if stop_when_closed:
         asyncio.create_task(_stop_server_when_viewer_closes(server))
-    await server.serve(sockets=socks)
+    try:
+        await server.serve(sockets=socks)
+    finally:
+        registry.remove(record.instance_id)
 
 
 def _with_loading(url: str) -> str:
@@ -2734,8 +2877,8 @@ def _serve_empty(port: int) -> None:
     user to re-run ``--serve`` or re-set port visibility.
     """
     _session_mod.SERVER_PORT = port
-    _server_mod().configure_server_runtime(port=port, owner_mode="persistent")
     socks = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(port, "persistent")
 
     def _run_empty_uvicorn():
         config = _uvicorn().Config(
@@ -2752,6 +2895,7 @@ def _serve_empty(port: int) -> None:
             time.sleep(1)
     except KeyboardInterrupt:
         pass
+    registry.remove(record.instance_id)
     os._exit(0)
 
 
@@ -2784,12 +2928,12 @@ def _serve_daemon(
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
-    _server_mod().configure_server_runtime(
-        port=port,
-        owner_mode="persistent" if persist else "transient",
-    )
 
     sock = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(
+        port,
+        "persistent" if persist else "transient",
+    )
 
     def _run_uvicorn_on_socket():
         config = _uvicorn().Config(
@@ -2936,6 +3080,7 @@ def _serve_daemon(
         # really gone, aside from the short grace period inside
         # _wait_for_viewer_close for page refreshes.
         _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
+    registry.remove(record.instance_id)
     os._exit(0)
 
 
@@ -3628,74 +3773,8 @@ def arrayview():
 
     # -- --kill: stop the server on the given port --
     if args.kill:
-        import signal as _signal
-
-        if sys.platform == "win32":
-            result = subprocess.run(
-                ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
-            )
-            killed = False
-            for line in result.stdout.splitlines():
-                if f":{args.port}" in line and "LISTENING" in line:
-                    parts = line.split()
-                    try:
-                        pid = int(parts[-1])
-                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
-                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
-                        killed = True
-                    except Exception as e:
-                        print(f"[ArrayView] Failed to kill process: {e}")
-            if not killed:
-                print(f"[ArrayView] No process found listening on port {args.port}")
-        else:
-            result = subprocess.run(
-                ["lsof", "-ti", f"tcp:{args.port}", "-sTCP:LISTEN"],
-                capture_output=True,
-                text=True,
-            )
-            pids = [
-                int(p) for p in result.stdout.strip().split() if p.strip().isdigit()
-            ]
-            if not pids:
-                print(f"[ArrayView] No process found listening on port {args.port}")
-            else:
-                for pid in pids:
-                    try:
-                        os.kill(pid, _signal.SIGTERM)
-                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
-                    except ProcessLookupError:
-                        pass
-                deadline = time.time() + 1.0
-                while time.time() < deadline:
-                    alive = []
-                    for pid in pids:
-                        try:
-                            os.kill(pid, 0)
-                            alive.append(pid)
-                        except ProcessLookupError:
-                            pass
-                    if not alive:
-                        break
-                    time.sleep(0.05)
-                else:
-                    for pid in alive:
-                        try:
-                            os.kill(pid, _signal.SIGKILL)
-                            print(f"[ArrayView] Force-killed process {pid} on port {args.port}")
-                        except ProcessLookupError:
-                            pass
-                    deadline = time.time() + 2.0
-                    while time.time() < deadline:
-                        alive = []
-                        for pid in pids:
-                            try:
-                                os.kill(pid, 0)
-                                alive.append(pid)
-                            except ProcessLookupError:
-                                pass
-                        if not alive:
-                            break
-                        time.sleep(0.05)
+        message, _pid = _stop_verified_server(args.port)
+        print(f"[ArrayView] {message}")
 
         from arrayview._vscode_signal import _cleanup_zombie_registrations
         cleaned = _cleanup_zombie_registrations(verbose=True)

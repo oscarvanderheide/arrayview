@@ -128,6 +128,9 @@ def _windows_process_start(pid: int) -> str | None:
         kernel32.CloseHandle(handle)
 
 
+_CURRENT_PROCESS_START = process_start_identity(os.getpid())
+
+
 class InstanceRegistry:
     def __init__(self, directory: Path | str | None = None):
         self.directory = Path(directory) if directory is not None else runtime_directory()
@@ -189,7 +192,11 @@ class InstanceRegistry:
                      poll_interval: float = 0.02) -> Iterator[None]:
         self._prepare()
         deadline = time.monotonic() + timeout
-        identity = process_start_identity(os.getpid()) or "unknown"
+        identity = (
+            _CURRENT_PROCESS_START
+            or process_start_identity(os.getpid())
+            or "unknown"
+        )
         lock_token = uuid.uuid4().hex
         payload = json.dumps(
             {

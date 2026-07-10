@@ -60,3 +60,22 @@ def test_configure_runtime_retains_identity_when_setting_known_port(monkeypatch)
     assert updated.started_at == original.started_at
     assert updated.port == 9000
     assert updated.owner_mode == "transient"
+
+
+def test_launcher_registration_uses_same_identity_as_status(monkeypatch, tmp_path):
+    import arrayview._launcher as launcher
+
+    original = session_mod.SERVER_RUNTIME
+    monkeypatch.setenv("ARRAYVIEW_RUNTIME_DIR", str(tmp_path))
+    try:
+        registry, record = launcher._register_server_runtime(9000, "transient")
+        payload = server.ping()
+    finally:
+        monkeypatch.setattr(session_mod, "SERVER_RUNTIME", original)
+
+    assert payload["instance_id"] == record.instance_id
+    assert payload["process_start"] == record.process_start
+    assert payload["port"] == record.port == 9000
+    assert payload["owner_mode"] == record.owner_mode == "transient"
+    assert registry.discover() == [record]
+    assert registry.remove(record.instance_id)
