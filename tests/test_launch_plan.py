@@ -340,6 +340,39 @@ def test_cli_browser_flag_and_config_precedence():
     assert flag.display.value == "browser"
 
 
+def test_explicit_inline_false_keeps_local_native_default_and_skips_config():
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(config_default="inline", native_backend="gtk")
+    plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123, inline=False), facts)
+
+    assert plan.display.value == "native"
+    assert "config_window_default" not in plan.reasons
+
+
+def test_local_matlab_prefers_native_when_available():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(environment=Environment.MATLAB, native_backend="gtk")
+    plan = plan_launch(LaunchIntent(Invocation.MATLAB, 8123), facts)
+
+    assert plan.display.value == "native"
+    assert plan.server_owner.value == "spawned_daemon"
+
+
+def test_vscode_explorer_uses_extension_owned_subprocess():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(
+        environment=Environment.VSCODE_LOCAL,
+        in_vscode_terminal=True,
+    )
+    plan = plan_launch(LaunchIntent(Invocation.VSCODE_EXPLORER, 8123), facts)
+
+    assert plan.server_owner.value == "spawned_daemon"
+    assert plan.registration.value == "daemon_startup"
+
+
 def test_existing_server_is_reused_through_http():
     from arrayview._launch_plan import Invocation, LaunchIntent, ServerSnapshot, plan_launch
 

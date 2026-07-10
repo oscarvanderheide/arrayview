@@ -189,7 +189,12 @@ def plan_launch(
     if intent.browser and window is None:
         window = "browser"
         reasons.append("browser_flag")
-    if window is None and facts.config_default:
+    if (
+        window is None
+        and facts.config_default
+        and not intent.browser
+        and intent.inline is None
+    ):
         window = facts.config_default.strip().lower()
         reasons.append("config_window_default")
     if window not in valid_windows:
@@ -223,7 +228,7 @@ def plan_launch(
         owner = ServerOwner.SPAWNED_DAEMON
         registration = Registration.DAEMON_STARTUP
         reasons.append(f"{environment.value}_requires_subprocess")
-    elif intent.invocation is Invocation.CLI:
+    elif intent.invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}:
         owner = (
             ServerOwner.PERSISTENT
             if intent.persistent
@@ -280,7 +285,7 @@ def _display_policy(
     ):
         reasons.append("vscode_environment" if window is None else "explicit_vscode")
         return Display.VSCODE, Display.BROWSER, True
-    if window == "browser" or inline is False and window is None:
+    if window == "browser":
         reasons.append("explicit_browser")
         return Display.BROWSER, None, False
     if window == "native":
@@ -292,7 +297,7 @@ def _display_policy(
             return Display.NATIVE, Display.BROWSER, True
         reasons.append("native_unavailable")
         return Display.BROWSER, None, False
-    if native_available and environment is Environment.TERMINAL:
+    if native_available and environment in {Environment.TERMINAL, Environment.MATLAB}:
         reasons.append("native_available")
         return Display.NATIVE, Display.BROWSER, True
     reasons.append("browser_default")
