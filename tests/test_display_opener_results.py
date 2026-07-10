@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from arrayview import _vscode_browser as browser
 from arrayview._vscode_signal import AckState, SignalRequest
 
@@ -90,10 +92,12 @@ def test_vscode_signal_reports_correlated_failure(monkeypatch):
         ),
     )
 
-    result = browser._open_browser("http://localhost:8123/", blocking=True)
-
-    assert result.state is browser.OpenState.FAILED
-    assert result.detail == "wrong window"
+    with pytest.raises(RuntimeError, match="wrong window"):
+        browser._open_browser(
+            "http://localhost:8123/",
+            blocking=True,
+            force_vscode=True,
+        )
 
 
 def test_plain_ssh_reports_printed_guidance(monkeypatch):

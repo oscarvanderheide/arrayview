@@ -291,6 +291,12 @@ def _open_browser(
         return OpenResult(OpenState.FAILED, "system-browser", "no opener accepted the URL")
 
     if blocking:
-        return _do()
+        result = _do()
+        if force_vscode and not result:
+            raise RuntimeError(
+                "[ArrayView] VS Code viewer failed to become ready: "
+                f"{result.detail or result.state.value}"
+            )
+        return result
     threading.Thread(target=_do, daemon=True).start()
     return OpenResult(OpenState.ACCEPTED, "background-thread")
