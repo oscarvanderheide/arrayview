@@ -83,6 +83,8 @@ def test_launch_data_enums_match_refactor_contract():
         "python",
         "jupyter",
         "julia",
+        "matlab",
+        "vscode_explorer",
         "codex",
     }
     assert {item.value for item in Environment} == {
@@ -92,6 +94,7 @@ def test_launch_data_enums_match_refactor_contract():
         "ssh",
         "jupyter",
         "julia",
+        "matlab",
     }
     assert {item.value for item in Transport} == {
         "http",
@@ -233,3 +236,189 @@ def test_importing_launch_plan_keeps_server_and_numpy_lazy():
     )
 
     assert completed.stdout.strip() == "False False"
+
+
+def _facts(**overrides):
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchEnvironmentSnapshot,
+        ServerSnapshot,
+    )
+
+    values = dict(
+        invocation=Invocation.PYTHON,
+        requested_window=None,
+        environment=Environment.TERMINAL,
+        platform="linux",
+        env_vars={},
+        config_default=None,
+        native_backend=None,
+        server=ServerSnapshot(8123, False, False),
+        in_jupyter=False,
+        in_julia=False,
+        in_vscode_terminal=False,
+        is_vscode_remote=False,
+        in_vscode_tunnel=False,
+        ssh_connection=False,
+        ssh_client=False,
+        hostname="test-host",
+    )
+    values.update(overrides)
+    return LaunchEnvironmentSnapshot(**values)
+
+
+def test_plan_is_pure_and_json_serializable():
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(native_backend="gtk")
+    plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
+
+    assert plan.ok
+    assert plan.display.value == "native"
+    assert plan.server_owner.value == "in_process"
+    assert plan.registration.value == "in_process_session"
+    assert plan.fallback_display.value == "browser"
+    assert "native_available" in plan.reasons
+    assert json.loads(json.dumps(plan.to_dict()))["display"] == "native"
+
+
+@pytest.mark.parametrize(
+    "environment, invocation, expected_display",
+    [
+        ("terminal", "cli", "browser"),
+        ("vscode_local", "cli", "vscode"),
+        ("vscode_remote", "python", "vscode"),
+        ("jupyter", "python", "inline"),
+        ("julia", "julia", "browser"),
+        ("ssh", "python", "browser"),
+    ],
+)
+def test_default_display_matrix(environment, invocation, expected_display):
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchIntent,
+        plan_launch,
+    )
+
+    env = Environment(environment)
+    inv = Invocation(invocation)
+    facts = _facts(
+        invocation=inv,
+        environment=env,
+        in_jupyter=env is Environment.JUPYTER,
+        in_julia=env is Environment.JULIA,
+        in_vscode_terminal=env is Environment.VSCODE_LOCAL,
+        is_vscode_remote=env is Environment.VSCODE_REMOTE,
+    )
+    assert plan_launch(LaunchIntent(inv, 8123), facts).display.value == expected_display
+
+
+def test_explicit_native_redirects_to_vscode_in_remote():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(environment=Environment.VSCODE_REMOTE, is_vscode_remote=True)
+    plan = plan_launch(LaunchIntent(Invocation.CLI, 8123, "native"), facts)
+
+    assert plan.display.value == "vscode"
+    assert plan.fallback_allowed
+    assert "remote_native_redirected_to_vscode" in plan.reasons
+
+
+def test_cli_browser_flag_and_config_precedence():
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    configured = _facts(config_default="native", native_backend="gtk")
+    explicit = plan_launch(
+        LaunchIntent(Invocation.CLI, 8123, requested_window="browser", browser=True),
+        configured,
+    )
+    flag = plan_launch(LaunchIntent(Invocation.CLI, 8123, browser=True), configured)
+
+    assert explicit.display.value == "browser"
+    assert flag.display.value == "browser"
+
+
+def test_existing_server_is_reused_through_http():
+    from arrayview._launch_plan import Invocation, LaunchIntent, ServerSnapshot, plan_launch
+
+    facts = _facts(server=ServerSnapshot(8123, True, True, 99, "host"))
+    plan = plan_launch(LaunchIntent(Invocation.CLI, 8123), facts)
+
+    assert plan.server_owner.value == "existing"
+    assert plan.registration.value == "http_load"
+
+
+def test_julia_always_spawns_daemon():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(environment=Environment.JULIA, in_julia=True)
+    plan = plan_launch(LaunchIntent(Invocation.JULIA, 8123), facts)
+
+    assert plan.server_owner.value == "spawned_daemon"
+    assert plan.registration.value == "daemon_startup"
+
+
+def test_foreign_port_scans_locally_but_fails_in_remote():
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchFailure,
+        LaunchIntent,
+        ServerSnapshot,
+        plan_launch,
+    )
+
+    busy = ServerSnapshot(8123, True, False)
+    local = plan_launch(LaunchIntent(Invocation.CLI, 8123), _facts(server=busy))
+    remote = plan_launch(
+        LaunchIntent(Invocation.CLI, 8123),
+        _facts(environment=Environment.VSCODE_REMOTE, server=busy),
+    )
+
+    assert local.effective_port == 8124
+    assert local.ok
+    assert remote.failure is LaunchFailure.REMOTE_PORT_CONFLICT
+    assert not remote.ok
+
+
+def test_matlab_uses_subprocess_server_contract():
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    plan = plan_launch(LaunchIntent(Invocation.MATLAB, 8123), _facts())
+
+    assert plan.environment.value == "matlab"
+    assert plan.server_owner.value == "spawned_daemon"
+    assert plan.registration.value == "daemon_startup"
+
+
+def test_vscode_explorer_uses_vscode_display_contract():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(
+        invocation=Invocation.VSCODE_EXPLORER,
+        environment=Environment.VSCODE_LOCAL,
+        in_vscode_terminal=True,
+    )
+    plan = plan_launch(LaunchIntent(Invocation.VSCODE_EXPLORER, 8123), facts)
+
+    assert plan.display.value == "vscode"
+
+
+@pytest.mark.parametrize(
+    "intent, failure",
+    [
+        (("python", 0, None), "invalid_port"),
+        (("python", 70000, None), "invalid_port"),
+        (("python", 8123, "popup"), "invalid_window"),
+    ],
+)
+def test_typed_invalid_intent_failures(intent, failure):
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    invocation, port, window = intent
+    plan = plan_launch(LaunchIntent(Invocation(invocation), port, window), _facts())
+
+    assert plan.failure.value == failure
+    assert plan.transport.value == "none"

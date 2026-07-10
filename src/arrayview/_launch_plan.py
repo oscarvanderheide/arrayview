@@ -37,6 +37,8 @@ class Invocation(_StrEnum):
     PYTHON = "python"
     JUPYTER = "jupyter"
     JULIA = "julia"
+    MATLAB = "matlab"
+    VSCODE_EXPLORER = "vscode_explorer"
     CODEX = "codex"
 
 
@@ -47,6 +49,7 @@ class Environment(_StrEnum):
     SSH = "ssh"
     JUPYTER = "jupyter"
     JULIA = "julia"
+    MATLAB = "matlab"
 
 
 class Transport(_StrEnum):
@@ -75,6 +78,15 @@ class Registration(_StrEnum):
     DAEMON_STARTUP = "daemon_startup"
     IN_PROCESS_SESSION = "in_process_session"
     RELAY = "relay"
+
+
+class LaunchFailure(_StrEnum):
+    """Stable failure codes returned by :func:`plan_launch`."""
+
+    INVALID_PORT = "invalid_port"
+    INVALID_WINDOW = "invalid_window"
+    VSCODE_UNAVAILABLE = "vscode_unavailable"
+    REMOTE_PORT_CONFLICT = "remote_port_conflict"
 
 
 @dataclass(frozen=True)
@@ -116,6 +128,18 @@ class LaunchRequest:
 
 
 @dataclass(frozen=True)
+class LaunchIntent:
+    """Normalized user intent shared by CLI and Python entry points."""
+
+    invocation: Invocation
+    port: int
+    requested_window: str | None = None
+    browser: bool = False
+    inline: bool | None = None
+    persistent: bool = False
+
+
+@dataclass(frozen=True)
 class LaunchPlan:
     invocation: Invocation
     environment: Environment
@@ -125,6 +149,182 @@ class LaunchPlan:
     registration: Registration
     fallback_display: Display | None = None
     fallback_allowed: bool = False
+    requested_port: int = 8123
+    effective_port: int = 8123
+    reasons: tuple[str, ...] = ()
+    failure: LaunchFailure | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.failure is None
+
+    def to_dict(self) -> dict:
+        """Return a JSON-compatible representation suitable for diagnostics."""
+        return _jsonable(asdict(self))
+
+
+def plan_launch(
+    intent: LaunchIntent, facts: LaunchEnvironmentSnapshot
+) -> LaunchPlan:
+    """Compute launch policy without starting servers or opening displays.
+
+    ``facts`` is deliberately supplied by the caller: planning is deterministic
+    and can be exercised without probing the machine or importing server code.
+    """
+    reasons: list[str] = []
+    port = intent.port
+    if not 1 <= port <= 65535:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_PORT, "port_out_of_range"
+        )
+
+    raw_window = intent.requested_window
+    window = raw_window.strip().lower() if isinstance(raw_window, str) else None
+    valid_windows = {None, "native", "browser", "vscode", "inline", "none"}
+    if window not in valid_windows:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_WINDOW, "unknown_window"
+        )
+
+    if intent.browser and window is None:
+        window = "browser"
+        reasons.append("browser_flag")
+    if window is None and facts.config_default:
+        window = facts.config_default.strip().lower()
+        reasons.append("config_window_default")
+    if window not in valid_windows:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_WINDOW, "invalid_config_window"
+        )
+
+    environment = facts.environment
+    if intent.invocation is Invocation.JUPYTER or facts.in_jupyter:
+        environment = Environment.JUPYTER
+    elif intent.invocation is Invocation.JULIA or facts.in_julia:
+        environment = Environment.JULIA
+    elif intent.invocation is Invocation.MATLAB:
+        environment = Environment.MATLAB
+
+    busy_foreign = facts.server.port_busy and not facts.server.arrayview_server_alive
+    if busy_foreign and environment is Environment.VSCODE_REMOTE:
+        return _failed_plan(
+            intent, facts, LaunchFailure.REMOTE_PORT_CONFLICT,
+            "remote_forwarding_requires_requested_port", effective_port=port,
+        )
+    if busy_foreign:
+        port += 1
+        reasons.append("scan_from_next_port")
+
+    if facts.server.arrayview_server_alive:
+        owner = ServerOwner.EXISTING
+        registration = Registration.HTTP_LOAD
+        reasons.append("reuse_compatible_server")
+    elif environment in {Environment.JULIA, Environment.MATLAB}:
+        owner = ServerOwner.SPAWNED_DAEMON
+        registration = Registration.DAEMON_STARTUP
+        reasons.append(f"{environment.value}_requires_subprocess")
+    elif intent.invocation is Invocation.CLI:
+        owner = (
+            ServerOwner.PERSISTENT
+            if intent.persistent
+            else ServerOwner.SPAWNED_DAEMON
+        )
+        registration = Registration.DAEMON_STARTUP
+        reasons.append("cli_server_process")
+    else:
+        owner = ServerOwner.PERSISTENT if intent.persistent else ServerOwner.IN_PROCESS
+        registration = Registration.IN_PROCESS_SESSION
+        reasons.append("python_process_owns_session")
+
+    display, fallback, fallback_allowed = _display_policy(
+        window=window, inline=intent.inline, environment=environment,
+        native_available=facts.native_backend is not None, reasons=reasons,
+    )
+    if display is Display.VSCODE and environment not in {
+        Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE
+    }:
+        return _failed_plan(
+            intent, facts, LaunchFailure.VSCODE_UNAVAILABLE,
+            "vscode_display_requested_outside_vscode", effective_port=port,
+        )
+    return LaunchPlan(
+        invocation=intent.invocation, environment=environment,
+        transport=Transport.HTTP, server_owner=owner, display=display,
+        registration=registration, fallback_display=fallback,
+        fallback_allowed=fallback_allowed, requested_port=intent.port,
+        effective_port=port, reasons=tuple(reasons),
+    )
+
+
+def _display_policy(
+    *,
+    window: str | None,
+    inline: bool | None,
+    environment: Environment,
+    native_available: bool,
+    reasons: list[str],
+) -> tuple[Display, Display | None, bool]:
+    if window == "none":
+        reasons.append("display_disabled")
+        return Display.NONE, None, False
+    if (
+        window == "inline"
+        or inline is True
+        or (window is None and environment is Environment.JUPYTER)
+    ):
+        reasons.append("jupyter_inline" if window is None else "explicit_inline")
+        return Display.INLINE, None, False
+    if window == "vscode" or (
+        window is None
+        and environment in {Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE}
+    ):
+        reasons.append("vscode_environment" if window is None else "explicit_vscode")
+        return Display.VSCODE, Display.BROWSER, True
+    if window == "browser" or inline is False and window is None:
+        reasons.append("explicit_browser")
+        return Display.BROWSER, None, False
+    if window == "native":
+        if environment is Environment.VSCODE_REMOTE:
+            reasons.append("remote_native_redirected_to_vscode")
+            return Display.VSCODE, Display.BROWSER, True
+        if native_available:
+            reasons.append("explicit_native")
+            return Display.NATIVE, Display.BROWSER, True
+        reasons.append("native_unavailable")
+        return Display.BROWSER, None, False
+    if native_available and environment is Environment.TERMINAL:
+        reasons.append("native_available")
+        return Display.NATIVE, Display.BROWSER, True
+    reasons.append("browser_default")
+    return Display.BROWSER, None, False
+
+
+def _failed_plan(
+    intent: LaunchIntent,
+    facts: LaunchEnvironmentSnapshot,
+    failure: LaunchFailure,
+    reason: str,
+    *,
+    effective_port: int | None = None,
+) -> LaunchPlan:
+    return LaunchPlan(
+        invocation=intent.invocation, environment=facts.environment,
+        transport=Transport.NONE, server_owner=ServerOwner.EXTERNAL,
+        display=Display.NONE, registration=Registration.RELAY,
+        requested_port=intent.port,
+        effective_port=intent.port if effective_port is None else effective_port,
+        reasons=(reason,), failure=failure,
+    )
+
+
+def _jsonable(value: object) -> object:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def snapshot_launch_environment(
