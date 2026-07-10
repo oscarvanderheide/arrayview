@@ -5184,6 +5184,7 @@
         /* ── JS: Viewer State Variables ───────────────────────────── */
         let shape = [];
         let collectionSpatialNdim = -1;
+        let raggedSpatialShapes = null;
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
         let indices = [];
@@ -5321,10 +5322,62 @@
         // selection (middle for spatial, 0 otherwise) and the histogram-picker default.
         function _isSpatialDim(i) {
             if (!Array.isArray(shape) || i < 0 || i >= shape.length) return false;
+            if (_isCollectionDim(i)) return false;
             if (i === dim_x || i === dim_y) return true;
             const ref = Math.max(Number(shape[dim_x]) || 0, Number(shape[dim_y]) || 0);
             if (!ref) return false;
             return (Number(shape[i]) || 0) >= 0.25 * ref;
+        }
+
+        function _isCollectionDim(i) {
+            return collectionSpatialNdim >= 0 && i >= collectionSpatialNdim;
+        }
+
+        function _activeRaggedSpatialShape() {
+            if (!Array.isArray(raggedSpatialShapes) || collectionSpatialNdim < 0) return null;
+            const caseIdx = Math.max(0, Math.min(raggedSpatialShapes.length - 1, indices[collectionSpatialNdim] || 0));
+            const row = raggedSpatialShapes[caseIdx] || [];
+            const channelDim = collectionSpatialNdim + 1;
+            const channelIdx = shape.length > channelDim
+                ? Math.max(0, Math.min(row.length - 1, indices[channelDim] || 0))
+                : 0;
+            const spatial = row[channelIdx] || row[0];
+            return Array.isArray(spatial) ? spatial.map(Number) : null;
+        }
+
+        function _firstNonDisplaySpatialDim() {
+            const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
+            for (let i = 0; i < spatialLimit; i++) {
+                if (i !== dim_x && i !== dim_y) return i;
+            }
+            return -1;
+        }
+
+        function _ensureViewingDimsAreSpatial() {
+            const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
+            if (spatialLimit < 2) return;
+            if (dim_x < 0 || dim_y < 0 || dim_x >= spatialLimit || dim_y >= spatialLimit || dim_x === dim_y) {
+                dim_x = 0;
+                dim_y = 1;
+            }
+            if (dim_z >= spatialLimit) dim_z = -1;
+            if (current_slice_dim >= spatialLimit || current_slice_dim === dim_x || current_slice_dim === dim_y) {
+                current_slice_dim = _firstNonDisplaySpatialDim();
+            }
+        }
+
+        function _syncRaggedShapeForCollection() {
+            const spatial = _activeRaggedSpatialShape();
+            if (!spatial) return false;
+            const collectionSizes = shape.slice(collectionSpatialNdim);
+            const nextShape = spatial.concat(collectionSizes);
+            const changed = nextShape.length !== shape.length || nextShape.some((v, i) => v !== shape[i]);
+            shape = nextShape;
+            for (let i = 0; i < shape.length; i++) {
+                indices[i] = Math.max(0, Math.min(shape[i] - 1, indices[i] || 0));
+            }
+            _ensureViewingDimsAreSpatial();
+            return changed;
         }
 
         function _initialIndices() {
@@ -6901,7 +6954,8 @@
         }
 
         function defaultMultiViewDims() {
-            const ranked = [...Array(shape.length).keys()].sort((a, b) => shape[b] - shape[a]);
+            const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
+            const ranked = [...Array(spatialLimit).keys()].sort((a, b) => shape[b] - shape[a]);
             return ranked.slice(0, 3).sort((a, b) => a - b);
         }
 
@@ -13558,6 +13612,9 @@
             collectionSpatialNdim = Number.isInteger(data.collection_spatial_ndim)
                 ? data.collection_spatial_ndim
                 : -1;
+            raggedSpatialShapes = Array.isArray(data.ragged_spatial_shapes)
+                ? data.ragged_spatial_shapes
+                : null;
             isComplex = data.is_complex || false;
             _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
@@ -13591,29 +13648,33 @@
                 const _dx = Number(data.default_dims[0]);
                 const _dy = Number(data.default_dims[1]);
                 if (Number.isInteger(_dx) && Number.isInteger(_dy) && _dx >= 0 && _dy >= 0 &&
-                    _dx < shape.length && _dy < shape.length && _dx !== _dy) {
+                    _dx < shape.length && _dy < shape.length && _dx !== _dy &&
+                    !_isCollectionDim(_dx) && !_isCollectionDim(_dy)) {
                     dim_x = _dx; dim_y = _dy;
                 }
             } else if (shape.length >= 3) {
-                const sorted = shape.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]);
+                const sorted = shape.map((s, i) => [s, i]).filter(([, i]) => !_isCollectionDim(i)).sort((a, b) => b[0] - a[0]);
                 const top2 = [sorted[0][1], sorted[1][1]].sort((a, b) => a - b);
-                if (top2[0] === shape.length - 2 && top2[1] === shape.length - 1) {
-                    dim_x = shape.length - 2; dim_y = shape.length - 1;
+                const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
+                if (top2[0] === spatialLimit - 2 && top2[1] === spatialLimit - 1) {
+                    dim_x = spatialLimit - 2; dim_y = spatialLimit - 1;
                 }
                 // else keep dim_x=0, dim_y=1 (first two are largest or ambiguous)
             }
             // Allow URL override: ?dim_x=N&dim_y=M (set by CLI --dims)
             { const _ux = parseInt(urlParams.get('dim_x')), _uy = parseInt(urlParams.get('dim_y'));
               if (Number.isInteger(_ux) && Number.isInteger(_uy) && _ux >= 0 && _uy >= 0 &&
-                  _ux < shape.length && _uy < shape.length && _ux !== _uy) {
+                  _ux < shape.length && _uy < shape.length && _ux !== _uy &&
+                  !_isCollectionDim(_ux) && !_isCollectionDim(_uy)) {
                   dim_x = _ux; dim_y = _uy;
               } }
             // Initial indices: middle slice on spatial dims, first (0) on the rest.
             indices = _initialIndices();
+            _syncRaggedShapeForCollection();
             // Pick current_slice_dim as first dim that is not dim_x or dim_y
             current_slice_dim = 0;
             for (let _i = 0; _i < shape.length; _i++) {
-                if (_i !== dim_x && _i !== dim_y) { current_slice_dim = _i; break; }
+                if (_i !== dim_x && _i !== dim_y && !_isCollectionDim(_i)) { current_slice_dim = _i; break; }
             }
             activeDim = current_slice_dim;
             // initialize per-dimension flip flags
@@ -13623,9 +13684,13 @@
             const _bootSession = { sid: sid, ndim: shape.length, isComplex: isComplex, isRgb: rgbMode };
             await modeManager.enterMode(new NormalLayout(), [_bootSession]);
             restoreStateFromSessionStorage();
+            _syncRaggedShapeForCollection();
+            _ensureViewingDimsAreSpatial();
             if (stateParam) {
                 const decodedUrlState = decodeStateParam(stateParam);
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
+                _syncRaggedShapeForCollection();
+                _ensureViewingDimsAreSpatial();
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             if (!_useWsMeta) initWebSocket();
@@ -17714,6 +17779,10 @@
             logScale = s.logScale ?? false;
             projectionMode = Number.isInteger(s.projectionMode) && s.projectionMode >= 0 && s.projectionMode < PROJECTION_LABELS.length + 1 ? s.projectionMode : 0;
             projectionDim = Number.isInteger(s.projectionDim) && s.projectionDim >= 0 && s.projectionDim < shape.length ? s.projectionDim : (projectionMode > 0 ? current_slice_dim : -1);
+            if (_isCollectionDim(projectionDim)) {
+                projectionMode = 0;
+                projectionDim = -1;
+            }
             complexMode = s.complexMode ?? 0;
             complexModeEverUsed = s.complexModeEverUsed ?? false;
             flip_x = s.flip_x ?? false;
@@ -18038,6 +18107,7 @@
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
+            _syncRaggedShapeForCollection();
             const view = modeManager.currentViews[0];
             if (view && modeManager.modeName === 'normal') {
                 view.requestRender();
@@ -21283,7 +21353,8 @@
                         // selected, switch to that dim instead of toggling off.
                         const _zCandidate = (activeDim >= 0
                             && activeDim !== dim_x && activeDim !== dim_y
-                            && activeDim !== qmriDim) ? activeDim : -1;
+                            && activeDim !== qmriDim
+                            && !_isCollectionDim(activeDim)) ? activeDim : -1;
                         if (qmriMosaicActive && (_zCandidate < 0 || _zCandidate === _qmriMosaicZDim)) {
                             // Exit qMRI mosaic
                             qmriMosaicActive = false;
@@ -21309,7 +21380,7 @@
                             let zd = _zCandidate;
                             if (zd < 0) {
                                 for (let i = 0; i < shape.length; i++) {
-                                    if (i !== dim_x && i !== dim_y && i !== qmriDim) { zd = i; break; }
+                                    if (i !== dim_x && i !== dim_y && i !== qmriDim && !_isCollectionDim(i)) { zd = i; break; }
                                 }
                             }
                             if (zd < 0) { showStatus('mosaic: no z-dim available'); return; }
@@ -21336,7 +21407,7 @@
                         if (shape.length < 4) return;
                         dim_z = current_slice_dim;
                         do { current_slice_dim = (current_slice_dim + 1) % shape.length; }
-                        while (current_slice_dim === dim_x || current_slice_dim === dim_y || current_slice_dim === dim_z);
+                        while (current_slice_dim === dim_x || current_slice_dim === dim_y || current_slice_dim === dim_z || _isCollectionDim(current_slice_dim));
                     }
                     activeDim = current_slice_dim;
                     _invalidateVolHistCache();
@@ -21784,6 +21855,9 @@
                     // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
                     if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; } // kept inline: emits toast
                     if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; } // kept inline: emits toast
+                    if (_isCollectionDim(current_slice_dim)) {
+                        showStatus('projection: collection dims are index-only'); return;
+                    }
                     if (projectionMode === 0) {
                         projectionMode = 1;
                         projectionDim = current_slice_dim;
@@ -21887,6 +21961,9 @@
                     const _qd = qmriActive ? qmriDim : (compareQmriActive ? compareQmriDim : -1);
                     if (_qd >= 0 && activeDim === _qd) {
                         showStatus('axis assignment: qMRI dim is reserved'); return;
+                    }
+                    if (_isCollectionDim(activeDim)) {
+                        showStatus('axis assignment: collection dims are index-only'); return;
                     }
                     if (activeDim === dim_x) {
                         // already x — flip its direction and repaint immediately
@@ -22114,6 +22191,9 @@
                     if (_qd >= 0 && activeDim === _qd) {
                         showStatus('axis assignment: qMRI dim is reserved'); return;
                     }
+                    if (_isCollectionDim(activeDim)) {
+                        showStatus('axis assignment: collection dims are index-only'); return;
+                    }
                     if (activeDim === dim_y) {
                         // already y — flip its direction and repaint immediately
                         flip_y = !flip_y;
@@ -22189,7 +22269,7 @@
                             activeDim = (activeDim - 1 + shape.length) % shape.length;
                             _skipQmriControlDim(-1);
                         }
-                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
                         flashAxesIndicators();
@@ -22251,7 +22331,7 @@
                             activeDim = (activeDim + 1) % shape.length;
                             _skipQmriControlDim(1);
                         }
-                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
                         flashAxesIndicators();
@@ -25795,6 +25875,10 @@
         function enterMultiView(dims) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
+            if (!Array.isArray(dims) || dims.length !== 3 || dims.some(d => _isCollectionDim(d))) {
+                showStatus('Ortho uses spatial dims only');
+                return;
+            }
             const activeTool = _activeToolId();
             if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
                 const tile = TOOL_TILES.find(t => t.id === activeTool);
@@ -26249,7 +26333,10 @@
             }, 3000);
             // Set activeDim to the first non-spatial (non-mvDims) dimension
             const _firstNonSpatial = shape.findIndex((_, i) => !dims.includes(i));
-            if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
+            if (_firstNonSpatial >= 0) {
+                activeDim = _firstNonSpatial;
+                current_slice_dim = _isCollectionDim(_firstNonSpatial) ? dims[2] : _firstNonSpatial;
+            }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
             if (_pixelInfoActive()) _prefetchHoverSlices();
@@ -26889,8 +26976,8 @@
         function enterQmri() {
             _qmriRenderGeneration++;
             // Auto-detect: if exactly one dim has size 3–6, use it; otherwise fall back to activeDim
-            const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
-            const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
+            const candidates = shape.map((s, i) => i).filter(i => !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]));
+            const targetDim = candidates.length === 1 ? candidates[0] : (_isCollectionDim(activeDim) ? -1 : activeDim);
             const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             if (compareActive) exitCompareMode();
@@ -27403,8 +27490,8 @@
             if (!compareActive) return;
             _qmriRenderGeneration++;
             // Detect qMRI dim
-            const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
-            const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
+            const candidates = shape.map((s, i) => i).filter(i => !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]));
+            const targetDim = candidates.length === 1 ? candidates[0] : (_isCollectionDim(activeDim) ? -1 : activeDim);
             const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             compareQmriDim = targetDim;
@@ -30093,7 +30180,8 @@
             if (hoveredDim >= 0
                 && hoveredDim !== dim_x
                 && hoveredDim !== dim_y
-                && hoveredDim !== dim_z) {
+                && hoveredDim !== dim_z
+                && !_isCollectionDim(hoveredDim)) {
                 scrollDim = hoveredDim;
                 if (current_slice_dim !== scrollDim) current_slice_dim = scrollDim;
             }
