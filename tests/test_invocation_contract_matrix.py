@@ -57,7 +57,7 @@ CONTRACT_CASES = (
     ),
     ContractCase(
         "matlab_host", Invocation.MATLAB, Environment.MATLAB,
-        ServerOwner.SPAWNED_DAEMON, Registration.DAEMON_STARTUP, Display.BROWSER,
+        ServerOwner.IN_PROCESS, Registration.IN_PROCESS_SESSION, Display.BROWSER,
     ),
     ContractCase(
         "vscode_explorer_local", Invocation.VSCODE_EXPLORER,

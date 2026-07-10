@@ -434,7 +434,7 @@ def test_local_matlab_prefers_native_when_available():
     plan = plan_launch(LaunchIntent(Invocation.MATLAB, 8123), facts)
 
     assert plan.display.value == "native"
-    assert plan.server_owner.value == "spawned_daemon"
+    assert plan.server_owner.value == "in_process"
 
 
 def test_vscode_explorer_uses_extension_owned_subprocess():
@@ -493,14 +493,14 @@ def test_foreign_port_scans_locally_but_fails_in_remote():
     assert not remote.ok
 
 
-def test_matlab_uses_subprocess_server_contract():
+def test_matlab_uses_python_process_server_contract():
     from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
 
     plan = plan_launch(LaunchIntent(Invocation.MATLAB, 8123), _facts())
 
     assert plan.environment.value == "matlab"
-    assert plan.server_owner.value == "spawned_daemon"
-    assert plan.registration.value == "daemon_startup"
+    assert plan.server_owner.value == "in_process"
+    assert plan.registration.value == "in_process_session"
 
 
 def test_vscode_explorer_uses_vscode_display_contract():

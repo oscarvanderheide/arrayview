@@ -220,7 +220,7 @@ def plan_launch(
         environment = Environment.JUPYTER
     elif intent.invocation is Invocation.JULIA or facts.in_julia:
         environment = Environment.JULIA
-    elif intent.invocation is Invocation.MATLAB:
+    elif intent.invocation is Invocation.MATLAB and not facts.is_vscode_remote:
         environment = Environment.MATLAB
 
     server = facts.server
@@ -249,7 +249,7 @@ def plan_launch(
         owner = ServerOwner.EXISTING
         registration = Registration.HTTP_LOAD
         reasons.append("reuse_compatible_server")
-    elif environment in {Environment.JULIA, Environment.MATLAB}:
+    elif environment is Environment.JULIA:
         owner = ServerOwner.SPAWNED_DAEMON
         registration = Registration.DAEMON_STARTUP
         reasons.append(f"{environment.value}_requires_subprocess")
