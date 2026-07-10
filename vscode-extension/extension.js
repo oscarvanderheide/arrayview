@@ -11,6 +11,8 @@ const {
     pingUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
+    validatedAckPath,
+    ackPayload,
 } = require('./lifecycle_helpers');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
@@ -114,6 +116,35 @@ function log(message) {
     const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
     try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
     console.log(`[arrayview-opener] ${prefix}${message}`);
+}
+
+function writeProtocolAck(data, state, message) {
+    if (data?.protocolVersion !== 1 || !data.requestId || !data.ackPath) return false;
+    const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
+    if (!ackPath) {
+        log(`ACK: rejected invalid path for requestId=${data.requestId}`);
+        return false;
+    }
+    if (state === 'claimed') {
+        try {
+            const existing = JSON.parse(fs.readFileSync(ackPath, 'utf8'));
+            if (existing.state === 'backend_ready' || existing.state === 'failed') {
+                log(`ACK: preserving terminal state=${existing.state} requestId=${data.requestId}`);
+                return true;
+            }
+        } catch (_) {}
+    }
+    const tmpPath = `${ackPath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+        fs.writeFileSync(tmpPath, JSON.stringify(ackPayload(state, data, logWindowId, message)));
+        fs.renameSync(tmpPath, ackPath);
+        log(`ACK: state=${state} requestId=${data.requestId}`);
+        return true;
+    } catch (error) {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        log(`ACK: write failed state=${state}: ${error.message}`);
+        return false;
+    }
 }
 
 function _shellCommand(command, args) {
@@ -569,15 +600,21 @@ async function tryOpenSignalFile() {
             continue;
         }
 
+        writeProtocolAck(data, 'claimed');
+
         try { fs.unlinkSync(claimedFile); } catch (_) {}
 
-        if (isExpiredSignal(data)) continue;
+        if (isExpiredSignal(data)) {
+            writeProtocolAck(data, 'failed', 'Signal expired before processing');
+            continue;
+        }
 
         log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
         try {
             await processSignalData(data);
         } catch (error) {
             log(`ERROR: ${error.message}`);
+            writeProtocolAck(data, 'failed', error.message);
         }
         return;  // processed one signal, done for this tick
     }
@@ -922,6 +959,7 @@ async function processSignalData(data) {
         ]);
     } catch (error) {
         log(`ERROR: ${error.message}`);
+        writeProtocolAck(data, 'failed', error.message);
     } finally {
         isProcessingSignal = false;
         log(`UNLOCK: isProcessingSignal=false`);
@@ -933,7 +971,11 @@ async function processSignalData(data) {
 async function _processSignalDataBody(data) {
     log(`SIGNAL-DATA: mode=${data.mode} url=${data.url || '(none)'}`);
     const url = data.url;
-    if (!url) { log('SIGNAL: missing url'); return; }
+    if (!url) {
+        log('SIGNAL: missing url');
+        writeProtocolAck(data, 'failed', 'Signal is missing url');
+        return;
+    }
 
     const requestId = data.requestId || null;
     const now = Date.now();
@@ -970,10 +1012,12 @@ async function _processSignalDataBody(data) {
         const remoteUrl = await resolveRemoteViewerUrl(url);
         if (!remoteUrl) {
             log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
+            writeProtocolAck(data, 'failed', 'Failed to resolve remote viewer URL');
             return;
         }
         openUrl = remoteUrl;
     }
+    writeProtocolAck(data, 'port_resolved');
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
@@ -993,11 +1037,26 @@ async function _processSignalDataBody(data) {
             break;
         }
     }
-    if (handedOff) return;
+    if (handedOff) {
+        writeProtocolAck(data, 'panel_opened');
+    } else {
+        log(`openInWebviewPanel(${openUrl})`);
+        await openInWebviewPanel(openUrl, data.title, !!data.floating);
+        log('openInWebviewPanel done');
+        writeProtocolAck(data, 'panel_opened');
+    }
 
-    log(`openInWebviewPanel(${openUrl})`);
-    await openInWebviewPanel(openUrl, data.title, !!data.floating);
-    log('openInWebviewPanel done');
+    const pingUrl = pingUrlFromViewerUrl(openUrl);
+    if (!pingUrl) throw new Error('Unable to derive backend ping URL');
+    for (let attempt = 0; attempt < 10; attempt++) {
+        if (await httpOk(pingUrl)) {
+            writeProtocolAck(data, 'visibility_verified');
+            writeProtocolAck(data, 'backend_ready');
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    throw new Error('Backend did not become ready after panel opened');
 }
 
 function activate(context) {
