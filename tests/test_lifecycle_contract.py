@@ -613,7 +613,8 @@ def test_vscode_wrapper_backend_check_uses_extension_host_ping():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "pingUrlFromViewerUrl(url)" in source
-    assert "await httpOk(pingUrl)" in source
+    assert "await arrayViewStatusOk(pingUrl)" in source
+    assert "isArrayViewStatus(payload, expectedServerId)" in source
     assert "viewerReady = true" in source
     assert "postMessage({ type: 'backend-error', url })" in source
     assert "fetch(pingUrl" not in source

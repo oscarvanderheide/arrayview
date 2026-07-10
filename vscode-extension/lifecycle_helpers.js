@@ -70,6 +70,14 @@ function ackPayload(state, data, windowId, message) {
     return payload;
 }
 
+function isArrayViewStatus(payload, expectedServerId = null) {
+    return Boolean(
+        payload
+        && payload.service === 'arrayview'
+        && (!expectedServerId || payload.instance_id === expectedServerId)
+    );
+}
+
 module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
@@ -77,4 +85,5 @@ module.exports = {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isArrayViewStatus,
 };

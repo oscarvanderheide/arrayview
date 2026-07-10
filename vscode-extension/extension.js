@@ -13,6 +13,7 @@ const {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isArrayViewStatus,
 } = require('./lifecycle_helpers');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
@@ -335,7 +336,7 @@ class ArrayViewEditorProvider {
     }
 }
 
-function httpOk(url, timeoutMs = 1500) {
+function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
     return new Promise((resolve) => {
         let parsed;
         try {
@@ -352,8 +353,24 @@ function httpOk(url, timeoutMs = 1500) {
             resolve(ok);
         };
         const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
-            res.resume();
-            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 500);
+            if (res.statusCode !== 200) {
+                res.resume();
+                done(false);
+                return;
+            }
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', chunk => {
+                if (body.length < 65536) body += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const payload = JSON.parse(body);
+                    done(isArrayViewStatus(payload, expectedServerId));
+                } catch (_) {
+                    done(false);
+                }
+            });
         });
         req.on('timeout', () => {
             req.destroy();
@@ -778,7 +795,7 @@ async function openInWebviewPanel(url, title, floating = false) {
     if (pingUrl) {
         setTimeout(async () => {
             for (let attempt = 0; attempt <= 10 && !panelDisposed; attempt++) {
-                if (await httpOk(pingUrl)) return;
+                if (await arrayViewStatusOk(pingUrl)) return;
                 await new Promise(resolve => setTimeout(resolve, 1500));
             }
             if (!panelDisposed) {
@@ -1049,7 +1066,7 @@ async function _processSignalDataBody(data) {
     const pingUrl = pingUrlFromViewerUrl(openUrl);
     if (!pingUrl) throw new Error('Unable to derive backend ping URL');
     for (let attempt = 0; attempt < 10; attempt++) {
-        if (await httpOk(pingUrl)) {
+        if (await arrayViewStatusOk(pingUrl, data.serverId || null)) {
             writeProtocolAck(data, 'visibility_verified');
             writeProtocolAck(data, 'backend_ready');
             return;

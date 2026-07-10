@@ -6,6 +6,7 @@ const {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isArrayViewStatus,
 } = require('./lifecycle_helpers');
 
 assert.deepStrictEqual(
@@ -76,5 +77,16 @@ assert.strictEqual(typeof ack.timestampMs, 'number');
 const failedAck = ackPayload('failed', { requestId: 'req-2' }, 'window-2', 'boom');
 assert.strictEqual(failedAck.serverId, null);
 assert.strictEqual(failedAck.message, 'boom');
+
+assert.strictEqual(isArrayViewStatus({ service: 'arrayview' }), true);
+assert.strictEqual(
+    isArrayViewStatus({ service: 'arrayview', instance_id: 'server-1' }, 'server-1'),
+    true
+);
+assert.strictEqual(
+    isArrayViewStatus({ service: 'arrayview', instance_id: 'server-2' }, 'server-1'),
+    false
+);
+assert.strictEqual(isArrayViewStatus({ service: 'other' }), false);
 
 console.log('lifecycle helper tests passed');
