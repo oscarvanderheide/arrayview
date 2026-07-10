@@ -116,6 +116,7 @@ class LaunchEnvironmentSnapshot:
     ssh_connection: bool
     ssh_client: bool
     hostname: str
+    cli_default_server: ServerSnapshot | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -136,6 +137,8 @@ class LaunchIntent:
     requested_window: str | None = None
     browser: bool = False
     inline: bool | None = None
+    window_explicit: bool = False
+    inline_explicit: bool = False
     persistent: bool = False
 
 
@@ -180,6 +183,9 @@ def plan_launch(
 
     raw_window = intent.requested_window
     window = raw_window.strip().lower() if isinstance(raw_window, str) else None
+    if intent.window_explicit and raw_window is None:
+        window = "browser"
+        reasons.append("explicit_window_false")
     valid_windows = {None, "native", "browser", "vscode", "inline", "none"}
     if window not in valid_windows:
         return _failed_plan(
@@ -193,7 +199,8 @@ def plan_launch(
         window is None
         and facts.config_default
         and not intent.browser
-        and intent.inline is None
+        and not intent.window_explicit
+        and not intent.inline_explicit
     ):
         window = facts.config_default.strip().lower()
         reasons.append("config_window_default")
@@ -203,14 +210,32 @@ def plan_launch(
         )
 
     environment = facts.environment
-    if intent.invocation is Invocation.JUPYTER or facts.in_jupyter:
+    remote_jupyter = (
+        facts.is_vscode_remote and facts.in_jupyter and intent.inline is not False
+    )
+    if remote_jupyter:
+        environment = Environment.VSCODE_REMOTE
+        reasons.append("remote_jupyter_uses_vscode")
+    elif intent.invocation is Invocation.JUPYTER or facts.in_jupyter:
         environment = Environment.JUPYTER
     elif intent.invocation is Invocation.JULIA or facts.in_julia:
         environment = Environment.JULIA
     elif intent.invocation is Invocation.MATLAB:
         environment = Environment.MATLAB
 
-    busy_foreign = facts.server.port_busy and not facts.server.arrayview_server_alive
+    server = facts.server
+    if (
+        intent.invocation is Invocation.PYTHON
+        and intent.port == 8123
+        and environment is Environment.VSCODE_REMOTE
+        and facts.cli_default_server is not None
+        and facts.cli_default_server.arrayview_server_alive
+    ):
+        port = facts.cli_default_server.port
+        server = facts.cli_default_server
+        reasons.append("reuse_remote_cli_default_server")
+
+    busy_foreign = server.port_busy and not server.arrayview_server_alive
     if busy_foreign and environment is Environment.VSCODE_REMOTE:
         return _failed_plan(
             intent, facts, LaunchFailure.REMOTE_PORT_CONFLICT,
@@ -220,7 +245,7 @@ def plan_launch(
         port += 1
         reasons.append("scan_from_next_port")
 
-    if facts.server.arrayview_server_alive:
+    if server.arrayview_server_alive:
         owner = ServerOwner.EXISTING
         registration = Registration.HTTP_LOAD
         reasons.append("reuse_compatible_server")
@@ -242,7 +267,9 @@ def plan_launch(
         reasons.append("python_process_owns_session")
 
     display, fallback, fallback_allowed = _display_policy(
-        window=window, inline=intent.inline, environment=environment,
+        window=None if remote_jupyter else window,
+        inline=False if remote_jupyter else intent.inline,
+        environment=environment,
         native_available=facts.native_backend is not None, reasons=reasons,
     )
     if display is Display.VSCODE and environment not in {
@@ -275,7 +302,11 @@ def _display_policy(
     if (
         window == "inline"
         or inline is True
-        or (window is None and environment is Environment.JUPYTER)
+        or (
+            window is None
+            and inline is None
+            and environment is Environment.JUPYTER
+        )
     ):
         reasons.append("jupyter_inline" if window is None else "explicit_inline")
         return Display.INLINE, None, False
@@ -373,6 +404,13 @@ def snapshot_launch_environment(
         ssh_connection=ssh_connection,
         ssh_client=ssh_client,
         hostname=socket.gethostname(),
+        cli_default_server=(
+            _server_snapshot(8000)
+            if inv is Invocation.PYTHON
+            and environment is Environment.VSCODE_REMOTE
+            and port == 8123
+            else None
+        ),
     )
 
 

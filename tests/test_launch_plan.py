@@ -344,10 +344,87 @@ def test_explicit_inline_false_keeps_local_native_default_and_skips_config():
     from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
 
     facts = _facts(config_default="inline", native_backend="gtk")
-    plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123, inline=False), facts)
+    plan = plan_launch(
+        LaunchIntent(
+            Invocation.PYTHON,
+            8123,
+            inline=False,
+            inline_explicit=True,
+        ),
+        facts,
+    )
 
     assert plan.display.value == "native"
     assert "config_window_default" not in plan.reasons
+
+
+def test_explicit_window_false_suppresses_config_and_opens_browser():
+    from arrayview._launch_plan import Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(config_default="native", native_backend="gtk")
+    plan = plan_launch(
+        LaunchIntent(Invocation.PYTHON, 8123, window_explicit=True),
+        facts,
+    )
+
+    assert plan.display.value == "browser"
+    assert "config_window_default" not in plan.reasons
+
+
+def test_remote_jupyter_routes_to_vscode_unless_inline_false():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(
+        environment=Environment.VSCODE_REMOTE,
+        in_jupyter=True,
+        in_vscode_terminal=True,
+        is_vscode_remote=True,
+    )
+
+    implicit = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
+    explicit_inline = plan_launch(
+        LaunchIntent(
+            Invocation.PYTHON,
+            8123,
+            inline=True,
+            inline_explicit=True,
+        ),
+        facts,
+    )
+    explicit_noninline = plan_launch(
+        LaunchIntent(
+            Invocation.PYTHON,
+            8123,
+            inline=False,
+            inline_explicit=True,
+        ),
+        facts,
+    )
+
+    assert implicit.display.value == "vscode"
+    assert explicit_inline.display.value == "vscode"
+    assert explicit_noninline.display.value == "browser"
+
+
+def test_remote_python_reuses_healthy_cli_default_server():
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchIntent,
+        ServerSnapshot,
+        plan_launch,
+    )
+
+    facts = _facts(
+        environment=Environment.VSCODE_REMOTE,
+        is_vscode_remote=True,
+        cli_default_server=ServerSnapshot(8000, True, True, 42, "remote-host"),
+    )
+    plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
+
+    assert plan.effective_port == 8000
+    assert plan.server_owner.value == "existing"
+    assert "reuse_remote_cli_default_server" in plan.reasons
 
 
 def test_local_matlab_prefers_native_when_available():
