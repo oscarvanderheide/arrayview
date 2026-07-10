@@ -3800,15 +3800,57 @@ def arrayview():
     # Detect SSH early — needed by the reverse-tunnel relay check below.
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
 
-    is_arrayview_server = _server_alive(args.port)
-    port_busy = _port_in_use(args.port)
-    port_plan = _plan_cli_port_strategy(
-        port_in_use=port_busy,
-        is_arrayview_server=is_arrayview_server,
-        is_ssh=_is_ssh,
-        is_vscode_remote=_is_vscode_remote(),
+    from arrayview._launch_plan import (
+        Display,
+        Invocation,
+        LaunchFailure,
+        LaunchIntent,
+        Registration,
+        plan_launch,
+        snapshot_launch_environment,
     )
-    if port_plan["attempt_ssh_relay_before_scan"] and not args.dir_mode:
+
+    launch_snapshot = snapshot_launch_environment(
+        args.port, Invocation.CLI, requested_window=args.window
+    )
+    launch_plan = plan_launch(
+        LaunchIntent(
+            invocation=Invocation.CLI,
+            port=args.port,
+            requested_window=args.window,
+            browser=args.browser,
+        ),
+        launch_snapshot,
+    )
+    if args.verbose:
+        print(
+            "[ArrayView] Launch plan: "
+            f"environment={launch_plan.environment.value} "
+            f"server={launch_plan.server_owner.value} "
+            f"registration={launch_plan.registration.value} "
+            f"display={launch_plan.display.value} "
+            f"port={launch_plan.requested_port}->{launch_plan.effective_port} "
+            f"reasons={','.join(launch_plan.reasons) or 'none'}",
+            flush=True,
+        )
+    if launch_plan.failure is LaunchFailure.VSCODE_UNAVAILABLE:
+        print(
+            "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
+            "  Use --window=browser to open in your system browser instead.",
+            flush=True,
+        )
+        sys.exit(1)
+    if (
+        not launch_plan.ok
+        and launch_plan.failure is not LaunchFailure.REMOTE_PORT_CONFLICT
+    ):
+        print(f"Error: invalid launch request ({launch_plan.failure.value}).")
+        sys.exit(1)
+
+    is_arrayview_server = launch_snapshot.server.arrayview_server_alive
+    execution_registration = launch_plan.registration
+    busy_non_arrayview = launch_snapshot.server.port_busy and not is_arrayview_server
+    if busy_non_arrayview and _is_ssh and not args.dir_mode:
         # Port occupied but not responding to a fast HTTP check.  When port 8000
         # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
         # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
@@ -3828,10 +3870,7 @@ def arrayview():
         except Exception as _relay_exc:
             print(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
             # Fall through — not an ArrayView relay server; start our own.
-    if port_plan["requires_fixed_remote_port_error"]:
-        # In tunnel mode the port must be predictable so the user can set
-        # the right port to Public.  Auto-scanning would silently pick a
-        # different port, leaving the user's Ports tab stale.
+    if launch_plan.failure is LaunchFailure.REMOTE_PORT_CONFLICT:
         print(
             f"[ArrayView] Port {args.port} is in use by another process.\n"
             f"  Run 'arrayview --kill --port {args.port}' to free it, "
@@ -3839,10 +3878,14 @@ def arrayview():
             flush=True,
         )
         sys.exit(1)
-    if port_plan["should_scan_for_port"]:
+    if "scan_from_next_port" in launch_plan.reasons:
         # Non-tunnel: auto-scan for a free port.
-        args.port, is_arrayview_server_new = _find_server_port(args.port + 1)
+        args.port, is_arrayview_server_new = _find_server_port(
+            launch_plan.effective_port
+        )
         is_arrayview_server = is_arrayview_server_new
+        if is_arrayview_server:
+            execution_registration = Registration.HTTP_LOAD
         if _port_in_use(args.port) and not is_arrayview_server:
             print(
                 f"Error: port {args.port} is in use by another process. "
@@ -3857,7 +3900,7 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    if port_plan["should_check_existing_ssh_relay"] and not args.dir_mode:
+    if is_arrayview_server and _is_ssh and not args.dir_mode:
         import socket as _socket
 
         # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
@@ -3868,33 +3911,12 @@ def arrayview():
             except Exception as e:
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)
-            return  # Resolve --window / --browser into a single window_mode
-    from arrayview._config import get_window_default
-    from arrayview._platform import detect_environment
+            return
 
-    window_plan = _resolve_cli_window_mode(
-        explicit_window=args.window,
-        browser_flag=args.browser,
-        config_window=get_window_default(detect_environment()),
-        in_vscode_terminal=_in_vscode_terminal(),
-        is_vscode_remote=_is_vscode_remote(),
-        can_native_window=_can_native_window(),
-    )
-    window_mode = window_plan["window_mode"]
-    use_native_shell = bool(window_plan["use_native_shell"])
-    launch_path = _select_arrayview_launch_path(
-        is_arrayview_server=is_arrayview_server,
-        is_vscode_remote=_is_vscode_remote(),
-    )
+    window_mode = launch_plan.display.value
+    use_native_shell = launch_plan.display is Display.NATIVE
 
-    if window_plan["requires_vscode_terminal"]:
-        if not _in_vscode_terminal():
-            print(
-                "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
-                "  Use --window=browser to open in your system browser instead.",
-                flush=True,
-            )
-            sys.exit(1)
+    if launch_plan.display is Display.VSCODE:
         # Warn if we can't find the IPC hook (multi-window targeting falls back to PID matching)
         from arrayview._platform import _find_vscode_ipc_hook as _check_ipc_hook
 
@@ -3904,12 +3926,12 @@ def arrayview():
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
                 flush=True,
             )
-    if window_plan["warn_native_to_vscode"]:
+    if "remote_native_redirected_to_vscode" in launch_plan.reasons:
         _vprint(
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
 
-    if launch_path == "existing_server":
+    if execution_registration is Registration.HTTP_LOAD:
         if args.dir_mode:
             print(
                 "Error: --dir cannot register with an already-running ArrayView server yet. "
@@ -3934,7 +3956,7 @@ def arrayview():
         )
         return
 
-    is_remote = _is_vscode_remote()
+    is_remote = launch_snapshot.is_vscode_remote
     demo_name = getattr(args, "_demo_name", None)
     demo_cleanup = getattr(args, "_demo_cleanup", False)
     _handle_cli_spawned_daemon(
