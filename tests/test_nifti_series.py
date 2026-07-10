@@ -353,6 +353,48 @@ class TestDirCollection:
         assert np.array_equal(data[:, :, :, 1, 1], np.full(shape, 11, dtype=np.float32))
         assert np.array_equal(overlays[0]["data"][:, :, :, 1], np.full(shape, 2, dtype=np.uint8))
 
+    def test_ragged_shapes_use_lazy_collection(self, tmp_path):
+        import arrayview._io as _io
+        from arrayview import _session as _session_mod
+        from arrayview._analysis import _build_metadata
+
+        cases = {
+            "patient_001": ((4, 5, 6), (4, 6, 6)),
+            "patient_002": ((3, 5, 6), (3, 6, 6)),
+        }
+        for case_idx, (case, (t1_shape, t2_shape)) in enumerate(cases.items()):
+            pdir = tmp_path / case
+            pdir.mkdir()
+            np.save(pdir / "T1.npy", np.full(t1_shape, case_idx, dtype=np.float32))
+            np.save(pdir / "T2.npy", np.full(t2_shape, case_idx + 10, dtype=np.float32))
+            np.save(pdir / "ground_truth.npy", np.ones(t1_shape, dtype=np.uint8))
+
+        data, _meta, overlays, summary = _io.load_dir_collection(
+            [
+                str(tmp_path / "*" / "T1.npy"),
+                str(tmp_path / "*" / "T2.npy"),
+            ],
+            overlays=[("gt", str(tmp_path / "*" / "ground_truth.npy"))],
+        )
+
+        assert isinstance(data, _io._RaggedFileSeries)
+        assert data.shape == (4, 6, 6, 2, 2)
+        assert data.ragged_spatial_shapes == [
+            [(4, 5, 6), (4, 6, 6)],
+            [(3, 5, 6), (3, 6, 6)],
+        ]
+        assert data[:, :, :, 1, 0].shape == (3, 5, 6)
+        assert data[:, :, 99, 1, 0].shape == (3, 5)
+        assert overlays[0]["data"].shape == (4, 5, 6, 2)
+        assert summary["cases"] == ["patient_001", "patient_002"]
+
+        session = _session_mod.Session(data, filepath=None, name="ragged")
+        session.collection_spatial_ndim = 3
+        meta = _build_metadata(session)
+        assert meta["shape"] == [4, 5, 6, 2, 2]
+        assert meta["collection_spatial_ndim"] == 3
+        assert meta["ragged_spatial_shapes"][1][1] == [3, 6, 6]
+
     def test_ordered_pairing_mismatched_counts_error(self, tmp_path):
         import arrayview._io as _io
 

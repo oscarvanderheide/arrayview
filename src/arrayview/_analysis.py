@@ -21,6 +21,10 @@ def _visible_shape(session) -> list[int]:
 def _build_metadata(session) -> dict:
     """Build metadata shared by HTTP routes and WebSocket startup."""
     target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
+    if getattr(session.data, "_av_ragged", False):
+        spatial_shapes = session.data.ragged_spatial_shapes
+        spatial_ndim = len(spatial_shapes[0][0])
+        target_shape = tuple(spatial_shapes[0][0]) + tuple(session.shape[spatial_ndim:])
     meta = {
         "shape": [int(s) for s in target_shape],
         "is_complex": bool(np.iscomplexobj(session.data)),
@@ -48,6 +52,11 @@ def _build_metadata(session) -> dict:
     collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
     if collection_spatial_ndim is not None:
         meta["collection_spatial_ndim"] = int(collection_spatial_ndim)
+    if getattr(session.data, "_av_ragged", False):
+        meta["ragged_spatial_shapes"] = [
+            [list(shape) for shape in row]
+            for row in session.data.ragged_spatial_shapes
+        ]
     return meta
 
 

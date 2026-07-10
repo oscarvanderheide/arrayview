@@ -369,6 +369,140 @@ class _FileSeries:
         return result
 
 
+class _RaggedFileSeries:
+    """Lazy collection view over same-rank, same-dtype files with varying shapes.
+
+    The public ``shape`` is a max-spatial-shape facade so existing viewer
+    metadata and indexing code can keep a stable ndim.  Rendering code should
+    use ``spatial_shape_for_indices`` / ``clamp_indices`` before slicing.
+    """
+
+    _av_lazy = True
+    _av_ragged = True
+
+    def __init__(self, file_matrix, spatial_shapes, dtype, spatial_meta=None, all_nifti=False):
+        self._file_matrix = file_matrix
+        self._spatial_shapes = [
+            [tuple(int(s) for s in shape) for shape in row]
+            for row in spatial_shapes
+        ]
+        self._dtype = np.dtype(dtype)
+        self._spatial_meta = spatial_meta
+        self._all_nifti = bool(all_nifti)
+        self._spatial_ndim = len(self._spatial_shapes[0][0])
+        self._vol_shape = tuple(
+            max(row[m][d] for row in self._spatial_shapes for m in range(len(row)))
+            for d in range(self._spatial_ndim)
+        )
+        n_patients = len(file_matrix)
+        n_modalities = len(file_matrix[0]) if file_matrix else 0
+        if n_modalities <= 1:
+            self.shape = (*self._vol_shape, n_patients)
+            self._stack_axes = (len(self.shape) - 1,)
+        else:
+            self.shape = (*self._vol_shape, n_patients, n_modalities)
+            self._stack_axes = (len(self.shape) - 2, len(self.shape) - 1)
+        self.ndim = len(self.shape)
+        self.nbytes = int(
+            sum(np.prod(shape) for row in self._spatial_shapes for shape in row)
+            * self._dtype.itemsize
+        )
+        self._vol_cache: OrderedDict = OrderedDict()
+        self._vol_cache_cap = int(
+            os.environ.get("ARRAYVIEW_FILE_SERIES_VOL_CACHE", 3)
+        )
+        self._cache_lock = threading.Lock()
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @property
+    def ragged_spatial_shapes(self):
+        return self._spatial_shapes
+
+    def _normalize_collection_indices(self, idx_list):
+        n_p = len(self._file_matrix)
+        n_m = len(self._file_matrix[0]) if self._file_matrix else 0
+        p_idx = int(idx_list[self._stack_axes[0]]) if len(idx_list) > self._stack_axes[0] else 0
+        if p_idx < 0:
+            p_idx += n_p
+        p_idx = max(0, min(n_p - 1, p_idx))
+        if len(self._stack_axes) == 1:
+            m_idx = 0
+        else:
+            m_idx = int(idx_list[self._stack_axes[1]]) if len(idx_list) > self._stack_axes[1] else 0
+            if m_idx < 0:
+                m_idx += n_m
+            m_idx = max(0, min(n_m - 1, m_idx))
+        return p_idx, m_idx
+
+    def spatial_shape_for_indices(self, idx_list):
+        p_idx, m_idx = self._normalize_collection_indices(idx_list)
+        return self._spatial_shapes[p_idx][m_idx]
+
+    def clamp_indices(self, idx_list):
+        out = list(idx_list)
+        spatial_shape = self.spatial_shape_for_indices(out)
+        for dim, size in enumerate(spatial_shape):
+            if dim < len(out):
+                out[dim] = max(0, min(int(size) - 1, int(out[dim])))
+        for axis in self._stack_axes:
+            if axis < len(out):
+                out[axis] = self._normalize_collection_indices(out)[0 if axis == self._stack_axes[0] else 1]
+        return out
+
+    def _get_volume(self, p_idx, m_idx):
+        cache_key = (p_idx, m_idx)
+        with self._cache_lock:
+            if cache_key in self._vol_cache:
+                self._vol_cache.move_to_end(cache_key)
+                return self._vol_cache[cache_key]
+        filepath = self._file_matrix[p_idx][m_idx]
+        if self._all_nifti:
+            nib = _nib()
+            img = nib.load(filepath)
+            vol = np.asarray(nib.as_closest_canonical(img).dataobj)
+        else:
+            vol = load_data(filepath)
+        with self._cache_lock:
+            self._vol_cache[cache_key] = vol
+            self._vol_cache.move_to_end(cache_key)
+            while len(self._vol_cache) > self._vol_cache_cap:
+                self._vol_cache.popitem(last=False)
+        return vol
+
+    def __getitem__(self, key):
+        if not isinstance(key, tuple):
+            key = (key,)
+        has_special = any(k is None or k is Ellipsis for k in key)
+        if not has_special and len(key) <= self.ndim:
+            padded = list(key) + [slice(None)] * (self.ndim - len(key))
+            stack_vals = [padded[i] for i in self._stack_axes]
+            if all(isinstance(s, (int, np.integer)) for s in stack_vals):
+                p_idx, m_idx = self._normalize_collection_indices(padded)
+                spatial_shape = self._spatial_shapes[p_idx][m_idx]
+                spatial_positions = [
+                    i for i in range(self.ndim) if i not in self._stack_axes
+                ]
+                spatial_key = []
+                for src_i, dim in enumerate(spatial_positions):
+                    val = padded[dim]
+                    if isinstance(val, (int, np.integer)):
+                        idx = int(val)
+                        if idx < 0:
+                            idx += spatial_shape[src_i]
+                        idx = max(0, min(spatial_shape[src_i] - 1, idx))
+                        spatial_key.append(idx)
+                    else:
+                        spatial_key.append(val)
+                return self._get_volume(p_idx, m_idx)[tuple(spatial_key)]
+        raise TypeError("Ragged collections require concrete collection indices.")
+
+    def __array__(self, dtype=None):
+        raise TypeError("Ragged collections cannot be materialized as one ndarray.")
+
+
 def _is_nifti_path(filepath):
     """True if *filepath* ends with .nii or .nii.gz."""
     return filepath.endswith(".nii") or filepath.endswith(".nii.gz")
@@ -453,43 +587,70 @@ def _series_from_file_matrix(file_matrix):
 
     if all_nifti:
         nib = _nib()
+        spatial_shapes = []
         for fpath in all_paths:
             img = nib.load(fpath)
             shape = tuple(int(s) for s in img.shape)
             dtype = img.get_data_dtype()
+            spatial_shapes.append(shape)
             if ref_shape is None:
                 ref_shape = shape
                 ref_dtype = dtype
                 _, spatial_meta = _load_nifti_with_meta(fpath)
-            elif shape != ref_shape:
+            elif len(shape) != len(ref_shape):
                 raise ValueError(
-                    f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
-                    f"{shape}, expected {ref_shape}."
+                    f"Rank mismatch: {os.path.basename(fpath)!r} has shape "
+                    f"{shape}, expected rank {len(ref_shape)}."
                 )
             elif dtype != ref_dtype:
                 raise ValueError(
                     f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
                     f"{dtype}, expected {ref_dtype}."
                 )
+        shape_matrix = []
+        pos = 0
+        for row in file_matrix:
+            shape_matrix.append(spatial_shapes[pos : pos + len(row)])
+            pos += len(row)
+        if any(shape != ref_shape for shape in spatial_shapes):
+            return (
+                _RaggedFileSeries(
+                    file_matrix,
+                    shape_matrix,
+                    ref_dtype,
+                    spatial_meta=spatial_meta,
+                    all_nifti=True,
+                ),
+                spatial_meta,
+            )
         return _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta), spatial_meta
 
+    spatial_shapes = []
     for fpath in all_paths:
         arr = load_data(fpath)
         shape = arr.shape
         dtype = arr.dtype
+        spatial_shapes.append(shape)
         if ref_shape is None:
             ref_shape = shape
             ref_dtype = dtype
-        elif shape != ref_shape:
+        elif len(shape) != len(ref_shape):
             raise ValueError(
-                f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
-                f"{shape}, expected {ref_shape}."
+                f"Rank mismatch: {os.path.basename(fpath)!r} has shape "
+                f"{shape}, expected rank {len(ref_shape)}."
             )
         elif dtype != ref_dtype:
             raise ValueError(
                 f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
                 f"{dtype}, expected {ref_dtype}."
             )
+    shape_matrix = []
+    pos = 0
+    for row in file_matrix:
+        shape_matrix.append(spatial_shapes[pos : pos + len(row)])
+        pos += len(row)
+    if any(shape != ref_shape for shape in spatial_shapes):
+        return _RaggedFileSeries(file_matrix, shape_matrix, ref_dtype, spatial_meta=None), None
     return _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None), None
 
 
@@ -564,7 +725,7 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None):
             matrix = [[path] for path in paths]
             extras = []
         ov_data, _ov_meta = _series_from_file_matrix(matrix)
-        if ov_data._vol_shape != spatial_shape:
+        if not getattr(data, "_av_ragged", False) and ov_data._vol_shape != spatial_shape:
             raise ValueError(
                 f"Overlay {name!r} has spatial shape {ov_data._vol_shape}, "
                 f"expected {spatial_shape}."

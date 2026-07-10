@@ -147,6 +147,8 @@ def _compute_vmin_vmax(session, data, dr=0, complex_mode=0):
 
 
 def extract_slice(session, dim_x, dim_y, idx_list):
+    if hasattr(session.data, "clamp_indices"):
+        idx_list = session.data.clamp_indices(idx_list)
     # Mask out indices along the displayed dims — they're slice(None) in the
     # slicer below, so the extracted data doesn't depend on them.
     key_idx = tuple(None if i in (dim_x, dim_y) else idx_list[i] for i in range(len(idx_list)))
