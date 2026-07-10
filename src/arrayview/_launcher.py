@@ -1992,8 +1992,9 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
 
 class ViewHandle(str):
     """Returned by :func:`view`.  Behaves as a URL string for backward compatibility
-    and additionally exposes ``.update(arr)`` to push a new array into the viewer
-    without reopening a window.
+    and additionally exposes ``.update(arr)`` and ``.close()``.  It can also be
+    used as a context manager when the session should be released at the end of
+    a block.
 
     Example::
 
@@ -2006,6 +2007,7 @@ class ViewHandle(str):
         obj = super().__new__(cls, url)
         obj._sid = sid
         obj._port = port
+        obj._closed = False
         return obj
 
     @property
@@ -2053,6 +2055,37 @@ class ViewHandle(str):
                 f"  URL: http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}\n"
                 f"  Is the ArrayView server still running?"
             ) from e
+
+    def close(self) -> None:
+        """Release this viewer session.
+
+        Closing a handle more than once is a local no-op.  If the request
+        fails, the handle remains open so the caller can retry.
+        """
+        if self._closed:
+            return
+
+        release_url = (
+            f"http://{_LOOPBACK_HOST}:{self._port}/release/{self._sid}"
+        )
+        request = urllib.request.Request(release_url, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+        except Exception as exc:
+            raise RuntimeError(
+                f"[ArrayView] Failed to close viewer: {exc}\n"
+                f"  URL: {release_url}\n"
+                f"  Is the ArrayView server still running?"
+            ) from exc
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
 
 
 def view(
