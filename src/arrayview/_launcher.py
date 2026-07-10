@@ -3421,25 +3421,29 @@ def arrayview():
     if getattr(args, "diagnose", False):
         import json as _json
         import importlib.util as _importlib_util
-        from ._platform import (
-            _find_vscode_ipc_hook,
-            _in_jupyter,
+        from arrayview._launch_plan import (
+            Invocation,
+            LaunchIntent,
+            plan_launch,
+            snapshot_launch_environment,
         )
-        from arrayview._config import CONFIG_PATH, get_window_default, load_config
-        from arrayview._platform import detect_environment
+        from arrayview._platform import _find_vscode_ipc_hook
 
-        _det_env = detect_environment()
-        _config_window = get_window_default(_det_env)
-        _in_vs = _in_vscode_terminal()
-        _is_remote = _is_vscode_remote()
-        _can_native = _can_native_window()
-        _window_plan = _resolve_cli_window_mode(
-            explicit_window=args.window,
-            browser_flag=args.browser,
-            config_window=_config_window,
-            in_vscode_terminal=_in_vs,
-            is_vscode_remote=_is_remote,
-            can_native_window=_can_native,
+        requested_window = args.window
+        snapshot = snapshot_launch_environment(
+            args.port,
+            Invocation.CLI,
+            requested_window=requested_window,
+        )
+        plan = plan_launch(
+            LaunchIntent(
+                invocation=Invocation.CLI,
+                port=args.port,
+                requested_window=requested_window,
+                browser=args.browser,
+                persistent=args.serve,
+            ),
+            snapshot,
         )
 
         def _localhost_candidates() -> list[dict[str, object]]:
@@ -3478,30 +3482,8 @@ def arrayview():
                 sock.close()
 
         diag: dict = {
-            "env": {
-                "TERM_PROGRAM": os.environ.get("TERM_PROGRAM"),
-                "VSCODE_IPC_HOOK_CLI": os.environ.get("VSCODE_IPC_HOOK_CLI"),
-                "SSH_CONNECTION": os.environ.get("SSH_CONNECTION"),
-                "SSH_CLIENT": os.environ.get("SSH_CLIENT"),
-                "VSCODE_INJECTION": os.environ.get("VSCODE_INJECTION"),
-                "VSCODE_AGENT_FOLDER": os.environ.get("VSCODE_AGENT_FOLDER"),
-                "DISPLAY": os.environ.get("DISPLAY"),
-                "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
-            },
-            "detection": {
-                "in_vscode_terminal": _in_vs,
-                "is_vscode_remote": _is_remote,
-                "in_vscode_tunnel": _in_vscode_tunnel(),
-                "can_native_window": _can_native,
-                "in_jupyter": _in_jupyter(),
-                "vscode_ipc_hook_recovered": _find_vscode_ipc_hook(),
-            },
-            "launch_plan": {
-                **_window_plan,
-                "port": args.port,
-                "port_in_use": _port_in_use(args.port),
-                "arrayview_server_alive": _server_alive(args.port),
-            },
+            "snapshot": snapshot.to_dict(),
+            "plan": plan.to_dict(),
             "loopback": {
                 "host": _LOOPBACK_HOST,
                 "getaddrinfo": _localhost_candidates(),
@@ -3512,17 +3494,13 @@ def arrayview():
                 "gi": _importlib_util.find_spec("gi") is not None,
                 "webview": _importlib_util.find_spec("webview") is not None,
             },
+            "vscode": {
+                "ipc_hook_recovered": _find_vscode_ipc_hook(),
+            },
             "pid": os.getpid(),
             "ppid": os.getppid(),
             "platform": sys.platform,
             "python": sys.executable,
-        }
-        diag["config"] = {
-            "detected_environment": _det_env,
-            "config_file": CONFIG_PATH,
-            "config_contents": load_config() or None,
-            "ARRAYVIEW_WINDOW": os.environ.get("ARRAYVIEW_WINDOW") or None,
-            "resolved_window_pref": _config_window,
         }
         print(_json.dumps(diag, indent=2))
         return
