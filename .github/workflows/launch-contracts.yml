@@ -1,0 +1,62 @@
+name: Launch contracts
+
+on:
+  pull_request:
+    paths:
+      - src/arrayview/**
+      - tests/**
+      - vscode-extension/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/launch-contracts.yml
+  push:
+    branches: [main]
+    paths:
+      - src/arrayview/**
+      - tests/**
+      - vscode-extension/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/launch-contracts.yml
+
+permissions:
+  contents: read
+
+jobs:
+  planner-and-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: uv sync --frozen --group dev --group test
+      - name: Python launch contracts
+        run: >-
+          uv run pytest
+          tests/test_launch_plan.py
+          tests/test_launch_diagnostics.py
+          tests/test_invocation_contract_matrix.py
+          tests/test_instance_registry.py
+          tests/test_server_identity_status.py
+          tests/test_safe_server_stop.py
+          tests/test_view_handle_lifecycle.py
+          tests/test_view_launch_execution.py
+          tests/test_vscode_ack_protocol.py
+          tests/test_display_opener_results.py
+          tests/test_doctor_commands.py
+          tests/test_cli.py
+          tests/test_lifecycle_contract.py
+          -q
+      - name: VS Code extension contracts
+        run: node vscode-extension/test_lifecycle_helpers.js
+      - name: VS Code extension syntax
+        run: node --check vscode-extension/extension.js
