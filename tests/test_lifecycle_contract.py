@@ -42,8 +42,16 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
         def start(self):
             return self.target()
 
-    async def _fake_serve_background(port, stop_when_closed=False):
-        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+    async def _fake_serve_background(
+        port, stop_when_closed=False, owner_mode="in_process"
+    ):
+        thread_calls.append(
+            {
+                "port": port,
+                "stop_when_closed": stop_when_closed,
+                "owner_mode": owner_mode,
+            }
+        )
 
     monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
@@ -58,7 +66,11 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
 
     assert isinstance(handle, launcher.ViewHandle)
     assert thread_calls[0]["daemon"] is False
-    assert thread_calls[1] == {"port": 8123, "stop_when_closed": True}
+    assert thread_calls[1] == {
+        "port": 8123,
+        "stop_when_closed": True,
+        "owner_mode": "transient",
+    }
 
 
 def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(monkeypatch):
@@ -86,8 +98,16 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
         def start(self):
             return self.target()
 
-    async def _fake_serve_background(port, stop_when_closed=False):
-        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+    async def _fake_serve_background(
+        port, stop_when_closed=False, owner_mode="in_process"
+    ):
+        thread_calls.append(
+            {
+                "port": port,
+                "stop_when_closed": stop_when_closed,
+                "owner_mode": owner_mode,
+            }
+        )
 
     monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
@@ -97,7 +117,11 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
 
     assert result.__class__.__name__ == "IFrame"
     assert thread_calls[0]["daemon"] is True
-    assert thread_calls[1] == {"port": 8123, "stop_when_closed": False}
+    assert thread_calls[1] == {
+        "port": 8123,
+        "stop_when_closed": False,
+        "owner_mode": "kernel",
+    }
 
 
 def test_plain_ssh_browser_guidance_keeps_localhost_forwarding_url(monkeypatch, capsys):

@@ -26,6 +26,7 @@ def _vprint(*args, **kwargs) -> None:
 # ---------------------------------------------------------------------------
 SERVER_LOOP = None
 SERVER_PORT: int | None = None  # actual port the uvicorn server is bound to
+SERVER_RUNTIME = None  # configured by _server when launch identity is known
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 VIEWER_SID_COUNTS: dict[str, int] = {}  # active viewer WS count per session ID

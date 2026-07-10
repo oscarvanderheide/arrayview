@@ -1574,11 +1574,16 @@ def _run_loading_server(
         pass
 
 
-async def _serve_background(port: int, stop_when_closed: bool = False):
+async def _serve_background(
+    port: int,
+    stop_when_closed: bool = False,
+    owner_mode: str = "in_process",
+):
     global _loading_port
     _loading_port = None  # reset for this server lifetime
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
     _session_mod.SERVER_PORT = port
+    _server_mod().configure_server_runtime(port=port, owner_mode=owner_mode)
     # Bind on every loopback address that resolves for ``localhost`` (both
     # ``::1`` and ``127.0.0.1``).  VS Code's port auto-forward detection
     # scans IPv4 loopback; an IPv6-only ``[::1]`` listener is not reliably
@@ -2286,7 +2291,17 @@ def view(
         _script = _is_script_mode()
         threading.Thread(
             target=lambda: asyncio.run(
-                _serve_background(port, stop_when_closed=_script)
+                _serve_background(
+                    port,
+                    stop_when_closed=_script,
+                    owner_mode=(
+                        "transient"
+                        if _script
+                        else "kernel"
+                        if _in_jupyter()
+                        else "in_process"
+                    ),
+                )
             ),
             daemon=not _script,
             name="arrayview-server",
@@ -2719,6 +2734,7 @@ def _serve_empty(port: int) -> None:
     user to re-run ``--serve`` or re-set port visibility.
     """
     _session_mod.SERVER_PORT = port
+    _server_mod().configure_server_runtime(port=port, owner_mode="persistent")
     socks = _make_loopback_sockets(port)
 
     def _run_empty_uvicorn():
@@ -2768,6 +2784,10 @@ def _serve_daemon(
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
+    _server_mod().configure_server_runtime(
+        port=port,
+        owner_mode="persistent" if persist else "transient",
+    )
 
     sock = _make_loopback_sockets(port)
 
