@@ -42,8 +42,16 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
         def start(self):
             return self.target()
 
-    async def _fake_serve_background(port, stop_when_closed=False):
-        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+    async def _fake_serve_background(
+        port, stop_when_closed=False, owner_mode="in_process"
+    ):
+        thread_calls.append(
+            {
+                "port": port,
+                "stop_when_closed": stop_when_closed,
+                "owner_mode": owner_mode,
+            }
+        )
 
     monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
@@ -58,7 +66,11 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
 
     assert isinstance(handle, launcher.ViewHandle)
     assert thread_calls[0]["daemon"] is False
-    assert thread_calls[1] == {"port": 8123, "stop_when_closed": True}
+    assert thread_calls[1] == {
+        "port": 8123,
+        "stop_when_closed": True,
+        "owner_mode": "transient",
+    }
 
 
 def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(monkeypatch):
@@ -86,8 +98,16 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
         def start(self):
             return self.target()
 
-    async def _fake_serve_background(port, stop_when_closed=False):
-        thread_calls.append({"port": port, "stop_when_closed": stop_when_closed})
+    async def _fake_serve_background(
+        port, stop_when_closed=False, owner_mode="in_process"
+    ):
+        thread_calls.append(
+            {
+                "port": port,
+                "stop_when_closed": stop_when_closed,
+                "owner_mode": owner_mode,
+            }
+        )
 
     monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
@@ -97,7 +117,11 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
 
     assert result.__class__.__name__ == "IFrame"
     assert thread_calls[0]["daemon"] is True
-    assert thread_calls[1] == {"port": 8123, "stop_when_closed": False}
+    assert thread_calls[1] == {
+        "port": 8123,
+        "stop_when_closed": False,
+        "owner_mode": "kernel",
+    }
 
 
 def test_plain_ssh_browser_guidance_keeps_localhost_forwarding_url(monkeypatch, capsys):
@@ -155,7 +179,7 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
 
     assert opened is True
     request = json.loads(
-        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
     )
     assert request["broadcast"] is True
 
@@ -186,8 +210,8 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     )
 
     assert opened is True
-    assert (signal_dir / "open-request-pid-100.json").exists()
-    assert not (signal_dir / "open-request-pid-200.json").exists()
+    assert list(signal_dir.glob("open-request-pid-100.request-*.json"))
+    assert not list(signal_dir.glob("open-request-pid-200.request-*.json"))
 
 
 def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
@@ -216,8 +240,8 @@ def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     )
 
     assert opened is True
-    assert (signal_dir / "open-request-pid-100.json").exists()
-    assert not (signal_dir / "open-request-pid-200.json").exists()
+    assert list(signal_dir.glob("open-request-pid-100.request-*.json"))
+    assert not list(signal_dir.glob("open-request-pid-200.request-*.json"))
 
 
 def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
@@ -284,7 +308,7 @@ def test_vscode_local_missing_window_match_uses_focused_window_fallback(
 
     assert opened is True
     request = json.loads(
-        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
     )
     assert request["broadcast"] is True
 
@@ -589,7 +613,8 @@ def test_vscode_wrapper_backend_check_uses_extension_host_ping():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "pingUrlFromViewerUrl(url)" in source
-    assert "await httpOk(pingUrl)" in source
+    assert "await arrayViewStatusOk(pingUrl)" in source
+    assert "isArrayViewStatus(payload, expectedServerId)" in source
     assert "viewerReady = true" in source
     assert "postMessage({ type: 'backend-error', url })" in source
     assert "fetch(pingUrl" not in source

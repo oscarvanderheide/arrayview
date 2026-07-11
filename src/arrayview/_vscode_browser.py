@@ -3,19 +3,68 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from enum import Enum
 
 from arrayview._session import _vprint
 from arrayview._platform import _in_vscode_terminal, _is_vscode_remote
 from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_vscode_extension, _VSCODE_EXT_FRESH_INSTALL
-from arrayview._vscode_signal import _open_via_signal_file, _schedule_remote_open_retries
+from arrayview._vscode_signal import (
+    AckState,
+    _open_via_signal_file,
+    _schedule_remote_open_retries,
+    _wait_for_vscode_ack,
+)
 
 # Whether the "set port to Public" message has been printed this session.
 _remote_message_shown = False
 _ssh_message_shown = False
+
+
+class OpenState(str, Enum):
+    """Best evidence available after requesting a viewer display."""
+
+    ACCEPTED = "accepted"
+    OPENED = "opened"
+    READY = "ready"
+    PRINTED = "printed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class OpenResult:
+    """Outcome of handing a viewer URL to a display mechanism."""
+
+    state: OpenState
+    mechanism: str
+    detail: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.state is not OpenState.FAILED
+
+
+def _server_id_for_url(url: str) -> str | None:
+    """Read the instance ID used to correlate a VS Code readiness ACK."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        ping_url = urllib.parse.urlunsplit(
+            (parsed.scheme, parsed.netloc, "/ping", "", "")
+        )
+        with urllib.request.urlopen(ping_url, timeout=0.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    if payload.get("service") != "arrayview":
+        return None
+    instance_id = payload.get("instance_id")
+    return instance_id if isinstance(instance_id, str) and instance_id else None
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +99,7 @@ def _open_browser(
     force_vscode: bool = False,
     title: str | None = None,
     floating: bool = False,
-) -> None:
+) -> OpenResult:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
 
     *title* is shown as the VS Code tab label (e.g. "ArrayView: sample.npy").
@@ -69,10 +118,11 @@ def _open_browser(
      4. Always print the URL.
     """
 
-    def _do() -> None:
+    def _do() -> OpenResult:
         in_vscode = _in_vscode_terminal()
         is_remote = _is_vscode_remote()
         opened = False
+        guidance_printed = False
 
         try:
             parsed_port = int(url.split(":")[2].split("/")[0].split("?")[0])
@@ -88,14 +138,34 @@ def _open_browser(
             # URL-based mode: port is forwarded by VS Code and the viewer
             # connects via WebSocket through the devtunnel.
             _configure_vscode_port_preview(parsed_port)
-            _open_via_signal_file(url, title=title, floating=floating)
-            _schedule_remote_open_retries(url, interval=10.0, count=2)
+            request = _open_via_signal_file(
+                url,
+                title=title,
+                floating=floating,
+                server_id=_server_id_for_url(url),
+            )
             if not ext_ok:
                 _vprint(
                     "[ArrayView] extension install could not be verified — signal file written anyway",
                     flush=True,
                 )
-            return
+            if not request:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "vscode-signal",
+                    "signal request was not written",
+                )
+            if not blocking:
+                _schedule_remote_open_retries(url, interval=10.0, count=2)
+                return OpenResult(OpenState.ACCEPTED, "vscode-signal")
+            ack = _wait_for_vscode_ack(request, timeout=65.0)
+            if ack.state is AckState.BACKEND_READY:
+                return OpenResult(OpenState.READY, "vscode-signal", request.request_id)
+            return OpenResult(
+                OpenState.FAILED,
+                "vscode-signal",
+                ack.message or ack.state.value,
+            )
 
         if force_vscode or in_vscode:
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
@@ -105,9 +175,33 @@ def _open_browser(
                 time.sleep(1.5)
             # Always write the signal file: the extension may already be
             # installed even if _ensure failed (e.g. `code` CLI not found).
-            _open_via_signal_file(url, title=title, floating=floating)
+            request = _open_via_signal_file(
+                url,
+                title=title,
+                floating=floating,
+                server_id=_server_id_for_url(url),
+            )
             # Schedule a retry in case the extension was mid-reload when the
             # first signal was written (e.g. first run with old version removed).
+            if not request:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "vscode-signal",
+                    "signal request was not written",
+                )
+            if blocking:
+                ack = _wait_for_vscode_ack(request, timeout=15.0)
+                if ack.state is AckState.BACKEND_READY:
+                    return OpenResult(
+                        OpenState.READY,
+                        "vscode-signal",
+                        request.request_id,
+                    )
+                return OpenResult(
+                    OpenState.FAILED,
+                    "vscode-signal",
+                    ack.message or ack.state.value,
+                )
             _schedule_remote_open_retries(url, interval=10.0, count=2)
             opened = True
 
@@ -117,6 +211,7 @@ def _open_browser(
             and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
         )
         if is_plain_ssh:
+            guidance_printed = True
             global _ssh_message_shown
             if not _ssh_message_shown:
                 _ssh_message_shown = True
@@ -146,7 +241,6 @@ def _open_browser(
                     f"        LocalForward {port_hint} localhost:{port_hint}\n",
                     flush=True,
                 )
-
         if not opened and not is_remote and not force_vscode and not is_plain_ssh:
             # Local fallback: open in system browser
             if sys.platform == "darwin":
@@ -182,8 +276,27 @@ def _open_browser(
 
         # Local sessions still benefit from a clickable terminal URL.
         _vprint(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
+        if opened:
+            mechanism = (
+                "vscode-signal" if (force_vscode or in_vscode) else "system-browser"
+            )
+            state = (
+                OpenState.ACCEPTED
+                if mechanism == "vscode-signal"
+                else OpenState.OPENED
+            )
+            return OpenResult(state, mechanism)
+        if guidance_printed:
+            return OpenResult(OpenState.PRINTED, "ssh-guidance")
+        return OpenResult(OpenState.FAILED, "system-browser", "no opener accepted the URL")
 
     if blocking:
-        _do()
-    else:
-        threading.Thread(target=_do, daemon=True).start()
+        result = _do()
+        if force_vscode and not result:
+            raise RuntimeError(
+                "[ArrayView] VS Code viewer failed to become ready: "
+                f"{result.detail or result.state.value}"
+            )
+        return result
+    threading.Thread(target=_do, daemon=True).start()
+    return OpenResult(OpenState.ACCEPTED, "background-thread")

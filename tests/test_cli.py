@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 import arrayview._app as appmod
+import arrayview._launch_plan as _launch_plan_mod
 import arrayview._launcher as _launcher_mod
 
 
@@ -43,6 +44,16 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _mock_launch_server_snapshot(monkeypatch, *, alive: bool, busy: bool | None = None):
+    if busy is None:
+        busy = alive
+    monkeypatch.setattr(
+        _launch_plan_mod,
+        "_server_snapshot",
+        lambda port: _launch_plan_mod.ServerSnapshot(port, busy, alive),
+    )
+
+
 def _wait_for_ping(port: int, timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
     url = f"http://localhost:{port}/ping"
@@ -67,6 +78,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sys, "argv", ["arrayview", base, cmp1, cmp2, "--browser"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
@@ -99,7 +111,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
-def test_cli_vscode_terminal_keeps_spawned_backend_available_for_tab_startup(tmp_path):
+def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
     arr_path = tmp_path / "base.npy"
     np.save(arr_path, np.zeros((8, 8), dtype=np.float32))
     port = _free_port()
@@ -131,7 +143,8 @@ def test_cli_vscode_terminal_keeps_spawned_backend_available_for_tab_startup(tmp
     )
 
     try:
-        assert result.returncode == 0, result.stderr
+        assert result.returncode != 0
+        assert "VS Code viewer failed to become ready" in result.stderr
         assert _wait_for_ping(port)
     finally:
         subprocess.run(
@@ -161,6 +174,7 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
@@ -210,6 +224,7 @@ def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
         ],
     )
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
@@ -279,6 +294,7 @@ def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_pat
 
     monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,
@@ -321,6 +337,7 @@ def test_cli_existing_server_native_shell_connection_skips_browser(
 
     monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,
@@ -375,6 +392,7 @@ def test_cli_spawn_daemon_opens_viewer_url(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", ["arrayview", base, "--browser"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: False)
     monkeypatch.setattr(_launcher_mod, "_port_in_use", lambda _: False)
+    _mock_launch_server_snapshot(monkeypatch, alive=False, busy=False)
     monkeypatch.setattr(_launcher_mod, "_wait_for_port", lambda *args, **kwargs: True)
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
@@ -421,6 +439,7 @@ def test_cli_vectorfield_components_dim_is_sent_to_attach(monkeypatch, tmp_path)
         ],
     )
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",

@@ -10,6 +10,9 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
 
 from arrayview._session import _vprint
 from arrayview._platform import _find_vscode_ipc_hook, _is_vscode_remote, get_ppid
@@ -20,6 +23,137 @@ _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
 _VSCODE_SIGNAL_MAX_AGE_MS = (
     60_000  # 60s: survive extension-host reloads (~12s) plus panel-open latency
 )
+_VSCODE_ACK_PROTOCOL_VERSION = 1
+_VSCODE_ACK_FILENAME_PREFIX = "open-ack-v0100-"
+
+
+class AckState(str, Enum):
+    """Progress and terminal states reported by the VS Code opener extension."""
+
+    CLAIMED = "claimed"
+    PORT_RESOLVED = "port_resolved"
+    VISIBILITY_VERIFIED = "visibility_verified"
+    PANEL_OPENED = "panel_opened"
+    BACKEND_READY = "backend_ready"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class SignalRequest:
+    """Metadata for one non-blocking VS Code open request."""
+
+    request_id: str
+    window_id: str | None
+    server_id: str | None
+    ack_path: Path
+    written: bool
+
+    def __bool__(self) -> bool:
+        return self.written
+
+
+@dataclass(frozen=True)
+class AckResult:
+    """A validated acknowledgement, or a local terminal wait result."""
+
+    state: AckState
+    request_id: str
+    window_id: str | None = None
+    server_id: str | None = None
+    message: str | None = None
+    payload: dict | None = None
+
+
+def _vscode_ack_path(request_id: str) -> Path:
+    """Return the per-request ACK path (the extension writes it atomically)."""
+    return Path(os.path.expanduser("~/.arrayview")) / (
+        f"{_VSCODE_ACK_FILENAME_PREFIX}{request_id}.json"
+    )
+
+
+def _cleanup_stale_vscode_acks(max_age_seconds: float = 300.0) -> int:
+    """Remove ACK files older than *max_age_seconds*."""
+    signal_dir = Path(os.path.expanduser("~/.arrayview"))
+    try:
+        candidates = tuple(signal_dir.glob(f"{_VSCODE_ACK_FILENAME_PREFIX}*.json"))
+    except OSError:
+        return 0
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for path in candidates:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except (FileNotFoundError, OSError):
+            continue
+    return removed
+
+
+def _wait_for_vscode_ack(
+    request: SignalRequest,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> AckResult:
+    """Wait boundedly for a correlated terminal extension ACK."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    last_result: AckResult | None = None
+    while True:
+        try:
+            raw = request.ack_path.read_text()
+        except FileNotFoundError:
+            raw = None
+        except OSError as exc:
+            return AckResult(AckState.INVALID, request.request_id, message=str(exc))
+
+        if raw is not None:
+            try:
+                payload = json.loads(raw)
+                state = AckState(payload["state"])
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                return AckResult(
+                    AckState.INVALID, request.request_id, message=str(exc)
+                )
+            correlations = (
+                ("requestId", request.request_id),
+                ("windowId", request.window_id),
+                ("serverId", request.server_id),
+            )
+            for key, expected in correlations:
+                if expected is not None and payload.get(key) != expected:
+                    return AckResult(
+                        AckState.INVALID,
+                        request.request_id,
+                        message=f"ACK {key} does not match request",
+                        payload=payload,
+                    )
+            result = AckResult(
+                state,
+                request.request_id,
+                payload.get("windowId"),
+                payload.get("serverId"),
+                payload.get("message"),
+                payload,
+            )
+            if state in {AckState.BACKEND_READY, AckState.FAILED}:
+                return result
+            last_result = result
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return AckResult(
+                AckState.TIMEOUT,
+                request.request_id,
+                message=(
+                    f"last extension state: {last_result.state.value}"
+                    if last_result is not None
+                    else None
+                ),
+                payload=last_result.payload if last_result is not None else None,
+            )
+        time.sleep(min(max(0.001, poll_interval), remaining))
 
 def _find_current_vscode_window_id() -> str | None:
     """Find the current VS Code window by matching ancestor PIDs.
@@ -224,8 +358,14 @@ def _find_arrayview_window_id() -> str | None:
 
 
 def _open_via_signal_file(
-    url: str, delay: float = 0.0, title: str | None = None, floating: bool = False
-) -> bool:
+    url: str,
+    delay: float = 0.0,
+    title: str | None = None,
+    floating: bool = False,
+    *,
+    server_id: str | None = None,
+    window_id: str | None = None,
+) -> SignalRequest:
     """Write the URL to the versioned ArrayView opener signal file.
 
     *title* is shown as the VS Code tab label (e.g. "ArrayView: sample.npy").
@@ -246,16 +386,33 @@ def _open_via_signal_file(
         except Exception:
             pass
 
+    request_id = uuid.uuid4().hex
+    if window_id is None:
+        window_id = _find_arrayview_window_id()
+    ack_path = _vscode_ack_path(request_id)
+    _cleanup_stale_vscode_acks()
+    try:
+        ack_path.unlink()
+    except FileNotFoundError:
+        pass
     payload: dict = {
         "action": "open-preview",
         "url": url,
         "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+        "protocolVersion": _VSCODE_ACK_PROTOCOL_VERSION,
+        "requestId": request_id,
+        "ackPath": str(ack_path),
     }
+    if window_id:
+        payload["windowId"] = window_id
+    if server_id:
+        payload["serverId"] = server_id
     if title:
         payload["title"] = title
     if floating:
         payload["floating"] = True
-    return _write_vscode_signal(payload, delay=delay)
+    written = _write_vscode_signal(payload, delay=delay)
+    return SignalRequest(request_id, window_id, server_id, ack_path, written)
 
 
 def _schedule_remote_open_retries(
@@ -689,11 +846,17 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
 
         _vprint(f"[ArrayView] signal: writing to {[f for f in filenames]} broadcast={data.get('broadcast', False)}", flush=True)
         for filename in filenames:
-            try:
-                os.unlink(os.path.join(signal_dir, filename))
-            except FileNotFoundError:
-                pass
-        for filename in filenames:
+            # Protocol-v1 requests use a unique disk-backed queue entry.  A
+            # fixed per-window filename lets simultaneous launchers overwrite
+            # each other before the extension can claim the first request.
+            request_id = data.get("requestId")
+            if request_id and filename.endswith(".json"):
+                filename = f"{filename[:-5]}.request-{request_id}.json"
+            else:
+                try:
+                    os.unlink(os.path.join(signal_dir, filename))
+                except FileNotFoundError:
+                    pass
             signal_file = os.path.join(signal_dir, filename)
             tmp_file = signal_file + ".tmp"
             with open(tmp_file, "w") as f:
@@ -804,7 +967,7 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
         if fn.startswith("open-request-ipc-") or fn.startswith("open-request-pid-"):
             parts = fn[len("open-request-"):].split("-", 1)
             if len(parts) == 2 and parts[1].endswith(".json"):
-                wid = parts[1][:-5]
+                wid = parts[1][:-5].split(".request-", 1)[0]
                 if wid not in valid_ids:
                     try:
                         os.unlink(fp)
@@ -817,7 +980,9 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
                             )
                     except OSError:
                         pass
-        elif fn in ("open-request-v0900.json", "open-request-v0800.json"):
+        elif fn in ("open-request-v0900.json", "open-request-v0800.json") or (
+            fn.startswith("open-request-v0900.request-") and fn.endswith(".json")
+        ):
             try:
                 st = os.stat(fp)
                 if now - st.st_mtime > 30:

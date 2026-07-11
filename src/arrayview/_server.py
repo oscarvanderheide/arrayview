@@ -7,6 +7,9 @@ This module was extracted from _app.py during the modular refactor.
 
 import json
 import os
+import time
+import uuid
+from dataclasses import dataclass, replace
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from importlib.resources import files as _pkg_files
@@ -21,6 +24,7 @@ from arrayview._session import (
     COLORMAPS,
 )
 from arrayview import __version__ as _av_version
+from arrayview._instance_registry import process_start_identity
 import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
 
 from arrayview._render import (
@@ -52,6 +56,69 @@ from arrayview._imaging import ensure_image as _pil_image, ensure_imageops as _p
 # ── FastAPI Application ───────────────────────────────────────────
 
 app = FastAPI()
+
+
+SERVER_PROTOCOL_VERSION = "1"
+SERVER_CAPABILITIES = (
+    "health-status",
+    "session-registration",
+    "viewer-websocket",
+    "shell-websocket",
+)
+
+
+def _environment_port() -> int | None:
+    value = os.environ.get("ARRAYVIEW_SERVER_PORT")
+    if not value:
+        return None
+    try:
+        port = int(value)
+    except ValueError:
+        return None
+    return port if 0 < port < 65536 else None
+
+
+def _environment_started_at() -> float:
+    value = os.environ.get("ARRAYVIEW_STARTED_AT")
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return time.time()
+
+
+@dataclass(frozen=True)
+class ServerRuntimeState:
+    """Stable identity and ownership metadata for this server process."""
+
+    instance_id: str
+    process_start: str
+    owner_mode: str
+    started_at: float
+    port: int | None
+    protocol_version: str = SERVER_PROTOCOL_VERSION
+    capabilities: tuple[str, ...] = SERVER_CAPABILITIES
+
+
+if _session_mod.SERVER_RUNTIME is None:
+    _session_mod.SERVER_RUNTIME = ServerRuntimeState(
+        instance_id=os.environ.get("ARRAYVIEW_INSTANCE_ID") or str(uuid.uuid4()),
+        process_start=(
+            os.environ.get("ARRAYVIEW_PROCESS_START")
+            or process_start_identity(os.getpid())
+            or f"pid-only:{os.getpid()}"
+        ),
+        owner_mode=os.environ.get("ARRAYVIEW_OWNER_MODE", "unknown"),
+        started_at=_environment_started_at(),
+        port=_environment_port(),
+    )
+
+
+def configure_server_runtime(**changes) -> ServerRuntimeState:
+    """Set launch metadata once the listener's final ownership/port is known."""
+    _session_mod.SERVER_RUNTIME = replace(_session_mod.SERVER_RUNTIME, **changes)
+    return _session_mod.SERVER_RUNTIME
 
 
 @app.exception_handler(Exception)
@@ -147,15 +214,33 @@ def ping():
     """Health marker so clients can verify this is an ArrayView server."""
     import socket
 
+    runtime = _session_mod.SERVER_RUNTIME
     return {
         "ok": True,
         "service": "arrayview",
         "pid": os.getpid(),
         "hostname": socket.gethostname(),
+        "protocol_version": runtime.protocol_version,
+        "package_version": _av_version,
+        "instance_id": runtime.instance_id,
+        "process_start": runtime.process_start,
+        "owner_mode": runtime.owner_mode,
+        "started_at": runtime.started_at,
+        "port": runtime.port,
+        "capabilities": list(runtime.capabilities),
+        "active_sessions": len(SESSIONS),
+        "active_viewer_sockets": _session_mod.VIEWER_SOCKETS,
+        "active_shell_sockets": len(_session_mod.SHELL_SOCKETS),
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
         "viewer_connections_seen": _session_mod.VIEWER_CONNECTIONS_SEEN,
         "shell_sockets": len(_session_mod.SHELL_SOCKETS),
     }
+
+
+@app.get("/status")
+def status():
+    """Detailed server identity; equivalent to the compatible ping payload."""
+    return ping()
 
 
 # ── Root UI Route ─────────────────────────────────────────────────

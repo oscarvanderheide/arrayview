@@ -1,3 +1,5 @@
+const path = require('path');
+
 function collectReleaseSidsFromUrl(url) {
     let parsed;
     try {
@@ -46,9 +48,42 @@ function shouldDeferBroadcast(isOwnTargetedFile, isFocused, data) {
     return !isOwnTargetedFile && !isFocused && data?.broadcast === true;
 }
 
+function validatedAckPath(ackPath, requestId, homeDir) {
+    if (typeof ackPath !== 'string' || typeof requestId !== 'string' || !requestId) return null;
+    const signalDir = path.resolve(homeDir, '.arrayview');
+    const expectedName = `open-ack-v0100-${requestId}.json`;
+    const resolved = path.resolve(ackPath);
+    if (path.dirname(resolved) !== signalDir || path.basename(resolved) !== expectedName) return null;
+    return resolved;
+}
+
+function ackPayload(state, data, windowId, message) {
+    const payload = {
+        protocolVersion: 1,
+        state,
+        requestId: data.requestId,
+        windowId,
+        serverId: data.serverId ?? null,
+        timestampMs: Date.now(),
+    };
+    if (message) payload.message = String(message);
+    return payload;
+}
+
+function isArrayViewStatus(payload, expectedServerId = null) {
+    return Boolean(
+        payload
+        && payload.service === 'arrayview'
+        && (!expectedServerId || payload.instance_id === expectedServerId)
+    );
+}
+
 module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
+    validatedAckPath,
+    ackPayload,
+    isArrayViewStatus,
 };

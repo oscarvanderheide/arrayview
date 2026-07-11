@@ -2781,6 +2781,7 @@ class TestCliOpenHelpers:
                 "sid": "sid_base",
                 "compare_sids": ["sid_cmp"],
                 "overlay_sid": None,
+                "overlay_names": [],
                 "dims_override": (1, 2),
                 "notify_native_shell": True,
                 "notified": False,
@@ -2933,6 +2934,7 @@ class TestCliOpenHelpers:
                 "sid": "sid_base",
                 "compare_sids": ["sid_cmp"],
                 "overlay_sid": "sid_base",
+                "overlay_names": ["overlay.npy"],
                 "dims_override": (1, 2),
                 "use_native_shell": False,
                 "name": "base.npy",
@@ -4658,6 +4660,13 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: True)
         monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: True)
+        monkeypatch.setattr(launcher._platform_mod, "_in_jupyter", lambda: True)
+        monkeypatch.setattr(
+            launcher._platform_mod, "_in_vscode_terminal", lambda: True
+        )
+        monkeypatch.setattr(
+            launcher._platform_mod, "_is_vscode_remote", lambda: True
+        )
         monkeypatch.setattr(launcher, "_server_alive", lambda port: port == 8123)
         monkeypatch.setattr(
             launcher,

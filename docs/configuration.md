@@ -46,3 +46,6 @@ Explicit `--window` flag > `ARRAYVIEW_WINDOW` env var > config file > built-in d
 | `jupyter` | Jupyter / IPython notebook kernel |
 | `ssh` | SSH session without VS Code |
 | `julia` | Julia via PythonCall / PyCall |
+
+MATLAB uses the detected terminal, VS Code, SSH, or remote route. Local MATLAB
+prefers a native window when available. See [MATLAB and Julia](foreign-hosts.md).

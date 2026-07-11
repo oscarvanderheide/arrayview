@@ -91,6 +91,13 @@ def check_lifecycle_contract_tests() -> CheckResult:
     return _pytest_check(["tests/test_lifecycle_contract.py"], "tests/test_lifecycle_contract.py")
 
 
+def check_invocation_contract_matrix() -> CheckResult:
+    return _pytest_check(
+        ["tests/test_invocation_contract_matrix.py"],
+        "invocation x host x placement x OS planner contracts",
+    )
+
+
 def check_cli_contract_tests() -> CheckResult:
     return _pytest_check(["tests/test_cli.py"], "tests/test_cli.py")
 
@@ -281,8 +288,11 @@ def manual_native_window() -> CheckResult:
 def manual_vscode_tab() -> CheckResult:
     return CheckResult(
         "MANUAL",
-        "live VS Code UI session",
-        "Run `uv run arrayview <file> --window vscode`; verify tab opens in target window and closes cleanly.",
+        "real VS Code tunnel extension host",
+        "Verify originating-window selection with multiple tunnel windows; local-client "
+        "reachability of the forwarded URL; forwarding privacy and external URI; "
+        "request/window/server ACK correlation; extension-host restart; and tunnel "
+        "reconnect without window reload or --kill.",
     )
 
 
@@ -298,6 +308,7 @@ def _matrix(include_build: bool) -> list[MatrixRow]:
     rows = [
         MatrixRow("Project context", "Lifecycle contract is routed and drift-free", "automated", check_mex_context),
         MatrixRow("All invocation contracts", "Core lifecycle invariants stay pinned", "automated", check_lifecycle_contract_tests),
+        MatrixRow("Launch planner matrix", "Invocation, host, placement, and OS rules stay orthogonal", "automated", check_invocation_contract_matrix),
         MatrixRow("CLI", "CLI launch/reuse behavior stays pinned", "automated", check_cli_contract_tests),
         MatrixRow("FastAPI/WebSocket", "Shell close and CLI helper release paths work", "automated", check_api_lifecycle_helpers),
         MatrixRow("Transient daemon", "Local transient server exits after viewer disconnect", "real subprocess", check_live_transient_daemon_shutdown),

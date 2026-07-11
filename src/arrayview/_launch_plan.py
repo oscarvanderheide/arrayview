@@ -37,6 +37,8 @@ class Invocation(_StrEnum):
     PYTHON = "python"
     JUPYTER = "jupyter"
     JULIA = "julia"
+    MATLAB = "matlab"
+    VSCODE_EXPLORER = "vscode_explorer"
     CODEX = "codex"
 
 
@@ -47,6 +49,7 @@ class Environment(_StrEnum):
     SSH = "ssh"
     JUPYTER = "jupyter"
     JULIA = "julia"
+    MATLAB = "matlab"
 
 
 class Transport(_StrEnum):
@@ -77,6 +80,15 @@ class Registration(_StrEnum):
     RELAY = "relay"
 
 
+class LaunchFailure(_StrEnum):
+    """Stable failure codes returned by :func:`plan_launch`."""
+
+    INVALID_PORT = "invalid_port"
+    INVALID_WINDOW = "invalid_window"
+    VSCODE_UNAVAILABLE = "vscode_unavailable"
+    REMOTE_PORT_CONFLICT = "remote_port_conflict"
+
+
 @dataclass(frozen=True)
 class ServerSnapshot:
     port: int
@@ -104,6 +116,7 @@ class LaunchEnvironmentSnapshot:
     ssh_connection: bool
     ssh_client: bool
     hostname: str
+    cli_default_server: ServerSnapshot | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -116,6 +129,20 @@ class LaunchRequest:
 
 
 @dataclass(frozen=True)
+class LaunchIntent:
+    """Normalized user intent shared by CLI and Python entry points."""
+
+    invocation: Invocation
+    port: int
+    requested_window: str | None = None
+    browser: bool = False
+    inline: bool | None = None
+    window_explicit: bool = False
+    inline_explicit: bool = False
+    persistent: bool = False
+
+
+@dataclass(frozen=True)
 class LaunchPlan:
     invocation: Invocation
     environment: Environment
@@ -125,6 +152,215 @@ class LaunchPlan:
     registration: Registration
     fallback_display: Display | None = None
     fallback_allowed: bool = False
+    requested_port: int = 8123
+    effective_port: int = 8123
+    reasons: tuple[str, ...] = ()
+    failure: LaunchFailure | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.failure is None
+
+    def to_dict(self) -> dict:
+        """Return a JSON-compatible representation suitable for diagnostics."""
+        return _jsonable(asdict(self))
+
+
+def plan_launch(
+    intent: LaunchIntent, facts: LaunchEnvironmentSnapshot
+) -> LaunchPlan:
+    """Compute launch policy without starting servers or opening displays.
+
+    ``facts`` is deliberately supplied by the caller: planning is deterministic
+    and can be exercised without probing the machine or importing server code.
+    """
+    reasons: list[str] = []
+    port = intent.port
+    if not 1 <= port <= 65535:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_PORT, "port_out_of_range"
+        )
+
+    raw_window = intent.requested_window
+    window = raw_window.strip().lower() if isinstance(raw_window, str) else None
+    if intent.window_explicit and raw_window is None:
+        window = "browser"
+        reasons.append("explicit_window_false")
+    valid_windows = {None, "native", "browser", "vscode", "inline", "none"}
+    if window not in valid_windows:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_WINDOW, "unknown_window"
+        )
+
+    if intent.browser and window is None:
+        window = "browser"
+        reasons.append("browser_flag")
+    if (
+        window is None
+        and facts.config_default
+        and not intent.browser
+        and not intent.window_explicit
+        and not intent.inline_explicit
+    ):
+        window = facts.config_default.strip().lower()
+        reasons.append("config_window_default")
+    if window not in valid_windows:
+        return _failed_plan(
+            intent, facts, LaunchFailure.INVALID_WINDOW, "invalid_config_window"
+        )
+
+    environment = facts.environment
+    remote_jupyter = (
+        facts.is_vscode_remote and facts.in_jupyter and intent.inline is not False
+    )
+    if remote_jupyter:
+        environment = Environment.VSCODE_REMOTE
+        reasons.append("remote_jupyter_uses_vscode")
+    elif intent.invocation is Invocation.JUPYTER or facts.in_jupyter:
+        environment = Environment.JUPYTER
+    elif intent.invocation is Invocation.JULIA or facts.in_julia:
+        environment = Environment.JULIA
+    elif intent.invocation is Invocation.MATLAB and not facts.is_vscode_remote:
+        environment = Environment.MATLAB
+
+    server = facts.server
+    if (
+        intent.invocation is Invocation.PYTHON
+        and intent.port == 8123
+        and environment is Environment.VSCODE_REMOTE
+        and facts.cli_default_server is not None
+        and facts.cli_default_server.arrayview_server_alive
+    ):
+        port = facts.cli_default_server.port
+        server = facts.cli_default_server
+        reasons.append("reuse_remote_cli_default_server")
+
+    busy_foreign = server.port_busy and not server.arrayview_server_alive
+    if busy_foreign and environment is Environment.VSCODE_REMOTE:
+        return _failed_plan(
+            intent, facts, LaunchFailure.REMOTE_PORT_CONFLICT,
+            "remote_forwarding_requires_requested_port", effective_port=port,
+        )
+    if busy_foreign:
+        port += 1
+        reasons.append("scan_from_next_port")
+
+    if server.arrayview_server_alive:
+        owner = ServerOwner.EXISTING
+        registration = Registration.HTTP_LOAD
+        reasons.append("reuse_compatible_server")
+    elif environment is Environment.JULIA:
+        owner = ServerOwner.SPAWNED_DAEMON
+        registration = Registration.DAEMON_STARTUP
+        reasons.append(f"{environment.value}_requires_subprocess")
+    elif intent.invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}:
+        owner = (
+            ServerOwner.PERSISTENT
+            if intent.persistent
+            else ServerOwner.SPAWNED_DAEMON
+        )
+        registration = Registration.DAEMON_STARTUP
+        reasons.append("cli_server_process")
+    else:
+        owner = ServerOwner.PERSISTENT if intent.persistent else ServerOwner.IN_PROCESS
+        registration = Registration.IN_PROCESS_SESSION
+        reasons.append("python_process_owns_session")
+
+    display, fallback, fallback_allowed = _display_policy(
+        window=None if remote_jupyter else window,
+        inline=False if remote_jupyter else intent.inline,
+        environment=environment,
+        native_available=facts.native_backend is not None, reasons=reasons,
+    )
+    if display is Display.VSCODE and environment not in {
+        Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE
+    }:
+        return _failed_plan(
+            intent, facts, LaunchFailure.VSCODE_UNAVAILABLE,
+            "vscode_display_requested_outside_vscode", effective_port=port,
+        )
+    return LaunchPlan(
+        invocation=intent.invocation, environment=environment,
+        transport=Transport.HTTP, server_owner=owner, display=display,
+        registration=registration, fallback_display=fallback,
+        fallback_allowed=fallback_allowed, requested_port=intent.port,
+        effective_port=port, reasons=tuple(reasons),
+    )
+
+
+def _display_policy(
+    *,
+    window: str | None,
+    inline: bool | None,
+    environment: Environment,
+    native_available: bool,
+    reasons: list[str],
+) -> tuple[Display, Display | None, bool]:
+    if window == "none":
+        reasons.append("display_disabled")
+        return Display.NONE, None, False
+    if (
+        window == "inline"
+        or inline is True
+        or (
+            window is None
+            and inline is None
+            and environment is Environment.JUPYTER
+        )
+    ):
+        reasons.append("jupyter_inline" if window is None else "explicit_inline")
+        return Display.INLINE, None, False
+    if window == "vscode" or (
+        window is None
+        and environment in {Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE}
+    ):
+        reasons.append("vscode_environment" if window is None else "explicit_vscode")
+        return Display.VSCODE, Display.BROWSER, True
+    if window == "browser":
+        reasons.append("explicit_browser")
+        return Display.BROWSER, None, False
+    if window == "native":
+        if environment is Environment.VSCODE_REMOTE:
+            reasons.append("remote_native_redirected_to_vscode")
+            return Display.VSCODE, Display.BROWSER, True
+        if native_available:
+            reasons.append("explicit_native")
+            return Display.NATIVE, Display.BROWSER, True
+        reasons.append("native_unavailable")
+        return Display.BROWSER, None, False
+    if native_available and environment in {Environment.TERMINAL, Environment.MATLAB}:
+        reasons.append("native_available")
+        return Display.NATIVE, Display.BROWSER, True
+    reasons.append("browser_default")
+    return Display.BROWSER, None, False
+
+
+def _failed_plan(
+    intent: LaunchIntent,
+    facts: LaunchEnvironmentSnapshot,
+    failure: LaunchFailure,
+    reason: str,
+    *,
+    effective_port: int | None = None,
+) -> LaunchPlan:
+    return LaunchPlan(
+        invocation=intent.invocation, environment=facts.environment,
+        transport=Transport.NONE, server_owner=ServerOwner.EXTERNAL,
+        display=Display.NONE, registration=Registration.RELAY,
+        requested_port=intent.port,
+        effective_port=intent.port if effective_port is None else effective_port,
+        reasons=(reason,), failure=failure,
+    )
+
+
+def _jsonable(value: object) -> object:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def snapshot_launch_environment(
@@ -168,6 +404,13 @@ def snapshot_launch_environment(
         ssh_connection=ssh_connection,
         ssh_client=ssh_client,
         hostname=socket.gethostname(),
+        cli_default_server=(
+            _server_snapshot(8000)
+            if inv is Invocation.PYTHON
+            and environment is Environment.VSCODE_REMOTE
+            and port == 8123
+            else None
+        ),
     )
 
 

@@ -26,6 +26,10 @@ view(np.random.rand(256, 256, 32))
 
 Works in scripts, Jupyter notebooks, and VS Code interactive windows.
 
+MATLAB and Julia setup: [MATLAB and Julia](foreign-hosts.md).
+
+Remote and tunnel setup: [Remote](remote.md).
+
 ## Formats
 
 `.npy` `.npz` `.nii` `.nii.gz` `.zarr` `.pt` `.h5` `.tif` `.mat`

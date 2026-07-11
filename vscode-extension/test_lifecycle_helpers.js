@@ -4,6 +4,9 @@ const {
     pingUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
+    validatedAckPath,
+    ackPayload,
+    isArrayViewStatus,
 } = require('./lifecycle_helpers');
 
 assert.deepStrictEqual(
@@ -43,5 +46,47 @@ assert.strictEqual(shouldDeferBroadcast(false, false, { broadcast: true }), true
 assert.strictEqual(shouldDeferBroadcast(false, true, { broadcast: true }), false);
 assert.strictEqual(shouldDeferBroadcast(true, false, { broadcast: true }), false);
 assert.strictEqual(shouldDeferBroadcast(false, false, { broadcast: false }), false);
+
+const home = '/home/tester';
+assert.strictEqual(
+    validatedAckPath('/home/tester/.arrayview/open-ack-v0100-req-1.json', 'req-1', home),
+    '/home/tester/.arrayview/open-ack-v0100-req-1.json'
+);
+assert.strictEqual(validatedAckPath('/tmp/open-ack-v0100-req-1.json', 'req-1', home), null);
+assert.strictEqual(
+    validatedAckPath('/home/tester/.arrayview/open-ack-v0100-other.json', 'req-1', home),
+    null
+);
+assert.strictEqual(
+    validatedAckPath('/home/tester/.arrayview/sub/open-ack-v0100-req-1.json', 'req-1', home),
+    null
+);
+
+const ack = ackPayload(
+    'panel_opened',
+    { requestId: 'req-1', serverId: 'server-1' },
+    'window-1'
+);
+assert.strictEqual(ack.protocolVersion, 1);
+assert.strictEqual(ack.state, 'panel_opened');
+assert.strictEqual(ack.requestId, 'req-1');
+assert.strictEqual(ack.windowId, 'window-1');
+assert.strictEqual(ack.serverId, 'server-1');
+assert.strictEqual(typeof ack.timestampMs, 'number');
+
+const failedAck = ackPayload('failed', { requestId: 'req-2' }, 'window-2', 'boom');
+assert.strictEqual(failedAck.serverId, null);
+assert.strictEqual(failedAck.message, 'boom');
+
+assert.strictEqual(isArrayViewStatus({ service: 'arrayview' }), true);
+assert.strictEqual(
+    isArrayViewStatus({ service: 'arrayview', instance_id: 'server-1' }, 'server-1'),
+    true
+);
+assert.strictEqual(
+    isArrayViewStatus({ service: 'arrayview', instance_id: 'server-2' }, 'server-1'),
+    false
+);
+assert.strictEqual(isArrayViewStatus({ service: 'other' }), false);
 
 console.log('lifecycle helper tests passed');

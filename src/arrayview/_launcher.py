@@ -81,6 +81,113 @@ def _server_mod():
     return _server_mod_cache
 
 
+def _register_server_runtime(port: int, owner_mode: str):
+    """Register this process identity after its listener has been reserved."""
+    from arrayview import __version__
+    from arrayview._instance_registry import InstanceRecord, InstanceRegistry
+
+    registry = InstanceRegistry()
+    log_directory = registry.directory / "logs"
+    log_directory.mkdir(parents=True, exist_ok=True)
+    record = InstanceRecord.create(
+        port=port,
+        protocol_version=_server_mod().SERVER_PROTOCOL_VERSION,
+        package_version=__version__,
+        owner_mode=owner_mode,
+        log_path=str(log_directory / f"server-{os.getpid()}.log"),
+    )
+    registry.write(record)
+    _server_mod().configure_server_runtime(
+        instance_id=record.instance_id,
+        process_start=record.process_start,
+        owner_mode=record.owner_mode,
+        started_at=record.started_at,
+        port=record.port,
+    )
+    return registry, record
+
+
+def _stop_verified_server(port: int) -> tuple[str, int | None]:
+    """Stop the verified ArrayView process on *port*, never a port occupant."""
+    from arrayview._instance_registry import (  # noqa: PLC0415
+        InstanceRegistry,
+        process_start_identity,
+    )
+
+    try:
+        with urllib.request.urlopen(
+            f"http://localhost:{port}/ping", timeout=1.0
+        ) as response:
+            status = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return "No verified ArrayView server found", None
+
+    if status.get("service") != "arrayview" or status.get("port") != port:
+        return "Refusing to stop an unverified listener", None
+    try:
+        pid = int(status["pid"])
+        claimed_start = str(status["process_start"])
+        instance_id = str(status["instance_id"])
+    except (KeyError, TypeError, ValueError):
+        return "Refusing to stop an unverified listener", None
+    if not claimed_start or not instance_id or process_start_identity(pid) != claimed_start:
+        return "Refusing to stop an unverified or stale process", None
+
+    registry = InstanceRegistry()
+    matching_record = next(
+        (
+            record
+            for record in registry.discover(clean_stale=True)
+            if record.instance_id == instance_id
+            and record.port == port
+            and record.pid == pid
+            and record.process_start == claimed_start
+        ),
+        None,
+    )
+    if matching_record is None:
+        return "Refusing to stop an unowned ArrayView process", None
+
+    import signal as _signal
+
+    try:
+        os.kill(pid, _signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except (OSError, PermissionError) as exc:
+        return f"Failed to stop ArrayView process {pid}: {exc}", None
+
+    deadline = time.monotonic() + 1.0
+    while process_start_identity(pid) == claimed_start and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if process_start_identity(pid) == claimed_start:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                os.kill(pid, _signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"Failed to stop ArrayView process {pid}: {exc}", None
+        deadline = time.monotonic() + 2.0
+        while (
+            process_start_identity(pid) == claimed_start
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        if process_start_identity(pid) == claimed_start:
+            return f"Failed to stop ArrayView process {pid}: still running", None
+
+    registry.remove(matching_record.instance_id)
+    return f"Killed process {pid} on port {port}", pid
+
+
 # ---------------------------------------------------------------------------
 # Lazy uvicorn import
 # ---------------------------------------------------------------------------
@@ -1212,40 +1319,73 @@ def _handle_cli_spawned_daemon(
         f" dir_case_regex={repr(dir_case_regex)},"
         f")"
     )
-    subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=(sys.platform != "win32"),
-    )
-
     early_native_shell_opened = False
     early_native_shell_proc = None
     early_native_shell_connected = False
-    if (
-        use_native_shell
-        and not is_remote
-        and not overlay_files
-        and not dir_overlay_specs
-        and not compare_files
-        and not sys.platform.startswith("linux")
-    ):
-        # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
-        # parent shell was created from inline data. Let Linux open the normal
-        # HTTP shell after the daemon is listening instead.
-        url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
-        early_native_shell_opened, early_native_shell_proc = _open_webview_cli_tracked(
-            url_shell_early, 1400, 900, shell_port=port
+
+    from arrayview._instance_registry import InstanceRegistry
+
+    with InstanceRegistry().startup_lock(timeout=20.0):
+        if _server_alive(port):
+            if dir_patterns is not None:
+                print(
+                    "Error: a concurrent ArrayView launch claimed the requested "
+                    f"port {port}, and --dir cannot register with an existing server. "
+                    "Retry with a different --port.",
+                    flush=True,
+                )
+                sys.exit(1)
+            _handle_cli_existing_server(
+                port=port,
+                base_file=base_file,
+                name=name,
+                compare_files=compare_files,
+                overlay_files=overlay_files,
+                rgb=rgb,
+                vectorfield=vectorfield,
+                vfield_components_dim=vfield_components_dim,
+                use_native_shell=use_native_shell,
+                dims_override=dims_override,
+                watch=watch,
+                window_mode=window_mode,
+                floating=floating,
+                select=select,
+            )
+            return
+
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=(sys.platform != "win32"),
         )
 
-    if not _wait_for_port(port, timeout=15.0, tcp_only=True):
-        print(
-            f"Error: ArrayView server failed to start on port {port}. "
-            "Use --port to pick another."
-        )
-        sys.exit(1)
+        if (
+            use_native_shell
+            and not is_remote
+            and not overlay_files
+            and not dir_overlay_specs
+            and not compare_files
+            and not sys.platform.startswith("linux")
+        ):
+            # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
+            # parent shell was created from inline data. Let Linux open the normal
+            # HTTP shell after the daemon is listening instead.
+            url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
+            early_native_shell_opened, early_native_shell_proc = (
+                _open_webview_cli_tracked(
+                    url_shell_early, 1400, 900, shell_port=port
+                )
+            )
+
+        if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+            print(
+                f"Error: ArrayView server failed to start on port {port}. "
+                "Use --port to pick another."
+            )
+            sys.exit(1)
 
     try:
         compare_sids = _load_compare_sids(port, compare_files)
@@ -1574,7 +1714,11 @@ def _run_loading_server(
         pass
 
 
-async def _serve_background(port: int, stop_when_closed: bool = False):
+async def _serve_background(
+    port: int,
+    stop_when_closed: bool = False,
+    owner_mode: str = "in_process",
+):
     global _loading_port
     _loading_port = None  # reset for this server lifetime
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
@@ -1587,6 +1731,7 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     # macOS native shell connects via ``localhost`` → ``::1``, so we must
     # keep the IPv6 listener too.
     socks = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(port, owner_mode)
 
     # Bind the loading-page server on an OS-chosen ephemeral port.
     # This uses only stdlib so it starts in microseconds — well before
@@ -1613,7 +1758,10 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     server = _uvicorn().Server(config)
     if stop_when_closed:
         asyncio.create_task(_stop_server_when_viewer_closes(server))
-    await server.serve(sockets=socks)
+    try:
+        await server.serve(sockets=socks)
+    finally:
+        registry.remove(record.instance_id)
 
 
 def _with_loading(url: str) -> str:
@@ -1844,8 +1992,9 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
 
 class ViewHandle(str):
     """Returned by :func:`view`.  Behaves as a URL string for backward compatibility
-    and additionally exposes ``.update(arr)`` to push a new array into the viewer
-    without reopening a window.
+    and additionally exposes ``.update(arr)`` and ``.close()``.  It can also be
+    used as a context manager when the session should be released at the end of
+    a block.
 
     Example::
 
@@ -1858,6 +2007,7 @@ class ViewHandle(str):
         obj = super().__new__(cls, url)
         obj._sid = sid
         obj._port = port
+        obj._closed = False
         return obj
 
     @property
@@ -1905,6 +2055,37 @@ class ViewHandle(str):
                 f"  URL: http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}\n"
                 f"  Is the ArrayView server still running?"
             ) from e
+
+    def close(self) -> None:
+        """Release this viewer session.
+
+        Closing a handle more than once is a local no-op.  If the request
+        fails, the handle remains open so the caller can retry.
+        """
+        if self._closed:
+            return
+
+        release_url = (
+            f"http://{_LOOPBACK_HOST}:{self._port}/release/{self._sid}"
+        )
+        request = urllib.request.Request(release_url, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+        except Exception as exc:
+            raise RuntimeError(
+                f"[ArrayView] Failed to close viewer: {exc}\n"
+                f"  URL: {release_url}\n"
+                f"  Is the ArrayView server still running?"
+            ) from exc
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
 
 
 def view(
@@ -2031,6 +2212,7 @@ def view(
     rgb_primary = rgbs[0]
 
     # --- Normalise string window modes ---
+    _raw_window = window
     _window_request = _normalize_view_window_request(window, inline)
     window = _window_request["window"]
     inline = _window_request["inline"]
@@ -2039,90 +2221,76 @@ def view(
     _explicit_inline = bool(_window_request["explicit_inline"])
     _explicit_window = bool(_window_request["explicit_window"])
 
-    # Remote/tunnel: if the caller didn't override the port and a --serve server
-    # is already running on the CLI default (8000), use that instead of 8123.
-    _CLI_DEFAULT_PORT = 8000
-    port = _resolve_view_port(
-        port,
-        is_vscode_remote=_is_vscode_remote(),
-        cli_default_port_alive=_server_alive(_CLI_DEFAULT_PORT),
+    from arrayview._launch_plan import (
+        Display,
+        Invocation,
+        LaunchIntent,
+        plan_launch,
+        snapshot_launch_environment,
     )
 
-    # --- Julia path: only single-array supported ---
     if _is_julia_env():
+        _invocation = Invocation.JULIA
+    elif _platform_mod._in_matlab():
+        _invocation = Invocation.MATLAB
+    else:
+        _invocation = Invocation.PYTHON
+
+    if isinstance(_raw_window, str):
+        _requested_window = _raw_window
+    elif _raw_window is True:
+        _requested_window = "native"
+    elif _raw_window is False:
+        _requested_window = "none"
+    else:
+        _requested_window = None
+
+    # PythonCall historically treats window=False as an inline Julia display.
+    # Keep that public quirk while routing the resulting mode through the plan.
+    if _invocation is Invocation.JULIA and _raw_window is False:
+        _requested_window = "inline"
+        inline = True
+
+    _launch_snapshot = snapshot_launch_environment(
+        port, _invocation, _requested_window
+    )
+    _launch_plan = plan_launch(
+        LaunchIntent(
+            invocation=_invocation,
+            port=port,
+            requested_window=_requested_window,
+            inline=inline,
+            window_explicit=_explicit_window,
+            inline_explicit=_explicit_inline,
+        ),
+        _launch_snapshot,
+    )
+    if not _launch_plan.ok:
+        raise ValueError(f"Cannot launch ArrayView: {_launch_plan.failure.value}")
+
+    port = _launch_plan.effective_port
+    inline = _launch_plan.display is Display.INLINE
+    window = _launch_plan.display is Display.NATIVE
+    _force_browser = _launch_plan.display is Display.BROWSER
+    _force_vscode = _launch_plan.display is Display.VSCODE
+    _suppress_open = _launch_plan.display is Display.NONE
+
+    # --- Julia path: only single-array supported ---
+    if _invocation is Invocation.JULIA:
         if n_arrays > 1:
             raise NotImplementedError(
                 "Multi-array view() is not yet supported in Julia mode"
             )
 
-        if window is True:
-            _inline, _window = False, True
-        elif inline is True or window is False:
-            _inline, _window = True, False
-        elif inline is False:
-            _inline, _window = False, False
-        else:
-            _inline = _in_julia_jupyter()
-            _window = False
         return _view_julia(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
             port,
-            window=_window,
-            inline=_inline,
+            window=window,
+            inline=inline,
             height=height,
             floating=floating,
         )
-
-    is_jupyter = _in_jupyter()
-    from arrayview._config import get_window_default
-    from arrayview._platform import detect_environment
-
-    display_plan = _resolve_view_display_defaults(
-        inline=inline,
-        window=window,
-        is_jupyter=is_jupyter,
-        explicit_window=_explicit_window,
-        explicit_inline=_explicit_inline,
-        force_browser=_force_browser,
-        force_vscode=_force_vscode,
-        config_window=get_window_default(detect_environment()),
-    )
-    inline = display_plan["inline"]
-    window = display_plan["window"]
-    _force_browser = bool(display_plan["force_browser"])
-    _force_vscode = bool(display_plan["force_vscode"])
-
-    vscode_promotion = _promote_view_to_vscode_terminal(
-        in_vscode_terminal=_in_vscode_terminal(),
-        inline=inline,
-        window=window,
-        explicit_window=_explicit_window,
-        explicit_inline=_explicit_inline,
-        force_vscode=_force_vscode,
-        force_browser=_force_browser,
-    )
-    window = vscode_promotion["window"]
-    _force_vscode = bool(vscode_promotion["force_vscode"])
-
-    # Julia/PythonCall (second check after inline/window resolution)
-    if not inline and _is_julia_env():
-        if n_arrays > 1:
-            raise NotImplementedError(
-                "Multi-array view() is not yet supported in Julia mode"
-            )
-        return _view_julia(
-            np.array(data) if not isinstance(data, np.ndarray) else data,
-            name,
-            port,
-            window,
-            floating=floating,
-        )
-
-    if _is_vscode_remote() and _in_jupyter() and inline is not False:
-        inline = False
-        window = False
-        _force_vscode = True
 
     # VS Code tunnel/remote: use the server + WebSocket path.
     # WS works through the devtunnel when the port is public — the extension
@@ -2187,9 +2355,22 @@ def view(
                 _ipy_display(iframe)
                 return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
 
-            _open_browser(
-                url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}", floating=floating
-            )
+            if _launch_plan.display is Display.NATIVE:
+                _session_mod._window_process = _open_webview_with_fallback(
+                    _shell_url(port, sid, name, compare_sids=_compare_sids),
+                    1400,
+                    900,
+                    shell_port=port,
+                    floating=floating,
+                )
+            elif not _suppress_open:
+                _open_browser(
+                    url_viewer,
+                    force_vscode=_force_vscode,
+                    blocking=True,
+                    title=f"ArrayView: {name}",
+                    floating=floating,
+                )
             _print_viewer_location(url_viewer)
             if n_arrays == 1:
                 return ViewHandle(url_viewer, sid, port)
@@ -2286,7 +2467,17 @@ def view(
         _script = _is_script_mode()
         threading.Thread(
             target=lambda: asyncio.run(
-                _serve_background(port, stop_when_closed=_script)
+                _serve_background(
+                    port,
+                    stop_when_closed=_script,
+                    owner_mode=(
+                        "transient"
+                        if _script
+                        else "kernel"
+                        if _in_jupyter()
+                        else "in_process"
+                    ),
+                )
             ),
             daemon=not _script,
             name="arrayview-server",
@@ -2420,7 +2611,7 @@ def view(
                 _open_browser(
                     _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
                 )
-    else:
+    elif not _suppress_open:
         if (
             window
             and not can_native_window
@@ -2720,6 +2911,7 @@ def _serve_empty(port: int) -> None:
     """
     _session_mod.SERVER_PORT = port
     socks = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(port, "persistent")
 
     def _run_empty_uvicorn():
         config = _uvicorn().Config(
@@ -2736,6 +2928,7 @@ def _serve_empty(port: int) -> None:
             time.sleep(1)
     except KeyboardInterrupt:
         pass
+    registry.remove(record.instance_id)
     os._exit(0)
 
 
@@ -2770,6 +2963,10 @@ def _serve_daemon(
     _session_mod.SERVER_PORT = port
 
     sock = _make_loopback_sockets(port)
+    registry, record = _register_server_runtime(
+        port,
+        "persistent" if persist else "transient",
+    )
 
     def _run_uvicorn_on_socket():
         config = _uvicorn().Config(
@@ -2916,6 +3113,7 @@ def _serve_daemon(
         # really gone, aside from the short grace period inside
         # _wait_for_viewer_close for page refreshes.
         _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
+    registry.remove(record.instance_id)
     os._exit(0)
 
 
@@ -3227,11 +3425,153 @@ def _print_dir_collection_summary(summary):
 # ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
+def _instance_public_dict(record) -> dict[str, object]:
+    value = record.to_dict()
+    value.pop("control_token", None)
+    return value
+
+
+def _handle_management_command(argv: list[str]) -> bool:
+    """Handle dependency-light management subcommands before the file CLI."""
+    if not argv or argv[0] not in {"doctor", "instances", "stop"}:
+        return False
+    command = argv[0]
+    parser = argparse.ArgumentParser(prog=f"arrayview {command}")
+    from arrayview._instance_registry import InstanceRegistry
+
+    if command == "instances":
+        parser.add_argument("--json", action="store_true")
+        args = parser.parse_args(argv[1:])
+        rows = [
+            _instance_public_dict(record)
+            for record in InstanceRegistry().discover(clean_stale=True)
+        ]
+        if args.json:
+            print(json.dumps({"instances": rows}, indent=2, sort_keys=True))
+        elif not rows:
+            print("No running ArrayView instances.")
+        else:
+            for row in rows:
+                print(
+                    f"{row['instance_id']}  port={row['port']}  "
+                    f"pid={row['pid']}  owner={row['owner_mode']}  "
+                    f"version={row['package_version']}"
+                )
+        return True
+
+    if command == "stop":
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("instance_id", nargs="?")
+        group.add_argument("--all", action="store_true")
+        args = parser.parse_args(argv[1:])
+        records = InstanceRegistry().discover(clean_stale=True)
+        selected = (
+            records
+            if args.all
+            else [record for record in records if record.instance_id == args.instance_id]
+        )
+        if not selected:
+            parser.error("no matching running ArrayView instance")
+        for record in selected:
+            message, _pid = _stop_verified_server(record.port)
+            print(f"[ArrayView] {record.instance_id}: {message}")
+        return True
+
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--window",
+        choices=["native", "browser", "vscode", "inline", "none"],
+    )
+    args = parser.parse_args(argv[1:])
+    from arrayview._launch_plan import (
+        Invocation,
+        LaunchIntent,
+        plan_launch,
+        snapshot_launch_environment,
+    )
+
+    snapshot = snapshot_launch_environment(
+        args.port,
+        Invocation.CLI,
+        requested_window=args.window,
+    )
+    plan = plan_launch(
+        LaunchIntent(
+            Invocation.CLI,
+            args.port,
+            requested_window=args.window,
+            window_explicit=args.window is not None,
+        ),
+        snapshot,
+    )
+    rows = [
+        _instance_public_dict(record)
+        for record in InstanceRegistry().discover(clean_stale=True)
+    ]
+    snapshot_dict = snapshot.to_dict()
+    snapshot_dict["env_vars"] = {
+        key: "<redacted>"
+        for key in sorted(snapshot_dict.get("env_vars", {}))
+    }
+    remediation = []
+    if plan.failure is not None:
+        messages = {
+            "invalid_port": "Choose a port between 1 and 65535.",
+            "invalid_window": "Choose native, browser, vscode, inline, or none.",
+            "vscode_unavailable": "Open from a VS Code terminal or choose browser.",
+            "remote_port_conflict": "Stop the recorded instance or choose a free forwarded port.",
+        }
+        remediation.append(
+            {
+                "code": plan.failure.value,
+                "message": messages[plan.failure.value],
+            }
+        )
+    elif snapshot.server.port_busy and not snapshot.server.arrayview_server_alive:
+        remediation.append(
+            {
+                "code": "foreign_port_occupant",
+                "message": (
+                    "Choose a different port; ArrayView will not stop this listener."
+                ),
+            }
+        )
+    report = {
+        "snapshot": snapshot_dict,
+        "plan": plan.to_dict(),
+        "instances": rows,
+        "remediation": remediation,
+    }
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"Environment: {plan.environment.value}")
+        print(
+            f"Server: {plan.server_owner.value} on port {plan.effective_port} "
+            f"({plan.registration.value})"
+        )
+        print(f"Display: {plan.display.value}")
+        print("Reasons: " + (", ".join(plan.reasons) or "default policy"))
+        print(f"Instances: {len(rows)}")
+        for row in rows:
+            print(
+                f"  {row['instance_id']} port={row['port']} pid={row['pid']} "
+                f"owner={row['owner_mode']} package={row['package_version']} "
+                f"protocol={row['protocol_version']}"
+            )
+        for action in remediation:
+            print(f"Remediation [{action['code']}]: {action['message']}")
+    return True
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
     # Handle "arrayview config ..." subcommand before argparse
     if len(sys.argv) > 1 and sys.argv[1] == "config":
         _handle_config_command(sys.argv[2:])
+        return
+    if _handle_management_command(sys.argv[1:]):
         return
 
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
@@ -3421,25 +3761,29 @@ def arrayview():
     if getattr(args, "diagnose", False):
         import json as _json
         import importlib.util as _importlib_util
-        from ._platform import (
-            _find_vscode_ipc_hook,
-            _in_jupyter,
+        from arrayview._launch_plan import (
+            Invocation,
+            LaunchIntent,
+            plan_launch,
+            snapshot_launch_environment,
         )
-        from arrayview._config import CONFIG_PATH, get_window_default, load_config
-        from arrayview._platform import detect_environment
+        from arrayview._platform import _find_vscode_ipc_hook
 
-        _det_env = detect_environment()
-        _config_window = get_window_default(_det_env)
-        _in_vs = _in_vscode_terminal()
-        _is_remote = _is_vscode_remote()
-        _can_native = _can_native_window()
-        _window_plan = _resolve_cli_window_mode(
-            explicit_window=args.window,
-            browser_flag=args.browser,
-            config_window=_config_window,
-            in_vscode_terminal=_in_vs,
-            is_vscode_remote=_is_remote,
-            can_native_window=_can_native,
+        requested_window = args.window
+        snapshot = snapshot_launch_environment(
+            args.port,
+            Invocation.CLI,
+            requested_window=requested_window,
+        )
+        plan = plan_launch(
+            LaunchIntent(
+                invocation=Invocation.CLI,
+                port=args.port,
+                requested_window=requested_window,
+                browser=args.browser,
+                persistent=args.serve,
+            ),
+            snapshot,
         )
 
         def _localhost_candidates() -> list[dict[str, object]]:
@@ -3478,30 +3822,8 @@ def arrayview():
                 sock.close()
 
         diag: dict = {
-            "env": {
-                "TERM_PROGRAM": os.environ.get("TERM_PROGRAM"),
-                "VSCODE_IPC_HOOK_CLI": os.environ.get("VSCODE_IPC_HOOK_CLI"),
-                "SSH_CONNECTION": os.environ.get("SSH_CONNECTION"),
-                "SSH_CLIENT": os.environ.get("SSH_CLIENT"),
-                "VSCODE_INJECTION": os.environ.get("VSCODE_INJECTION"),
-                "VSCODE_AGENT_FOLDER": os.environ.get("VSCODE_AGENT_FOLDER"),
-                "DISPLAY": os.environ.get("DISPLAY"),
-                "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
-            },
-            "detection": {
-                "in_vscode_terminal": _in_vs,
-                "is_vscode_remote": _is_remote,
-                "in_vscode_tunnel": _in_vscode_tunnel(),
-                "can_native_window": _can_native,
-                "in_jupyter": _in_jupyter(),
-                "vscode_ipc_hook_recovered": _find_vscode_ipc_hook(),
-            },
-            "launch_plan": {
-                **_window_plan,
-                "port": args.port,
-                "port_in_use": _port_in_use(args.port),
-                "arrayview_server_alive": _server_alive(args.port),
-            },
+            "snapshot": snapshot.to_dict(),
+            "plan": plan.to_dict(),
             "loopback": {
                 "host": _LOOPBACK_HOST,
                 "getaddrinfo": _localhost_candidates(),
@@ -3512,17 +3834,13 @@ def arrayview():
                 "gi": _importlib_util.find_spec("gi") is not None,
                 "webview": _importlib_util.find_spec("webview") is not None,
             },
+            "vscode": {
+                "ipc_hook_recovered": _find_vscode_ipc_hook(),
+            },
             "pid": os.getpid(),
             "ppid": os.getppid(),
             "platform": sys.platform,
             "python": sys.executable,
-        }
-        diag["config"] = {
-            "detected_environment": _det_env,
-            "config_file": CONFIG_PATH,
-            "config_contents": load_config() or None,
-            "ARRAYVIEW_WINDOW": os.environ.get("ARRAYVIEW_WINDOW") or None,
-            "resolved_window_pref": _config_window,
         }
         print(_json.dumps(diag, indent=2))
         return
@@ -3630,74 +3948,8 @@ def arrayview():
 
     # -- --kill: stop the server on the given port --
     if args.kill:
-        import signal as _signal
-
-        if sys.platform == "win32":
-            result = subprocess.run(
-                ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
-            )
-            killed = False
-            for line in result.stdout.splitlines():
-                if f":{args.port}" in line and "LISTENING" in line:
-                    parts = line.split()
-                    try:
-                        pid = int(parts[-1])
-                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
-                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
-                        killed = True
-                    except Exception as e:
-                        print(f"[ArrayView] Failed to kill process: {e}")
-            if not killed:
-                print(f"[ArrayView] No process found listening on port {args.port}")
-        else:
-            result = subprocess.run(
-                ["lsof", "-ti", f"tcp:{args.port}", "-sTCP:LISTEN"],
-                capture_output=True,
-                text=True,
-            )
-            pids = [
-                int(p) for p in result.stdout.strip().split() if p.strip().isdigit()
-            ]
-            if not pids:
-                print(f"[ArrayView] No process found listening on port {args.port}")
-            else:
-                for pid in pids:
-                    try:
-                        os.kill(pid, _signal.SIGTERM)
-                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
-                    except ProcessLookupError:
-                        pass
-                deadline = time.time() + 1.0
-                while time.time() < deadline:
-                    alive = []
-                    for pid in pids:
-                        try:
-                            os.kill(pid, 0)
-                            alive.append(pid)
-                        except ProcessLookupError:
-                            pass
-                    if not alive:
-                        break
-                    time.sleep(0.05)
-                else:
-                    for pid in alive:
-                        try:
-                            os.kill(pid, _signal.SIGKILL)
-                            print(f"[ArrayView] Force-killed process {pid} on port {args.port}")
-                        except ProcessLookupError:
-                            pass
-                    deadline = time.time() + 2.0
-                    while time.time() < deadline:
-                        alive = []
-                        for pid in pids:
-                            try:
-                                os.kill(pid, 0)
-                                alive.append(pid)
-                            except ProcessLookupError:
-                                pass
-                        if not alive:
-                            break
-                        time.sleep(0.05)
+        message, _pid = _stop_verified_server(args.port)
+        print(f"[ArrayView] {message}")
 
         from arrayview._vscode_signal import _cleanup_zombie_registrations
         cleaned = _cleanup_zombie_registrations(verbose=True)
@@ -3822,15 +4074,57 @@ def arrayview():
     # Detect SSH early — needed by the reverse-tunnel relay check below.
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
 
-    is_arrayview_server = _server_alive(args.port)
-    port_busy = _port_in_use(args.port)
-    port_plan = _plan_cli_port_strategy(
-        port_in_use=port_busy,
-        is_arrayview_server=is_arrayview_server,
-        is_ssh=_is_ssh,
-        is_vscode_remote=_is_vscode_remote(),
+    from arrayview._launch_plan import (
+        Display,
+        Invocation,
+        LaunchFailure,
+        LaunchIntent,
+        Registration,
+        plan_launch,
+        snapshot_launch_environment,
     )
-    if port_plan["attempt_ssh_relay_before_scan"] and not args.dir_mode:
+
+    launch_snapshot = snapshot_launch_environment(
+        args.port, Invocation.CLI, requested_window=args.window
+    )
+    launch_plan = plan_launch(
+        LaunchIntent(
+            invocation=Invocation.CLI,
+            port=args.port,
+            requested_window=args.window,
+            browser=args.browser,
+        ),
+        launch_snapshot,
+    )
+    if args.verbose:
+        print(
+            "[ArrayView] Launch plan: "
+            f"environment={launch_plan.environment.value} "
+            f"server={launch_plan.server_owner.value} "
+            f"registration={launch_plan.registration.value} "
+            f"display={launch_plan.display.value} "
+            f"port={launch_plan.requested_port}->{launch_plan.effective_port} "
+            f"reasons={','.join(launch_plan.reasons) or 'none'}",
+            flush=True,
+        )
+    if launch_plan.failure is LaunchFailure.VSCODE_UNAVAILABLE:
+        print(
+            "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
+            "  Use --window=browser to open in your system browser instead.",
+            flush=True,
+        )
+        sys.exit(1)
+    if (
+        not launch_plan.ok
+        and launch_plan.failure is not LaunchFailure.REMOTE_PORT_CONFLICT
+    ):
+        print(f"Error: invalid launch request ({launch_plan.failure.value}).")
+        sys.exit(1)
+
+    is_arrayview_server = launch_snapshot.server.arrayview_server_alive
+    execution_registration = launch_plan.registration
+    busy_non_arrayview = launch_snapshot.server.port_busy and not is_arrayview_server
+    if busy_non_arrayview and _is_ssh and not args.dir_mode:
         # Port occupied but not responding to a fast HTTP check.  When port 8000
         # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
         # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
@@ -3850,10 +4144,7 @@ def arrayview():
         except Exception as _relay_exc:
             print(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
             # Fall through — not an ArrayView relay server; start our own.
-    if port_plan["requires_fixed_remote_port_error"]:
-        # In tunnel mode the port must be predictable so the user can set
-        # the right port to Public.  Auto-scanning would silently pick a
-        # different port, leaving the user's Ports tab stale.
+    if launch_plan.failure is LaunchFailure.REMOTE_PORT_CONFLICT:
         print(
             f"[ArrayView] Port {args.port} is in use by another process.\n"
             f"  Run 'arrayview --kill --port {args.port}' to free it, "
@@ -3861,10 +4152,14 @@ def arrayview():
             flush=True,
         )
         sys.exit(1)
-    if port_plan["should_scan_for_port"]:
+    if "scan_from_next_port" in launch_plan.reasons:
         # Non-tunnel: auto-scan for a free port.
-        args.port, is_arrayview_server_new = _find_server_port(args.port + 1)
+        args.port, is_arrayview_server_new = _find_server_port(
+            launch_plan.effective_port
+        )
         is_arrayview_server = is_arrayview_server_new
+        if is_arrayview_server:
+            execution_registration = Registration.HTTP_LOAD
         if _port_in_use(args.port) and not is_arrayview_server:
             print(
                 f"Error: port {args.port} is in use by another process. "
@@ -3879,7 +4174,7 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    if port_plan["should_check_existing_ssh_relay"] and not args.dir_mode:
+    if is_arrayview_server and _is_ssh and not args.dir_mode:
         import socket as _socket
 
         # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
@@ -3890,33 +4185,12 @@ def arrayview():
             except Exception as e:
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)
-            return  # Resolve --window / --browser into a single window_mode
-    from arrayview._config import get_window_default
-    from arrayview._platform import detect_environment
+            return
 
-    window_plan = _resolve_cli_window_mode(
-        explicit_window=args.window,
-        browser_flag=args.browser,
-        config_window=get_window_default(detect_environment()),
-        in_vscode_terminal=_in_vscode_terminal(),
-        is_vscode_remote=_is_vscode_remote(),
-        can_native_window=_can_native_window(),
-    )
-    window_mode = window_plan["window_mode"]
-    use_native_shell = bool(window_plan["use_native_shell"])
-    launch_path = _select_arrayview_launch_path(
-        is_arrayview_server=is_arrayview_server,
-        is_vscode_remote=_is_vscode_remote(),
-    )
+    window_mode = launch_plan.display.value
+    use_native_shell = launch_plan.display is Display.NATIVE
 
-    if window_plan["requires_vscode_terminal"]:
-        if not _in_vscode_terminal():
-            print(
-                "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
-                "  Use --window=browser to open in your system browser instead.",
-                flush=True,
-            )
-            sys.exit(1)
+    if launch_plan.display is Display.VSCODE:
         # Warn if we can't find the IPC hook (multi-window targeting falls back to PID matching)
         from arrayview._platform import _find_vscode_ipc_hook as _check_ipc_hook
 
@@ -3926,12 +4200,12 @@ def arrayview():
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
                 flush=True,
             )
-    if window_plan["warn_native_to_vscode"]:
+    if "remote_native_redirected_to_vscode" in launch_plan.reasons:
         _vprint(
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
 
-    if launch_path == "existing_server":
+    if execution_registration is Registration.HTTP_LOAD:
         if args.dir_mode:
             print(
                 "Error: --dir cannot register with an already-running ArrayView server yet. "
@@ -3956,7 +4230,7 @@ def arrayview():
         )
         return
 
-    is_remote = _is_vscode_remote()
+    is_remote = launch_snapshot.is_vscode_remote
     demo_name = getattr(args, "_demo_name", None)
     demo_cleanup = getattr(args, "_demo_cleanup", False)
     _handle_cli_spawned_daemon(
