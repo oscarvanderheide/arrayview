@@ -1,5 +1,8 @@
 """Tests for --stack: lazy 4D/5D view over a directory of array files."""
 import os
+import threading
+import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -190,6 +193,31 @@ class TestNiftiSeriesErrors:
         series, _ = load_data_with_meta(str(tmp_path), load="eager")
         assert len(series._vol_cache) == 2
 
+    def test_concurrent_access_decompresses_volume_once(self, tmp_path, monkeypatch):
+        _make_patient_dir(tmp_path, "p001")
+        series, _ = load_data_with_meta(str(tmp_path))
+        original_load = nib.load
+        loads = []
+
+        def counted_load(path, *args, **kwargs):
+            loads.append(str(path))
+            time.sleep(0.05)
+            return original_load(path, *args, **kwargs)
+
+        monkeypatch.setattr(nib, "load", counted_load)
+        results = []
+        threads = [
+            threading.Thread(target=lambda: results.append(series[:, :, 2, 0]))
+            for _ in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(loads) == 1
+        assert len(results) == 2
+
     def test_dtype_mismatch(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", dtype=np.float32)
         _make_patient_dir(tmp_path, "p002", dtype=np.int16)
@@ -218,6 +246,64 @@ class TestViewDir:
 
         series, _ = load_data_with_meta(str(tmp_path))
         assert getattr(series, "_av_lazy", False) is True
+
+
+def test_collection_prefetch_only_warms_one_neighbor(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    warmed = []
+    session = SimpleNamespace(
+        shape=(32, 32, 20, 100),
+        data=SimpleNamespace(_stack_axes=(3,)),
+        raw_cache={},
+    )
+
+    class ImmediatePool:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_slice",
+        lambda _session, _dx, _dy, idx: warmed.append(idx[3]),
+    )
+
+    session_mod._schedule_prefetch(session, 0, 1, [0, 0, 10, 12], 3, 1)
+
+    assert warmed == [13]
+
+
+def test_stale_collection_prefetch_is_coalesced(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    queued = []
+    warmed = []
+    session = SimpleNamespace(
+        shape=(32, 32, 20, 100),
+        data=SimpleNamespace(_stack_axes=(3,)),
+        raw_cache={},
+    )
+
+    class QueuedPool:
+        def submit(self, fn):
+            queued.append(fn)
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: QueuedPool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_slice",
+        lambda _session, _dx, _dy, idx: warmed.append(idx[3]),
+    )
+
+    session_mod._schedule_prefetch(session, 0, 1, [0, 0, 10, 12], 3, 1)
+    session_mod._schedule_prefetch(session, 0, 1, [0, 0, 10, 20], 3, 1)
+    for job in queued:
+        job()
+
+    assert warmed == [21]
 
 
 # ---------------------------------------------------------------------------

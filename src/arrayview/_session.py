@@ -126,13 +126,17 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
     from arrayview._render import extract_slice
 
     n = session.shape[slice_dim]
+    # A neighboring collection index can mean decompressing an entire .nii.gz
+    # volume, not reading another small slice. Keep that work conservative.
+    stack_axes = tuple(getattr(session.data, "_stack_axes", ()))
+    neighbor_count = 1 if slice_dim in stack_axes else PREFETCH_NEIGHBORS
     slice_bytes = session.shape[dim_y] * session.shape[dim_x] * 4  # float32
-    if slice_bytes * PREFETCH_NEIGHBORS > PREFETCH_BUDGET_BYTES:
+    if slice_bytes * neighbor_count > PREFETCH_BUDGET_BYTES:
         return  # data too large; skip prefetch to avoid memory pressure
 
     current = idx_list[slice_dim]
     targets = []
-    for step in range(1, PREFETCH_NEIGHBORS + 1):
+    for step in range(1, neighbor_count + 1):
         nxt = current + direction * step
         if 0 <= nxt < n:
             targets.append(nxt)
@@ -140,8 +144,16 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
     if not targets:
         return
 
+    # Supersede queued work from older scroll positions. A gzip operation that
+    # is already running cannot be cancelled safely, but stale queued jobs now
+    # return without touching disk.
+    generation = getattr(session, "_prefetch_generation", 0) + 1
+    session._prefetch_generation = generation
+
     def _warm():
         for t in targets:
+            if generation != getattr(session, "_prefetch_generation", 0):
+                return
             idx = list(idx_list)
             idx[slice_dim] = t
             key_idx = tuple(None if i in (dim_x, dim_y) else idx[i] for i in range(len(idx)))

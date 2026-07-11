@@ -216,6 +216,7 @@ class _NiftiSeries:
             os.environ.get("ARRAYVIEW_NIFTI_CACHE_BYTES", 2 * 1024**3)
         )
         self._cache_lock = threading.Lock()
+        self._load_locks = {}
 
     @property
     def dtype(self):
@@ -227,22 +228,28 @@ class _NiftiSeries:
             if cache_key in self._vol_cache:
                 self._vol_cache.move_to_end(cache_key)
                 return self._vol_cache[cache_key]
-        filepath = self._file_matrix[p_idx][m_idx]
-        nib = _nib()
-        img = nib.load(filepath)
-        canon = nib.as_closest_canonical(img)
-        # Keep uncompressed NIfTI proxy-backed so nibabel/OS paging can read
-        # only the requested slice. Gzip files must be decompressed once and
-        # are therefore materialized into the byte-bounded cache.
-        vol = canon.dataobj if filepath.endswith(".nii") else np.asarray(canon.dataobj)
-        with self._cache_lock:
-            self._vol_cache[cache_key] = vol
-            self._vol_cache.move_to_end(cache_key)
-            self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
-            while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
-                _key, evicted = self._vol_cache.popitem(last=False)
-                self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
-        return vol
+            load_lock = self._load_locks.setdefault(cache_key, threading.Lock())
+        with load_lock:
+            with self._cache_lock:
+                if cache_key in self._vol_cache:
+                    self._vol_cache.move_to_end(cache_key)
+                    return self._vol_cache[cache_key]
+            filepath = self._file_matrix[p_idx][m_idx]
+            nib = _nib()
+            img = nib.load(filepath)
+            canon = nib.as_closest_canonical(img)
+            # Keep uncompressed NIfTI proxy-backed so nibabel/OS paging can read
+            # only the requested slice. Gzip files must be decompressed once and
+            # are therefore materialized into the byte-bounded cache.
+            vol = canon.dataobj if filepath.endswith(".nii") else np.asarray(canon.dataobj)
+            with self._cache_lock:
+                self._vol_cache[cache_key] = vol
+                self._vol_cache.move_to_end(cache_key)
+                self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
+                while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
+                    _key, evicted = self._vol_cache.popitem(last=False)
+                    self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
+            return vol
 
     def __getitem__(self, key):
         if not isinstance(key, tuple):
@@ -418,6 +425,7 @@ class _RaggedFileSeries:
             os.environ.get("ARRAYVIEW_NIFTI_CACHE_BYTES", 2 * 1024**3)
         )
         self._cache_lock = threading.Lock()
+        self._load_locks = {}
 
     @property
     def dtype(self):
@@ -464,22 +472,28 @@ class _RaggedFileSeries:
             if cache_key in self._vol_cache:
                 self._vol_cache.move_to_end(cache_key)
                 return self._vol_cache[cache_key]
-        filepath = self._file_matrix[p_idx][m_idx]
-        if self._all_nifti:
-            nib = _nib()
-            img = nib.load(filepath)
-            proxy = nib.as_closest_canonical(img).dataobj
-            vol = proxy if filepath.endswith(".nii") else np.asarray(proxy)
-        else:
-            vol = load_data(filepath)
-        with self._cache_lock:
-            self._vol_cache[cache_key] = vol
-            self._vol_cache.move_to_end(cache_key)
-            self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
-            while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
-                _key, evicted = self._vol_cache.popitem(last=False)
-                self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
-        return vol
+            load_lock = self._load_locks.setdefault(cache_key, threading.Lock())
+        with load_lock:
+            with self._cache_lock:
+                if cache_key in self._vol_cache:
+                    self._vol_cache.move_to_end(cache_key)
+                    return self._vol_cache[cache_key]
+            filepath = self._file_matrix[p_idx][m_idx]
+            if self._all_nifti:
+                nib = _nib()
+                img = nib.load(filepath)
+                proxy = nib.as_closest_canonical(img).dataobj
+                vol = proxy if filepath.endswith(".nii") else np.asarray(proxy)
+            else:
+                vol = load_data(filepath)
+            with self._cache_lock:
+                self._vol_cache[cache_key] = vol
+                self._vol_cache.move_to_end(cache_key)
+                self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
+                while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
+                    _key, evicted = self._vol_cache.popitem(last=False)
+                    self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
+            return vol
 
     def __getitem__(self, key):
         if not isinstance(key, tuple):
