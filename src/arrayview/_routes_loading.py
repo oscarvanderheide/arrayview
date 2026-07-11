@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import urllib.parse
 
 import numpy as np
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -81,14 +82,16 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
     async def load_file(request: Request):
         """Load a file into a new session. Optionally notify webview shells."""
         body = await request.json()
-        filepath = str(body["filepath"])
+        dir_patterns = body.get("dir_patterns")
+        filepath = str(body.get("filepath") or (dir_patterns or [""])[0])
         name = str(body.get("name") or os.path.basename(filepath))
         notify = bool(body.get("notify", False))
         abs_path = os.path.abspath(filepath)
-        for existing in SESSIONS.values():
-            if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
-                return {"sid": existing.sid, "name": existing.name, "notified": False}
-        if not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
+        if not dir_patterns:
+            for existing in SESSIONS.values():
+                if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
+                    return {"sid": existing.sid, "name": existing.name, "notified": False}
+        if not dir_patterns and not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
             from ._io import FULL_LOAD_EXTS
 
             ext = os.path.splitext(filepath)[1].lower()
@@ -113,14 +116,23 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 except ImportError:
                     pass
         try:
-            from ._io import load_data_with_meta, list_array_keys
+            from ._io import load_data_with_meta, load_dir_collection, list_array_keys
 
             # Multi-array .npz/.mat: if no key provided, return the key list so
             # the client can show a picker instead of blocking on terminal input.
             _key = body.get("key")
             _select = body.get("select")
             _array_keys = None
-            if filepath.endswith(".npz") or filepath.endswith(".mat"):
+            if dir_patterns:
+                data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
+                    load_dir_collection,
+                    list(dir_patterns),
+                    overlays=[tuple(item) for item in body.get("dir_overlay_specs", [])],
+                    case_regex=body.get("dir_case_regex"),
+                    load=body.get("load", "lazy"),
+                    stack=body.get("stack", "auto"),
+                )
+            elif filepath.endswith(".npz") or filepath.endswith(".mat"):
                 _array_keys = await asyncio.to_thread(list_array_keys, filepath)
                 if len(_array_keys) > 1 and not _key:
                     return {"array_keys": _array_keys, "filepath": filepath}
@@ -132,10 +144,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 filepath,
                 key=_key,
                 select=_select,
-            )
+            ) if not dir_patterns else (data, spatial_meta)
         except Exception as e:
             return {"error": str(e)}
-        session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)
+        session = await asyncio.to_thread(
+            Session, data, filepath=None if dir_patterns else filepath, name=name
+        )
+        if dir_patterns:
+            session.collection_spatial_ndim = len(summary["spatial_shape"])
         if spatial_meta is not None:
             session.spatial_meta = spatial_meta
             session.original_volume = data
@@ -148,6 +164,15 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             except ValueError as e:
                 return {"error": str(e)}
         SESSIONS[session.sid] = session
+        overlay_sids = []
+        overlay_names = []
+        for item in dir_overlay_items if dir_patterns else []:
+            overlay_session = await asyncio.to_thread(
+                Session, item["data"], filepath=None, name=item["name"]
+            )
+            SESSIONS[overlay_session.sid] = overlay_session
+            overlay_sids.append(overlay_session.sid)
+            overlay_names.append(item["name"])
         notified = False
         if notify:
             tab_url = None
@@ -157,8 +182,20 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     f"&compare_sid={body['compare_sid']}"
                     f"&compare_sids={body['compare_sids']}"
                 )
+            if overlay_sids:
+                tab_url = (
+                    f"/?sid={session.sid}"
+                    f"&overlay_sid={','.join(overlay_sids)}"
+                    f"&overlay_names={urllib.parse.quote(','.join(overlay_names))}"
+                )
             notified = await notify_shells(session.sid, name, url=tab_url, wait=False)
-        return {"sid": session.sid, "name": name, "notified": notified}
+        return {
+            "sid": session.sid,
+            "name": name,
+            "notified": notified,
+            "overlay_sids": overlay_sids,
+            "overlay_names": overlay_names,
+        }
 
     @app.post("/notify/{sid}")
     async def notify_existing_session(sid: str, request: Request):

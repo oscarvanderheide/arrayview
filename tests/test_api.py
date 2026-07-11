@@ -132,6 +132,50 @@ class TestLoad:
         r = client.post("/load", json={"filepath": str(tmp_path / "coolarray.npy")})
         assert r.json()["name"] == "coolarray.npy"
 
+    def test_load_directory_collection_into_existing_server(self, client, tmp_path):
+        images = tmp_path / "images"
+        overlays = tmp_path / "overlays"
+        images.mkdir()
+        overlays.mkdir()
+        np.save(images / "case_a.npy", np.zeros((4, 5, 6), dtype=np.float32))
+        np.save(images / "case_b.npy", np.ones((4, 5, 7), dtype=np.float32))
+        np.save(overlays / "case_a.npy", np.zeros((4, 5, 6), dtype=np.uint8))
+        np.save(overlays / "case_b.npy", np.ones((4, 5, 7), dtype=np.uint8))
+
+        body = client.post(
+            "/load",
+            json={
+                "name": "dir collection",
+                "dir_patterns": [str(images / "*.npy")],
+                "dir_overlay_specs": [["mask", str(overlays / "*.npy")]],
+                "load": "lazy",
+                "stack": "auto",
+            },
+        ).json()
+
+        assert "error" not in body
+        assert body["name"] == "dir collection"
+        assert body["overlay_names"] == ["mask"]
+        assert len(body["overlay_sids"]) == 1
+        meta = client.get(f"/metadata/{body['sid']}").json()
+        assert meta["shape"] == [4, 5, 6, 2]
+        assert meta["collection_spatial_ndim"] == 3
+        assert meta["ragged_spatial_shapes"] == [[[4, 5, 6]], [[4, 5, 7]]]
+
+    def test_load_directory_collection_error_creates_no_session(self, client, tmp_path):
+        before = {item["sid"] for item in client.get("/sessions").json()}
+        body = client.post(
+            "/load",
+            json={
+                "name": "broken collection",
+                "dir_patterns": [str(tmp_path / "missing" / "*.npy")],
+            },
+        ).json()
+
+        assert "error" in body
+        after = {item["sid"] for item in client.get("/sessions").json()}
+        assert after == before
+
     def test_load_mat_single_numeric_array_with_metadata_returns_sid(
         self, client, tmp_path
     ):
@@ -2737,6 +2781,52 @@ class TestCliOpenHelpers:
             "notified": True,
         }
         assert attach_calls == [(8000, "sid_base", "/tmp/vf.npy", 2)]
+
+    def test_register_dir_collection_with_existing_server_forwards_contract(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        calls = []
+
+        def fake_load(port, filepath, name, **kwargs):
+            calls.append((port, filepath, name, kwargs))
+            return {
+                "sid": "sid_dir",
+                "name": name,
+                "notified": False,
+                "overlay_sids": ["sid_mask"],
+                "overlay_names": ["mask"],
+            }
+
+        monkeypatch.setattr(launcher, "_load_session_from_filepath", fake_load)
+        result = launcher._register_cli_session_with_existing_server(
+            port=8000,
+            overlay_paths=[],
+            compare_files=[],
+            base_file="/data/*/*.nii.gz",
+            name="dir collection",
+            rgb=False,
+            use_native_shell=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            dir_patterns=["/data/*/*.nii.gz"],
+            dir_overlay_specs=[("mask", "/data/*/mask.nii.gz")],
+            dir_case_regex="(?P<case>[^/]+)",
+            collection_load="lazy",
+            collection_stack="auto",
+        )
+
+        assert calls[0][3]["dir_patterns"] == ["/data/*/*.nii.gz"]
+        assert calls[0][3]["dir_overlay_specs"] == [
+            ("mask", "/data/*/mask.nii.gz")
+        ]
+        assert calls[0][3]["dir_case_regex"] == "(?P<case>[^/]+)"
+        assert calls[0][3]["collection_load"] == "lazy"
+        assert calls[0][3]["collection_stack"] == "auto"
+        assert result["sid"] == "sid_dir"
+        assert result["overlay_sid"] == "sid_mask"
+        assert result["overlay_names"] == ["mask"]
 
     def test_handle_cli_existing_server_opens_registered_session(self, monkeypatch):
         import arrayview._launcher as launcher

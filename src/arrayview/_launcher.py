@@ -915,6 +915,11 @@ def _load_session_from_filepath(
     rgb: bool = False,
     compare_sids: _CompareSids | None = None,
     select: list[str] | None = None,
+    dir_patterns: list[str] | None = None,
+    dir_overlay_specs: list[tuple[str, str]] | None = None,
+    dir_case_regex: str | None = None,
+    collection_load: str = "lazy",
+    collection_stack: str = "auto",
 ) -> dict:
     payload = {
         "filepath": filepath,
@@ -925,6 +930,12 @@ def _load_session_from_filepath(
         payload["rgb"] = True
     if select:
         payload["select"] = select
+    if dir_patterns:
+        payload["dir_patterns"] = dir_patterns
+        payload["dir_overlay_specs"] = dir_overlay_specs or []
+        payload["dir_case_regex"] = dir_case_regex
+        payload["load"] = collection_load
+        payload["stack"] = collection_stack
     if notify and compare_sids:
         payload["compare_sid"] = compare_sids[0]
         payload["compare_sids"] = _join_query_values(compare_sids)
@@ -1148,6 +1159,11 @@ def _register_cli_session_with_existing_server(
     vectorfield: str | None,
     vfield_components_dim: int | None,
     select: list[str] | None = None,
+    dir_patterns: list[str] | None = None,
+    dir_overlay_specs: list[tuple[str, str]] | None = None,
+    dir_case_regex: str | None = None,
+    collection_load: str = "lazy",
+    collection_stack: str = "auto",
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
     for ov_path in overlay_paths:
@@ -1175,6 +1191,11 @@ def _register_cli_session_with_existing_server(
         rgb=rgb,
         compare_sids=compare_sids,
         select=select,
+        dir_patterns=dir_patterns,
+        dir_overlay_specs=dir_overlay_specs,
+        dir_case_regex=dir_case_regex,
+        collection_load=collection_load,
+        collection_stack=collection_stack,
     )
     if "error" in result:
         raise RuntimeError(f"Error from server: {result['error']}")
@@ -1189,13 +1210,20 @@ def _register_cli_session_with_existing_server(
             raise RuntimeError(
                 f"Error: failed to attach vector field: {vf_result['error']}"
             )
-    return {
+    collection_overlay_sids = [str(sid) for sid in result.get("overlay_sids", [])]
+    if collection_overlay_sids:
+        overlay_sids_list.extend(collection_overlay_sids)
+        overlay_sid = ",".join(overlay_sids_list)
+    session_info = {
         "sid": result["sid"],
         "overlay_sid": overlay_sid,
         "compare_sids": compare_sids,
         "notify_native_shell": notify_native_shell,
         "notified": bool(result.get("notified", False)),
     }
+    if result.get("overlay_names"):
+        session_info["overlay_names"] = result["overlay_names"]
+    return session_info
 
 
 def _handle_cli_existing_server(
@@ -1214,6 +1242,11 @@ def _handle_cli_existing_server(
     window_mode: str | None,
     floating: bool,
     select: list[str] | None = None,
+    dir_patterns: list[str] | None = None,
+    dir_overlay_specs: list[tuple[str, str]] | None = None,
+    dir_case_regex: str | None = None,
+    collection_load: str = "lazy",
+    collection_stack: str = "auto",
 ) -> None:
     try:
         session_info = _register_cli_session_with_existing_server(
@@ -1227,6 +1260,11 @@ def _handle_cli_existing_server(
             vectorfield=vectorfield,
             vfield_components_dim=vfield_components_dim,
             select=select,
+            dir_patterns=dir_patterns,
+            dir_overlay_specs=dir_overlay_specs,
+            dir_case_regex=dir_case_regex,
+            collection_load=collection_load,
+            collection_stack=collection_stack,
         )
     except Exception as e:
         err = str(e)
@@ -1252,7 +1290,10 @@ def _handle_cli_existing_server(
         sid=str(session_info["sid"]),
         compare_sids=session_info["compare_sids"],
         overlay_sid=session_info["overlay_sid"],
-        overlay_names=[os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)],
+        overlay_names=(
+            list(session_info.get("overlay_names", []))
+            or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
+        ),
         dims_override=dims_override,
         notify_native_shell=bool(session_info["notify_native_shell"]),
         notified=bool(session_info["notified"]),
@@ -1331,14 +1372,6 @@ def _handle_cli_spawned_daemon(
 
     with InstanceRegistry().startup_lock(timeout=20.0):
         if _server_alive(port):
-            if dir_patterns is not None:
-                print(
-                    "Error: a concurrent ArrayView launch claimed the requested "
-                    f"port {port}, and --dir cannot register with an existing server. "
-                    "Retry with a different --port.",
-                    flush=True,
-                )
-                sys.exit(1)
             _handle_cli_existing_server(
                 port=port,
                 base_file=base_file,
@@ -1354,6 +1387,11 @@ def _handle_cli_spawned_daemon(
                 window_mode=window_mode,
                 floating=floating,
                 select=select,
+                dir_patterns=dir_patterns,
+                dir_overlay_specs=dir_overlay_specs,
+                dir_case_regex=dir_case_regex,
+                collection_load=collection_load,
+                collection_stack=collection_stack,
             )
             return
 
@@ -4233,12 +4271,6 @@ def arrayview():
         )
 
     if execution_registration is Registration.HTTP_LOAD:
-        if args.dir_mode:
-            print(
-                "Error: --dir cannot register with an already-running ArrayView server yet. "
-                f"Run `arrayview --kill --port {args.port}` or choose a free --port."
-            )
-            sys.exit(1)
         _handle_cli_existing_server(
             port=args.port,
             base_file=base_file,
@@ -4254,6 +4286,11 @@ def arrayview():
             window_mode=window_mode,
             floating=args.floating,
             select=args.stack_select,
+            dir_patterns=dir_patterns,
+            dir_overlay_specs=dir_overlay_specs,
+            dir_case_regex=args.case_regex,
+            collection_load=args.load,
+            collection_stack=args.stack or "auto",
         )
         return
 
