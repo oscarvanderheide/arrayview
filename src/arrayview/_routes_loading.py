@@ -87,7 +87,51 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         name = str(body.get("name") or os.path.basename(filepath))
         notify = bool(body.get("notify", False))
         abs_path = os.path.abspath(filepath)
-        if not dir_patterns:
+        collection_identity = None
+        if dir_patterns:
+            collection_identity = (
+                tuple(os.path.abspath(str(pattern)) for pattern in dir_patterns),
+                tuple(
+                    (str(item[0]), os.path.abspath(str(item[1])))
+                    for item in body.get("dir_overlay_specs", [])
+                ),
+                body.get("dir_case_regex"),
+                body.get("load", "lazy"),
+                body.get("stack", "auto"),
+            )
+            for existing in SESSIONS.values():
+                if getattr(existing, "collection_identity", None) == collection_identity:
+                    notified = False
+                    if notify:
+                        existing_overlay_sids = list(
+                            getattr(existing, "collection_overlay_sids", [])
+                        )
+                        existing_overlay_names = list(
+                            getattr(existing, "collection_overlay_names", [])
+                        )
+                        tab_url = None
+                        if existing_overlay_sids:
+                            tab_url = (
+                                f"/?sid={existing.sid}"
+                                f"&overlay_sid={','.join(existing_overlay_sids)}"
+                                f"&overlay_names={urllib.parse.quote(','.join(existing_overlay_names))}"
+                            )
+                        notified = await notify_shells(
+                            existing.sid, name, url=tab_url, wait=False
+                        )
+                    return {
+                        "sid": existing.sid,
+                        "name": existing.name,
+                        "notified": notified,
+                        "overlay_sids": list(
+                            getattr(existing, "collection_overlay_sids", [])
+                        ),
+                        "overlay_names": list(
+                            getattr(existing, "collection_overlay_names", [])
+                        ),
+                        "reused": True,
+                    }
+        else:
             for existing in SESSIONS.values():
                 if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
                     return {"sid": existing.sid, "name": existing.name, "notified": False}
@@ -152,6 +196,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         )
         if dir_patterns:
             session.collection_spatial_ndim = len(summary["spatial_shape"])
+            session.collection_identity = collection_identity
         if spatial_meta is not None:
             session.spatial_meta = spatial_meta
             session.original_volume = data
@@ -173,6 +218,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             SESSIONS[overlay_session.sid] = overlay_session
             overlay_sids.append(overlay_session.sid)
             overlay_names.append(item["name"])
+        if dir_patterns:
+            session.collection_overlay_sids = list(overlay_sids)
+            session.collection_overlay_names = list(overlay_names)
         notified = False
         if notify:
             tab_url = None

@@ -162,6 +162,20 @@ class TestLoad:
         assert meta["collection_spatial_ndim"] == 3
         assert meta["ragged_spatial_shapes"] == [[[4, 5, 6]], [[4, 5, 7]]]
 
+        repeated = client.post(
+            "/load",
+            json={
+                "name": "dir collection",
+                "dir_patterns": [str(images / "*.npy")],
+                "dir_overlay_specs": [["mask", str(overlays / "*.npy")]],
+                "load": "lazy",
+                "stack": "auto",
+            },
+        ).json()
+        assert repeated["sid"] == body["sid"]
+        assert repeated["overlay_sids"] == body["overlay_sids"]
+        assert repeated["reused"] is True
+
     def test_load_directory_collection_error_creates_no_session(self, client, tmp_path):
         before = {item["sid"] for item in client.get("/sessions").json()}
         body = client.post(
