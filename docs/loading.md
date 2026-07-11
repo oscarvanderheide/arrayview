@@ -121,6 +121,19 @@ uvx arrayview --stack \
   --overlay "pred=data/**/pred/**/*.nii.gz"
 ```
 
+When every case has a directory containing separately named masks,
+`--overlay-dir` discovers one overlay role per filename. Masks that are absent
+for a case are shown as empty. A case regex is required so sparse masks stay
+paired with the correct image:
+
+```bash
+uvx arrayview --stack "data/*/T1_W/*.nii.gz" \
+  --overlay-dir "data/*/masks" \
+  --case-regex "(?P<case>sub-[0-9]+)"
+```
+
+Repeat `--overlay-dir` to combine masks from multiple per-case directories.
+
 ArrayView pairs files by sorted match order. The first match from each pattern
 belongs to the first case, the second match belongs to the second case, and so
 on. Use `--dry-run` to inspect matches without opening a viewer.

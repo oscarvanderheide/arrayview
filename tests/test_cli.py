@@ -288,6 +288,43 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
     assert "caseA, caseB" in text
 
 
+def test_cli_overlay_dir_discovers_sparse_roles(monkeypatch, tmp_path):
+    shape = (4, 5, 6)
+    for case in ("caseA", "caseB"):
+        (tmp_path / case / "images").mkdir(parents=True)
+        (tmp_path / case / "masks").mkdir()
+        np.save(tmp_path / case / "images" / "scan.npy", np.zeros(shape))
+        np.save(tmp_path / case / "masks" / "body.npy", np.ones(shape, dtype=np.uint8))
+    np.save(
+        tmp_path / "caseA" / "masks" / "organ.npy",
+        np.ones(shape, dtype=np.uint8),
+    )
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--stack",
+            str(tmp_path / "*" / "images" / "scan.npy"),
+            "--overlay-dir",
+            str(tmp_path / "*" / "masks"),
+            "--case-regex",
+            r"(?P<case>case[A-Z])",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert "overlay body:" in text
+    assert "overlay organ:" in text
+    assert "1 missing case(s), shown empty" in text
+
+
 def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_path):
     base = str(tmp_path / "base.npy")
     np.save(base, np.zeros((8, 8), dtype=np.float32))

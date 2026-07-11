@@ -249,6 +249,8 @@ class _NiftiSeries:
                     self._vol_cache.move_to_end(cache_key)
                     return self._vol_cache[cache_key]
             filepath = self._file_matrix[p_idx][m_idx]
+            if filepath is None:
+                return np.zeros(self._vol_shape, dtype=self._dtype)
             nib = _nib()
             img = nib.load(filepath)
             canon = nib.as_closest_canonical(img)
@@ -347,6 +349,8 @@ class _FileSeries:
                 self._vol_cache.move_to_end(cache_key)
                 return self._vol_cache[cache_key]
         filepath = self._file_matrix[p_idx][m_idx]
+        if filepath is None:
+            return np.zeros(self._vol_shape, dtype=self._dtype)
         vol = load_data(filepath)
         with self._cache_lock:
             self._vol_cache[cache_key] = vol
@@ -493,6 +497,8 @@ class _RaggedFileSeries:
                     self._vol_cache.move_to_end(cache_key)
                     return self._vol_cache[cache_key]
             filepath = self._file_matrix[p_idx][m_idx]
+            if filepath is None:
+                return np.zeros(self._spatial_shapes[p_idx][m_idx], dtype=self._dtype)
             if self._all_nifti:
                 nib = _nib()
                 img = nib.load(filepath)
@@ -620,7 +626,9 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
     if not file_matrix or not file_matrix[0]:
         raise ValueError("Cannot build an empty file series.")
 
-    all_paths = [path for row in file_matrix for path in row]
+    all_paths = [path for row in file_matrix for path in row if path is not None]
+    if not all_paths:
+        raise ValueError("Cannot build a file series without any files.")
     all_nifti = all(_is_nifti_path(path) for path in all_paths)
     ref_shape = None
     ref_dtype = None
@@ -651,8 +659,14 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
         shape_matrix = []
         pos = 0
         for row in file_matrix:
-            shape_matrix.append(spatial_shapes[pos : pos + len(row)])
-            pos += len(row)
+            row_shapes = []
+            for path in row:
+                if path is None:
+                    row_shapes.append(ref_shape)
+                else:
+                    row_shapes.append(spatial_shapes[pos])
+                    pos += 1
+            shape_matrix.append(row_shapes)
         shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
         if stack == "dense" and shapes_differ:
             raise ValueError("Dense stacking requires every file to have the same shape.")
@@ -668,8 +682,9 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
             series = _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta)
         if load == "eager":
             for p, row in enumerate(file_matrix):
-                for m, _path in enumerate(row):
-                    series._get_volume(p, m)
+                for m, path in enumerate(row):
+                    if path is not None:
+                        series._get_volume(p, m)
         return series, spatial_meta
 
     spatial_shapes = []
@@ -694,8 +709,14 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
     shape_matrix = []
     pos = 0
     for row in file_matrix:
-        shape_matrix.append(spatial_shapes[pos : pos + len(row)])
-        pos += len(row)
+        row_shapes = []
+        for path in row:
+            if path is None:
+                row_shapes.append(ref_shape)
+            else:
+                row_shapes.append(spatial_shapes[pos])
+                pos += 1
+        shape_matrix.append(row_shapes)
     shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
     if stack == "dense" and shapes_differ:
         raise ValueError("Dense stacking requires every file to have the same shape.")
@@ -705,8 +726,9 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
         series = _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None)
     if load == "eager":
         for p, row in enumerate(file_matrix):
-            for m, _path in enumerate(row):
-                series._get_volume(p, m)
+            for m, path in enumerate(row):
+                if path is not None:
+                    series._get_volume(p, m)
     return series, None
 
 
@@ -714,9 +736,10 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
     """Load recursive collection patterns as aligned lazy image/overlay stacks.
 
     *base_patterns* are image channel/modality patterns.  *overlays* is an
-    ordered list of ``(name, pattern)`` pairs.  By default, each pattern's
-    sorted matches are paired by position.  With *case_regex*, files are paired
-    by the regex's named ``case`` group instead.
+    ordered list of ``(name, pattern)`` pairs. A third true value marks a
+    sparse overlay whose missing cases should render as empty masks. By
+    default, each pattern's sorted matches are paired by position. With
+    *case_regex*, files are paired by the regex's named ``case`` group instead.
     """
     if not base_patterns:
         raise ValueError("--stack requires at least one positional image pattern.")
@@ -760,24 +783,28 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
 
     overlay_items = []
     overlay_reports = []
-    for name, pattern in overlays:
+    for overlay_spec in overlays:
+        name, pattern = overlay_spec[:2]
+        allow_missing = len(overlay_spec) > 2 and bool(overlay_spec[2])
         if case_regex:
             by_case = _collection_pattern_map(pattern, case_regex=case_regex)
             missing_cases = [case for case in case_ids if case not in by_case]
-            if missing_cases:
+            if missing_cases and not allow_missing:
                 raise ValueError(
                     f"Overlay {name!r} is missing case(s): "
                     f"{', '.join(repr(c) for c in missing_cases)}."
                 )
-            matrix = [[by_case[case]] for case in case_ids]
+            matrix = [[by_case.get(case)] for case in case_ids]
             extras = sorted(set(by_case.keys()) - set(case_ids))
         else:
             paths = _collection_pattern_paths(pattern)
-            if len(paths) != len(case_ids):
+            if len(paths) != len(case_ids) and not allow_missing:
                 raise ValueError(
                     f"Overlay {name!r} matched {len(paths)} file(s), "
                     f"expected {len(case_ids)} to match image pattern 1."
                 )
+            if allow_missing:
+                raise ValueError("Sparse overlays from --overlay-dir require --case-regex.")
             matrix = [[path] for path in paths]
             extras = []
         ov_data, _ov_meta = _series_from_file_matrix(matrix, load=load, stack=stack)
@@ -787,7 +814,14 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
                 f"expected {spatial_shape}."
             )
         overlay_items.append({"name": name, "data": ov_data, "pattern": pattern})
-        overlay_reports.append({"name": name, "pattern": pattern, "ignored_cases": extras})
+        overlay_reports.append(
+            {
+                "name": name,
+                "pattern": pattern,
+                "ignored_cases": extras,
+                "missing_cases": missing_cases if case_regex else [],
+            }
+        )
 
     summary = {
         "cases": case_ids,

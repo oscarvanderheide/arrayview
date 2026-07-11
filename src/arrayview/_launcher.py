@@ -1335,7 +1335,7 @@ def _handle_cli_spawned_daemon(
     overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
     overlay_names = (
-        [name for name, _pattern in (dir_overlay_specs or [])]
+        [spec[0] for spec in (dir_overlay_specs or [])]
         if dir_patterns is not None
         else [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
     )
@@ -3459,6 +3459,30 @@ def _normalize_dir_overlay_specs(specs):
     return out
 
 
+def _overlay_specs_from_dirs(directory_patterns):
+    """Discover one sparse overlay role per filename in mask directories."""
+    from arrayview._io import _collection_pattern_paths, _strip_array_ext
+
+    specs = []
+    seen_names = set()
+    for directory_pattern in directory_patterns or []:
+        pattern = os.path.join(os.path.abspath(directory_pattern), "*")
+        for path in _collection_pattern_paths(pattern):
+            filename = os.path.basename(path)
+            name = _strip_array_ext(filename)
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            specs.append(
+                (
+                    name,
+                    os.path.join(os.path.abspath(directory_pattern), filename),
+                    True,
+                )
+            )
+    return specs
+
+
 def _print_dir_collection_summary(summary):
     print("[ArrayView] --stack matched collection:")
     print(f"  cases: {len(summary['cases'])}")
@@ -3470,6 +3494,8 @@ def _print_dir_collection_summary(summary):
         extra = ""
         if ov["ignored_cases"]:
             extra = f" ({len(ov['ignored_cases'])} ignored extra case(s))"
+        if ov.get("missing_cases"):
+            extra += f" ({len(ov['missing_cases'])} missing case(s), shown empty)"
         print(f"  overlay {ov['name']}: {ov['pattern']}{extra}")
     preview = ", ".join(summary["cases"][:6])
     if len(summary["cases"]) > 6:
@@ -3681,6 +3707,17 @@ def arrayview():
             "Segmentation mask overlay. In file mode, pass a concrete mask file. "
             "In --stack mode, pass NAME=PATTERN to add a named overlay role. "
             "Repeat --overlay to load multiple overlays."
+        ),
+    )
+    parser.add_argument(
+        "--overlay-dir",
+        metavar="PATTERN",
+        action="append",
+        default=None,
+        help=(
+            "In --stack mode, discover mask filenames below matching per-case "
+            "directories as sparse overlay roles. Missing masks render as empty. "
+            "Requires --case-regex. Repeat to include multiple directories."
         ),
     )
     parser.add_argument(
@@ -4066,6 +4103,10 @@ def arrayview():
         return
 
     if args.stack_mode:
+        if args.overlay_dir and not args.case_regex:
+            parser.error(
+                "--overlay-dir requires --case-regex to pair sparse masks by case."
+            )
         dir_patterns = [os.path.abspath(p) for p in args.files]
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
@@ -4073,6 +4114,11 @@ def arrayview():
             (role, os.path.abspath(pattern))
             for role, pattern in _normalize_dir_overlay_specs(args.overlay or [])
         ]
+        try:
+            dir_overlay_specs.extend(_overlay_specs_from_dirs(args.overlay_dir))
+        except Exception as e:
+            print(f"Error: --overlay-dir could not discover masks: {e}")
+            sys.exit(1)
         base_file = dir_patterns[0]
         compare_files = []
         name = args.array_name or "dir collection"
@@ -4093,6 +4139,8 @@ def arrayview():
         if args.dry_run:
             return
     else:
+        if args.overlay_dir:
+            parser.error("--overlay-dir requires --stack.")
         dir_patterns = None
         dir_overlay_specs = None
         base_file = os.path.abspath(args.files[0])
