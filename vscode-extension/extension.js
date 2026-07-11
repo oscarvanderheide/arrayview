@@ -538,7 +538,33 @@ async function tryOpenSignalFile() {
     // Check targeted file first (matches our window's IPC hook or PID), then primary,
     // then compat signal files for older/published arrayview Python versions.
     const candidates = [];
-    if (TARGETED_SIGNAL_FILE) candidates.push(TARGETED_SIGNAL_FILE);
+    if (TARGETED_SIGNAL_FILE) {
+        const base = path.basename(TARGETED_SIGNAL_FILE, '.json');
+        try {
+            const queued = fs.readdirSync(SIGNAL_DIR)
+                .filter(name => name.startsWith(`${base}.request-`) && name.endsWith('.json'))
+                .sort((a, b) => {
+                    try {
+                        return fs.statSync(path.join(SIGNAL_DIR, a)).mtimeMs -
+                               fs.statSync(path.join(SIGNAL_DIR, b)).mtimeMs;
+                    } catch (_) { return a.localeCompare(b); }
+                });
+            candidates.push(...queued.map(name => path.join(SIGNAL_DIR, name)));
+        } catch (_) {}
+        candidates.push(TARGETED_SIGNAL_FILE);
+    }
+    try {
+        const sharedBase = path.basename(SIGNAL_FILE, '.json');
+        const sharedQueued = fs.readdirSync(SIGNAL_DIR)
+            .filter(name => name.startsWith(`${sharedBase}.request-`) && name.endsWith('.json'))
+            .sort((a, b) => {
+                try {
+                    return fs.statSync(path.join(SIGNAL_DIR, a)).mtimeMs -
+                           fs.statSync(path.join(SIGNAL_DIR, b)).mtimeMs;
+                } catch (_) { return a.localeCompare(b); }
+            });
+        candidates.push(...sharedQueued.map(name => path.join(SIGNAL_DIR, name)));
+    } catch (_) {}
     candidates.push(
         SIGNAL_FILE,
         path.join(SIGNAL_DIR, 'open-request-v0800.json'),
@@ -548,7 +574,10 @@ async function tryOpenSignalFile() {
     // Multi-window race mitigation: if this window is not focused, add a small delay
     // before claiming shared files. This gives the focused window a chance to claim first.
     const isFocused = vscode.window.state.focused;
-    const isOwnTargetedFile = (f) => TARGETED_SIGNAL_FILE && f === TARGETED_SIGNAL_FILE;
+    const isOwnTargetedFile = (f) => TARGETED_SIGNAL_FILE && (
+        f === TARGETED_SIGNAL_FILE ||
+        path.basename(f).startsWith(`${path.basename(TARGETED_SIGNAL_FILE, '.json')}.request-`)
+    );
 
     for (const signalFile of candidates) {
         // An untargeted broadcast belongs to whichever VS Code window is
@@ -593,7 +622,9 @@ async function tryOpenSignalFile() {
         // it was written by Python for a different VS Code window.  Forward it
         // to that window's targeted file so the correct extension instance picks
         // it up, then skip processing here.
-        const isSharedFallback = SHARED_FALLBACK_BASENAMES.has(path.basename(signalFile));
+        const signalBasename = path.basename(signalFile);
+        const isSharedFallback = SHARED_FALLBACK_BASENAMES.has(signalBasename) ||
+            signalBasename.startsWith(`${path.basename(SIGNAL_FILE, '.json')}.request-`);
         if (isSharedFallback && data.hookTag && OWN_HOOK_TAG && data.hookTag !== OWN_HOOK_TAG) {
             log(`SIGNAL: hookTag mismatch (ours=${OWN_HOOK_TAG} signal=${data.hookTag}), forwarding to correct window`);
             const targetedFile = path.join(SIGNAL_DIR, `open-request-ipc-${data.hookTag}.json`);
@@ -1213,8 +1244,13 @@ function activate(context) {
         const ownBasename = TARGETED_SIGNAL_FILE ? path.basename(TARGETED_SIGNAL_FILE) : null;
         const watcher = fs.watch(SIGNAL_DIR, (eventType, filename) => {
             if (!filename || filename.includes('.claimed-') || filename.endsWith('.tmp')) return;
-            const isOwn = ownBasename && filename === ownBasename;
+            const ownQueuePrefix = ownBasename ? `${ownBasename.slice(0, -5)}.request-` : null;
+            const isOwn = ownBasename && (
+                filename === ownBasename ||
+                (filename.startsWith(ownQueuePrefix) && filename.endsWith('.json'))
+            );
             const isFallback = filename === path.basename(SIGNAL_FILE) ||
+                               filename.startsWith(`${path.basename(SIGNAL_FILE, '.json')}.request-`) ||
                                filename === 'open-request-v0800.json' ||
                                filename === 'open-request-v0400.json';
             if (isOwn || isFallback) {

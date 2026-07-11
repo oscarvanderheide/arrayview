@@ -1,6 +1,7 @@
 # ArrayView Remote Tunnel Test Handoff
 
-Status: ready for a second agent in a real VS Code remote tunnel window.
+Status: executed in real VS Code remote tunnel windows on 2026-07-11;
+concurrent signaling was fixed and retested; disconnect/reconnect remains.
 
 ## Build under test
 
@@ -204,13 +205,22 @@ rm -f /tmp/arrayview-tunnel-a.npy /tmp/arrayview-tunnel-b.npy
 
 | Scenario | PASS / FAIL / BLOCKED | Evidence path | Notes |
 |---|---|---|---|
-| 1. Single launch + ACK |  |  |  |
-| 2. Two-window exact routing |  |  |  |
-| 3. Concurrent convergence |  |  |  |
-| 4. Reload + reconnect |  |  |  |
-| 5. Crash recovery |  |  |  |
-| 6. Foreign port safety |  |  |  |
-| 7. Forwarding/privacy |  |  |  |
+| 1. Single launch + ACK | PASS | `/tmp/arrayview-tunnel-single.log`; `/tmp/arrayview-ack-single.json`; `/tmp/arrayview-extension-single.log`; `/tmp/arrayview-instances-single.json` | Targeted window `7dd4587ba8529632`; terminal `backend_ready`; ACK server `28192487-ddd3-48d4-b42c-f26296c3e8cc` matched `/ping.instance_id`. A one-time extension-host reload was required to activate bundled extension 0.14.37. |
+| 2. Two-window exact routing | PASS | `/tmp/arrayview-window-current.log`; `/tmp/arrayview-window-other.log`; `~/.arrayview/extension.log` | Simultaneous targeted requests reached distinct tunnel windows `0557f0356fa0b1f8` and `47d8ad95a5ba4531`. Both returned `backend_ready` and reused server `9aef6d26-258e-4404-87fb-b5cfe521bca6`; neither was broadcast or claimed by the other window. |
+| 3. Concurrent convergence | PASS | `/tmp/arrayview-concurrent-fixed-a.log`; `/tmp/arrayview-concurrent-fixed-b.log`; `/tmp/arrayview-instances-concurrent-fixed.json`; `~/.arrayview/extension.log` at 2026-07-11 11:01Z | The initial run reproduced a last-writer-wins failure. Extension 0.14.38 and Python signaling now use unique per-request queue files. Retest produced two exit-0 commands, two terminal `backend_ready` ACKs (`58ec41...` and `ec1564...`), two viewers, and one compatible backend. |
+| 4. Reload + reconnect | BLOCKED | `~/.arrayview/extension.log` at 2026-07-11 09:56-09:58Z | Extension-host restart/window reload activated 0.14.37 and the backend survived, but a tunnel disconnect/reconnect was not performed. A terminal inherited across reload retained stale IPC/window state and fell back to broadcast; a newly targeted launch succeeded. |
+| 5. Crash recovery | PASS | `/tmp/arrayview-before-crash.json`; `/tmp/arrayview-after-crash.log`; `/tmp/arrayview-after-crash-instances.json` | Registry-owned PID was killed. Stale instance `28192487-ddd3-48d4-b42c-f26296c3e8cc` was replaced automatically by `ab5134a2-55f1-4311-9d02-86b6a9d59783`; launch reached `backend_ready` without manual registry cleanup or `--kill`. |
+| 6. Foreign port safety | PASS | `/tmp/arrayview-foreign-attempt.log`; `/tmp/foreign-8000.log` | Launch exited 1 with a foreign-port conflict; the foreign HTTP PID remained alive and the ArrayView registry stayed empty. |
+| 7. Forwarding/privacy | PASS | `/tmp/arrayview-ack-single.json`; `/tmp/arrayview-extension-single.log` | Port 8000 resolved to `https://v54z0psh-8000.euw.devtunnels.ms`; privacy changed to public automatically; no auth redirect appeared; strict identity validation emitted `visibility_verified` then `backend_ready`; `/ping` reported active viewer WebSockets. |
+
+### Tunnel run facts (2026-07-11)
+
+- Branch/commit: `plan/robust-launch-lifecycle` at `530573e`.
+- Host: Linux `roodnoot`; Python 3.12.12; ArrayView 0.29.2.
+- Bundled/active extension after the concurrency fix and reload: 0.14.38.
+- Cleanup after scenario 6: no registered ArrayView instances and the foreign
+  test server was terminated. VS Code may retain the forwarded port entry after
+  backend shutdown/reload; that UI entry is client-owned forwarding state.
 
 ## Questions the tunnel agent must answer
 

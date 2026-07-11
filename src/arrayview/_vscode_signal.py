@@ -846,11 +846,17 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
 
         _vprint(f"[ArrayView] signal: writing to {[f for f in filenames]} broadcast={data.get('broadcast', False)}", flush=True)
         for filename in filenames:
-            try:
-                os.unlink(os.path.join(signal_dir, filename))
-            except FileNotFoundError:
-                pass
-        for filename in filenames:
+            # Protocol-v1 requests use a unique disk-backed queue entry.  A
+            # fixed per-window filename lets simultaneous launchers overwrite
+            # each other before the extension can claim the first request.
+            request_id = data.get("requestId")
+            if request_id and filename.endswith(".json"):
+                filename = f"{filename[:-5]}.request-{request_id}.json"
+            else:
+                try:
+                    os.unlink(os.path.join(signal_dir, filename))
+                except FileNotFoundError:
+                    pass
             signal_file = os.path.join(signal_dir, filename)
             tmp_file = signal_file + ".tmp"
             with open(tmp_file, "w") as f:
@@ -961,7 +967,7 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
         if fn.startswith("open-request-ipc-") or fn.startswith("open-request-pid-"):
             parts = fn[len("open-request-"):].split("-", 1)
             if len(parts) == 2 and parts[1].endswith(".json"):
-                wid = parts[1][:-5]
+                wid = parts[1][:-5].split(".request-", 1)[0]
                 if wid not in valid_ids:
                     try:
                         os.unlink(fp)
@@ -974,7 +980,9 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
                             )
                     except OSError:
                         pass
-        elif fn in ("open-request-v0900.json", "open-request-v0800.json"):
+        elif fn in ("open-request-v0900.json", "open-request-v0800.json") or (
+            fn.startswith("open-request-v0900.request-") and fn.endswith(".json")
+        ):
             try:
                 st = os.stat(fp)
                 if now - st.st_mtime > 30:

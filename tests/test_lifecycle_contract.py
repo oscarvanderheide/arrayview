@@ -179,7 +179,7 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
 
     assert opened is True
     request = json.loads(
-        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
     )
     assert request["broadcast"] is True
 
@@ -210,8 +210,8 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     )
 
     assert opened is True
-    assert (signal_dir / "open-request-pid-100.json").exists()
-    assert not (signal_dir / "open-request-pid-200.json").exists()
+    assert list(signal_dir.glob("open-request-pid-100.request-*.json"))
+    assert not list(signal_dir.glob("open-request-pid-200.request-*.json"))
 
 
 def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
@@ -240,8 +240,8 @@ def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     )
 
     assert opened is True
-    assert (signal_dir / "open-request-pid-100.json").exists()
-    assert not (signal_dir / "open-request-pid-200.json").exists()
+    assert list(signal_dir.glob("open-request-pid-100.request-*.json"))
+    assert not list(signal_dir.glob("open-request-pid-200.request-*.json"))
 
 
 def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
@@ -308,7 +308,7 @@ def test_vscode_local_missing_window_match_uses_focused_window_fallback(
 
     assert opened is True
     request = json.loads(
-        (signal_dir / signal._VSCODE_SIGNAL_FILENAME).read_text()
+        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
     )
     assert request["broadcast"] is True
 

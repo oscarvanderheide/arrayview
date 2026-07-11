@@ -13,8 +13,11 @@ Current implementation status:
   versioned VS Code request/ACK, verified backend readiness, doctor/instances/
   stop commands, host docs, bundled VSIX, and three-OS CI configuration;
 - foundation complete: shared `SessionSpec` and registration capability model;
-- requires real tunnel evidence: exact multi-window routing, forwarded URL and
-  privacy behavior, reconnect/reload recovery, and ACK timing;
+- real tunnel evidence on 2026-07-11: single-window ACK/identity, exact
+  multi-window routing, simultaneous launch convergence, forwarded URL and
+  automatic public privacy, owned-crash recovery, and foreign-port safety
+  passed; disconnect/reconnect remains blocked. The simultaneous-launch defect
+  was fixed in extension 0.14.38 with unique disk-backed request queue files;
 - still future work: authenticated viewer access for public tunnel exposure,
   full registration migration to `SessionSpec`, and automatic browser/notebook
   lease expiry beyond explicit close/panel release.

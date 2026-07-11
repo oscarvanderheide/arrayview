@@ -60,6 +60,32 @@ def test_open_request_reports_failed_legacy_write(monkeypatch, tmp_path):
     assert not request
 
 
+def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    signal_dir = tmp_path / ".arrayview"
+    signal_dir.mkdir()
+    (signal_dir / "window-window-1.json").write_text(
+        json.dumps({"pid": os.getpid(), "hookTag": "window-1"})
+    )
+
+    assert signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=a", "requestId": "req-a"},
+        skip_compat=True,
+    )
+    assert signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=b", "requestId": "req-b"},
+        skip_compat=True,
+    )
+
+    queued = sorted(signal_dir.glob("open-request-ipc-window-1.request-*.json"))
+    assert [path.name for path in queued] == [
+        "open-request-ipc-window-1.request-req-a.json",
+        "open-request-ipc-window-1.request-req-b.json",
+    ]
+
+
 def test_wait_accepts_correlated_ack(tmp_path):
     request = _request(tmp_path)
     request.ack_path.write_text(
