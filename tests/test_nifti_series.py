@@ -6,7 +6,7 @@ import pytest
 
 nib = pytest.importorskip("nibabel")
 
-from arrayview._io import _NiftiSeries, _load_nifti_series, load_data, load_data_with_meta
+from arrayview._io import _NiftiSeries, _RaggedFileSeries, _load_nifti_series, load_data, load_data_with_meta
 
 
 def _save_nifti(path, data, affine=None):
@@ -165,11 +165,30 @@ class TestNiftiSeriesErrors:
         with pytest.raises(ValueError, match="--select"):
             load_data_with_meta(str(tmp_path))
 
-    def test_shape_mismatch(self, tmp_path):
+    def test_shape_mismatch_falls_back_to_ragged(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", shape=(4, 5, 6))
         _make_patient_dir(tmp_path, "p002", shape=(4, 5, 7))
-        with pytest.raises(ValueError, match="Shape mismatch"):
-            load_data_with_meta(str(tmp_path))
+        series, _ = load_data_with_meta(str(tmp_path))
+        assert isinstance(series, _RaggedFileSeries)
+        assert series.ragged_spatial_shapes == [[(4, 5, 6)], [(4, 5, 7)]]
+
+    def test_dense_shape_mismatch_is_explicit_error(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001", shape=(4, 5, 6))
+        _make_patient_dir(tmp_path, "p002", shape=(4, 5, 7))
+        with pytest.raises(ValueError, match="Dense stacking"):
+            load_data_with_meta(str(tmp_path), stack="dense")
+
+    def test_header_scan_does_not_cache_voxels(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001")
+        _make_patient_dir(tmp_path, "p002")
+        series, _ = load_data_with_meta(str(tmp_path))
+        assert series._vol_cache == {}
+
+    def test_eager_load_populates_cache(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001")
+        _make_patient_dir(tmp_path, "p002")
+        series, _ = load_data_with_meta(str(tmp_path), load="eager")
+        assert len(series._vol_cache) == 2
 
     def test_dtype_mismatch(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", dtype=np.float32)
@@ -253,7 +272,7 @@ class TestFileSeries:
         assert np.array_equal(series[:, :, :, 1], vol1)
         assert np.array_equal(series[:, :, 2, 0], vol0[:, :, 2])
 
-    def test_shape_mismatch_error(self, tmp_path):
+    def test_shape_mismatch_uses_ragged_collection(self, tmp_path):
         import arrayview._io as _io
 
         (tmp_path / "p001").mkdir()
@@ -261,8 +280,8 @@ class TestFileSeries:
         np.save(str(tmp_path / "p001" / "vol.npy"), np.zeros((4, 5, 6)))
         np.save(str(tmp_path / "p002" / "vol.npy"), np.zeros((4, 5, 7)))
 
-        with pytest.raises(ValueError, match="Shape mismatch"):
-            _io.load_data_with_meta(str(tmp_path))
+        series, _ = _io.load_data_with_meta(str(tmp_path))
+        assert isinstance(series, _io._RaggedFileSeries)
 
 
 class TestDirCollection:

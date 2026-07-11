@@ -89,8 +89,23 @@ uvx arrayview volume.nii.gz --overlay mask.nii.gz
 
 ## Directory Pattern Collections
 
-Use `--dir` when reviewing many same-shape arrays. Positional arguments become
-recursive image patterns; repeated patterns become a channel/modality axis.
+Use `--dir` when reviewing many arrays. Passing a directory scans supported
+files recursively; passing patterns keeps the aligned channel/overlay workflow.
+
+```bash
+uvx arrayview --dir scans/
+uvx arrayview --dir scans/ --load eager
+uvx arrayview --dir scans/ --stack dense
+uvx arrayview --dir scans/ --stack ragged
+```
+
+Directory loading is lazy by default. Same-shaped files form a dense virtual
+stack; mixed-shaped files automatically use a ragged collection. `--stack
+dense` requires matching shapes, while `--stack ragged` forces collection
+semantics. `--load eager` is intended for small datasets that should be loaded
+up front.
+
+Positional patterns become a channel/modality axis:
 
 ```bash
 uvx arrayview --dir "data/**/*_0000.nii.gz" "data/**/*_0001.nii.gz"

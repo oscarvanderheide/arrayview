@@ -1286,6 +1286,8 @@ def _handle_cli_spawned_daemon(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    collection_load: str = "lazy",
+    collection_stack: str = "auto",
 ) -> None:
     sid = uuid.uuid4().hex
     overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
@@ -1317,6 +1319,8 @@ def _handle_cli_spawned_daemon(
         f" dir_patterns={repr(dir_patterns)},"
         f" dir_overlay_specs={repr(dir_overlay_specs)},"
         f" dir_case_regex={repr(dir_case_regex)},"
+        f" collection_load={repr(collection_load)},"
+        f" collection_stack={repr(collection_stack)},"
         f")"
     )
     early_native_shell_opened = False
@@ -2950,6 +2954,8 @@ def _serve_daemon(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    collection_load: str = "lazy",
+    collection_stack: str = "auto",
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -3009,6 +3015,8 @@ def _serve_daemon(
                     dir_patterns,
                     overlays=dir_overlay_specs or [],
                     case_regex=dir_case_regex,
+                    load=collection_load,
+                    stack=collection_stack,
                 )
                 collection_spatial_ndim = len(_summary["spatial_shape"])
             elif (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
@@ -3022,7 +3030,10 @@ def _serve_daemon(
                 collection_spatial_ndim = None
             else:
                 _load_key = None
-                data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
+                data, spatial_meta = load_data_with_meta(
+                    filepath, key=_load_key, select=stack_select,
+                    load=collection_load, stack=collection_stack,
+                )
                 dir_overlay_items = None
                 collection_spatial_ndim = None
             if cleanup:
@@ -3307,6 +3318,8 @@ def view_dir(
     path,
     *,
     select=None,
+    load="lazy",
+    stack="auto",
     port: int = 8123,
     name=None,
     **view_kwargs,
@@ -3330,7 +3343,7 @@ def view_dir(
     """
     from arrayview._io import load_data_with_meta
 
-    data, _meta = load_data_with_meta(path, select=select)
+    data, _meta = load_data_with_meta(path, select=select, load=load, stack=stack)
     if name is None:
         name = os.path.basename(os.path.abspath(path)) or "file_series"
     return view(data, name=name, port=port, **view_kwargs)
@@ -3340,6 +3353,8 @@ def view_dir_patterns(
     *patterns,
     overlay=None,
     case_regex=None,
+    load="lazy",
+    stack="auto",
     port: int = 8123,
     name=None,
     **view_kwargs,
@@ -3357,6 +3372,8 @@ def view_dir_patterns(
         list(patterns),
         overlays=overlay_pairs,
         case_regex=case_regex,
+        load=load,
+        stack=stack,
     )
     if name is None:
         name = "dir collection"
@@ -3730,7 +3747,9 @@ def arrayview():
     )
     parser.add_argument(
         "--stack",
-        action="store_true",
+        nargs="?",
+        const="auto",
+        choices=("auto", "dense", "ragged"),
         dest="stack",
         help=(
             "Stack a directory of array files into a single 4D/5D array. "
@@ -3740,6 +3759,12 @@ def arrayview():
             "With one file per folder → 4D (*vol, P). Use --select to pick "
             "multiple files per folder → 5D (*vol, P, M)."
         ),
+    )
+    parser.add_argument(
+        "--load",
+        choices=("lazy", "eager"),
+        default="lazy",
+        help="Directory collection loading policy (default: lazy).",
     )
     parser.add_argument(
         "--select",
@@ -3858,8 +3883,6 @@ def arrayview():
     if args.dry_run and not args.dir_mode:
         parser.error("--dry-run requires --dir.")
     if args.dir_mode:
-        if args.stack:
-            parser.error("--dir is incompatible with --stack.")
         if not args.files:
             parser.error("--dir requires at least one image pattern.")
         if args.compare or args.vectorfield or args.watch or args.rgb:
@@ -3869,7 +3892,7 @@ def arrayview():
             )
         if args.relay:
             parser.error("--dir is incompatible with --relay.")
-    if args.stack:
+    if args.stack and not args.dir_mode:
         if len(args.files) != 1:
             parser.error(
                 "--stack requires exactly one FILE argument (a directory)."
@@ -4009,6 +4032,8 @@ def arrayview():
 
     if args.dir_mode:
         dir_patterns = [os.path.abspath(p) for p in args.files]
+        if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
+            dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
         dir_overlay_specs = [
             (role, os.path.abspath(pattern))
             for role, pattern in _normalize_dir_overlay_specs(args.overlay or [])
@@ -4023,6 +4048,8 @@ def arrayview():
                 dir_patterns,
                 overlays=dir_overlay_specs,
                 case_regex=args.case_regex,
+                load=args.load,
+                stack=args.stack or "auto",
             )
         except Exception as e:
             print(f"Error: --dir could not match collection: {e}")
@@ -4254,4 +4281,6 @@ def arrayview():
         dir_patterns=dir_patterns,
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=args.case_regex,
+        collection_load=args.load,
+        collection_stack=args.stack or "auto",
     )

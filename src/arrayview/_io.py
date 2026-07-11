@@ -124,6 +124,38 @@ def _select_npz_array(npz, filepath):
     return npz[keys[0]]
 
 
+def _nifti_header_with_meta(filepath):
+    """Return a canonical NIfTI image and spatial metadata without reading voxels."""
+    nib = _nib()
+    img = nib.load(filepath)
+    original_affine = np.asarray(img.affine, dtype=np.float64)
+    canon = nib.as_closest_canonical(img)
+    affine_canonical = np.asarray(canon.affine, dtype=np.float64)
+
+    rot = affine_canonical[:3, :3]
+    voxel_sizes = tuple(float(np.linalg.norm(rot[:, i])) for i in range(3))
+    norm_rot = np.zeros((3, 3))
+    for i in range(3):
+        if voxel_sizes[i] > 0:
+            norm_rot[:, i] = rot[:, i] / voxel_sizes[i]
+    pos_labels = ("R", "A", "S")
+    neg_labels = ("L", "P", "I")
+    axis_labels = tuple(
+        pos_labels[i] if norm_rot[i, i] >= 0 else neg_labels[i] for i in range(3)
+    )
+    off_diag_max = max(
+        (abs(norm_rot[i, j]) for i in range(3) for j in range(3) if i != j),
+        default=0.0,
+    )
+    return canon, {
+        "affine": original_affine,
+        "affine_canonical": affine_canonical,
+        "voxel_sizes": voxel_sizes,
+        "axis_labels": axis_labels,
+        "is_oblique": bool(off_diag_max > 1e-3),
+    }
+
+
 def _load_nifti_with_meta(filepath):
     """Load a NIfTI file, canonical-reorient, return (array, meta).
 
@@ -136,46 +168,13 @@ def _load_nifti_with_meta(filepath):
       is_oblique        : bool — True if rotation part has off-diagonal magnitude > 1e-3
                           after normalizing voxel sizes
     """
-    nib = _nib()
-    img = nib.load(filepath)
-    original_affine = np.asarray(img.affine, dtype=np.float64)
-    canon = nib.as_closest_canonical(img)
-    affine_canonical = np.asarray(canon.affine, dtype=np.float64)
+    canon, meta = _nifti_header_with_meta(filepath)
 
     # NOTE: reorient requires materializing axis permutes/flips. .nii.gz is
     # already eager (gzip not seekable), so this is free; .nii loses mmap as a
     # necessary cost to apply the reorient.
     arr = np.asarray(canon.dataobj)
 
-    rot = affine_canonical[:3, :3]
-    voxel_sizes = tuple(float(np.linalg.norm(rot[:, i])) for i in range(3))
-
-    # Direction of each canonical axis (sign of diagonal after normalizing)
-    norm_rot = np.zeros((3, 3))
-    for i in range(3):
-        if voxel_sizes[i] > 0:
-            norm_rot[:, i] = rot[:, i] / voxel_sizes[i]
-    pos_labels = ("R", "A", "S")
-    neg_labels = ("L", "P", "I")
-    axis_labels = tuple(
-        pos_labels[i] if norm_rot[i, i] >= 0 else neg_labels[i] for i in range(3)
-    )
-
-    # Oblique = off-diagonal of normalized rotation has |val| > tol
-    off_diag_max = 0.0
-    for i in range(3):
-        for j in range(3):
-            if i != j:
-                off_diag_max = max(off_diag_max, abs(norm_rot[i, j]))
-    is_oblique = bool(off_diag_max > 1e-3)
-
-    meta = {
-        "affine": original_affine,
-        "affine_canonical": affine_canonical,
-        "voxel_sizes": voxel_sizes,
-        "axis_labels": axis_labels,
-        "is_oblique": is_oblique,
-    }
     return arr, meta
 
 
@@ -212,8 +211,9 @@ class _NiftiSeries:
             self._stack_axes = (len(self.shape) - 2, len(self.shape) - 1)
         self.ndim = len(self.shape)
         self._vol_cache: OrderedDict = OrderedDict()
-        self._vol_cache_cap = int(
-            os.environ.get("ARRAYVIEW_NIFTI_SERIES_VOL_CACHE", 3)
+        self._vol_cache_bytes = 0
+        self._vol_cache_max_bytes = int(
+            os.environ.get("ARRAYVIEW_NIFTI_CACHE_BYTES", 2 * 1024**3)
         )
         self._cache_lock = threading.Lock()
 
@@ -231,12 +231,17 @@ class _NiftiSeries:
         nib = _nib()
         img = nib.load(filepath)
         canon = nib.as_closest_canonical(img)
-        vol = np.asarray(canon.dataobj)
+        # Keep uncompressed NIfTI proxy-backed so nibabel/OS paging can read
+        # only the requested slice. Gzip files must be decompressed once and
+        # are therefore materialized into the byte-bounded cache.
+        vol = canon.dataobj if filepath.endswith(".nii") else np.asarray(canon.dataobj)
         with self._cache_lock:
             self._vol_cache[cache_key] = vol
             self._vol_cache.move_to_end(cache_key)
-            while len(self._vol_cache) > self._vol_cache_cap:
-                self._vol_cache.popitem(last=False)
+            self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
+            while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
+                _key, evicted = self._vol_cache.popitem(last=False)
+                self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
         return vol
 
     def __getitem__(self, key):
@@ -408,8 +413,9 @@ class _RaggedFileSeries:
             * self._dtype.itemsize
         )
         self._vol_cache: OrderedDict = OrderedDict()
-        self._vol_cache_cap = int(
-            os.environ.get("ARRAYVIEW_FILE_SERIES_VOL_CACHE", 3)
+        self._vol_cache_bytes = 0
+        self._vol_cache_max_bytes = int(
+            os.environ.get("ARRAYVIEW_NIFTI_CACHE_BYTES", 2 * 1024**3)
         )
         self._cache_lock = threading.Lock()
 
@@ -462,14 +468,17 @@ class _RaggedFileSeries:
         if self._all_nifti:
             nib = _nib()
             img = nib.load(filepath)
-            vol = np.asarray(nib.as_closest_canonical(img).dataobj)
+            proxy = nib.as_closest_canonical(img).dataobj
+            vol = proxy if filepath.endswith(".nii") else np.asarray(proxy)
         else:
             vol = load_data(filepath)
         with self._cache_lock:
             self._vol_cache[cache_key] = vol
             self._vol_cache.move_to_end(cache_key)
-            while len(self._vol_cache) > self._vol_cache_cap:
-                self._vol_cache.popitem(last=False)
+            self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
+            while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
+                _key, evicted = self._vol_cache.popitem(last=False)
+                self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
         return vol
 
     def __getitem__(self, key):
@@ -575,7 +584,11 @@ def _collection_pattern_map(pattern, case_regex):
     return by_case
 
 
-def _series_from_file_matrix(file_matrix):
+def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
+    if load not in {"lazy", "eager"}:
+        raise ValueError("load must be 'lazy' or 'eager'.")
+    if stack not in {"auto", "dense", "ragged"}:
+        raise ValueError("stack must be 'auto', 'dense', or 'ragged'.")
     if not file_matrix or not file_matrix[0]:
         raise ValueError("Cannot build an empty file series.")
 
@@ -596,7 +609,7 @@ def _series_from_file_matrix(file_matrix):
             if ref_shape is None:
                 ref_shape = shape
                 ref_dtype = dtype
-                _, spatial_meta = _load_nifti_with_meta(fpath)
+                _canon, spatial_meta = _nifti_header_with_meta(fpath)
             elif len(shape) != len(ref_shape):
                 raise ValueError(
                     f"Rank mismatch: {os.path.basename(fpath)!r} has shape "
@@ -612,18 +625,24 @@ def _series_from_file_matrix(file_matrix):
         for row in file_matrix:
             shape_matrix.append(spatial_shapes[pos : pos + len(row)])
             pos += len(row)
-        if any(shape != ref_shape for shape in spatial_shapes):
-            return (
-                _RaggedFileSeries(
+        shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
+        if stack == "dense" and shapes_differ:
+            raise ValueError("Dense stacking requires every file to have the same shape.")
+        if stack == "ragged" or shapes_differ:
+            series = _RaggedFileSeries(
                     file_matrix,
                     shape_matrix,
                     ref_dtype,
                     spatial_meta=spatial_meta,
                     all_nifti=True,
-                ),
-                spatial_meta,
             )
-        return _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta), spatial_meta
+        else:
+            series = _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta)
+        if load == "eager":
+            for p, row in enumerate(file_matrix):
+                for m, _path in enumerate(row):
+                    series._get_volume(p, m)
+        return series, spatial_meta
 
     spatial_shapes = []
     for fpath in all_paths:
@@ -649,12 +668,21 @@ def _series_from_file_matrix(file_matrix):
     for row in file_matrix:
         shape_matrix.append(spatial_shapes[pos : pos + len(row)])
         pos += len(row)
-    if any(shape != ref_shape for shape in spatial_shapes):
-        return _RaggedFileSeries(file_matrix, shape_matrix, ref_dtype, spatial_meta=None), None
-    return _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None), None
+    shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
+    if stack == "dense" and shapes_differ:
+        raise ValueError("Dense stacking requires every file to have the same shape.")
+    if stack == "ragged" or shapes_differ:
+        series = _RaggedFileSeries(file_matrix, shape_matrix, ref_dtype, spatial_meta=None)
+    else:
+        series = _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None)
+    if load == "eager":
+        for p, row in enumerate(file_matrix):
+            for m, _path in enumerate(row):
+                series._get_volume(p, m)
+    return series, None
 
 
-def load_dir_collection(base_patterns, overlays=None, case_regex=None):
+def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="lazy", stack="auto"):
     """Load recursive collection patterns as aligned lazy image/overlay stacks.
 
     *base_patterns* are image channel/modality patterns.  *overlays* is an
@@ -699,7 +727,7 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None):
                 for path in base_lists[0]
             ]
         base_matrix = [list(row) for row in zip(*base_lists)]
-    data, spatial_meta = _series_from_file_matrix(base_matrix)
+    data, spatial_meta = _series_from_file_matrix(base_matrix, load=load, stack=stack)
     spatial_shape = data._vol_shape
 
     overlay_items = []
@@ -724,7 +752,7 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None):
                 )
             matrix = [[path] for path in paths]
             extras = []
-        ov_data, _ov_meta = _series_from_file_matrix(matrix)
+        ov_data, _ov_meta = _series_from_file_matrix(matrix, load=load, stack=stack)
         if not getattr(data, "_av_ragged", False) and ov_data._vol_shape != spatial_shape:
             raise ValueError(
                 f"Overlay {name!r} has spatial shape {ov_data._vol_shape}, "
@@ -743,7 +771,7 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None):
     return data, spatial_meta, overlay_items, summary
 
 
-def _load_file_series(path, select=None):
+def _load_file_series(path, select=None, *, load="lazy", stack="auto"):
     """Build a lazy series from a directory of supported array files.
 
     Walks *path* recursively, groups files of any supported format by
@@ -783,7 +811,7 @@ def _load_file_series(path, select=None):
 
     # NIfTI-only → preserve canonical reorientation + lazy dataobj slicing
     if all_nifti:
-        return _load_nifti_series(path, select=select)
+        return _load_nifti_series(path, select=select, load=load, stack=stack)
 
     # ── build file matrix ──────────────────────────────────────────
     select_patterns = select or []
@@ -827,33 +855,10 @@ def _load_file_series(path, select=None):
                     "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
                 )
 
-    # ── validate shape / dtype uniformity ──────────────────────────
-    ref_shape = None
-    ref_dtype = None
-    for row in file_matrix:
-        for fpath in row:
-            arr = load_data(fpath)
-            shape = arr.shape
-            dtype = arr.dtype
-            if ref_shape is None:
-                ref_shape = shape
-                ref_dtype = dtype
-            elif shape != ref_shape:
-                raise ValueError(
-                    f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
-                    f"{shape}, expected {ref_shape}."
-                )
-            elif dtype != ref_dtype:
-                raise ValueError(
-                    f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
-                    f"{dtype}, expected {ref_dtype}."
-                )
-
-    series = _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None)
-    return series, None
+    return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
-def _load_nifti_series(path, select=None):
+def _load_nifti_series(path, select=None, *, load="lazy", stack="auto"):
     """Build a lazy ``_NiftiSeries`` from a directory of NIfTI files.
 
     Walks *path* recursively, groups ``.nii``/``.nii.gz`` by immediate parent
@@ -926,33 +931,10 @@ def _load_nifti_series(path, select=None):
                     "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
                 )
 
-    ref_shape = None
-    ref_dtype = None
-    for row in file_matrix:
-        for fpath in row:
-            img = nib.load(fpath)
-            shape = tuple(int(s) for s in img.shape)
-            dtype = img.get_data_dtype()
-            if ref_shape is None:
-                ref_shape = shape
-                ref_dtype = dtype
-            elif shape != ref_shape:
-                raise ValueError(
-                    f"Shape mismatch: {os.path.basename(fpath)!r} has shape "
-                    f"{shape}, expected {ref_shape}."
-                )
-            elif dtype != ref_dtype:
-                raise ValueError(
-                    f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
-                    f"{dtype}, expected {ref_dtype}."
-                )
-
-    _, spatial_meta = _load_nifti_with_meta(file_matrix[0][0])
-    series = _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=spatial_meta)
-    return series, spatial_meta
+    return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
-def load_data_with_meta(filepath, key=None, select=None):
+def load_data_with_meta(filepath, key=None, select=None, *, load="lazy", stack="auto"):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
@@ -960,7 +942,7 @@ def load_data_with_meta(filepath, key=None, select=None):
     ``_load_file_series``).
     """
     if os.path.isdir(filepath):
-        return _load_file_series(filepath, select=select)
+        return _load_file_series(filepath, select=select, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
     return load_data(filepath, key=key), None
