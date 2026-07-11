@@ -89,32 +89,32 @@ uvx arrayview volume.nii.gz --overlay mask.nii.gz
 
 ## Directory Pattern Collections
 
-Use `--dir` when reviewing many arrays. Passing a directory scans supported
+Use `--stack` when reviewing many arrays. Passing a directory scans supported
 files recursively; passing patterns keeps the aligned channel/overlay workflow.
 
 ```bash
-uvx arrayview --dir scans/
-uvx arrayview --dir scans/ --load eager
-uvx arrayview --dir scans/ --stack dense
-uvx arrayview --dir scans/ --stack ragged
+uvx arrayview --stack scans/
+uvx arrayview --stack scans/ --load eager
+uvx arrayview --stack scans/ --stack-policy dense
+uvx arrayview --stack scans/ --stack-policy ragged
 ```
 
 Directory loading is lazy by default. Same-shaped files form a dense virtual
-stack; mixed-shaped files automatically use a ragged collection. `--stack
-dense` requires matching shapes, while `--stack ragged` forces collection
+stack; mixed-shaped files automatically use a ragged collection. `--stack-policy
+dense` requires matching shapes, while `--stack-policy ragged` forces collection
 semantics. `--load eager` is intended for small datasets that should be loaded
 up front.
 
 Positional patterns become a channel/modality axis:
 
 ```bash
-uvx arrayview --dir "data/**/*_0000.nii.gz" "data/**/*_0001.nii.gz"
+uvx arrayview --stack "data/**/*_0000.nii.gz" "data/**/*_0001.nii.gz"
 ```
 
 Overlays become named recursive patterns:
 
 ```bash
-uvx arrayview --dir \
+uvx arrayview --stack \
   "data/**/*_0000.nii.gz" \
   "data/**/*_0001.nii.gz" \
   --overlay "gt=data/**/labels/**/*.nii.gz" \
@@ -126,14 +126,14 @@ belongs to the first case, the second match belongs to the second case, and so
 on. Use `--dry-run` to inspect matches without opening a viewer.
 
 ```bash
-uvx arrayview --dir "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz" --dry-run
+uvx arrayview --stack "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz" --dry-run
 ```
 
 If sorted order is not enough, pass a regex with a `case` group to pair files
 by case id instead:
 
 ```bash
-uvx arrayview --dir "data/**/*.nii.gz" --case-regex "(?P<case>patient-[0-9]+)"
+uvx arrayview --stack "data/**/*.nii.gz" --case-regex "(?P<case>patient-[0-9]+)"
 ```
 
 ## NIfTI Series (4D/5D from a directory)
@@ -142,7 +142,8 @@ Stack a directory of NIfTI files into a single lazy 4D/5D array — only the
 viewed slice is loaded, so RAM stays bounded regardless of series size.
 
 ```bash
-uvx arrayview patients/ --stack-nifti
+uvx arrayview patients/
+uvx arrayview patients/ --stack-policy dense
 ```
 
 Discovers `.nii`/`.nii.gz` recursively, groups by immediate parent folder
@@ -153,7 +154,7 @@ Z as primary scroll, patient index as a slider.
 Multiple files per patient (e.g. `t1`, `t2`, `flair`) → use `--select`:
 
 ```bash
-uvx arrayview patients/ --stack-nifti --select '*t1*' --select '*t2*' --select '*flair*'
+uvx arrayview patients/ --select '*t1*' --select '*t2*' --select '*flair*'
 ```
 
 Each `--select` pattern picks one file per patient (fnmatch on basename).

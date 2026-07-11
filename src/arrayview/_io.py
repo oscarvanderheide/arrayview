@@ -719,7 +719,7 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
     by the regex's named ``case`` group instead.
     """
     if not base_patterns:
-        raise ValueError("--dir requires at least one positional image pattern.")
+        raise ValueError("--stack requires at least one positional image pattern.")
     overlays = overlays or []
 
     if case_regex:

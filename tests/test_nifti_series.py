@@ -1,4 +1,4 @@
-"""Tests for --stack: lazy 4D/5D view over a directory of array files."""
+"""Tests for directory FILE stacking: lazy 4D/5D view over array files."""
 import os
 import threading
 import time

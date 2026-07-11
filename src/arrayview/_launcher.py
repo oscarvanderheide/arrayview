@@ -3460,7 +3460,7 @@ def _normalize_dir_overlay_specs(specs):
 
 
 def _print_dir_collection_summary(summary):
-    print("[ArrayView] --dir matched collection:")
+    print("[ArrayView] --stack matched collection:")
     print(f"  cases: {len(summary['cases'])}")
     print(f"  spatial shape: {summary['spatial_shape']}")
     print(f"  image shape: {summary['shape']}")
@@ -3679,7 +3679,7 @@ def arrayview():
         default=None,
         help=(
             "Segmentation mask overlay. In file mode, pass a concrete mask file. "
-            "In --dir mode, pass NAME=PATTERN to add a named overlay role. "
+            "In --stack mode, pass NAME=PATTERN to add a named overlay role. "
             "Repeat --overlay to load multiple overlays."
         ),
     )
@@ -3759,9 +3759,9 @@ def arrayview():
         help="Display name for the array",
     )
     parser.add_argument(
-        "--dir",
+        "--stack",
         action="store_true",
-        dest="dir_mode",
+        dest="stack_mode",
         help=(
             "Treat positional FILE arguments as recursive image patterns for an "
             "aligned collection. Repeated patterns become image channels; "
@@ -3773,7 +3773,7 @@ def arrayview():
         default=None,
         dest="case_regex",
         help=(
-            "Regex used in --dir mode to extract a case id. Must define "
+            "Regex used in --stack mode to extract a case id. Must define "
             "a named (?P<case>...) group."
         ),
     )
@@ -3781,21 +3781,18 @@ def arrayview():
         "--dry-run",
         action="store_true",
         dest="dry_run",
-        help="In --dir mode, print matched cases and roles without opening a viewer.",
+        help="In --stack mode, print matched cases and roles without opening a viewer.",
     )
     parser.add_argument(
-        "--stack",
+        "--stack-policy",
         nargs="?",
         const="auto",
         choices=("auto", "dense", "ragged"),
-        dest="stack",
+        dest="stack_policy",
         help=(
-            "Stack a directory of array files into a single 4D/5D array. "
-            "FILE must be a directory; supported files (.npy, .npz, .nii/.nii.gz, "
-            ".zarr, .pt/.pth, .h5, .tif/.tiff, .mat) are discovered "
-            "recursively, grouped by immediate parent folder. "
-            "With one file per folder → 4D (*vol, P). Use --select to pick "
-            "multiple files per folder → 5D (*vol, P, M)."
+            "Collection stacking policy for --stack mode: auto picks dense when "
+            "shapes agree and ragged otherwise; dense requires matching shapes; "
+            "ragged always keeps per-item shapes."
         ),
     )
     parser.add_argument(
@@ -3812,7 +3809,7 @@ def arrayview():
         dest="stack_select",
         help=(
             "fnmatch pattern to select one file per folder (use with "
-            "--stack). Repeatable: each pattern picks one item. "
+            "directory FILE input). Repeatable: each pattern picks one item. "
             "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
         ),
     )
@@ -3916,28 +3913,28 @@ def arrayview():
                 f"--dims {args.dims!r} is invalid. "
                 "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
             )
-    if args.stack_select and not args.stack:
-        parser.error("--select requires --stack.")
-    if args.dry_run and not args.dir_mode:
-        parser.error("--dry-run requires --dir.")
-    if args.dir_mode:
+    if args.dry_run and not args.stack_mode:
+        parser.error("--dry-run requires --stack.")
+    if args.stack_mode:
+        if args.stack_select:
+            parser.error("--stack pattern mode is incompatible with --select.")
         if not args.files:
-            parser.error("--dir requires at least one image pattern.")
+            parser.error("--stack requires at least one image pattern.")
         if args.compare or args.vectorfield or args.watch or args.rgb:
             parser.error(
-                "--dir is incompatible with --compare, --vectorfield, "
+                "--stack is incompatible with --compare, --vectorfield, "
                 "--watch, and --rgb."
             )
         if args.relay:
-            parser.error("--dir is incompatible with --relay.")
-    if args.stack and not args.dir_mode:
+            parser.error("--stack is incompatible with --relay.")
+    if (args.stack_select or args.stack_policy) and not args.stack_mode:
         if len(args.files) != 1:
             parser.error(
-                "--stack requires exactly one FILE argument (a directory)."
+                "Directory FILE input requires exactly one FILE argument (a directory)."
             )
         if args.compare or args.overlay or args.vectorfield or args.watch:
             parser.error(
-                "--stack is incompatible with --compare, --overlay, "
+                "Directory FILE input is incompatible with --compare, --overlay, "
                 "--vectorfield, and --watch."
             )
         _stack_dir = os.path.abspath(args.files[0])
@@ -3961,11 +3958,11 @@ def arrayview():
         args._demo_name = "welcome"
         args._demo_cleanup = True
         args.rgb = True
-    if args.files and len(args.files) > 6 and not args.dir_mode:
+    if args.files and len(args.files) > 6 and not args.stack_mode:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
         )
-    if args.compare and len(args.files) > 1 and not args.dir_mode:
+    if args.compare and len(args.files) > 1 and not args.stack_mode:
         parser.error("Use either positional compare files or --compare, not both.")
 
     # -- --relay: send array bytes to a remote ArrayView server --
@@ -4068,7 +4065,7 @@ def arrayview():
         )
         return
 
-    if args.dir_mode:
+    if args.stack_mode:
         dir_patterns = [os.path.abspath(p) for p in args.files]
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
@@ -4087,10 +4084,10 @@ def arrayview():
                 overlays=dir_overlay_specs,
                 case_regex=args.case_regex,
                 load=args.load,
-                stack=args.stack or "auto",
+                stack=args.stack_policy or "auto",
             )
         except Exception as e:
-            print(f"Error: --dir could not match collection: {e}")
+            print(f"Error: --stack could not match collection: {e}")
             sys.exit(1)
         _print_dir_collection_summary(summary)
         if args.dry_run:
@@ -4105,7 +4102,7 @@ def arrayview():
         data = spatial_meta = overlay_items = summary = None
         name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
-    if not args.stack and not args.dir_mode and not os.path.isfile(base_file):
+    if not args.stack_policy and not args.stack_mode and not os.path.isfile(base_file):
         print(f"Error: file not found: {base_file}")
         sys.exit(1)
 
@@ -4189,7 +4186,7 @@ def arrayview():
     is_arrayview_server = launch_snapshot.server.arrayview_server_alive
     execution_registration = launch_plan.registration
     busy_non_arrayview = launch_snapshot.server.port_busy and not is_arrayview_server
-    if busy_non_arrayview and _is_ssh and not args.dir_mode:
+    if busy_non_arrayview and _is_ssh and not args.stack_mode:
         # Port occupied but not responding to a fast HTTP check.  When port 8000
         # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
         # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
@@ -4239,7 +4236,7 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    if is_arrayview_server and _is_ssh and not args.dir_mode:
+    if is_arrayview_server and _is_ssh and not args.stack_mode:
         import socket as _socket
 
         # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
@@ -4276,7 +4273,7 @@ def arrayview():
             base_file=base_file,
             name=name,
             compare_files=compare_files,
-            overlay_files=list(args.overlay or []),
+            overlay_files=[] if args.stack_mode else list(args.overlay or []),
             rgb=args.rgb,
             vectorfield=args.vectorfield,
             vfield_components_dim=vfield_components_dim,
@@ -4290,7 +4287,7 @@ def arrayview():
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
             collection_load=args.load,
-            collection_stack=args.stack or "auto",
+            collection_stack=args.stack_policy or "auto",
         )
         return
 
@@ -4302,7 +4299,7 @@ def arrayview():
         base_file=base_file,
         name=name,
         compare_files=compare_files,
-        overlay_files=[] if args.dir_mode else list(args.overlay or []),
+        overlay_files=[] if args.stack_mode else list(args.overlay or []),
         dims_override=dims_override,
         use_native_shell=use_native_shell,
         watch=getattr(args, "watch", False),
@@ -4319,5 +4316,5 @@ def arrayview():
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=args.case_regex,
         collection_load=args.load,
-        collection_stack=args.stack or "auto",
+        collection_stack=args.stack_policy or "auto",
     )
