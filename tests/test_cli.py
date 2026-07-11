@@ -121,6 +121,7 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
         {
             "TERM_PROGRAM": "vscode",
             "ARRAYVIEW_WINDOW_ID": "test-window",
+            "HOME": str(tmp_path),
         }
     )
 

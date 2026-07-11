@@ -169,7 +169,14 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
 
     for wid in ("100", "200"):
         (signal_dir / f"window-{wid}.json").write_text(
-            json.dumps({"pid": int(wid), "ppids": [10], "fallbackId": True})
+            json.dumps(
+                {
+                    "pid": int(wid),
+                    "ppids": [10],
+                    "fallbackId": True,
+                    "signalQueueVersion": 1,
+                }
+            )
         )
 
     opened = signal._write_vscode_signal(
@@ -198,10 +205,10 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
 
     (signal_dir / "window-100.json").write_text(
-        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1})
+        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1, "signalQueueVersion": 1})
     )
     (signal_dir / "window-200.json").write_text(
-        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2})
+        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2, "signalQueueVersion": 1})
     )
 
     opened = signal._write_vscode_signal(
@@ -228,10 +235,10 @@ def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
 
     (signal_dir / "window-100.json").write_text(
-        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1})
+        json.dumps({"pid": 100, "ppids": [10], "fallbackId": True, "ts": 1, "signalQueueVersion": 1})
     )
     (signal_dir / "window-200.json").write_text(
-        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2})
+        json.dumps({"pid": 200, "ppids": [10], "fallbackId": True, "ts": 2, "signalQueueVersion": 1})
     )
 
     opened = signal._write_vscode_signal(
@@ -295,9 +302,10 @@ def test_vscode_local_missing_window_match_uses_focused_window_fallback(
                 {
                     "pid": int(wid),
                     "ppids": [10],
-                    "fallbackId": True,
-                    "remoteName": "tunnel",
-                }
+                        "fallbackId": True,
+                        "remoteName": "tunnel",
+                        "signalQueueVersion": 1,
+                    }
             )
         )
 

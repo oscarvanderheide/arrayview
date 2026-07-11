@@ -60,6 +60,56 @@ def test_open_request_reports_failed_legacy_write(monkeypatch, tmp_path):
     assert not request
 
 
+def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    signal_dir = tmp_path / ".arrayview"
+    signal_dir.mkdir()
+    (signal_dir / "window-live-window.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": "live-window",
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+
+    request = signal._open_via_signal_file("http://localhost:8123/")
+
+    queued = signal_dir / f"open-request-ipc-live-window.request-{request.request_id}.json"
+    payload = json.loads(queued.read_text())
+    assert payload["windowId"] == "live-window"
+    assert request.window_id == "live-window"
+
+
+def test_open_request_leaves_broadcast_window_to_claiming_extension(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    signal_dir = tmp_path / ".arrayview"
+    signal_dir.mkdir()
+    for window_id in ("remote-a", "remote-b"):
+        (signal_dir / f"window-{window_id}.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "remoteName": "tunnel",
+                    "signalQueueVersion": 1,
+                }
+            )
+        )
+
+    request = signal._open_via_signal_file("http://localhost:8123/")
+
+    queued = signal_dir / f"open-request-v0900.request-{request.request_id}.json"
+    payload = json.loads(queued.read_text())
+    assert payload["broadcast"] is True
+    assert "windowId" not in payload
+    assert request.window_id is None
+
+
 def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
@@ -67,7 +117,13 @@ def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
     signal_dir = tmp_path / ".arrayview"
     signal_dir.mkdir()
     (signal_dir / "window-window-1.json").write_text(
-        json.dumps({"pid": os.getpid(), "hookTag": "window-1"})
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": "window-1",
+                "signalQueueVersion": 1,
+            }
+        )
     )
 
     assert signal._write_vscode_signal(
@@ -84,6 +140,25 @@ def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
         "open-request-ipc-window-1.request-req-a.json",
         "open-request-ipc-window-1.request-req-b.json",
     ]
+
+
+def test_protocol_uses_fixed_filename_for_running_legacy_extension(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    signal_dir = tmp_path / ".arrayview"
+    signal_dir.mkdir()
+    (signal_dir / "window-window-1.json").write_text(
+        json.dumps({"pid": os.getpid(), "hookTag": "window-1"})
+    )
+
+    assert signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=a", "requestId": "req-a"},
+        skip_compat=True,
+    )
+
+    assert (signal_dir / "open-request-ipc-window-1.json").is_file()
+    assert not tuple(signal_dir.glob("open-request-ipc-window-1.request-*.json"))
 
 
 def test_wait_accepts_correlated_ack(tmp_path):

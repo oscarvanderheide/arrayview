@@ -1192,7 +1192,8 @@ function activate(context) {
             ppids: EXT_PPIDS,   // ancestor PIDs for multi-window matching by Python
             ts: Date.now(),
             fallbackId: !OWN_HOOK_TAG,  // true if using PID fallback
-            remoteName: vscode.env.remoteName || null
+            remoteName: vscode.env.remoteName || null,
+            signalQueueVersion: 1
         }));
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);
         context.subscriptions.push({ dispose: () => {
