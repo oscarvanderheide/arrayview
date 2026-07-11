@@ -125,12 +125,16 @@ def _select_npz_array(npz, filepath):
 
 
 def _nifti_header_with_meta(filepath):
-    """Return a canonical NIfTI image and spatial metadata without reading voxels."""
+    """Return a NIfTI image and canonical spatial metadata without reading voxels."""
     nib = _nib()
     img = nib.load(filepath)
     original_affine = np.asarray(img.affine, dtype=np.float64)
-    canon = nib.as_closest_canonical(img)
-    affine_canonical = np.asarray(canon.affine, dtype=np.float64)
+    source_ornt = nib.orientations.io_orientation(original_affine)
+    canonical_ornt = nib.orientations.axcodes2ornt(("R", "A", "S"))
+    transform = nib.orientations.ornt_transform(source_ornt, canonical_ornt)
+    affine_canonical = original_affine @ nib.orientations.inv_ornt_aff(
+        transform, img.shape[:3]
+    )
 
     rot = affine_canonical[:3, :3]
     voxel_sizes = tuple(float(np.linalg.norm(rot[:, i])) for i in range(3))
@@ -147,13 +151,22 @@ def _nifti_header_with_meta(filepath):
         (abs(norm_rot[i, j]) for i in range(3) for j in range(3) if i != j),
         default=0.0,
     )
-    return canon, {
+    canonical_shape = tuple(int(img.shape[int(axis)]) for axis in transform[:, 0])
+    return img, {
         "affine": original_affine,
         "affine_canonical": affine_canonical,
         "voxel_sizes": voxel_sizes,
         "axis_labels": axis_labels,
         "is_oblique": bool(off_diag_max > 1e-3),
+        "canonical_shape": canonical_shape,
     }
+
+
+def _nifti_display_array(proxy):
+    """Materialize a NIfTI proxy without carrying float64 into display caches."""
+    dtype = np.dtype(proxy.dtype)
+    display_dtype = np.float32 if np.issubdtype(dtype, np.floating) and dtype.itemsize > 4 else dtype
+    return np.asarray(proxy, dtype=display_dtype)
 
 
 def _load_nifti_with_meta(filepath):
@@ -168,7 +181,8 @@ def _load_nifti_with_meta(filepath):
       is_oblique        : bool — True if rotation part has off-diagonal magnitude > 1e-3
                           after normalizing voxel sizes
     """
-    canon, meta = _nifti_header_with_meta(filepath)
+    img, meta = _nifti_header_with_meta(filepath)
+    canon = _nib().as_closest_canonical(img)
 
     # NOTE: reorient requires materializing axis permutes/flips. .nii.gz is
     # already eager (gzip not seekable), so this is free; .nii loses mmap as a
@@ -241,7 +255,7 @@ class _NiftiSeries:
             # Keep uncompressed NIfTI proxy-backed so nibabel/OS paging can read
             # only the requested slice. Gzip files must be decompressed once and
             # are therefore materialized into the byte-bounded cache.
-            vol = canon.dataobj if filepath.endswith(".nii") else np.asarray(canon.dataobj)
+            vol = canon.dataobj if filepath.endswith(".nii") else _nifti_display_array(canon.dataobj)
             with self._cache_lock:
                 self._vol_cache[cache_key] = vol
                 self._vol_cache.move_to_end(cache_key)
@@ -483,7 +497,7 @@ class _RaggedFileSeries:
                 nib = _nib()
                 img = nib.load(filepath)
                 proxy = nib.as_closest_canonical(img).dataobj
-                vol = proxy if filepath.endswith(".nii") else np.asarray(proxy)
+                vol = proxy if filepath.endswith(".nii") else _nifti_display_array(proxy)
             else:
                 vol = load_data(filepath)
             with self._cache_lock:
@@ -616,14 +630,14 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
         nib = _nib()
         spatial_shapes = []
         for fpath in all_paths:
-            img = nib.load(fpath)
-            shape = tuple(int(s) for s in img.shape)
+            img, item_meta = _nifti_header_with_meta(fpath)
+            shape = tuple(item_meta["canonical_shape"])
             dtype = img.get_data_dtype()
             spatial_shapes.append(shape)
             if ref_shape is None:
                 ref_shape = shape
                 ref_dtype = dtype
-                _canon, spatial_meta = _nifti_header_with_meta(fpath)
+                spatial_meta = item_meta
             elif len(shape) != len(ref_shape):
                 raise ValueError(
                     f"Rank mismatch: {os.path.basename(fpath)!r} has shape "

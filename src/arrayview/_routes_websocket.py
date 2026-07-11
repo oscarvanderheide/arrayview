@@ -129,6 +129,7 @@ def register_websocket_routes(app) -> None:
                 _pending.put_nowait(None)
 
         recv_task = asyncio.create_task(_receiver())
+        previous_indices = None
         try:
             while True:
                 msg = await _pending.get()
@@ -392,6 +393,24 @@ def register_websocket_routes(app) -> None:
                     _schedule_prefetch(
                         session, dim_x, dim_y, list(idx_tuple), slice_dim, direction
                     )
+                stack_axes = tuple(getattr(session.data, "_stack_axes", ()))
+                if stack_axes:
+                    collection_axis = stack_axes[0]
+                    collection_direction = 1
+                    if previous_indices is not None:
+                        delta = idx_tuple[collection_axis] - previous_indices[collection_axis]
+                        if delta:
+                            collection_direction = 1 if delta > 0 else -1
+                    if collection_axis != slice_dim:
+                        _schedule_prefetch(
+                            session,
+                            dim_x,
+                            dim_y,
+                            list(idx_tuple),
+                            collection_axis,
+                            collection_direction,
+                        )
+                previous_indices = idx_tuple
         except Exception as _ws_exc:
             import traceback
 

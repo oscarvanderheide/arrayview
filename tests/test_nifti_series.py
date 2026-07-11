@@ -187,6 +187,20 @@ class TestNiftiSeriesErrors:
         series, _ = load_data_with_meta(str(tmp_path))
         assert series._vol_cache == {}
 
+    def test_header_scan_does_not_canonicalize_voxels(self, tmp_path, monkeypatch):
+        _make_patient_dir(tmp_path, "p001")
+        monkeypatch.setattr(
+            nib,
+            "as_closest_canonical",
+            lambda _img: (_ for _ in ()).throw(
+                AssertionError("header scan materialized voxel orientation")
+            ),
+        )
+
+        series, _ = load_data_with_meta(str(tmp_path))
+
+        assert series._vol_cache == {}
+
     def test_eager_load_populates_cache(self, tmp_path):
         _make_patient_dir(tmp_path, "p001")
         _make_patient_dir(tmp_path, "p002")
@@ -217,6 +231,15 @@ class TestNiftiSeriesErrors:
 
         assert len(loads) == 1
         assert len(results) == 2
+
+    def test_compressed_float64_uses_float32_display_cache(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001", dtype=np.float64)
+        series, _ = load_data_with_meta(str(tmp_path))
+
+        displayed = series[:, :, 2, 0]
+
+        assert displayed.dtype == np.float32
+        assert series._vol_cache[(0, 0)].dtype == np.float32
 
     def test_dtype_mismatch(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", dtype=np.float32)
