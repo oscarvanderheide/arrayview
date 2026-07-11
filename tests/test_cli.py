@@ -121,6 +121,7 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
         {
             "TERM_PROGRAM": "vscode",
             "ARRAYVIEW_WINDOW_ID": "test-window",
+            "HOME": str(tmp_path),
         }
     )
 
@@ -269,7 +270,7 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
         "argv",
         [
             "arrayview",
-            "--dir",
+            "--stack",
             str(tmp_path / "images" / "*_0000.npy"),
             "--overlay",
             f"gt={tmp_path / 'gt' / '*.npy'}",
@@ -281,7 +282,7 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
     appmod.arrayview()
 
     text = stdout.getvalue()
-    assert "--dir matched collection" in text
+    assert "--stack matched collection" in text
     assert "cases: 2" in text
     assert "overlay gt:" in text
     assert "caseA, caseB" in text

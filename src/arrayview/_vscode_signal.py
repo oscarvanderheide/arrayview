@@ -412,7 +412,14 @@ def _open_via_signal_file(
     if floating:
         payload["floating"] = True
     written = _write_vscode_signal(payload, delay=delay)
-    return SignalRequest(request_id, window_id, server_id, ack_path, written)
+    resolved_window_id = payload.get("windowId")
+    return SignalRequest(
+        request_id,
+        resolved_window_id if isinstance(resolved_window_id, str) else None,
+        server_id,
+        ack_path,
+        written,
+    )
 
 
 def _schedule_remote_open_retries(
@@ -844,13 +851,70 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                         else (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
                     )
 
+        # Keep protocol correlation aligned with the window that will actually
+        # consume the request. Target selection can recover from a stale
+        # ARRAYVIEW_WINDOW_ID by redirecting to the sole live registration;
+        # retaining the stale ID in the payload makes every valid ACK fail
+        # correlation. Broadcasts deliberately have no expected window: the
+        # focused extension host establishes it when claiming the request.
+        resolved_window_id: str | None = None
+        if not data.get("broadcast") and len(filenames) == 1:
+            target = filenames[0]
+            for prefix in ("open-request-pid-", "open-request-ipc-"):
+                if target.startswith(prefix) and target.endswith(".json"):
+                    resolved_window_id = target[len(prefix) : -len(".json")]
+                    break
+        if resolved_window_id:
+            data["windowId"] = resolved_window_id
+            payload["windowId"] = resolved_window_id
+        else:
+            data.pop("windowId", None)
+            payload.pop("windowId", None)
+
         _vprint(f"[ArrayView] signal: writing to {[f for f in filenames]} broadcast={data.get('broadcast', False)}", flush=True)
+
+        def _registration_supports_queue(filename: str) -> bool:
+            """Return whether the live consumer understands queued filenames."""
+            window_id: str | None = None
+            for prefix in ("open-request-pid-", "open-request-ipc-"):
+                if filename.startswith(prefix) and filename.endswith(".json"):
+                    window_id = filename[len(prefix) : -len(".json")]
+                    break
+            if window_id is not None:
+                registration_names = (f"window-{window_id}.json",)
+            else:
+                try:
+                    registration_names = tuple(
+                        name
+                        for name in os.listdir(signal_dir)
+                        if name.startswith("window-") and name.endswith(".json")
+                    )
+                except OSError:
+                    return False
+                if not registration_names:
+                    return False
+            for registration_name in registration_names:
+                try:
+                    with open(os.path.join(signal_dir, registration_name)) as registration:
+                        if json.load(registration).get("signalQueueVersion", 0) < 1:
+                            return False
+                except (OSError, TypeError, ValueError):
+                    return False
+            return True
+
         for filename in filenames:
             # Protocol-v1 requests use a unique disk-backed queue entry.  A
             # fixed per-window filename lets simultaneous launchers overwrite
             # each other before the extension can claim the first request.
+            # Capability-check the running extension host: installing a newer
+            # VSIX does not activate it until VS Code reloads, and older hosts
+            # only watch the fixed legacy filename.
             request_id = data.get("requestId")
-            if request_id and filename.endswith(".json"):
+            if (
+                request_id
+                and filename.endswith(".json")
+                and _registration_supports_queue(filename)
+            ):
                 filename = f"{filename[:-5]}.request-{request_id}.json"
             else:
                 try:
