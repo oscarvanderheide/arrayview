@@ -111,6 +111,98 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
+def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, tmp_path):
+    from arrayview._launch_plan import (
+        Display,
+        Environment,
+        Invocation,
+        LaunchEnvironmentSnapshot,
+        LaunchPlan,
+        Registration,
+        ServerOwner,
+        ServerSnapshot,
+        Transport,
+    )
+
+    calls = []
+    base_pattern = str(tmp_path / "case-*" / "CT" / "*.npy")
+    overlay_dir = str(tmp_path / "case-*" / "masks")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["arrayview", "--stack", base_pattern, "--overlay-dir", overlay_dir],
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_overlay_specs_from_dirs",
+        lambda dirs, case_regex=None: [
+            ("body", str(tmp_path / "*" / "body.npy"), True)
+        ],
+    )
+
+    def fake_load_dir_collection(*args, **kwargs):
+        data = np.zeros((4, 4, 1), dtype=np.float32)
+        return data, {}, [], {
+            "cases": ["case-1"],
+            "base_patterns": [base_pattern],
+            "overlays": [],
+            "shape": (4, 4, 1),
+            "spatial_shape": (4, 4),
+        }
+
+    monkeypatch.setattr("arrayview._io.load_dir_collection", fake_load_dir_collection)
+
+    snapshot = LaunchEnvironmentSnapshot(
+        invocation=Invocation.CLI,
+        requested_window=None,
+        environment=Environment.VSCODE_REMOTE,
+        platform=sys.platform,
+        env_vars={},
+        config_default=None,
+        native_backend=None,
+        server=ServerSnapshot(8000, True, True),
+        in_jupyter=False,
+        in_julia=False,
+        in_vscode_terminal=True,
+        is_vscode_remote=True,
+        in_vscode_tunnel=True,
+        ssh_connection=False,
+        ssh_client=False,
+        hostname="test-host",
+    )
+    plan = LaunchPlan(
+        invocation=Invocation.CLI,
+        environment=Environment.VSCODE_REMOTE,
+        transport=Transport.HTTP,
+        server_owner=ServerOwner.EXISTING,
+        display=Display.VSCODE,
+        registration=Registration.HTTP_LOAD,
+        requested_port=8000,
+        effective_port=8000,
+    )
+    monkeypatch.setattr(
+        _launch_plan_mod,
+        "snapshot_launch_environment",
+        lambda *a, **k: snapshot,
+    )
+    monkeypatch.setattr(_launch_plan_mod, "plan_launch", lambda intent, snap: plan)
+    monkeypatch.setattr(_launcher_mod, "_find_vscode_ipc_hook", lambda: "/tmp/ipc")
+    monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_handle_cli_existing_server",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    appmod.arrayview()
+
+    assert calls
+    assert calls[0]["is_remote"] is True
+    assert calls[0]["dir_patterns"] == [os.path.abspath(base_pattern)]
+
+
 def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
     arr_path = tmp_path / "base.npy"
     np.save(arr_path, np.zeros((8, 8), dtype=np.float32))

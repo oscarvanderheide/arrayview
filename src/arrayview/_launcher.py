@@ -4478,6 +4478,7 @@ def arrayview():
 
     window_mode = launch_plan.display.value
     use_native_shell = launch_plan.display is Display.NATIVE
+    is_remote = launch_snapshot.is_vscode_remote
 
     if launch_plan.display is Display.VSCODE:
         # Warn if we can't find the IPC hook (multi-window targeting falls back to PID matching)
@@ -4520,7 +4521,6 @@ def arrayview():
         )
         return
 
-    is_remote = launch_snapshot.is_vscode_remote
     demo_name = getattr(args, "_demo_name", None)
     demo_cleanup = getattr(args, "_demo_cleanup", False)
     _handle_cli_spawned_daemon(
