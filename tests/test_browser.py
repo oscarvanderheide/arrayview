@@ -120,6 +120,41 @@ def _focus_kb(page):
     page.focus("#keyboard-sink")
 
 
+def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_path):
+    base = np.zeros((32, 32), dtype=np.float32)
+    mask_a = np.zeros((32, 32), dtype=np.uint8)
+    mask_b = np.zeros((32, 32), dtype=np.uint8)
+    mask_a[3:12, 3:12] = 1
+    mask_b[20:29, 20:29] = 1
+    sids = []
+    for name, array in (("base", base), ("mask_a", mask_a), ("mask_b", mask_b)):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, array)
+        sids.append(client.post("/load", json={"filepath": str(path), "name": name}).json()["sid"])
+
+    page.goto(
+        f"{server_url}/?sid={sids[0]}&overlay_sid={sids[1]},{sids[2]}"
+        "&overlay_names=mask_a,mask_b"
+    )
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    palette = page.locator("#overlay-palette")
+    palette.wait_for(state="visible", timeout=5_000)
+
+    assert palette.get_attribute("aria-hidden") == "false"
+    assert palette.locator(".overlay-palette-row").count() == 2
+    page.wait_for_timeout(1200)
+    DEBUG_DIR.mkdir(exist_ok=True)
+    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_initial_visible.png"))
+
+    _focus_kb(page)
+    page.keyboard.press("/")
+    page.keyboard.press("o")
+    assert not palette.is_visible()
+    page.keyboard.press("/")
+    page.keyboard.press("o")
+    assert palette.is_visible()
+
+
 def _enter_compare(page, partner_sid, timeout=5000):
     """Enter compare mode with a given partner sid.
 

@@ -32,6 +32,8 @@ last_updated: 2026-06-30
 - qMRI map toggle (`_islandToggleQmriMap`) fade animation now covers dimbar and array-name in addition to panes and colorbars
 - Segmentation menu shares the ROI layout (yellow accent, magnifier action icon, common `#export-overlay` modal). Pre-activation shows a pulsing "nnInteractive · connecting" row that morphs into the normal shape toolbar once `/seg/activate` resolves
 - Overlays are a plugin tile (`OV`): per-overlay row with colour swatch, editable label, eye toggle, × delete; shared opacity slider; `+ add overlay` opens a filesystem picker rooted at the launched file's directory
+- The floating overlay HUD is reconciled as soon as startup loading ends, so it
+  is visible on first load and `/ o` toggles it correctly from the first press.
 - Vector field is a plugin tile (`VF`): row with visibility toggle + density/length sliders bi-directionally wired to the `[ ] { }` keyboard commands
 - CLI `--overlay FILE` can be repeated to load multiple overlays at launch
 - Stack collections support `--overlay-dir PATTERN` to discover per-case mask

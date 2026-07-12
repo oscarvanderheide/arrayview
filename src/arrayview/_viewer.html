@@ -5528,6 +5528,7 @@
             const _safety = setTimeout(() => {
                 if (ol && ol.style.display !== 'none') {
                     document.body.classList.remove('av-loading');
+                    _reconcileUI();
                     ol.style.opacity = '';
                     ol.style.display = 'none';
                     const _cw = document.getElementById('canvas-wrap');
@@ -5595,6 +5596,7 @@
             }, 0.08);
             _startupAnimTl.call(() => {
                 document.body.classList.remove('av-loading');
+                _reconcileUI();
             }, null, 0.08);
             _startupAnimTl.call(() => {
                 if (ol) ol.style.display = 'none';
@@ -13494,6 +13496,7 @@
 
         function hideLoadingOverlay() {
             document.body.classList.remove('av-loading');
+            _reconcileUI();
             const ol = document.getElementById('loading-overlay');
             ol.style.opacity = '';
             ol.style.display = 'none';

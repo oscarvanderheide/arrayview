@@ -94,6 +94,14 @@ arrives; local mocks do not replace a real tunnel handoff.
 
 **When adding new modes or UI elements:** Add the visibility rule to the appropriate reconciler. All existing call sites automatically get the update.
 
+## Overlay HUD Startup State
+
+**Problem:** The overlay HUD state defaulted to visible, but the DOM could remain
+hidden until the shortcut was toggled twice.
+**Fix:** Run the shared UI reconciler whenever the startup loading state ends,
+including the animation, fallback, and no-animation paths. State and DOM must be
+reconciled together after `av-loading` is removed.
+
 ## Server Route Extraction End State
 
 **Problem:** `_server.py` kept shrinking as feature routes moved out, but it was unclear whether the final goal was “zero routes left” or a stable orchestration layer.

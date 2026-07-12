@@ -1029,6 +1029,14 @@ def run_smoke(page, base, client, tmp):
     )
     page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
     page.wait_for_timeout(1400)
+    palette_state = page.evaluate(
+        "() => { const el = document.getElementById('overlay-palette'); "
+        "return { visible: el.classList.contains('visible'), "
+        "hidden: el.getAttribute('aria-hidden'), rows: el.children.length }; }"
+    )
+    assert palette_state == {"visible": True, "hidden": "false", "rows": 2}, (
+        f"Overlay HUD was not visible on first load: {palette_state}"
+    )
     _shot(page, "51_multi_overlay")
 
     # Shift+O: cycle overlay visibility (all → off → mask1 → mask2 → all)
