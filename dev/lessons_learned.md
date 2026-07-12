@@ -193,3 +193,11 @@ Fixing only one path can leave initial labels or keyboard range changes stale.
 **Fix:** Keep qMRI role policy in `_synthetic_mri.py`, and route qMRI `d`
 handling through hovered-pane frontend helpers so real and synthetic panes update
 their own `lockedVmin/lockedVmax` plus matching `displayState`.
+
+## Overlay HUD Focus
+
+**Problem:** HUD-only hover styling makes the list look focused while masks on
+the image remain equally prominent.
+**Fix:** Thread transient per-overlay alpha values through every overlay render
+path (HTTP and WebSocket; normal, compare, multiview, qMRI) so hover focus dims
+the image overlays as well as the HUD rows.

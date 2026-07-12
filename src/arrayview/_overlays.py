@@ -30,6 +30,7 @@ def _composite_overlays(
     overlay_sid_str: str | None,
     overlay_colors_str: str | None,
     overlay_alpha: float,
+    overlay_alphas_str: str | None,
     dim_x: int,
     dim_y: int,
     idx_tuple: tuple[int, ...],
@@ -42,8 +43,18 @@ def _composite_overlays(
     colors_raw = (
         [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
     )
+    alphas_raw = (
+        [a.strip() for a in overlay_alphas_str.split(",")] if overlay_alphas_str else []
+    )
     for i, sid in enumerate(sids):
         color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
+        alpha = overlay_alpha
+        if i < len(alphas_raw):
+            try:
+                alpha = float(alphas_raw[i])
+            except ValueError:
+                alpha = overlay_alpha
+        alpha = max(0.0, min(1.0, alpha))
         ov_raw = _extract_overlay_mask(
             sid,
             dim_x,
@@ -54,7 +65,7 @@ def _composite_overlays(
         rgba = _composite_overlay_mask(
             rgba,
             ov_raw,
-            alpha=overlay_alpha,
+            alpha=alpha,
             is_label=_overlay_is_label_map(sid, ov_raw),
             override_color=color,
         )

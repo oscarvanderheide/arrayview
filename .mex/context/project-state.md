@@ -35,7 +35,9 @@ last_updated: 2026-06-30
 - The floating overlay HUD is reconciled as soon as startup loading ends, so it
   is visible on first load and `/ o` toggles it correctly from the first press.
   Its drag grip allows viewport-clamped repositioning that survives mode and
-  layout reconciliation for the current viewer session.
+  layout reconciliation for the current viewer session. Hovering a visible row
+  focuses that mask and dims the other visible overlays across normal, compare,
+  multiview, and qMRI render paths.
 - Vector field is a plugin tile (`VF`): row with visibility toggle + density/length sliders bi-directionally wired to the `[ ] { }` keyboard commands
 - CLI `--overlay FILE` can be repeated to load multiple overlays at launch;
   unnamed overlays use the filename stem and `NAME=FILE` supplies an explicit

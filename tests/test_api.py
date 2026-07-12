@@ -4631,7 +4631,7 @@ class TestMultipleOverlays:
 
     def test_composite_overlays_helper(self, client, sid_2d):
         """_composite_overlays helper iterates all sids and returns modified rgba."""
-        from arrayview._server import _composite_overlays
+        from arrayview._overlays import _composite_overlays
         from arrayview._app import SESSIONS, Session
 
         mask = np.zeros((64, 64), dtype=np.uint8)
@@ -4645,6 +4645,7 @@ class TestMultipleOverlays:
             ov.sid,
             "ff0000",
             0.5,
+            None,
             dim_x=1,
             dim_y=0,
             idx_tuple=(0, 0),

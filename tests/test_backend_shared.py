@@ -97,6 +97,7 @@ def test_composite_overlays_uses_shared_session_lookup():
             overlay.sid,
             "00ff00",
             0.75,
+            None,
             dim_x=1,
             dim_y=0,
             idx_tuple=(0, 0),
@@ -108,6 +109,34 @@ def test_composite_overlays_uses_shared_session_lookup():
     assert out[2, 2, 1] > out[2, 2, 0]
     assert out[2, 2, 1] > out[2, 2, 2]
     assert np.array_equal(out[0, 0], rgba[0, 0])
+
+
+def test_composite_overlays_accepts_per_overlay_alpha():
+    overlay_a = Session(np.zeros((4, 4), dtype=np.uint8))
+    overlay_b = Session(np.zeros((4, 4), dtype=np.uint8))
+    overlay_a.data[1:3, 1:3] = 1
+    overlay_b.data[1:3, 1:3] = 1
+    SESSIONS[overlay_a.sid] = overlay_a
+    SESSIONS[overlay_b.sid] = overlay_b
+    try:
+        rgba = np.zeros((4, 4, 4), dtype=np.uint8)
+        rgba[:, :, 3] = 255
+        out = _composite_overlays(
+            rgba,
+            f"{overlay_a.sid},{overlay_b.sid}",
+            "ff0000,00ff00",
+            0.5,
+            "0.5,0.1",
+            dim_x=1,
+            dim_y=0,
+            idx_tuple=(0, 0),
+            shape_hw=(4, 4),
+        )
+    finally:
+        SESSIONS.pop(overlay_a.sid, None)
+        SESSIONS.pop(overlay_b.sid, None)
+
+    assert out[1, 1, 0] > out[1, 1, 1]
 
 
 def test_analysis_helpers_cover_metadata_histograms_and_pixels():

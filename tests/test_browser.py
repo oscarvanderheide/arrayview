@@ -142,6 +142,13 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
 
     assert palette.get_attribute("aria-hidden") == "false"
     assert palette.locator(".overlay-palette-row").count() == 2
+    palette.locator(".overlay-palette-row").nth(1).hover()
+    assert page.evaluate("() => _overlayFocusIdx") == 1
+    assert page.evaluate("() => _getVisibleOverlayAlphas()") == "0.135,0.45"
+    assert "focused" in palette.locator(".overlay-palette-row").nth(1).get_attribute("class")
+    assert "dimmed" in palette.locator(".overlay-palette-row").nth(0).get_attribute("class")
+    page.mouse.move(5, 5)
+    assert page.evaluate("() => _overlayFocusIdx") is None
     page.wait_for_timeout(1200)
     DEBUG_DIR.mkdir(exist_ok=True)
     page.screenshot(path=str(DEBUG_DIR / "overlay_palette_initial_visible.png"))
