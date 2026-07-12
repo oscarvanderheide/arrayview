@@ -8,7 +8,7 @@ from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
-from arrayview._lifecycle import release_session
+from arrayview._lifecycle import acquire_session_leases, release_session
 from arrayview._session import SESSIONS, Session
 
 
@@ -92,7 +92,11 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             collection_identity = (
                 tuple(os.path.abspath(str(pattern)) for pattern in dir_patterns),
                 tuple(
-                    (str(item[0]), os.path.abspath(str(item[1])))
+                    (
+                        str(item[0]),
+                        os.path.abspath(str(item[1])),
+                        bool(item[2]) if len(item) > 2 else False,
+                    )
                     for item in body.get("dir_overlay_specs", [])
                 ),
                 body.get("dir_case_regex"),
@@ -101,6 +105,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             )
             for existing in SESSIONS.values():
                 if getattr(existing, "collection_identity", None) == collection_identity:
+                    reused_sids = [existing.sid, *getattr(existing, "collection_overlay_sids", [])]
+                    if not acquire_session_leases(reused_sids):
+                        continue
                     notified = False
                     if notify:
                         existing_overlay_sids = list(

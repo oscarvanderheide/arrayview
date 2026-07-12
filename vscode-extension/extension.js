@@ -9,6 +9,7 @@ const { spawn, spawnSync } = require('child_process');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    sessionMetadataUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -1096,15 +1097,19 @@ async function _processSignalDataBody(data) {
 
     const pingUrl = pingUrlFromViewerUrl(openUrl);
     if (!pingUrl) throw new Error('Unable to derive backend ping URL');
+    const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
+    if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
     for (let attempt = 0; attempt < 10; attempt++) {
-        if (await arrayViewStatusOk(pingUrl, data.serverId || null)) {
+        const serverReady = await arrayViewStatusOk(pingUrl, data.serverId || null);
+        const sessionReady = serverReady && await httpStatus2xx(metadataUrl);
+        if (sessionReady) {
             writeProtocolAck(data, 'visibility_verified');
             writeProtocolAck(data, 'backend_ready');
             return;
         }
         await new Promise(resolve => setTimeout(resolve, 250));
     }
-    throw new Error('Backend did not become ready after panel opened');
+    throw new Error('Viewer session did not become ready after panel opened');
 }
 
 function activate(context) {

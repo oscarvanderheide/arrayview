@@ -628,6 +628,14 @@ def test_vscode_wrapper_backend_check_uses_extension_host_ping():
     assert "fetch(pingUrl" not in source
 
 
+def test_vscode_open_ack_requires_requested_session_metadata():
+    source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
+
+    assert "sessionMetadataUrlFromViewerUrl(openUrl)" in source
+    assert "serverReady && await httpStatus2xx(metadataUrl)" in source
+    assert "Viewer session did not become ready" in source
+
+
 def test_vscode_url_panel_dispose_releases_primary_sid():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 

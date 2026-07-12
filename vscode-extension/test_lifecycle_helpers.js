@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    sessionMetadataUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -24,6 +25,12 @@ assert.deepStrictEqual(
 assert.deepStrictEqual(collectReleaseSidsFromUrl('not a url'), []);
 assert.strictEqual(pingUrlFromViewerUrl('http://localhost:8123/?sid=abc'), 'http://localhost:8123/ping');
 assert.strictEqual(pingUrlFromViewerUrl('not a url'), null);
+assert.strictEqual(
+    sessionMetadataUrlFromViewerUrl('https://example.test/?sid=base&overlay_sid=mask'),
+    'https://example.test/metadata/base'
+);
+assert.strictEqual(sessionMetadataUrlFromViewerUrl('https://example.test/?sid=__welcome__'), null);
+assert.strictEqual(sessionMetadataUrlFromViewerUrl('not a url'), null);
 
 assert.strictEqual(
     shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [10] }, false),

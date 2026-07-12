@@ -34,6 +34,17 @@ function pingUrlFromViewerUrl(url) {
     }
 }
 
+function sessionMetadataUrlFromViewerUrl(url) {
+    try {
+        const parsed = new URL(url);
+        const sid = parsed.searchParams.get('sid');
+        if (!sid || sid === '__welcome__') return null;
+        return `${parsed.origin}/metadata/${encodeURIComponent(sid)}`;
+    } catch (_) {
+        return null;
+    }
+}
+
 function shouldRemoveSameTunnelRegistration(currentWindowId, currentPpids, candidateWindowId, candidateData, candidateAlive) {
     if (candidateWindowId === currentWindowId) return false;
     if (!candidateData || !candidateData.pid || candidateAlive) return false;
@@ -81,6 +92,7 @@ function isArrayViewStatus(payload, expectedServerId = null) {
 module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
+    sessionMetadataUrlFromViewerUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,

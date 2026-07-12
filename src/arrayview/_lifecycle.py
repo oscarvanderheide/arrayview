@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import threading
+
 from arrayview._session import PENDING_SESSION_EVENTS, PENDING_SESSIONS, SESSIONS
+
+_SESSION_LEASE_LOCK = threading.Lock()
+
+
+def acquire_session_leases(sids: list[str]) -> bool:
+    """Atomically record another viewer tab using related sessions."""
+    with _SESSION_LEASE_LOCK:
+        sessions = [SESSIONS.get(sid) for sid in sids]
+        if any(session is None for session in sessions):
+            return False
+        for session in sessions:
+            session.viewer_leases = (
+                max(1, int(getattr(session, "viewer_leases", 1))) + 1
+            )
+        return True
 
 
 def release_session(sid: str) -> bool:
-    """Drop a loaded or pending session and release its cached array memory."""
+    """Release one viewer lease and drop the session after the final lease."""
     PENDING_SESSIONS.discard(sid)
     event = PENDING_SESSION_EVENTS.pop(sid, None)
     if event is not None:
@@ -15,9 +32,17 @@ def release_session(sid: str) -> bool:
         except Exception:
             pass
 
-    session = SESSIONS.pop(sid, None)
-    if session is None:
-        return False
+    with _SESSION_LEASE_LOCK:
+        session = SESSIONS.get(sid)
+        if session is None:
+            return False
+
+        leases = max(1, int(getattr(session, "viewer_leases", 1)))
+        if leases > 1:
+            session.viewer_leases = leases - 1
+            return True
+
+        SESSIONS.pop(sid, None)
 
     try:
         session.reset_caches()

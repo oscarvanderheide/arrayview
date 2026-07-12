@@ -176,6 +176,18 @@ class TestLoad:
         assert repeated["overlay_sids"] == body["overlay_sids"]
         assert repeated["reused"] is True
 
+        base_sid = body["sid"]
+        overlay_sid = body["overlay_sids"][0]
+        assert client.post(f"/release/{base_sid}").json()["released"] is True
+        assert client.post(f"/release/{overlay_sid}").json()["released"] is True
+        assert client.get(f"/metadata/{base_sid}").status_code == 200
+        assert client.get(f"/metadata/{overlay_sid}").status_code == 200
+
+        assert client.post(f"/release/{base_sid}").json()["released"] is True
+        assert client.post(f"/release/{overlay_sid}").json()["released"] is True
+        assert client.get(f"/metadata/{base_sid}").status_code == 404
+        assert client.get(f"/metadata/{overlay_sid}").status_code == 404
+
     def test_load_directory_collection_error_creates_no_session(self, client, tmp_path):
         before = {item["sid"] for item in client.get("/sessions").json()}
         body = client.post(
