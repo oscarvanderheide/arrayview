@@ -3023,6 +3023,7 @@ class TestCliOpenHelpers:
             name="base.npy",
             compare_files=["/tmp/cmp.npy"],
             overlay_files=["/tmp/overlay.npy"],
+            overlay_names=["ground truth"],
             dims_override=(1, 2),
             use_native_shell=False,
             watch=True,
@@ -3040,6 +3041,7 @@ class TestCliOpenHelpers:
         assert "_serve_daemon(" in spawned[0][0][2]
         assert "persist=False" in spawned[0][0][2]
         assert "rgb=True" in spawned[0][0][2]
+        assert "overlay_names=['ground truth']" in spawned[0][0][2]
         assert spawned[0][1]["stdin"] is launcher.subprocess.DEVNULL
         assert spawned[0][1]["stdout"] is launcher.subprocess.DEVNULL
         assert spawned[0][1]["stderr"] is launcher.subprocess.DEVNULL
@@ -3050,7 +3052,7 @@ class TestCliOpenHelpers:
                 "sid": "sid_base",
                 "compare_sids": ["sid_cmp"],
                 "overlay_sid": "sid_base",
-                "overlay_names": ["overlay.npy"],
+                "overlay_names": ["ground truth"],
                 "dims_override": (1, 2),
                 "use_native_shell": False,
                 "name": "base.npy",

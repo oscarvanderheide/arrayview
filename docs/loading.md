@@ -85,7 +85,11 @@ Native windows also show a static preview while the live viewer warms up.
 ```bash
 uvx arrayview base.npy moving.npy           # compare mode
 uvx arrayview volume.nii.gz --overlay mask.nii.gz
+uvx arrayview volume.nii.gz --overlay "ground truth=mask.nii.gz"
 ```
+
+An unnamed overlay uses the filename stem as its display name (`mask` above).
+Use `NAME=FILE` when a more descriptive label is useful.
 
 ## Directory Pattern Collections
 

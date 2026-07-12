@@ -35,7 +35,9 @@ last_updated: 2026-06-30
 - The floating overlay HUD is reconciled as soon as startup loading ends, so it
   is visible on first load and `/ o` toggles it correctly from the first press.
 - Vector field is a plugin tile (`VF`): row with visibility toggle + density/length sliders bi-directionally wired to the `[ ] { }` keyboard commands
-- CLI `--overlay FILE` can be repeated to load multiple overlays at launch
+- CLI `--overlay FILE` can be repeated to load multiple overlays at launch;
+  unnamed overlays use the filename stem and `NAME=FILE` supplies an explicit
+  HUD label.
 - Stack collections support `--overlay-dir PATTERN` to discover per-case mask
   filenames as sparse overlay roles; missing masks render as empty and pairing
   is explicit through `--case-regex`. CLI header scans show an in-place file

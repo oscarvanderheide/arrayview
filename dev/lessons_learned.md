@@ -102,6 +102,14 @@ hidden until the shortcut was toggled twice.
 including the animation, fallback, and no-animation paths. State and DOM must be
 reconciled together after `av-loading` is removed.
 
+## CLI Overlay Names
+
+Ordinary file overlays and stack-pattern overlays have different parsing
+contracts. Keep their normalizers separate: file overlays resolve concrete
+paths and filename-derived labels, while stack overlays preserve recursive
+patterns and role names. Thread resolved labels through both existing-server
+and spawned-daemon paths.
+
 ## Server Route Extraction End State
 
 **Problem:** `_server.py` kept shrinking as feature routes moved out, but it was unclear whether the final goal was “zero routes left” or a stable orchestration layer.

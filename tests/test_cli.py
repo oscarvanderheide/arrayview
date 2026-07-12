@@ -247,13 +247,47 @@ def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
     appmod.arrayview()
 
     assert [body["filepath"] for body in requests] == [overlay, base]
+    assert requests[0]["name"] == "overlay"
     assert opened["url"] == (
         "http://localhost:8000/?sid=sid_base"
         "&overlay_sid=sid_overlay"
-        "&overlay_names=overlay.npy"
+        "&overlay_names=overlay"
         "&dim_x=1"
         "&dim_y=2"
     )
+
+
+def test_cli_normal_overlay_name_override(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    overlay = str(tmp_path / "Parotid_L.nii.gz")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    overlay_path = tmp_path / "Parotid_L.nii.gz"
+    overlay_path.touch()
+    requests = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["arrayview", base, "--overlay", f"left parotid={overlay}", "--browser"],
+    )
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(_launcher_mod, "_open_browser", lambda *_a, **_kw: None)
+
+    def fake_urlopen(req, timeout=5):
+        body = json.loads((req.data or b"{}").decode())
+        requests.append(body)
+        if body["filepath"] == overlay:
+            return _DummyResponse({"sid": "sid_overlay", "name": body["name"]})
+        return _DummyResponse({"sid": "sid_base", "name": body["name"]})
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    appmod.arrayview()
+
+    assert requests[0]["filepath"] == overlay
+    assert requests[0]["name"] == "left parotid"
 
 
 def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):

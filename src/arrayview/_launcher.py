@@ -1164,13 +1164,18 @@ def _register_cli_session_with_existing_server(
     dir_case_regex: str | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    overlay_names: list[str] | None = None,
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
-    for ov_path in overlay_paths:
+    resolved_overlay_names = overlay_names or [
+        os.path.basename(path) or f"overlay {i + 1}"
+        for i, path in enumerate(overlay_paths)
+    ]
+    for ov_path, ov_name in zip(overlay_paths, resolved_overlay_names):
         ov_result = _load_session_from_filepath(
             port,
             os.path.abspath(ov_path),
-            os.path.basename(ov_path) or "overlay",
+            ov_name,
         )
         if "error" in ov_result:
             raise RuntimeError(
@@ -1247,6 +1252,7 @@ def _handle_cli_existing_server(
     dir_case_regex: str | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    overlay_names: list[str] | None = None,
 ) -> None:
     try:
         session_info = _register_cli_session_with_existing_server(
@@ -1265,6 +1271,7 @@ def _handle_cli_existing_server(
             dir_case_regex=dir_case_regex,
             collection_load=collection_load,
             collection_stack=collection_stack,
+            overlay_names=overlay_names,
         )
     except Exception as e:
         err = str(e)
@@ -1292,6 +1299,7 @@ def _handle_cli_existing_server(
         overlay_sid=session_info["overlay_sid"],
         overlay_names=(
             list(session_info.get("overlay_names", []))
+            or overlay_names
             or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
         ),
         dims_override=dims_override,
@@ -1329,15 +1337,17 @@ def _handle_cli_spawned_daemon(
     dir_case_regex: str | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    overlay_names: list[str] | None = None,
 ) -> None:
     sid = uuid.uuid4().hex
     overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
     overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
-    overlay_names = (
+    resolved_overlay_names = (
         [spec[0] for spec in (dir_overlay_specs or [])]
         if dir_patterns is not None
-        else [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
+        else overlay_names
+        or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
     )
 
     if not use_native_shell:
@@ -1352,6 +1362,7 @@ def _handle_cli_spawned_daemon(
         f" cleanup={demo_cleanup},"
         f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
         f" overlay_sids={repr(overlay_sids)},"
+        f" overlay_names={repr(resolved_overlay_names)},"
         f" vfield_filepath={repr(vfield_abs)},"
         f" vfield_components_dim={repr(vfield_components_dim)},"
         f" persist={is_remote},"
@@ -1392,6 +1403,7 @@ def _handle_cli_spawned_daemon(
                 dir_case_regex=dir_case_regex,
                 collection_load=collection_load,
                 collection_stack=collection_stack,
+                overlay_names=resolved_overlay_names,
             )
             return
 
@@ -1452,7 +1464,7 @@ def _handle_cli_spawned_daemon(
         sid=sid,
         compare_sids=compare_sids,
         overlay_sid=overlay_sid,
-        overlay_names=overlay_names,
+        overlay_names=resolved_overlay_names,
         dims_override=dims_override,
         use_native_shell=should_retry_native_shell,
         name=name,
@@ -2982,6 +2994,7 @@ def _serve_daemon(
     cleanup: bool = False,
     overlay_filepaths: list | None = None,
     overlay_sids: list | None = None,
+    overlay_names: list | None = None,
     compare_filepath: str = None,
     compare_sid: str = None,
     vfield_filepath: str = None,
@@ -3118,11 +3131,17 @@ def _serve_daemon(
                     )
                     ov_session.sid = ov_sid
                     _session_mod.SESSIONS[ov_sid] = ov_session
-            for ov_path, ov_sid in zip(overlay_filepaths or [], overlay_sids or []):
+            resolved_overlay_names = overlay_names or [
+                os.path.basename(path) or f"overlay {i + 1}"
+                for i, path in enumerate(overlay_filepaths or [])
+            ]
+            for ov_path, ov_sid, ov_name in zip(
+                overlay_filepaths or [], overlay_sids or [], resolved_overlay_names
+            ):
                 try:
                     ov_data = load_data(ov_path)
                     ov_session = _session_mod.Session(
-                        ov_data, filepath=ov_path, name=os.path.basename(ov_path) or "overlay"
+                        ov_data, filepath=ov_path, name=ov_name
                     )
                     ov_session.sid = ov_sid
                     _session_mod.SESSIONS[ov_sid] = ov_session
@@ -3448,7 +3467,16 @@ def _normalize_dir_overlay_specs(specs):
             if "=" in spec:
                 name, pattern = spec.split("=", 1)
             else:
-                name, pattern = f"overlay {idx}", spec
+                pattern = spec
+                import glob as _glob
+                from arrayview._io import _strip_array_ext
+
+                inferred = _strip_array_ext(pattern)
+                name = (
+                    inferred
+                    if inferred and not _glob.has_magic(inferred)
+                    else f"overlay {idx}"
+                )
         else:
             raise ValueError(f"Invalid overlay spec {spec!r}.")
         name = str(name).strip()
@@ -3456,6 +3484,25 @@ def _normalize_dir_overlay_specs(specs):
         if not name or not pattern:
             raise ValueError(f"Invalid overlay spec {spec!r}.")
         out.append((name, pattern))
+    return out
+
+
+def _normalize_file_overlay_specs(specs):
+    """Return ``(name, absolute path)`` pairs for ordinary CLI overlays."""
+    from arrayview._io import _strip_array_ext
+
+    out = []
+    for idx, spec in enumerate(specs or [], start=1):
+        if "=" in spec:
+            name, path = spec.split("=", 1)
+            name = name.strip()
+            path = path.strip()
+        else:
+            path = spec.strip()
+            name = _strip_array_ext(path) or f"overlay {idx}"
+        if not name or not path:
+            raise ValueError(f"Invalid overlay spec {spec!r}.")
+        out.append((name, os.path.abspath(path)))
     return out
 
 
@@ -4180,6 +4227,12 @@ def arrayview():
     else:
         if args.overlay_dir:
             parser.error("--overlay-dir requires --stack.")
+        try:
+            file_overlay_specs = _normalize_file_overlay_specs(args.overlay)
+        except ValueError as e:
+            parser.error(str(e))
+        file_overlay_names = [name for name, _path in file_overlay_specs]
+        file_overlay_paths = [path for _name, path in file_overlay_specs]
         dir_patterns = None
         dir_overlay_specs = None
         base_file = os.path.abspath(args.files[0])
@@ -4360,7 +4413,8 @@ def arrayview():
             base_file=base_file,
             name=name,
             compare_files=compare_files,
-            overlay_files=[] if args.stack_mode else list(args.overlay or []),
+            overlay_files=[] if args.stack_mode else file_overlay_paths,
+            overlay_names=[] if args.stack_mode else file_overlay_names,
             rgb=args.rgb,
             vectorfield=args.vectorfield,
             vfield_components_dim=vfield_components_dim,
@@ -4386,7 +4440,8 @@ def arrayview():
         base_file=base_file,
         name=name,
         compare_files=compare_files,
-        overlay_files=[] if args.stack_mode else list(args.overlay or []),
+        overlay_files=[] if args.stack_mode else file_overlay_paths,
+        overlay_names=[] if args.stack_mode else file_overlay_names,
         dims_override=dims_override,
         use_native_shell=use_native_shell,
         watch=getattr(args, "watch", False),
