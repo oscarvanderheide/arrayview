@@ -30395,13 +30395,12 @@
                 }, 200);
                 return;
             }
-            // Ctrl+scroll keeps the normal slice-scroll behavior so loupe
-            // inspection doesn't block wheel navigation.
-            // Cmd + scroll → zoom (clamped exponential, applied instantly).
+            // Trackpad pinch arrives as Ctrl+wheel in Chromium; Cmd+wheel
+            // remains the macOS zoom gesture.
             // Pure zoom only — immersive mode is opt-in via Shift+F (immersive.toggle),
             // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
             // animation and surprised users.
-            if (e.metaKey && !e.ctrlKey) {
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
                 const anchor = _captureZoomAnchor(e.clientX, e.clientY);
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
