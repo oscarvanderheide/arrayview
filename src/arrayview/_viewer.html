@@ -898,6 +898,13 @@
             display: block;
             background: var(--surface);
         }
+        #main-loupe-info {
+            position: absolute;
+            z-index: 13;
+        }
+        body.main-loupe-hold #viewer {
+            cursor: none !important;
+        }
         
         
         #preload-status { display: none !important; } /* merged into #toast */
@@ -4704,6 +4711,7 @@
                     
                     
                 </div>
+                <div class="cv-pixel-info" id="main-loupe-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
@@ -5354,6 +5362,12 @@
         let _loupeModifierActive = false;
         let _mainLoupeDrag = null; // {active}
         let _qmriLoupeDrag = null; // {active,canvas,view}
+        function _mainLoupeHeldByMouse(e = null) {
+            if (!_pixelInfoHeld) return false;
+            if (e && ((e.buttons ?? 1) & 1) !== 1) return false;
+            if (e && (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey)) return false;
+            return true;
+        }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         let _dmenuZeroFloorVminUnlocked = false;
@@ -6672,6 +6686,7 @@
         const ctx = canvas.getContext('2d');
         const mainPixelPins = document.getElementById('main-pixel-pins');
         const mainLoupe = document.getElementById('main-loupe');
+        const mainLoupeInfo = document.getElementById('main-loupe-info');
         const mainLoupeCanvas = document.getElementById('main-loupe-canvas');
         const mainLoupeCtx = mainLoupeCanvas ? mainLoupeCanvas.getContext('2d') : null;
         const _mainLoupeSourceCanvas = document.createElement('canvas');
@@ -17124,6 +17139,28 @@
                 cssY: clientY - rect.top,
             };
         }
+        function _mainCanvasPointFromClientClamped(clientX, clientY) {
+            if (!canvas || !canvas.width || !canvas.height) return null;
+            const rect = canvas.getBoundingClientRect();
+            if (!rect.width || !rect.height) return null;
+            const cssX = clientX - rect.left;
+            const cssY = clientY - rect.top;
+            const clampedCssX = Math.max(0, Math.min(rect.width, cssX));
+            const clampedCssY = Math.max(0, Math.min(rect.height, cssY));
+            const displayX = Math.max(0, Math.min(canvas.width - 1, Math.floor(clampedCssX * canvas.width / rect.width)));
+            const displayY = Math.max(0, Math.min(canvas.height - 1, Math.floor(clampedCssY * canvas.height / rect.height)));
+            const rawX = flip_x ? (canvas.width - 1 - displayX) : displayX;
+            const rawY = flip_y ? (canvas.height - 1 - displayY) : displayY;
+            return {
+                rect,
+                displayX,
+                displayY,
+                rawX,
+                rawY,
+                cssX: clampedCssX,
+                cssY: clampedCssY,
+            };
+        }
         function _mainHoverSourceEntry() {
             const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
             if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
@@ -17304,7 +17341,7 @@
             }
             await _refreshHoverPins(false);
         }
-        function _drawMainLoupe(sample) {
+        function _drawMainLoupe(sample, targetX, targetY) {
             if (!mainLoupeCanvas || !mainLoupeCtx || !sample) return;
             const loupeCssSize = Math.round(mainLoupe.getBoundingClientRect().width) || 166;
             const dpr = window.devicePixelRatio || 1;
@@ -17313,11 +17350,6 @@
                 mainLoupeCanvas.width = size;
                 mainLoupeCanvas.height = size;
             }
-            const zoom = 6;
-            const srcW = Math.max(18, Math.min(canvas.width, Math.round(loupeCssSize / zoom)));
-            const srcH = Math.max(18, Math.min(canvas.height, Math.round(loupeCssSize / zoom)));
-            const sx = Math.max(0, Math.min(canvas.width - srcW, Math.round(sample.displayX - srcW / 2)));
-            const sy = Math.max(0, Math.min(canvas.height - srcH, Math.round(sample.displayY - srcH / 2)));
             const sourceVersion = `${_hoverPinVersionKey()}:${lastImgW}:${lastImgH}:${flip_x}:${flip_y}`;
             if (lastImageData && lastImgW && lastImgH && _mainLoupeSourceVersion !== sourceVersion) {
                 _mainLoupeSourceCanvas.width = lastImgW;
@@ -17325,13 +17357,50 @@
                 _mainLoupeSourceCtx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                 _mainLoupeSourceVersion = sourceVersion;
             }
-            mainLoupeCtx.clearRect(0, 0, size, size);
-            mainLoupeCtx.imageSmoothingEnabled = false;
             const src = (_mainLoupeSourceCanvas.width && _mainLoupeSourceCanvas.height) ? _mainLoupeSourceCanvas : canvas;
-            mainLoupeCtx.drawImage(src, sx, sy, srcW, srcH, 0, 0, size, size);
-            mainLoupeCtx.fillStyle = '#ffff00';
+            const zoom = 6;
+            const sourceW = src.width || canvas.width;
+            const sourceH = src.height || canvas.height;
+            const sampleX = sample.displayX * sourceW / canvas.width;
+            const sampleY = sample.displayY * sourceH / canvas.height;
+            const srcW = Math.max(18, Math.min(sourceW, Math.round((loupeCssSize / zoom) * sourceW / canvas.width)));
+            const srcH = Math.max(18, Math.min(sourceH, Math.round((loupeCssSize / zoom) * sourceH / canvas.height)));
+            const dotCssX = Math.max(0, Math.min(loupeCssSize, sample.rect.left + sample.cssX - targetX));
+            const dotCssY = Math.max(0, Math.min(loupeCssSize, sample.rect.top + sample.cssY - targetY));
+            const sx = sampleX - (dotCssX / loupeCssSize) * srcW;
+            const sy = sampleY - (dotCssY / loupeCssSize) * srcH;
+            const sourceClipX = Math.max(0, sx);
+            const sourceClipY = Math.max(0, sy);
+            const sourceClipRight = Math.min(sourceW, sx + srcW);
+            const sourceClipBottom = Math.min(sourceH, sy + srcH);
+            const clipW = sourceClipRight - sourceClipX;
+            const clipH = sourceClipBottom - sourceClipY;
+            const drawX = ((sourceClipX - sx) / srcW) * size;
+            const drawY = ((sourceClipY - sy) / srcH) * size;
+            const drawW = (clipW / srcW) * size;
+            const drawH = (clipH / srcH) * size;
+            const dotX = Math.max(4, Math.min(size - 4, dotCssX * dpr));
+            const dotY = Math.max(4, Math.min(size - 4, dotCssY * dpr));
+            const styles = getComputedStyle(document.documentElement);
+            mainLoupeCtx.fillStyle = getComputedStyle(mainLoupe).backgroundColor || styles.getPropertyValue('--surface');
+            mainLoupeCtx.fillRect(0, 0, size, size);
+            mainLoupeCtx.imageSmoothingEnabled = false;
+            if (clipW > 0 && clipH > 0) {
+                mainLoupeCtx.drawImage(src, sourceClipX, sourceClipY, clipW, clipH, drawX, drawY, drawW, drawH);
+            }
+            mainLoupeCtx.strokeStyle = styles.getPropertyValue('--text');
+            mainLoupeCtx.lineWidth = Math.max(1, dpr);
             mainLoupeCtx.beginPath();
-            mainLoupeCtx.arc(size / 2, size / 2, 2, 0, Math.PI * 2);
+            mainLoupeCtx.arc(dotX, dotY, 3.2, 0, Math.PI * 2);
+            mainLoupeCtx.stroke();
+            mainLoupeCtx.strokeStyle = styles.getPropertyValue('--bg');
+            mainLoupeCtx.lineWidth = Math.max(0.75, dpr * 0.75);
+            mainLoupeCtx.beginPath();
+            mainLoupeCtx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
+            mainLoupeCtx.stroke();
+            mainLoupeCtx.fillStyle = styles.getPropertyValue('--active-dim') || '#ffff00';
+            mainLoupeCtx.beginPath();
+            mainLoupeCtx.arc(dotX, dotY, 2, 0, Math.PI * 2);
             mainLoupeCtx.fill();
         }
         function _loupeModifierHeld(e = null) {
@@ -17394,6 +17463,8 @@
             _mainLoupeDrag.active = true;
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
+            if (mainLoupeInfo && !_mainLoupeHeldByMouse(e)) mainLoupeInfo.style.display = 'none';
+            document.body.classList.toggle('main-loupe-hold', _mainLoupeHeldByMouse(e));
             if (mainLoupe) {
                 mainLoupe.style.display = 'block';
                 if (typeof gsap !== 'undefined') {
@@ -17407,7 +17478,9 @@
             _updateMainLoupe(e);
         }
         function _seedMainLoupeDrag(e) {
-            if (!_mainLoupeEligible() || !_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0) return false;
+            const wantsMouseLoupe = _mainLoupeHeldByMouse(e);
+            const wantsModifierLoupe = _loupeModifierHeld(e) && (e.buttons ?? 0) === 0;
+            if (!_mainLoupeEligible() || (!wantsMouseLoupe && !wantsModifierLoupe)) return false;
             if (!_mainCanvasPointFromClient(e.clientX, e.clientY)) return false;
             _syncLoupeModifierState(e);
             if (_mainLoupeDrag && _mainLoupeDrag.active) return true;
@@ -17430,14 +17503,24 @@
         }
         function _updateMainLoupe(e) {
             if (!_mainLoupeDrag || !_mainLoupeDrag.active || !mainLoupe) return;
-            if (!_mainLoupeEligible() || !_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0) { _endMainLoupe(); return; }
-            const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
+            const wantsMouseLoupe = _mainLoupeHeldByMouse(e);
+            const wantsModifierLoupe = _loupeModifierHeld(e) && (e.buttons ?? 0) === 0;
+            if (!_mainLoupeEligible() || (!wantsMouseLoupe && !wantsModifierLoupe)) { _endMainLoupe(); return; }
+            document.body.classList.toggle('main-loupe-hold', wantsMouseLoupe);
+            const pt = wantsMouseLoupe
+                ? _mainCanvasPointFromClientClamped(e.clientX, e.clientY)
+                : _mainCanvasPointFromClient(e.clientX, e.clientY);
             if (!pt) { _endMainLoupe(); return; }
-            _drawMainLoupe(pt);
             const L = 166;
-            const targetX = Math.max(8, Math.min(e.clientX + 18, window.innerWidth - L - 8));
-            const targetY = Math.max(8, Math.min(e.clientY - 92, window.innerHeight - L - 8));
+            const loupeClientX = wantsMouseLoupe ? (pt.rect.left + pt.cssX) : e.clientX;
+            const loupeClientY = wantsMouseLoupe ? (pt.rect.top + pt.cssY) : e.clientY;
+            const targetX = Math.max(8, Math.min(loupeClientX - L / 2, window.innerWidth - L - 8));
+            const targetY = Math.max(8, Math.min(loupeClientY - L / 2, window.innerHeight - L - 8));
+            _drawMainLoupe(pt, targetX, targetY);
             gsap.set(mainLoupe, { x: targetX, y: targetY });
+            if (mainLoupeInfo && wantsMouseLoupe && mainLoupeInfo.style.display === 'block') {
+                _positionMainLoupeInfo(loupeClientX, loupeClientY);
+            }
         }
         function _maybeActivateMainLoupe(e) {
             if (_mainLoupeDrag && _mainLoupeDrag.active) return;
@@ -17446,6 +17529,12 @@
         function _endMainLoupe() {
             if (_mainLoupeDrag && _mainLoupeDrag.holdTimer) { clearTimeout(_mainLoupeDrag.holdTimer); _mainLoupeDrag.holdTimer = null; }
             _mainLoupeDrag = null;
+            if (mainLoupeInfo) {
+                mainLoupeInfo.innerHTML = '';
+                delete mainLoupeInfo.dataset.pixelInfoKey;
+                mainLoupeInfo.style.display = 'none';
+            }
+            document.body.classList.remove('main-loupe-hold');
             if (!mainLoupe) return;
             if (mainLoupe.style.display === 'none') return;
             if (typeof gsap !== 'undefined') {
@@ -17576,6 +17665,25 @@
             el.style.left = x + 'px';
             el.style.top  = y + 'px';
         }
+        function _positionMainLoupeInfo(cx, cy) {
+            if (!mainLoupeInfo || cx === undefined || cy === undefined) return;
+            const par = mainLoupeInfo.offsetParent;
+            if (!par) return;
+            const pr = par.getBoundingClientRect();
+            const margin = 8;
+            const loupeSize = mainLoupe ? (mainLoupe.offsetWidth || 166) : 166;
+            const loupeLeft = Math.max(8, Math.min(cx - loupeSize / 2, window.innerWidth - loupeSize - 8));
+            const loupeTop = Math.max(8, Math.min(cy - loupeSize / 2, window.innerHeight - loupeSize - 8));
+            const elW = mainLoupeInfo.offsetWidth || 120;
+            const elH = mainLoupeInfo.offsetHeight || 34;
+            let x = loupeLeft + loupeSize / 2 - elW / 2 - pr.left;
+            let y = loupeTop - elH - margin - pr.top;
+            if (x + elW > pr.width - margin) x = pr.width - elW - margin;
+            if (x < margin) x = margin;
+            if (y < margin) y = loupeTop + loupeSize + margin - pr.top;
+            mainLoupeInfo.style.left = x + 'px';
+            mainLoupeInfo.style.top = y + 'px';
+        }
         function showPixelInfo(el, payload, cx, cy) {
             if (!el || !_pixelInfoActive()) return;
             if (rectRoiMode && _roiSuppressPixelInfo) {
@@ -17591,7 +17699,24 @@
                 el.dataset.pixelInfoKey = key;
             }
             el.style.display = 'block';
-            _positionPixelInfo(el, cx, cy);
+            if (el === mainLoupeInfo) _positionMainLoupeInfo(cx, cy);
+            else _positionPixelInfo(el, cx, cy);
+        }
+        function _mainPixelInfoDisplayEl(e = null) {
+            const normalEl = document.getElementById('main-pixel-info');
+            if (_pixelInfoHeld && mainLoupeInfo && _mainLoupeEligible()) {
+                if (normalEl && normalEl.innerHTML && mainLoupeInfo.innerHTML !== normalEl.innerHTML) {
+                    mainLoupeInfo.innerHTML = normalEl.innerHTML;
+                    if (normalEl.dataset.pixelInfoKey) {
+                        mainLoupeInfo.dataset.pixelInfoKey = normalEl.dataset.pixelInfoKey;
+                    }
+                    mainLoupeInfo.style.display = 'block';
+                    if (e) _positionMainLoupeInfo(e.clientX, e.clientY);
+                }
+                if (normalEl) normalEl.style.display = 'none';
+                return mainLoupeInfo;
+            }
+            return normalEl;
         }
 
         let _pixelHoverThrottle = false;
@@ -17625,7 +17750,11 @@
             // Keep the hover card visually attached to the cursor even when the
             // value is briefly waiting on the slower network fallback.
             if (opts.displayEl && opts.displayEl.style.display === 'block') {
-                _positionPixelInfo(opts.displayEl, opts.event.clientX, opts.event.clientY);
+                if (opts.displayEl === mainLoupeInfo) {
+                    _positionMainLoupeInfo(opts.event.clientX, opts.event.clientY);
+                } else {
+                    _positionPixelInfo(opts.displayEl, opts.event.clientX, opts.event.clientY);
+                }
             }
 
             // Fast path: use cached raw slice for instant local lookup (never throttled)
@@ -19105,7 +19234,11 @@
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
                 _pixelInfoHeld = true;
-                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, bubbles: true }));
+                setTimeout(() => {
+                    if (!_pixelInfoHeld) return;
+                    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, bubbles: true }));
+                }, 70);
             }
         });
         canvas.addEventListener('dblclick', e => {
@@ -20559,7 +20692,7 @@
                     if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
                         const val = cached.slice[rawY * cached.w + rawX];
                         if (Number.isFinite(val)) {
-                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
+                            showPixelInfo(_mainPixelInfoDisplayEl(e), { valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -20579,7 +20712,7 @@
                             if (!d) return;
                             const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
-                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
+                            showPixelInfo(_mainPixelInfoDisplayEl(e), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }).catch(() => {});
                 }
                 return;
@@ -20594,7 +20727,7 @@
                 indices: indices,
                 imgW: canvas.width,
                 imgH: canvas.height,
-                displayEl: document.getElementById('main-pixel-info'),
+                displayEl: _mainPixelInfoDisplayEl(e),
             });
         });
         canvas.addEventListener('mouseleave', () => {
