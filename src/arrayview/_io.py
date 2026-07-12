@@ -618,7 +618,9 @@ def _collection_pattern_map(pattern, case_regex):
     return by_case
 
 
-def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
+def _series_from_file_matrix(
+    file_matrix, *, load="lazy", stack="auto", scan_progress=None, scan_label=None
+):
     if load not in {"lazy", "eager"}:
         raise ValueError("load must be 'lazy' or 'eager'.")
     if stack not in {"auto", "dense", "ragged"}:
@@ -656,6 +658,8 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
                     f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
                     f"{dtype}, expected {ref_dtype}."
                 )
+            if scan_progress is not None:
+                scan_progress(scan_label, fpath)
         shape_matrix = []
         pos = 0
         for row in file_matrix:
@@ -706,6 +710,8 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
                 f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
                 f"{dtype}, expected {ref_dtype}."
             )
+        if scan_progress is not None:
+            scan_progress(scan_label, fpath)
     shape_matrix = []
     pos = 0
     for row in file_matrix:
@@ -732,7 +738,15 @@ def _series_from_file_matrix(file_matrix, *, load="lazy", stack="auto"):
     return series, None
 
 
-def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="lazy", stack="auto"):
+def load_dir_collection(
+    base_patterns,
+    overlays=None,
+    case_regex=None,
+    *,
+    load="lazy",
+    stack="auto",
+    scan_progress=None,
+):
     """Load recursive collection patterns as aligned lazy image/overlay stacks.
 
     *base_patterns* are image channel/modality patterns.  *overlays* is an
@@ -778,7 +792,13 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
                 for path in base_lists[0]
             ]
         base_matrix = [list(row) for row in zip(*base_lists)]
-    data, spatial_meta = _series_from_file_matrix(base_matrix, load=load, stack=stack)
+    data, spatial_meta = _series_from_file_matrix(
+        base_matrix,
+        load=load,
+        stack=stack,
+        scan_progress=scan_progress,
+        scan_label="images",
+    )
     spatial_shape = data._vol_shape
 
     overlay_items = []
@@ -807,7 +827,13 @@ def load_dir_collection(base_patterns, overlays=None, case_regex=None, *, load="
                 raise ValueError("Sparse overlays from --overlay-dir require --case-regex.")
             matrix = [[path] for path in paths]
             extras = []
-        ov_data, _ov_meta = _series_from_file_matrix(matrix, load=load, stack=stack)
+        ov_data, _ov_meta = _series_from_file_matrix(
+            matrix,
+            load=load,
+            stack=stack,
+            scan_progress=scan_progress,
+            scan_label=name,
+        )
         if not getattr(data, "_av_ragged", False) and ov_data._vol_shape != spatial_shape:
             raise ValueError(
                 f"Overlay {name!r} has spatial shape {ov_data._vol_shape}, "

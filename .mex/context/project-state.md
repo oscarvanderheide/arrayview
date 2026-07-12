@@ -36,7 +36,8 @@ last_updated: 2026-06-30
 - CLI `--overlay FILE` can be repeated to load multiple overlays at launch
 - Stack collections support `--overlay-dir PATTERN` to discover per-case mask
   filenames as sparse overlay roles; missing masks render as empty and pairing
-  is explicit through `--case-regex`.
+  is explicit through `--case-regex`. CLI header scans show an in-place file
+  counter and elapsed time on interactive terminals.
 - Filesystem picker endpoint (`GET /fs/list`) clamped to `$HOME`. Accepts `base_sid` + `mode` (`overlay` | `vectorfield`) to filter entries by a cheap header-shape peek (`.npy`, `.nii`/`.nii.gz`, `.h5`, `.zarr`); overlay mode requires identical shape, vectorfield mode requires base shape plus one axis of size 3
 - Island collapse affordance: inline `~` at the island's top-right animates the panel into the bottom-left `~` hint circle; external `~` hint only visible while the island is actually collapsed. New `/` hint circle at bottom-right opens the tool menu
 - Compare center tool menu: `/` now re-opens the last-used compare center mode from the tool menu, while compare pane header buttons select diff / overlay / wipe directly. Eligible two-array compare layouts can switch into a big-left arrangement with a wider center pane, and the diff colorbar now matches that center-pane width.

@@ -3483,6 +3483,40 @@ def _overlay_specs_from_dirs(directory_patterns):
     return specs
 
 
+class _CliCollectionScanProgress:
+    """Small terminal progress display for slow collection header scans."""
+
+    def __init__(self):
+        self.count = 0
+        self.started = time.monotonic()
+        self.last_update = 0.0
+        self.interactive = bool(getattr(sys.stderr, "isatty", lambda: False)())
+
+    def update(self, label, _path):
+        self.count += 1
+        now = time.monotonic()
+        if not self.interactive or now - self.last_update < 0.1:
+            return
+        elapsed = now - self.started
+        print(
+            f"\r[ArrayView] Scanning {label}: {self.count} files ({elapsed:.1f}s)",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        self.last_update = now
+
+    def finish(self):
+        if not self.interactive or not self.count:
+            return
+        elapsed = time.monotonic() - self.started
+        print(
+            f"\r[ArrayView] Scanned {self.count} files in {elapsed:.1f}s" + " " * 16,
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def _print_dir_collection_summary(summary):
     print("[ArrayView] --stack matched collection:")
     print(f"  cases: {len(summary['cases'])}")
@@ -4125,13 +4159,18 @@ def arrayview():
         try:
             from arrayview._io import load_dir_collection
 
-            data, spatial_meta, overlay_items, summary = load_dir_collection(
-                dir_patterns,
-                overlays=dir_overlay_specs,
-                case_regex=args.case_regex,
-                load=args.load,
-                stack=args.stack_policy or "auto",
-            )
+            scan_progress = _CliCollectionScanProgress()
+            try:
+                data, spatial_meta, overlay_items, summary = load_dir_collection(
+                    dir_patterns,
+                    overlays=dir_overlay_specs,
+                    case_regex=args.case_regex,
+                    load=args.load,
+                    stack=args.stack_policy or "auto",
+                    scan_progress=scan_progress.update,
+                )
+            finally:
+                scan_progress.finish()
         except Exception as e:
             print(f"Error: --stack could not match collection: {e}")
             sys.exit(1)

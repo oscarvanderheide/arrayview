@@ -479,6 +479,25 @@ class TestDirCollection:
         assert np.array_equal(overlay[..., 1], np.zeros(shape, dtype=np.uint8))
         assert summary["overlays"][0]["missing_cases"] == ["caseB"]
 
+    def test_collection_reports_each_scanned_file(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case in ("caseA", "caseB"):
+            np.save(tmp_path / f"{case}.npy", np.ones(shape, dtype=np.float32))
+        scanned = []
+
+        _io.load_dir_collection(
+            [str(tmp_path / "*.npy")],
+            scan_progress=lambda label, path: scanned.append((label, path)),
+        )
+
+        assert [label for label, _path in scanned] == ["images", "images"]
+        assert [os.path.basename(path) for _label, path in scanned] == [
+            "caseA.npy",
+            "caseB.npy",
+        ]
+
     def test_ordered_pairing_without_case_regex(self, tmp_path):
         import arrayview._io as _io
 
