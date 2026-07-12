@@ -1105,9 +1105,16 @@
             -webkit-backdrop-filter: var(--blur);
         }
         #overlay-palette.visible { display: block; }
+        .overlay-palette-header {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 8px;
+            margin: -3px 0 3px;
+        }
         .overlay-palette-drag-handle {
             height: 8px;
-            margin: -3px 0 3px;
+            margin: 0;
             color: var(--muted);
             cursor: grab;
             touch-action: none;
@@ -1118,6 +1125,22 @@
         }
         .overlay-palette-drag-handle:hover { opacity: 1; }
         .overlay-palette-drag-handle.dragging { cursor: grabbing; }
+        .overlay-palette-mode {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 10px;
+            line-height: 14px;
+            padding: 0 5px;
+        }
+        .overlay-palette-mode:hover,
+        .overlay-palette-mode.active {
+            color: var(--active-dim);
+            background: var(--surface-2);
+        }
         .overlay-palette-row {
             display: grid;
             grid-template-columns: 12px minmax(0, 1fr) 16px;
@@ -5739,6 +5762,7 @@
         let detachedDimIndexB = 0;
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
+        let overlayOutlineOnly = false;
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let _overlayFocusIdx = null;      // transient HUD hover focus; null when inactive
         let pendingViewMode = null;
@@ -16096,7 +16120,11 @@
                 el.innerHTML = '';
                 return;
             }
-            let html = '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list">•••</div>';
+            const modeLabel = overlayOutlineOnly ? 'outline' : 'fill';
+            let html = '<div class="overlay-palette-header">';
+            html += '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list">•••</div>';
+            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleOutline(event)" title="Toggle filled or outline masks">${modeLabel}</button>`;
+            html += '</div>';
             const focusActive = _overlayFocusIdx !== null && _overlayActuallyVisible(_overlayFocusIdx);
             for (let i = 0; i < _overlaySids.length; i++) {
                 const visible = _overlayActuallyVisible(i);
@@ -16225,6 +16253,20 @@
         }
         window._overlayPaletteFocus = _overlayPaletteFocus;
 
+        function _overlayPaletteToggleOutline(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            overlayOutlineOnly = !overlayOutlineOnly;
+            _renderOverlayPalette();
+            if (typeof renderIsland === 'function') renderIsland();
+            updateView();
+            showStatus(`overlays: ${overlayOutlineOnly ? 'outline' : 'fill'}`);
+            saveState();
+        }
+        window._overlayPaletteToggleOutline = _overlayPaletteToggleOutline;
+
         function _toggleOverlayPalettePinned() {
             if (!_overlaySids.length) { showStatus('no overlays loaded'); return; }
             _overlayPaletteHidden = !_overlayPaletteHidden;
@@ -16266,6 +16308,18 @@
             saveState();
         }
         window._islandDeleteOverlay = _islandDeleteOverlay;
+
+        function _islandSetOverlayStyle(style) {
+            const nextOutline = style === 'outline';
+            if (overlayOutlineOnly === nextOutline) return;
+            overlayOutlineOnly = nextOutline;
+            renderIsland();
+            _renderOverlayPalette();
+            updateView();
+            saveState();
+            showStatus(`overlays: ${overlayOutlineOnly ? 'outline' : 'filled'}`);
+        }
+        window._islandSetOverlayStyle = _islandSetOverlayStyle;
 
         function _islandEditOverlayName(spanEl) {
             const idx = parseInt(spanEl.dataset.overlayIdx);
@@ -17668,6 +17722,7 @@
             if (visCol) params.set('overlay_colors', visCol);
             const visAlpha = _getVisibleOverlayAlphas();
             if (visAlpha) params.set('overlay_alphas', visAlpha);
+            if (overlayOutlineOnly) params.set('overlay_outline', '1');
             params.set('overlay_alpha', String(overlayAlpha));
             return true;
         }
@@ -17849,6 +17904,7 @@
                 compareLayoutMode,
                 registrationAlpha,
                 overlayAlpha,
+                overlayOutlineOnly,
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
                 orthoLayoutMode,
@@ -17966,6 +18022,7 @@
             if (Number.isFinite(Number(s.overlayAlpha))) {
                 overlayAlpha = Math.max(0.05, Math.min(0.95, Number(s.overlayAlpha)));
             }
+            overlayOutlineOnly = !!s.overlayOutlineOnly;
             pendingViewMode = (typeof s.viewMode === 'string') ? s.viewMode : null;
             if (Array.isArray(s.mvDims) && s.mvDims.length === 3) {
                 const dims = s.mvDims.map(v => Number(v));
@@ -18312,6 +18369,7 @@
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
                 overlay_alpha: overlayAlpha,
                 canvas_w,
                 canvas_h,
@@ -23025,6 +23083,7 @@
                         subdesc: 'Binary masks rendered as colored layers on the image. Load one or more with --overlay mask1.nii,mask2.nii. Each mask gets its own color.',
                         entries: [
                             { key: 'O', action: 'Cycle visibility', hint: 'all → none → individual masks (if multiple)' },
+                            { key: '/ o', action: 'Filled / outline', hint: 'switch mask rendering in the overlay drawer' },
                             { key: '[ ]', action: 'Adjust opacity' },
                         ]
                     },
@@ -23807,6 +23866,7 @@
             } else if (id === 'overlay') {
                 if (_overlaySids.length) {
                     body += `<div class="island-rows">${_renderOverlayRows()}</div>`;
+                    body += `<div class="island-pills"><div class="island-pill${overlayOutlineOnly ? '' : ' on'}" onclick="_islandSetOverlayStyle('filled')">filled</div><div class="island-pill${overlayOutlineOnly ? ' on' : ''}" onclick="_islandSetOverlayStyle('outline')">outline</div></div>`;
                     const alphaPct = Math.round(overlayAlpha * 100);
                     body += `<div class="island-slider-row"><span class="island-slider-label">opacity</span><input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}"><span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span></div>`;
                 }
@@ -27889,6 +27949,7 @@
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
@@ -28418,6 +28479,7 @@
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
                 canvas_w: _cw,
                 canvas_h: _ch,
                 projection_mode: projectionMode,
@@ -28657,6 +28719,7 @@
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
@@ -29220,6 +29283,7 @@
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
                 canvas_w: _mvcw,
                 canvas_h: _mvch,
                 projection_mode: projectionMode,

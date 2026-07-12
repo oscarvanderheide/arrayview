@@ -149,6 +149,17 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert "dimmed" in palette.locator(".overlay-palette-row").nth(0).get_attribute("class")
     page.mouse.move(5, 5)
     assert page.evaluate("() => _overlayFocusIdx") is None
+    mode_btn = palette.locator(".overlay-palette-mode")
+    assert mode_btn.inner_text() == "fill"
+    mode_btn.click()
+    assert page.evaluate("() => overlayOutlineOnly") is True
+    assert mode_btn.inner_text() == "outline"
+    assert "active" in mode_btn.get_attribute("class")
+    assert page.evaluate(
+        "() => { const p = new URLSearchParams(); _applyOverlayRenderParams(p); return p.get('overlay_outline'); }"
+    ) == "1"
+    mode_btn.click()
+    assert page.evaluate("() => overlayOutlineOnly") is False
     page.wait_for_timeout(1200)
     DEBUG_DIR.mkdir(exist_ok=True)
     page.screenshot(path=str(DEBUG_DIR / "overlay_palette_initial_visible.png"))

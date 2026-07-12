@@ -4646,6 +4646,7 @@ class TestMultipleOverlays:
             "ff0000",
             0.5,
             None,
+            False,
             dim_x=1,
             dim_y=0,
             idx_tuple=(0, 0),

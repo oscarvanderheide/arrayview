@@ -328,12 +328,14 @@ def register_websocket_routes(app) -> None:
                     overlay_colors = msg.get("overlay_colors")
                     overlay_alpha = float(msg.get("overlay_alpha", 0.45))
                     overlay_alphas = msg.get("overlay_alphas")
+                    overlay_outline = bool(msg.get("overlay_outline", False))
                     rgba = _composite_overlays(
                         rgba,
                         overlay_sid,
                         overlay_colors,
                         overlay_alpha,
                         overlay_alphas,
+                        overlay_outline,
                         dim_x,
                         dim_y,
                         idx_tuple,

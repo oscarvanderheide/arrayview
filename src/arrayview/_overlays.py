@@ -31,6 +31,7 @@ def _composite_overlays(
     overlay_colors_str: str | None,
     overlay_alpha: float,
     overlay_alphas_str: str | None,
+    overlay_outline: bool,
     dim_x: int,
     dim_y: int,
     idx_tuple: tuple[int, ...],
@@ -68,5 +69,6 @@ def _composite_overlays(
             alpha=alpha,
             is_label=_overlay_is_label_map(sid, ov_raw),
             override_color=color,
+            outline_only=overlay_outline,
         )
     return rgba

@@ -1032,9 +1032,11 @@ def run_smoke(page, base, client, tmp):
     palette_state = page.evaluate(
         "() => { const el = document.getElementById('overlay-palette'); "
         "return { visible: el.classList.contains('visible'), "
-        "hidden: el.getAttribute('aria-hidden'), rows: el.children.length }; }"
+        "hidden: el.getAttribute('aria-hidden'), "
+        "rows: el.querySelectorAll('.overlay-palette-row').length, "
+        "mode: el.querySelector('.overlay-palette-mode')?.textContent || '' }; }"
     )
-    assert palette_state == {"visible": True, "hidden": "false", "rows": 2}, (
+    assert palette_state == {"visible": True, "hidden": "false", "rows": 2, "mode": "fill"}, (
         f"Overlay HUD was not visible on first load: {palette_state}"
     )
     _shot(page, "51_multi_overlay")

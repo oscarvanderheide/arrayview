@@ -589,6 +589,7 @@ def _composite_overlay_mask(
     alpha: float = float(OVERLAY_ALPHA),
     is_label: bool = False,
     override_color: np.ndarray | None = None,
+    outline_only: bool = False,
 ) -> np.ndarray:
     """Alpha-composite an overlay on top of an RGBA frame.
 
@@ -616,6 +617,8 @@ def _composite_overlay_mask(
         use_override = override_color is not None and len(nonzero_labels) == 1
         for lbl in nonzero_labels:
             mask = labels == lbl
+            if outline_only:
+                mask = _mask_outline(mask)
             if use_override:
                 color = override_color
             else:
@@ -633,10 +636,27 @@ def _composite_overlay_mask(
         # Desaturated jet: blend blue→cyan→yellow→red with reduced saturation
         # We apply the colormap only where the overlay is non-zero.
         ov_colors = _desaturated_jet(norm[valid])
-        mask = valid
+        mask = _mask_outline(valid) if outline_only else valid
+        if outline_only:
+            ov_colors = _desaturated_jet(norm[mask])
         _blend_pixels(out, mask, ov_colors, ov_a)
 
     return out
+
+
+def _mask_outline(mask: np.ndarray) -> np.ndarray:
+    """Return 4-connected boundary pixels for a 2D boolean mask."""
+    if mask.ndim != 2 or not mask.any():
+        return mask
+    padded = np.pad(mask, 1, mode="constant", constant_values=False)
+    interior = padded[1:-1, 1:-1]
+    surrounded = (
+        padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+    )
+    return interior & ~surrounded
 
 
 def _blend_color(

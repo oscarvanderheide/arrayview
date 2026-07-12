@@ -92,7 +92,9 @@ An unnamed overlay uses the filename stem as its display name (`mask` above).
 Use `NAME=FILE` when a more descriptive label is useful.
 The overlay list opens at the top-right of the image and can be repositioned
 with its small drag grip. Hover a visible row to focus that mask; the other
-visible masks are dimmed until the pointer leaves the list.
+visible masks are dimmed until the pointer leaves the list. Use the HUD
+`fill`/`outline` button, or the same control in `/ o`, to switch masks between
+filled regions and contour-only outlines.
 
 ## Directory Pattern Collections
 

@@ -201,3 +201,11 @@ the image remain equally prominent.
 **Fix:** Thread transient per-overlay alpha values through every overlay render
 path (HTTP and WebSocket; normal, compare, multiview, qMRI) so hover focus dims
 the image overlays as well as the HUD rows.
+
+## Overlay Outline Mode
+
+**Problem:** Filling every clinical contour can hide anatomy when many masks are
+loaded at once.
+**Fix:** Treat outline-only as a backend compositing option and thread it
+through HTTP/WebSocket render requests. Keep the toggle in both the floating HUD
+and `/ o` overlay drawer so users can switch without opening help.
