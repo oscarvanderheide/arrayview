@@ -344,8 +344,6 @@ def test_cli_overlay_dir_discovers_sparse_roles(monkeypatch, tmp_path):
             str(tmp_path / "*" / "images" / "scan.npy"),
             "--overlay-dir",
             str(tmp_path / "*" / "masks"),
-            "--case-regex",
-            r"(?P<case>case[A-Z])",
             "--dry-run",
         ],
     )

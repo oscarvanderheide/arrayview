@@ -3798,7 +3798,8 @@ def arrayview():
         help=(
             "In --stack mode, discover mask filenames below matching per-case "
             "directories as sparse overlay roles. Missing masks render as empty. "
-            "Requires --case-regex. Repeat to include multiple directories."
+            "Case directories are inferred automatically; --case-regex can "
+            "override unusual layouts. Repeat to include multiple directories."
         ),
     )
     parser.add_argument(
@@ -4184,10 +4185,6 @@ def arrayview():
         return
 
     if args.stack_mode:
-        if args.overlay_dir and not args.case_regex:
-            parser.error(
-                "--overlay-dir requires --case-regex to pair sparse masks by case."
-            )
         dir_patterns = [os.path.abspath(p) for p in args.files]
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]

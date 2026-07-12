@@ -479,6 +479,24 @@ class TestDirCollection:
         assert np.array_equal(overlay[..., 1], np.zeros(shape, dtype=np.uint8))
         assert summary["overlays"][0]["missing_cases"] == ["caseB"]
 
+    def test_sparse_overlay_ambiguous_layout_requests_case_regex(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        images = tmp_path / "images"
+        masks = tmp_path / "masks"
+        images.mkdir()
+        masks.mkdir()
+        for case in ("caseA", "caseB"):
+            np.save(images / f"{case}.npy", np.ones(shape, dtype=np.float32))
+        np.save(masks / "caseA.npy", np.ones(shape, dtype=np.uint8))
+
+        with pytest.raises(ValueError, match="pass --case-regex"):
+            _io.load_dir_collection(
+                [str(images / "*.npy")],
+                overlays=[("organ", str(masks / "*.npy"), True)],
+            )
+
     def test_collection_reports_each_scanned_file(self, tmp_path):
         import arrayview._io as _io
 
@@ -497,6 +515,34 @@ class TestDirCollection:
             "caseA.npy",
             "caseB.npy",
         ]
+
+    def test_per_case_directories_are_inferred_for_sparse_overlays(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        for case in ("patientA", "patientB"):
+            (tmp_path / case / "images").mkdir(parents=True)
+            (tmp_path / case / "masks").mkdir()
+            np.save(
+                tmp_path / case / "images" / "scan.npy",
+                np.full(shape, 1 if case == "patientA" else 2, dtype=np.float32),
+            )
+        np.save(
+            tmp_path / "patientB" / "masks" / "organ.npy",
+            np.ones(shape, dtype=np.uint8),
+        )
+
+        data, _meta, overlays, summary = _io.load_dir_collection(
+            [str(tmp_path / "*" / "images" / "scan.npy")],
+            overlays=[("organ", str(tmp_path / "*" / "masks" / "organ.npy"), True)],
+        )
+
+        assert summary["cases"] == ["patientA", "patientB"]
+        assert np.all(data[..., 0] == 1)
+        assert np.all(data[..., 1] == 2)
+        assert np.all(overlays[0]["data"][..., 0] == 0)
+        assert np.all(overlays[0]["data"][..., 1] == 1)
+        assert summary["overlays"][0]["missing_cases"] == ["patientA"]
 
     def test_ordered_pairing_without_case_regex(self, tmp_path):
         import arrayview._io as _io
@@ -575,7 +621,7 @@ class TestDirCollection:
             np.save(pdir / "T1.npy", np.zeros(shape))
         np.save(tmp_path / "patient_001" / "ground_truth.npy", np.zeros(shape, dtype=np.uint8))
 
-        with pytest.raises(ValueError, match="matched 1 file"):
+        with pytest.raises(ValueError, match="missing case.*patient_002"):
             _io.load_dir_collection(
                 [str(tmp_path / "*" / "T1.npy")],
                 overlays=[("gt", str(tmp_path / "*" / "ground_truth.npy"))],

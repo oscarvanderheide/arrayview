@@ -618,6 +618,40 @@ def _collection_pattern_map(pattern, case_regex):
     return by_case
 
 
+def _collection_ancestor_case_key(filepath, depth):
+    parent = os.path.abspath(filepath)
+    for _ in range(depth):
+        parent = os.path.dirname(parent)
+    return os.path.basename(parent)
+
+
+def _collection_paths_map(paths, pattern, *, ancestor_depth):
+    by_case = {}
+    for path in paths:
+        case = _collection_ancestor_case_key(path, ancestor_depth)
+        if not case or case in by_case:
+            return None
+        by_case[case] = path
+    return by_case
+
+
+def _infer_collection_layout_maps(path_lists, patterns):
+    """Infer a shared per-case directory depth for collection patterns."""
+    if not path_lists or len(path_lists[0]) < 2:
+        return None, None
+    for depth in (1, 2, 3):
+        maps = [
+            _collection_paths_map(paths, pattern, ancestor_depth=depth)
+            for paths, pattern in zip(path_lists, patterns)
+        ]
+        if any(by_case is None for by_case in maps):
+            continue
+        case_ids = set(maps[0])
+        if case_ids and all(set(by_case) == case_ids for by_case in maps[1:]):
+            return maps, depth
+    return None, None
+
+
 def _series_from_file_matrix(
     file_matrix, *, load="lazy", stack="auto", scan_progress=None, scan_label=None
 ):
@@ -759,6 +793,7 @@ def load_dir_collection(
         raise ValueError("--stack requires at least one positional image pattern.")
     overlays = overlays or []
 
+    inferred_case_depth = None
     if case_regex:
         base_maps = [
             _collection_pattern_map(pattern, case_regex=case_regex)
@@ -775,23 +810,33 @@ def load_dir_collection(
         base_matrix = [[by_case[case] for by_case in base_maps] for case in case_ids]
     else:
         base_lists = [_collection_pattern_paths(pattern) for pattern in base_patterns]
-        n_cases = len(base_lists[0])
-        for idx, paths in enumerate(base_lists[1:], start=2):
-            if len(paths) != n_cases:
-                raise ValueError(
-                    f"Image pattern {idx} matched {len(paths)} file(s), "
-                    f"expected {n_cases} to match image pattern 1."
-                )
-        case_ids = [
-            _default_collection_case_key(path)
-            for path in base_lists[0]
-        ]
-        if len(set(case_ids)) != len(case_ids):
+        inferred_maps, inferred_case_depth = _infer_collection_layout_maps(
+            base_lists, base_patterns
+        )
+        if inferred_maps is not None:
+            case_ids = sorted(inferred_maps[0])
+            base_matrix = [
+                [by_case[case] for by_case in inferred_maps] for case in case_ids
+            ]
+        else:
+            n_cases = len(base_lists[0])
+            for idx, paths in enumerate(base_lists[1:], start=2):
+                if len(paths) != n_cases:
+                    raise ValueError(
+                        f"Image pattern {idx} matched {len(paths)} file(s), "
+                        f"expected {n_cases} to match image pattern 1."
+                    )
             case_ids = [
-                os.path.basename(os.path.dirname(path)) or _default_collection_case_key(path)
+                _default_collection_case_key(path)
                 for path in base_lists[0]
             ]
-        base_matrix = [list(row) for row in zip(*base_lists)]
+            if len(set(case_ids)) != len(case_ids):
+                case_ids = [
+                    os.path.basename(os.path.dirname(path))
+                    or _default_collection_case_key(path)
+                    for path in base_lists[0]
+                ]
+            base_matrix = [list(row) for row in zip(*base_lists)]
     data, spatial_meta = _series_from_file_matrix(
         base_matrix,
         load=load,
@@ -816,6 +861,24 @@ def load_dir_collection(
                 )
             matrix = [[by_case.get(case)] for case in case_ids]
             extras = sorted(set(by_case.keys()) - set(case_ids))
+        elif inferred_case_depth is not None:
+            paths = _collection_pattern_paths(pattern)
+            by_case = _collection_paths_map(
+                paths, pattern, ancestor_depth=inferred_case_depth
+            )
+            if by_case is None:
+                raise ValueError(
+                    f"Overlay {name!r} has multiple files for an inferred case. "
+                    "Use --case-regex to describe this layout explicitly."
+                )
+            missing_cases = [case for case in case_ids if case not in by_case]
+            if missing_cases and not allow_missing:
+                raise ValueError(
+                    f"Overlay {name!r} is missing case(s): "
+                    f"{', '.join(repr(c) for c in missing_cases)}."
+                )
+            matrix = [[by_case.get(case)] for case in case_ids]
+            extras = sorted(set(by_case) - set(case_ids))
         else:
             paths = _collection_pattern_paths(pattern)
             if len(paths) != len(case_ids) and not allow_missing:
@@ -824,7 +887,10 @@ def load_dir_collection(
                     f"expected {len(case_ids)} to match image pattern 1."
                 )
             if allow_missing:
-                raise ValueError("Sparse overlays from --overlay-dir require --case-regex.")
+                raise ValueError(
+                    "Could not infer case directories for sparse overlays. "
+                    "Use a per-case directory layout or pass --case-regex."
+                )
             matrix = [[path] for path in paths]
             extras = []
         ov_data, _ov_meta = _series_from_file_matrix(
@@ -845,7 +911,11 @@ def load_dir_collection(
                 "name": name,
                 "pattern": pattern,
                 "ignored_cases": extras,
-                "missing_cases": missing_cases if case_regex else [],
+                "missing_cases": (
+                    missing_cases
+                    if case_regex or inferred_case_depth is not None
+                    else []
+                ),
             }
         )
 

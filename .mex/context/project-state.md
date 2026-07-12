@@ -39,9 +39,10 @@ last_updated: 2026-06-30
   unnamed overlays use the filename stem and `NAME=FILE` supplies an explicit
   HUD label.
 - Stack collections support `--overlay-dir PATTERN` to discover per-case mask
-  filenames as sparse overlay roles; missing masks render as empty and pairing
-  is explicit through `--case-regex`. CLI header scans show an in-place file
-  counter and elapsed time on interactive terminals.
+  filenames as sparse overlay roles; missing masks render as empty and common
+  patient/modality directory layouts pair automatically. `--case-regex` remains
+  an override for unusual layouts. CLI header scans show an in-place file counter
+  and elapsed time on interactive terminals.
 - Reused collection sessions are protected by per-tab leases, including their
   overlay sessions, and VS Code opener readiness now verifies the requested
   session metadata before acknowledging `backend_ready`.

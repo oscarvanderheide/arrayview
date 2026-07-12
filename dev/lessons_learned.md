@@ -110,6 +110,14 @@ paths and filename-derived labels, while stack overlays preserve recursive
 patterns and role names. Thread resolved labels through both existing-server
 and spawned-daemon paths.
 
+## Stack Case Pairing
+
+For common `patient/modality/file` and `patient/masks/file` layouts, infer one
+shared ancestor depth only when it produces unique, identical base-case sets.
+Use that same depth for overlays, including sparse roles. Preserve positional
+pairing for flat non-sparse patterns and require `--case-regex` when sparse
+layout inference is ambiguous rather than guessing.
+
 ## Server Route Extraction End State
 
 **Problem:** `_server.py` kept shrinking as feature routes moved out, but it was unclear whether the final goal was “zero routes left” or a stable orchestration layer.
