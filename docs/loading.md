@@ -93,8 +93,9 @@ Use `NAME=FILE` when a more descriptive label is useful.
 The overlay list opens at the top-right of the image and can be repositioned
 with its small drag grip. Hover a visible row to focus that mask; the other
 visible masks are dimmed until the pointer leaves the list. Use the HUD
-`fill`/`outline` button, or the same control in `/ o`, to switch masks between
-filled regions and contour-only outlines.
+`filled`/`outline` button, or the same control in `/ o`, to switch masks between
+filled regions and contour-only outlines. The eye in the HUD header hides or
+shows all overlays at once.
 
 ## Directory Pattern Collections
 

@@ -1107,23 +1107,25 @@
         #overlay-palette.visible { display: block; }
         .overlay-palette-header {
             display: grid;
-            grid-template-columns: 1fr auto;
+            grid-template-columns: 12px minmax(0, 1fr) 16px;
             align-items: center;
-            gap: 8px;
-            margin: -3px 0 3px;
+            gap: 7px;
+            min-height: 22px;
+            padding: 2px 3px;
         }
         .overlay-palette-drag-handle {
-            height: 8px;
+            width: 10px;
+            height: 10px;
             margin: 0;
-            color: var(--muted);
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--muted);
             cursor: grab;
             touch-action: none;
             user-select: none;
-            text-align: center;
-            line-height: 8px;
-            opacity: 0.6;
+            opacity: 0.7;
         }
-        .overlay-palette-drag-handle:hover { opacity: 1; }
+        .overlay-palette-drag-handle:hover { opacity: 1; background: var(--text); }
         .overlay-palette-drag-handle.dragging { cursor: grabbing; }
         .overlay-palette-mode {
             border: 1px solid var(--border);
@@ -1133,13 +1135,31 @@
             cursor: pointer;
             font-family: inherit;
             font-size: 10px;
-            line-height: 14px;
-            padding: 0 5px;
+            line-height: 16px;
+            padding: 0 6px;
+            justify-self: start;
         }
         .overlay-palette-mode:hover,
         .overlay-palette-mode.active {
             color: var(--active-dim);
             background: var(--surface-2);
+            border-color: var(--active-dim);
+        }
+        .overlay-palette-mode-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .overlay-palette-mode-group .overlay-palette-mode {
+            border: 0;
+            border-radius: 0;
+            justify-self: stretch;
+            padding: 0 4px;
+        }
+        .overlay-palette-mode-group .overlay-palette-mode + .overlay-palette-mode {
+            border-left: 1px solid var(--border);
         }
         .overlay-palette-row {
             display: grid;
@@ -1154,12 +1174,21 @@
         .overlay-palette-row:hover { background: var(--surface-2); }
         .overlay-palette-row.focused {
             background: var(--surface-2);
-            color: var(--text);
+            color: var(--active-dim);
+            outline: 1px solid var(--active-dim);
+            outline-offset: -1px;
+        }
+        .overlay-palette-row.focused .overlay-palette-name {
+            color: var(--active-dim);
         }
         .overlay-palette-row.dimmed {
-            opacity: 0.58;
+            opacity: 0.38;
         }
         .overlay-palette-row.off { color: var(--muted); opacity: 0.55; }
+        .overlay-palette-row.focused .overlay-palette-swatch {
+            border-color: var(--active-dim);
+            box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--active-dim);
+        }
         .overlay-palette-swatch {
             width: 10px;
             height: 10px;
@@ -1185,6 +1214,22 @@
             display: block;
         }
         .overlay-palette-row:not(.off) .overlay-palette-glyph { color: var(--active-dim); }
+        .overlay-palette-all {
+            color: var(--muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+        }
+        .overlay-palette-all svg {
+            width: 13px;
+            height: 13px;
+            display: block;
+        }
+        .overlay-palette-all.active { color: var(--active-dim); }
+        .overlay-palette-all:hover { color: var(--text); }
         .dim-boundary-sep {
             color: var(--active-dim);
             opacity: 0.78;
@@ -16120,10 +16165,14 @@
                 el.innerHTML = '';
                 return;
             }
-            const modeLabel = overlayOutlineOnly ? 'outline' : 'fill';
+            const anyVisible = _visibleOverlayIndices().length > 0;
             let html = '<div class="overlay-palette-header">';
-            html += '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list">•••</div>';
-            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleOutline(event)" title="Toggle filled or outline masks">${modeLabel}</button>`;
+            html += '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list"></div>';
+            html += '<div class="overlay-palette-mode-group" role="group" aria-label="Overlay drawing mode">';
+            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? '' : ' active'}" type="button" onclick="_overlayPaletteSetOutline(false, event)" title="Show filled masks">filled</button>`;
+            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? ' active' : ''}" type="button" onclick="_overlayPaletteSetOutline(true, event)" title="Show contour outlines only">outline</button>`;
+            html += '</div>';
+            html += `<span class="overlay-palette-all${anyVisible ? ' active' : ''}" role="button" onclick="_overlayPaletteToggleAll(event)" title="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}">${anyVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
             html += '</div>';
             const focusActive = _overlayFocusIdx !== null && _overlayActuallyVisible(_overlayFocusIdx);
             for (let i = 0; i < _overlaySids.length; i++) {
@@ -16132,7 +16181,7 @@
                 const dimmed = focusActive && visible && !focused;
                 const name = _roiHtmlEscape(_overlayLabels[i] || `overlay ${i + 1}`);
                 const color = `#${_overlayColors[i]}`;
-                html += `<div class="overlay-palette-row${visible ? '' : ' off'}${focused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}" onpointerenter="_overlayPaletteFocus(${i})" onpointerleave="_overlayPaletteFocus(null)" onclick="_overlayPaletteToggle(${i})" title="Toggle ${name}">`;
+                html += `<div class="overlay-palette-row${visible ? '' : ' off'}${focused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}" onpointerenter="_overlayPaletteFocus(${i})" onclick="_overlayPaletteToggle(${i})" title="Toggle ${name}">`;
                 html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
                 html += `<span class="overlay-palette-name">${name}</span>`;
                 html += `<span class="overlay-palette-glyph">${_LAYERS_ICON}</span>`;
@@ -16218,6 +16267,7 @@
             };
             el.addEventListener('pointerup', finish);
             el.addEventListener('pointercancel', finish);
+            el.addEventListener('pointerleave', () => _overlayPaletteFocus(null));
         }
 
         function _reconcileOverlayPalette() {
@@ -16253,17 +16303,40 @@
         }
         window._overlayPaletteFocus = _overlayPaletteFocus;
 
-        function _overlayPaletteToggleOutline(e) {
+        function _overlayPaletteToggleAll(e) {
             if (e) {
                 e.preventDefault();
                 e.stopPropagation();
             }
-            overlayOutlineOnly = !overlayOutlineOnly;
+            const anyVisible = _visibleOverlayIndices().length > 0;
+            _overlayVisible = _overlaySids.map(() => !anyVisible);
+            _overlayVisibility = !anyVisible ? 'all' : 'none';
+            _overlayFocusIdx = null;
+            _overlayPaletteHidden = false;
+            _reconcileOverlayPalette();
+            if (typeof renderIsland === 'function') renderIsland();
+            updateView();
+            showStatus(`overlays: ${anyVisible ? 'off' : 'all'}`);
+            saveState();
+        }
+        window._overlayPaletteToggleAll = _overlayPaletteToggleAll;
+
+        function _overlayPaletteSetOutline(outline, e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            overlayOutlineOnly = !!outline;
             _renderOverlayPalette();
             if (typeof renderIsland === 'function') renderIsland();
             updateView();
             showStatus(`overlays: ${overlayOutlineOnly ? 'outline' : 'fill'}`);
             saveState();
+        }
+        window._overlayPaletteSetOutline = _overlayPaletteSetOutline;
+
+        function _overlayPaletteToggleOutline(e) {
+            _overlayPaletteSetOutline(!overlayOutlineOnly, e);
         }
         window._overlayPaletteToggleOutline = _overlayPaletteToggleOutline;
 
@@ -17710,8 +17783,10 @@
             const indices = _visibleOverlayIndices();
             const focusActive = _overlayFocusIdx !== null && indices.includes(_overlayFocusIdx);
             if (!focusActive) return '';
-            const dimAlpha = Math.max(0.04, overlayAlpha * 0.30);
-            return indices.map(i => i === _overlayFocusIdx ? overlayAlpha : dimAlpha).join(',');
+            const focusAlpha = Math.max(overlayAlpha, 0.68);
+            const dimAlpha = Math.max(0.035, overlayAlpha * 0.14);
+            const fmt = value => value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+            return indices.map(i => fmt(i === _overlayFocusIdx ? focusAlpha : dimAlpha)).join(',');
         }
 
         function _applyOverlayRenderParams(params) {

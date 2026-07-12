@@ -142,24 +142,62 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
 
     assert palette.get_attribute("aria-hidden") == "false"
     assert palette.locator(".overlay-palette-row").count() == 2
+    page.evaluate(
+        """() => {
+            window.__overlayWsMessages = [];
+            const realSend = ws.send.bind(ws);
+            ws.send = (msg) => {
+                try {
+                    const parsed = JSON.parse(msg);
+                    if ('overlay_alphas' in parsed) window.__overlayWsMessages.push(parsed);
+                } catch (e) {}
+                return realSend(msg);
+            };
+        }"""
+    )
     palette.locator(".overlay-palette-row").nth(1).hover()
     assert page.evaluate("() => _overlayFocusIdx") == 1
-    assert page.evaluate("() => _getVisibleOverlayAlphas()") == "0.135,0.45"
+    expected_alphas = page.evaluate("() => _getVisibleOverlayAlphas()")
+    dim_alpha, focus_alpha = [float(v) for v in expected_alphas.split(",")]
+    assert focus_alpha > dim_alpha
+    assert page.evaluate("() => _getVisibleOverlayAlphas()") == expected_alphas
+    page.wait_for_function(
+        "expected => window.__overlayWsMessages.some(m => m.overlay_alphas === expected)",
+        arg=expected_alphas,
+    )
     assert "focused" in palette.locator(".overlay-palette-row").nth(1).get_attribute("class")
     assert "dimmed" in palette.locator(".overlay-palette-row").nth(0).get_attribute("class")
+    assert page.evaluate(
+        "() => getComputedStyle(document.querySelector('.overlay-palette-row.focused')).outlineStyle"
+    ) == "solid"
+    assert page.evaluate(
+        "() => getComputedStyle(document.querySelector('.overlay-palette-row.focused .overlay-palette-name')).color"
+    ) != page.evaluate(
+        "() => getComputedStyle(document.querySelector('.overlay-palette-row.dimmed .overlay-palette-name')).color"
+    )
     page.mouse.move(5, 5)
     assert page.evaluate("() => _overlayFocusIdx") is None
-    mode_btn = palette.locator(".overlay-palette-mode")
-    assert mode_btn.inner_text() == "fill"
-    mode_btn.click()
+    mode_group = palette.locator(".overlay-palette-mode-group")
+    mode_fill = mode_group.locator(".overlay-palette-mode").nth(0)
+    mode_outline = mode_group.locator(".overlay-palette-mode").nth(1)
+    assert mode_fill.inner_text() == "filled"
+    assert mode_outline.inner_text() == "outline"
+    assert "active" in mode_fill.get_attribute("class")
+    mode_outline.click()
     assert page.evaluate("() => overlayOutlineOnly") is True
-    assert mode_btn.inner_text() == "outline"
-    assert "active" in mode_btn.get_attribute("class")
+    assert "active" in mode_outline.get_attribute("class")
     assert page.evaluate(
         "() => { const p = new URLSearchParams(); _applyOverlayRenderParams(p); return p.get('overlay_outline'); }"
     ) == "1"
-    mode_btn.click()
+    mode_fill.click()
     assert page.evaluate("() => overlayOutlineOnly") is False
+    all_btn = palette.locator(".overlay-palette-all")
+    assert "active" in all_btn.get_attribute("class")
+    all_btn.click()
+    assert page.evaluate("() => _getVisibleOverlaySids()") == ""
+    assert "active" not in all_btn.get_attribute("class")
+    all_btn.click()
+    assert page.evaluate("() => _getVisibleOverlaySids().split(',').length") == 2
     page.wait_for_timeout(1200)
     DEBUG_DIR.mkdir(exist_ok=True)
     page.screenshot(path=str(DEBUG_DIR / "overlay_palette_initial_visible.png"))
