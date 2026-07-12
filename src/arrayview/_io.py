@@ -7,6 +7,7 @@ import glob
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 
 import numpy as np
@@ -671,10 +672,10 @@ def _series_from_file_matrix(
     spatial_meta = None
 
     if all_nifti:
-        nib = _nib()
         spatial_shapes = []
-        for fpath in all_paths:
-            img, item_meta = _nifti_header_with_meta(fpath)
+        for fpath, img, item_meta in _iter_nifti_headers(
+            all_paths, scan_progress=scan_progress, scan_label=scan_label
+        ):
             shape = tuple(item_meta["canonical_shape"])
             dtype = img.get_data_dtype()
             spatial_shapes.append(shape)
@@ -692,8 +693,6 @@ def _series_from_file_matrix(
                     f"Dtype mismatch: {os.path.basename(fpath)!r} has dtype "
                     f"{dtype}, expected {ref_dtype}."
                 )
-            if scan_progress is not None:
-                scan_progress(scan_label, fpath)
         shape_matrix = []
         pos = 0
         for row in file_matrix:
@@ -770,6 +769,35 @@ def _series_from_file_matrix(
                 if path is not None:
                     series._get_volume(p, m)
     return series, None
+
+
+def _collection_scan_workers():
+    raw = os.environ.get("ARRAYVIEW_COLLECTION_SCAN_WORKERS")
+    if raw is not None:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return 1
+    cpu = os.cpu_count() or 4
+    return max(1, min(8, cpu))
+
+
+def _iter_nifti_headers(paths, *, scan_progress=None, scan_label=None):
+    workers = _collection_scan_workers()
+    if workers <= 1 or len(paths) < 8:
+        for path in paths:
+            img, item_meta = _nifti_header_with_meta(path)
+            if scan_progress is not None:
+                scan_progress(scan_label, path)
+            yield path, img, item_meta
+        return
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for path, result in zip(paths, executor.map(_nifti_header_with_meta, paths)):
+            img, item_meta = result
+            if scan_progress is not None:
+                scan_progress(scan_label, path)
+            yield path, img, item_meta
 
 
 def load_dir_collection(
@@ -851,7 +879,18 @@ def load_dir_collection(
     for overlay_spec in overlays:
         name, pattern = overlay_spec[:2]
         allow_missing = len(overlay_spec) > 2 and bool(overlay_spec[2])
-        if case_regex:
+        report_pattern = overlay_spec[3] if len(overlay_spec) > 3 else pattern
+        if isinstance(pattern, dict):
+            by_case = pattern
+            missing_cases = [case for case in case_ids if case not in by_case]
+            if missing_cases and not allow_missing:
+                raise ValueError(
+                    f"Overlay {name!r} is missing case(s): "
+                    f"{', '.join(repr(c) for c in missing_cases)}."
+                )
+            matrix = [[by_case.get(case)] for case in case_ids]
+            extras = sorted(set(by_case.keys()) - set(case_ids))
+        elif case_regex:
             by_case = _collection_pattern_map(pattern, case_regex=case_regex)
             missing_cases = [case for case in case_ids if case not in by_case]
             if missing_cases and not allow_missing:
@@ -905,11 +944,11 @@ def load_dir_collection(
                 f"Overlay {name!r} has spatial shape {ov_data._vol_shape}, "
                 f"expected {spatial_shape}."
             )
-        overlay_items.append({"name": name, "data": ov_data, "pattern": pattern})
+        overlay_items.append({"name": name, "data": ov_data, "pattern": report_pattern})
         overlay_reports.append(
             {
                 "name": name,
-                "pattern": pattern,
+                "pattern": report_pattern,
                 "ignored_cases": extras,
                 "missing_cases": (
                     missing_cases

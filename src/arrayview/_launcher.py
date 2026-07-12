@@ -3506,9 +3506,41 @@ def _normalize_file_overlay_specs(specs):
     return out
 
 
-def _overlay_specs_from_dirs(directory_patterns):
+def _overlay_specs_from_dirs(directory_patterns, case_regex=None):
     """Discover one sparse overlay role per filename in mask directories."""
-    from arrayview._io import _collection_pattern_paths, _strip_array_ext
+    from arrayview._io import (
+        _collection_case_key,
+        _collection_pattern_paths,
+        _strip_array_ext,
+    )
+
+    if case_regex:
+        grouped = {}
+        display_patterns = {}
+        for directory_pattern in directory_patterns or []:
+            base_pattern = os.path.abspath(directory_pattern)
+            for path in _collection_pattern_paths(os.path.join(base_pattern, "*")):
+                filename = os.path.basename(path)
+                case = _collection_case_key(path, case_regex=case_regex)
+                by_case = grouped.setdefault(filename, {})
+                if case in by_case:
+                    raise ValueError(
+                        f"Overlay directory pattern {directory_pattern!r} matched "
+                        f"multiple files for case {case!r} and filename {filename!r}."
+                    )
+                by_case[case] = path
+                display_patterns[filename] = os.path.join(base_pattern, filename)
+        specs = []
+        for filename, by_case in grouped.items():
+            specs.append(
+                (
+                    _strip_array_ext(filename),
+                    by_case,
+                    True,
+                    display_patterns[filename],
+                )
+            )
+        return specs
 
     specs = []
     seen_names = set()
@@ -4193,7 +4225,9 @@ def arrayview():
             for role, pattern in _normalize_dir_overlay_specs(args.overlay or [])
         ]
         try:
-            dir_overlay_specs.extend(_overlay_specs_from_dirs(args.overlay_dir))
+            dir_overlay_specs.extend(
+                _overlay_specs_from_dirs(args.overlay_dir, case_regex=args.case_regex)
+            )
         except Exception as e:
             print(f"Error: --overlay-dir could not discover masks: {e}")
             sys.exit(1)

@@ -479,6 +479,38 @@ class TestDirCollection:
         assert np.array_equal(overlay[..., 1], np.zeros(shape, dtype=np.uint8))
         assert summary["overlays"][0]["missing_cases"] == ["caseB"]
 
+    def test_sparse_overlay_precomputed_case_map_is_empty(self, tmp_path):
+        import arrayview._io as _io
+
+        shape = (4, 5, 6)
+        images = tmp_path / "images"
+        masks = tmp_path / "masks"
+        images.mkdir()
+        masks.mkdir()
+        for case in ("caseA", "caseB"):
+            np.save(images / f"{case}.npy", np.ones(shape, dtype=np.float32))
+        case_a_mask = masks / "caseA.npy"
+        np.save(case_a_mask, np.ones(shape, dtype=np.uint8))
+
+        _data, _meta, overlays, summary = _io.load_dir_collection(
+            [str(images / "*.npy")],
+            overlays=[
+                (
+                    "organ",
+                    {"caseA": str(case_a_mask)},
+                    True,
+                    str(masks / "*.npy"),
+                )
+            ],
+            case_regex=r"(?P<case>case[A-Z])",
+        )
+
+        overlay = overlays[0]["data"]
+        assert np.array_equal(overlay[..., 0], np.ones(shape, dtype=np.uint8))
+        assert np.array_equal(overlay[..., 1], np.zeros(shape, dtype=np.uint8))
+        assert summary["overlays"][0]["pattern"] == str(masks / "*.npy")
+        assert summary["overlays"][0]["missing_cases"] == ["caseB"]
+
     def test_sparse_overlay_ambiguous_layout_requests_case_regex(self, tmp_path):
         import arrayview._io as _io
 
