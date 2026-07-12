@@ -34,6 +34,8 @@ last_updated: 2026-06-30
 - Overlays are a plugin tile (`OV`): per-overlay row with colour swatch, editable label, eye toggle, × delete; shared opacity slider; `+ add overlay` opens a filesystem picker rooted at the launched file's directory
 - The floating overlay HUD is reconciled as soon as startup loading ends, so it
   is visible on first load and `/ o` toggles it correctly from the first press.
+  Its drag grip allows viewport-clamped repositioning that survives mode and
+  layout reconciliation for the current viewer session.
 - Vector field is a plugin tile (`VF`): row with visibility toggle + density/length sliders bi-directionally wired to the `[ ] { }` keyboard commands
 - CLI `--overlay FILE` can be repeated to load multiple overlays at launch;
   unnamed overlays use the filename stem and `NAME=FILE` supplies an explicit

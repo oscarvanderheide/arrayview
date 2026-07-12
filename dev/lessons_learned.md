@@ -102,6 +102,11 @@ hidden until the shortcut was toggled twice.
 including the animation, fallback, and no-animation paths. State and DOM must be
 reconciled together after `av-loading` is removed.
 
+For draggable floating chrome, store the user position separately from the
+default anchor. The same anchor reconciler should either compute the default or
+clamp the stored position after mode and viewport changes; pointer capture on a
+dedicated grip avoids interfering with row controls and canvas navigation.
+
 ## CLI Overlay Names
 
 Ordinary file overlays and stack-pattern overlays have different parsing

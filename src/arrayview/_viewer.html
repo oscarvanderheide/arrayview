@@ -1105,6 +1105,19 @@
             -webkit-backdrop-filter: var(--blur);
         }
         #overlay-palette.visible { display: block; }
+        .overlay-palette-drag-handle {
+            height: 8px;
+            margin: -3px 0 3px;
+            color: var(--muted);
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            text-align: center;
+            line-height: 8px;
+            opacity: 0.6;
+        }
+        .overlay-palette-drag-handle:hover { opacity: 1; }
+        .overlay-palette-drag-handle.dragging { cursor: grabbing; }
         .overlay-palette-row {
             display: grid;
             grid-template-columns: 12px minmax(0, 1fr) 16px;
@@ -16063,6 +16076,7 @@
         }
 
         let _overlayPaletteHidden = false;
+        let _overlayPaletteDragPos = null;
 
         function _overlayActuallyVisible(idx) {
             if (idx < 0 || idx >= _overlaySids.length) return false;
@@ -16079,7 +16093,7 @@
                 el.innerHTML = '';
                 return;
             }
-            let html = '';
+            let html = '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list">•••</div>';
             for (let i = 0; i < _overlaySids.length; i++) {
                 const visible = _overlayActuallyVisible(i);
                 const name = _roiHtmlEscape(_overlayLabels[i] || `overlay ${i + 1}`);
@@ -16107,11 +16121,69 @@
             if (!el || !host || !anchor) return;
             if (el.parentElement !== host) host.appendChild(el);
             const hostRect = host.getBoundingClientRect();
+            if (_overlayPaletteDragPos) {
+                const maxLeft = Math.max(0, host.clientWidth - el.offsetWidth);
+                const maxTop = Math.max(0, host.clientHeight - el.offsetHeight);
+                _overlayPaletteDragPos.left = Math.max(
+                    0, Math.min(maxLeft, _overlayPaletteDragPos.left)
+                );
+                _overlayPaletteDragPos.top = Math.max(
+                    0, Math.min(maxTop, _overlayPaletteDragPos.top)
+                );
+                el.style.left = `${Math.round(_overlayPaletteDragPos.left)}px`;
+                el.style.top = `${Math.round(_overlayPaletteDragPos.top)}px`;
+                el.style.right = 'auto';
+                return;
+            }
             const anchorRect = anchor.getBoundingClientRect();
             const top = Math.max(0, Math.round(anchorRect.top - hostRect.top + 10));
             const right = Math.max(0, Math.round(hostRect.right - anchorRect.right + 10));
             el.style.top = `${top}px`;
             el.style.right = `${right}px`;
+            el.style.removeProperty('left');
+        }
+
+        function _installOverlayPaletteDrag() {
+            const el = document.getElementById('overlay-palette');
+            const host = document.getElementById('viewer-row');
+            if (!el || !host || el.dataset.dragReady === '1') return;
+            el.dataset.dragReady = '1';
+            let drag = null;
+
+            el.addEventListener('pointerdown', e => {
+                const handle = e.target.closest('.overlay-palette-drag-handle');
+                if (!handle) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const hostRect = host.getBoundingClientRect();
+                const rect = el.getBoundingClientRect();
+                drag = {
+                    pointerId: e.pointerId,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    left: rect.left - hostRect.left,
+                    top: rect.top - hostRect.top,
+                };
+                handle.classList.add('dragging');
+                handle.setPointerCapture(e.pointerId);
+            });
+
+            el.addEventListener('pointermove', e => {
+                if (!drag || e.pointerId !== drag.pointerId) return;
+                _overlayPaletteDragPos = {
+                    left: drag.left + e.clientX - drag.startX,
+                    top: drag.top + e.clientY - drag.startY,
+                };
+                _reconcileOverlayPaletteAnchor();
+            });
+
+            const finish = e => {
+                if (!drag || e.pointerId !== drag.pointerId) return;
+                e.target.classList.remove('dragging');
+                drag = null;
+            };
+            el.addEventListener('pointerup', finish);
+            el.addEventListener('pointercancel', finish);
         }
 
         function _reconcileOverlayPalette() {
@@ -16119,6 +16191,7 @@
             if (!el) return;
             const show = _overlaySids.length > 0 && !_overlayPaletteHidden;
             if (show) _renderOverlayPalette();
+            if (show) _installOverlayPaletteDrag();
             _reconcileOverlayPaletteAnchor();
             if (show) {
                 requestAnimationFrame(() => {
@@ -16142,6 +16215,10 @@
             _reconcileOverlayPalette();
         }
         window._toggleOverlayPalettePinned = _toggleOverlayPalettePinned;
+
+        window.addEventListener('resize', () => {
+            if (_overlayPaletteDragPos) _reconcileOverlayPaletteAnchor();
+        });
 
         window.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape' || _overlayPaletteHidden) return;

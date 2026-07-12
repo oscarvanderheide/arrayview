@@ -90,6 +90,8 @@ uvx arrayview volume.nii.gz --overlay "ground truth=mask.nii.gz"
 
 An unnamed overlay uses the filename stem as its display name (`mask` above).
 Use `NAME=FILE` when a more descriptive label is useful.
+The overlay list opens at the top-right of the image and can be repositioned
+with its small drag grip.
 
 ## Directory Pattern Collections
 

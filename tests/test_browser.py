@@ -121,11 +121,11 @@ def _focus_kb(page):
 
 
 def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_path):
-    base = np.zeros((32, 32), dtype=np.float32)
-    mask_a = np.zeros((32, 32), dtype=np.uint8)
-    mask_b = np.zeros((32, 32), dtype=np.uint8)
-    mask_a[3:12, 3:12] = 1
-    mask_b[20:29, 20:29] = 1
+    base = np.zeros((8, 32, 32), dtype=np.float32)
+    mask_a = np.zeros((8, 32, 32), dtype=np.uint8)
+    mask_b = np.zeros((8, 32, 32), dtype=np.uint8)
+    mask_a[:, 3:12, 3:12] = 1
+    mask_b[:, 20:29, 20:29] = 1
     sids = []
     for name, array in (("base", base), ("mask_a", mask_a), ("mask_b", mask_b)):
         path = tmp_path / f"{name}.npy"
@@ -153,6 +153,36 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     page.keyboard.press("/")
     page.keyboard.press("o")
     assert palette.is_visible()
+
+    handle = palette.locator(".overlay-palette-drag-handle")
+    handle_box = handle.bounding_box()
+    before_drag = palette.bounding_box()
+    page.mouse.move(
+        handle_box["x"] + handle_box["width"] / 2,
+        handle_box["y"] + handle_box["height"] / 2,
+    )
+    page.mouse.down()
+    page.mouse.move(before_drag["x"] - 180, before_drag["y"] + 140, steps=8)
+    page.mouse.up()
+    after_drag = palette.bounding_box()
+
+    assert after_drag["x"] < before_drag["x"] - 100
+    assert after_drag["y"] > before_drag["y"] + 80
+    page.evaluate("() => _reconcileUI()")
+    after_reconcile = palette.bounding_box()
+    assert abs(after_reconcile["x"] - after_drag["x"]) <= 2
+    assert abs(after_reconcile["y"] - after_drag["y"]) <= 2
+    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_dragged.png"))
+
+    _focus_kb(page)
+    page.keyboard.press("v")
+    page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+    mode_box = palette.bounding_box()
+    viewport = page.viewport_size
+    assert mode_box["x"] >= 0 and mode_box["y"] >= 0
+    assert mode_box["x"] + mode_box["width"] <= viewport["width"]
+    assert mode_box["y"] + mode_box["height"] <= viewport["height"]
+    assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
 def _enter_compare(page, partner_sid, timeout=5000):
