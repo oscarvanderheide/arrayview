@@ -64,6 +64,7 @@ SERVER_CAPABILITIES = (
     "session-registration",
     "viewer-websocket",
     "shell-websocket",
+    "dir-collection-case-inference",
 )
 
 

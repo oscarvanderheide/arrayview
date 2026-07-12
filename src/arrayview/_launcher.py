@@ -1203,7 +1203,19 @@ def _register_cli_session_with_existing_server(
         collection_stack=collection_stack,
     )
     if "error" in result:
-        raise RuntimeError(f"Error from server: {result['error']}")
+        error = str(result["error"])
+        if (
+            dir_patterns
+            and dir_overlay_specs
+            and not dir_case_regex
+            and "Sparse overlays from --overlay-dir require --case-regex" in error
+        ):
+            error += (
+                "\nThe server on this port is an older ArrayView process that "
+                "does not support automatic --overlay-dir case inference yet. "
+                f"Restart it with: arrayview --kill --port {port}"
+            )
+        raise RuntimeError(f"Error from server: {error}")
     if vectorfield:
         vf_result = _attach_vectorfield_to_session(
             port,
@@ -1246,6 +1258,7 @@ def _handle_cli_existing_server(
     watch: bool,
     window_mode: str | None,
     floating: bool,
+    is_remote: bool = False,
     select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
@@ -1275,6 +1288,48 @@ def _handle_cli_existing_server(
         )
     except Exception as e:
         err = str(e)
+        stale_stack_server = (
+            dir_patterns
+            and "Error from server" in err
+            and (
+                "Unsupported format" in err
+                or "Sparse overlays from --overlay-dir require --case-regex" in err
+            )
+        )
+        if stale_stack_server:
+            fallback_port, already_running = _find_server_port(port + 1)
+            if not already_running:
+                print(
+                    f"[ArrayView] Existing server on port {port} does not support "
+                    f"this stack request; starting this checkout on port {fallback_port}.",
+                    flush=True,
+                )
+                _handle_cli_spawned_daemon(
+                    port=fallback_port,
+                    base_file=base_file,
+                    name=name,
+                    compare_files=compare_files,
+                    overlay_files=overlay_files,
+                    dims_override=dims_override,
+                    use_native_shell=use_native_shell,
+                    watch=watch,
+                    window_mode=window_mode,
+                    floating=floating,
+                    is_remote=is_remote,
+                    vectorfield=vectorfield,
+                    vfield_components_dim=vfield_components_dim,
+                    rgb=rgb,
+                    demo_name=None,
+                    demo_cleanup=False,
+                    select=select,
+                    dir_patterns=dir_patterns,
+                    dir_overlay_specs=dir_overlay_specs,
+                    dir_case_regex=dir_case_regex,
+                    collection_load=collection_load,
+                    collection_stack=collection_stack,
+                    overlay_names=overlay_names,
+                )
+                return
         if os.path.isdir(base_file) and "Unsupported format" in str(e):
             print(
                 f"Error: existing ArrayView server on port {port} does not support "
@@ -1397,6 +1452,7 @@ def _handle_cli_spawned_daemon(
                 watch=watch,
                 window_mode=window_mode,
                 floating=floating,
+                is_remote=is_remote,
                 select=select,
                 dir_patterns=dir_patterns,
                 dir_overlay_specs=dir_overlay_specs,
@@ -4454,6 +4510,7 @@ def arrayview():
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
             floating=args.floating,
+            is_remote=is_remote,
             select=args.stack_select,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,

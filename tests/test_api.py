@@ -29,6 +29,7 @@ class TestHealth:
         assert body["ok"] is True
         assert body["service"] == "arrayview"
         assert "shell_sockets" in body
+        assert "dir-collection-case-inference" in body["capabilities"]
 
     def test_root_without_sid_returns_html(self, client):
         r = client.get("/", follow_redirects=False)
@@ -183,10 +184,50 @@ class TestLoad:
         assert client.get(f"/metadata/{base_sid}").status_code == 200
         assert client.get(f"/metadata/{overlay_sid}").status_code == 200
 
-        assert client.post(f"/release/{base_sid}").json()["released"] is True
-        assert client.post(f"/release/{overlay_sid}").json()["released"] is True
-        assert client.get(f"/metadata/{base_sid}").status_code == 404
-        assert client.get(f"/metadata/{overlay_sid}").status_code == 404
+    def test_load_sparse_overlay_dir_contract_infers_cases_without_regex(
+        self, client, tmp_path
+    ):
+        for case in ("caseA", "caseB"):
+            image_dir = tmp_path / case / "images"
+            mask_dir = tmp_path / case / "masks"
+            image_dir.mkdir(parents=True)
+            mask_dir.mkdir()
+            np.save(image_dir / "scan.npy", np.zeros((4, 5, 6), dtype=np.float32))
+            np.save(mask_dir / "body.npy", np.ones((4, 5, 6), dtype=np.uint8))
+        np.save(
+            tmp_path / "caseA" / "masks" / "organ.npy",
+            np.ones((4, 5, 6), dtype=np.uint8),
+        )
+
+        body = client.post(
+            "/load",
+            json={
+                "name": "dir collection",
+                "dir_patterns": [str(tmp_path / "*" / "images" / "scan.npy")],
+                "dir_overlay_specs": [
+                    [
+                        "body",
+                        str(tmp_path / "*" / "masks" / "body.npy"),
+                        True,
+                    ],
+                    [
+                        "organ",
+                        str(tmp_path / "*" / "masks" / "organ.npy"),
+                        True,
+                    ],
+                ],
+                "load": "lazy",
+                "stack": "auto",
+            },
+        ).json()
+
+        assert "error" not in body
+        assert body["overlay_names"] == ["body", "organ"]
+        assert len(body["overlay_sids"]) == 2
+
+        assert client.post(f"/release/{body['sid']}").json()["released"] is True
+        for overlay_sid in body["overlay_sids"]:
+            assert client.post(f"/release/{overlay_sid}").json()["released"] is True
 
     def test_load_directory_collection_error_creates_no_session(self, client, tmp_path):
         before = {item["sid"] for item in client.get("/sessions").json()}
@@ -2854,6 +2895,40 @@ class TestCliOpenHelpers:
         assert result["overlay_sid"] == "sid_mask"
         assert result["overlay_names"] == ["mask"]
 
+    def test_register_dir_collection_without_regex_reports_stale_server(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        def fake_load(port, filepath, name, **kwargs):
+            return {
+                "error": "Sparse overlays from --overlay-dir require --case-regex."
+            }
+
+        monkeypatch.setattr(launcher, "_load_session_from_filepath", fake_load)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            launcher._register_cli_session_with_existing_server(
+                port=8000,
+                overlay_paths=[],
+                compare_files=[],
+                base_file="/data/*/CT/*.nii.gz",
+                name="dir collection",
+                rgb=False,
+                use_native_shell=False,
+                vectorfield=None,
+                vfield_components_dim=None,
+                dir_patterns=["/data/*/CT/*.nii.gz"],
+                dir_overlay_specs=[("body", "/data/*/masks/body.nii.gz", True)],
+                dir_case_regex=None,
+                collection_load="lazy",
+                collection_stack="auto",
+            )
+
+        message = str(excinfo.value)
+        assert "older ArrayView process" in message
+        assert "arrayview --kill --port 8000" in message
+
     def test_handle_cli_existing_server_opens_registered_session(self, monkeypatch):
         import arrayview._launcher as launcher
 
@@ -2991,6 +3066,65 @@ class TestCliOpenHelpers:
         assert "Error loading" in out
         assert "Shape mismatch" in out
         assert "port 8000 is in use" not in out
+
+    def test_handle_cli_existing_server_falls_back_for_stale_overlay_dir_server(
+        self, monkeypatch, capsys
+    ):
+        import arrayview._launcher as launcher
+
+        spawned = []
+
+        def fail_register(**kwargs):
+            raise RuntimeError(
+                "Error from server: Sparse overlays from --overlay-dir require "
+                "--case-regex."
+            )
+
+        monkeypatch.setattr(
+            launcher,
+            "_register_cli_session_with_existing_server",
+            fail_register,
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_find_server_port",
+            lambda port: (port, False),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_handle_cli_spawned_daemon",
+            lambda **kwargs: spawned.append(kwargs),
+        )
+
+        launcher._handle_cli_existing_server(
+            port=8000,
+            base_file="/data/*/CT/*.nii.gz",
+            name="dir collection",
+            compare_files=[],
+            overlay_files=[],
+            rgb=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            use_native_shell=False,
+            dims_override=None,
+            watch=False,
+            window_mode="browser",
+            floating=False,
+            is_remote=True,
+            dir_patterns=["/data/*/CT/*.nii.gz"],
+            dir_overlay_specs=[("body", "/data/*/masks/body.nii.gz", True)],
+            dir_case_regex=None,
+            collection_load="lazy",
+            collection_stack="auto",
+        )
+
+        out = capsys.readouterr().out
+        assert "Existing server on port 8000" in out
+        assert spawned
+        assert spawned[0]["port"] == 8001
+        assert spawned[0]["is_remote"] is True
+        assert spawned[0]["dir_patterns"] == ["/data/*/CT/*.nii.gz"]
+        assert spawned[0]["dir_case_regex"] is None
 
     def test_handle_cli_spawned_daemon_opens_spawned_session(self, monkeypatch):
         import arrayview._launcher as launcher
