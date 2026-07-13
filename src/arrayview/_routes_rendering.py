@@ -6,7 +6,7 @@ from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 
 from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
-from arrayview._overlays import _composite_overlays
+from arrayview._overlays import _composite_mosaic_overlays, _composite_overlays
 from arrayview._render import (
     LUTS,
     _build_mosaic_grid,
@@ -178,6 +178,11 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     vmin_override=vmin_override,
                     vmax_override=vmax_override,
                 )
+                rgba = _composite_mosaic_overlays(
+                    rgba, overlay_sid, overlay_colors, overlay_alpha, overlay_alphas,
+                    overlay_outline, dim_x, dim_y, dim_z, idx_tuple, session.shape,
+                    mosaic_cols,
+                )
                 if vmin_override is not None and vmax_override is not None:
                     vmin, vmax = float(vmin_override), float(vmax_override)
                 else:
@@ -264,6 +269,12 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 )
                 if qmri_role:
                     vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
+            if dim_z >= 0 and qmri_role:
+                rgba = _composite_mosaic_overlays(
+                    rgba, overlay_sid, overlay_colors, overlay_alpha, overlay_alphas,
+                    overlay_outline, dim_x, dim_y, dim_z, idx_tuple, session.shape,
+                    mosaic_cols,
+                )
         render_ms = (time.perf_counter() - render_t0) * 1000.0
         encode_t0 = time.perf_counter()
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")

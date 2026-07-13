@@ -4601,6 +4601,57 @@ class TestCropPersistence:
 
 
 class TestMultipleOverlays:
+    def test_http_mosaic_repeats_overlay_across_missing_dimension(self, client, tmp_path):
+        base_path = tmp_path / "mosaic-base.npy"
+        np.save(base_path, np.zeros((4, 3, 6, 6), dtype=np.float32))
+        base_sid = client.post("/load", json={"filepath": str(base_path)}).json()["sid"]
+        overlay_data = np.zeros((4, 6, 6), dtype=np.uint8)
+        overlay_data[2, 2:4, 2:4] = 1
+        overlay_path = tmp_path / "mosaic-overlay.npy"
+        np.save(overlay_path, overlay_data)
+        overlay_sid = client.post("/load", json={"filepath": str(overlay_path)}).json()["sid"]
+
+        response = client.get(
+            f"/slice/{base_sid}",
+            params={
+                "dim_x": 3,
+                "dim_y": 2,
+                "dim_z": 1,
+                "indices": "2,0,3,3",
+                "overlay_sid": overlay_sid,
+                "overlay_colors": "ff0000",
+                "overlay_alpha": 1.0,
+            },
+        )
+        image = np.asarray(Image.open(io.BytesIO(response.content)))
+        for x0 in (0, 8, 16):
+            tile = image[:, x0 : x0 + 6]
+            assert np.max(tile[:, :, 0].astype(int) - tile[:, :, 1].astype(int)) > 20
+
+    def test_mosaic_overlay_broadcasts_over_missing_mosaic_dimension(self):
+        from arrayview._overlays import _composite_mosaic_overlays
+        from arrayview._render import mosaic_shape
+        from arrayview._session import SESSIONS, Session
+
+        base = Session(np.zeros((4, 3, 6, 6), dtype=np.float32))
+        overlay_data = np.zeros((4, 6, 6), dtype=np.uint8)
+        overlay_data[2, 3, 4] = 1
+        overlay = Session(overlay_data)
+        SESSIONS[overlay.sid] = overlay
+        try:
+            rows, cols = mosaic_shape(3)
+            rgba = np.zeros((rows * 6 + (rows - 1) * 2, cols * 6 + (cols - 1) * 2, 4), dtype=np.uint8)
+            result = _composite_mosaic_overlays(
+                rgba, overlay.sid, "ff0000", 1.0, None, False,
+                dim_x=3, dim_y=2, dim_z=1, idx_tuple=(2, 0, 3, 3),
+                base_shape=base.shape,
+            )
+            for frame in range(3):
+                row, col = divmod(frame, cols)
+                assert result[row * 8 + 3, col * 8 + 4, 0] == 255
+        finally:
+            SESSIONS.pop(overlay.sid, None)
+
     def test_overlay_broadcasts_over_missing_base_dimension(self):
         from arrayview._render import _extract_overlay_mask
         from arrayview._session import SESSIONS, Session

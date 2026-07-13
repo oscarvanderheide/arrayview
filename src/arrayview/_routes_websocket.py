@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 import arrayview._session as _session_mod
 from arrayview._analysis import _build_metadata
 from arrayview._lifecycle import release_session
-from arrayview._overlays import _composite_overlays
+from arrayview._overlays import _composite_mosaic_overlays, _composite_overlays
 from arrayview._render import (
     LUTS,
     _prepare_display,
@@ -232,6 +232,12 @@ def register_websocket_routes(app) -> None:
                                 vmax_override=vmax_override,
                             ),
                         )
+                        rgba = _composite_mosaic_overlays(
+                            rgba, msg.get("overlay_sid"), msg.get("overlay_colors"),
+                            float(msg.get("overlay_alpha", 0.45)), msg.get("overlay_alphas"),
+                            bool(msg.get("overlay_outline", False)), dim_x, dim_y, dim_z,
+                            idx_tuple, session.shape, mosaic_cols,
+                        )
                         h, w = rgba.shape[:2]
                         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
                         _, vmin, vmax = _prepare_display(
@@ -342,6 +348,14 @@ def register_websocket_routes(app) -> None:
                         idx_tuple,
                         (h, w),
                         session.shape,
+                    )
+
+                if dim_z >= 0 and qmri_role:
+                    rgba = _composite_mosaic_overlays(
+                        rgba, msg.get("overlay_sid"), msg.get("overlay_colors"),
+                        float(msg.get("overlay_alpha", 0.45)), msg.get("overlay_alphas"),
+                        bool(msg.get("overlay_outline", False)), dim_x, dim_y, dim_z,
+                        idx_tuple, session.shape, mosaic_cols,
                     )
 
                 render_ms = (time.perf_counter() - render_t0) * 1000.0
