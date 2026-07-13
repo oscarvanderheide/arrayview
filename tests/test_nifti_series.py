@@ -102,59 +102,16 @@ class TestNiftiSeries4D:
         assert series.shape == (4, 5, 6, 1)
 
     def test_nested_nifti_dirs_ignored_when_parent_has_series_files(self, tmp_path):
-        _make_patient_dir(tmp_path, "p001", n_files=2, prefix="mod")
+        _make_patient_dir(tmp_path, "p001", n_files=1, prefix="mod")
         pdir = tmp_path / "p001"
         (pdir / "mod_0.nii.gz").rename(pdir / "T2_W.nii.gz")
-        (pdir / "mod_1.nii.gz").rename(pdir / "MRCAT_W.nii.gz")
         masks_dir = pdir / "masks"
         masks_dir.mkdir()
         _save_nifti(masks_dir / "Brainstem.nii.gz", np.zeros((4, 5, 6), dtype=np.float32))
 
-        series, _ = load_data_with_meta(str(tmp_path), select=["*T2_W*"])
+        series, _ = load_data_with_meta(str(tmp_path))
 
         assert series.shape == (4, 5, 6, 1)
-
-
-# ---------------------------------------------------------------------------
-# 5D: multiple files per patient via --select
-# ---------------------------------------------------------------------------
-
-
-class TestNiftiSeries5D:
-    def test_shape_with_select(self, tmp_path):
-        _make_patient_dir(tmp_path, "p001", n_files=3, prefix="mod")
-        _make_patient_dir(tmp_path, "p002", n_files=3, prefix="mod")
-        # Rename to modality-like names
-        for pdir in ["p001", "p002"]:
-            d = tmp_path / pdir
-            for i, mod in enumerate(["t1", "t2", "flair"]):
-                src = d / f"mod_{i}.nii.gz"
-                dst = d / f"{mod}.nii.gz"
-                src.rename(dst)
-        series, meta = load_data_with_meta(str(tmp_path), select=["*t1*", "*t2*", "*flair*"])
-        assert series.shape == (4, 5, 6, 2, 3)
-        assert series.ndim == 5
-        assert meta is not None
-
-    def test_slicing_5d(self, tmp_path):
-        _make_patient_dir(tmp_path, "p001", n_files=2, prefix="m")
-        _make_patient_dir(tmp_path, "p002", n_files=2, prefix="m")
-        series, _ = load_data_with_meta(str(tmp_path), select=["*m_0*", "*m_1*"])
-        vol0 = np.asarray(nib.as_closest_canonical(nib.load(tmp_path / "p001" / "m_0.nii.gz")).dataobj)
-        vol1 = np.asarray(nib.as_closest_canonical(nib.load(tmp_path / "p001" / "m_1.nii.gz")).dataobj)
-        assert np.array_equal(series[..., 0, 0], vol0)
-        assert np.array_equal(series[..., 0, 1], vol1)
-
-    def test_select_missing_pattern_error(self, tmp_path):
-        _make_patient_dir(tmp_path, "p001", n_files=1, prefix="t1")
-        _make_patient_dir(tmp_path, "p002", n_files=1, prefix="t1")
-        with pytest.raises(ValueError, match="no file matches"):
-            load_data_with_meta(str(tmp_path), select=["*t1*", "*flair*"])
-
-    def test_select_ambiguous_error(self, tmp_path):
-        _make_patient_dir(tmp_path, "p001", n_files=3, prefix="t1")
-        with pytest.raises(ValueError, match="multiple files match"):
-            load_data_with_meta(str(tmp_path), select=["*t1*"])
 
 
 # ---------------------------------------------------------------------------
@@ -174,9 +131,9 @@ class TestNiftiSeriesErrors:
         with pytest.raises(ValueError, match="No supported array files"):
             load_data_with_meta(str(tmp_path))
 
-    def test_multiple_files_without_select(self, tmp_path):
+    def test_multiple_files_recommend_stack_patterns(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", n_files=2)
-        with pytest.raises(ValueError, match="--select"):
+        with pytest.raises(ValueError, match="--stack"):
             load_data_with_meta(str(tmp_path))
 
     def test_shape_mismatch_falls_back_to_ragged(self, tmp_path):
@@ -477,16 +434,14 @@ class TestNiftiSeriesErrors:
 # ---------------------------------------------------------------------------
 
 
-class TestViewDir:
-    def test_view_dir_is_exported(self):
+class TestPythonApi:
+    def test_disk_collection_helpers_are_not_exported(self):
         import arrayview
 
-        assert hasattr(arrayview, "view_dir")
-        assert callable(arrayview.view_dir)
-        assert hasattr(arrayview, "view_dir_patterns")
-        assert callable(arrayview.view_dir_patterns)
+        assert not hasattr(arrayview, "view_dir")
+        assert not hasattr(arrayview, "view_dir_patterns")
 
-    def test_view_dir_is_lazy_marker(self, tmp_path):
+    def test_directory_series_is_lazy_marker(self, tmp_path):
         _make_patient_dir(tmp_path, "p001")
         _make_patient_dir(tmp_path, "p002")
         from arrayview._io import load_data_with_meta
@@ -676,20 +631,6 @@ class TestFileSeries:
         assert isinstance(series, _io._FileSeries)
         assert series.shape == (4, 5, 6, 3)
         assert meta is None
-
-    def test_npy_5d_with_select(self, tmp_path):
-        import arrayview._io as _io
-
-        shape = (4, 5, 6)
-        for name in ("p001", "p002"):
-            pdir = tmp_path / name
-            pdir.mkdir()
-            np.save(str(pdir / "t1.npy"), np.arange(120, dtype=np.float32).reshape(shape))
-            np.save(str(pdir / "t2.npy"), np.arange(120, 240, dtype=np.float32).reshape(shape))
-
-        series, _ = _io.load_data_with_meta(str(tmp_path), select=["*t1*", "*t2*"])
-        assert isinstance(series, _io._FileSeries)
-        assert series.shape == (4, 5, 6, 2, 2)
 
     def test_slicing_npy_series(self, tmp_path):
         import arrayview._io as _io

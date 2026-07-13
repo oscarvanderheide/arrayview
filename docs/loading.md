@@ -117,7 +117,7 @@ up front.
 Pattern collections, named overlays, multiple overlays, and `--overlay-dir`:
 [Stack and Overlay Collections](stack-overlays.md).
 
-## NIfTI Series (4D/5D from a directory)
+## NIfTI Series
 
 Stack a directory of NIfTI files into a single lazy 4D/5D array. Patient files
 are loaded only when needed, and the memory cache stays bounded regardless of
@@ -133,24 +133,16 @@ Discovers `.nii`/`.nii.gz` recursively, groups by immediate parent folder
 One file per patient → 4D `(*vol, P)`. The viewer opens with X/Y on screen,
 Z as primary scroll, patient index as a slider.
 
-Multiple files per patient (e.g. `t1`, `t2`, `flair`) → use `--select`:
+For multiple files per patient, use explicit `--stack` patterns:
 
 ```bash
-uvx arrayview patients/ --select '*t1*' --select '*t2*' --select '*flair*'
+uvx arrayview --stack \
+  "patients/*/*t1*.nii.gz" \
+  "patients/*/*t2*.nii.gz" \
+  "patients/*/*flair*.nii.gz"
 ```
 
-Each `--select` pattern picks one file per patient (fnmatch on basename).
-Produces 5D `(*vol, P, M)` with modality as the last axis. Every patient
-must match exactly one file per pattern.
-
-Python API:
-
-```python
-from arrayview import view_dir
-
-view_dir("patients/")
-view_dir("patients/", select=["*t1*", "*t2*", "*flair*"])
-```
+More examples: [Stack and Overlay Collections](stack-overlays.md).
 
 Patient folders with no NIfTI files (e.g. only `.dcm`) raise an error —
 convert DICOM to NIfTI first (e.g. `dcm2niix`).

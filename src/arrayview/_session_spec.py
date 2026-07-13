@@ -43,7 +43,6 @@ class SessionSpec:
     compare_sources: tuple[str, ...] = ()
     overlays: tuple[str, ...] = ()
     dims: tuple[int, int] | None = None
-    select: tuple[str, ...] = ()
     key: str | None = None
     watch: bool = False
     vectorfield: str | None = None
@@ -60,7 +59,6 @@ class SessionSpec:
             _require_nonempty("name", self.name)
         _validate_sources("compare_sources", self.compare_sources)
         _validate_sources("overlays", self.overlays)
-        _validate_sources("select", self.select)
         if self.key is not None:
             _require_nonempty("key", self.key)
         if self.dims is not None:
@@ -121,7 +119,6 @@ def session_spec_from_cli_file(
     compare_sources: Iterable[str] = (),
     overlays: Iterable[str] = (),
     dims: str | Iterable[int] | None = None,
-    select: Iterable[str] = (),
     key: str | None = None,
     watch: bool = False,
     vectorfield: str | None = None,
@@ -136,7 +133,6 @@ def session_spec_from_cli_file(
         compare_sources=tuple(compare_sources),
         overlays=tuple(overlays),
         dims=_normalize_dims(dims),
-        select=tuple(select),
         key=key,
         watch=watch,
         vectorfield=vectorfield,

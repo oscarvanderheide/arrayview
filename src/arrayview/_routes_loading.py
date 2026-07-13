@@ -252,7 +252,6 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             # Multi-array .npz/.mat: if no key provided, return the key list so
             # the client can show a picker instead of blocking on terminal input.
             _key = body.get("key")
-            _select = body.get("select")
             _array_keys = None
             if dir_patterns:
                 data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
@@ -275,7 +274,6 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 load_data_with_meta,
                 filepath,
                 key=_key,
-                select=_select,
             ) if not dir_patterns else (data, spatial_meta)
         except Exception as e:
             return {"error": str(e)}

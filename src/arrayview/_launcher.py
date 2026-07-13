@@ -914,7 +914,6 @@ def _load_session_from_filepath(
     notify: bool = False,
     rgb: bool = False,
     compare_sids: _CompareSids | None = None,
-    select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -930,8 +929,6 @@ def _load_session_from_filepath(
     }
     if rgb:
         payload["rgb"] = True
-    if select:
-        payload["select"] = select
     if dir_patterns:
         payload["dir_patterns"] = dir_patterns
         payload["dir_overlay_specs"] = dir_overlay_specs or []
@@ -1163,7 +1160,6 @@ def _register_cli_session_with_existing_server(
     use_native_shell: bool,
     vectorfield: str | None,
     vfield_components_dim: int | None,
-    select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -1202,7 +1198,6 @@ def _register_cli_session_with_existing_server(
         notify=notify_native_shell,
         rgb=rgb,
         compare_sids=compare_sids,
-        select=select,
         dir_patterns=dir_patterns,
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=dir_case_regex,
@@ -1268,7 +1263,6 @@ def _handle_cli_existing_server(
     window_mode: str | None,
     floating: bool,
     is_remote: bool = False,
-    select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -1288,7 +1282,6 @@ def _handle_cli_existing_server(
             use_native_shell=use_native_shell,
             vectorfield=vectorfield,
             vfield_components_dim=vfield_components_dim,
-            select=select,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=dir_case_regex,
@@ -1342,7 +1335,6 @@ def _handle_cli_existing_server(
                     rgb=rgb,
                     demo_name=None,
                     demo_cleanup=False,
-                    select=select,
                     dir_patterns=dir_patterns,
                     dir_overlay_specs=dir_overlay_specs,
                     dir_case_regex=dir_case_regex,
@@ -1408,7 +1400,6 @@ def _handle_cli_spawned_daemon(
     rgb: bool,
     demo_name: str | None,
     demo_cleanup: bool,
-    select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -1445,7 +1436,6 @@ def _handle_cli_spawned_daemon(
         f" vfield_components_dim={repr(vfield_components_dim)},"
         f" persist={is_remote},"
         f" rgb={rgb},"
-        f" stack_select={repr(select)},"
         f" dir_patterns={repr(dir_patterns)},"
         f" dir_overlay_specs={repr(dir_overlay_specs)},"
         f" dir_case_regex={repr(dir_case_regex)},"
@@ -1477,7 +1467,6 @@ def _handle_cli_spawned_daemon(
                 window_mode=window_mode,
                 floating=floating,
                 is_remote=is_remote,
-                select=select,
                 dir_patterns=dir_patterns,
                 dir_overlay_specs=dir_overlay_specs,
                 dir_case_regex=dir_case_regex,
@@ -3088,7 +3077,6 @@ def _serve_daemon(
     vfield_components_dim: int | None = None,
     persist: bool = False,
     rgb: bool = False,
-    stack_select: list[str] | None = None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -3171,14 +3159,16 @@ def _serve_daemon(
                 except Exception:
                     pass
                 _load_key = _array_keys[0]["key"] if _array_keys else None
-                data, spatial_meta = load_data_with_meta(filepath, key=_load_key, select=stack_select)
+                data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
                 dir_overlay_items = None
                 collection_spatial_ndim = None
             else:
                 _load_key = None
                 data, spatial_meta = load_data_with_meta(
-                    filepath, key=_load_key, select=stack_select,
-                    load=collection_load, stack=collection_stack,
+                    filepath,
+                    key=_load_key,
+                    load=collection_load,
+                    stack=collection_stack,
                 )
                 dir_overlay_items = None
                 collection_spatial_ndim = None
@@ -3465,89 +3455,6 @@ def _handle_config_command(args: list[str]) -> None:
     print(f"Unknown config command: {args[0]}")
     print("Usage: arrayview config [list|set|get|reset|path]")
     sys.exit(1)
-
-
-# ── NIfTI Series Helper ───────────────────────────────────────────
-
-
-def view_dir(
-    path,
-    *,
-    select=None,
-    load="lazy",
-    stack="auto",
-    port: int = 8123,
-    name=None,
-    **view_kwargs,
-):
-    """View a directory of array files as a single lazy 4D/5D array.
-
-    Walks *path* recursively, groups supported array files (.npy, .npz,
-    .nii/.nii.gz, .zarr, .pt/.pth, .h5, .tif/.tiff, .mat) by immediate
-    parent folder.  With one file per folder → 4D ``(*vol, P)``.
-    Pass *select* (a list of fnmatch patterns) to pick multiple files
-    per folder → 5D ``(*vol, P, M)``.
-
-    Example::
-
-        arrayview.view_dir("patients/")
-        arrayview.view_dir("patients/", select=["*t1*", "*t2*", "*flair*"])
-
-    Only the requested slice is loaded — RAM stays bounded regardless of
-    series size.  Accepts the same keyword arguments as :func:`view`
-    (``window``, ``inline``, ``port``, etc.).
-    """
-    from arrayview._io import load_data_with_meta
-
-    data, _meta = load_data_with_meta(path, select=select, load=load, stack=stack)
-    if name is None:
-        name = os.path.basename(os.path.abspath(path)) or "file_series"
-    return view(data, name=name, port=port, **view_kwargs)
-
-
-def view_dir_patterns(
-    *patterns,
-    overlay=None,
-    case_regex=None,
-    load="lazy",
-    stack="auto",
-    port: int = 8123,
-    name=None,
-    **view_kwargs,
-):
-    """View recursive file patterns as an aligned collection.
-
-    Positional patterns define the base image channel/modality stack.  Overlay
-    patterns may be passed as ``{"name": pattern}``, ``[(name, pattern)]``, or
-    ``["name=pattern", ...]``.
-    """
-    from arrayview._io import load_dir_collection
-
-    overlay_pairs = _normalize_dir_overlay_specs(overlay or [])
-    data, spatial_meta, overlay_items, _summary = load_dir_collection(
-        list(patterns),
-        overlays=overlay_pairs,
-        case_regex=case_regex,
-        load=load,
-        stack=stack,
-    )
-    if name is None:
-        name = "dir collection"
-    overlay_data = [item["data"] for item in overlay_items]
-    handle = view(
-        data,
-        name=name,
-        port=port,
-        overlay=overlay_data if overlay_data else None,
-        **view_kwargs,
-    )
-    sid = getattr(handle, "sid", None)
-    if sid:
-        session = _session_mod.SESSIONS.get(sid)
-        if session is not None:
-            session.spatial_meta = spatial_meta
-            session.collection_spatial_ndim = len(_summary["spatial_shape"])
-    return handle
 
 
 def _normalize_dir_overlay_specs(specs):
@@ -4078,18 +3985,6 @@ def arrayview():
         default="lazy",
         help="Directory collection loading policy (default: lazy).",
     )
-    parser.add_argument(
-        "--select",
-        metavar="PATTERN",
-        action="append",
-        default=None,
-        dest="stack_select",
-        help=(
-            "fnmatch pattern to select one file per folder (use with "
-            "directory FILE input). Repeatable: each pattern picks one item. "
-            "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
-        ),
-    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
@@ -4194,8 +4089,6 @@ def arrayview():
         parser.error("--dry-run requires --stack.")
     excluded_cases = set()
     if args.stack_mode:
-        if args.stack_select:
-            parser.error("--stack pattern mode is incompatible with --select.")
         if not args.files:
             parser.error("--stack requires at least one image pattern.")
         if args.compare or args.vectorfield or args.watch or args.rgb:
@@ -4205,7 +4098,7 @@ def arrayview():
             )
         if args.relay:
             parser.error("--stack is incompatible with --relay.")
-    if (args.stack_select or args.stack_policy) and not args.stack_mode:
+    if args.stack_policy and not args.stack_mode:
         if len(args.files) != 1:
             parser.error(
                 "Directory FILE input requires exactly one FILE argument (a directory)."
@@ -4592,7 +4485,6 @@ def arrayview():
             window_mode=window_mode,
             floating=args.floating,
             is_remote=is_remote,
-            select=args.stack_select,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
@@ -4622,7 +4514,6 @@ def arrayview():
         rgb=args.rgb,
         demo_name=demo_name,
         demo_cleanup=demo_cleanup,
-        select=args.stack_select,
         dir_patterns=dir_patterns,
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=args.case_regex,

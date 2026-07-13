@@ -19,7 +19,6 @@ def test_cli_file_request_is_normalized() -> None:
         compare_sources=["followup.npy"],
         overlays=["mask.npy"],
         dims=":,:,x,y",
-        select=["*t1*"],
         key="volume",
         watch=True,
         vectorfield="flow.npy",
@@ -30,7 +29,6 @@ def test_cli_file_request_is_normalized() -> None:
     assert spec.compare_sources == ("followup.npy",)
     assert spec.overlays == ("mask.npy",)
     assert spec.dims == (2, 3)
-    assert spec.select == ("*t1*",)
     assert spec.required_capabilities == (
         SessionCapability.FILESYSTEM,
         SessionCapability.WATCH,

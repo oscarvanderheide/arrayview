@@ -1290,13 +1290,12 @@ def load_dir_collection(
     return data, spatial_meta, overlay_items, summary
 
 
-def _load_file_series(path, select=None, *, load="lazy", stack="auto"):
+def _load_file_series(path, *, load="lazy", stack="auto"):
     """Build a lazy series from a directory of supported array files.
 
     Walks *path* recursively, groups files of any supported format by
-    immediate parent folder (= patient).  With *select* (a list of fnmatch
-    patterns), picks one file per pattern per patient → 5D ``(*vol, P, M)``.
-    Without *select*, requires exactly one file per patient → 4D ``(*vol, P)``.
+    immediate parent folder (= patient).  Requires exactly one file per
+    patient → 4D ``(*vol, P)``.
 
     If every file is NIfTI (.nii/.nii.gz), delegates to
     ``_load_nifti_series`` for canonical reorientation.  Otherwise builds
@@ -1330,60 +1329,32 @@ def _load_file_series(path, select=None, *, load="lazy", stack="auto"):
 
     # NIfTI-only → preserve canonical reorientation + lazy dataobj slicing
     if all_nifti:
-        return _load_nifti_series(path, select=select, load=load, stack=stack)
+        return _load_nifti_series(path, load=load, stack=stack)
 
     # ── build file matrix ──────────────────────────────────────────
-    select_patterns = select or []
     patient_dirs = sorted(patients.keys())
     file_matrix: list[list[str]] = []
 
-    if select_patterns:
-        for pdir in patient_dirs:
-            selected: list[str] = []
-            for pattern in select_patterns:
-                matches = [
-                    f
-                    for f in patients[pdir]
-                    if fnmatch.fnmatch(os.path.basename(f), pattern)
-                ]
-                if not matches:
-                    raise ValueError(
-                        f"Folder {pdir!r}: no file matches --select "
-                        f"pattern {pattern!r}. Available: "
-                        f"{[os.path.basename(f) for f in patients[pdir]]}"
-                    )
-                if len(matches) > 1:
-                    raise ValueError(
-                        f"Folder {pdir!r}: multiple files match "
-                        f"--select pattern {pattern!r}: "
-                        f"{[os.path.basename(f) for f in matches]}. "
-                        "Make patterns more specific."
-                    )
-                selected.append(matches[0])
-            file_matrix.append(selected)
-    else:
-        for pdir in patient_dirs:
-            files = patients[pdir]
-            if len(files) == 1:
-                file_matrix.append([files[0]])
-            else:
-                raise ValueError(
-                    f"Folder {pdir!r} contains {len(files)} files: "
-                    f"{[os.path.basename(f) for f in files]}. "
-                    "Use --select PATTERN to pick one (or more) per folder. "
-                    "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
-                )
+    for pdir in patient_dirs:
+        files = patients[pdir]
+        if len(files) == 1:
+            file_matrix.append([files[0]])
+        else:
+            raise ValueError(
+                f"Folder {pdir!r} contains {len(files)} files: "
+                f"{[os.path.basename(f) for f in files]}. "
+                "Use --stack with explicit file patterns for multi-file folders."
+            )
 
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
-def _load_nifti_series(path, select=None, *, load="lazy", stack="auto"):
+def _load_nifti_series(path, *, load="lazy", stack="auto"):
     """Build a lazy ``_NiftiSeries`` from a directory of NIfTI files.
 
     Walks *path* recursively, groups ``.nii``/``.nii.gz`` by immediate parent
-    folder (= patient).  With *select* (a list of fnmatch patterns), picks one
-    file per pattern per patient → 5D ``(*vol, P, M)``.  Without *select*,
-    requires exactly one NIfTI per patient → 4D ``(*vol, P)``.
+    folder (= patient).  Requires exactly one NIfTI per patient → 4D
+    ``(*vol, P)``.
 
     Returns ``(series, spatial_meta)``.
     """
@@ -1409,51 +1380,24 @@ def _load_nifti_series(path, select=None, *, load="lazy", stack="auto"):
             "first (e.g. `dcm2niix -o <out> <dicom_dir>`)."
         )
 
-    select_patterns = select or []
     patient_dirs = sorted(patients.keys())
     file_matrix: list[list[str]] = []
 
-    if select_patterns:
-        for pdir in patient_dirs:
-            selected: list[str] = []
-            for pattern in select_patterns:
-                matches = [
-                    f
-                    for f in patients[pdir]
-                    if fnmatch.fnmatch(os.path.basename(f), pattern)
-                ]
-                if not matches:
-                    raise ValueError(
-                        f"Patient folder {pdir!r}: no file matches --select "
-                        f"pattern {pattern!r}. Available: "
-                        f"{[os.path.basename(f) for f in patients[pdir]]}"
-                    )
-                if len(matches) > 1:
-                    raise ValueError(
-                        f"Patient folder {pdir!r}: multiple files match "
-                        f"--select pattern {pattern!r}: "
-                        f"{[os.path.basename(f) for f in matches]}. "
-                        "Make patterns more specific."
-                    )
-                selected.append(matches[0])
-            file_matrix.append(selected)
-    else:
-        for pdir in patient_dirs:
-            nii_files = patients[pdir]
-            if len(nii_files) == 1:
-                file_matrix.append([nii_files[0]])
-            else:
-                raise ValueError(
-                    f"Patient folder {pdir!r} contains {len(nii_files)} NIfTI "
-                    f"files: {[os.path.basename(f) for f in nii_files]}. "
-                    "Use --select PATTERN to pick one (or more) per patient. "
-                    "Example: --select '*t1*' --select '*t2*' --select '*flair*'"
-                )
+    for pdir in patient_dirs:
+        nii_files = patients[pdir]
+        if len(nii_files) == 1:
+            file_matrix.append([nii_files[0]])
+        else:
+            raise ValueError(
+                f"Patient folder {pdir!r} contains {len(nii_files)} NIfTI "
+                f"files: {[os.path.basename(f) for f in nii_files]}. "
+                "Use --stack with explicit file patterns for multi-file folders."
+            )
 
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
-def load_data_with_meta(filepath, key=None, select=None, *, load="lazy", stack="auto"):
+def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto"):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
@@ -1461,7 +1405,7 @@ def load_data_with_meta(filepath, key=None, select=None, *, load="lazy", stack="
     ``_load_file_series``).
     """
     if os.path.isdir(filepath):
-        return _load_file_series(filepath, select=select, load=load, stack=stack)
+        return _load_file_series(filepath, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
     return load_data(filepath, key=key), None
