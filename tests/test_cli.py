@@ -457,6 +457,7 @@ def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_pat
     monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
     _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(_launch_plan_mod, "_native_window_gui", lambda: "webview")
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,
@@ -500,6 +501,7 @@ def test_cli_existing_server_native_shell_connection_skips_browser(
     monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
     _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(_launch_plan_mod, "_native_window_gui", lambda: "webview")
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,

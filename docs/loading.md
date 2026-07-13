@@ -85,7 +85,7 @@ Native windows also show a static preview while the live viewer warms up.
 ```bash
 uvx arrayview base.npy moving.npy           # compare mode
 uvx arrayview volume.nii.gz --overlay mask.nii.gz
-uvx arrayview volume.nii.gz --overlay "ground truth=mask.nii.gz"
+uvx arrayview volume.nii.gz --overlay "ground truth=mask_gt.nii.gz" --overlay "prediction=mask_pred.nii.gz"
 ```
 
 An unnamed overlay uses the filename stem as its display name (`mask` above).
@@ -99,8 +99,7 @@ shows all overlays at once.
 
 ## Directory Pattern Collections
 
-Use `--stack` when reviewing many arrays. Passing a directory scans supported
-files recursively; passing patterns keeps the aligned channel/overlay workflow.
+Use `--stack` when reviewing many arrays.
 
 ```bash
 uvx arrayview --stack scans/
@@ -115,48 +114,8 @@ dense` requires matching shapes, while `--stack-policy ragged` forces collection
 semantics. `--load eager` is intended for small datasets that should be loaded
 up front.
 
-Positional patterns become a channel/modality axis:
-
-```bash
-uvx arrayview --stack "data/**/*_0000.nii.gz" "data/**/*_0001.nii.gz"
-```
-
-Overlays become named recursive patterns:
-
-```bash
-uvx arrayview --stack \
-  "data/**/*_0000.nii.gz" \
-  "data/**/*_0001.nii.gz" \
-  --overlay "gt=data/**/labels/**/*.nii.gz" \
-  --overlay "pred=data/**/pred/**/*.nii.gz"
-```
-
-When every case has a directory containing separately named masks,
-`--overlay-dir` discovers one overlay role per filename. Masks that are absent
-for a case are shown as empty. ArrayView infers the shared case directory from
-layouts such as `sub-0001/T1_W/` and `sub-0001/masks/`:
-
-```bash
-uvx arrayview --stack "data/*/T1_W/*.nii.gz" \
-  --overlay-dir "data/*/masks"
-```
-
-Repeat `--overlay-dir` to combine masks from multiple per-case directories.
-
-ArrayView pairs files by sorted match order. The first match from each pattern
-belongs to the first case, the second match belongs to the second case, and so
-on. Use `--dry-run` to inspect matches without opening a viewer.
-
-```bash
-uvx arrayview --stack "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz" --dry-run
-```
-
-For unusual or ambiguous layouts, pass a regex with a `case` group to override
-automatic directory inference:
-
-```bash
-uvx arrayview --stack "data/**/*.nii.gz" --case-regex "(?P<case>patient-[0-9]+)"
-```
+Pattern collections, named overlays, multiple overlays, and `--overlay-dir`:
+[Stack and Overlay Collections](stack-overlays.md).
 
 ## NIfTI Series (4D/5D from a directory)
 

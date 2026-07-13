@@ -133,7 +133,12 @@ def test_plain_ssh_browser_guidance_keeps_localhost_forwarding_url(monkeypatch, 
     monkeypatch.setenv("SSH_CONNECTION", "localhost 12345 22")
     monkeypatch.setattr(browser.sys, "platform", "linux")
     monkeypatch.setattr(browser.subprocess, "run", lambda *args, **kwargs: type("R", (), {"returncode": 0})())
-    monkeypatch.setattr(browser.os, "uname", lambda: type("U", (), {"nodename": "ssh-host"})())
+    monkeypatch.setattr(
+        browser.os,
+        "uname",
+        lambda: type("U", (), {"nodename": "ssh-host"})(),
+        raising=False,
+    )
 
     browser._open_browser("http://localhost:8123/?sid=abc", blocking=True)
 

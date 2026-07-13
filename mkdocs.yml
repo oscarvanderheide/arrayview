@@ -24,6 +24,7 @@ extra_css:
 nav:
   - Home: index.md
   - Loading Arrays: loading.md
+  - Stack and Overlays: stack-overlays.md
   - Viewing: viewing.md
   - Comparing: comparing.md
   - Display: display.md

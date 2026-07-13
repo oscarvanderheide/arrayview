@@ -30,6 +30,8 @@ MATLAB and Julia setup: [MATLAB and Julia](foreign-hosts.md).
 
 Remote and tunnel setup: [Remote](remote.md).
 
+Stacked patient collections and masks: [Stack and Overlay Collections](stack-overlays.md).
+
 ## Formats
 
 `.npy` `.npz` `.nii` `.nii.gz` `.zarr` `.pt` `.h5` `.tif` `.mat`
