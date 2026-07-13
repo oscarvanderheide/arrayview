@@ -329,6 +329,108 @@ def test_stale_collection_prefetch_is_coalesced(monkeypatch):
     assert warmed == [21]
 
 
+def test_overlay_prefetch_only_warms_visible_next_patient(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    warmed = []
+    main = SimpleNamespace(
+        shape=(32, 32, 20, 100),
+        _overlay_prefetch_generation=0,
+    )
+    overlays = {
+        "visible": SimpleNamespace(
+            shape=main.shape,
+            data=SimpleNamespace(_stack_axes=(3,)),
+            raw_cache={},
+        ),
+        "hidden": SimpleNamespace(
+            shape=main.shape,
+            data=SimpleNamespace(_stack_axes=(3,)),
+            raw_cache={},
+        ),
+        "missing": SimpleNamespace(
+            shape=main.shape,
+            data=SimpleNamespace(
+                _stack_axes=(3,),
+                _file_matrix=[["mask.nii.gz"] for _ in range(100)],
+            ),
+            raw_cache={},
+        ),
+        "not_collection": SimpleNamespace(
+            shape=main.shape,
+            data=SimpleNamespace(_stack_axes=()),
+            raw_cache={},
+        ),
+    }
+    overlays["missing"].data._file_matrix[13][0] = None
+
+    class ImmediatePool:
+        def submit(self, fn, *args):
+            fn(*args)
+
+    monkeypatch.setattr(session_mod, "SESSIONS", overlays)
+    monkeypatch.setattr(session_mod, "_get_overlay_prefetch_pool", lambda: ImmediatePool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_slice",
+        lambda overlay, _dx, _dy, idx: warmed.append((overlay, idx[3])),
+    )
+
+    session_mod._schedule_overlay_prefetch(
+        main,
+        "visible,hidden,missing,not_collection,unknown",
+        "0.45,0,0.45,0.45,0.45",
+        0,
+        1,
+        [0, 0, 10, 12],
+        3,
+        1,
+    )
+
+    assert warmed == [(overlays["visible"], 13)]
+
+
+def test_stale_overlay_prefetch_is_coalesced(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    queued = []
+    warmed = []
+    main = SimpleNamespace(shape=(32, 32, 20, 100))
+    overlay = SimpleNamespace(
+        shape=main.shape,
+        data=SimpleNamespace(_stack_axes=(3,)),
+        raw_cache={},
+    )
+
+    class QueuedPool:
+        def submit(self, fn, *args):
+            queued.append((fn, args))
+
+    monkeypatch.setattr(session_mod, "SESSIONS", {"overlay": overlay})
+    monkeypatch.setattr(session_mod, "_get_overlay_prefetch_pool", lambda: QueuedPool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_slice",
+        lambda _overlay, _dx, _dy, idx: warmed.append(idx[3]),
+    )
+
+    session_mod._schedule_overlay_prefetch(
+        main, "overlay", "0.45", 0, 1, [0, 0, 10, 12], 3, 1
+    )
+    session_mod._schedule_overlay_prefetch(
+        main, "overlay", "0.45", 0, 1, [0, 0, 11, 12], 3, 1
+    )
+    session_mod._schedule_overlay_prefetch(
+        main, "overlay", "0.45", 0, 1, [0, 0, 10, 20], 3, 1
+    )
+    for fn, args in queued:
+        fn(*args)
+
+    assert warmed == [21]
+
+
 # ---------------------------------------------------------------------------
 # Non-NIfTI file series  (.npy, .npz, etc.)
 # ---------------------------------------------------------------------------
@@ -642,6 +744,15 @@ class TestDirCollection:
         assert meta["shape"] == [4, 5, 6, 2, 2]
         assert meta["collection_spatial_ndim"] == 3
         assert meta["ragged_spatial_shapes"][1][1] == [3, 6, 6]
+
+    def test_metadata_ignores_case_axis_when_selecting_startup_plane(self):
+        from arrayview._analysis import _build_metadata
+        from arrayview._session import Session
+
+        session = Session(np.zeros((48, 3, 224, 224, 5), dtype=np.float32))
+        session.collection_spatial_ndim = 4
+
+        assert _build_metadata(session)["default_dims"] == [2, 3]
 
     def test_ordered_pairing_mismatched_counts_error(self, tmp_path):
         import arrayview._io as _io

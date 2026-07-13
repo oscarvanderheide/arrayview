@@ -36,6 +36,7 @@ def _composite_overlays(
     dim_y: int,
     idx_tuple: tuple[int, ...],
     shape_hw: tuple[int, int],
+    base_shape: tuple[int, ...] | None = None,
 ) -> np.ndarray:
     """Composite one or more overlay masks onto RGBA pixels."""
     if not overlay_sid_str:
@@ -62,6 +63,7 @@ def _composite_overlays(
             dim_y,
             idx_tuple,
             expected_shape=shape_hw,
+            base_shape=base_shape,
         )
         rgba = _composite_overlay_mask(
             rgba,

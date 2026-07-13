@@ -101,6 +101,7 @@ def _ensure_render_thread() -> None:
 # Neighbor prefetch thread pool (Phase 3)
 # ---------------------------------------------------------------------------
 _PREFETCH_POOL = None
+_OVERLAY_PREFETCH_POOL = None
 _PREFETCH_LOCK = threading.Lock()
 
 
@@ -114,6 +115,19 @@ def _get_prefetch_pool():
                 max_workers=1, thread_name_prefix="arrayview-prefetch"
             )
         return _PREFETCH_POOL
+
+
+def _get_overlay_prefetch_pool():
+    """Return the small pool reserved for collection overlay lookahead."""
+    global _OVERLAY_PREFETCH_POOL
+    with _PREFETCH_LOCK:
+        if _OVERLAY_PREFETCH_POOL is None or _OVERLAY_PREFETCH_POOL._shutdown:
+            import concurrent.futures
+
+            _OVERLAY_PREFETCH_POOL = concurrent.futures.ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="arrayview-overlay-prefetch"
+            )
+        return _OVERLAY_PREFETCH_POOL
 
 
 def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
@@ -166,6 +180,85 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
 
     try:
         _get_prefetch_pool().submit(_warm)
+    except RuntimeError:
+        pass  # pool shutting down
+
+
+def _schedule_overlay_prefetch(
+    session,
+    overlay_sid_str,
+    overlay_alphas_str,
+    dim_x,
+    dim_y,
+    idx_list,
+    collection_axis,
+    direction,
+):
+    """Warm the next collection volume for visible overlays.
+
+    Overlay work uses its own bounded pool so a long mask decompression cannot
+    hold up the main image's single-worker prefetch lane. New navigation
+    supersedes overlay jobs that have not started loading a volume yet.
+    """
+    if not overlay_sid_str:
+        return
+
+    sids = [sid.strip() for sid in overlay_sid_str.split(",") if sid.strip()]
+    alphas = [a.strip() for a in (overlay_alphas_str or "").split(",")]
+    visible_sids = []
+    for i, sid in enumerate(sids):
+        try:
+            alpha = float(alphas[i]) if i < len(alphas) and alphas[i] else 1.0
+        except ValueError:
+            alpha = 1.0
+        if alpha > 0.0:
+            visible_sids.append(sid)
+    if not visible_sids:
+        return
+
+    target = idx_list[collection_axis] + direction
+    if not 0 <= target < session.shape[collection_axis]:
+        return
+
+    request_key = (collection_axis, target, tuple(visible_sids))
+    if request_key == getattr(session, "_overlay_prefetch_request", None):
+        return
+    session._overlay_prefetch_request = request_key
+    generation = getattr(session, "_overlay_prefetch_generation", 0) + 1
+    session._overlay_prefetch_generation = generation
+
+    def _warm(overlay_sid):
+        if generation != getattr(session, "_overlay_prefetch_generation", 0):
+            return
+        overlay = SESSIONS.get(overlay_sid)
+        if overlay is None or collection_axis >= len(overlay.shape):
+            return
+        overlay_stack_axes = tuple(getattr(overlay.data, "_stack_axes", ()))
+        if collection_axis not in overlay_stack_axes or target >= overlay.shape[collection_axis]:
+            return
+        overlay_idx = list(idx_list[: len(overlay.shape)])
+        overlay_idx[collection_axis] = target
+        # Sparse --overlay-dir collections represent a missing patient with a
+        # None filepath. Avoid allocating a fresh full-size zero volume merely
+        # to prefetch an overlay that will be shown empty.
+        file_matrix = getattr(overlay.data, "_file_matrix", None)
+        if file_matrix is not None:
+            modality = 0
+            if len(overlay_stack_axes) > 1:
+                modality = overlay_idx[overlay_stack_axes[1]]
+            if not file_matrix[target][modality]:
+                return
+        try:
+            from arrayview._render import extract_slice
+
+            extract_slice(overlay, dim_x, dim_y, overlay_idx)
+        except Exception:
+            pass
+
+    try:
+        pool = _get_overlay_prefetch_pool()
+        for overlay_sid in visible_sids:
+            pool.submit(_warm, overlay_sid)
     except RuntimeError:
         pass  # pool shutting down
 
@@ -476,9 +569,12 @@ __all__ = [
     "_render",
     # Prefetch
     "_PREFETCH_POOL",
+    "_OVERLAY_PREFETCH_POOL",
     "_PREFETCH_LOCK",
     "_get_prefetch_pool",
+    "_get_overlay_prefetch_pool",
     "_schedule_prefetch",
+    "_schedule_overlay_prefetch",
     # Session
     "Session",
     "SESSIONS",

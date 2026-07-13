@@ -251,6 +251,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     dim_y,
                     idx_tuple,
                     rgba.shape[:2],
+                    session.shape,
                 )
                 _, vmin, vmax = _prepare_display(
                     session,

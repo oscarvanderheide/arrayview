@@ -34,7 +34,15 @@ def _build_metadata(session) -> dict:
         "is_rgb": session.rgb_axis is not None,
         "has_source_file": bool(getattr(session, "filepath", None)),
     }
-    default_dims = _session_mod._startup_dims_for_data(session.data, target_shape)
+    collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
+    default_shape = target_shape
+    if collection_spatial_ndim is not None:
+        spatial_ndim = int(collection_spatial_ndim)
+        if 2 <= spatial_ndim <= len(target_shape):
+            # Collection axes are appended after the image dimensions. They
+            # select a case; they must not influence the startup plane.
+            default_shape = target_shape[:spatial_ndim]
+    default_dims = _session_mod._startup_dims_for_data(session.data, default_shape)
     if default_dims is not None:
         meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
     if getattr(session, "spatial_meta", None) is not None:
@@ -49,7 +57,6 @@ def _build_metadata(session) -> dict:
         )
     if getattr(session, "array_keys", None):
         meta["array_keys"] = session.array_keys
-    collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
     if collection_spatial_ndim is not None:
         meta["collection_spatial_ndim"] = int(collection_spatial_ndim)
     if getattr(session.data, "_av_ragged", False):

@@ -1,5 +1,6 @@
 """Rendering pipeline: colormaps, LUTs, slice extraction, RGBA, mosaic, RGB, preload."""
 
+import itertools
 import threading
 import time
 
@@ -527,6 +528,7 @@ def _extract_overlay_mask(
     dim_y: int,
     idx_tuple: tuple[int, ...],
     expected_shape: tuple[int, int],
+    base_shape: tuple[int, ...] | None = None,
 ) -> np.ndarray | None:
     """Return the raw overlay slice (float32 H×W) for compositing, or None.
 
@@ -538,27 +540,43 @@ def _extract_overlay_mask(
     if ov_session is None:
         return None
 
-    ov_ndim = ov_session.data.ndim
-    if dim_x >= ov_ndim or dim_y >= ov_ndim:
+    ov_shape = tuple(int(size) for size in ov_session.shape)
+    main_shape = tuple(int(size) for size in (base_shape or ov_shape))
+    if len(ov_shape) > len(main_shape):
         return None
 
-    idx_candidates: list[tuple[int, ...]] = [
-        tuple(int(idx_tuple[i]) if i < len(idx_tuple) else 0 for i in range(ov_ndim))
-    ]
-    if len(idx_tuple) >= ov_ndim:
-        trailing = tuple(int(v) for v in idx_tuple[-ov_ndim:])
-        if trailing != idx_candidates[0]:
-            idx_candidates.append(trailing)
-
-    for ov_idx in idx_candidates:
-        try:
-            ov_raw = extract_slice(ov_session, dim_x, dim_y, list(ov_idx))
-        except Exception:
-            continue
-        if ov_raw.shape != expected_shape:
-            continue
-        if np.any(np.isfinite(ov_raw) & (ov_raw != 0)):
-            return ov_raw.astype(np.float32)
+    # An overlay may omit one or more non-spatial dimensions from the base.
+    # Match its axes to equal-sized base axes, then index only those axes. This
+    # broadcasts the overlay over every omitted axis without allocating a tiled
+    # copy (important for masks next to multi-echo or multi-channel data).
+    map_key = (main_shape, dim_x, dim_y)
+    axis_maps = getattr(ov_session, "_overlay_axis_maps", None)
+    if axis_maps is None:
+        axis_maps = {}
+        ov_session._overlay_axis_maps = axis_maps
+    if map_key not in axis_maps:
+        axis_maps[map_key] = next(
+            (
+                base_axes
+                for base_axes in itertools.combinations(range(len(main_shape)), len(ov_shape))
+                if dim_x in base_axes
+                and dim_y in base_axes
+                and tuple(main_shape[axis] for axis in base_axes) == ov_shape
+            ),
+            None,
+        )
+    base_axes = axis_maps[map_key]
+    if base_axes is None:
+        return None
+    ov_dim_x = base_axes.index(dim_x)
+    ov_dim_y = base_axes.index(dim_y)
+    ov_idx = [int(idx_tuple[axis]) for axis in base_axes]
+    try:
+        ov_raw = extract_slice(ov_session, ov_dim_x, ov_dim_y, ov_idx)
+    except Exception:
+        return None
+    if ov_raw.shape == expected_shape:
+        return ov_raw.astype(np.float32)
     return None
 
 

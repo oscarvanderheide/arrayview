@@ -100,6 +100,14 @@ class TestHealth:
 
         assert body["default_dims"] == [0, 1]
 
+    def test_metadata_prefers_trailing_plane_when_it_has_the_two_largest_axes(self, client, tmp_path):
+        path = tmp_path / "startup_dims_volume.npy"
+        np.save(path, np.zeros((48, 224, 224), dtype=np.float32))
+
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        assert client.get(f"/metadata/{sid}").json()["default_dims"] == [1, 2]
+
     def test_sessions_lists_registered_sid(self, client, sid_2d):
         r = client.get("/sessions")
         assert r.status_code == 200
@@ -4593,6 +4601,31 @@ class TestCropPersistence:
 
 
 class TestMultipleOverlays:
+    def test_overlay_broadcasts_over_missing_base_dimension(self):
+        from arrayview._render import _extract_overlay_mask
+        from arrayview._session import SESSIONS, Session
+
+        base = Session(np.zeros((48, 3, 224, 224), dtype=np.float32))
+        overlay_data = np.zeros((48, 224, 224), dtype=np.uint8)
+        overlay_data[12, 100, 150] = 1
+        overlay = Session(overlay_data)
+        SESSIONS[overlay.sid] = overlay
+        try:
+            for channel in range(3):
+                result = _extract_overlay_mask(
+                    overlay.sid,
+                    dim_x=2,
+                    dim_y=3,
+                    idx_tuple=(12, channel, 112, 112),
+                    expected_shape=(224, 224),
+                    base_shape=base.shape,
+                )
+                assert result is not None
+                assert result[150, 100] == 1
+            assert overlay.data is overlay_data
+        finally:
+            SESSIONS.pop(overlay.sid, None)
+
     def test_single_overlay_with_color(self, client, sid_2d):
         """A single binary mask overlay with explicit hex color renders without error."""
         from arrayview._app import SESSIONS, Session

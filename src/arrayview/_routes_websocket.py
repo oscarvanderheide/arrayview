@@ -25,6 +25,7 @@ from arrayview._session import (
     SESSIONS,
     SHELL_SOCKETS,
     _render,
+    _schedule_overlay_prefetch,
     _schedule_prefetch,
     _vprint,
     wait_for_session_ready,
@@ -340,6 +341,7 @@ def register_websocket_routes(app) -> None:
                         dim_y,
                         idx_tuple,
                         (h, w),
+                        session.shape,
                     )
 
                 render_ms = (time.perf_counter() - render_t0) * 1000.0
@@ -414,6 +416,16 @@ def register_websocket_routes(app) -> None:
                             collection_axis,
                             collection_direction,
                         )
+                    _schedule_overlay_prefetch(
+                        session,
+                        msg.get("overlay_sid"),
+                        msg.get("overlay_alphas"),
+                        dim_x,
+                        dim_y,
+                        list(idx_tuple),
+                        collection_axis,
+                        collection_direction,
+                    )
                 previous_indices = idx_tuple
         except Exception as _ws_exc:
             import traceback
