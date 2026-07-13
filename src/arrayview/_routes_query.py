@@ -54,10 +54,22 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             info["fft_axes"] = list(session.fft_axes)
         if getattr(session, "spatial_meta", None) is not None:
             spatial_meta = session.spatial_meta
+            voxel_sizes = tuple(float(v) for v in spatial_meta["voxel_sizes"])
+            spatial_shape = tuple(
+                int(v)
+                for v in spatial_meta.get(
+                    "canonical_shape", session.shape[: len(voxel_sizes)]
+                )
+            )
             info["spatial_meta"] = {
-                "voxel_sizes": list(spatial_meta["voxel_sizes"]),
+                "voxel_sizes": list(voxel_sizes),
                 "axis_labels": list(spatial_meta["axis_labels"]),
                 "is_oblique": bool(spatial_meta["is_oblique"]),
+                "field_of_view": [
+                    float(size * spacing)
+                    for size, spacing in zip(spatial_shape, voxel_sizes)
+                ],
+                "spatial_shape": list(spatial_shape),
             }
             info["ras_resample_active"] = bool(
                 getattr(session, "ras_resample_active", False)

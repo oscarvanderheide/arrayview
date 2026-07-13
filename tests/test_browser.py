@@ -1617,18 +1617,45 @@ class TestKeyboard:
         assert "playing" not in status, \
             "playback should stop when j/k pressed on playing dim"
 
-    def test_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
-        # i shows the info overlay (#info-overlay gains .visible class)
+    def test_shift_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
+        # Shift+I shows the info overlay (#info-overlay gains .visible class)
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("i")
+        page.keyboard.press("Shift+I")
         page.wait_for_timeout(600)
         visible = page.evaluate(
             "() => document.querySelector('#info-overlay').classList.contains('visible')"
         )
-        assert visible, "#info-overlay should have .visible after pressing i"
+        assert visible, "#info-overlay should have .visible after pressing Shift+I"
         text = page.inner_text("#info-overlay")
         assert "100" in text or "80" in text, f"Shape not in info-overlay: '{text}'"
+
+    def test_shift_i_info_overlay_splits_path_and_shows_nifti_spatial_rows(
+        self, client, loaded_viewer, tmp_path
+    ):
+        nib = pytest.importorskip("nibabel")
+        data = np.zeros((4, 5, 6), dtype=np.float32)
+        affine = np.diag([2.0, 1.5, 0.75, 1.0])
+        folder = tmp_path / "case-a"
+        folder.mkdir()
+        path = folder / "spatial.nii.gz"
+        nib.save(nib.Nifti1Image(data, affine), str(path))
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+I")
+        page.wait_for_selector("#info-overlay.visible", timeout=2_000)
+
+        text = page.inner_text("#info-overlay")
+        assert "Voxel size" in text
+        assert "2 x 1.5 x 0.75 mm" in text
+        assert "Field of view" in text
+        assert "8 x 7.5 x 4.5 mm" in text
+        assert "Folder" in text
+        assert str(folder) in text
+        assert "Filename" in text
+        assert "spatial.nii.gz" in text
 
     def test_e_copies_state_to_clipboard(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

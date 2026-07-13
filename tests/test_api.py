@@ -1010,6 +1010,20 @@ class TestInfo:
         assert isinstance(body["recommended_colormap"], str)
         assert isinstance(body["recommended_colormap_reason"], str)
 
+    def test_nifti_spatial_info_includes_voxel_size_and_fov(self, client, tmp_path):
+        nib = pytest.importorskip("nibabel")
+        data = np.zeros((4, 5, 6), dtype=np.float32)
+        affine = np.diag([2.0, 1.5, 0.75, 1.0])
+        path = tmp_path / "spatial.nii.gz"
+        nib.save(nib.Nifti1Image(data, affine), str(path))
+
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        body = client.get(f"/info/{sid}").json()
+
+        assert body["spatial_meta"]["voxel_sizes"] == pytest.approx([2.0, 1.5, 0.75])
+        assert body["spatial_meta"]["field_of_view"] == pytest.approx([8.0, 7.5, 4.5])
+        assert body["spatial_meta"]["spatial_shape"] == [4, 5, 6]
+
 
 class TestThumbnail:
     def test_thumbnail_returns_jpeg(self, client, sid_2d):

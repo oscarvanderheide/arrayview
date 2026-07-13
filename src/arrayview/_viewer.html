@@ -580,8 +580,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 18px;
-            height: 18px;
+            width: 14px;
+            height: 14px;
             padding: 0;
             border: 0;
             border-radius: 50%;
@@ -610,16 +610,16 @@
         .dmenu-bound-lock {
             display: block;
             position: relative;
-            width: 15px;
-            height: 15px;
+            width: 12px;
+            height: 12px;
             color: inherit;
         }
         .dmenu-bound-lock svg {
             display: block;
-            width: 15px;
-            height: 15px;
+            width: 12px;
+            height: 12px;
             stroke: currentColor;
-            stroke-width: 2.2;
+            stroke-width: 2.1;
             stroke-linecap: round;
             stroke-linejoin: round;
             fill: none;
@@ -12449,8 +12449,27 @@
 
         function showDataInfo(rows) {
             document.getElementById('info-table').innerHTML =
-                rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+                rows.map(([k, v]) => `<tr><td>${_escapeHtml(k)}</td><td>${_escapeHtml(v)}</td></tr>`).join('');
             document.getElementById('info-overlay').classList.add('visible');
+        }
+
+        function _basenameFromPath(path) {
+            if (!path) return '';
+            const trimmed = String(path).replace(/[\\/]+$/, '');
+            const parts = trimmed.split(/[\\/]/);
+            return parts[parts.length - 1] || trimmed;
+        }
+
+        function _dirnameFromPath(path) {
+            if (!path) return '';
+            const trimmed = String(path).replace(/[\\/]+$/, '');
+            const match = trimmed.match(/^(.*)[\\\/][^\\\/]*$/);
+            return match ? (match[1] || '/') : '';
+        }
+
+        function _formatMmList(values) {
+            if (!Array.isArray(values) || !values.length) return '';
+            return values.map(v => Number.isFinite(Number(v)) ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 4 }) : String(v)).join(' x ') + ' mm';
         }
 
         function applyFlips(imageData, w, h) {
@@ -22278,7 +22297,17 @@
                                 ['Size', d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'],
                             ];
                             if (d.recommended_colormap_reason) rows.push(['Colormap', d.recommended_colormap_reason]);
-                            if (d.filepath) rows.push(['File', d.filepath]);
+                            if (d.spatial_meta) {
+                                if (d.spatial_meta.voxel_sizes) rows.push(['Voxel size', _formatMmList(d.spatial_meta.voxel_sizes)]);
+                                if (d.spatial_meta.field_of_view) rows.push(['Field of view', _formatMmList(d.spatial_meta.field_of_view)]);
+                                if (d.spatial_meta.axis_labels) rows.push(['Axes', d.spatial_meta.axis_labels.join(' / ')]);
+                                rows.push(['Oblique', d.spatial_meta.is_oblique ? 'yes' : 'no']);
+                            }
+                            if (d.filepath) {
+                                const folder = _dirnameFromPath(d.filepath);
+                                if (folder) rows.push(['Folder', folder]);
+                                rows.push(['Filename', _basenameFromPath(d.filepath)]);
+                            }
                             if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
                             showDataInfo(rows);
                         });
@@ -33323,17 +33352,13 @@
                         ? valueLabels[item.kind].getBoundingClientRect()
                         : null;
                     const lockLeft = valueRect
-                        ? (
-                            item.kind === 'vmin'
-                                ? valueRect.left - boxRect.left - 11
-                                : valueRect.right - boxRect.left + 11
-                        )
+                        ? valueRect.left - boxRect.left + valueRect.width / 2
                         : left;
                     lock.style.left = `${lockLeft}px`;
                     const lockTop = valueRect
-                        ? valueRect.top - boxRect.top + valueRect.height / 2 - 9
+                        ? valueRect.top - boxRect.top - 16
                         : canvasRect.bottom - boxRect.top + 2;
-                    lock.style.top = `${Math.max(0, lockTop)}px`;
+                    lock.style.top = `${Math.max(percentTop, lockTop)}px`;
                 }
             });
             const vminLabel = positioned.vmin;

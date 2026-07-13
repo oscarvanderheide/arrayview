@@ -195,8 +195,11 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
             const lockVmax = document.querySelector('.dmenu-lock-vmax').getBoundingClientRect();
             const pctVmin = document.querySelector('.dmenu-percent-vmin').getBoundingClientRect();
             const pctVmax = document.querySelector('.dmenu-percent-vmax').getBoundingClientRect();
+            const valueVmin = document.getElementById('slim-cb-vmin').getBoundingClientRect();
+            const valueVmax = document.getElementById('slim-cb-vmax').getBoundingClientRect();
             const divider = document.querySelector('.dmenu-percent-divider');
             const percentGap = pctVmax.left - pctVmin.right;
+            const minPercentTop = Math.min(pctVmin.top, pctVmax.top);
             return {
                 cbH: cb.height,
                 boxH: box.height,
@@ -204,6 +207,10 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
                 reserve: getComputedStyle(document.getElementById('dmenu-picker-box')).getPropertyValue('--dmenu-cb-reserve').trim(),
                 percentNoOverlap: percentGap >= 4,
                 dividerVisible: divider ? Number(getComputedStyle(divider).opacity) > 0.5 : false,
+                locksAboveValues: lockVmin.bottom <= valueVmin.top + 0.5
+                    && lockVmax.bottom <= valueVmax.top + 0.5,
+                locksNotAbovePercent: lockVmin.top >= minPercentTop - 0.5
+                    && lockVmax.top >= minPercentTop - 0.5,
                 inside: [lockVmin, lockVmax, pctVmin, pctVmax].every(r =>
                     r.top >= box.top - 0.5
                     && r.bottom <= box.bottom + 0.5
@@ -250,7 +257,11 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
     assert result["first"]["inside"] is True
     assert result["second"]["inside"] is True
     assert result["third"]["inside"] is True
+    assert result["first"]["locksAboveValues"] is True
+    assert result["first"]["locksNotAbovePercent"] is True
     assert result["closeLabels"]["inside"] is True
+    assert result["closeLabels"]["locksAboveValues"] is True
+    assert result["closeLabels"]["locksNotAbovePercent"] is True
     assert result["closeLabels"]["percentNoOverlap"] is True
     assert result["closeLabels"]["dividerVisible"] is True
     assert result["vminLocked"] is True
