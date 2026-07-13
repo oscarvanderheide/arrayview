@@ -115,11 +115,17 @@ def _windows_process_start(pid: int) -> str | None:
     handle = kernel32.OpenProcess(0x1000, False, pid)
     if not handle:
         return None
+    still_active = 259
+    exit_code = ctypes.c_ulong()
     creation = ctypes.c_ulonglong()
     exit_time = ctypes.c_ulonglong()
     kernel = ctypes.c_ulonglong()
     user = ctypes.c_ulonglong()
     try:
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return None
+        if exit_code.value != still_active:
+            return None
         ok = kernel32.GetProcessTimes(handle, ctypes.byref(creation),
                                       ctypes.byref(exit_time), ctypes.byref(kernel),
                                       ctypes.byref(user))

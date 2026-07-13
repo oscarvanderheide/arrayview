@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import platform
 import subprocess
 import sys
 import threading
@@ -219,7 +220,7 @@ def _open_browser(
                     port_hint = int(url.split(":")[2].split("/")[0].split("?")[0])
                 except Exception:
                     port_hint = parsed_port
-                hostname = os.uname().nodename or "<this-host>"
+                hostname = platform.node() or "<this-host>"
                 print(
                     f"[ArrayView] Plain SSH session detected.\n"
                     f"\n"

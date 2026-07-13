@@ -163,6 +163,7 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
     monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: "100")
@@ -201,6 +202,7 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
 
@@ -231,6 +233,7 @@ def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "100")
 
@@ -261,6 +264,7 @@ def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale")
     monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)
@@ -290,6 +294,7 @@ def test_vscode_local_missing_window_match_uses_focused_window_fallback(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
     monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)
@@ -331,6 +336,7 @@ def test_vscode_local_missing_window_match_with_local_windows_fails_closed(
     signal_dir = home / ".arrayview"
     signal_dir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
     monkeypatch.setattr(signal, "_find_current_vscode_window_id", lambda: None)

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const path = require('path');
 const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
@@ -54,18 +55,19 @@ assert.strictEqual(shouldDeferBroadcast(false, true, { broadcast: true }), false
 assert.strictEqual(shouldDeferBroadcast(true, false, { broadcast: true }), false);
 assert.strictEqual(shouldDeferBroadcast(false, false, { broadcast: false }), false);
 
-const home = '/home/tester';
+const home = path.join(path.parse(process.cwd()).root, 'home', 'tester');
+const ackPath = path.join(home, '.arrayview', 'open-ack-v0100-req-1.json');
 assert.strictEqual(
-    validatedAckPath('/home/tester/.arrayview/open-ack-v0100-req-1.json', 'req-1', home),
-    '/home/tester/.arrayview/open-ack-v0100-req-1.json'
+    validatedAckPath(ackPath, 'req-1', home),
+    path.resolve(ackPath)
 );
-assert.strictEqual(validatedAckPath('/tmp/open-ack-v0100-req-1.json', 'req-1', home), null);
+assert.strictEqual(validatedAckPath(path.join(path.parse(process.cwd()).root, 'tmp', 'open-ack-v0100-req-1.json'), 'req-1', home), null);
 assert.strictEqual(
-    validatedAckPath('/home/tester/.arrayview/open-ack-v0100-other.json', 'req-1', home),
+    validatedAckPath(path.join(home, '.arrayview', 'open-ack-v0100-other.json'), 'req-1', home),
     null
 );
 assert.strictEqual(
-    validatedAckPath('/home/tester/.arrayview/sub/open-ack-v0100-req-1.json', 'req-1', home),
+    validatedAckPath(path.join(home, '.arrayview', 'sub', 'open-ack-v0100-req-1.json'), 'req-1', home),
     null
 );
 

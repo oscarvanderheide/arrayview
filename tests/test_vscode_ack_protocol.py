@@ -19,6 +19,7 @@ def _request(tmp_path, **overrides):
 
 def test_open_request_includes_versioned_ack_metadata(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
     captured = []
     monkeypatch.setattr(
@@ -51,6 +52,7 @@ def test_open_request_includes_versioned_ack_metadata(monkeypatch, tmp_path):
 
 def test_open_request_reports_failed_legacy_write(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
     monkeypatch.setattr(signal, "_write_vscode_signal", lambda *args, **kwargs: False)
 
@@ -62,6 +64,7 @@ def test_open_request_reports_failed_legacy_write(monkeypatch, tmp_path):
 
 def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     signal_dir = tmp_path / ".arrayview"
@@ -86,6 +89,7 @@ def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_p
 
 def test_open_request_leaves_broadcast_window_to_claiming_extension(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
     signal_dir = tmp_path / ".arrayview"
@@ -112,6 +116,7 @@ def test_open_request_leaves_broadcast_window_to_claiming_extension(monkeypatch,
 
 def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
     signal_dir = tmp_path / ".arrayview"
@@ -144,6 +149,7 @@ def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):
 
 def test_protocol_uses_fixed_filename_for_running_legacy_extension(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
     signal_dir = tmp_path / ".arrayview"
@@ -240,6 +246,7 @@ def test_wait_rejects_malformed_or_unknown_ack(tmp_path):
 
 def test_cleanup_removes_only_stale_ack_files(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     signal_dir = tmp_path / ".arrayview"
     signal_dir.mkdir()
     stale = signal_dir / "open-ack-v0100-stale.json"
