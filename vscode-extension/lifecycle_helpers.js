@@ -45,6 +45,29 @@ function sessionMetadataUrlFromViewerUrl(url) {
     }
 }
 
+function releaseUrlForSid(viewerUrl, backendUrl, sid) {
+    try {
+        const origin = new URL(backendUrl || viewerUrl).origin;
+        return `${origin}/release/${encodeURIComponent(sid)}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+function isVersionAtLeast(actual, required) {
+    const parse = (value) => String(value || '').split('.').map(Number);
+    const left = parse(actual);
+    const right = parse(required);
+    if (left.some(Number.isNaN) || right.some(Number.isNaN)) return false;
+    const length = Math.max(left.length, right.length);
+    for (let index = 0; index < length; index++) {
+        const a = left[index] || 0;
+        const b = right[index] || 0;
+        if (a !== b) return a > b;
+    }
+    return true;
+}
+
 function shouldRemoveSameTunnelRegistration(currentWindowId, currentPpids, candidateWindowId, candidateData, candidateAlive) {
     if (candidateWindowId === currentWindowId) return false;
     if (!candidateData || !candidateData.pid || candidateAlive) return false;
@@ -68,13 +91,14 @@ function validatedAckPath(ackPath, requestId, homeDir) {
     return resolved;
 }
 
-function ackPayload(state, data, windowId, message) {
+function ackPayload(state, data, windowId, message, extensionVersion = null) {
     const payload = {
         protocolVersion: 1,
         state,
         requestId: data.requestId,
         windowId,
         serverId: data.serverId ?? null,
+        extensionVersion,
         timestampMs: Date.now(),
     };
     if (message) payload.message = String(message);
@@ -93,6 +117,8 @@ module.exports = {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
     sessionMetadataUrlFromViewerUrl,
+    releaseUrlForSid,
+    isVersionAtLeast,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,

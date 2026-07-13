@@ -283,6 +283,7 @@ class Session:
         self.fft_original_data = None
         self.fft_axes = None
         self.data_version = 0  # incremented by /reload when file is reloaded
+        self.viewer_leases = 1  # one release is required for each tab using this SID
 
         self.rgb_axis = None  # set by _setup_rgb(); axis index in actual shape
         self.spatial_shape = data.shape  # shape without rgb_axis (set by _setup_rgb)

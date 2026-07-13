@@ -228,6 +228,106 @@ def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     assert not list(signal_dir.glob("open-request-pid-200.request-*.json"))
 
 
+def test_vscode_tunnel_open_request_is_remote_only(monkeypatch, tmp_path):
+    import arrayview._vscode_signal as signal
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
+    captured = []
+    monkeypatch.setattr(
+        signal,
+        "_write_vscode_signal",
+        lambda payload, delay=0.0: captured.append(payload) or True,
+    )
+
+    signal._open_via_signal_file("http://localhost:8000/?sid=abc")
+
+    assert captured[0]["remoteOnly"] is True
+
+
+def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_path):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    local_dir = home / ".vscode" / "extensions" / "arrayview.arrayview-opener-1.2.3"
+    remote_dir = home / ".vscode-server" / "extensions" / "arrayview.arrayview-opener-1.2.3"
+    local_dir.mkdir(parents=True)
+    (home / ".vscode-server").mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    assert extension._extension_on_disk("1.2.3", remote=False) is True
+    assert extension._extension_on_disk("1.2.3", remote=True) is False
+
+    remote_dir.mkdir(parents=True)
+    assert extension._extension_on_disk("1.2.3", remote=True) is True
+
+
+def test_vscode_extension_cleanup_never_removes_newer_version(monkeypatch, tmp_path):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    base = home / ".vscode" / "extensions"
+    for version in ("0.14.39", "0.14.40", "0.14.41"):
+        (base / f"arrayview.arrayview-opener-{version}").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    extension._remove_old_extension_versions("0.14.40", remote=False)
+
+    assert not (base / "arrayview.arrayview-opener-0.14.39").exists()
+    assert (base / "arrayview.arrayview-opener-0.14.40").exists()
+    assert (base / "arrayview.arrayview-opener-0.14.41").exists()
+
+
+def test_vscode_extension_keeps_newer_install_without_downgrading(monkeypatch, tmp_path):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    (home / ".vscode" / "extensions" / "arrayview.arrayview-opener-0.14.42").mkdir(
+        parents=True
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.42")
+    monkeypatch.setattr(
+        extension.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("a newer opener must not be reinstalled"),
+    )
+
+    assert extension._ensure_vscode_extension() is True
+
+
+def test_vscode_extension_requires_reload_for_stale_live_host(monkeypatch):
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: True)
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.40")
+
+    assert extension._ensure_vscode_extension() is False
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
+
+
+def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatch):
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.40")
+    monkeypatch.setattr(extension, "_find_code_cli", lambda: "code")
+
+    def timed_out(*args, **kwargs):
+        raise TimeoutError("installer wedged")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", timed_out)
+
+    assert extension._ensure_vscode_extension() is False
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
+
+
 def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     monkeypatch, tmp_path
 ):
@@ -643,17 +743,24 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "sessionMetadataUrlFromViewerUrl(openUrl)" in source
+    assert "sessionMetadataUrlFromViewerUrl(url)" in source
+    assert "expired before a panel could be opened" in source
     assert "serverReady && await httpStatus2xx(metadataUrl)" in source
+    assert "waitForViewerReady(panel)" in source
+    assert "message.phase === 'frame-rendered'" in source
+    assert "await viewerReady" in source
     assert "Viewer session did not become ready" in source
 
 
 def test_vscode_url_panel_dispose_releases_primary_sid():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
-    assert "function releaseUrlSession(url)" in source
+    assert "function releaseUrlSession(url, backendUrl = null)" in source
     assert "collectReleaseSidsFromUrl(url)" in source
-    assert "/release/${encodeURIComponent(sid)}" in source
-    assert "releaseUrlSession(url)" in source
+    assert "releaseUrlForSid(url, backendUrl, sid)" in source
+    assert "releaseUrlSession(url, backendUrl)" in source
+    assert "placeholder.panel.onDidDispose(() => releaseUrlSession(openUrl, data.url))" in source
+    assert "}, 60000)" not in source
 
 
 def test_vscode_lifecycle_helpers_with_node():
@@ -687,5 +794,8 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
 
     assert package["version"] == _VSCODE_EXT_VERSION
     assert "collectReleaseSidsFromUrl(url)" in extension_source
+    assert "data.remoteOnly === true && !vscode.env.remoteName" in extension_source
+    assert "extensionVersion: version" in extension_source
+    assert "releaseUrlSession(url, backendUrl)" in extension_source
     assert "compare_sids" in helper_source
     assert "overlay_sid" in helper_source

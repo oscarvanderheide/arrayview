@@ -10,6 +10,8 @@ const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
     sessionMetadataUrlFromViewerUrl,
+    releaseUrlForSid,
+    isVersionAtLeast,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -138,7 +140,7 @@ function writeProtocolAck(data, state, message) {
     }
     const tmpPath = `${ackPath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try {
-        fs.writeFileSync(tmpPath, JSON.stringify(ackPayload(state, data, logWindowId, message)));
+        fs.writeFileSync(tmpPath, JSON.stringify(ackPayload(state, data, logWindowId, message, version)));
         fs.renameSync(tmpPath, ackPath);
         log(`ACK: state=${state} requestId=${data.requestId}`);
         return true;
@@ -438,12 +440,12 @@ function httpPostOk(url, timeoutMs = 1500) {
     });
 }
 
-function releaseUrlSession(url) {
+function releaseUrlSession(url, backendUrl = null) {
     const sids = collectReleaseSidsFromUrl(url);
     if (!sids.length) return;
-    const origin = new URL(url).origin;
     for (const sid of sids) {
-        const releaseUrl = `${origin}/release/${encodeURIComponent(sid)}`;
+        const releaseUrl = releaseUrlForSid(url, backendUrl, sid);
+        if (!releaseUrl) continue;
         void httpPostOk(releaseUrl).then((ok) => {
             log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
         });
@@ -566,6 +568,22 @@ async function tryOpenSignalFile() {
             });
         candidates.push(...sharedQueued.map(name => path.join(SIGNAL_DIR, name)));
     } catch (_) {}
+    // Drain queued compatibility copies too. New Python versions write these
+    // so an older opener can still claim the request; a current opener must
+    // remove the duplicate after the primary v0900 request completes.
+    try {
+        for (const compatBase of ['open-request-v0800', 'open-request-v0400']) {
+            const queued = fs.readdirSync(SIGNAL_DIR)
+                .filter(name => name.startsWith(`${compatBase}.request-`) && name.endsWith('.json'))
+                .sort((a, b) => {
+                    try {
+                        return fs.statSync(path.join(SIGNAL_DIR, a)).mtimeMs -
+                               fs.statSync(path.join(SIGNAL_DIR, b)).mtimeMs;
+                    } catch (_) { return a.localeCompare(b); }
+                });
+            candidates.push(...queued.map(name => path.join(SIGNAL_DIR, name)));
+        }
+    } catch (_) {}
     candidates.push(
         SIGNAL_FILE,
         path.join(SIGNAL_DIR, 'open-request-v0800.json'),
@@ -618,6 +636,27 @@ async function tryOpenSignalFile() {
             continue;
         }
 
+        // Tunnel launches belong to the workspace extension host. A local
+        // desktop host can share ~/.arrayview, but cannot resolve the remote
+        // port and would otherwise open a known-bad localhost tab.
+        if (data.remoteOnly === true && !vscode.env.remoteName) {
+            log(`SIGNAL: remote-only signal deferred by local extension host`);
+            try {
+                fs.renameSync(claimedFile, signalFile);
+            } catch (_) {
+                try { fs.unlinkSync(claimedFile); } catch (_) {}
+            }
+            continue;
+        }
+
+        if (data.requiredExtensionVersion && !isVersionAtLeast(version, data.requiredExtensionVersion)) {
+            const message = `Stale ArrayView opener v${version}; v${data.requiredExtensionVersion} is required. Reload this VS Code window.`;
+            log(`SIGNAL: ${message}`);
+            writeProtocolAck(data, 'failed', message);
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+
         // --- Multi-window guard ---
         // If a shared fallback file carries a hookTag that doesn't match ours,
         // it was written by Python for a different VS Code window.  Forward it
@@ -625,7 +664,9 @@ async function tryOpenSignalFile() {
         // it up, then skip processing here.
         const signalBasename = path.basename(signalFile);
         const isSharedFallback = SHARED_FALLBACK_BASENAMES.has(signalBasename) ||
-            signalBasename.startsWith(`${path.basename(SIGNAL_FILE, '.json')}.request-`);
+            signalBasename.startsWith(`${path.basename(SIGNAL_FILE, '.json')}.request-`) ||
+            signalBasename.startsWith('open-request-v0800.request-') ||
+            signalBasename.startsWith('open-request-v0400.request-');
         if (isSharedFallback && data.hookTag && OWN_HOOK_TAG && data.hookTag !== OWN_HOOK_TAG) {
             log(`SIGNAL: hookTag mismatch (ours=${OWN_HOOK_TAG} signal=${data.hookTag}), forwarding to correct window`);
             const targetedFile = path.join(SIGNAL_DIR, `open-request-ipc-${data.hookTag}.json`);
@@ -712,6 +753,7 @@ function _viewerPanelHtml(url) {
   </div>
 </div>
 <script nonce="${nonce}">
+const vscodeApi = acquireVsCodeApi();
 const arrayviewUrl = ${jsonUrl};
 const frame = document.getElementById('f');
 let viewerReady = false;
@@ -747,11 +789,16 @@ window.addEventListener('message', (event) => {
         return;
     }
     if (!msg || msg.source !== 'arrayview-viewer') return;
-    if (msg.phase === 'script-loaded' || msg.phase === 'frame-rendered') {
+    if (msg.phase === 'script-loaded') {
+        console.log('[arrayview-opener] viewer script loaded; waiting for first frame');
+        return;
+    }
+    if (msg.phase === 'frame-rendered') {
         if (!viewerReady) {
             viewerReady = true;
             if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
             console.log('[arrayview-opener] viewer phase ' + msg.phase);
+            vscodeApi.postMessage({ type: 'viewer-ready', phase: msg.phase });
         }
     }
 });
@@ -766,7 +813,35 @@ frame.src = arrayviewUrl;
 </html>`;
 }
 
-async function openInWebviewPanel(url, title, floating = false) {
+function waitForViewerReady(panel, timeoutMs = 25000) {
+    return new Promise((resolve) => {
+        let settled = false;
+        let messageSubscription = null;
+        let disposeSubscription = null;
+        let timer = null;
+        const finish = (error = null) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            if (messageSubscription) messageSubscription.dispose();
+            if (disposeSubscription) disposeSubscription.dispose();
+            resolve(error);
+        };
+        messageSubscription = panel.webview.onDidReceiveMessage((message) => {
+            if (message?.type === 'viewer-ready' && message.phase === 'frame-rendered') {
+                finish();
+            }
+        });
+        disposeSubscription = panel.onDidDispose(() => {
+            finish(new Error('Viewer panel closed before its first frame rendered'));
+        });
+        timer = setTimeout(() => {
+            finish(new Error('Viewer did not render a frame before timeout'));
+        }, timeoutMs);
+    });
+}
+
+async function openInWebviewPanel(url, title, floating = false, backendUrl = null) {
     const label = title || 'ArrayView';
 
     // Reveal existing panel for this URL if still open.
@@ -775,7 +850,7 @@ async function openInWebviewPanel(url, title, floating = false) {
         try {
             existing.reveal(undefined, false);
             log(`PANEL: revealed existing panel for ${url}`);
-            return;
+            return Promise.resolve();
         } catch (_) {
             _openPanels.delete(url);
         }
@@ -796,6 +871,7 @@ async function openInWebviewPanel(url, title, floating = false) {
         }
     );
 
+    const viewerReady = waitForViewerReady(panel);
     panel.webview.html = _viewerPanelHtml(url);
 
     _openPanels.set(url, panel);
@@ -804,23 +880,7 @@ async function openInWebviewPanel(url, title, floating = false) {
     panel.onDidDispose(() => {
         panelDisposed = true;
         _openPanels.delete(url);
-        if (vscode.env.remoteName) {
-            // Remote/tunnel: the server runs with persist=True, so sessions
-            // should survive tab close.  VS Code's preview-tab mode disposes
-            // panels when a new file opens — releasing immediately would
-            // kill the session before the user is done (e.g., they just
-            // switched to another array in the same preview slot).  Delay
-            // release by 60s so brief preview-tab swaps don't yank the
-            // session, but stale sessions still get cleaned up.
-            const releaseUrl = url;
-            setTimeout(() => {
-                if (!_openPanels.has(releaseUrl)) {
-                    releaseUrlSession(releaseUrl);
-                }
-            }, 60000);
-        } else {
-            releaseUrlSession(url);
-        }
+        releaseUrlSession(url, backendUrl);
     });
     log(`PANEL: created "${label}" for ${url}`);
 
@@ -845,6 +905,7 @@ async function openInWebviewPanel(url, title, floating = false) {
             log(`FLOAT: moveEditorToNewWindow failed: ${e}`);
         }
     }
+    return viewerReady;
 }
 
 /**
@@ -1026,6 +1087,11 @@ async function _processSignalDataBody(data) {
         return;
     }
 
+    const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
+    if (localMetadataUrl && !await httpStatus2xx(localMetadataUrl)) {
+        throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
+    }
+
     const requestId = data.requestId || null;
     const now = Date.now();
     if (requestId && requestId === lastHandledRequestId) {
@@ -1072,12 +1138,15 @@ async function _processSignalDataBody(data) {
     // If one matches this signal, navigate the existing placeholder tab
     // instead of creating a second panel — eliminates the flicker.
     let handedOff = false;
+    let viewerReady;
     for (const [filePath, placeholder] of _pendingPlaceholders) {
         if (data.title && data.title.includes(placeholder.basename)) {
             _pendingPlaceholders.delete(filePath);
             try {
+                viewerReady = waitForViewerReady(placeholder.panel);
                 placeholder.panel.webview.html = _viewerPanelHtml(openUrl);
                 placeholder.panel.title = data.title || placeholder.title;
+                placeholder.panel.onDidDispose(() => releaseUrlSession(openUrl, data.url));
                 log(`HANDOFF: navigated placeholder for ${placeholder.basename} to ${openUrl}`);
                 handedOff = true;
             } catch (_) {
@@ -1090,7 +1159,7 @@ async function _processSignalDataBody(data) {
         writeProtocolAck(data, 'panel_opened');
     } else {
         log(`openInWebviewPanel(${openUrl})`);
-        await openInWebviewPanel(openUrl, data.title, !!data.floating);
+        viewerReady = openInWebviewPanel(openUrl, data.title, !!data.floating, data.url);
         log('openInWebviewPanel done');
         writeProtocolAck(data, 'panel_opened');
     }
@@ -1103,6 +1172,8 @@ async function _processSignalDataBody(data) {
         const serverReady = await arrayViewStatusOk(pingUrl, data.serverId || null);
         const sessionReady = serverReady && await httpStatus2xx(metadataUrl);
         if (sessionReady) {
+            const viewerError = await viewerReady;
+            if (viewerError) throw viewerError;
             writeProtocolAck(data, 'visibility_verified');
             writeProtocolAck(data, 'backend_ready');
             return;
@@ -1198,6 +1269,7 @@ function activate(context) {
             ts: Date.now(),
             fallbackId: !OWN_HOOK_TAG,  // true if using PID fallback
             remoteName: vscode.env.remoteName || null,
+            extensionVersion: version,
             signalQueueVersion: 1
         }));
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
+import time
 import zipfile
 from importlib.resources import files as _pkg_files
 
@@ -44,7 +46,8 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.40"  # current bundled extension version
+_VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
+_VSCODE_EXT_VERSION = "0.14.41"  # current bundled extension version
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""
@@ -92,19 +95,43 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             )
 
 
-def _remove_old_extension_versions(current_version: str) -> None:
-    """Delete extension directories for versions older than current_version.
+def _version_tuple(version: str) -> tuple[int, ...] | None:
+    """Return a numeric version tuple, or ``None`` for unknown formats."""
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _extension_bases(*, remote: bool | None = None) -> tuple[str, ...]:
+    """Return extension roots for the active VS Code host."""
+    local = os.path.expanduser("~/.vscode/extensions")
+    remote_base = os.path.expanduser("~/.vscode-server/extensions")
+    if remote is True:
+        if os.path.isdir(os.path.expanduser("~/.vscode-server")):
+            return (remote_base,)
+        # `code tunnel` uses ~/.vscode/extensions on the remote host, while
+        # Remote-SSH uses ~/.vscode-server/extensions.
+        return (local,)
+    if remote is False:
+        return (local,)
+    return (local, remote_base)
+
+
+def _remove_old_extension_versions(
+    current_version: str, *, remote: bool | None = None
+) -> None:
+    """Delete older extension directories without ever deleting a newer build.
 
     When multiple versions of arrayview-opener are installed side-by-side,
     VS Code may load an older version instead of the latest.  Removing stale
     directories ensures the correct version is picked up on the next reload.
+    Cleanup is scoped to the active local or remote extension host.
     """
     import shutil
 
-    for ext_base in (
-        os.path.expanduser("~/.vscode-server/extensions"),
-        os.path.expanduser("~/.vscode/extensions"),
-    ):
+    current_key = _version_tuple(current_version)
+    for ext_base in _extension_bases(remote=remote):
         if not os.path.isdir(ext_base):
             continue
         try:
@@ -118,6 +145,9 @@ def _remove_old_extension_versions(current_version: str) -> None:
             version_str = entry[len(prefix) :]
             if version_str == current_version:
                 continue  # keep
+            version_key = _version_tuple(version_str)
+            if current_key is None or version_key is None or version_key > current_key:
+                continue
             old_dir = os.path.join(ext_base, entry)
             try:
                 shutil.rmtree(old_dir)
@@ -126,7 +156,12 @@ def _remove_old_extension_versions(current_version: str) -> None:
                 _vprint(f"[ArrayView] could not remove {entry}: {exc}", flush=True)
 
 
-def _extension_on_disk(version: str, vsix_path: str | None = None) -> bool:
+def _extension_on_disk(
+    version: str,
+    vsix_path: str | None = None,
+    *,
+    remote: bool | None = None,
+) -> bool:
     """Return True if the extension directory for *version* exists on disk.
 
     When *vsix_path* is given, also verifies that the installed extension
@@ -136,10 +171,7 @@ def _extension_on_disk(version: str, vsix_path: str | None = None) -> bool:
     """
     import hashlib
 
-    for base in (
-        os.path.expanduser("~/.vscode/extensions"),
-        os.path.expanduser("~/.vscode-server/extensions"),
-    ):
+    for base in _extension_bases(remote=remote):
         ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
         if not os.path.isdir(ext_dir):
             continue
@@ -165,6 +197,88 @@ def _extension_on_disk(version: str, vsix_path: str | None = None) -> bool:
     return False
 
 
+def _newer_extension_on_disk(version: str, *, remote: bool) -> str | None:
+    """Return the newest installed opener newer than *version*, if any."""
+    wanted = _version_tuple(version)
+    if wanted is None:
+        return None
+    prefix = "arrayview.arrayview-opener-"
+    newer: list[tuple[tuple[int, ...], str]] = []
+    for base in _extension_bases(remote=remote):
+        try:
+            entries = os.listdir(base)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.startswith(prefix):
+                continue
+            candidate = entry[len(prefix) :]
+            key = _version_tuple(candidate)
+            if key is not None and key > wanted:
+                newer.append((key, candidate))
+    return max(newer)[1] if newer else None
+
+
+def _active_extension_version() -> str | None:
+    """Return the opener version advertised by this terminal's live host."""
+    window_id = os.environ.get("ARRAYVIEW_WINDOW_ID")
+    if not window_id:
+        ipc = _find_vscode_ipc_hook()
+        if ipc:
+            import hashlib
+
+            window_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
+    if not window_id:
+        return None
+    registration = os.path.expanduser(f"~/.arrayview/window-{window_id}.json")
+    try:
+        with open(registration) as file:
+            value = json.load(file).get("extensionVersion")
+        # An existing registration without a version belongs to a legacy host.
+        return value if isinstance(value, str) else ""
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _wait_for_active_extension_version(version: str, timeout: float = 15.0) -> bool:
+    """Wait for an updated extension host registration after installation."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _active_extension_version() == version:
+            return True
+        time.sleep(0.1)
+    return _active_extension_version() == version
+
+
+def _run_extension_installer(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+    """Run VS Code's installer without leaving its server-cli child behind."""
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=os.name != "nt",
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            process.kill()
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
@@ -180,9 +294,9 @@ def _ensure_vscode_extension() -> bool:
     The authoritative version is read from the bundled VSIX — no hardcoded
     version constant needed.
     """
-    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
-    if _VSCODE_EXT_INSTALLED:
-        return True
+    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL, _VSCODE_EXT_RELOAD_REQUIRED
+    _VSCODE_EXT_FRESH_INSTALL = False
+    _VSCODE_EXT_RELOAD_REQUIRED = False
 
     vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
     if not os.path.isfile(vsix_path):
@@ -195,11 +309,38 @@ def _ensure_vscode_extension() -> bool:
     # Fast path: correct version and content already installed — no reinstall
     # needed.  Reinstalling with --force triggers an extension-host reload,
     # which creates a ~10-15s gap during which the signal file can be missed.
-    _remove_old_extension_versions(ext_version)
-    if _extension_on_disk(ext_version, vsix_path):
+    is_remote = _is_vscode_remote()
+    active_version = _active_extension_version()
+    if _extension_on_disk(ext_version, vsix_path, remote=is_remote):
+        if active_version not in (None, ext_version):
+            _VSCODE_EXT_RELOAD_REQUIRED = True
+            _vprint(
+                f"[ArrayView] opener v{ext_version} is installed, but this VS Code "
+                "window is still running an older extension host; reload this window",
+                flush=True,
+            )
+            return False
+        _remove_old_extension_versions(ext_version, remote=is_remote)
         _VSCODE_EXT_INSTALLED = True
         _vprint(
             f"[ArrayView] extension v{ext_version} already installed — skipping reinstall",
+            flush=True,
+        )
+        return True
+
+    newer_version = _newer_extension_on_disk(ext_version, remote=is_remote)
+    if newer_version is not None:
+        if active_version not in (None, newer_version):
+            _VSCODE_EXT_RELOAD_REQUIRED = True
+            _vprint(
+                f"[ArrayView] newer opener v{newer_version} is installed, but this "
+                "VS Code window is still running an older extension host; reload this window",
+                flush=True,
+            )
+            return False
+        _VSCODE_EXT_INSTALLED = True
+        _vprint(
+            f"[ArrayView] newer extension v{newer_version} is installed — keeping it",
             flush=True,
         )
         return True
@@ -214,12 +355,8 @@ def _ensure_vscode_extension() -> bool:
         env["VSCODE_IPC_HOOK_CLI"] = ipc
 
     try:
-        r = subprocess.run(
-            [code, "--install-extension", vsix_path, "--force"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
+        r = _run_extension_installer(
+            [code, "--install-extension", vsix_path, "--force"], env
         )
         combined = (r.stdout or "") + (r.stderr or "")
         install_failed = (
@@ -247,9 +384,23 @@ def _ensure_vscode_extension() -> bool:
                 pass  # non-critical
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
+            _remove_old_extension_versions(ext_version, remote=is_remote)
+            if active_version not in (None, ext_version):
+                if not _wait_for_active_extension_version(ext_version):
+                    _VSCODE_EXT_RELOAD_REQUIRED = True
+                    _vprint(
+                        "[ArrayView] VS Code installed the new opener, but this window "
+                        "is still running the old extension host; reload this VS Code window",
+                        flush=True,
+                    )
+                    return False
             return True
+        if active_version not in (None, ext_version):
+            _VSCODE_EXT_RELOAD_REQUIRED = True
         print(f"[ArrayView] extension install failed: {combined.strip()!r}", flush=True)
     except Exception as exc:
+        if active_version not in (None, ext_version):
+            _VSCODE_EXT_RELOAD_REQUIRED = True
         print(f"[ArrayView] extension install error: {exc}", flush=True)
     return False
 

@@ -3,6 +3,7 @@ import os
 import time
 
 import arrayview._vscode_signal as signal
+from arrayview._vscode_extension import _VSCODE_EXT_VERSION
 
 
 def _request(tmp_path, **overrides):
@@ -21,6 +22,7 @@ def test_open_request_includes_versioned_ack_metadata(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
     captured = []
     monkeypatch.setattr(
         signal,
@@ -35,6 +37,7 @@ def test_open_request_includes_versioned_ack_metadata(monkeypatch, tmp_path):
     assert request.written is True
     assert request.window_id == "window-1"
     assert request.server_id == "server-1"
+    assert request.extension_version == _VSCODE_EXT_VERSION
     assert request.ack_path.name == f"open-ack-v0100-{request.request_id}.json"
     assert captured == [
         {
@@ -44,6 +47,7 @@ def test_open_request_includes_versioned_ack_metadata(monkeypatch, tmp_path):
             "protocolVersion": 1,
             "requestId": request.request_id,
             "ackPath": str(request.ack_path),
+            "requiredExtensionVersion": _VSCODE_EXT_VERSION,
             "windowId": "window-1",
             "serverId": "server-1",
         }
@@ -201,6 +205,45 @@ def test_wait_rejects_each_correlation_mismatch(tmp_path):
         result = signal._wait_for_vscode_ack(request, timeout=0)
         assert result.state is signal.AckState.INVALID
         assert field in result.message
+
+
+def test_wait_rejects_stale_extension_ack(tmp_path):
+    request = _request(tmp_path, extension_version="0.14.41")
+    request.ack_path.write_text(
+        json.dumps(
+            {
+                "state": "backend_ready",
+                "requestId": "req-1",
+                "windowId": "window-1",
+                "serverId": "server-1",
+                "extensionVersion": "0.14.40",
+            }
+        )
+    )
+
+    result = signal._wait_for_vscode_ack(request, timeout=0)
+
+    assert result.state is signal.AckState.INVALID
+    assert "extensionVersion" in result.message
+
+
+def test_wait_accepts_newer_compatible_extension_ack(tmp_path):
+    request = _request(tmp_path, extension_version="0.14.41")
+    request.ack_path.write_text(
+        json.dumps(
+            {
+                "state": "backend_ready",
+                "requestId": "req-1",
+                "windowId": "window-1",
+                "serverId": "server-1",
+                "extensionVersion": "0.14.42",
+            }
+        )
+    )
+
+    result = signal._wait_for_vscode_ack(request, timeout=0)
+
+    assert result.state is signal.AckState.BACKEND_READY
 
 
 def test_wait_is_bounded_when_ack_never_arrives(tmp_path):

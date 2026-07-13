@@ -16,7 +16,7 @@ from enum import Enum
 
 from arrayview._session import _vprint
 from arrayview._platform import _in_vscode_terminal, _is_vscode_remote
-from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_vscode_extension, _VSCODE_EXT_FRESH_INSTALL
+from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_vscode_extension
 from arrayview._vscode_signal import (
     AckState,
     _open_via_signal_file,
@@ -133,9 +133,13 @@ def _open_browser(
         if is_remote:
             # Remote/tunnel: install extension + write signal file.
             ext_ok = _ensure_vscode_extension()
-            if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
-                time.sleep(1.5)
-
+            from arrayview import _vscode_extension as _extension_state
+            if not ext_ok and _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "vscode-extension",
+                    "ArrayView updated its VS Code opener; reload this VS Code window once, then retry",
+                )
             # URL-based mode: port is forwarded by VS Code and the viewer
             # connects via WebSocket through the devtunnel.
             _configure_vscode_port_preview(parsed_port)
@@ -172,8 +176,13 @@ def _open_browser(
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
             _configure_vscode_port_preview(parsed_port)
             ext_ok = _ensure_vscode_extension()
-            if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
-                time.sleep(1.5)
+            from arrayview import _vscode_extension as _extension_state
+            if not ext_ok and _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "vscode-extension",
+                    "ArrayView updated its VS Code opener; reload this VS Code window once, then retry",
+                )
             # Always write the signal file: the extension may already be
             # installed even if _ensure failed (e.g. `code` CLI not found).
             request = _open_via_signal_file(

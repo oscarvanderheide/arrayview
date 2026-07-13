@@ -70,6 +70,13 @@ This contract describes who owns the backend, when it starts, and what closes it
 - `release_session()` is the session-release primitive.
 - Viewer WebSocket connect/disconnect owns active viewer counts.
 - URL panel disposal must release every SID encoded in the URL: `sid`, `compare_sid`, `compare_sids`, and `overlay_sid`.
+- Tunnel panel disposal posts release requests to the local backend immediately;
+  the forwarded public URL is display-only and is not the cleanup authority.
+- Reused file and collection sessions acquire one lease per tab, so closing one
+  tab cannot invalidate another tab that shares the same SID.
+- A VS Code readiness ACK includes the live opener version and is terminal only
+  after the requested SID exists and the viewer reports its first rendered frame.
+- Older ArrayView packages must not delete or downgrade a newer installed opener.
 - Tunnel registration cleanup must not remove live same-tunnel sibling windows.
 - Explicit cleanup wins over implicit disappearance.
 - Any VS Code extension source change must rebuild `src/arrayview/arrayview-opener.vsix` and keep the packaged version in sync.

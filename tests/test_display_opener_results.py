@@ -100,6 +100,26 @@ def test_vscode_signal_reports_correlated_failure(monkeypatch):
         )
 
 
+def test_stale_vscode_host_fails_before_writing_open_signal(monkeypatch):
+    from arrayview import _vscode_extension as extension_state
+
+    monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
+    monkeypatch.setattr(browser, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: False)
+    monkeypatch.setattr(extension_state, "_VSCODE_EXT_RELOAD_REQUIRED", True)
+    monkeypatch.setattr(
+        browser,
+        "_open_via_signal_file",
+        lambda *args, **kwargs: pytest.fail("stale host must not receive an open signal"),
+    )
+
+    result = browser._open_browser("http://localhost:8123/?sid=abc", blocking=True)
+
+    assert result.state is browser.OpenState.FAILED
+    assert result.mechanism == "vscode-extension"
+    assert "reload this VS Code window" in result.detail
+
+
 def test_plain_ssh_reports_printed_guidance(monkeypatch):
     _local(monkeypatch)
     monkeypatch.setenv("SSH_CONNECTION", "client server")

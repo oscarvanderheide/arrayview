@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-06-30
+last_updated: 2026-07-13
 ---
 
 # Project State
@@ -21,7 +21,7 @@ last_updated: 2026-06-30
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Compressed NIfTI volumes use a byte-bounded LRU cache; `view_dir()` exposes the same controls.
-- VS Code extension v0.14.27 — stable window ID via `EnvironmentVariableCollection`; `arrayview.openInFloatingWindow` setting moves new tabs to a floating window; `view(arr, floating=True)` and `arrayview file.npy --floating` open in a floating window per-call regardless of global setting; remote/tunnel display uses the same forwarded HTTP/WebSocket path as local VS Code; floating mode uses a single persistent shell hub panel (`_shell.html`) so all arrays share one floating window as tabs instead of opening separate windows; second CLI calls inject tabs via `new_tab` postMessage relay (extension -> hub wrapper -> shell iframe)
+- VS Code extension v0.14.41 — stable per-window routing, queued concurrent requests, remote-only tunnel claims, live opener-version ACKs, first-frame readiness, and immediate local-backend session release. An installed-but-stale extension host now fails with a clear one-time reload instruction instead of opening an unverified blank tab; older cached ArrayView packages never delete a newer opener.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
@@ -48,9 +48,10 @@ last_updated: 2026-06-30
   patient/modality directory layouts pair automatically. `--case-regex` remains
   an override for unusual layouts. CLI header scans show an in-place file counter
   and elapsed time on interactive terminals.
-- Reused collection sessions are protected by per-tab leases, including their
-  overlay sessions, and VS Code opener readiness now verifies the requested
-  session metadata before acknowledging `backend_ready`.
+- Reused file and collection sessions are protected by per-tab leases, including
+  collection overlay sessions. The VS Code opener verifies the local SID before
+  creating a panel and waits for the viewer's first rendered frame before
+  acknowledging `backend_ready`.
 - Filesystem picker endpoint (`GET /fs/list`) clamped to `$HOME`. Accepts `base_sid` + `mode` (`overlay` | `vectorfield`) to filter entries by a cheap header-shape peek (`.npy`, `.nii`/`.nii.gz`, `.h5`, `.zarr`); overlay mode requires identical shape, vectorfield mode requires base shape plus one axis of size 3
 - Island collapse affordance: inline `~` at the island's top-right animates the panel into the bottom-left `~` hint circle; external `~` hint only visible while the island is actually collapsed. New `/` hint circle at bottom-right opens the tool menu
 - Compare center tool menu: `/` now re-opens the last-used compare center mode from the tool menu, while compare pane header buttons select diff / overlay / wipe directly. Eligible two-array compare layouts can switch into a big-left arrangement with a wider center pane, and the diff colorbar now matches that center-pane width.

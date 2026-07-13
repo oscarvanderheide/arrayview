@@ -131,6 +131,26 @@ class TestLoad:
         assert "sid" in body
         assert body["name"] == "myarray"
 
+    def test_reused_file_session_stays_alive_until_all_tabs_release(
+        self, client, arr_2d, tmp_path
+    ):
+        path = tmp_path / "reused.npy"
+        np.save(path, arr_2d)
+
+        first = client.post("/load", json={"filepath": str(path)}).json()
+        second = client.post("/load", json={"filepath": str(path)}).json()
+        third = client.post("/load", json={"filepath": str(path)}).json()
+
+        assert second["sid"] == first["sid"]
+        assert third["sid"] == first["sid"]
+        sid = first["sid"]
+        assert client.post(f"/release/{sid}").json()["released"] is True
+        assert client.get(f"/metadata/{sid}").status_code == 200
+        assert client.post(f"/release/{sid}").json()["released"] is True
+        assert client.get(f"/metadata/{sid}").status_code == 200
+        assert client.post(f"/release/{sid}").json()["released"] is True
+        assert client.get(f"/metadata/{sid}").status_code == 404
+
     def test_load_missing_file_returns_error(self, client):
         r = client.post("/load", json={"filepath": "/nonexistent/path/arr.npy"})
         assert r.status_code == 200  # endpoint returns 200 with error key

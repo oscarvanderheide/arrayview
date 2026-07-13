@@ -141,7 +141,8 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         else:
             for existing in SESSIONS.values():
                 if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
-                    return {"sid": existing.sid, "name": existing.name, "notified": False}
+                    if acquire_session_leases([existing.sid]):
+                        return {"sid": existing.sid, "name": existing.name, "notified": False}
         if not dir_patterns and not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
             from ._io import FULL_LOAD_EXTS
 

@@ -4,6 +4,8 @@ const {
     collectReleaseSidsFromUrl,
     pingUrlFromViewerUrl,
     sessionMetadataUrlFromViewerUrl,
+    releaseUrlForSid,
+    isVersionAtLeast,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -32,6 +34,18 @@ assert.strictEqual(
 );
 assert.strictEqual(sessionMetadataUrlFromViewerUrl('https://example.test/?sid=__welcome__'), null);
 assert.strictEqual(sessionMetadataUrlFromViewerUrl('not a url'), null);
+assert.strictEqual(
+    releaseUrlForSid(
+        'https://forwarded.example/?sid=base',
+        'http://localhost:8123/?sid=base',
+        'base value'
+    ),
+    'http://localhost:8123/release/base%20value'
+);
+assert.strictEqual(releaseUrlForSid('not a url', null, 'base'), null);
+assert.strictEqual(isVersionAtLeast('0.14.41', '0.14.41'), true);
+assert.strictEqual(isVersionAtLeast('0.14.42', '0.14.41'), true);
+assert.strictEqual(isVersionAtLeast('0.14.40', '0.14.41'), false);
 
 assert.strictEqual(
     shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [10] }, false),
@@ -74,10 +88,13 @@ assert.strictEqual(
 const ack = ackPayload(
     'panel_opened',
     { requestId: 'req-1', serverId: 'server-1' },
-    'window-1'
+    'window-1',
+    null,
+    '0.14.41'
 );
 assert.strictEqual(ack.protocolVersion, 1);
 assert.strictEqual(ack.state, 'panel_opened');
+assert.strictEqual(ack.extensionVersion, '0.14.41');
 assert.strictEqual(ack.requestId, 'req-1');
 assert.strictEqual(ack.windowId, 'window-1');
 assert.strictEqual(ack.serverId, 'server-1');

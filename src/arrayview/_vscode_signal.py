@@ -49,6 +49,7 @@ class SignalRequest:
     server_id: str | None
     ack_path: Path
     written: bool
+    extension_version: str | None = None
 
     def __bool__(self) -> bool:
         return self.written
@@ -127,6 +128,28 @@ def _wait_for_vscode_ack(
                         AckState.INVALID,
                         request.request_id,
                         message=f"ACK {key} does not match request",
+                        payload=payload,
+                    )
+            if request.extension_version is not None:
+                try:
+                    actual_version = tuple(
+                        int(part) for part in payload["extensionVersion"].split(".")
+                    )
+                    required_version = tuple(
+                        int(part) for part in request.extension_version.split(".")
+                    )
+                except (AttributeError, KeyError, TypeError, ValueError):
+                    return AckResult(
+                        AckState.INVALID,
+                        request.request_id,
+                        message="ACK extensionVersion is missing or invalid",
+                        payload=payload,
+                    )
+                if actual_version < required_version:
+                    return AckResult(
+                        AckState.INVALID,
+                        request.request_id,
+                        message="ACK extensionVersion is older than required",
                         payload=payload,
                     )
             result = AckResult(
@@ -403,6 +426,10 @@ def _open_via_signal_file(
         "requestId": request_id,
         "ackPath": str(ack_path),
     }
+    from arrayview._vscode_extension import _VSCODE_EXT_VERSION
+    payload["requiredExtensionVersion"] = _VSCODE_EXT_VERSION
+    if _is_vscode_remote():
+        payload["remoteOnly"] = True
     if window_id:
         payload["windowId"] = window_id
     if server_id:
@@ -419,6 +446,7 @@ def _open_via_signal_file(
         server_id,
         ack_path,
         written,
+        _VSCODE_EXT_VERSION,
     )
 
 
