@@ -186,6 +186,61 @@ HANGING_COMBOS = {
 }
 
 
+def test_cutaway_replaces_normal_slice_and_tracks_view_dims(loaded_viewer, sid_3d, tmp_path):
+    """The 3D renderer stays in normal mode and uses its slice dimension."""
+    page = loaded_viewer(sid_3d)
+    _wait(page, 450)
+    normal_box = page.locator("#viewer").bounding_box()
+    assert normal_box
+    page.keyboard.down("Shift")
+    page.keyboard.press("3")
+    page.keyboard.up("Shift")
+    page.wait_for_function("() => cutawayActive && modeManager.modeName === 'normal'", timeout=5_000)
+    page.wait_for_selector("#cutaway-canvas", state="visible", timeout=5_000)
+    assert page.locator("#cutaway-controls").count() == 0
+
+    canvas = page.locator("#cutaway-canvas")
+    box = canvas.bounding_box()
+    assert box
+    assert abs(box["width"] - normal_box["width"]) <= 2
+    assert abs(box["height"] - normal_box["height"]) <= 2
+    assert page.evaluate(
+        """() => {
+            const a = document.querySelector('#info').getBoundingClientRect();
+            const b = document.querySelector('#slim-cb-wrap').getBoundingClientRect();
+            return a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+        }"""
+    )
+    before = page.evaluate("() => ({dim: current_slice_dim, index: indices[current_slice_dim]})")
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 120)
+    page.wait_for_function(
+        "before => indices[before.dim] !== before.index",
+        arg=before,
+        timeout=5_000,
+    )
+    page.screenshot(path=str(tmp_path / "cutaway-normal-view.png"))
+
+    old_dims = page.evaluate("() => [..._cutawayDims]")
+    page.keyboard.press("x")
+    page.wait_for_function(
+        "oldDims => JSON.stringify(_cutawayDims) !== JSON.stringify(oldDims)",
+        arg=old_dims,
+        timeout=5_000,
+    )
+    assert page.evaluate(
+        "() => JSON.stringify(_cutawayDims) === JSON.stringify([dim_x, dim_y, current_slice_dim])"
+    )
+    assert page.evaluate("() => modeManager.modeName") == "normal"
+    page.screenshot(path=str(tmp_path / "cutaway-reoriented.png"))
+
+    page.keyboard.down("Shift")
+    page.keyboard.press("3")
+    page.keyboard.up("Shift")
+    page.wait_for_function("() => !cutawayActive && modeManager.modeName === 'normal'", timeout=5_000)
+    assert page.locator("#canvas-wrap").is_visible()
+
+
 # Fields allowed to differ in every diff (timing/internal, not user-facing state).
 # viewStates/mmModeName are Phase 15 additions that mirror existing fields
 # (manualVmin/vmax, logScale, colormap_idx) already tracked per-field above.

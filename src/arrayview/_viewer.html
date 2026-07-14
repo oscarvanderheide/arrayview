@@ -3479,6 +3479,11 @@
         /* ── MIP 3-D volume renderer ─────────────────────────────── */
         #mip-canvas { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; z-index: 5; }
         #mip-canvas:active { cursor: grabbing; }
+        #cutaway-canvas { display: none; position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; z-index: 5; touch-action: none; }
+        #cutaway-canvas:active { cursor: grabbing; }
+        #cutaway-unavailable { display: none; position: fixed; inset: 0; z-index: 11; align-items: center; justify-content: center;
+            color: var(--muted); font: 12px/1.5 monospace; pointer-events: none; }
+        #cutaway-unavailable.active { display: flex; }
 
         #multi-view-wrap { display: none; position: relative; width: 100%; height: 100%; }
         #multi-view-wrap.active {
@@ -4735,6 +4740,7 @@
             <div id="canvas-viewport">
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
+                <canvas id="cutaway-canvas" aria-label="3D cutaway volume"></canvas>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <div id="main-pixel-pins"></div>
                 <div id="main-loupe">
@@ -4999,6 +5005,7 @@
             </div>
         </div>
         <canvas id="mip-canvas"></canvas>
+        <div id="cutaway-unavailable" role="status">3D cutaway unavailable for this data</div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
@@ -5942,6 +5949,7 @@
         let multiViewActive = false;
         let _mvOrientationHidden = false; // ~ toggle — hides orientation cube
         let mipActive = false;
+        let cutawayActive = false;
         let mvViews = [];
         let mvDims = [];
         let mvDraggingView = null;
@@ -6820,6 +6828,7 @@
                     return _unionVisibleRects(document.querySelectorAll('.compare-pane.active .compare-canvas'));
                 }
                 if (mipActive) return _unionVisibleRects([document.getElementById('mip-canvas')]);
+                if (cutawayActive) return _unionVisibleRects([document.getElementById('cutaway-canvas')]);
                 return _unionVisibleRects([document.getElementById('canvas-viewport')]);
             },
         };
@@ -8952,6 +8961,7 @@
             positionEggs();
             _validateUIState();
             if (mipActive) _mipResizeCanvas();
+            if (cutawayActive) _cutawayRender();
         });
 
         // ── Mode crossfade utility ──────────────────────────────
@@ -18789,6 +18799,7 @@
                 return;
             }
             if (mipActive) { _mipBuildLUT(); _mipRender(); return; }
+            if (cutawayActive) { _cutawayBuildLUT(); _cutawayRender(); return; }
             if (httpTransport) {
                 if (multiViewActive) {
                     mvViews.forEach(v => mvRender(v));
@@ -21448,6 +21459,11 @@
         // pillar-c-phase-1-design.md.
 
         const commands = {
+            'mode.toggleCutaway': {
+                title: 'Toggle 3D rendering for the normal view',
+                when: [],
+                run: () => { if (cutawayActive) exitCutawayMode(); else enterCutawayMode(); },
+            },
             'mode.toggleZen': {
                 when: [],
                 run: (ctx, e) => {
@@ -21544,6 +21560,7 @@
                     proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                     refreshAxesColor();
                     _mipOnColormapChange();
+                    _cutawayOnColormapChange();
                     // When histogram is open, skip the previewer — just update the colorbar display
                     const _cmpLeftForHist = window._comparePaneCbs && window._comparePaneCbs[0];
                     const _histOpen = primaryCb._expanded || (_cmpLeftForHist && _cmpLeftForHist.expanded);
@@ -22664,6 +22681,7 @@
                     if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                    if (cutawayActive) _cutawayReloadForNormalView(true);
                 },
             },
             'multiview.toggle': {
@@ -22749,6 +22767,7 @@
                         const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
                         sliceJumpBuffer = '';
                         if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        if (cutawayActive) { _cutawaySetSliceIndex(targetIndex, true); showStatus(`slice: ${targetIndex + 1} / ${shape[current_slice_dim]}`); return; }
                         if (activeDim === VFIELD_T_DIM) {
                             if (targetIndex >= 0 && targetIndex < vfieldNTimes) {
                                 vfieldT = targetIndex;
@@ -22789,6 +22808,7 @@
                 when: [],
                 run: (ctx, e) => {
                     // Digit key (1-9): accumulate for slice index jump
+                    if (cutawayActive) { sliceJumpBuffer += e.key; showStatus(`jump to slice: ${sliceJumpBuffer}_`); return; }
                     sliceJumpBuffer += e.key;
                     if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
                     // Auto-clear buffer after 2 seconds of inactivity
@@ -22889,6 +22909,7 @@
                     if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                    if (cutawayActive) _cutawayReloadForNormalView(true);
                 },
             },
             'dim.prev': {
@@ -22928,6 +22949,7 @@
                         flashAxesIndicators();
                         renderInfo();
                     } else {
+                        const previousSliceDim = current_slice_dim;
                         if (activeDim === 0 && vfieldNTimes > 1) {
                             activeDim = VFIELD_T_DIM;
                         } else if (activeDim === VFIELD_T_DIM) {
@@ -22942,6 +22964,7 @@
                         }
                         flashAxesIndicators();
                         renderInfo();
+                        if (cutawayActive && current_slice_dim !== previousSliceDim) _cutawayReloadForNormalView(true);
                     }
                 },
             },
@@ -22990,6 +23013,7 @@
                         flashAxesIndicators();
                         renderInfo();
                     } else {
+                        const previousSliceDim = current_slice_dim;
                         if (activeDim === shape.length - 1 && vfieldNTimes > 1) {
                             activeDim = VFIELD_T_DIM;
                         } else if (activeDim === VFIELD_T_DIM) {
@@ -23004,6 +23028,7 @@
                         }
                         flashAxesIndicators();
                         renderInfo();
+                        if (cutawayActive && current_slice_dim !== previousSliceDim) _cutawayReloadForNormalView(true);
                     }
                 },
             },
@@ -23012,6 +23037,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
+                    if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
                         vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
@@ -23052,6 +23078,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
+                    if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
                         vfieldT = Math.max(0, vfieldT - 1);
@@ -23249,6 +23276,7 @@
                 title: 'Exit all tools',
                 when: ['anyToolActive'],
                 run: (ctx, e) => {
+                    if (cutawayActive) { exitCutawayMode(); return; }
                     if (_toolPanelIsOpen()) {
                         closeToolPanel();
                         return;
@@ -23257,7 +23285,8 @@
                         (typeof _segMode !== 'undefined' && _segMode)
                         || rectRoiMode
                         || qmriActive || compareQmriActive
-                        || (typeof _cropActive !== 'undefined' && _cropActive)
+                    || (typeof _cropActive !== 'undefined' && _cropActive)
+                    || cutawayActive
                         || (_overlaySids.length > 0 && _overlayVisibility !== 'none')
                         || (hasVectorfield && vfieldVisible)
                     );
@@ -23345,6 +23374,7 @@
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
             { key: 'p', command: 'projection.cycle' },
+            { key: '3', code: 'Digit3', shift: true, command: 'mode.toggleCutaway' },
             { key: 'I', command: 'info.toggle' },
             { key: 'e', command: 'url.copyReusable' },
             { key: 'f', command: 'fft.toggle' },
@@ -23382,6 +23412,7 @@
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
+                cutawayActive: (typeof cutawayActive !== 'undefined') ? !!cutawayActive : false,
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
@@ -23399,6 +23430,7 @@
                     || (typeof _segMode !== 'undefined' && !!_segMode)
                     || (typeof _segActivating !== 'undefined' && !!_segActivating)
                     || (typeof _cropActive !== 'undefined' && !!_cropActive)
+                    || cutawayActive
                     || (_overlaySids.length > 0 && _overlayVisibility !== 'none')
                     || (hasVectorfield && vfieldVisible)
                 ),
@@ -23508,6 +23540,7 @@
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
+                            { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice; drag to rotate and scroll the active slice dimension' },
                             { key: 'o', action: 'Reset to origin' },
                         ]
                     },
@@ -25634,6 +25667,7 @@
             }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
             if (e.key === 'Escape') {
+                if (cutawayActive) { exitCutawayMode(); return; }
                 if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
                 document.getElementById('info-overlay').classList.remove('visible');
@@ -27149,6 +27183,212 @@
         // ── 3-D Maximum Intensity Projection (MIP) renderer ──────
         // ═══════════════════════════════════════════════════════════
 
+        // The cutaway renderer deliberately lives beside MIP. It shares the
+        // binary volume endpoint and LUT builder, but has its own GPU state,
+        // camera, clip indices, and mode lifecycle so the experimental path
+        // cannot alter the established 2-D or ortho renderers.
+        let _cutawayGL = null;
+        let _cutawayFloatLinear = false;
+        let _cutawayProgram = null;
+        let _cutawayVolTex = null;
+        let _cutawayLutTex = null;
+        let _cutawayVAO = null;
+        let _cutawayVolumeKey = null;
+        let _cutawayShape = [1, 1, 1];
+        let _cutawayOriginalShape = [1, 1, 1];
+        let _cutawayDims = [0, 1, 2];
+        let _cutawaySpacing = [1, 1, 1];
+        let _cutawayAxis = 2;
+        let _cutawayIndices = [0, 0, 0];
+        let _cutawayClipFloat = 0;
+        let _cutawayClipTarget = 0;
+        let _cutawayClipRaf = null;
+        let _cutawayAzimuth = -0.92;
+        let _cutawayElevation = 0.24;
+        let _cutawayZoom = 1.55;
+        let _cutawayDrag = null;
+        let _cutawayTouch = null;
+
+        const _CUTAWAY_VERT_SRC = `#version 300 es
+        in vec2 a_pos; out vec2 v_uv;
+        void main() { v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+        const _CUTAWAY_FRAG_SRC = `#version 300 es
+        precision highp float; precision highp sampler3D;
+        in vec2 v_uv; out vec4 fragColor;
+        uniform sampler3D u_volume; uniform sampler2D u_lut;
+        uniform vec3 u_volSize; uniform float u_vmin; uniform float u_vmax;
+        uniform mat3 u_rotation; uniform float u_camDist; uniform int u_steps;
+        uniform int u_clipAxis; uniform float u_clip;
+        float clipCoord(vec3 tc) {
+            return u_clipAxis == 0 ? tc.z : (u_clipAxis == 1 ? tc.y : tc.x);
+        }
+        void main() {
+            vec3 cam = u_rotation * vec3(0.0, 0.0, u_camDist);
+            vec3 right = u_rotation * vec3(1.0, 0.0, 0.0);
+            vec3 up = u_rotation * vec3(0.0, 1.0, 0.0);
+            vec3 fwd = u_rotation * vec3(0.0, 0.0, -1.0);
+            vec2 ndc = (v_uv - 0.5) * 2.0;
+            vec3 dir = normalize(fwd + ndc.x * right * 0.8 + ndc.y * up * 0.8);
+            vec3 halfBox = u_volSize * 0.5;
+            vec3 invDir = 1.0 / dir;
+            vec3 t0 = (-halfBox - cam) * invDir, t1 = (halfBox - cam) * invDir;
+            vec3 lo = min(t0, t1), hi = max(t0, t1);
+            float nearT = max(max(lo.x, lo.y), lo.z), farT = min(min(hi.x, hi.y), hi.z);
+            if (nearT > farT || farT < 0.0) { fragColor = vec4(0.0); return; }
+            nearT = max(nearT, 0.0);
+            vec4 acc = vec4(0.0);
+            float stepSize = (farT - nearT) / float(u_steps);
+            for (int i = 0; i < 768; i++) {
+                if (i >= u_steps || acc.a > 0.985) break;
+                float t = nearT + (float(i) + 0.5) * stepSize;
+                vec3 pos = cam + t * dir;
+                vec3 tc = pos / u_volSize + 0.5;
+                float c = clipCoord(tc);
+                if (c < u_clip) continue;
+                float raw = texture(u_volume, tc).r;
+                float value = clamp((raw - u_vmin) / (u_vmax - u_vmin + 1e-7), 0.0, 1.0);
+                float density = smoothstep(0.025, 0.35, value) * 0.16;
+                float face = 1.0 - smoothstep(0.0, max(0.012, stepSize * 2.0), c - u_clip);
+                float alpha = max(density, face * smoothstep(0.025, 0.8, value) * 0.72);
+                vec3 color = texture(u_lut, vec2(value, 0.5)).rgb;
+                acc.rgb += (1.0 - acc.a) * alpha * color;
+                acc.a += (1.0 - acc.a) * alpha;
+            }
+            fragColor = vec4(acc.rgb, 1.0);
+        }`;
+
+        function _cutawayRotation(az, el) {
+            const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+            return [ca, sa * se, sa * ce, 0, ce, -se, -sa, ca * se, ca * ce];
+        }
+
+        function _cutawayCompile(gl, type, src) {
+            const shader = gl.createShader(type); gl.shaderSource(shader, src); gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { console.error('cutaway shader:', gl.getShaderInfoLog(shader)); gl.deleteShader(shader); return null; }
+            return shader;
+        }
+
+        function _cutawayInitGL() {
+            if (_cutawayGL) return _cutawayGL;
+            const canvas = document.getElementById('cutaway-canvas');
+            const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+            if (!gl) return null;
+            // Linear filtering of the float volume texture is optional in WebGL2.
+            // Without this extension, the R32F texture becomes incomplete and
+            // every shader sample returns zero, leaving the cutaway black.
+            _cutawayFloatLinear = !!gl.getExtension('OES_texture_float_linear');
+            const vs = _cutawayCompile(gl, gl.VERTEX_SHADER, _CUTAWAY_VERT_SRC);
+            const fs = _cutawayCompile(gl, gl.FRAGMENT_SHADER, _CUTAWAY_FRAG_SRC);
+            if (!vs || !fs) return null;
+            const program = gl.createProgram(); gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { console.error('cutaway link:', gl.getProgramInfoLog(program)); return null; }
+            _cutawayProgram = program;
+            _cutawayVAO = gl.createVertexArray(); gl.bindVertexArray(_cutawayVAO);
+            const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+            const loc = gl.getAttribLocation(program, 'a_pos'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            gl.bindVertexArray(null);
+            _cutawayLutTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, _cutawayLutTex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            _cutawayGL = gl;
+            canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); _cutawayReleaseGPU(false); showStatus('3D cutaway GPU context lost'); });
+            canvas.addEventListener('webglcontextrestored', () => { _cutawayGL = null; _cutawayProgram = null; _cutawayLutTex = null; if (cutawayActive) enterCutawayMode(true); });
+            return gl;
+        }
+
+        function _cutawayReleaseGPU(dropContext = true) {
+            const gl = _cutawayGL;
+            if (gl) { if (_cutawayVolTex) gl.deleteTexture(_cutawayVolTex); if (_cutawayLutTex) gl.deleteTexture(_cutawayLutTex); if (_cutawayProgram) gl.deleteProgram(_cutawayProgram); if (_cutawayVAO) gl.deleteVertexArray(_cutawayVAO); }
+            _cutawayVolTex = _cutawayLutTex = _cutawayProgram = _cutawayVAO = null;
+            _cutawayVolumeKey = null; if (dropContext) _cutawayGL = null;
+        }
+
+        function _cutawayBuildLUT() {
+            const gl = _cutawayGL; if (!gl || !_cutawayLutTex) return;
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops || !stops.length) return;
+            const data = new Uint8Array(256 * 4), n = stops.length;
+            for (let i = 0; i < 256; i++) { const t = i / 255 * (n - 1), lo = Math.floor(t), hi = Math.min(lo + 1, n - 1), f = t - lo;
+                data.set([0,1,2].map(k => Math.round(stops[lo][k] + (stops[hi][k] - stops[lo][k]) * f)), i * 4); data[i * 4 + 3] = 255; }
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, _cutawayLutTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        }
+
+        function _cutawayUpload(data, shape) {
+            const gl = _cutawayGL; if (!gl) return;
+            if (_cutawayVolTex) gl.deleteTexture(_cutawayVolTex); _cutawayVolTex = gl.createTexture(); _cutawayShape = shape;
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, _cutawayVolTex);
+            const filter = _cutawayFloatLinear ? gl.LINEAR : gl.NEAREST;
+            for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_3D, p, filter);
+            for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, p, gl.CLAMP_TO_EDGE);
+            gl.texImage3D(gl.TEXTURE_3D, 0, gl.R32F, shape[2], shape[1], shape[0], 0, gl.RED, gl.FLOAT, data);
+        }
+
+        function _cutawayRender() {
+            const gl = _cutawayGL; if (!gl || !_cutawayProgram || !_cutawayVolTex || !cutawayActive) return;
+            const canvas = document.getElementById('cutaway-canvas'), dpr = window.devicePixelRatio || 1;
+            const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight); canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); gl.viewport(0, 0, canvas.width, canvas.height); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(_cutawayProgram); const maxS = Math.max(..._cutawayShape.map((s, i) => s * (_cutawaySpacing[i] || 1)));
+            const volSize = [_cutawayShape[2] * _cutawaySpacing[2] / maxS, _cutawayShape[1] * _cutawaySpacing[1] / maxS, _cutawayShape[0] * _cutawaySpacing[0] / maxS];
+            gl.uniform3f(gl.getUniformLocation(_cutawayProgram, 'u_volSize'), ...volSize); gl.uniform1f(gl.getUniformLocation(_cutawayProgram, 'u_vmin'), manualVmin ?? currentVmin); gl.uniform1f(gl.getUniformLocation(_cutawayProgram, 'u_vmax'), manualVmax ?? currentVmax); gl.uniformMatrix3fv(gl.getUniformLocation(_cutawayProgram, 'u_rotation'), false, _cutawayRotation(_cutawayAzimuth, _cutawayElevation)); gl.uniform1f(gl.getUniformLocation(_cutawayProgram, 'u_camDist'), _cutawayZoom); gl.uniform1i(gl.getUniformLocation(_cutawayProgram, 'u_steps'), Math.min(768, Math.max(..._cutawayShape) * 2)); gl.uniform1i(gl.getUniformLocation(_cutawayProgram, 'u_clipAxis'), _cutawayAxis); gl.uniform1f(gl.getUniformLocation(_cutawayProgram, 'u_clip'), _cutawayClipFloat);
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, _cutawayVolTex); gl.uniform1i(gl.getUniformLocation(_cutawayProgram, 'u_volume'), 0); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, _cutawayLutTex); gl.uniform1i(gl.getUniformLocation(_cutawayProgram, 'u_lut'), 1); gl.bindVertexArray(_cutawayVAO); gl.drawArrays(gl.TRIANGLES, 0, 6); gl.bindVertexArray(null);
+        }
+
+        function _cutawaySetIndex(axis, index, animate = true) {
+            const n = Math.max(1, _cutawayOriginalShape[axis] || _cutawayShape[axis]); _cutawayIndices[axis] = Math.max(0, Math.min(n - 1, index)); _cutawayAxis = axis; _cutawayClipTarget = n <= 1 ? 0 : _cutawayIndices[axis] / (n - 1);
+            if (!animate) { _cutawayClipFloat = _cutawayClipTarget; _cutawayRender(); return; }
+            // Keep one animation alive while wheel input arrives. Restarting
+            // this transition for every wheel event makes fast scrolling feel
+            // sticky because each new event resets the easing clock.
+            if (!_cutawayClipRaf) {
+                let previous = performance.now();
+                const tick = (now) => {
+                    const dt = Math.min(40, now - previous); previous = now;
+                    const follow = 1 - Math.exp(-dt / 55);
+                    _cutawayClipFloat += (_cutawayClipTarget - _cutawayClipFloat) * follow;
+                    _cutawayRender();
+                    if (Math.abs(_cutawayClipTarget - _cutawayClipFloat) < 0.0005) {
+                        _cutawayClipFloat = _cutawayClipTarget; _cutawayClipRaf = null; _cutawayRender();
+                    } else _cutawayClipRaf = requestAnimationFrame(tick);
+                };
+                _cutawayClipRaf = requestAnimationFrame(tick);
+            }
+            renderInfo();
+        }
+
+        function _cutawayConfigureFromNormalView(resetCamera = false) {
+            const dims = [dim_x, dim_y, current_slice_dim];
+            if (dims.some(d => d < 0) || new Set(dims).size !== 3) return false;
+            _cutawayDims = dims;
+            _cutawayAxis = 2;
+            _cutawayIndices = dims.map(d => indices[d] || 0);
+            _cutawayOriginalShape = dims.map(d => shape[d]);
+            if (resetCamera) {
+                // Start slightly above and beside the current viewing plane,
+                // matching the familiar oblique cutaway perspective.
+                _cutawayAzimuth = -0.92;
+                _cutawayElevation = 0.24;
+                _cutawayZoom = 1.55;
+            }
+            return true;
+        }
+
+        function _cutawaySetSliceIndex(index, animate = true) {
+            const dim = current_slice_dim;
+            const clamped = Math.max(0, Math.min(shape[dim] - 1, index));
+            indices[dim] = clamped;
+            _cutawayIndices[_cutawayAxis] = clamped;
+            _cutawaySetIndex(_cutawayAxis, clamped, animate);
+            renderInfo(); saveState();
+        }
+
+        function _cutawayReloadForNormalView(resetCamera = true) {
+            if (!cutawayActive || !_cutawayConfigureFromNormalView(resetCamera)) return;
+            _cutawayVolumeKey = null;
+            enterCutawayMode(true);
+        }
+
         // WebGL2 state
         let _mipGL = null;
         let _mipProgram = null;
@@ -27632,6 +27872,7 @@
 
         // Called when colormap changes to update the LUT texture
         function _mipOnColormapChange() {
+            _cutawayOnColormapChange();
             if (!mipActive || !_mipGL) return;
             _mipBuildLUT();
             _mipRender();
@@ -27639,6 +27880,7 @@
 
         // Called when vmin/vmax changes to re-render
         function _mipOnWindowChange() {
+            _cutawayOnWindowChange();
             if (!mipActive || !_mipGL) return;
             _mipRender();
         }
@@ -27646,6 +27888,64 @@
         // ═══════════════════════════════════════════════════════════
         // ── End MIP renderer ─────────────────────────────────────
         // ═══════════════════════════════════════════════════════════
+
+        async function enterCutawayMode(reload = false) {
+            if (cutawayActive && !reload) return;
+            if (!reload && (compareActive || multiViewActive || qmriActive || compareQmriActive || compareMvActive || mipActive)) {
+                showStatus('3D render: return to normal view first');
+                return;
+            }
+            if (shape.length < 3 || rgbMode) { showStatus('3D cutaway: regular scalar 3D data required'); return; }
+            if (!reload && !_cutawayConfigureFromNormalView(true)) {
+                showStatus('3D render: choose two viewing dimensions and one slice dimension');
+                return;
+            }
+            const canvas = document.getElementById('cutaway-canvas'), gl = _cutawayInitGL();
+            if (!gl) { cutawayActive = true; _reconcileUI(); showStatus('3D cutaway unavailable: WebGL2 is not supported'); return; }
+            const dims = _cutawayDims, key = `${sid}:${dims.join(',')}:${indices.map((v, i) => dims.includes(i) ? '' : v).join(',')}:${_watchDataVersion}`;
+            if (reload || _cutawayVolumeKey !== key || !_cutawayVolTex) {
+                try {
+                    const resp = await proxyFetch(`/volume_data/${sid}?dims=${dims.join(',')}&indices=${indices.join(',')}&complex_mode=${complexMode}&log_scale=${logScale}`);
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const rawShape = (resp.headers.get('X-Shape') || '').split(',').map(Number); const raw = new Float32Array(await resp.arrayBuffer());
+                    _cutawayUpload(raw, rawShape); _cutawayShape = rawShape; _cutawaySpacing = (resp.headers.get('X-Spacing') || '1,1,1').split(',').map(Number); _cutawayVolumeKey = key;
+                    if (manualVmin === null) currentVmin = parseFloat(resp.headers.get('X-Vmin')) || currentVmin;
+                    if (manualVmax === null) currentVmax = parseFloat(resp.headers.get('X-Vmax')) || currentVmax;
+                } catch (err) { console.error('cutaway volume fetch error:', err); cutawayActive = true; _reconcileUI(); showStatus('3D cutaway unavailable for this data'); return; }
+            }
+            cutawayActive = true; _reconcileUI(); _cutawayBuildLUT(); _cutawaySetIndex(_cutawayAxis, _cutawayIndices[_cutawayAxis], false);
+            // The canvas is revealed by _reconcileUI; wait for that layout to
+            // settle before the first WebGL draw, otherwise it can stay black
+            // until the user resizes or interacts with the viewer.
+            requestAnimationFrame(() => requestAnimationFrame(() => _cutawayRender()));
+            setTimeout(() => _cutawaySetIndex(_cutawayAxis, _cutawayIndices[_cutawayAxis], false), 1000);
+            _cutawayAttachEvents();
+            showStatus('3D render — drag rotate, scroll slice, Shift+3/Esc returns to 2D', 3000);
+        }
+
+        function exitCutawayMode() {
+            if (!cutawayActive) return;
+            cutawayActive = false; if (_cutawayClipRaf) { cancelAnimationFrame(_cutawayClipRaf); _cutawayClipRaf = null; } _cutawayDetachEvents(); _cutawayReleaseGPU(); _reconcileUI();
+            updateView();
+            showStatus('3D render: off');
+        }
+
+        let _cutawayEventsBound = false;
+        function _cutawayAttachEvents() {
+            if (_cutawayEventsBound) return; const c = document.getElementById('cutaway-canvas');
+            c.addEventListener('mousedown', _cutawayDown); c.addEventListener('mousemove', _cutawayMove); c.addEventListener('mouseup', _cutawayUp); c.addEventListener('mouseleave', _cutawayUp); c.addEventListener('wheel', _cutawayWheel, { passive: false }); c.addEventListener('touchstart', _cutawayTouchStart, { passive: false }); c.addEventListener('touchmove', _cutawayTouchMove, { passive: false }); c.addEventListener('touchend', _cutawayTouchEnd); c.addEventListener('contextmenu', e => e.preventDefault());
+            _cutawayEventsBound = true;
+        }
+        function _cutawayDetachEvents() { /* listeners stay attached to the isolated canvas; it is hidden while inactive */ }
+        function _cutawayDown(e) { _cutawayDrag = { x: e.clientX, y: e.clientY }; }
+        function _cutawayMove(e) { if (!_cutawayDrag) return; _cutawayAzimuth += (e.clientX - _cutawayDrag.x) * 0.008; _cutawayElevation = Math.max(-1.5, Math.min(1.5, _cutawayElevation + (e.clientY - _cutawayDrag.y) * 0.008)); _cutawayDrag = { x: e.clientX, y: e.clientY }; _cutawayRender(); }
+        function _cutawayUp() { _cutawayDrag = null; }
+        function _cutawayWheel(e) { e.preventDefault(); e.stopPropagation(); const dir = e.deltaY > 0 ? -1 : 1; _cutawaySetSliceIndex(indices[current_slice_dim] + dir, true); }
+        function _cutawayTouchStart(e) { e.preventDefault(); if (e.touches.length === 1) _cutawayTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+        function _cutawayTouchMove(e) { e.preventDefault(); if (e.touches.length !== 1 || !_cutawayTouch) return; const t = e.touches[0]; _cutawayAzimuth += (t.clientX - _cutawayTouch.x) * 0.008; _cutawayElevation = Math.max(-1.5, Math.min(1.5, _cutawayElevation + (t.clientY - _cutawayTouch.y) * 0.008)); _cutawayTouch = { x: t.clientX, y: t.clientY }; _cutawayRender(); }
+        function _cutawayTouchEnd() { _cutawayTouch = null; }
+        function _cutawayOnColormapChange() { if (cutawayActive) { _cutawayBuildLUT(); _cutawayRender(); } }
+        function _cutawayOnWindowChange() { if (cutawayActive) _cutawayRender(); }
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
@@ -32161,9 +32461,13 @@
             if (canvasWrap && !document.body.classList.contains('av-loading')) {
                 canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) ? '' : 'none';
             }
+            const cutawayCanvas = document.getElementById('cutaway-canvas');
+            if (cutawayCanvas) cutawayCanvas.style.display = cutawayActive ? 'block' : 'none';
+            const cutawayUnavailable = document.getElementById('cutaway-unavailable');
+            if (cutawayUnavailable) cutawayUnavailable.classList.toggle('active', cutawayActive && !_cutawayGL);
 
             // 2. Compare wrap active class — shown for base compare (not sub-modes using other containers)
-            compareWrap.classList.toggle('active', compareActive && !compareQmriActive && !compareMvActive);
+            compareWrap.classList.toggle('active', compareActive && !compareQmriActive && !compareMvActive && !cutawayActive);
 
             // 3. Array name — hidden in compare mode
             const nameEl = document.getElementById('array-name');

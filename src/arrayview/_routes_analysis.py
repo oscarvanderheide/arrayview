@@ -487,6 +487,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         dims: str = "",
         indices: str = "",
         complex_mode: int = 0,
+        log_scale: bool = False,
         session=Depends(get_session_or_404),
     ):
         if not dims:
@@ -494,6 +495,8 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         dim_list = [int(d) for d in dims.split(",")]
         if len(dim_list) != 3:
             return Response(status_code=400, content="dims must be exactly 3 integers")
+        if session.rgb_axis is not None:
+            return Response(status_code=400, content="RGB data is not supported")
 
         idx_list = (
             [int(x) for x in indices.split(",")]
@@ -514,6 +517,8 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         perm = [free_axes_sorted.index(d) for d in dim_list]
         vol = np.transpose(vol, perm)
         vol = apply_complex_mode(vol, complex_mode)
+        if log_scale:
+            vol = np.log1p(np.abs(vol)).astype(np.float32)
 
         max_dim = 256
         strides = []
@@ -531,6 +536,16 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         else:
             vmin, vmax = 0.0, 1.0
 
+        voxel_sizes = tuple(
+            (getattr(session, "spatial_meta", None) or {}).get(
+                "voxel_sizes", (1.0,) * len(session.shape)
+            )
+        )
+        volume_spacing = [
+            float(voxel_sizes[d]) if d < len(voxel_sizes) else 1.0
+            for d in dim_list
+        ]
+
         return Response(
             content=vol.tobytes(),
             media_type="application/octet-stream",
@@ -538,6 +553,8 @@ def register_analysis_routes(app, get_session_or_404) -> None:
                 "X-Shape": ",".join(str(s) for s in vol.shape),
                 "X-Vmin": str(vmin),
                 "X-Vmax": str(vmax),
+                "X-Spacing": ",".join(str(v) for v in volume_spacing),
+                "X-Downsample": ",".join(str(int(v)) for v in strides),
             },
         )
 

@@ -3662,6 +3662,26 @@ class TestHistogram:
 # ---------------------------------------------------------------------------
 
 
+class TestVolumeData:
+    def test_volume_data_is_gpu_uploadable_and_reports_sampling(self, client, sid_3d):
+        resp = client.get(f"/volume_data/{sid_3d}", params={
+            "dims": "0,1,2", "indices": "0,0,0", "complex_mode": 0,
+        })
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/octet-stream")
+        assert resp.headers["X-Shape"] == "20,64,64"
+        assert resp.headers["X-Spacing"] == "1.0,1.0,1.0"
+        assert resp.headers["X-Downsample"] == "1,1,1"
+        assert len(resp.content) == 20 * 64 * 64 * 4
+
+    def test_volume_data_rejects_rgb(self, client, tmp_path):
+        path = tmp_path / "rgb.npy"
+        np.save(path, np.zeros((3, 4, 5, 3), dtype=np.uint8))
+        sid = client.post("/load", json={"filepath": str(path), "name": "rgb", "rgb": True}).json()["sid"]
+        resp = client.get(f"/volume_data/{sid}", params={"dims": "0,1,2"})
+        assert resp.status_code == 400
+
+
 class TestVolumeHistogram:
     """Tests for /volume-histogram/{sid} endpoint."""
 

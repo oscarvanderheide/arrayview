@@ -47,6 +47,7 @@ ESSENTIAL_COMMANDS = [
     "slice.next",
     "slice.prev",
     "mode.toggleZen",
+    "mode.toggleCutaway",
     "playback.toggle",
     "fft.toggle",
     "logscale.toggle",
