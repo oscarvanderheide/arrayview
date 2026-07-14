@@ -1895,8 +1895,14 @@ _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
 # closes. Keeping a warm idle daemon around caused native-window sessions to
 # appear orphaned after close.
 _CLI_DAEMON_IDLE_SECONDS = 0.0
+# A tunnel server must survive a short VS Code reload, but it must not remain
+# alive forever when the opener never connects (for example after an extension
+# reload or a failed signal-file handoff).
+_PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("ARRAYVIEW_PERSIST_CONNECT_TIMEOUT_SECONDS", "180")
+)
 _PERSIST_DAEMON_IDLE_SECONDS = float(
-    os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "1800")
+    os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "120")
 )
 
 
@@ -3230,7 +3236,7 @@ def _serve_daemon(
     if persist:
         _wait_for_viewer_close(
             idle_seconds=_PERSIST_DAEMON_IDLE_SECONDS,
-            connect_timeout=None,
+            connect_timeout=_PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS,
         )
     else:
         # Transient CLI launches should stop as soon as the last viewer is

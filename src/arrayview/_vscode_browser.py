@@ -163,7 +163,10 @@ def _open_browser(
             if not blocking:
                 _schedule_remote_open_retries(url, interval=10.0, count=2)
                 return OpenResult(OpenState.ACCEPTED, "vscode-signal")
-            ack = _wait_for_vscode_ack(request, timeout=65.0)
+            # Large remote files can remain in PENDING_SESSIONS while the
+            # extension is opening the forwarded panel. Keep the terminal
+            # alive long enough for that load and the first frame.
+            ack = _wait_for_vscode_ack(request, timeout=180.0)
             if ack.state is AckState.BACKEND_READY:
                 return OpenResult(OpenState.READY, "vscode-signal", request.request_id)
             return OpenResult(

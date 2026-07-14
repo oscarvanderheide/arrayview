@@ -411,6 +411,15 @@ function httpStatus2xx(url, timeoutMs = 3000) {
     });
 }
 
+async function waitForHttpStatus2xx(url, timeoutMs = 150000, pollMs = 500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (await httpStatus2xx(url)) return true;
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+    return false;
+}
+
 function httpPostOk(url, timeoutMs = 1500) {
     return new Promise((resolve) => {
         let parsed;
@@ -1088,7 +1097,11 @@ async function _processSignalDataBody(data) {
     }
 
     const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
-    if (localMetadataUrl && !await httpStatus2xx(localMetadataUrl)) {
+    // A newly spawned daemon creates the session asynchronously.  During
+    // loading /metadata/<sid> is temporarily 404; treating that as expired
+    // races large remote-file loads and loses the viewer before its panel can
+    // open.
+    if (localMetadataUrl && !await waitForHttpStatus2xx(localMetadataUrl)) {
         throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
     }
 

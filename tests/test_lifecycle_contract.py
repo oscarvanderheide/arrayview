@@ -513,6 +513,13 @@ def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     assert sleeps == [0.2]
 
 
+def test_persistent_daemon_timeouts_when_opener_never_connects():
+    import arrayview._launcher as launcher
+
+    assert launcher._PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS == 180.0
+    assert launcher._PERSIST_DAEMON_IDLE_SECONDS == 120.0
+
+
 def test_transient_daemon_exits_after_quick_viewer_disconnect(tmp_path):
     import asyncio
     import socket
