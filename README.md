@@ -15,6 +15,9 @@ Curious? Give it a try with
 uvx arrayview your_array.npy
 ```
 
+Press `v` for the three-plane ortho view. `Shift+3` replaces the current slice,
+or all three ortho panes, with interactive 3D cutaway renders.
+
 
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
 

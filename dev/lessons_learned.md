@@ -250,3 +250,11 @@ JPEG contact sheet before treating a suspicious PNG preview as a viewer bug.
 picker while silently missing preview or commit updates to its LUT texture.
 **Fix:** Exercise the real picker in a browser test while the WebGL renderer is
 visible, then assert both the selected colormap and renderer state remain active.
+
+## Ortho WebGL Pane Ownership
+
+**Problem:** A shared 3D canvas can escape the ortho grid, cover controls, or
+leave a large black surface around a small volume.
+**Fix:** Give each ortho pane its own absolutely positioned WebGL canvas inside
+the existing canvas box, and verify its bounds against the corresponding 2D
+canvas before testing navigation and colormap updates.

@@ -247,6 +247,56 @@ def test_cutaway_replaces_normal_slice_and_tracks_view_dims(loaded_viewer, sid_3
     assert page.locator("#canvas-wrap").is_visible()
 
 
+def test_cutaway_replaces_all_three_ortho_panes(loaded_viewer, sid_3d, tmp_path):
+    """Ortho view owns three independent, pane-sized 3D cutaways."""
+    page = loaded_viewer(sid_3d)
+    _wait(page, 450)
+    page.keyboard.press("v")
+    page.wait_for_function("() => multiViewActive && mvViews.length === 3", timeout=5_000)
+    slice_boxes = page.locator(".mv-canvas").evaluate_all(
+        "els => els.map(el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; })"
+    )
+
+    page.keyboard.down("Shift")
+    page.keyboard.press("3")
+    page.keyboard.up("Shift")
+    page.wait_for_function(
+        "() => mvCutawayActive && mvViews.every(v => v.cutaway && v.cutaway.volTex)",
+        timeout=10_000,
+    )
+    render_boxes = page.locator(".mv-cutaway-canvas").evaluate_all(
+        "els => els.map(el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; })"
+    )
+    assert len(render_boxes) == 3
+    for original, rendered in zip(slice_boxes, render_boxes):
+        assert all(abs(original[k] - rendered[k]) <= 2 for k in ("x", "y", "w", "h"))
+    assert page.evaluate(
+        "() => new Set(mvViews.map(v => v.sliceDir)).size === 3"
+    )
+
+    page.keyboard.press("c")
+    page.wait_for_function("() => _cmapPickerOpen")
+    page.get_by_text("plasma", exact=True).click()
+    page.wait_for_function("() => COLORMAPS[colormap_idx] === 'plasma'")
+    assert page.evaluate("() => mvCutawayActive")
+
+    first = page.locator(".mv-cutaway-canvas").first
+    box = first.bounding_box()
+    assert box
+    before = page.evaluate("() => ({dim: mvViews[0].sliceDir, index: indices[mvViews[0].sliceDir]})")
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 120)
+    page.wait_for_function("before => indices[before.dim] !== before.index", arg=before, timeout=5_000)
+    page.screenshot(path=str(tmp_path / "cutaway-ortho-plasma.png"))
+
+    page.keyboard.down("Shift")
+    page.keyboard.press("3")
+    page.keyboard.up("Shift")
+    page.wait_for_function("() => !mvCutawayActive && multiViewActive", timeout=5_000)
+    assert page.locator(".mv-cutaway-canvas:visible").count() == 0
+    assert page.locator(".mv-canvas:visible").count() == 3
+
+
 # Fields allowed to differ in every diff (timing/internal, not user-facing state).
 # viewStates/mmModeName are Phase 15 additions that mirror existing fields
 # (manualVmin/vmax, logScale, colormap_idx) already tracked per-field above.

@@ -3481,6 +3481,8 @@
         #mip-canvas:active { cursor: grabbing; }
         #cutaway-canvas { display: none; position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; z-index: 5; touch-action: none; }
         #cutaway-canvas:active { cursor: grabbing; }
+        .mv-cutaway-canvas { display: none; position: absolute; inset: 0; width: 100%; height: 100%; background: #000; cursor: grab; z-index: 6; touch-action: none; }
+        .mv-cutaway-canvas:active { cursor: grabbing; }
         #cutaway-unavailable { display: none; position: fixed; inset: 0; z-index: 11; align-items: center; justify-content: center;
             color: var(--muted); font: 12px/1.5 monospace; pointer-events: none; }
         #cutaway-unavailable.active { display: flex; }
@@ -5950,6 +5952,7 @@
         let _mvOrientationHidden = false; // ~ toggle — hides orientation cube
         let mipActive = false;
         let cutawayActive = false;
+        let mvCutawayActive = false;
         let mvViews = [];
         let mvDims = [];
         let mvDraggingView = null;
@@ -8962,6 +8965,7 @@
             _validateUIState();
             if (mipActive) _mipResizeCanvas();
             if (cutawayActive) _cutawayRender();
+            if (mvCutawayActive) requestAnimationFrame(_mvCutawayRenderAll);
         });
 
         // ── Mode crossfade utility ──────────────────────────────
@@ -18800,6 +18804,12 @@
             }
             if (mipActive) { _mipBuildLUT(); _mipRender(); return; }
             if (cutawayActive) { _cutawayBuildLUT(); _cutawayRender(); return; }
+            if (mvCutawayActive) {
+                Promise.all(mvViews.map(_mvCutawayLoad))
+                    .then(_mvCutawayRenderAll)
+                    .catch(err => console.error('ortho 3D update:', err));
+                return;
+            }
             if (httpTransport) {
                 if (multiViewActive) {
                     mvViews.forEach(v => mvRender(v));
@@ -21460,9 +21470,15 @@
 
         const commands = {
             'mode.toggleCutaway': {
-                title: 'Toggle 3D rendering for the normal view',
+                title: 'Toggle 3D rendering for the normal or ortho view',
                 when: [],
-                run: () => { if (cutawayActive) exitCutawayMode(); else enterCutawayMode(); },
+                run: () => {
+                    if (multiViewActive) {
+                        if (mvCutawayActive) exitMvCutawayMode(); else enterMvCutawayMode();
+                        return;
+                    }
+                    if (cutawayActive) exitCutawayMode(); else enterCutawayMode();
+                },
             },
             'mode.toggleZen': {
                 when: [],
@@ -23540,7 +23556,7 @@
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
-                            { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice; drag to rotate and scroll the active slice dimension' },
+                            { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice or all three ortho panes; drag to rotate and scroll to slice' },
                             { key: 'o', action: 'Reset to origin' },
                         ]
                     },
@@ -26679,10 +26695,13 @@
                 wrap.className = 'mv-canvas-wrap';
                 const cv = document.createElement('canvas');
                 cv.className = 'mv-canvas';
+                const cutawayCv = document.createElement('canvas');
+                cutawayCv.className = 'mv-cutaway-canvas';
                 // Tight container so axes indicator is positioned relative to canvas
                 const cvBox = document.createElement('div');
                 cvBox.className = 'mv-canvas-box';
                 cvBox.appendChild(cv);
+                cvBox.appendChild(cutawayCv);
                 const _axLetters = ['x', 'y', 'z'];
                 const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
                 const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
@@ -26718,12 +26737,14 @@
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null,
+                    cutawayCanvas: cutawayCv, cutaway: null,
                     pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
                     flipX: def.flipX, flipY: def.flipY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 pane.addEventListener('mouseenter', () => _mvSetCurrentView(view));
                 cv.addEventListener('mouseenter', () => _mvSetCurrentView(view));
+                _mvCutawayAttachEvents(view);
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     _mvSetCurrentView(view);
@@ -27091,6 +27112,7 @@
 
         function exitMultiView() {
             if (mipActive) exitMipMode();
+            _mvCutawayReleaseAll();
             multiViewActive = false;
             _orthoAutoLayoutMode = null;
             _mvCurrentView = null;
@@ -27387,6 +27409,154 @@
             if (!cutawayActive || !_cutawayConfigureFromNormalView(resetCamera)) return;
             _cutawayVolumeKey = null;
             enterCutawayMode(true);
+        }
+
+        function _mvCutawayInit(view) {
+            if (view.cutaway) return view.cutaway;
+            const canvas = view.cutawayCanvas;
+            const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+            if (!gl) return null;
+            const floatLinear = !!gl.getExtension('OES_texture_float_linear');
+            const vs = _cutawayCompile(gl, gl.VERTEX_SHADER, _CUTAWAY_VERT_SRC);
+            const fs = _cutawayCompile(gl, gl.FRAGMENT_SHADER, _CUTAWAY_FRAG_SRC);
+            if (!vs || !fs) return null;
+            const program = gl.createProgram(); gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+            const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+            const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+            const loc = gl.getAttribLocation(program, 'a_pos'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            gl.bindVertexArray(null);
+            const lutTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lutTex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            view.cutaway = { gl, program, vao, lutTex, volTex: null, floatLinear,
+                dims: [view.dimX, view.dimY, view.sliceDir], shape: [1,1,1], spacing: [1,1,1], key: null,
+                azimuth: -0.92, elevation: 0.24, zoom: 1.55, drag: null };
+            return view.cutaway;
+        }
+
+        function _mvCutawayBuildLUT(view) {
+            const state = view.cutaway; if (!state) return;
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops || !stops.length) return;
+            const data = new Uint8Array(256 * 4), n = stops.length;
+            for (let i = 0; i < 256; i++) {
+                const t = i / 255 * (n - 1), lo = Math.floor(t), hi = Math.min(lo + 1, n - 1), f = t - lo;
+                data.set([0,1,2].map(k => Math.round(stops[lo][k] + (stops[hi][k] - stops[lo][k]) * f)), i * 4);
+                data[i * 4 + 3] = 255;
+            }
+            const gl = state.gl; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, state.lutTex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        }
+
+        async function _mvCutawayLoad(view) {
+            const state = _mvCutawayInit(view); if (!state) throw new Error('WebGL2 unavailable');
+            state.dims = [view.dimX, view.dimY, view.sliceDir];
+            const key = `${sid}:${state.dims.join(',')}:${indices.map((v, i) => state.dims.includes(i) ? '' : v).join(',')}:${_watchDataVersion}`;
+            if (state.key === key && state.volTex) return;
+            const resp = await proxyFetch(`/volume_data/${sid}?dims=${state.dims.join(',')}&indices=${indices.join(',')}&complex_mode=${complexMode}&log_scale=${logScale}`);
+            if (!resp.ok) throw new Error(await resp.text());
+            const rawShape = (resp.headers.get('X-Shape') || '').split(',').map(Number);
+            const raw = new Float32Array(await resp.arrayBuffer());
+            const gl = state.gl; if (state.volTex) gl.deleteTexture(state.volTex); state.volTex = gl.createTexture();
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, state.volTex);
+            const filter = state.floatLinear ? gl.LINEAR : gl.NEAREST;
+            for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_3D, p, filter);
+            for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, p, gl.CLAMP_TO_EDGE);
+            gl.texImage3D(gl.TEXTURE_3D, 0, gl.R32F, rawShape[2], rawShape[1], rawShape[0], 0, gl.RED, gl.FLOAT, raw);
+            state.shape = rawShape;
+            state.spacing = (resp.headers.get('X-Spacing') || '1,1,1').split(',').map(Number);
+            state.key = key;
+            if (manualVmin === null) currentVmin = parseFloat(resp.headers.get('X-Vmin')) || currentVmin;
+            if (manualVmax === null) currentVmax = parseFloat(resp.headers.get('X-Vmax')) || currentVmax;
+            _mvCutawayBuildLUT(view);
+        }
+
+        function _mvCutawayRender(view) {
+            const state = view.cutaway; if (!mvCutawayActive || !state?.volTex) return;
+            const gl = state.gl, canvas = view.cutawayCanvas, dpr = window.devicePixelRatio || 1;
+            const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
+            canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+            gl.viewport(0, 0, canvas.width, canvas.height); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(state.program);
+            const maxS = Math.max(...state.shape.map((s, i) => s * (state.spacing[i] || 1)));
+            const volSize = [state.shape[2] * state.spacing[2] / maxS, state.shape[1] * state.spacing[1] / maxS, state.shape[0] * state.spacing[0] / maxS];
+            gl.uniform3f(gl.getUniformLocation(state.program, 'u_volSize'), ...volSize);
+            gl.uniform1f(gl.getUniformLocation(state.program, 'u_vmin'), manualVmin ?? currentVmin);
+            gl.uniform1f(gl.getUniformLocation(state.program, 'u_vmax'), manualVmax ?? currentVmax);
+            gl.uniformMatrix3fv(gl.getUniformLocation(state.program, 'u_rotation'), false, _cutawayRotation(state.azimuth, state.elevation));
+            gl.uniform1f(gl.getUniformLocation(state.program, 'u_camDist'), state.zoom);
+            gl.uniform1i(gl.getUniformLocation(state.program, 'u_steps'), Math.min(768, Math.max(...state.shape) * 2));
+            gl.uniform1i(gl.getUniformLocation(state.program, 'u_clipAxis'), 2);
+            const n = Math.max(1, shape[view.sliceDir]);
+            gl.uniform1f(gl.getUniformLocation(state.program, 'u_clip'), n <= 1 ? 0 : indices[view.sliceDir] / (n - 1));
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, state.volTex); gl.uniform1i(gl.getUniformLocation(state.program, 'u_volume'), 0);
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, state.lutTex); gl.uniform1i(gl.getUniformLocation(state.program, 'u_lut'), 1);
+            gl.bindVertexArray(state.vao); gl.drawArrays(gl.TRIANGLES, 0, 6); gl.bindVertexArray(null);
+        }
+
+        function _mvCutawayRenderAll() { mvViews.forEach(_mvCutawayRender); }
+
+        function _reconcileMvCutaway() {
+            mvViews.forEach(v => { if (v.cutawayCanvas) v.cutawayCanvas.style.display = mvCutawayActive ? 'block' : 'none'; });
+        }
+
+        async function enterMvCutawayMode() {
+            if (!multiViewActive || compareMvActive || obliqueVecs) {
+                showStatus(obliqueVecs ? '3D render: reset oblique planes first' : '3D render unavailable here'); return;
+            }
+            mvCutawayActive = true; _reconcileMvCutaway();
+            try {
+                await Promise.all(mvViews.map(_mvCutawayLoad));
+                _mvCutawayRenderAll();
+                requestAnimationFrame(() => _mvCutawayRenderAll());
+                showStatus('Ortho 3D render — drag a pane to rotate, scroll to slice, Shift+3 returns to 2D', 3000);
+            } catch (err) {
+                console.error('ortho 3D render:', err); exitMvCutawayMode(); showStatus('Ortho 3D render unavailable');
+            }
+        }
+
+        function exitMvCutawayMode() {
+            if (!mvCutawayActive) return;
+            mvCutawayActive = false; _reconcileMvCutaway();
+            mvViews.forEach(v => mvRender(v));
+            showStatus('Ortho 3D render: off');
+        }
+
+        function _mvCutawayReleaseAll() {
+            mvCutawayActive = false;
+            mvViews.forEach(v => {
+                const s = v.cutaway; if (!s) return;
+                if (s.volTex) s.gl.deleteTexture(s.volTex); s.gl.deleteTexture(s.lutTex); s.gl.deleteProgram(s.program); s.gl.deleteVertexArray(s.vao);
+                v.cutaway = null;
+            });
+        }
+
+        function _mvCutawayAttachEvents(view) {
+            const canvas = view.cutawayCanvas;
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault(); e.stopPropagation(); _mvSetCurrentView(view);
+                const step = _wheelStep(shape[view.sliceDir]);
+                indices[view.sliceDir] = e.deltaY > 0
+                    ? Math.max(0, indices[view.sliceDir] - step)
+                    : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + step);
+                activeDim = view.sliceDir; renderInfo(); _mvCutawayRenderAll(); saveState();
+            }, { passive: false });
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button !== 0 || !view.cutaway) return;
+                e.preventDefault(); e.stopPropagation(); _mvSetCurrentView(view);
+                view.cutaway.drag = { x: e.clientX, y: e.clientY };
+            });
+            canvas.addEventListener('mousemove', (e) => {
+                const state = view.cutaway; if (!state?.drag) return;
+                state.azimuth += (e.clientX - state.drag.x) * 0.008;
+                state.elevation = Math.max(-1.5, Math.min(1.5, state.elevation + (e.clientY - state.drag.y) * 0.008));
+                state.drag = { x: e.clientX, y: e.clientY }; _mvCutawayRender(view);
+            });
+            const stop = () => { if (view.cutaway) view.cutaway.drag = null; };
+            canvas.addEventListener('mouseup', stop); canvas.addEventListener('mouseleave', stop);
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
         }
 
         // WebGL2 state
@@ -27873,6 +28043,10 @@
         // Called when colormap changes to update the LUT texture
         function _mipOnColormapChange() {
             _cutawayOnColormapChange();
+            if (mvCutawayActive) {
+                mvViews.forEach(_mvCutawayBuildLUT);
+                _mvCutawayRenderAll();
+            }
             if (!mipActive || !_mipGL) return;
             _mipBuildLUT();
             _mipRender();
@@ -27881,6 +28055,7 @@
         // Called when vmin/vmax changes to re-render
         function _mipOnWindowChange() {
             _cutawayOnWindowChange();
+            if (mvCutawayActive) _mvCutawayRenderAll();
             if (!mipActive || !_mipGL) return;
             _mipRender();
         }
