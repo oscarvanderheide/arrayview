@@ -211,6 +211,12 @@ def test_cutaway_replaces_normal_slice_and_tracks_view_dims(loaded_viewer, sid_3
             return a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
         }"""
     )
+    page.keyboard.press("c")
+    page.wait_for_function("() => _cmapPickerOpen")
+    page.get_by_text("plasma", exact=True).click()
+    page.wait_for_function("() => COLORMAPS[colormap_idx] === 'plasma'")
+    assert page.evaluate("() => cutawayActive")
+    page.screenshot(path=str(tmp_path / "cutaway-plasma.png"))
     before = page.evaluate("() => ({dim: current_slice_dim, index: indices[current_slice_dim]})")
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.wheel(0, 120)

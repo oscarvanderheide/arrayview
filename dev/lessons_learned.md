@@ -243,3 +243,10 @@ an image inspection tool even when the saved PNG has normal pixel values.
 **Fix:** Keep animated overlays as small fixed layers, assert that they do not
 change canvas bounds, validate the saved canvas crop numerically, and inspect a
 JPEG contact sheet before treating a suspicious PNG preview as a viewer bug.
+
+## WebGL Colormap Picker Coverage
+
+**Problem:** A WebGL renderer can appear compatible with the shared colormap
+picker while silently missing preview or commit updates to its LUT texture.
+**Fix:** Exercise the real picker in a browser test while the WebGL renderer is
+visible, then assert both the selected colormap and renderer state remain active.
