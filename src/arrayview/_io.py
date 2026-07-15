@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import gzip
 import glob
 import os
 import re
@@ -170,6 +171,179 @@ def _nifti_display_array(proxy):
     return np.asarray(proxy, dtype=display_dtype)
 
 
+class _ProgressiveLoadCancelled(Exception):
+    """Internal signal used when newer navigation supersedes a cold load."""
+
+
+def _read_exact(stream, size):
+    """Read exactly *size* bytes, or raise when a gzip stream ends early."""
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            raise EOFError(f"NIfTI voxel data ended {remaining} bytes early.")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _progressive_nifti_spec(filepath):
+    """Describe a gzip volume that can be decoded one canonical Z plane at a time."""
+    if not filepath.endswith(".nii.gz"):
+        return None
+
+    nib = _nib()
+    img = nib.load(filepath)
+    proxy = img.dataobj
+    if len(img.shape) != 3 or getattr(proxy, "order", None) != "F":
+        return None
+
+    source_ornt = nib.orientations.io_orientation(img.affine)
+    canonical_ornt = nib.orientations.axcodes2ornt(("R", "A", "S"))
+    transform = nib.orientations.ornt_transform(source_ornt, canonical_ornt)
+    # A source Z plane must remain a canonical Z plane. X/Y may be swapped or
+    # flipped inside the plane without requiring any later voxel data.
+    if int(transform[2, 0]) != 2:
+        return None
+
+    raw_dtype = np.dtype(proxy.dtype)
+    if raw_dtype.kind not in "biufc" or raw_dtype.itemsize <= 0:
+        return None
+    display_dtype = (
+        np.dtype(np.float32)
+        if np.issubdtype(raw_dtype, np.floating) and raw_dtype.itemsize > 4
+        else raw_dtype
+    )
+    canonical_shape = tuple(int(img.shape[int(axis)]) for axis in transform[:, 0])
+    return {
+        "source_shape": tuple(int(size) for size in img.shape),
+        "canonical_shape": canonical_shape,
+        "transform": transform,
+        "raw_dtype": raw_dtype,
+        "display_dtype": display_dtype,
+        "offset": int(proxy.offset),
+        "slope": proxy.slope,
+        "inter": proxy.inter,
+    }
+
+
+class _ProgressiveNiftiJob:
+    """Decode one gzip stream once, releasing requested planes as they arrive."""
+
+    def __init__(self, filepath, spec, on_complete, on_finished):
+        self.filepath = filepath
+        self.spec = spec
+        self._on_complete = on_complete
+        self._on_finished = on_finished
+        self._condition = threading.Condition()
+        self._decoded = np.zeros(spec["canonical_shape"][2], dtype=bool)
+        self._volume = np.empty(spec["canonical_shape"], dtype=spec["display_dtype"])
+        self._done = False
+        self._cancelled = False
+        self._error = None
+        self.future = None
+
+    def cancel(self):
+        with self._condition:
+            self._cancelled = True
+            self._condition.notify_all()
+        if self.future is not None and self.future.cancel():
+            self._finish(cancelled=True)
+
+    def plane(self, z_index):
+        with self._condition:
+            while not self._decoded[z_index] and not self._done:
+                self._condition.wait()
+            if self._decoded[z_index]:
+                return self._volume[:, :, z_index]
+            if self._cancelled:
+                raise _ProgressiveLoadCancelled()
+            if self._error is not None:
+                raise self._error
+            raise RuntimeError("Progressive NIfTI loading stopped before the requested plane.")
+
+    def volume(self):
+        with self._condition:
+            while not self._done:
+                self._condition.wait()
+            if self._cancelled:
+                raise _ProgressiveLoadCancelled()
+            if self._error is not None:
+                raise self._error
+            return self._volume
+
+    def _finish(self, *, error=None, cancelled=False):
+        should_notify = False
+        with self._condition:
+            if self._done:
+                return
+            self._error = error
+            self._cancelled = self._cancelled or cancelled
+            self._done = True
+            self._condition.notify_all()
+            should_notify = True
+        if should_notify:
+            self._on_finished(self)
+
+    def run(self):
+        spec = self.spec
+        source_shape = spec["source_shape"]
+        plane_bytes = source_shape[0] * source_shape[1] * spec["raw_dtype"].itemsize
+        z_reversed = int(spec["transform"][2, 1]) < 0
+        try:
+            from nibabel.volumeutils import apply_read_scaling
+
+            with gzip.open(self.filepath, "rb") as stream:
+                stream.seek(spec["offset"])
+                for source_z in range(source_shape[2]):
+                    raw = _read_exact(stream, plane_bytes)
+                    plane = np.ndarray(
+                        source_shape[:2],
+                        dtype=spec["raw_dtype"],
+                        buffer=raw,
+                        order="F",
+                    )
+                    plane = apply_read_scaling(plane, spec["slope"], spec["inter"])
+                    plane = np.asarray(plane, dtype=spec["display_dtype"])
+                    plane = _nib().orientations.apply_orientation(
+                        plane[:, :, None], spec["transform"]
+                    )[:, :, 0]
+                    canonical_z = source_shape[2] - 1 - source_z if z_reversed else source_z
+                    with self._condition:
+                        self._volume[:, :, canonical_z] = plane
+                        self._decoded[canonical_z] = True
+                        self._condition.notify_all()
+                        cancelled = self._cancelled
+                    if cancelled:
+                        self._finish(cancelled=True)
+                        return
+            with self._condition:
+                cancelled = self._cancelled
+            if cancelled:
+                self._finish(cancelled=True)
+                return
+            self._on_complete(self._volume)
+            self._finish()
+        except Exception as exc:
+            self._finish(error=exc)
+
+
+_PROGRESSIVE_NIFTI_POOL = None
+_PROGRESSIVE_NIFTI_POOL_LOCK = threading.Lock()
+
+
+def _get_progressive_nifti_pool():
+    """Return the bounded pool used for foreground-first gzip decoding."""
+    global _PROGRESSIVE_NIFTI_POOL
+    with _PROGRESSIVE_NIFTI_POOL_LOCK:
+        if _PROGRESSIVE_NIFTI_POOL is None or _PROGRESSIVE_NIFTI_POOL._shutdown:
+            _PROGRESSIVE_NIFTI_POOL = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="arrayview-nifti"
+            )
+        return _PROGRESSIVE_NIFTI_POOL
+
+
 def _load_nifti_with_meta(filepath):
     """Load a NIfTI file, canonical-reorient, return (array, meta).
 
@@ -198,7 +372,69 @@ def _load_nifti_with_meta(filepath):
 # ---------------------------------------------------------------------------
 
 
-class _NiftiSeries:
+class _ProgressiveNiftiSeriesMixin:
+    """Progressive gzip support shared by dense and ragged NIfTI stacks."""
+
+    def _init_progressive_loading(self):
+        self._progressive_jobs = {}
+        self._progressive_lock = threading.RLock()
+
+    def _cache_volume(self, cache_key, vol):
+        with self._cache_lock:
+            old = self._vol_cache.get(cache_key)
+            if old is not None:
+                self._vol_cache_bytes -= int(getattr(old, "nbytes", 0))
+            self._vol_cache[cache_key] = vol
+            self._vol_cache.move_to_end(cache_key)
+            self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
+            while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
+                _key, evicted = self._vol_cache.popitem(last=False)
+                self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
+
+    def _get_progressive_plane(self, p_idx, m_idx, z_index):
+        cache_key = (p_idx, m_idx)
+        with self._cache_lock:
+            if cache_key in self._vol_cache:
+                self._vol_cache.move_to_end(cache_key)
+                return self._vol_cache[cache_key][:, :, z_index]
+
+        filepath = self._file_matrix[p_idx][m_idx]
+        if filepath is None:
+            return None
+        with self._progressive_lock:
+            job = self._progressive_jobs.get(cache_key)
+            if job is None:
+                spec = _progressive_nifti_spec(filepath)
+                if spec is None:
+                    return None
+                # Keep the visible patient and one neighbor requested by the
+                # existing collection prefetch. A third cold request cancels
+                # the oldest unfinished decode instead of growing a queue.
+                while len(self._progressive_jobs) >= 2:
+                    old_key, old_job = next(iter(self._progressive_jobs.items()))
+                    old_job.cancel()
+                    self._progressive_jobs.pop(old_key, None)
+
+                def _complete(volume):
+                    self._cache_volume(cache_key, volume)
+
+                def _finished(finished_job):
+                    with self._progressive_lock:
+                        if self._progressive_jobs.get(cache_key) is finished_job:
+                            self._progressive_jobs.pop(cache_key, None)
+
+                job = _ProgressiveNiftiJob(filepath, spec, _complete, _finished)
+                self._progressive_jobs[cache_key] = job
+                job.future = _get_progressive_nifti_pool().submit(job.run)
+        try:
+            return job.plane(z_index)
+        except _ProgressiveLoadCancelled:
+            raise
+        except Exception:
+            return None
+
+
+class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
     """Lazy 4D/5D view over a directory of same-shape NIfTI files.
 
     ``file_matrix`` is a P x M list-of-lists of filepaths (P patients,
@@ -232,6 +468,7 @@ class _NiftiSeries:
         )
         self._cache_lock = threading.Lock()
         self._load_locks = {}
+        self._init_progressive_loading()
 
     @property
     def dtype(self):
@@ -249,6 +486,13 @@ class _NiftiSeries:
                 if cache_key in self._vol_cache:
                     self._vol_cache.move_to_end(cache_key)
                     return self._vol_cache[cache_key]
+            with self._progressive_lock:
+                job = self._progressive_jobs.get(cache_key)
+            if job is not None:
+                try:
+                    return job.volume()
+                except Exception:
+                    pass
             filepath = self._file_matrix[p_idx][m_idx]
             if filepath is None:
                 return np.zeros(self._vol_shape, dtype=self._dtype)
@@ -259,13 +503,7 @@ class _NiftiSeries:
             # only the requested slice. Gzip files must be decompressed once and
             # are therefore materialized into the byte-bounded cache.
             vol = canon.dataobj if filepath.endswith(".nii") else _nifti_display_array(canon.dataobj)
-            with self._cache_lock:
-                self._vol_cache[cache_key] = vol
-                self._vol_cache.move_to_end(cache_key)
-                self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
-                while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
-                    _key, evicted = self._vol_cache.popitem(last=False)
-                    self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
+            self._cache_volume(cache_key, vol)
             return vol
 
     def __getitem__(self, key):
@@ -291,6 +529,24 @@ class _NiftiSeries:
                     m_idx = int(stack_vals[1])
                     if m_idx < 0:
                         m_idx += n_m
+                if (
+                    len(self._vol_shape) == 3
+                    and all(
+                        isinstance(item, slice)
+                        and item.start is None
+                        and item.stop is None
+                        and item.step is None
+                        for item in spatial_key[:2]
+                    )
+                    and isinstance(spatial_key[2], (int, np.integer))
+                ):
+                    z_index = int(spatial_key[2])
+                    if z_index < 0:
+                        z_index += self._vol_shape[2]
+                    if 0 <= z_index < self._vol_shape[2]:
+                        plane = self._get_progressive_plane(p_idx, m_idx, z_index)
+                        if plane is not None:
+                            return plane
                 vol = self._get_volume(p_idx, m_idx)
                 return vol[spatial_key]
         return np.asarray(self)[key]
@@ -400,7 +656,7 @@ class _FileSeries:
         return result
 
 
-class _RaggedFileSeries:
+class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
     """Lazy collection view over same-rank, same-dtype files with varying shapes.
 
     The public ``shape`` is a max-spatial-shape facade so existing viewer
@@ -445,6 +701,7 @@ class _RaggedFileSeries:
         )
         self._cache_lock = threading.Lock()
         self._load_locks = {}
+        self._init_progressive_loading()
 
     @property
     def dtype(self):
@@ -497,6 +754,13 @@ class _RaggedFileSeries:
                 if cache_key in self._vol_cache:
                     self._vol_cache.move_to_end(cache_key)
                     return self._vol_cache[cache_key]
+            with self._progressive_lock:
+                job = self._progressive_jobs.get(cache_key)
+            if job is not None:
+                try:
+                    return job.volume()
+                except Exception:
+                    pass
             filepath = self._file_matrix[p_idx][m_idx]
             if filepath is None:
                 return np.zeros(self._spatial_shapes[p_idx][m_idx], dtype=self._dtype)
@@ -507,13 +771,7 @@ class _RaggedFileSeries:
                 vol = proxy if filepath.endswith(".nii") else _nifti_display_array(proxy)
             else:
                 vol = load_data(filepath)
-            with self._cache_lock:
-                self._vol_cache[cache_key] = vol
-                self._vol_cache.move_to_end(cache_key)
-                self._vol_cache_bytes += int(getattr(vol, "nbytes", 0))
-                while self._vol_cache_bytes > self._vol_cache_max_bytes and len(self._vol_cache) > 1:
-                    _key, evicted = self._vol_cache.popitem(last=False)
-                    self._vol_cache_bytes -= int(getattr(evicted, "nbytes", 0))
+            self._cache_volume(cache_key, vol)
             return vol
 
     def __getitem__(self, key):
@@ -540,6 +798,23 @@ class _RaggedFileSeries:
                         spatial_key.append(idx)
                     else:
                         spatial_key.append(val)
+                if (
+                    self._all_nifti
+                    and len(spatial_shape) == 3
+                    and all(
+                        isinstance(item, slice)
+                        and item.start is None
+                        and item.stop is None
+                        and item.step is None
+                        for item in spatial_key[:2]
+                    )
+                    and isinstance(spatial_key[2], (int, np.integer))
+                ):
+                    z_index = int(spatial_key[2])
+                    if 0 <= z_index < spatial_shape[2]:
+                        plane = self._get_progressive_plane(p_idx, m_idx, z_index)
+                        if plane is not None:
+                            return plane
                 return self._get_volume(p_idx, m_idx)[tuple(spatial_key)]
         raise TypeError("Ragged collections require concrete collection indices.")
 

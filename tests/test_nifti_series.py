@@ -12,6 +12,16 @@ nib = pytest.importorskip("nibabel")
 from arrayview._io import _NiftiSeries, _RaggedFileSeries, _load_nifti_series, load_data, load_data_with_meta
 
 
+def _wait_for_volume(series, key=(0, 0), timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with series._cache_lock:
+            if key in series._vol_cache:
+                return series._vol_cache[key]
+        time.sleep(0.005)
+    raise AssertionError(f"volume {key} was not cached within {timeout} seconds")
+
+
 def _save_nifti(path, data, affine=None):
     if affine is None:
         affine = np.diag([1.0, 1.0, 1.0, 1.0])
@@ -64,8 +74,9 @@ class TestNiftiSeries4D:
         _make_patient_dir(tmp_path, "p003")
         series, _ = load_data_with_meta(str(tmp_path))
         _ = series[:, :, 0, 1]
+        _wait_for_volume(series, (1, 0))
         assert len(series._vol_cache) == 1
-        assert (0, 1) in series._vol_cache or (1, 0) in series._vol_cache
+        assert (1, 0) in series._vol_cache
 
     def test_patient_ordering_sorted(self, tmp_path):
         _make_patient_dir(tmp_path, "p010")
@@ -237,9 +248,144 @@ class TestNiftiSeriesErrors:
         series, _ = load_data_with_meta(str(tmp_path))
 
         displayed = series[:, :, 2, 0]
+        cached = _wait_for_volume(series)
 
         assert displayed.dtype == np.float32
-        assert series._vol_cache[(0, 0)].dtype == np.float32
+        assert cached.dtype == np.float32
+
+    def test_compressed_axial_plane_returns_before_full_volume(self, tmp_path, monkeypatch):
+        from arrayview import _io
+
+        _make_patient_dir(tmp_path, "p001", shape=(16, 17, 8))
+        series, _ = load_data_with_meta(str(tmp_path))
+        original_read = _io._read_exact
+        second_plane_started = threading.Event()
+        release_background = threading.Event()
+        reads = 0
+
+        def controlled_read(stream, size):
+            nonlocal reads
+            reads += 1
+            if reads == 2:
+                second_plane_started.set()
+                assert release_background.wait(2.0)
+            return original_read(stream, size)
+
+        monkeypatch.setattr(_io, "_read_exact", controlled_read)
+        try:
+            plane = series[:, :, 0, 0]
+            assert second_plane_started.wait(1.0)
+            assert (0, 0) not in series._vol_cache
+            expected = np.asarray(
+                nib.as_closest_canonical(
+                    nib.load(tmp_path / "p001" / "vol_0.nii.gz")
+                ).dataobj
+            )
+            assert np.array_equal(plane, expected[:, :, 0])
+        finally:
+            release_background.set()
+        _wait_for_volume(series)
+        assert reads == 8
+
+    def test_progressive_plane_preserves_orientation_scaling_and_cache(self, tmp_path):
+        pdir = tmp_path / "p001"
+        pdir.mkdir()
+        path = pdir / "vol_0.nii.gz"
+        data = np.arange(5 * 6 * 7, dtype=np.float64).reshape(5, 6, 7)
+        affine = np.array(
+            [[0.0, -2.0, 0.0, 0.0], [1.5, 0.0, 0.0, 0.0],
+             [0.0, 0.0, -3.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+        )
+        image = nib.Nifti1Image(data, affine)
+        image.header.set_slope_inter(2.5, -3.0)
+        nib.save(image, path)
+        series, _ = load_data_with_meta(str(tmp_path))
+        expected = np.asarray(
+            nib.as_closest_canonical(nib.load(path)).dataobj, dtype=np.float32
+        )
+
+        plane = series[:, :, 2, 0]
+        cached = _wait_for_volume(series)
+
+        assert np.array_equal(plane, expected[:, :, 2])
+        assert np.array_equal(cached, expected)
+
+    def test_non_axial_source_layout_falls_back_to_full_load(self, tmp_path, monkeypatch):
+        from arrayview import _io
+
+        pdir = tmp_path / "p001"
+        pdir.mkdir()
+        path = pdir / "vol_0.nii.gz"
+        data = np.arange(4 * 5 * 6, dtype=np.int16).reshape(4, 5, 6)
+        affine = np.array(
+            [[0.0, 0.0, 2.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+             [0.0, 3.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+        )
+        nib.save(nib.Nifti1Image(data, affine), path)
+        series, _ = load_data_with_meta(str(tmp_path))
+        monkeypatch.setattr(
+            _io,
+            "_read_exact",
+            lambda *_args: (_ for _ in ()).throw(
+                AssertionError("unsupported layout used progressive decoder")
+            ),
+        )
+
+        plane = series[:, :, 1, 0]
+        expected = np.asarray(nib.as_closest_canonical(nib.load(path)).dataobj)
+
+        assert np.array_equal(plane, expected[:, :, 1])
+        assert (0, 0) in series._vol_cache
+
+    def test_neighbor_decode_does_not_cancel_visible_patient(self, tmp_path, monkeypatch):
+        from arrayview import _io
+
+        _make_patient_dir(tmp_path, "p001", shape=(12, 13, 6))
+        _make_patient_dir(tmp_path, "p002", shape=(12, 13, 6))
+        series, _ = load_data_with_meta(str(tmp_path))
+        original_read = _io._read_exact
+        first_path = str(tmp_path / "p001" / "vol_0.nii.gz")
+        old_background_started = threading.Event()
+        release_old = threading.Event()
+        reads_by_path = {}
+
+        def controlled_read(stream, size):
+            path = str(stream.name)
+            reads_by_path[path] = reads_by_path.get(path, 0) + 1
+            if path == first_path and reads_by_path[path] == 2:
+                old_background_started.set()
+                assert release_old.wait(2.0)
+            return original_read(stream, size)
+
+        monkeypatch.setattr(_io, "_read_exact", controlled_read)
+        try:
+            _ = series[:, :, 0, 0]
+            assert old_background_started.wait(1.0)
+            _ = series[:, :, 0, 1]
+            with series._progressive_lock:
+                assert len(series._progressive_jobs) <= 2
+                assert (0, 0) in series._progressive_jobs
+        finally:
+            release_old.set()
+        _wait_for_volume(series, (0, 0))
+        _wait_for_volume(series, (1, 0))
+
+    def test_ragged_nifti_stack_uses_progressive_axial_load(self, tmp_path):
+        _make_patient_dir(tmp_path, "p001", shape=(8, 9, 5))
+        _make_patient_dir(tmp_path, "p002", shape=(8, 9, 7))
+        series, _ = load_data_with_meta(str(tmp_path))
+        assert isinstance(series, _RaggedFileSeries)
+        expected = np.asarray(
+            nib.as_closest_canonical(
+                nib.load(tmp_path / "p002" / "vol_0.nii.gz")
+            ).dataobj
+        )
+
+        plane = series[:, :, 3, 1]
+        cached = _wait_for_volume(series, (1, 0))
+
+        assert np.array_equal(plane, expected[:, :, 3])
+        assert np.array_equal(cached, expected)
 
     def test_dtype_mismatch(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", dtype=np.float32)

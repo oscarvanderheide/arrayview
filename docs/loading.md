@@ -119,8 +119,9 @@ Pattern collections, named overlays, multiple overlays, and `--overlay-dir`:
 
 ## NIfTI Series (4D/5D from a directory)
 
-Stack a directory of NIfTI files into a single lazy 4D/5D array — only the
-viewed slice is loaded, so RAM stays bounded regardless of series size.
+Stack a directory of NIfTI files into a single lazy 4D/5D array. Patient files
+are loaded only when needed, and the memory cache stays bounded regardless of
+series size.
 
 ```bash
 uvx arrayview patients/
@@ -153,6 +154,19 @@ view_dir("patients/", select=["*t1*", "*t2*", "*flair*"])
 
 Patient folders with no NIfTI files (e.g. only `.dcm`) raise an error —
 convert DICOM to NIfTI first (e.g. `dcm2niix`).
+
+### First image from compressed patients
+
+For a normal 3D `.nii.gz` patient, ArrayView shows the requested axial slice as
+soon as that slice has been unpacked. It keeps unpacking the rest of the same
+file in the background and saves the completed volume in the existing memory
+cache. The file is not unpacked a second time.
+
+This shortens the visible wait, but it does not make gzip random-access. A slice
+near the middle still requires reading roughly the first half of the file.
+Side views, 4D files, and unusual orientations fall back to loading the complete
+volume first so their data remains correct. Moving quickly between patients
+stops outdated background work instead of building a long loading queue.
 
 ## Zarr
 
