@@ -3136,6 +3136,24 @@ class TestROIDrag:
         assert preview["stroke"] == calls["color0"], f"replace preview should reuse original ROI color, got {calls}"
         assert preview["stroke"] != calls["color2"], f"replace preview should not use next-new ROI color, got {calls}"
 
+    def test_vmode_recovers_a_missing_pane_frame_without_navigation(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function("() => mvViews.length === 3 && mvViews.every(v => !!v.lastImageData)")
+        patient_index = page.evaluate("() => indices[3] ?? null")
+
+        page.evaluate("""() => {
+            const view = mvViews[0];
+            view.lastImageData = null;
+            view.lastW = 0;
+            view.lastH = 0;
+            view.ws.close();
+        }""")
+
+        page.wait_for_function("() => !!mvViews[0].lastImageData && mvViews[0].lastW > 0 && mvViews[0].lastH > 0")
+        assert page.evaluate("() => indices[3] ?? null") == patient_index
+
     def test_vmode_floodfill_updates_on_scroll(self, loaded_viewer, client, tmp_path):
         # A 3D block at z=4..7. Seed a 3D floodfill on pane 0 (sliceDir=2) at
         # mid-z, then scroll pane 0 outside the block. The ROI overlay on

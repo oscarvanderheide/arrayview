@@ -26885,14 +26885,7 @@
             mvViews.forEach(v => { v.lastW = shape[v.dimX]; v.lastH = shape[v.dimY]; });
             mvScaleAllCanvases();
             if (!httpTransport) {
-                mvViews.forEach(v => {
-                    v.ws = createTransport(sid,
-                        (event) => mvOnMessage(v, event),
-                        () => mvRender(v),
-                        () => { v.rendering = false; },
-                        () => { v.rendering = false; if (v.ws) v.ws.close(); }
-                    );
-                });
+                mvViews.forEach(v => _connectMvTransport(v));
             }
             _kickInitialRenders(mvViews, mvRender);
             // Retry any panes that haven't received their first frame after 3 s.
@@ -29658,12 +29651,7 @@
                 // If the pane has never received data and the WS closed (e.g. transient
                 // server error, slow connect), reconnect so it can still render.
                 if (!v.lastImageData && v.ws && v.ws.readyState === WebSocket.CLOSED) {
-                    v.ws = createTransport(sid,
-                        (event) => mvOnMessage(v, event),
-                        () => mvRender(v),
-                        () => { v.rendering = false; },
-                        () => { v.rendering = false; if (v.ws) v.ws.close(); }
-                    );
+                    _connectMvTransport(v);
                 }
                 return;
             }
@@ -29693,6 +29681,25 @@
                 vf_t: hasVectorfield ? vfieldT : undefined,
                 perf: _PERF_ENABLED,
             }));
+        }
+
+        function _connectMvTransport(v) {
+            const transport = createTransport(sid,
+                (event) => mvOnMessage(v, event),
+                () => mvRender(v),
+                () => { v.rendering = false; },
+                () => {
+                    v.rendering = false;
+                    if (v.ws !== transport || v.lastImageData) return;
+                    const retry = Math.min((v.initialConnectRetries || 0) + 1, 8);
+                    v.initialConnectRetries = retry;
+                    if (retry >= 8) return;
+                    setTimeout(() => {
+                        if (multiViewActive && mvViews.includes(v) && !v.lastImageData) mvRender(v);
+                    }, Math.min(250 * (2 ** (retry - 1)), 3000));
+                }
+            );
+            v.ws = transport;
         }
 
         async function mvRenderHttp(v) {
@@ -30106,6 +30113,7 @@
                 );
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width; v.lastH = frame.height;
+                v.initialConnectRetries = 0;
                 // Ensure CSS scaling is applied before drawing so we can compute
                 // a line width that looks consistent at different zooms.
                 mvScaleAllCanvases();
