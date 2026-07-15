@@ -114,6 +114,22 @@ class TestHealth:
         sids = [s["sid"] for s in r.json()]
         assert sid_2d in sids
 
+    def test_autocrop_returns_nonzero_spatial_bounds_without_writing_data(self, client, tmp_path):
+        arr = np.zeros((20, 30, 10), dtype=np.float32)
+        arr[2:10, 5:18, 1:7] = 1
+        path = tmp_path / "autocrop.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        response = client.get(f"/autocrop/{sid}?indices=0,0,0&margin_mm=0")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "spatial_ndim": 3,
+            "bounds": [[2, 10], [5, 18], [1, 7]],
+        }
+        assert np.array_equal(np.load(path), arr)
+
 
 # ---------------------------------------------------------------------------
 # /load

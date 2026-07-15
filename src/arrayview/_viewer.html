@@ -5519,6 +5519,88 @@
         let _cropDrag = null;     // {pane, edge, affine, imgW, imgH, rect, cv}
         let _cropDragPushT = 0;   // perf.now() of last /update POST
 
+        // View-only automatic crop. Bounds are calculated lazily by the server
+        // for the selected collection item and cached there and here.  This
+        // never changes the source array, NIfTI affine, or files on disk.
+        let autoCropActive = false;
+        const _autoCropBounds = new Map();
+        const _autoCropPending = new Map();
+
+        function _autoCropKey(targetSid, idx) {
+            // Spatial image axes are the leading three axes throughout the
+            // image viewers; a collection/qMRI item is identified by the rest.
+            return `${targetSid}:${idx.slice(3).join(',')}`;
+        }
+
+        async function _fetchAutoCropBounds(targetSid, idx) {
+            if (!autoCropActive || !Array.isArray(idx)) return null;
+            const key = _autoCropKey(targetSid, idx);
+            if (_autoCropBounds.has(key)) return _autoCropBounds.get(key);
+            if (_autoCropPending.has(key)) return _autoCropPending.get(key);
+            const request = proxyFetch(`/autocrop/${targetSid}?indices=${encodeURIComponent(idx.join(','))}`)
+                .then(async (res) => {
+                    if (!res.ok) throw new Error(`auto crop unavailable (${res.status})`);
+                    const result = await res.json();
+                    _autoCropBounds.set(key, result);
+                    return result;
+                })
+                .catch((err) => {
+                    console.warn('[arrayview] auto crop:', err);
+                    return null;
+                })
+                .finally(() => _autoCropPending.delete(key));
+            _autoCropPending.set(key, request);
+            return request;
+        }
+
+        function _cropImageDataToBounds(frame, bounds, dimX, dimY) {
+            if (!bounds || !Array.isArray(bounds.bounds)
+                || dimX < 0 || dimY < 0 || dimX >= bounds.bounds.length || dimY >= bounds.bounds.length) {
+                return frame;
+            }
+            const [x0, x1] = bounds.bounds[dimX];
+            const [y0, y1] = bounds.bounds[dimY];
+            const left = Math.max(0, Math.min(frame.width, x0));
+            const right = Math.max(left + 1, Math.min(frame.width, x1));
+            const top = Math.max(0, Math.min(frame.height, y0));
+            const bottom = Math.max(top + 1, Math.min(frame.height, y1));
+            if (left === 0 && top === 0 && right === frame.width && bottom === frame.height) return frame;
+            const width = right - left, height = bottom - top;
+            const out = new Uint8ClampedArray(width * height * 4);
+            const src = frame.imageData.data;
+            for (let row = 0; row < height; row++) {
+                const srcStart = ((top + row) * frame.width + left) * 4;
+                out.set(src.subarray(srcStart, srcStart + width * 4), row * width * 4);
+            }
+            return {
+                ...frame,
+                imageData: new ImageData(out, width, height),
+                width,
+                height,
+                autoCrop: { x0: left, y0: top, x1: right, y1: bottom },
+            };
+        }
+
+        async function _applyAutoCrop(frame, params, targetSid) {
+            if (!autoCropActive) return frame;
+            const idx = String(params.get('indices') || '').split(',').map(Number);
+            const dimX = Number(params.get('dim_x'));
+            const dimY = Number(params.get('dim_y'));
+            if (!idx.length || !Number.isInteger(dimX) || !Number.isInteger(dimY)) return frame;
+            return _cropImageDataToBounds(frame, await _fetchAutoCropBounds(targetSid, idx), dimX, dimY);
+        }
+
+        function _applyAutoCropIfReady(frame, targetSid, dimX, dimY, idx) {
+            if (!autoCropActive) return frame;
+            const key = _autoCropKey(targetSid, idx);
+            const bounds = _autoCropBounds.get(key);
+            if (bounds) return _cropImageDataToBounds(frame, bounds, dimX, dimY);
+            void _fetchAutoCropBounds(targetSid, idx).then((result) => {
+                if (result && autoCropActive) updateView();
+            });
+            return frame;
+        }
+
         const _ROI_SHAPE_ICONS = {
             rect:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
             circle:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>',
@@ -13158,8 +13240,12 @@
 
                         const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                         const drawT0 = _perfNow();
-                        const newImageData = new ImageData(rgba, width, height);
-                        crossFadeIn(newImageData, width, height);
+                        const frame = _applyAutoCropIfReady(
+                            { imageData: new ImageData(rgba, width, height), width, height },
+                            sid, dim_x, dim_y, indices,
+                        );
+                        const newImageData = frame.imageData;
+                        crossFadeIn(newImageData, frame.width, frame.height);
                         // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
                         // sees the real childrenH and computes the correct paddingTop.
                         if (document.getElementById('loading-overlay').style.display !== 'none') {
@@ -13172,7 +13258,7 @@
                             const _delay = Math.max(0, _MIN_SPINNER_MS - _elapsed);
                             setTimeout(() => _playStartupAnimation(), _delay);
                         }
-                        scaleCanvas(width, height);
+                        scaleCanvas(frame.width, frame.height);
                         if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
                             const vfTrailer = _unpackVfieldTrailer(buf, width, height);
                             if (vfTrailer) {
@@ -13316,12 +13402,12 @@
                     },
                 });
             }
-            return {
+            return _applyAutoCrop({
                 ...decoded,
                 vmin,
                 vmax,
                 perfSeq,
-            };
+            }, params, targetSid);
         }
 
         function _perfAttachHttpDraw(frame, drawMs) {
@@ -23019,6 +23105,19 @@
                 when: ['toolLauncherOpen'],
                 run: (ctx, e) => { closeToolLauncher(); },
             },
+            'autocrop.toggle': {
+                title: 'Toggle automatic display crop',
+                when: [],
+                run: (ctx, e) => {
+                    autoCropActive = !autoCropActive;
+                    if (autoCropActive) {
+                        showStatus('auto crop: finding nonzero bounds…');
+                    } else {
+                        showStatus('auto crop: off');
+                    }
+                    updateView();
+                },
+            },
             'tool.exit': {
                 title: 'Exit all tools',
                 when: ['anyToolActive'],
@@ -23059,6 +23158,8 @@
             { key: 'q', command: 'tool.qmriDirect' },
             { key: 'c', command: 'colormap.openOrCycle' },
             { key: 'C', command: 'tool.cropDirect' },
+            // Use the physical key so Shift+4 works on every keyboard layout.
+            { code: 'Digit4', shift: true, command: 'autocrop.toggle' },
             { key: 'S', shift: true, command: 'compare.toggleDetachedSplit' },
             { key: 'D', shift: true, command: 'compare.toggleDiffMode' },
             { key: 'X', shift: true, command: 'compare.cycleCenterMode' },
@@ -23242,6 +23343,7 @@
                             { key: 'd', action: 'Open histogram / range menu', hint: 'repeat d to cycle presets · arrows select · Enter commits and closes · click dims to cycle scope' },
                             { key: 'Histogram open', action: 'Dim participation underlines', hint: 'Click a dim to cycle in scope → recompute → frozen. Hover a dim for the explanation.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
+                            { key: 'Shift+4', action: 'Toggle automatic display crop', hint: 'nonzero bounds plus a 12 mm margin · view-only, per collection item' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light' },
                             { key: 'b', action: 'Toggle canvas borders' },
                             { key: 'Shift+B', action: 'Toggle rounded panes' },
@@ -25275,7 +25377,7 @@
         function dispatchCommand(e) {
             const _modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
             const matching = keybinds.filter(b => {
-                if (b.key !== e.key) return false;
+                if (b.code ? b.code !== e.code : b.key !== e.key) return false;
                 // Unspecified ctrl/alt/meta/mod ⇒ must be OFF.
                 // Shift is special: since bindings use literal characters
                 // like 'F' or '{' that inherently require shift on most
@@ -28383,8 +28485,12 @@
                 v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const drawT0 = _perfNow();
-                v.lastImageData = new ImageData(rgba, width, height);
-                v.lastW = width; v.lastH = height;
+                const frame = _applyAutoCropIfReady(
+                    { imageData: new ImageData(rgba, width, height), width, height },
+                    v.sid, dim_x, dim_y, indices,
+                );
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
                 compareQmriScaleAllCanvases();
                 compareQmriDrawFrame(v);
                 if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
@@ -28946,8 +29052,12 @@
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const drawT0 = _perfNow();
-                v.lastImageData = new ImageData(rgba, width, height);
-                v.lastW = width; v.lastH = height;
+                const frame = _applyAutoCropIfReady(
+                    { imageData: new ImageData(rgba, width, height), width, height },
+                    v.sid, v.dimX, v.dimY, indices,
+                );
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
                 _perfCompleteRequest('ws', h32[0], {
@@ -29389,8 +29499,12 @@
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const drawT0 = _perfNow();
-                v.lastImageData = new ImageData(rgba, width, height);
-                v.lastW = width; v.lastH = height;
+                const frame = _applyAutoCropIfReady(
+                    { imageData: new ImageData(rgba, width, height), width, height },
+                    sid, dim_x, dim_y, indices,
+                );
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
                 if (qmriMosaicActive && v._mosaicColorBar) { v._mosaicColorBar.draw(); v._mosaicColorBar.updateLabels(); }
@@ -29971,8 +30085,12 @@
                 }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const drawT0 = _perfNow();
-                v.lastImageData = new ImageData(rgba, width, height);
-                v.lastW = width; v.lastH = height;
+                const frame = _applyAutoCropIfReady(
+                    { imageData: new ImageData(rgba, width, height), width, height },
+                    sid, v.dimX, v.dimY, indices,
+                );
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
                 // Ensure CSS scaling is applied before drawing so we can compute
                 // a line width that looks consistent at different zooms.
                 mvScaleAllCanvases();
