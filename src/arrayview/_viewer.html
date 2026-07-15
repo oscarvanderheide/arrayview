@@ -11647,6 +11647,20 @@
             _histDataVersion = null;
         }
 
+        async function _seedInitialScopedVolumeRange() {
+            if (_histScopeDims().size <= 2 || manualVmin !== null || manualVmax !== null) return;
+            const expectedKey = _expectedHistKey();
+            const data = await _fetchVolumeHistogram(_volHistSpatialOpts());
+            if (!data || expectedKey !== _expectedHistKey()
+                    || manualVmin !== null || manualVmax !== null) return;
+            _histData = data;
+            window._dQuantileIdx = 0;
+            _dmenuVminPresetIdx = 0;
+            _dmenuVmaxPresetIdx = 0;
+            _reapplyCurrentQuantilePreset();
+            _dmenuRefreshAfterRangeChange(true);
+        }
+
         /** Compute expected histogram version key for current dim/index config. */
         function _expectedHistKey() {
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
@@ -13935,6 +13949,7 @@
             if (!_useWsMeta) initWebSocket();
             _metadataProcessed = true;
             if (_useWsMeta && wsReady) updateView();
+            void _seedInitialScopedVolumeRange();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();

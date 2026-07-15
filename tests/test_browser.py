@@ -1544,6 +1544,24 @@ class TestKeyboard:
         assert after["index"] > before["index"]
         assert after["range"] == before["range"], "scrolling an in-scope dimension must retain the histogram range"
 
+    def test_initial_scoped_volume_range_stays_fixed_without_opening_histogram(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.wait_for_function("() => manualVmin !== null && manualVmax !== null")
+        before = page.evaluate("""() => ({
+            range: [manualVmin, manualVmax],
+            index: indices[activeDim],
+            histogramOpen: primaryCb._expanded,
+        })""")
+
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(300)
+        after = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim]})")
+
+        assert before["histogramOpen"] is False
+        assert after["index"] > before["index"]
+        assert after["range"] == before["range"]
+
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
