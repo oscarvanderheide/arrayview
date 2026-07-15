@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import numpy as np
 import pytest
@@ -197,6 +198,53 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
     assert request["broadcast"] is True
 
 
+def test_vscode_tunnel_recovers_exact_window_from_ipc_hook(monkeypatch, tmp_path):
+    import hashlib
+    import json
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: None)
+    hook = "/tmp/vscode-ipc-current-window"
+    window_id = hashlib.sha256(hook.encode()).hexdigest()[:16]
+    monkeypatch.setattr("arrayview._platform._find_vscode_ipc_hook", lambda: hook)
+    (signal_dir / f"window-{window_id}.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": window_id,
+                "remoteName": "tunnel",
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+    (signal_dir / "window-sibling.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": "sibling",
+                "remoteName": "tunnel",
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+
+    assert signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc", "requestId": "req-1"},
+        skip_compat=True,
+    )
+
+    target = signal_dir / f"open-request-ipc-{window_id}.request-req-1.json"
+    assert target.is_file()
+    assert json.loads(target.read_text())["windowId"] == window_id
+    assert not list(signal_dir.glob("open-request-v0900*"))
+
+
 def test_vscode_tunnel_exact_window_id_is_not_redirected_to_newer_sibling(
     monkeypatch, tmp_path
 ):
@@ -264,6 +312,55 @@ def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_p
     assert extension._extension_on_disk("1.2.3", remote=True) is True
 
 
+def test_vscode_port_settings_preserve_unreadable_jsonc(monkeypatch, tmp_path):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    settings_path = home / ".vscode-server" / "data" / "Machine" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    original = '{\n  "editor.fontSize": 14,\n}\n'
+    settings_path.write_text(original)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_is_vscode_remote", lambda: True)
+    extension._VSCODE_CONFIGURED_PORTS.clear()
+
+    assert extension._configure_vscode_port_preview(8123) is True
+
+    assert settings_path.read_text() == original
+
+
+def test_vscode_port_settings_are_idempotent_and_preserve_extra_keys(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    settings_path = home / ".vscode-server" / "data" / "Machine" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "remote.portsAttributes": {
+                    "8123": {"label": "old", "requireLocalPort": True}
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_is_vscode_remote", lambda: True)
+    extension._VSCODE_CONFIGURED_PORTS.clear()
+
+    assert extension._configure_vscode_port_preview(8123) is True
+    first = settings_path.read_text()
+    assert extension._configure_vscode_port_preview(8123) is True
+
+    attrs = json.loads(first)["remote.portsAttributes"]["8123"]
+    assert attrs["privacy"] == "public"
+    assert attrs["requireLocalPort"] is True
+    assert settings_path.read_text() == first
+
+
 def test_vscode_extension_cleanup_never_removes_newer_version(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
 
@@ -284,12 +381,12 @@ def test_vscode_extension_keeps_newer_install_without_downgrading(monkeypatch, t
     import arrayview._vscode_extension as extension
 
     home = tmp_path / "home"
-    (home / ".vscode" / "extensions" / "arrayview.arrayview-opener-0.14.42").mkdir(
+    (home / ".vscode" / "extensions" / "arrayview.arrayview-opener-0.14.44").mkdir(
         parents=True
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
-    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.42")
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.44")
     monkeypatch.setattr(
         extension.subprocess,
         "run",
@@ -516,7 +613,7 @@ def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
 def test_persistent_daemon_timeouts_when_opener_never_connects():
     import arrayview._launcher as launcher
 
-    assert launcher._PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS == 180.0
+    assert launcher._PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS == 210.0
     assert launcher._PERSIST_DAEMON_IDLE_SECONDS == 120.0
 
 
@@ -798,11 +895,23 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
         package = json.loads(zf.read("extension/package.json"))
         extension_source = zf.read("extension/extension.js").decode()
         helper_source = zf.read("extension/lifecycle_helpers.js").decode()
+        manifest_source = zf.read("extension.vsixmanifest").decode()
 
     assert package["version"] == _VSCODE_EXT_VERSION
+    identity = (
+        'Identity Language="en-US" Id="arrayview-opener" '
+        f'Version="{_VSCODE_EXT_VERSION}"'
+    )
+    assert identity in manifest_source
     assert "collectReleaseSidsFromUrl(url)" in extension_source
     assert "data.remoteOnly === true && !vscode.env.remoteName" in extension_source
     assert "extensionVersion: version" in extension_source
     assert "releaseUrlSession(url, backendUrl)" in extension_source
+    assert "fs.openSync(ackPath, 'wx')" in extension_source
+    assert (
+        "vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)"
+        in extension_source
+    )
+    assert "const SIGNAL_HARD_TIMEOUT_MS = 185000" in extension_source
     assert "compare_sids" in helper_source
     assert "overlay_sid" in helper_source

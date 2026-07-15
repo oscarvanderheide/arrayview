@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-06-19
+last_updated: 2026-07-14
 ---
 
 # Lifecycle
@@ -60,8 +60,10 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 - Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it.
 - VS Code tunnel display uses forwarded localhost URLs; the extension should configure the port, promote privacy when available, and resolve the URL with `asExternalUri`.
-- With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` uses the shared broadcast signal; only the focused VS Code window may claim it.
+- With multiple registered tunnel windows, a missing `ARRAYVIEW_WINDOW_ID` first recovers the exact live registration from the terminal's IPC hook. Only when no exact registration exists does it use the shared focused-window broadcast fallback.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
+- Protocol request claims are atomic across extension hosts. Compatibility queue copies with the same request ID must never open in a sibling window or overwrite a terminal ACK.
+- Tunnel `asExternalUri` results must be non-loopback. Remote-SSH may legitimately resolve to a local forwarded URL and must not be subjected to tunnel-only public-port commands.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
 
 ## Shared Rules
@@ -76,6 +78,7 @@ This contract describes who owns the backend, when it starts, and what closes it
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only
   after the requested SID exists and the viewer reports its first rendered frame.
+- Existing-server tunnel loads publish a pending SID before loading large files, so port resolution can overlap disk I/O. Pending metadata probes return immediately and the WebSocket waits on the shared pending-session event.
 - Older ArrayView packages must not delete or downgrade a newer installed opener.
 - Tunnel registration cleanup must not remove live same-tunnel sibling windows.
 - Explicit cleanup wins over implicit disappearance.

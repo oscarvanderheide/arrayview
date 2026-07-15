@@ -47,7 +47,8 @@ def _vscode_app_bundle() -> str | None:
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
-_VSCODE_EXT_VERSION = "0.14.42"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.43"  # current bundled extension version
+_VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""
@@ -427,7 +428,7 @@ def _configure_vscode_port_preview(port: int) -> bool:
         raw = re.sub(r"(^|\s)//.*$", "", raw, flags=re.MULTILINE)
         return raw
 
-    def _load_settings(path: str) -> dict:
+    def _load_settings(path: str) -> dict | None:
         if not os.path.exists(path):
             return {}
         try:
@@ -435,24 +436,38 @@ def _configure_vscode_port_preview(port: int) -> bool:
                 raw = f.read()
             cleaned = _strip_json_comments(raw)
             return json.loads(cleaned) if cleaned.strip() else {}
-        except (json.JSONDecodeError, OSError):
-            return {}
+        except (json.JSONDecodeError, OSError) as exc:
+            _vprint(
+                f"[ArrayView] leaving unreadable VS Code settings unchanged at "
+                f"{path}: {exc}",
+                flush=True,
+            )
+            return None
 
     def _write_settings(path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         settings = _load_settings(path)
+        if settings is None:
+            return
         attrs = settings.setdefault("remote.portsAttributes", {})
-        attrs[str(port)] = {
+        desired = {
             "protocol": "http",
             "label": "ArrayView",
             "onAutoForward": "silent",
             "privacy": "public",
         }
+        current = attrs.get(str(port))
+        updated = {**current, **desired} if isinstance(current, dict) else desired
+        if current == updated:
+            return
+        attrs[str(port)] = updated
         with open(path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
 
     try:
+        if port in _VSCODE_CONFIGURED_PORTS:
+            return True
         in_vscode = _in_vscode_terminal()
         is_remote = _is_vscode_remote()
 
@@ -489,11 +504,13 @@ def _configure_vscode_port_preview(port: int) -> bool:
 
             for settings_path in targets:
                 _write_settings(settings_path)
+            _VSCODE_CONFIGURED_PORTS.add(port)
             return True
 
         if in_vscode:
             settings_path = os.path.join(os.getcwd(), ".vscode", "settings.json")
             _write_settings(settings_path)
+            _VSCODE_CONFIGURED_PORTS.add(port)
         return True
     except Exception as exc:
         _vprint(f"[ArrayView] could not write port settings: {exc}", flush=True)

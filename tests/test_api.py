@@ -131,6 +131,50 @@ class TestLoad:
         assert "sid" in body
         assert body["name"] == "myarray"
 
+    def test_background_load_returns_pending_sid_before_data_is_ready(
+        self, client, tmp_path, monkeypatch
+    ):
+        import arrayview._io as io_mod
+        import arrayview._session as session_mod
+
+        path = tmp_path / "slow.npy"
+        np.save(path, np.zeros((4, 4), dtype=np.float32))
+        started = threading.Event()
+        finish = threading.Event()
+
+        def slow_load(filepath, key=None, select=None, *, load="lazy", stack="auto"):
+            started.set()
+            assert finish.wait(2.0)
+            return np.zeros((4, 4), dtype=np.float32), None
+
+        monkeypatch.setattr(io_mod, "load_data_with_meta", slow_load)
+
+        response = client.post(
+            "/load",
+            json={"filepath": str(path), "name": "slow", "background": True},
+        )
+        body = response.json()
+        sid = body["sid"]
+        try:
+            assert response.status_code == 200
+            assert body["pending"] is True
+            assert started.wait(0.5)
+            assert sid in session_mod.PENDING_SESSIONS
+            metadata = client.get(f"/metadata/{sid}")
+            assert metadata.status_code == 404
+            assert metadata.headers["retry-after"] == "1"
+
+            finish.set()
+            deadline = time.monotonic() + 2.0
+            while sid not in session_mod.SESSIONS and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert sid in session_mod.SESSIONS
+        finally:
+            finish.set()
+            session_mod.PENDING_SESSIONS.discard(sid)
+            session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
+            session_mod.SESSIONS.pop(sid, None)
+
     def test_reused_file_session_stays_alive_until_all_tabs_release(
         self, client, arr_2d, tmp_path
     ):

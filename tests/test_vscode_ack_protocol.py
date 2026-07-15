@@ -66,6 +66,24 @@ def test_open_request_reports_failed_legacy_write(monkeypatch, tmp_path):
     assert not request
 
 
+def test_open_request_forwards_explorer_handoff_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("ARRAYVIEW_HANDOFF_PATH", "/data/case/image.npy")
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: False)
+    captured = []
+    monkeypatch.setattr(
+        signal,
+        "_write_vscode_signal",
+        lambda payload, delay=0.0: captured.append(payload) or True,
+    )
+
+    signal._open_via_signal_file("http://localhost:8123/?sid=session-1")
+
+    assert captured[0]["handoffPath"] == "/data/case/image.npy"
+
+
 def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))

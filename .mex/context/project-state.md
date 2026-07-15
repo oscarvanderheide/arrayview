@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 ---
 
 # Project State
@@ -21,7 +21,7 @@ last_updated: 2026-07-13
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Compressed NIfTI volumes use a byte-bounded LRU cache; `view_dir()` exposes the same controls.
-- VS Code extension v0.14.41 — stable per-window routing, queued concurrent requests, remote-only tunnel claims, live opener-version ACKs, first-frame readiness, and immediate local-backend session release. An installed-but-stale extension host now fails with a clear one-time reload instruction instead of opening an unverified blank tab; older cached ArrayView packages never delete a newer opener.
+- VS Code extension v0.14.43 — exact tunnel-window recovery from the terminal IPC hook, atomic cross-window request claims, non-loopback tunnel URL enforcement, queued concurrent requests, remote-only tunnel claims, live opener-version ACKs, first-frame readiness, and immediate local-backend session release. Successful port-public promotion is cached per external tunnel URL, and existing-server tunnel loads overlap port setup with pending background data loading.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
@@ -86,6 +86,7 @@ last_updated: 2026-07-13
 
 ## In Progress
 
+- VS Code tunnel opener v0.14.43 is installed on disk and fully covered by focused lifecycle/ACK tests; active 0.14.42 extension hosts still need one window reload before post-change live timing and multi-window verification.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 

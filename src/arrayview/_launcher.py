@@ -920,6 +920,7 @@ def _load_session_from_filepath(
     dir_case_regex: str | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    background: bool = False,
 ) -> dict:
     payload = {
         "filepath": filepath,
@@ -939,6 +940,8 @@ def _load_session_from_filepath(
     if notify and compare_sids:
         payload["compare_sid"] = compare_sids[0]
         payload["compare_sids"] = _join_query_values(compare_sids)
+    if background:
+        payload["background"] = True
     return _server_json_request(port, "/load", payload)
 
 
@@ -1165,6 +1168,7 @@ def _register_cli_session_with_existing_server(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
+    background_base: bool = False,
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
     resolved_overlay_names = overlay_names or [
@@ -1201,6 +1205,7 @@ def _register_cli_session_with_existing_server(
         dir_case_regex=dir_case_regex,
         collection_load=collection_load,
         collection_stack=collection_stack,
+        background=background_base,
     )
     if "error" in result:
         error = str(result["error"])
@@ -1285,6 +1290,12 @@ def _handle_cli_existing_server(
             collection_load=collection_load,
             collection_stack=collection_stack,
             overlay_names=overlay_names,
+            background_base=(
+                is_remote
+                and not vectorfield
+                and not dir_patterns
+                and not base_file.endswith((".npz", ".mat"))
+            ),
         )
     except Exception as e:
         err = str(e)
@@ -1899,7 +1910,7 @@ _CLI_DAEMON_IDLE_SECONDS = 0.0
 # alive forever when the opener never connects (for example after an extension
 # reload or a failed signal-file handoff).
 _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS = float(
-    os.environ.get("ARRAYVIEW_PERSIST_CONNECT_TIMEOUT_SECONDS", "180")
+    os.environ.get("ARRAYVIEW_PERSIST_CONNECT_TIMEOUT_SECONDS", "210")
 )
 _PERSIST_DAEMON_IDLE_SECONDS = float(
     os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "120")

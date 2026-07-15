@@ -12,6 +12,7 @@ const {
     sessionMetadataUrlFromViewerUrl,
     releaseUrlForSid,
     isVersionAtLeast,
+    isLoopbackUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -109,6 +110,8 @@ let lastHandledAt = 0;
 
 // Track open webview panels by URL so we can reveal instead of re-creating.
 const _openPanels = new Map(); // url -> vscode.WebviewPanel
+const _readyPanels = new WeakSet();
+const _publicTunnelUrls = new Set();
 
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
@@ -129,15 +132,13 @@ function writeProtocolAck(data, state, message) {
         log(`ACK: rejected invalid path for requestId=${data.requestId}`);
         return false;
     }
-    if (state === 'claimed') {
-        try {
-            const existing = JSON.parse(fs.readFileSync(ackPath, 'utf8'));
-            if (existing.state === 'backend_ready' || existing.state === 'failed') {
-                log(`ACK: preserving terminal state=${existing.state} requestId=${data.requestId}`);
-                return true;
-            }
-        } catch (_) {}
-    }
+    try {
+        const existing = JSON.parse(fs.readFileSync(ackPath, 'utf8'));
+        if (existing.state === 'backend_ready' || existing.state === 'failed') {
+            log(`ACK: preserving terminal state=${existing.state} requestId=${data.requestId}`);
+            return true;
+        }
+    } catch (_) {}
     const tmpPath = `${ackPath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try {
         fs.writeFileSync(tmpPath, JSON.stringify(ackPayload(state, data, logWindowId, message, version)));
@@ -151,6 +152,44 @@ function writeProtocolAck(data, state, message) {
     }
 }
 
+function claimProtocolRequest(data) {
+    if (data?.protocolVersion !== 1 || !data.requestId || !data.ackPath) return true;
+    const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
+    if (!ackPath) {
+        log(`ACK: rejected invalid claim path for requestId=${data.requestId}`);
+        return false;
+    }
+    let descriptor;
+    try {
+        // The same broadcast is present under current and compatibility queue
+        // names. Exclusive creation makes the request claim global across all
+        // extension hosts, rather than merely atomic for one queue file.
+        descriptor = fs.openSync(ackPath, 'wx');
+        fs.writeFileSync(
+            descriptor,
+            JSON.stringify(ackPayload('claimed', data, logWindowId, null, version))
+        );
+        fs.closeSync(descriptor);
+        descriptor = null;
+        log(`ACK: state=claimed requestId=${data.requestId}`);
+        return true;
+    } catch (error) {
+        if (descriptor !== undefined && descriptor !== null) {
+            try { fs.closeSync(descriptor); } catch (_) {}
+        }
+        if (error.code === 'EEXIST') {
+            let existingState = 'unknown';
+            try {
+                existingState = JSON.parse(fs.readFileSync(ackPath, 'utf8')).state || existingState;
+            } catch (_) {}
+            log(`ACK: request already claimed state=${existingState} requestId=${data.requestId}`);
+            return false;
+        }
+        log(`ACK: claim failed requestId=${data.requestId}: ${error.message}`);
+        return false;
+    }
+}
+
 function _shellCommand(command, args) {
     return [command, ...args].map((part) => {
         if (/^[A-Za-z0-9_./:=+-]+$/.test(part)) return part;
@@ -158,9 +197,10 @@ function _shellCommand(command, args) {
     }).join(' ');
 }
 
-function _arrayviewLaunchCandidates() {
+function _arrayviewLaunchCandidates(filePath) {
     const candidates = [];
-    const folders = vscode.workspace.workspaceFolders || [];
+    const owningFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
+    const folders = owningFolder ? [owningFolder] : (vscode.workspace.workspaceFolders || []);
     for (const folder of folders) {
         const isWin = process.platform === 'win32';
         const venvPy = isWin
@@ -181,7 +221,8 @@ function launchArrayViewFile(filePath, title) {
     if (title) argsSuffix.push('--name', title);
 
     return new Promise((resolve, reject) => {
-        const candidates = _arrayviewLaunchCandidates();
+        const candidates = _arrayviewLaunchCandidates(filePath);
+        const owningFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
 
         const tryNext = () => {
             const candidate = candidates.shift();
@@ -195,10 +236,15 @@ function launchArrayViewFile(filePath, title) {
             let child;
             try {
                 child = spawn(candidate.command, args, {
-                    cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath),
+                    cwd: owningFolder?.uri.fsPath || path.dirname(filePath),
                     detached: true,
                     stdio: ['ignore', 'pipe', 'pipe'],
-                    env: { ...process.env, TERM_PROGRAM: 'vscode', ARRAYVIEW_WINDOW_ID: logWindowId || '' },
+                    env: {
+                        ...process.env,
+                        TERM_PROGRAM: 'vscode',
+                        ARRAYVIEW_WINDOW_ID: logWindowId || '',
+                        ARRAYVIEW_HANDOFF_PATH: filePath,
+                    },
                 });
             } catch (error) {
                 log(`PYTHON: launch failed for ${candidate.command}: ${error.message}`);
@@ -311,26 +357,34 @@ class ArrayViewEditorProvider {
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
             <div>Opening ${title} in ArrayView...</div></body></html>`;
+        const placeholderKey = path.resolve(filePath);
+        const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
+        _pendingPlaceholders.set(placeholderKey, placeholder);
+        webviewPanel.onDidDispose(() => {
+            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+                _pendingPlaceholders.delete(placeholderKey);
+            }
+            log(`CUSTOM-EDITOR: placeholder disposed for ${title}`);
+        });
+        // Large files may legitimately spend minutes loading before the URL is
+        // ready. Keep the placeholder correlated for the whole launch budget.
+        setTimeout(() => {
+            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+                _pendingPlaceholders.delete(placeholderKey);
+                try {
+                    webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                        <h2>ArrayView failed to start</h2>
+                        <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
+                } catch (_) { /* panel already disposed */ }
+            }
+        }, 190000);
         try {
             await launchArrayViewFile(filePath, title);
             log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
-            _pendingPlaceholders.set(filePath, { panel: webviewPanel, basename: title });
-            webviewPanel.onDidDispose(() => {
-                _pendingPlaceholders.delete(filePath);
-                log(`CUSTOM-EDITOR: placeholder disposed for ${title}`);
-            });
-            // Safety timeout: if no signal arrives within 30 s, show an error.
-            setTimeout(() => {
-                if (_pendingPlaceholders.has(filePath)) {
-                    _pendingPlaceholders.delete(filePath);
-                    try {
-                        webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
-                            <h2>ArrayView failed to start</h2>
-                            <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
-                    } catch (_) { /* panel already disposed */ }
-                }
-            }, 30000);
         } catch (e) {
+            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+                _pendingPlaceholders.delete(placeholderKey);
+            }
             log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
             webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
                 <h2>ArrayView failed to open</h2><pre>${e.message}</pre>
@@ -699,7 +753,24 @@ async function tryOpenSignalFile() {
             continue;
         }
 
-        writeProtocolAck(data, 'claimed');
+        if (!claimProtocolRequest(data)) {
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+
+        // A broadcast request is written to both the current and compatibility
+        // queue names. Once one window claims it, remove the sibling copies so
+        // another focused tunnel window cannot open the same SID later.
+        if (data.requestId) {
+            for (const prefix of ['open-request-v0900', 'open-request-v0800', 'open-request-v0400']) {
+                const duplicate = path.join(SIGNAL_DIR, `${prefix}.request-${data.requestId}.json`);
+                if (duplicate === signalFile) continue;
+                try {
+                    fs.unlinkSync(duplicate);
+                    log(`SIGNAL: removed compatibility copy ${path.basename(duplicate)}`);
+                } catch (_) {}
+            }
+        }
 
         try { fs.unlinkSync(claimedFile); } catch (_) {}
 
@@ -859,7 +930,9 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
         try {
             existing.reveal(undefined, false);
             log(`PANEL: revealed existing panel for ${url}`);
-            return Promise.resolve();
+            return _readyPanels.has(existing)
+                ? Promise.resolve(null)
+                : waitForViewerReady(existing);
         } catch (_) {
             _openPanels.delete(url);
         }
@@ -880,7 +953,10 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
         }
     );
 
-    const viewerReady = waitForViewerReady(panel);
+    const viewerReady = waitForViewerReady(panel).then((error) => {
+        if (!error) _readyPanels.add(panel);
+        return error;
+    });
     panel.webview.html = _viewerPanelHtml(url);
 
     _openPanels.set(url, panel);
@@ -935,19 +1011,32 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
  *      the error is caught and logged — the settings write from step 1
  *      still helps for future forwards.
  */
-async function ensurePortPublic(port) {
+async function ensurePortPublic(port, externalBase) {
+    if (_publicTunnelUrls.has(externalBase)) {
+        log(`PORT: already public for ${externalBase}`);
+        return true;
+    }
+
     // Step 1: write portsAttributes via the settings API
     try {
         const config = vscode.workspace.getConfiguration('remote');
         let attrs = config.get('portsAttributes') || {};
-        attrs[String(port)] = Object.assign({}, attrs[String(port)], {
+        const current = attrs[String(port)] || {};
+        const wanted = {
             protocol: 'http',
             label: 'ArrayView',
             onAutoForward: 'silent',
             privacy: 'public',
-        });
-        await config.update('portsAttributes', attrs, vscode.ConfigurationTarget.Global);
-        log(`PORT: wrote portsAttributes[${port}] privacy=public`);
+        };
+        const alreadyConfigured = Object.entries(wanted)
+            .every(([key, value]) => current[key] === value);
+        if (!alreadyConfigured) {
+            attrs[String(port)] = Object.assign({}, current, wanted);
+            await config.update('portsAttributes', attrs, vscode.ConfigurationTarget.Global);
+            log(`PORT: wrote portsAttributes[${port}] privacy=public`);
+        } else {
+            log(`PORT: portsAttributes[${port}] already public`);
+        }
     } catch (e) {
         log(`PORT: failed to write portsAttributes: ${e.message || e}`);
     }
@@ -1009,6 +1098,8 @@ async function ensurePortPublic(port) {
             log(`PORT: privacypublic still not available after view load`);
         }
     }
+    if (privacyDone) _publicTunnelUrls.add(externalBase);
+    return privacyDone;
 }
 
 async function resolveRemoteViewerUrl(url) {
@@ -1038,7 +1129,13 @@ async function resolveRemoteViewerUrl(url) {
             const externalBase = externalUri.toString().replace(/\/$/, '');
             log(`REMOTE: → ${externalBase}`);
 
-            await ensurePortPublic(port);
+            if (vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)) {
+                throw new Error('asExternalUri returned a loopback URL in a remote window');
+            }
+
+            if (vscode.env.remoteName === 'tunnel') {
+                await ensurePortPublic(port, externalBase);
+            }
 
             const finalUrl = externalBase + '/' + origQuery;
             log(`REMOTE: final URL = ${finalUrl}`);
@@ -1066,20 +1163,26 @@ async function processSignalData(data) {
     // be skipped at tryOpenSignalFile's guard until the user reloaded the
     // window. Racing the whole body against a timeout guarantees the lock
     // always releases so the 1s poll picks up queued signals again. The
-    // orphaned body promise is harmless: the panel either eventually opens
-    // or it doesn't, but the queue is no longer blocked.
-    const SIGNAL_HARD_TIMEOUT_MS = 70000;
+    // The cancellation flag prevents a timed-out body from opening a panel or
+    // overwriting the terminal failure ACK after the queue lock is released.
+    const SIGNAL_HARD_TIMEOUT_MS = 185000;
+    const operation = { cancelled: false };
+    let hardTimer = null;
     try {
         await Promise.race([
-            _processSignalDataBody(data),
+            _processSignalDataBody(data, operation),
             new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`processSignalData hard timeout after ${SIGNAL_HARD_TIMEOUT_MS}ms`)), SIGNAL_HARD_TIMEOUT_MS)
+                hardTimer = setTimeout(() => {
+                    operation.cancelled = true;
+                    reject(new Error(`processSignalData hard timeout after ${SIGNAL_HARD_TIMEOUT_MS}ms`));
+                }, SIGNAL_HARD_TIMEOUT_MS)
             ),
         ]);
     } catch (error) {
         log(`ERROR: ${error.message}`);
         writeProtocolAck(data, 'failed', error.message);
     } finally {
+        if (hardTimer) clearTimeout(hardTimer);
         isProcessingSignal = false;
         log(`UNLOCK: isProcessingSignal=false`);
         // Signal files for subsequent arrays remain on disk; the 1-second poll
@@ -1087,7 +1190,12 @@ async function processSignalData(data) {
     }
 }
 
-async function _processSignalDataBody(data) {
+async function _processSignalDataBody(data, operation = { cancelled: false }) {
+    const ensureActive = () => {
+        if (operation.cancelled) {
+            throw new Error('Signal processing was cancelled before panel open');
+        }
+    };
     log(`SIGNAL-DATA: mode=${data.mode} url=${data.url || '(none)'}`);
     const url = data.url;
     if (!url) {
@@ -1097,6 +1205,9 @@ async function _processSignalDataBody(data) {
     }
 
     const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
+    const remoteUrlPromise = vscode.env.remoteName
+        ? resolveRemoteViewerUrl(url)
+        : null;
     // A newly spawned daemon creates the session asynchronously.  During
     // loading /metadata/<sid> is temporarily 404; treating that as expired
     // races large remote-file loads and loses the viewer before its panel can
@@ -1104,6 +1215,7 @@ async function _processSignalDataBody(data) {
     if (localMetadataUrl && !await waitForHttpStatus2xx(localMetadataUrl)) {
         throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
     }
+    ensureActive();
 
     const requestId = data.requestId || null;
     const now = Date.now();
@@ -1137,7 +1249,8 @@ async function _processSignalDataBody(data) {
         // exists. Resolve a real external URI before opening the panel; a
         // localhost fallback inside a tunnel webview points at the wrong side
         // of the connection and renders as a blank tab.
-        const remoteUrl = await resolveRemoteViewerUrl(url);
+        const remoteUrl = await remoteUrlPromise;
+        ensureActive();
         if (!remoteUrl) {
             log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
             writeProtocolAck(data, 'failed', 'Failed to resolve remote viewer URL');
@@ -1145,6 +1258,7 @@ async function _processSignalDataBody(data) {
         }
         openUrl = remoteUrl;
     }
+    ensureActive();
     writeProtocolAck(data, 'port_resolved');
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
@@ -1153,7 +1267,12 @@ async function _processSignalDataBody(data) {
     let handedOff = false;
     let viewerReady;
     for (const [filePath, placeholder] of _pendingPlaceholders) {
-        if (data.title && data.title.includes(placeholder.basename)) {
+        const exactHandoff = data.handoffPath
+            && path.resolve(data.handoffPath) === placeholder.filePath;
+        const legacyTitleMatch = !data.handoffPath
+            && data.title
+            && data.title.includes(placeholder.basename);
+        if (exactHandoff || legacyTitleMatch) {
             _pendingPlaceholders.delete(filePath);
             try {
                 viewerReady = waitForViewerReady(placeholder.panel);
@@ -1187,6 +1306,7 @@ async function _processSignalDataBody(data) {
         if (sessionReady) {
             const viewerError = await viewerReady;
             if (viewerError) throw viewerError;
+            ensureActive();
             writeProtocolAck(data, 'visibility_verified');
             writeProtocolAck(data, 'backend_ready');
             return;

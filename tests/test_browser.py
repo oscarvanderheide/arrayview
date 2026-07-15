@@ -1525,6 +1525,25 @@ class TestKeyboard:
         assert after["status"] == ""
         assert after["toast"] == ""
 
+    def test_histogram_scoped_volume_range_stays_fixed_while_scrolling(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.evaluate("""() => {
+            const scrollDim = shape.findIndex((_, i) => i !== dim_x && i !== dim_y);
+            _histDimState.set(scrollDim, 'scope');
+            activeDim = scrollDim;
+        }""")
+        page.keyboard.press("d")
+        page.wait_for_function("() => manualVmin !== null && manualVmax !== null")
+        before = page.evaluate("""() => {
+            return {range: [manualVmin, manualVmax], index: indices[activeDim]};
+        }""")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(300)
+        after = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim]})")
+        assert after["index"] > before["index"]
+        assert after["range"] == before["range"], "scrolling an in-scope dimension must retain the histogram range"
+
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)

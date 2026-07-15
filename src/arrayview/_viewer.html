@@ -9109,6 +9109,14 @@
                     const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
+                        if (d && !compareActive && _histScopeDims().size > 2
+                                && manualVmin === null && manualVmax === null) {
+                            window._dQuantileIdx = 0;
+                            _dmenuVminPresetIdx = 0;
+                            _dmenuVmaxPresetIdx = 0;
+                            _reapplyCurrentQuantilePreset();
+                            _dmenuRefreshAfterRangeChange(true);
+                        }
                         if (primaryCb._expanded) {
                             _buildKDE();
                             drawSlimColorbar(cbMarkerFrac);
@@ -22107,7 +22115,11 @@
                     }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
-                        // Open only — don't cycle, don't touch vmin/vmax.
+                        // Open only — don't cycle presets.  For a volume,
+                        // though, the first histogram is already the range
+                        // contract for its in-scope dimensions: use its full
+                        // range so scrolling one of those dims cannot fall
+                        // back to the server's slice-local extrema.
                         _lebesgueManual = false;
                         _stopColorbarLebesgueHover();
                         _computeCbExpandedH();
@@ -22135,6 +22147,14 @@
                             if (primaryCb._histData && primaryCb === window._primaryCb) {
                                 _histData = primaryCb._histData;
                                 _kdeSmooth = primaryCb._kdeSmooth;
+                            }
+                            if (_histData && _histScopeDims().size > 2
+                                    && manualVmin === null && manualVmax === null) {
+                                window._dQuantileIdx = 0;
+                                _dmenuVminPresetIdx = 0;
+                                _dmenuVmaxPresetIdx = 0;
+                                _reapplyCurrentQuantilePreset();
+                                _dmenuRefreshAfterRangeChange(true);
                             }
                             primaryCb._snapWindowFractionsOnNextDraw();
                             if (multiViewActive || compareMvActive) {
@@ -33966,8 +33986,8 @@
         }
 
         /** Re-apply the most recently used percentile preset to _histData.
-         *  Does nothing if the user hasn't cycled a preset yet (first-tap
-         *  opens histogram only, leaving vmin/vmax at their auto value). */
+         *  A volume adopts full range on first histogram open; a plain 2-D
+         *  image still opens without changing its auto range. */
         function _reapplyCurrentQuantilePreset() {
             if (!_histData || !_histData.counts) return;
             if (_dmenuVminPresetIdx != null && !_dmenuEffectiveVminLocked()) {

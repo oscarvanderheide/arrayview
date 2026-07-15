@@ -1,7 +1,9 @@
 import asyncio
 import io
 import os
+import threading
 import urllib.parse
+import uuid
 
 import numpy as np
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -9,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
 from arrayview._lifecycle import acquire_session_leases, release_session
-from arrayview._session import SESSIONS, Session
+from arrayview._session import PENDING_SESSION_EVENTS, PENDING_SESSIONS, SESSIONS, Session
 
 
 def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
@@ -167,6 +169,65 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         )
                 except ImportError:
                     pass
+        background = bool(body.get("background", False))
+        if (
+            background
+            and not dir_patterns
+            and not notify
+            and not filepath.endswith((".npz", ".mat"))
+        ):
+            if not os.path.exists(abs_path):
+                return {"error": f"File not found: {filepath}"}
+            # The tunnel opener can resolve/publicize the port while a large
+            # array loads. This uses the same pending-session contract as a
+            # freshly spawned daemon, so metadata/WebSocket requests wait for
+            # the real Session instead of seeing a transient 404.
+            sid = uuid.uuid4().hex
+            pending_event = threading.Event()
+            PENDING_SESSIONS.add(sid)
+            PENDING_SESSION_EVENTS[sid] = pending_event
+
+            def _load_in_background() -> None:
+                try:
+                    from ._io import load_data_with_meta
+
+                    data, spatial_meta = load_data_with_meta(
+                        filepath,
+                        select=body.get("select"),
+                    )
+                    session = Session(data, filepath=filepath, name=name)
+                    session.sid = sid
+                    if spatial_meta is not None:
+                        session.spatial_meta = spatial_meta
+                        session.original_volume = data
+                    if body.get("rgb"):
+                        setup_rgb(session)
+                    SESSIONS[sid] = session
+                except Exception as exc:
+                    # Keep the server alive and make the failure visible in its
+                    # log. The opener will fail closed when metadata never
+                    # becomes ready, while a retry creates a fresh request.
+                    import traceback
+
+                    traceback.print_exc()
+                finally:
+                    PENDING_SESSIONS.discard(sid)
+                    pending_event.set()
+                    PENDING_SESSION_EVENTS.pop(sid, None)
+
+            threading.Thread(
+                target=_load_in_background,
+                daemon=True,
+                name=f"arrayview-load-{sid[:8]}",
+            ).start()
+            return {
+                "sid": sid,
+                "name": name,
+                "notified": False,
+                "overlay_sids": [],
+                "overlay_names": [],
+                "pending": True,
+            }
         try:
             from ._io import load_data_with_meta, load_dir_collection, list_array_keys
 

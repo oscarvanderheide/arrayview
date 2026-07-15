@@ -82,6 +82,18 @@ function shouldDeferBroadcast(isOwnTargetedFile, isFocused, data) {
     return !isOwnTargetedFile && !isFocused && data?.broadcast === true;
 }
 
+function isLoopbackUrl(url) {
+    try {
+        const hostname = new URL(url).hostname.toLowerCase();
+        return hostname === 'localhost'
+            || hostname === '127.0.0.1'
+            || hostname === '::1'
+            || hostname === '[::1]';
+    } catch (_) {
+        return false;
+    }
+}
+
 function validatedAckPath(ackPath, requestId, homeDir) {
     if (typeof ackPath !== 'string' || typeof requestId !== 'string' || !requestId) return null;
     const signalDir = path.resolve(homeDir, '.arrayview');
@@ -119,6 +131,7 @@ module.exports = {
     sessionMetadataUrlFromViewerUrl,
     releaseUrlForSid,
     isVersionAtLeast,
+    isLoopbackUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,

@@ -12,6 +12,11 @@ import arrayview._session as _session_mod
 def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -> None:
     @app.get("/metadata/{sid}")
     async def get_metadata(sid: str):
+        # Metadata polling is frequent while a large file loads. Return
+        # immediately instead of tying up one worker thread per timed-out HTTP
+        # request; the opener retries until the pending Session is published.
+        if sid in _session_mod.PENDING_SESSIONS:
+            return Response(status_code=404, headers={"Retry-After": "1"})
         session = await wait_for_session_ready(sid)
         if not session:
             return Response(status_code=404)

@@ -21,7 +21,7 @@ _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
 _VSCODE_SIGNAL_MAX_AGE_MS = (
-    60_000  # 60s: survive extension-host reloads (~12s) plus panel-open latency
+    240_000  # survive one slow large-file request ahead in the disk-backed queue
 )
 _VSCODE_ACK_PROTOCOL_VERSION = 1
 _VSCODE_ACK_FILENAME_PREFIX = "open-ack-v0100-"
@@ -436,6 +436,8 @@ def _open_via_signal_file(
         payload["serverId"] = server_id
     if title:
         payload["title"] = title
+    if handoff_path := os.environ.get("ARRAYVIEW_HANDOFF_PATH"):
+        payload["handoffPath"] = handoff_path
     if floating:
         payload["floating"] = True
     written = _write_vscode_signal(payload, delay=delay)
@@ -781,6 +783,30 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
             # Instead, use ARRAYVIEW_WINDOW_ID env var injected by the extension
             # into each terminal via EnvironmentVariableCollection.
             env_wid = _find_arrayview_window_id()
+            if not env_wid and ipc_hook:
+                # Tunnel windows on the same host have distinct IPC hooks even
+                # though their process ancestry may overlap. Prefer the exact
+                # live registration over a focus-based broadcast when uv/shell
+                # wrappers stripped ARRAYVIEW_WINDOW_ID.
+                ipc_wid = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
+                ipc_registration = os.path.join(
+                    signal_dir, f"window-{ipc_wid}.json"
+                )
+                try:
+                    with open(ipc_registration) as registration:
+                        registration_data = json.load(registration)
+                    if (
+                        registration_data.get("remoteName")
+                        and registration_data.get("hookTag") == ipc_wid
+                    ):
+                        env_wid = ipc_wid
+                        _vprint(
+                            "[ArrayView] signal: recovered exact remote window "
+                            f"from IPC hook → {ipc_wid}",
+                            flush=True,
+                        )
+                except (OSError, TypeError, ValueError):
+                    pass
             _vprint(f"[ArrayView] signal: remote mode, ARRAYVIEW_WINDOW_ID={env_wid or '(not found)'}", flush=True)
 
             if env_wid:

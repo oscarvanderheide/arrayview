@@ -6,6 +6,7 @@ const {
     sessionMetadataUrlFromViewerUrl,
     releaseUrlForSid,
     isVersionAtLeast,
+    isLoopbackUrl,
     shouldDeferBroadcast,
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
@@ -46,6 +47,11 @@ assert.strictEqual(releaseUrlForSid('not a url', null, 'base'), null);
 assert.strictEqual(isVersionAtLeast('0.14.41', '0.14.41'), true);
 assert.strictEqual(isVersionAtLeast('0.14.42', '0.14.41'), true);
 assert.strictEqual(isVersionAtLeast('0.14.40', '0.14.41'), false);
+assert.strictEqual(isLoopbackUrl('http://localhost:8000/'), true);
+assert.strictEqual(isLoopbackUrl('http://127.0.0.1:8000/'), true);
+assert.strictEqual(isLoopbackUrl('http://[::1]:8000/'), true);
+assert.strictEqual(isLoopbackUrl('https://example.devtunnels.ms/'), false);
+assert.strictEqual(isLoopbackUrl('not a url'), false);
 
 assert.strictEqual(
     shouldRemoveSameTunnelRegistration('current', [10], 'old', { pid: 123, ppids: [10] }, false),
