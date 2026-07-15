@@ -38,6 +38,41 @@ def test_perf_mode_collects_render_samples(page, server_url, sid_3d):
     assert perf["sample"]["mode"] in ("ws", "http")
     assert perf["sample"]["client_total_ms"] is None or perf["sample"]["client_total_ms"] >= 0
 
+
+def test_patient_loading_overlay_waits_for_matching_frame(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    before = page.locator("#viewer").bounding_box()
+
+    page.evaluate(
+        """() => {
+            collectionSpatialNdim = indices.length;
+            indices.push(0);
+            _displayedPatientIndex = 0;
+            indices[collectionSpatialNdim] = 1;
+            _beginPatientLoading();
+        }"""
+    )
+    page.wait_for_selector("#patient-loading-overlay.visible", timeout=2_000)
+    assert page.locator("#patient-loading-overlay").get_attribute("aria-hidden") == "false"
+
+    # A late frame from the old patient must not dismiss the current load.
+    page.evaluate("() => _patientFrameDisplayed(0)")
+    assert page.locator("#patient-loading-overlay").is_visible()
+
+    page.evaluate("() => _patientFrameDisplayed(1)")
+    page.wait_for_selector("#patient-loading-overlay", state="hidden", timeout=2_000)
+    after = page.locator("#viewer").bounding_box()
+    assert before == after, "the patient loading indicator must not move or resize the canvas"
+
+    # Normal slice navigation within the displayed patient does not show it.
+    page.evaluate("() => { indices[0] = Math.min(indices[0] + 1, shape[0] - 1); _beginPatientLoading(); }")
+    page.wait_for_timeout(150)
+    assert not page.locator("#patient-loading-overlay").is_visible()
+
+    # The existing renderer still produces a normal frame after the state exercise.
+    page.evaluate("async () => { indices.pop(); collectionSpatialNdim = -1; await updateViewHttp(); }")
+    page.wait_for_function("() => lastImageData !== null && lastImgW > 0 && lastImgH > 0", timeout=5_000)
+
 # ---------------------------------------------------------------------------
 # Canvas inspection helpers (evaluated in-browser via JS)
 # ---------------------------------------------------------------------------

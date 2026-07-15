@@ -4002,6 +4002,28 @@
         .fft-spinner-ring #fft-b7 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
         .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
         .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        #patient-loading-overlay {
+            display: none; position: fixed; inset: 0; z-index: 49;
+            align-items: center; justify-content: center; pointer-events: none;
+        }
+        #patient-loading-overlay.visible { display: flex; }
+        .patient-loading-card {
+            display: flex; align-items: center; gap: 10px;
+            padding: 9px 12px;
+            color: var(--text); background: color-mix(in srgb, var(--surface) 88%, transparent);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        .patient-loading-spinner {
+            width: 13px; height: 13px; flex: 0 0 auto; border-radius: 50%;
+            border: 2px solid var(--muted); border-top-color: var(--active-dim);
+            animation: av-patient-spin 0.75s linear infinite;
+        }
+        @keyframes av-patient-spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .patient-loading-spinner { animation: none; border-color: var(--active-dim); }
+        }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
             align-items: center; justify-content: center; pointer-events: none;
@@ -4972,6 +4994,7 @@
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
         <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
+        <div id="patient-loading-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="patient-loading-card"><span class="patient-loading-spinner" aria-hidden="true"></span><span>Loading patient…</span></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -5655,8 +5678,72 @@
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
         let pendingRequest = false;
-        let wsSlowTimer = null;   // show loading overlay only after threshold
-        const WS_SLOW_THRESHOLD_MS = 80; // ms before spinner appears
+        let wsSlowTimer = null;   // show startup-style overlay for slow non-patient renders
+        const WS_SLOW_THRESHOLD_MS = 80;
+        const PATIENT_LOADING_THRESHOLD_MS = 80;
+        let _displayedPatientIndex = null;
+        let _patientLoadingIndex = null;
+        let _patientLoadingVisible = false;
+        let _patientLoadingTimer = null;
+        let _mainRenderPatientIndex = null;
+        let _compareRenderPatientIndex = null;
+
+        function _currentPatientIndex() {
+            if (!Number.isInteger(collectionSpatialNdim) || collectionSpatialNdim < 0
+                    || collectionSpatialNdim >= indices.length) return null;
+            const value = Number(indices[collectionSpatialNdim]);
+            return Number.isInteger(value) ? value : null;
+        }
+
+        function _patientIndexFromRenderParams(params) {
+            if (!params || !Number.isInteger(collectionSpatialNdim) || collectionSpatialNdim < 0) return null;
+            const raw = params.get('indices');
+            if (!raw) return null;
+            const value = Number(raw.split(',')[collectionSpatialNdim]);
+            return Number.isInteger(value) ? value : null;
+        }
+
+        function _beginPatientLoading() {
+            const requested = _currentPatientIndex();
+            if (requested === null) return;
+            if (_displayedPatientIndex === null) {
+                _displayedPatientIndex = requested;
+                return;
+            }
+            if (requested === _displayedPatientIndex) {
+                _cancelPatientLoading();
+                return;
+            }
+            if (_patientLoadingIndex === requested) return;
+            if (_patientLoadingTimer) clearTimeout(_patientLoadingTimer);
+            _patientLoadingIndex = requested;
+            _patientLoadingVisible = false;
+            _reconcileUI();
+            _patientLoadingTimer = setTimeout(() => {
+                _patientLoadingTimer = null;
+                if (_patientLoadingIndex !== requested || _displayedPatientIndex === requested) return;
+                _patientLoadingVisible = true;
+                _reconcileUI();
+            }, PATIENT_LOADING_THRESHOLD_MS);
+        }
+
+        function _patientFrameDisplayed(framePatientIndex) {
+            if (!Number.isInteger(framePatientIndex)) return;
+            _displayedPatientIndex = framePatientIndex;
+            if (_patientLoadingIndex !== framePatientIndex) return;
+            _cancelPatientLoading(framePatientIndex);
+        }
+
+        function _cancelPatientLoading(framePatientIndex = null) {
+            if (framePatientIndex !== null && _patientLoadingIndex !== framePatientIndex) return;
+            if (_patientLoadingTimer) {
+                clearTimeout(_patientLoadingTimer);
+                _patientLoadingTimer = null;
+            }
+            _patientLoadingIndex = null;
+            _patientLoadingVisible = false;
+            _reconcileUI();
+        }
 
         let preloadPolling = null;
         let preloadActiveDim = -1;
@@ -8705,6 +8792,7 @@
                     if (frame) drawCompareFrame(i, frame);
                 }
             }
+            _patientFrameDisplayed(_compareRenderPatientIndex);
             compareScaleCanvases();
             requestAnimationFrame(() => { compareScaleCanvases(); _maybeRedrawWipe(); });
         }
@@ -13231,7 +13319,6 @@
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
                 const height = headerU32[2];
-                // Phase 3: cancel delayed spinner — frame arrived in time
                 if (wsSlowTimer) { clearTimeout(wsSlowTimer); wsSlowTimer = null; }
                 if (compareActive) {
                     isRendering = false;
@@ -13320,6 +13407,7 @@
 
             ws.onclose = () => {
                 reportParent('ws-close', { sid });
+                _cancelPatientLoading(_mainRenderPatientIndex);
                 wsReady = false;
                 // Reset render-state so we don't get stuck when the socket
                 // closes while a render is in-flight (isRendering would
@@ -13380,6 +13468,7 @@
             try {
                 res = await proxyFetch(`/slice/${targetSid}?${params.toString()}`, timed.options || timed);
             } catch (e) {
+                _cancelPatientLoading(_patientIndexFromRenderParams(params));
                 if (e && e.name === 'AbortError' && timeoutMs > 0) {
                     throw new Error(`Render timed out (${timeoutMs}ms)`);
                 }
@@ -13388,6 +13477,7 @@
                 if (timed && typeof timed.clear === 'function') timed.clear();
             }
             if (!res.ok) {
+                _cancelPatientLoading(_patientIndexFromRenderParams(params));
                 throw new Error(`Render failed (${res.status})`);
             }
 
@@ -13462,6 +13552,7 @@
             }
 
             isRendering = true;
+            _mainRenderPatientIndex = _currentPatientIndex();
             try {
                 reportParent('http-render-start', {
                     sid,
@@ -13552,6 +13643,7 @@
                 return;
             }
             compareRendering = true;
+            _compareRenderPatientIndex = _currentPatientIndex();
             try {
                 const params = new URLSearchParams({
                     dim_x: String(dim_x),
@@ -18636,8 +18728,10 @@
 
         function updateView() {
             _syncRaggedShapeForCollection();
+            _beginPatientLoading();
             const view = modeManager.currentViews[0];
             if (view && modeManager.modeName === 'normal') {
+                _mainRenderPatientIndex = _currentPatientIndex();
                 view.requestRender();
                 return;
             }
@@ -18701,6 +18795,7 @@
             }
 
             isRendering = true;
+            _mainRenderPatientIndex = _currentPatientIndex();
             wsSentSeq++;
             _perfMarkRequest('ws', wsSentSeq, { perfKey: 'main', sid, dim_x, dim_y, slice_dim: current_slice_dim });
             const _dpr = window.devicePixelRatio || 1;
@@ -18734,15 +18829,15 @@
                 vf_t: hasVectorfield ? vfieldT : undefined,
                 perf: _PERF_ENABLED,
             }));
-            // Phase 3: delayed loading indicator — show spinner only when
-            // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
-            if (wsSlowTimer) clearTimeout(wsSlowTimer);
-            wsSlowTimer = setTimeout(() => {
-                wsSlowTimer = null;
-                if (isRendering) {
-                    document.getElementById('loading-overlay').style.display = '';
-                }
-            }, WS_SLOW_THRESHOLD_MS);
+            // Patient switches have their own non-layout-shifting indicator.
+            // Keep the existing slow-render overlay for all other requests.
+            if (_patientLoadingIndex === null) {
+                if (wsSlowTimer) clearTimeout(wsSlowTimer);
+                wsSlowTimer = setTimeout(() => {
+                    wsSlowTimer = null;
+                    if (isRendering) document.getElementById('loading-overlay').style.display = '';
+                }, WS_SLOW_THRESHOLD_MS);
+            }
         }
 
         let playLastFrameTime = 0;
@@ -28316,6 +28411,7 @@
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             const qIndices = [...indices];
             qIndices[compareQmriDim] = v.qmriIdx;
             const _qdpr = window.devicePixelRatio || 1;
@@ -28348,6 +28444,7 @@
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true;
             v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             try {
                 const qIndices = [...indices];
                 qIndices[compareQmriDim] = v.qmriIdx;
@@ -28402,6 +28499,7 @@
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _patientFrameDisplayed(v._renderPatientIndex);
             _refreshLoupeFromLastMouse();
         }
 
@@ -28850,6 +28948,7 @@
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             const _dpr = window.devicePixelRatio || 1;
             const _cw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _dpr);
             const _ch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _dpr);
@@ -28878,6 +28977,7 @@
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true;
             v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             try {
                 const params = new URLSearchParams({
                     dim_x: String(v.dimX),
@@ -28928,6 +29028,7 @@
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _patientFrameDisplayed(v._renderPatientIndex);
             // Draw colored crosshair lines on overlay at CSS resolution
             const _cmvAlpha = (_cmvCrosshairSid === v.sid) ? _cmvCrosshairAlpha : 0;
             const _chOv = _getMvCrosshairOverlay(v);
@@ -29091,6 +29192,7 @@
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             const qIndices = [...indices];
             if (!v.syntheticId) qIndices[qmriDim] = v.qmriIdx;
             const _qdpr = window.devicePixelRatio || 1;
@@ -29133,6 +29235,7 @@
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true;
             v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             try {
                 const qIndices = [...indices];
                 if (!v.syntheticId) qIndices[qmriDim] = v.qmriIdx;
@@ -29189,6 +29292,7 @@
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _patientFrameDisplayed(v._renderPatientIndex);
             _refreshLoupeFromLastMouse();
         }
 
@@ -29657,6 +29761,7 @@
             }
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             const _mvdpr = window.devicePixelRatio || 1;
             const _mvcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _mvdpr);
             const _mvch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _mvdpr);
@@ -29706,6 +29811,7 @@
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true;
             v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
             try {
                 const params = new URLSearchParams({
                     dim_x: String(v.dimX),
@@ -30023,6 +30129,7 @@
                 obliqueVecs ? v.lastImageData : applyMvFlips(v, v.lastImageData, v.lastW, v.lastH),
                 0, 0
             );
+            _patientFrameDisplayed(v._renderPatientIndex);
             // Draw crosshair lines on an overlay canvas at CSS resolution so
             // line thickness is independent of the data-to-CSS scale factor.
             const metrics = _getMvCrosshairMetrics(v);
@@ -31023,6 +31130,7 @@
                 _fadeCanvas.style.width = canvas.style.width || '';
                 _fadeCanvas.style.height = canvas.style.height || '';
             }
+            _patientFrameDisplayed(_mainRenderPatientIndex);
             _refreshLoupeFromLastMouse();
         }
 
@@ -32012,6 +32120,11 @@
             _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileRoiColorbarControls();
+            const patientLoadingOverlay = document.getElementById('patient-loading-overlay');
+            if (patientLoadingOverlay) {
+                patientLoadingOverlay.classList.toggle('visible', _patientLoadingVisible);
+                patientLoadingOverlay.setAttribute('aria-hidden', _patientLoadingVisible ? 'false' : 'true');
+            }
             if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
             if (typeof _reconcileOverlayPalette === 'function') _reconcileOverlayPalette();
