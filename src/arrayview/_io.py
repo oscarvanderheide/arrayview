@@ -238,7 +238,9 @@ class _ProgressiveNiftiJob:
         self._on_finished = on_finished
         self._condition = threading.Condition()
         self._decoded = np.zeros(spec["canonical_shape"][2], dtype=bool)
-        self._volume = np.empty(spec["canonical_shape"], dtype=spec["display_dtype"])
+        # Allocate the large destination only once a worker actually starts.
+        # Superseded jobs can otherwise reserve hundreds of MiB while queued.
+        self._volume = None
         self._done = False
         self._cancelled = False
         self._error = None
@@ -294,6 +296,9 @@ class _ProgressiveNiftiJob:
         try:
             from nibabel.volumeutils import apply_read_scaling
 
+            self._volume = np.empty(
+                spec["canonical_shape"], dtype=spec["display_dtype"]
+            )
             with gzip.open(self.filepath, "rb") as stream:
                 stream.seek(spec["offset"])
                 for source_z in range(source_shape[2]):
@@ -330,13 +335,23 @@ class _ProgressiveNiftiJob:
 
 
 _PROGRESSIVE_NIFTI_POOL = None
+_PROGRESSIVE_NIFTI_OVERLAY_POOL = None
 _PROGRESSIVE_NIFTI_POOL_LOCK = threading.Lock()
 
 
-def _get_progressive_nifti_pool():
-    """Return the bounded pool used for foreground-first gzip decoding."""
-    global _PROGRESSIVE_NIFTI_POOL
+def _get_progressive_nifti_pool(*, overlay_prefetch=False):
+    """Return a bounded gzip pool without mixing base and overlay prefetch."""
+    global _PROGRESSIVE_NIFTI_POOL, _PROGRESSIVE_NIFTI_OVERLAY_POOL
     with _PROGRESSIVE_NIFTI_POOL_LOCK:
+        if overlay_prefetch:
+            if (
+                _PROGRESSIVE_NIFTI_OVERLAY_POOL is None
+                or _PROGRESSIVE_NIFTI_OVERLAY_POOL._shutdown
+            ):
+                _PROGRESSIVE_NIFTI_OVERLAY_POOL = ThreadPoolExecutor(
+                    max_workers=2, thread_name_prefix="arrayview-nifti-overlay"
+                )
+            return _PROGRESSIVE_NIFTI_OVERLAY_POOL
         if _PROGRESSIVE_NIFTI_POOL is None or _PROGRESSIVE_NIFTI_POOL._shutdown:
             _PROGRESSIVE_NIFTI_POOL = ThreadPoolExecutor(
                 max_workers=2, thread_name_prefix="arrayview-nifti"
@@ -425,7 +440,12 @@ class _ProgressiveNiftiSeriesMixin:
 
                 job = _ProgressiveNiftiJob(filepath, spec, _complete, _finished)
                 self._progressive_jobs[cache_key] = job
-                job.future = _get_progressive_nifti_pool().submit(job.run)
+                overlay_prefetch = threading.current_thread().name.startswith(
+                    "arrayview-overlay-prefetch"
+                )
+                job.future = _get_progressive_nifti_pool(
+                    overlay_prefetch=overlay_prefetch
+                ).submit(job.run)
         try:
             return job.plane(z_index)
         except _ProgressiveLoadCancelled:

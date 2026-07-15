@@ -370,6 +370,84 @@ class TestNiftiSeriesErrors:
         _wait_for_volume(series, (0, 0))
         _wait_for_volume(series, (1, 0))
 
+    def test_overlay_prefetch_jobs_cannot_queue_base_patient(self, tmp_path, monkeypatch):
+        from concurrent.futures import Future
+        from arrayview import _io
+
+        overlay_paths = [
+            _make_patient_dir(tmp_path, f"overlay{i}", shape=(10, 11, 4))[0]
+            for i in range(2)
+        ]
+        base_path = _make_patient_dir(tmp_path, "base", shape=(10, 11, 4))[0]
+        overlays = [
+            _NiftiSeries([[path]], (10, 11, 4), np.float32)
+            for path in overlay_paths
+        ]
+        base = _NiftiSeries([[base_path]], (10, 11, 4), np.float32)
+        queued = []
+        two_overlays_queued = threading.Event()
+        selected_lanes = []
+
+        class QueuedPool:
+            def submit(self, fn):
+                future = Future()
+                queued.append((fn, future))
+                if len(queued) == 2:
+                    two_overlays_queued.set()
+                return future
+
+        class ImmediatePool:
+            def submit(self, fn):
+                future = Future()
+                assert future.set_running_or_notify_cancel()
+                try:
+                    fn()
+                except Exception as exc:
+                    future.set_exception(exc)
+                else:
+                    future.set_result(None)
+                return future
+
+        overlay_pool = QueuedPool()
+        base_pool = ImmediatePool()
+
+        def choose_pool(*, overlay_prefetch=False):
+            selected_lanes.append(overlay_prefetch)
+            return overlay_pool if overlay_prefetch else base_pool
+
+        monkeypatch.setattr(_io, "_get_progressive_nifti_pool", choose_pool)
+        overlay_results = []
+        threads = [
+            threading.Thread(
+                target=lambda series=series: overlay_results.append(
+                    series[:, :, 0, 0]
+                ),
+                name=f"arrayview-overlay-prefetch_{i}",
+            )
+            for i, series in enumerate(overlays)
+        ]
+        for thread in threads:
+            thread.start()
+        assert two_overlays_queued.wait(1.0)
+        assert all(series._progressive_jobs[(0, 0)]._volume is None for series in overlays)
+
+        base_plane = base[:, :, 0, 0]
+
+        expected = np.asarray(
+            nib.as_closest_canonical(nib.load(base_path)).dataobj
+        )
+        assert np.array_equal(base_plane, expected[:, :, 0])
+        assert selected_lanes == [True, True, False]
+
+        for fn, future in queued:
+            assert future.set_running_or_notify_cancel()
+            fn()
+            future.set_result(None)
+        for thread in threads:
+            thread.join(1.0)
+            assert not thread.is_alive()
+        assert len(overlay_results) == 2
+
     def test_ragged_nifti_stack_uses_progressive_axial_load(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", shape=(8, 9, 5))
         _make_patient_dir(tmp_path, "p002", shape=(8, 9, 7))
