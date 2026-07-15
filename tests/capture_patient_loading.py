@@ -61,6 +61,21 @@ def main() -> None:
         page = browser.new_page(viewport={"width": 1200, "height": 800})
         page.goto(f"{base}/?sid={sid}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_selector("#loading-overlay", state="hidden", timeout=15_000)
+        page.wait_for_function("() => lastImageData !== null && lastImgW > 0 && lastImgH > 0", timeout=15_000)
+        page.wait_for_function(
+            """() => {
+                const canvas = document.getElementById('viewer');
+                const rect = canvas.getBoundingClientRect();
+                const current = [rect.x, rect.y, rect.width, rect.height].join(',');
+                if (window.__patientCaptureBounds === current) return true;
+                window.__patientCaptureBounds = current;
+                return false;
+            }""",
+            polling=200,
+            timeout=5_000,
+        )
+        page.wait_for_timeout(250)
         before = page.locator("#viewer").bounding_box()
         page.evaluate("() => { _displayedPatientIndex = 0; _patientLoadingIndex = 1; _patientLoadingVisible = true; _reconcileUI(); }")
         page.wait_for_selector("#patient-loading-overlay.visible")
