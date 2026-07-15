@@ -224,3 +224,22 @@ fresh-open path without opening the histogram first.
 orthoview until unrelated navigation triggers another render.
 **Fix:** Retry only panes without a first frame, with bounded backoff and mode guards,
 and verify recovery without changing the collection index.
+
+## Progressive Compressed NIfTI Loading
+
+**Problem:** Waiting for a complete `.nii.gz` volume makes patient changes feel
+stalled, but a naive background decoder can let overlay prefetch occupy the same
+workers as the visible base image.
+**Fix:** Stream supported axial planes in source order, release the requested
+plane when it is ready, then finish the same decode into the volume cache. Keep
+base and overlay continuations in separate bounded pools, allocate large output
+arrays only when a worker starts, and fall back to the full loader for layouts
+that cannot be streamed exactly.
+
+## Loading Animation Frame Capture
+
+**Problem:** Chromium full-page PNG captures can intermittently appear black in
+an image inspection tool even when the saved PNG has normal pixel values.
+**Fix:** Keep animated overlays as small fixed layers, assert that they do not
+change canvas bounds, validate the saved canvas crop numerically, and inspect a
+JPEG contact sheet before treating a suspicious PNG preview as a viewer bug.
