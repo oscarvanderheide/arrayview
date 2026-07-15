@@ -16,6 +16,7 @@
             --dim-hover: #777; --surface-shadow: none; --surface-shadow-strong: 0 20px 60px rgba(0,0,0,0.45);
             --layout-shadow: 0 12px 48px rgba(0,0,0,0.45); --button-shadow: none;
             --button-shadow-hover: none; --pane-shadow: none;
+            --loupe-pane-dim: rgba(0,0,0,0.62);
         }
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
@@ -901,6 +902,14 @@
         #main-loupe-info {
             position: absolute;
             z-index: 13;
+        }
+        #canvas-inner.loupe-pane-dimmed::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+            background: var(--loupe-pane-dim);
         }
         body.main-loupe-hold #viewer {
             cursor: none !important;
@@ -5383,13 +5392,19 @@
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
         let _loupeModifierActive = false;
-        let _mainLoupeDrag = null; // {active}
+        let _mainLoupeDrag = null; // {active, mouseHeld}
         let _qmriLoupeDrag = null; // {active,canvas,view}
         function _mainLoupeHeldByMouse(e = null) {
             if (!_pixelInfoHeld) return false;
             if (e && ((e.buttons ?? 1) & 1) !== 1) return false;
             if (e && (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey)) return false;
             return true;
+        }
+        function _reconcileMainLoupeState() {
+            const mouseHeld = !!(_mainLoupeDrag && _mainLoupeDrag.active && _mainLoupeDrag.mouseHeld);
+            const canvasInner = document.getElementById('canvas-inner');
+            if (canvasInner) canvasInner.classList.toggle('loupe-pane-dimmed', mouseHeld);
+            document.body.classList.toggle('main-loupe-hold', mouseHeld);
         }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
@@ -17704,10 +17719,11 @@
         function _activateMainLoupe(e) {
             if (!_mainLoupeDrag || !_mainLoupeEligible()) return;
             _mainLoupeDrag.active = true;
+            _mainLoupeDrag.mouseHeld = _mainLoupeHeldByMouse(e);
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
             if (mainLoupeInfo && !_mainLoupeHeldByMouse(e)) mainLoupeInfo.style.display = 'none';
-            document.body.classList.toggle('main-loupe-hold', _mainLoupeHeldByMouse(e));
+            _reconcileMainLoupeState();
             if (mainLoupe) {
                 mainLoupe.style.display = 'block';
                 if (typeof gsap !== 'undefined') {
@@ -17749,7 +17765,8 @@
             const wantsMouseLoupe = _mainLoupeHeldByMouse(e);
             const wantsModifierLoupe = _loupeModifierHeld(e) && (e.buttons ?? 0) === 0;
             if (!_mainLoupeEligible() || (!wantsMouseLoupe && !wantsModifierLoupe)) { _endMainLoupe(); return; }
-            document.body.classList.toggle('main-loupe-hold', wantsMouseLoupe);
+            _mainLoupeDrag.mouseHeld = wantsMouseLoupe;
+            _reconcileMainLoupeState();
             const pt = wantsMouseLoupe
                 ? _mainCanvasPointFromClientClamped(e.clientX, e.clientY)
                 : _mainCanvasPointFromClient(e.clientX, e.clientY);
@@ -17777,7 +17794,7 @@
                 delete mainLoupeInfo.dataset.pixelInfoKey;
                 mainLoupeInfo.style.display = 'none';
             }
-            document.body.classList.remove('main-loupe-hold');
+            _reconcileMainLoupeState();
             if (!mainLoupe) return;
             if (mainLoupe.style.display === 'none') return;
             if (typeof gsap !== 'undefined') {
@@ -32120,6 +32137,7 @@
             _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileRoiColorbarControls();
+            _reconcileMainLoupeState();
             const patientLoadingOverlay = document.getElementById('patient-loading-overlay');
             if (patientLoadingOverlay) {
                 patientLoadingOverlay.classList.toggle('visible', _patientLoadingVisible);

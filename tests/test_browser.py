@@ -3848,6 +3848,48 @@ class TestMinimapCursor:
 
 
 class TestNormalInspectInteractions:
+    def test_mouse_hold_loupe_dims_only_the_viewed_pane(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        page.mouse.move(cx, cy)
+        before = page.evaluate(
+            "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
+        )
+        page.mouse.down()
+        page.wait_for_timeout(160)
+
+        held = page.evaluate(
+            """() => {
+                const pane = document.getElementById('canvas-inner');
+                const dim = getComputedStyle(pane, '::after');
+                const loupe = getComputedStyle(document.getElementById('main-loupe'));
+                const info = getComputedStyle(document.getElementById('main-loupe-info'));
+                return {
+                    dimmed: pane.classList.contains('loupe-pane-dimmed'),
+                    dimColor: dim.backgroundColor,
+                    dimZ: Number(dim.zIndex),
+                    loupeVisible: loupe.display !== 'none',
+                    loupeZ: Number(loupe.zIndex),
+                    infoZ: Number(info.zIndex),
+                };
+            }"""
+        )
+
+        page.mouse.up()
+        released = page.evaluate(
+            "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
+        )
+
+        assert not before, "the pane should remain at full brightness before the mouse is held"
+        assert held["dimmed"], "holding the mouse for the loupe should dim the viewed pane"
+        assert held["dimColor"] == "rgba(0, 0, 0, 0.62)", "the pane dimmer should darken both themes"
+        assert held["loupeVisible"], "the loupe should remain visible above the dimmed pane"
+        assert held["loupeZ"] > held["dimZ"], "the loupe should stay bright above the pane dimmer"
+        assert held["infoZ"] > held["dimZ"], "the loupe value label should stay bright above the pane dimmer"
+        assert not released, "the pane dimming should end immediately on mouse release"
+
     def test_ctrl_hover_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
@@ -3868,6 +3910,10 @@ class TestNormalInspectInteractions:
             "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
         )
         assert visible, "loupe should appear during a Control-hover"
+        dimmed = page.evaluate(
+            "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
+        )
+        assert not dimmed, "Control-hover loupe should leave the viewed pane at full brightness"
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)
