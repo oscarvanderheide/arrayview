@@ -209,3 +209,18 @@ loaded at once.
 **Fix:** Treat outline-only as a backend compositing option and thread it
 through HTTP/WebSocket render requests. Keep the toggle in both the floating HUD
 and `/ o` overlay drawer so users can switch without opening help.
+
+## Scoped Range Initialization
+
+**Problem:** Skipping range recomputation for a scoped dimension does not stabilize
+the display when the initial manual range is still null; the backend remains free
+to return slice-local extrema.
+**Fix:** Seed the scoped volume range during viewer initialization, and test the
+fresh-open path without opening the histogram first.
+
+## Orthoview First Frames
+
+**Problem:** A pane transport that closes before its first frame can leave an empty
+orthoview until unrelated navigation triggers another render.
+**Fix:** Retry only panes without a first frame, with bounded backoff and mode guards,
+and verify recovery without changing the collection index.
