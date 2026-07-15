@@ -13,16 +13,35 @@ from __future__ import annotations
 import socket
 import threading
 import time
+from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import httpx
 import numpy as np
 import uvicorn
+from PIL import Image, ImageStat
 from playwright.sync_api import sync_playwright
 
 
 OUT_DIR = Path(__file__).parent / "patient_loading_frames"
+
+
+def _capture_valid_frame(page, path: Path, canvas_box: dict[str, float]) -> int:
+    """Save a full frame, retrying Chromium's occasional black capture."""
+    for attempt in range(8):
+        png = page.screenshot(full_page=False)
+        image = Image.open(BytesIO(png)).convert("RGB")
+        left = round(canvas_box["x"])
+        top = round(canvas_box["y"])
+        right = round(left + canvas_box["width"])
+        bottom = round(top + canvas_box["height"])
+        canvas_image = image.crop((left, top, right, bottom))
+        if sum(ImageStat.Stat(canvas_image).mean) > 100:
+            path.write_bytes(png)
+            return attempt
+        page.wait_for_timeout(40)
+    raise RuntimeError(f"browser returned eight black captures for {path.name}")
 
 
 def _start_server() -> tuple[str, uvicorn.Server]:
@@ -79,14 +98,18 @@ def main() -> None:
         before = page.locator("#viewer").bounding_box()
         page.evaluate("() => { _displayedPatientIndex = 0; _patientLoadingIndex = 1; _patientLoadingVisible = true; _reconcileUI(); }")
         page.wait_for_selector("#patient-loading-overlay.visible")
+        capture_retries = []
         for idx in range(12):
-            page.screenshot(path=str(OUT_DIR / f"spinner_{idx:02d}.png"), full_page=False)
+            retries = _capture_valid_frame(page, OUT_DIR / f"spinner_{idx:02d}.png", before)
+            capture_retries.append(f"spinner_{idx:02d}: {retries}")
             page.wait_for_timeout(75)
         after = page.locator("#viewer").bounding_box()
         (OUT_DIR / "bounds.txt").write_text(f"before={before}\nafter={after}\n", encoding="utf-8")
         page.evaluate("() => _patientFrameDisplayed(1)")
         page.wait_for_selector("#patient-loading-overlay", state="hidden")
-        page.screenshot(path=str(OUT_DIR / "complete.png"), full_page=False)
+        complete_retries = _capture_valid_frame(page, OUT_DIR / "complete.png", before)
+        capture_retries.append(f"complete: {complete_retries}")
+        (OUT_DIR / "capture_retries.txt").write_text("\n".join(capture_retries) + "\n", encoding="utf-8")
         browser.close()
 
     server.should_exit = True

@@ -54,6 +54,14 @@ def test_patient_loading_overlay_waits_for_matching_frame(loaded_viewer, sid_3d)
     )
     page.wait_for_selector("#patient-loading-overlay.visible", timeout=2_000)
     assert page.locator("#patient-loading-overlay").get_attribute("aria-hidden") == "false"
+    loading_box = page.locator("#patient-loading-overlay").bounding_box()
+    viewport = page.viewport_size
+    assert loading_box is not None and viewport is not None
+    assert loading_box["width"] < 300 and loading_box["height"] < 100, (
+        "the animated patient overlay must remain a small composited layer"
+    )
+    assert abs(loading_box["x"] + loading_box["width"] / 2 - viewport["width"] / 2) < 2
+    assert abs(loading_box["y"] + loading_box["height"] / 2 - viewport["height"] / 2) < 2
 
     # A late frame from the old patient must not dismiss the current load.
     page.evaluate("() => _patientFrameDisplayed(0)")

@@ -4003,13 +4003,13 @@
         .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
         .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         #patient-loading-overlay {
-            display: none; position: fixed; inset: 0; z-index: 49;
-            align-items: center; justify-content: center; pointer-events: none;
+            display: none; position: fixed; z-index: 49; width: 190px;
+            top: calc(50% - 18px); left: calc(50% - 95px); pointer-events: none;
         }
-        #patient-loading-overlay.visible { display: flex; }
+        #patient-loading-overlay.visible { display: block; }
         .patient-loading-card {
             display: flex; align-items: center; gap: 10px;
-            padding: 9px 12px;
+            box-sizing: border-box; width: 100%; padding: 9px 12px;
             color: var(--text); background: color-mix(in srgb, var(--surface) 88%, transparent);
             border: 1px solid var(--border); border-radius: var(--radius-lg);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
