@@ -7066,6 +7066,30 @@
             return ranked.slice(0, 3).sort((a, b) => a - b);
         }
 
+        function multiViewPlaneDefs(dims) {
+            // NIfTI volumes are reoriented to RAS before they reach the viewer.
+            // Keep their three clinical planes upright: axial R/L × A/P,
+            // coronal R/L × S/I, and sagittal A/P × S/I. Canvas y grows
+            // downward, so the two planes containing S/I need a vertical flip.
+            const rasSpatialDims = spatialMeta && Array.isArray(spatialMeta.axis_labels)
+                && spatialMeta.axis_labels.join(',') === 'R,A,S'
+                && dims[0] === 0 && dims[1] === 1 && dims[2] === 2;
+            if (rasSpatialDims) {
+                return [
+                    { dimX: dims[0], dimY: dims[1], sliceDir: dims[2], flipX: false, flipY: false },
+                    { dimX: dims[0], dimY: dims[2], sliceDir: dims[1], flipX: false, flipY: true },
+                    { dimX: dims[1], dimY: dims[2], sliceDir: dims[0], flipX: false, flipY: true },
+                ];
+            }
+            // Preserve the established generic-array layout where no anatomical
+            // coordinate system is available.
+            return [
+                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
+                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
+                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
+            ];
+        }
+
         function currentViewMode() {
             if (compareQmriActive) return 'compare-qmri';
             if (compareMvActive) return 'compare-mv';
@@ -12610,19 +12634,18 @@
         // ── Oblique preset helpers (save/load) ───────────────────────────────
         function _oblAxisAlignedVecs(dims) {
             if (!Array.isArray(dims) || dims.length !== 3) return null;
-            const defs = [
-                { dimX: dims[1], dimY: dims[0] },
-                { dimX: dims[2], dimY: dims[0] },
-                { dimX: dims[2], dimY: dims[1] },
-            ];
+            const defs = multiViewPlaneDefs(dims);
             return defs.map((def) => {
                 const bh = [0, 0, 0];
                 const bv = [0, 0, 0];
                 const kx = dims.indexOf(def.dimX);
                 const ky = dims.indexOf(def.dimY);
                 if (kx < 0 || ky < 0) return null;
-                bh[kx] = (flipDims[def.dimX] || false) ? -1 : 1;
-                bv[ky] = (flipDims[def.dimY] || false) ? -1 : 1;
+                const activeView = mvViews.find((v) => v.dimX === def.dimX && v.dimY === def.dimY);
+                const flipX = activeView ? _mvFlipX(activeView) : (def.flipX ?? flipDims[def.dimX] ?? false);
+                const flipY = activeView ? _mvFlipY(activeView) : (def.flipY ?? flipDims[def.dimY] ?? false);
+                bh[kx] = flipX ? -1 : 1;
+                bv[ky] = flipY ? -1 : 1;
                 const n = normalize3(cross3(bh, bv));
                 return { bh: [...bh], bv: [...bv], n: [...n] };
             });
@@ -12903,7 +12926,7 @@
             }
             const cached = _mvVfieldCache.get(viewIndex);
             if (cached && cached.key === cacheKey) {
-                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, obliqueVecs ? false : (flipDims[v.dimX] || false), obliqueVecs ? false : (flipDims[v.dimY] || false));
+                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, obliqueVecs ? false : _mvFlipX(v), obliqueVecs ? false : _mvFlipY(v));
                 return;
             }
             // Abort previous in-flight request for this pane
@@ -12916,7 +12939,7 @@
                 const data = await res.json();
                 if (ac.signal.aborted) return;
                 _mvVfieldCache.set(viewIndex, { key: cacheKey, data });
-                _renderVfieldArrows(ovCanvas, v.canvas, data, obliqueVecs ? false : (flipDims[v.dimX] || false), obliqueVecs ? false : (flipDims[v.dimY] || false));
+                _renderVfieldArrows(ovCanvas, v.canvas, data, obliqueVecs ? false : _mvFlipX(v), obliqueVecs ? false : _mvFlipY(v));
             } catch (e) {
                 if (e.name !== 'AbortError') { /* ignore */ }
             }
@@ -15324,12 +15347,12 @@
                 };
             }
             if (rd === v.dimX) {
-                const fx = flipDims[v.dimX] || false;
+                const fx = _mvFlipX(v);
                 if (fx) return { a: -1, b: 0, c: shape[rd] - 1 };
                 return { a: 1, b: 0, c: 0 };
             }
             if (rd === v.dimY) {
-                const fy = flipDims[v.dimY] || false;
+                const fy = _mvFlipY(v);
                 if (fy) return { a: 0, b: -1, c: shape[rd] - 1 };
                 return { a: 0, b: 1, c: 0 };
             }
@@ -26379,13 +26402,8 @@
             // rotateX(180deg) when the user holds Alt. Only built in ortho
             // multiview — not compareMv.
             _buildObliqueFlipWrap(wrap, window._mvColorBar.wrap);
-            // 3 views: each shows a different pair of dims, slicing through the third
-            // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
-            const defs = [
-                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
-                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
-            ];
+            // 3 views: axial left, coronal middle, sagittal right.
+            const defs = multiViewPlaneDefs(dims);
             mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
                 pane.className = 'mv-pane';
@@ -26438,6 +26456,7 @@
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null,
                     pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
+                    flipX: def.flipX, flipY: def.flipY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 pane.addEventListener('mouseenter', () => _mvSetCurrentView(view));
@@ -28390,13 +28409,8 @@
             if (!compareActive) return;
             if (shape.length < 3) { showStatus('Need at least 3 dimensions for 3-plane view'); return; }
             const dims = defaultMultiViewDims();
-            // Plane definitions: same as enterMultiView
-            // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
-            const planeDefs = [
-                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
-                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
-            ];
+            // Plane definitions match regular three-plane view.
+            const planeDefs = multiViewPlaneDefs(dims);
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareMvSids = [...cmpSids];
@@ -28501,6 +28515,7 @@
                     const view = {
                         sid: sidVal,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
+                        flipX: def.flipX, flipY: def.flipY,
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
@@ -28818,7 +28833,7 @@
             _chCtx.clearRect(0, 0, paneW, paneH);
             if (_cmvAlpha > 0.005) {
             _chCtx.globalAlpha = _cmvAlpha;
-            const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+            const fx = _mvFlipX(v), fy = _mvFlipY(v);
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
             const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
             const cssCx = offsetX + cx * _scaleX, cssCy = offsetY + cy * _scaleY;
@@ -29743,7 +29758,7 @@
                     if (dist < thr) return j;
                 }
             } else {
-                const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+                const fx = _mvFlipX(v), fy = _mvFlipY(v);
                 const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
                 const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                 if (Math.abs(px - cx) < thr) // vertical line → view j that slices along dimX
@@ -29759,8 +29774,8 @@
             if (obliqueVecs !== null) return;
             obliqueVecs = mvViews.map(v => {
                 const bh = [0, 0, 0], bvec = [0, 0, 0];
-                bh[mvDims.indexOf(v.dimX)]   = flipDims[v.dimX] ? -1 : 1;
-                bvec[mvDims.indexOf(v.dimY)] = flipDims[v.dimY] ? -1 : 1;
+                bh[mvDims.indexOf(v.dimX)]   = _mvFlipX(v) ? -1 : 1;
+                bvec[mvDims.indexOf(v.dimY)] = _mvFlipY(v) ? -1 : 1;
                 return { bh, bv: bvec, n: cross3(bh, bvec) };
             });
         }
@@ -29971,7 +29986,7 @@
                         const key = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
                         _mvVfieldCache.set(viewIndex, { key, data: vfTrailer });
                         const ovCanvas = _getMvVfieldCanvas(v.canvas);
-                        _renderVfieldArrows(ovCanvas, v.canvas, vfTrailer, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+                        _renderVfieldArrows(ovCanvas, v.canvas, vfTrailer, _mvFlipX(v), _mvFlipY(v));
                     } else {
                         mvDrawVectorOverlay(v, mvViews.indexOf(v));
                     }
