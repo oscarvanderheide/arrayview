@@ -111,7 +111,6 @@ let lastHandledAt = 0;
 // Track open webview panels by URL so we can reveal instead of re-creating.
 const _openPanels = new Map(); // url -> vscode.WebviewPanel
 const _readyPanels = new WeakSet();
-const _publicTunnelUrls = new Set();
 
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
@@ -1012,11 +1011,6 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
  *      still helps for future forwards.
  */
 async function ensurePortPublic(port, externalBase) {
-    if (_publicTunnelUrls.has(externalBase)) {
-        log(`PORT: already public for ${externalBase}`);
-        return true;
-    }
-
     // Step 1: write portsAttributes via the settings API
     try {
         const config = vscode.workspace.getConfiguration('remote');
@@ -1098,7 +1092,6 @@ async function ensurePortPublic(port, externalBase) {
             log(`PORT: privacypublic still not available after view load`);
         }
     }
-    if (privacyDone) _publicTunnelUrls.add(externalBase);
     return privacyDone;
 }
 
