@@ -880,8 +880,8 @@
             position: fixed;
             left: 0;
             top: 0;
-            width: 166px;
-            height: 166px;
+            width: 200px;
+            height: 200px;
             border: 2px solid var(--active-dim);
             border-radius: 999px;
             overflow: hidden;
@@ -17618,7 +17618,7 @@
         }
         function _drawMainLoupe(sample, targetX, targetY) {
             if (!mainLoupeCanvas || !mainLoupeCtx || !sample) return;
-            const loupeCssSize = Math.round(mainLoupe.getBoundingClientRect().width) || 166;
+            const loupeCssSize = Math.round(mainLoupe.getBoundingClientRect().width) || 200;
             const dpr = window.devicePixelRatio || 1;
             const size = Math.round(loupeCssSize * dpr);
             if (mainLoupeCanvas.width !== size || mainLoupeCanvas.height !== size) {
@@ -17788,7 +17788,7 @@
                 ? _mainCanvasPointFromClientClamped(e.clientX, e.clientY)
                 : _mainCanvasPointFromClient(e.clientX, e.clientY);
             if (!pt) { _endMainLoupe(); return; }
-            const L = 166;
+            const L = 200;
             const loupeClientX = wantsMouseLoupe ? (pt.rect.left + pt.cssX) : e.clientX;
             const loupeClientY = wantsMouseLoupe ? (pt.rect.top + pt.cssY) : e.clientY;
             const targetX = Math.max(8, Math.min(loupeClientX - L / 2, window.innerWidth - L - 8));
@@ -17832,11 +17832,13 @@
             }
         }
         let _qmriLoupeEl = null;
+        let _qmriLoupeRaf = null;
+        let _qmriLoupeLatest = null;
         function _ensureQmriLoupeEl() {
             if (_qmriLoupeEl) return _qmriLoupeEl;
             const el = document.createElement('div');
             el.id = 'qmri-loupe';
-            el.style.cssText = 'position:fixed;left:0;top:0;width:166px;height:166px;'
+            el.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:200px;'
                 + 'border:2px solid var(--active-dim);border-radius:999px;overflow:hidden;'
                 + 'display:none;pointer-events:none;z-index:100;background:var(--surface);'
                 + 'box-shadow:0 0 0 1px var(--bg),0 14px 34px var(--bg);';
@@ -17854,9 +17856,9 @@
             const rect = canvas.getBoundingClientRect();
             const fx = (clientX - rect.left) / rect.width;
             const fy = (clientY - rect.top) / rect.height;
-            const sx = Math.round(fx * canvas.width);
-            const sy = Math.round(fy * canvas.height);
-            const loupeCssSize = Math.round(_qmriLoupeEl.getBoundingClientRect().width) || 166;
+            const sx = fx * canvas.width;
+            const sy = fy * canvas.height;
+            const loupeCssSize = Math.round(_qmriLoupeEl.getBoundingClientRect().width) || 200;
             const dpr = window.devicePixelRatio || 1;
             const size = Math.round(loupeCssSize * dpr);
             if (loupeCv.width !== size || loupeCv.height !== size) {
@@ -17865,23 +17867,31 @@
             }
             const ctx = loupeCv.getContext('2d');
             const zoom = 6;
-            const srcW = Math.max(18, Math.min(canvas.width, Math.round(loupeCssSize / zoom)));
-            const srcH = Math.max(18, Math.min(canvas.height, Math.round(loupeCssSize / zoom)));
-            const ssx = Math.max(0, Math.min(canvas.width - srcW, sx - Math.round(srcW / 2)));
-            const ssy = Math.max(0, Math.min(canvas.height - srcH, sy - Math.round(srcH / 2)));
+            const srcW = Math.max(18, Math.min(canvas.width, loupeCssSize / zoom));
+            const srcH = Math.max(18, Math.min(canvas.height, loupeCssSize / zoom));
+            const ssx = Math.max(0, Math.min(canvas.width - srcW, sx - srcW / 2));
+            const ssy = Math.max(0, Math.min(canvas.height - srcH, sy - srcH / 2));
             ctx.clearRect(0, 0, size, size);
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(canvas, ssx, ssy, srcW, srcH, 0, 0, size, size);
         }
+        function _drawLatestQmriLoupe() {
+            _qmriLoupeRaf = null;
+            const latest = _qmriLoupeLatest;
+            _qmriLoupeLatest = null;
+            if (!latest || !_qmriLoupeDrag || !_qmriLoupeDrag.active || !_qmriLoupeEl) return;
+            _drawQmriLoupe(_qmriLoupeDrag.canvas, latest.clientX, latest.clientY);
+            if (typeof gsap !== 'undefined') {
+                gsap.set(_qmriLoupeEl, { x: latest.clientX + 18, y: latest.clientY - 109 });
+            } else {
+                _qmriLoupeEl.style.transform = `translate(${latest.clientX + 18}px, ${latest.clientY - 109}px)`;
+            }
+        }
         function _updateQmriLoupe(e) {
             if (!_qmriLoupeDrag || !_qmriLoupeDrag.active || !_qmriLoupeEl) return;
             if (!_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0 || !_loupeClientInsideCanvas(e.clientX, e.clientY, _qmriLoupeDrag.canvas)) { _endQmriLoupe(); return; }
-            _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
-            if (typeof gsap !== 'undefined') {
-                gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 92 });
-            } else {
-                _qmriLoupeEl.style.transform = `translate(${e.clientX + 18}px, ${e.clientY - 92}px)`;
-            }
+            _qmriLoupeLatest = { clientX: e.clientX, clientY: e.clientY };
+            if (_qmriLoupeRaf === null) _qmriLoupeRaf = requestAnimationFrame(_drawLatestQmriLoupe);
         }
         function _activateQmriLoupe(e) {
             if (!_qmriLoupeEl) _ensureQmriLoupeEl();
@@ -17890,7 +17900,7 @@
             if (typeof gsap !== 'undefined') {
                 gsap.killTweensOf(_qmriLoupeEl);
                 gsap.fromTo(_qmriLoupeEl, { opacity: 0 }, { opacity: 1, duration: 0.12, overwrite: 'auto' });
-                gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 92 });
+                gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 109 });
             }
             _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
         }
@@ -17900,6 +17910,11 @@
         function _endQmriLoupe() {
             if (_qmriLoupeDrag && _qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
             _qmriLoupeDrag = null;
+            _qmriLoupeLatest = null;
+            if (_qmriLoupeRaf !== null) {
+                cancelAnimationFrame(_qmriLoupeRaf);
+                _qmriLoupeRaf = null;
+            }
             if (!_qmriLoupeEl) return;
             if (_qmriLoupeEl.style.display === 'none') return;
             if (typeof gsap !== 'undefined') {
@@ -17948,7 +17963,7 @@
             if (!par) return;
             const pr = par.getBoundingClientRect();
             const margin = 8;
-            const loupeSize = mainLoupe ? (mainLoupe.offsetWidth || 166) : 166;
+            const loupeSize = mainLoupe ? (mainLoupe.offsetWidth || 200) : 200;
             const loupeLeft = Math.max(8, Math.min(cx - loupeSize / 2, window.innerWidth - loupeSize - 8));
             const loupeTop = Math.max(8, Math.min(cy - loupeSize / 2, window.innerHeight - loupeSize - 8));
             const elW = mainLoupeInfo.offsetWidth || 120;
@@ -30692,7 +30707,6 @@
         }
 
         function mvOnMessage(v, event) {
-            _refreshLoupeFromLastMouse();
             // Skip text messages (e.g. metadata JSON push on new WS connections)
             const perfKey = `mv:${v.dimX}:${v.dimY}`;
             if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
@@ -30721,6 +30735,7 @@
                 // a line width that looks consistent at different zooms.
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
+                _refreshLoupeFromLastMouse();
                 drawMvColorbar();
                 if (hasVectorfield && vfieldVisible) {
                     const vfTrailer = _unpackVfieldTrailer(buf, width, height);

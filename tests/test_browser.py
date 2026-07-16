@@ -3915,6 +3915,13 @@ class TestNormalInspectInteractions:
             "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
         )
         assert visible, "loupe should appear during a Control-hover"
+        loupe_size = page.evaluate(
+            """() => {
+                const style = getComputedStyle(document.getElementById('main-loupe'));
+                return { width: style.width, height: style.height };
+            }"""
+        )
+        assert loupe_size == {"width": "200px", "height": "200px"}
         dimmed = page.evaluate(
             "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
         )
@@ -3954,6 +3961,13 @@ class TestNormalInspectInteractions:
             "() => getComputedStyle(document.getElementById('qmri-loupe')).display !== 'none'"
         )
         assert visible, "loupe should appear during a Control-hover in multiview"
+        loupe_size = page.evaluate(
+            """() => {
+                const style = getComputedStyle(document.getElementById('qmri-loupe'));
+                return { width: style.width, height: style.height };
+            }"""
+        )
+        assert loupe_size == {"width": "200px", "height": "200px"}
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)
