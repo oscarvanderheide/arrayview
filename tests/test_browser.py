@@ -3865,7 +3865,8 @@ class TestNormalInspectInteractions:
                 const pane = document.getElementById('canvas-inner');
                 const dim = getComputedStyle(pane, '::after');
                 const loupe = getComputedStyle(document.getElementById('main-loupe'));
-                const info = getComputedStyle(document.getElementById('main-loupe-info'));
+                const infoEl = document.getElementById('main-loupe-info');
+                const info = getComputedStyle(infoEl);
                 return {
                     dimmed: pane.classList.contains('loupe-pane-dimmed'),
                     dimColor: dim.backgroundColor,
@@ -3873,6 +3874,8 @@ class TestNormalInspectInteractions:
                     loupeVisible: loupe.display !== 'none',
                     loupeZ: Number(loupe.zIndex),
                     infoZ: Number(info.zIndex),
+                    infoVisible: info.display !== 'none',
+                    infoText: infoEl.textContent.trim(),
                 };
             }"""
         )
@@ -3888,6 +3891,8 @@ class TestNormalInspectInteractions:
         assert held["loupeVisible"], "the loupe should remain visible above the dimmed pane"
         assert held["loupeZ"] > held["dimZ"], "the loupe should stay bright above the pane dimmer"
         assert held["infoZ"] > held["dimZ"], "the loupe value label should stay bright above the pane dimmer"
+        assert held["infoVisible"], "holding the mouse should show the loupe value label"
+        assert "x=" in held["infoText"] and "y=" in held["infoText"], "the loupe value label should include coordinates"
         assert not released, "the pane dimming should end immediately on mouse release"
 
     def test_ctrl_hover_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
@@ -3913,7 +3918,15 @@ class TestNormalInspectInteractions:
         dimmed = page.evaluate(
             "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
         )
-        assert not dimmed, "Control-hover loupe should leave the viewed pane at full brightness"
+        assert dimmed, "Control-hover should dim the viewed pane just like a mouse-held loupe"
+        ctrl_info = page.evaluate(
+            """() => {
+                const info = document.getElementById('main-loupe-info');
+                return { visible: getComputedStyle(info).display !== 'none', text: info.textContent.trim() };
+            }"""
+        )
+        assert ctrl_info["visible"], "Control-hover should show the loupe value label"
+        assert "x=" in ctrl_info["text"] and "y=" in ctrl_info["text"], "Control-hover label should include coordinates"
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)

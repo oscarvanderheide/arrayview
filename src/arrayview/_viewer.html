@@ -5396,7 +5396,7 @@
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
         let _pixelInfoHeld = false;
-        function _pixelInfoActive() { return _pixelInfoVisible || _pixelInfoHeld; }
+        function _pixelInfoActive() { return _pixelInfoVisible || _pixelInfoHeld || _mainLoupeInspecting(); }
         let _hoverPins = []; // [{id, rawX, rawY, valueText, version}]
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
@@ -5409,11 +5409,14 @@
             if (e && (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey)) return false;
             return true;
         }
+        function _mainLoupeInspecting() {
+            return !!(_mainLoupeDrag && _mainLoupeDrag.active);
+        }
         function _reconcileMainLoupeState() {
-            const mouseHeld = !!(_mainLoupeDrag && _mainLoupeDrag.active && _mainLoupeDrag.mouseHeld);
+            const inspecting = _mainLoupeInspecting();
             const canvasInner = document.getElementById('canvas-inner');
-            if (canvasInner) canvasInner.classList.toggle('loupe-pane-dimmed', mouseHeld);
-            document.body.classList.toggle('main-loupe-hold', mouseHeld);
+            if (canvasInner) canvasInner.classList.toggle('loupe-pane-dimmed', inspecting);
+            document.body.classList.toggle('main-loupe-hold', inspecting);
         }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
@@ -17736,7 +17739,6 @@
             _mainLoupeDrag.mouseHeld = _mainLoupeHeldByMouse(e);
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
-            if (mainLoupeInfo && !_mainLoupeHeldByMouse(e)) mainLoupeInfo.style.display = 'none';
             _reconcileMainLoupeState();
             if (mainLoupe) {
                 mainLoupe.style.display = 'block';
@@ -17749,6 +17751,7 @@
                 }
             }
             _updateMainLoupe(e);
+            _updateMainPixelInfo(e);
         }
         function _seedMainLoupeDrag(e) {
             const wantsMouseLoupe = _mainLoupeHeldByMouse(e);
@@ -17792,7 +17795,7 @@
             const targetY = Math.max(8, Math.min(loupeClientY - L / 2, window.innerHeight - L - 8));
             _drawMainLoupe(pt, targetX, targetY);
             gsap.set(mainLoupe, { x: targetX, y: targetY });
-            if (mainLoupeInfo && wantsMouseLoupe && mainLoupeInfo.style.display === 'block') {
+            if (mainLoupeInfo && mainLoupeInfo.style.display === 'block') {
                 _positionMainLoupeInfo(loupeClientX, loupeClientY);
             }
         }
@@ -17978,7 +17981,7 @@
         }
         function _mainPixelInfoDisplayEl(e = null) {
             const normalEl = document.getElementById('main-pixel-info');
-            if (_pixelInfoHeld && mainLoupeInfo && _mainLoupeEligible()) {
+            if (_mainLoupeInspecting() && mainLoupeInfo && _mainLoupeEligible()) {
                 if (normalEl && normalEl.innerHTML && mainLoupeInfo.innerHTML !== normalEl.innerHTML) {
                     mainLoupeInfo.innerHTML = normalEl.innerHTML;
                     if (normalEl.dataset.pixelInfoKey) {
@@ -20945,7 +20948,7 @@
             return { rows, cols, tileW, tileH, GAP, n };
         }
 
-        canvas.addEventListener('mousemove', (e) => {
+        function _updateMainPixelInfo(e) {
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
 
@@ -21013,7 +21016,8 @@
                 imgH: canvas.height,
                 displayEl: _mainPixelInfoDisplayEl(e),
             });
-        });
+        }
+        canvas.addEventListener('mousemove', _updateMainPixelInfo);
         canvas.addEventListener('mouseleave', () => {
             if (roiDragging) {
                 roiDragging = false;
