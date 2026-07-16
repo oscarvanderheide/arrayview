@@ -11,7 +11,13 @@ from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
 from arrayview._lifecycle import acquire_session_leases, release_session
-from arrayview._session import PENDING_SESSION_EVENTS, PENDING_SESSIONS, SESSIONS, Session
+from arrayview._session import (
+    PENDING_SESSION_EVENTS,
+    PENDING_SESSIONS,
+    SESSIONS,
+    Session,
+    file_signature,
+)
 
 
 def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
@@ -141,8 +147,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         "reused": True,
                     }
         else:
+            current_signature = file_signature(abs_path)
             for existing in SESSIONS.values():
-                if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
+                if (
+                    existing.filepath
+                    and os.path.abspath(existing.filepath) == abs_path
+                    and current_signature is not None
+                    and getattr(existing, "file_signature", None) == current_signature
+                ):
                     if acquire_session_leases([existing.sid]):
                         return {"sid": existing.sid, "name": existing.name, "notified": False}
         if not dir_patterns and not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
@@ -186,6 +198,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             pending_event = threading.Event()
             PENDING_SESSIONS.add(sid)
             PENDING_SESSION_EVENTS[sid] = pending_event
+            signature_before_load = file_signature(abs_path)
 
             def _load_in_background() -> None:
                 try:
@@ -197,6 +210,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     )
                     session = Session(data, filepath=filepath, name=name)
                     session.sid = sid
+                    signature_after_load = file_signature(abs_path)
+                    if signature_before_load == signature_after_load:
+                        session.file_signature = signature_after_load
                     if spatial_meta is not None:
                         session.spatial_meta = spatial_meta
                         session.original_volume = data
@@ -228,6 +244,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 "overlay_names": [],
                 "pending": True,
             }
+        signature_before_load = file_signature(abs_path) if not dir_patterns else None
         try:
             from ._io import load_data_with_meta, load_dir_collection, list_array_keys
 
@@ -263,6 +280,10 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         session = await asyncio.to_thread(
             Session, data, filepath=None if dir_patterns else filepath, name=name
         )
+        if not dir_patterns:
+            signature_after_load = file_signature(abs_path)
+            if signature_before_load == signature_after_load:
+                session.file_signature = signature_after_load
         if dir_patterns:
             session.collection_spatial_ndim = len(summary["spatial_shape"])
             session.collection_identity = collection_identity

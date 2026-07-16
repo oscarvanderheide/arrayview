@@ -3129,8 +3129,14 @@ def _serve_daemon(
             load_dir_collection,
             list_array_keys,
         )
+        from arrayview._session import file_signature
 
         try:
+            signature_before_load = (
+                file_signature(filepath)
+                if dir_patterns is None and not cleanup
+                else None
+            )
             # Multi-array .npz/.mat: load the first array so the session is
             # created, then store keys so the viewer can show a picker.
             _array_keys = None
@@ -3169,6 +3175,10 @@ def _serve_daemon(
                 data, filepath=None if cleanup else filepath, name=name
             )
             session.sid = sid
+            if signature_before_load is not None:
+                signature_after_load = file_signature(filepath)
+                if signature_before_load == signature_after_load:
+                    session.file_signature = signature_after_load
             session.spatial_meta = spatial_meta
             if collection_spatial_ndim is not None:
                 session.collection_spatial_ndim = collection_spatial_ndim

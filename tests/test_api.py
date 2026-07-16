@@ -211,6 +211,35 @@ class TestLoad:
         assert client.post(f"/release/{sid}").json()["released"] is True
         assert client.get(f"/metadata/{sid}").status_code == 404
 
+    def test_overwritten_file_creates_fresh_session(self, client, tmp_path):
+        path = tmp_path / "changing.npy"
+        np.save(path, np.zeros((4, 4), dtype=np.float32))
+        first = client.post("/load", json={"filepath": str(path)}).json()
+
+        np.save(path, np.ones((5, 3), dtype=np.float32))
+        second = client.post("/load", json={"filepath": str(path)}).json()
+
+        assert second["sid"] != first["sid"]
+        assert client.get(f"/metadata/{second['sid']}").json()["shape"] == [5, 3]
+
+    def test_overwritten_file_creates_fresh_background_session(self, client, tmp_path):
+        import arrayview._session as session_mod
+
+        path = tmp_path / "changing-background.npy"
+        np.save(path, np.zeros((4, 4), dtype=np.float32))
+        first = client.post("/load", json={"filepath": str(path)}).json()
+
+        np.save(path, np.ones((3, 6), dtype=np.float32))
+        second = client.post(
+            "/load", json={"filepath": str(path), "background": True}
+        ).json()
+
+        deadline = time.monotonic() + 2.0
+        while second["sid"] not in session_mod.SESSIONS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert second["sid"] != first["sid"]
+        assert session_mod.SESSIONS[second["sid"]].shape == (3, 6)
+
     def test_load_missing_file_returns_error(self, client):
         r = client.post("/load", json={"filepath": "/nonexistent/path/arr.npy"})
         assert r.status_code == 200  # endpoint returns 200 with error key

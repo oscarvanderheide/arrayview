@@ -37,6 +37,15 @@ PENDING_SESSIONS: set = set()  # sids whose data is still loading in a backgroun
 PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
 
 
+def file_signature(filepath: str):
+    """Return the cheap identity used to decide whether a file session is reusable."""
+    try:
+        stat = os.stat(filepath)
+    except OSError:
+        return None
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
 async def wait_for_session_ready(sid: str, timeout: float = 120.0):
     """Return a session after pending background load completes, or None."""
     session = SESSIONS.get(sid)
