@@ -60,10 +60,10 @@ last_updated: 2026-07-20
 
 ## Recently Completed
 
-- Jupyter inline viewports support per-mode heights through
-  `view(..., mode_heights={"ortho": 320, "qmri": 420})`, restoring the default
-  `height` when the viewer returns to an unconfigured mode. Direct, proxied,
-  multi-array, and IJulia inline paths share the same mode-change bridge.
+- Jupyter inline viewports automatically fit ortho content and restore the
+  normal `height` on exit. `mode_heights` remains available for explicit
+  overrides. Direct, proxied, multi-array, and IJulia inline paths share the
+  same mode-change bridge.
 - ROI keybind changed from `r` to `Shift+R` (`R`); rotate/flip is now `r`, transpose is `t`
 - Crossfade animation added to rotate/transpose transitions
 - `--version` flag and version string in help overlay

@@ -21,16 +21,17 @@ from conftest import register_array
 pytestmark = pytest.mark.browser
 
 
-def test_inline_wrapper_resizes_for_ortho_and_restores_default(
+def test_inline_wrapper_auto_fits_ortho_and_restores_default(
     page, server_url, sid_3d
 ):
     from arrayview._launcher import _make_jupyter_inline_html
 
+    page.set_viewport_size({"width": 1800, "height": 1200})
     inline = _make_jupyter_inline_html(
         f"{server_url}/?sid={sid_3d}&inline=1",
         int(server_url.rsplit(":", 1)[1]),
-        600,
-        {"ortho": 320},
+        1000,
+        {},
         use_proxy=False,
     )
     page.set_content(inline.data)
@@ -38,17 +39,28 @@ def test_inline_wrapper_resizes_for_ortho_and_restores_default(
     frame = page.frame_locator("iframe")
     frame.locator("#canvas-wrap").wait_for(state="visible", timeout=15_000)
 
-    assert host.evaluate("el => el.getBoundingClientRect().height") == 600
+    assert host.evaluate("el => el.getBoundingClientRect().height") == 1000
 
     frame.locator("body").press("v")
     frame.locator("#multi-view-wrap.active").wait_for(timeout=5_000)
+    frame.locator("body").evaluate("() => _mvSetOrthoLayoutMode('big-left')")
     page.wait_for_function(
-        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 320"
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 1000"
     )
+
+    frame.locator("body").evaluate("() => _mvSetOrthoLayoutMode('horizontal')")
+    page.wait_for_function(
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height < 1000"
+    )
+    fitted_height = host.evaluate("el => el.getBoundingClientRect().height")
+    assert 240 <= fitted_height < 1000
+    assert frame.locator("body").evaluate(
+        "el => el.ownerDocument.defaultView.innerHeight"
+    ) == fitted_height
 
     frame.locator("body").press("v")
     page.wait_for_function(
-        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 600"
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 1000"
     )
 
 

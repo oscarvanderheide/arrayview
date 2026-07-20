@@ -5199,6 +5199,7 @@ class TestViewValidation:
         assert 'const modeHeights = {"ortho": 320}' in rendered
         assert "msg.phase === 'mode-change'" in rendered
         assert "event.source !== frame.contentWindow" in rendered
+        assert "mode === 'multiview'" in rendered
 
     def test_zero_arrays_raises(self):
         from arrayview._launcher import view

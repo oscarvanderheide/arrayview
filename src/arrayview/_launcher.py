@@ -2129,9 +2129,13 @@ def _build_jupyter_inline_html(
     multiview: 'ortho',
     'compare-mv': 'compare-ortho',
   }};
-  const resizeForMode = (mode) => {{
+  const resizeForMode = (mode, preferredHeight) => {{
     if (typeof mode !== 'string') return;
-    const requested = modeHeights[mode] ?? modeHeights[modeAliases[mode]] ?? defaultHeight;
+    const configured = modeHeights[mode] ?? modeHeights[modeAliases[mode]];
+    const automatic = mode === 'multiview' && Number.isFinite(preferredHeight)
+      ? Math.min(defaultHeight, Math.max(240, Math.ceil(preferredHeight)))
+      : defaultHeight;
+    const requested = configured ?? automatic;
     host.style.height = `${{requested}}px`;
   }};
   const baseCandidates = [
@@ -2151,21 +2155,28 @@ def _build_jupyter_inline_html(
   const cleanup = () => {{
     window.removeEventListener('message', onMessage);
     if (fallbackTimer) window.clearTimeout(fallbackTimer);
+    removalObserver.disconnect();
   }};
   const onMessage = (event) => {{
     const msg = event && event.data;
     if (!msg || msg.source !== 'arrayview-viewer') return;
     if (event.source !== frame.contentWindow) return;
     if (msg.phase === 'mode-change') {{
-      resizeForMode(msg.detail && msg.detail.mode);
+      resizeForMode(
+        msg.detail && msg.detail.mode,
+        msg.detail && msg.detail.preferredHeight,
+      );
       return;
     }}
     if (msg.phase !== 'script-loaded') return;
     loaded = true;
     if (fallbackTimer) window.clearTimeout(fallbackTimer);
-    if (!Object.keys(modeHeights).length) cleanup();
   }};
   window.addEventListener('message', onMessage);
+  const removalObserver = new MutationObserver(() => {{
+    if (!host.isConnected) cleanup();
+  }});
+  removalObserver.observe(document.documentElement, {{ childList: true, subtree: true }});
   const fallbackTimer = window.setTimeout(() => {{
     if (loaded || !useProxy) return;
     frame.src = directSrc;
@@ -2372,7 +2383,8 @@ def view(
       - ``'vscode'``   open in a VS Code tab
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
 
-        ``height`` sets the default pixel height of inline notebook IFrames.
+        ``height`` sets the normal-view pixel height of inline notebook IFrames.
+        Horizontal ortho view automatically shrinks to its content.
         ``mode_heights`` can override it while a viewer mode is active, for
         example ``{"ortho": 360, "qmri": 480}``.
 
@@ -2595,7 +2607,7 @@ def view(
             url_viewer = _viewer_url(port, sid, compare_sids=_compare_sids)
 
             if inline:
-                from IPython.display import IFrame, display as _ipy_display
+                from IPython.display import display as _ipy_display
 
                 _inline_url = _viewer_url(
                     port, sid, compare_sids=_compare_sids, inline=True
@@ -2608,12 +2620,8 @@ def view(
                         return _inline_html
                     _ipy_display(_inline_html)
                     return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
-                iframe = (
-                    _make_resizable_jupyter_iframe(
-                        _inline_url, port, height, _inline_mode_heights
-                    )
-                    if _inline_mode_heights
-                    else IFrame(src=_inline_url, width="100%", height=height)
+                iframe = _make_resizable_jupyter_iframe(
+                    _inline_url, port, height, _inline_mode_heights
                 )
                 if n_arrays == 1:
                     return iframe
@@ -2805,7 +2813,7 @@ def view(
     )
 
     if inline:
-        from IPython.display import IFrame, display as _ipy_display
+        from IPython.display import display as _ipy_display
 
         # Add inline=1 param so the viewer starts in immersive mode
         _inline_url = _viewer_url(
@@ -2825,12 +2833,8 @@ def view(
             _ipy_display(_inline_html)
             handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
             return handles
-        iframe = (
-            _make_resizable_jupyter_iframe(
-                _inline_url, port, height, _inline_mode_heights
-            )
-            if _inline_mode_heights
-            else IFrame(src=_inline_url, width="100%", height=height)
+        iframe = _make_resizable_jupyter_iframe(
+            _inline_url, port, height, _inline_mode_heights
         )
         if n_arrays == 1:
             return iframe

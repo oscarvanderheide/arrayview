@@ -69,6 +69,9 @@ Key parameters:
 | `"vscode"` | VS Code tab |
 | `"inline"` | Inline IFrame (Jupyter / VS Code notebook) |
 
+Inline ortho view automatically removes unused height. `mode_heights` is only
+needed to override the automatic size.
+
 ## File Picker
 
 `Cmd/Ctrl+O` or `P` opens the file picker.

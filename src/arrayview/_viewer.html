@@ -7309,7 +7309,21 @@
         function _reportInlineModeChange(event) {
             const mode = event && event.detail && event.detail.mode;
             if (typeof mode === 'string' && mode) {
-                reportParent('mode-change', { mode });
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    let preferredHeight = null;
+                    if (mode === 'multiview' && _resolvedOrthoLayoutMode() === 'horizontal') {
+                        const content = [
+                            document.getElementById('mv-panes'),
+                            document.getElementById('mv-cb-wrap'),
+                        ].filter(Boolean);
+                        if (content.length) {
+                            preferredHeight = Math.ceil(Math.max(
+                                ...content.map(el => el.getBoundingClientRect().bottom)
+                            ) + 32);
+                        }
+                    }
+                    reportParent('mode-change', { mode, preferredHeight });
+                }));
             }
         }
         window.addEventListener('modechange', _reportInlineModeChange);
@@ -30875,6 +30889,11 @@
             _orthoAutoLayoutMode = null;
             if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
             requestAnimationFrame(_refreshMvLayoutChrome);
+            if (multiViewActive) {
+                window.dispatchEvent(new CustomEvent('modechange', {
+                    detail: { mode: 'multiview' },
+                }));
+            }
             if (!opts.silent && typeof showStatus === 'function') {
                 const preset = _getOrthoPreset(next);
                 if (preset) showStatus('grid: ' + preset.label);
