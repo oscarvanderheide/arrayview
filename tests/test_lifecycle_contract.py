@@ -381,12 +381,13 @@ def test_vscode_extension_keeps_newer_install_without_downgrading(monkeypatch, t
     import arrayview._vscode_extension as extension
 
     home = tmp_path / "home"
-    (home / ".vscode" / "extensions" / "arrayview.arrayview-opener-0.14.44").mkdir(
+    newer_version = "99.0.0"
+    (home / ".vscode" / "extensions" / f"arrayview.arrayview-opener-{newer_version}").mkdir(
         parents=True
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
-    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.44")
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: newer_version)
     monkeypatch.setattr(
         extension.subprocess,
         "run",
@@ -856,6 +857,20 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     assert "Viewer session did not become ready" in source
 
 
+def test_vscode_tunnel_resolution_reuses_verified_route_and_single_flights_recovery():
+    source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
+
+    assert "const TUNNEL_ROUTE_CACHE_FILE" in source
+    assert "cache[`${logWindowId}:${port}`]" in source
+    assert "REMOTE: cached route ready" in source
+    assert "const _externalUriInFlight = new Map()" in source
+    assert "REMOTE: reusing in-flight asExternalUri" in source
+    assert "REMOTE: repairing stale forward before retry" in source
+    assert "_closeStaleTunnelForward(port)" in source
+    assert "asExternalUri timeout after 15000ms" not in source
+    assert "asExternalUri timeout after 20000ms" not in source
+
+
 def test_vscode_url_panel_dispose_releases_primary_sid():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
@@ -879,6 +894,23 @@ def test_vscode_lifecycle_helpers_with_node():
     repo_root = Path(__file__).resolve().parents[1]
     subprocess.run(
         [node, "vscode-extension/test_lifecycle_helpers.js"],
+        cwd=repo_root,
+        check=True,
+    )
+
+
+def test_vscode_tunnel_resolution_with_node():
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    repo_root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        [node, "vscode-extension/test_tunnel_resolution.js"],
         cwd=repo_root,
         check=True,
     )
@@ -913,5 +945,8 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
         in extension_source
     )
     assert "const SIGNAL_HARD_TIMEOUT_MS = 185000" in extension_source
+    assert "const TUNNEL_ROUTE_CACHE_FILE" in extension_source
+    assert "const _externalUriInFlight = new Map()" in extension_source
+    assert "REMOTE: cached route ready" in extension_source
     assert "compare_sids" in helper_source
     assert "overlay_sid" in helper_source

@@ -111,6 +111,107 @@ let lastHandledAt = 0;
 // Track open webview panels by URL so we can reveal instead of re-creating.
 const _openPanels = new Map(); // url -> vscode.WebviewPanel
 const _readyPanels = new WeakSet();
+const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
+const _externalUriInFlight = new Map(); // port -> the one live VS Code resolver promise
+const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
+
+function _cachedTunnelBase(port) {
+    const inMemory = _publicTunnelUrls.get(port);
+    if (inMemory) return inMemory;
+    try {
+        const cache = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
+        const value = cache[`${logWindowId}:${port}`];
+        if (typeof value !== 'string' || isLoopbackUrl(value)) return null;
+        const parsed = new URL(value);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        return value.replace(/\/$/, '');
+    } catch (_) {
+        return null;
+    }
+}
+
+function _rememberTunnelBase(port, externalBase) {
+    if (!externalBase || isLoopbackUrl(externalBase)) return;
+    const normalized = externalBase.replace(/\/$/, '');
+    _publicTunnelUrls.set(port, normalized);
+    let cache = {};
+    try {
+        const parsed = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cache = parsed;
+    } catch (_) {}
+    cache[`${logWindowId}:${port}`] = normalized;
+    const tmp = `${TUNNEL_ROUTE_CACHE_FILE}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(cache));
+        fs.renameSync(tmp, TUNNEL_ROUTE_CACHE_FILE);
+    } catch (error) {
+        try { fs.unlinkSync(tmp); } catch (_) {}
+        log(`REMOTE: failed to cache tunnel route: ${error.message}`);
+    }
+}
+
+function _withTimeout(promise, timeoutMs, label) {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+        }),
+    ]).finally(() => clearTimeout(timer));
+}
+
+function _asExternalUriSingleFlight(port, baseUri) {
+    const existing = _externalUriInFlight.get(port);
+    if (existing) {
+        log(`REMOTE: reusing in-flight asExternalUri for localhost:${port}`);
+        return existing;
+    }
+    let tracked;
+    const raw = Promise.resolve()
+        .then(() => vscode.env.asExternalUri(baseUri))
+        .then((externalUri) => {
+            if (vscode.env.remoteName === 'tunnel') {
+                const externalBase = externalUri.toString().replace(/\/$/, '');
+                if (!isLoopbackUrl(externalBase)) _rememberTunnelBase(port, externalBase);
+            }
+            return externalUri;
+        });
+    tracked = raw.finally(() => {
+        if (_externalUriInFlight.get(port) === tracked) _externalUriInFlight.delete(port);
+    });
+    _externalUriInFlight.set(port, tracked);
+    return tracked;
+}
+
+async function _boundedCommand(command, args, timeoutMs = 3000) {
+    try {
+        return await _withTimeout(
+            vscode.commands.executeCommand(command, ...(args || [])),
+            timeoutMs,
+            command
+        );
+    } catch (error) {
+        log(`REMOTE: ${command} unavailable: ${error.message}`);
+        return null;
+    }
+}
+
+function _tunnelItem(port) {
+    return {
+        tunnelType: 1,
+        remoteHost: 'localhost',
+        remotePort: port,
+        localPort: port,
+        name: 'ArrayView',
+        source: { source: 'user', description: 'ArrayView' },
+    };
+}
+
+async function _closeStaleTunnelForward(port) {
+    await _boundedCommand('remote.tunnel.closeInline', [_tunnelItem(port)]);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
+}
 
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
@@ -1010,7 +1111,15 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
  *      the error is caught and logged — the settings write from step 1
  *      still helps for future forwards.
  */
-async function ensurePortPublic(port, externalBase) {
+async function ensurePortPublic(port, externalBase, expectedServerId = null) {
+    const publicPingUrl = `${externalBase}/ping`;
+    if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
+        _rememberTunnelBase(port, externalBase);
+        log(`PORT: verified public route for ${externalBase}`);
+        return true;
+    }
+    _publicTunnelUrls.delete(port);
+
     // Step 1: write portsAttributes via the settings API
     try {
         const config = vscode.workspace.getConfiguration('remote');
@@ -1040,22 +1149,34 @@ async function ensurePortPublic(port, externalBase) {
     // registered by VS Code's Forwarded Ports view.  In a pure tunnel
     // session (no Remote-SSH), it may not be loaded yet.  Try focusing
     // the forwarded ports view first to trigger lazy loading, then retry.
-    const tunnelItem = {
-        tunnelType: 1,
-        remoteHost: 'localhost',
-        remotePort: port,
-        localPort: port,
-        name: 'ArrayView',
-        source: { source: 'user', description: 'ArrayView' },
-    };
+    const tunnelItem = _tunnelItem(port);
+
+    // A restarted backend can leave VS Code holding a dead forward for the
+    // same port. Remove only that stale forward before asking asExternalUri
+    // to create a fresh one. Never disturb a route that passed /ping above.
+    try {
+        const closed = await _boundedCommand('remote.tunnel.closeInline', [tunnelItem]);
+        if (closed !== null) log(`PORT: closed stale forward for localhost:${port}`);
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await _withTimeout(
+            _asExternalUriSingleFlight(port, vscode.Uri.parse(`http://localhost:${port}/`)),
+            6000,
+            'asExternalUri stale-forward recovery'
+        );
+        log(`PORT: recreated forward for localhost:${port}`);
+    } catch (e) {
+        log(`PORT: stale-forward recovery unavailable: ${e.message || e}`);
+    }
 
     let privacyDone = false;
     try {
-        await vscode.commands.executeCommand(
-            'remote.tunnel.privacypublic', tunnelItem
+        const result = await _boundedCommand(
+            'remote.tunnel.privacypublic', [tunnelItem]
         );
-        privacyDone = true;
-        log(`PORT: changed privacy to public via command`);
+        if (result !== null) {
+            privacyDone = true;
+            log(`PORT: changed privacy to public via command`);
+        }
     } catch (e) {
         log(`PORT: privacy command failed: ${e.message || e}`);
     }
@@ -1064,27 +1185,35 @@ async function ensurePortPublic(port, externalBase) {
         // Retry: force-load forwarded ports view, then retry the command
         log(`PORT: privacy not found — loading forwarded ports view...`);
         try {
-            await vscode.commands.executeCommand('~remote.forwardedPorts.focus');
+            await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
             await new Promise(r => setTimeout(r, 500));
         } catch (_) {}
 
         // Check if the command is now registered
-        const cmds = await vscode.commands.getCommands(true);
+        const cmds = await _withTimeout(
+            vscode.commands.getCommands(true),
+            3000,
+            'get tunnel commands'
+        );
         if (cmds.includes('remote.tunnel.privacypublic')) {
             try {
                 log(`PORT: privacy command found after view load — retrying`);
 
                 // Re-call asExternalUri to refresh the tunnel item reference
                 // (the privacy command needs the current forwarded tunnel item)
-                await vscode.env.asExternalUri(
-                    vscode.Uri.parse(`http://localhost:${port}/`)
+                await _withTimeout(
+                    _asExternalUriSingleFlight(port, vscode.Uri.parse(`http://localhost:${port}/`)),
+                    6000,
+                    'asExternalUri privacy retry'
                 ).catch(() => {});
 
-                await vscode.commands.executeCommand(
-                    'remote.tunnel.privacypublic', tunnelItem
+                const result = await _boundedCommand(
+                    'remote.tunnel.privacypublic', [tunnelItem]
                 );
-                privacyDone = true;
-                log(`PORT: changed privacy to public via command (retry)`);
+                if (result !== null) {
+                    privacyDone = true;
+                    log(`PORT: changed privacy to public via command (retry)`);
+                }
             } catch (e2) {
                 log(`PORT: privacy retry failed: ${e2.message || e2}`);
             }
@@ -1092,19 +1221,40 @@ async function ensurePortPublic(port, externalBase) {
             log(`PORT: privacypublic still not available after view load`);
         }
     }
-    return privacyDone;
+    if (!privacyDone) return false;
+
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+        if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
+            _rememberTunnelBase(port, externalBase);
+            log(`PORT: public route ready for ${externalBase}`);
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    log(`PORT: public route did not become ready for ${externalBase}`);
+    return false;
 }
 
-async function resolveRemoteViewerUrl(url) {
+async function resolveRemoteViewerUrl(url, expectedServerId = null) {
     let port = 8000;
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
     try { origQuery = new URL(url).search; } catch (_) {}
     const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+    const cachedBase = vscode.env.remoteName === 'tunnel' ? _cachedTunnelBase(port) : null;
+    if (cachedBase) {
+        log(`REMOTE: checking cached route ${cachedBase}`);
+        if (await arrayViewStatusOk(`${cachedBase}/ping`, expectedServerId)) {
+            _rememberTunnelBase(port, cachedBase);
+            log(`REMOTE: cached route ready for localhost:${port}`);
+            return cachedBase + '/' + origQuery;
+        }
+        log(`REMOTE: cached route stale for localhost:${port}`);
+    }
     const attempts = [
-        { timeoutMs: 10000, pauseMs: 0 },
-        { timeoutMs: 15000, pauseMs: 750 },
-        { timeoutMs: 20000, pauseMs: 1500 },
+        { timeoutMs: 6000, pauseMs: 0 },
+        { timeoutMs: 10000, pauseMs: 500 },
     ];
 
     for (let i = 0; i < attempts.length; i++) {
@@ -1114,11 +1264,11 @@ async function resolveRemoteViewerUrl(url) {
         }
         try {
             log(`REMOTE: asExternalUri(http://localhost:${port}/) attempt=${i + 1}`);
-            const externalUri = await Promise.race([
-                vscode.env.asExternalUri(baseUri),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error(`asExternalUri timeout after ${attempt.timeoutMs}ms`)), attempt.timeoutMs)),
-            ]);
+            const externalUri = await _withTimeout(
+                _asExternalUriSingleFlight(port, baseUri),
+                attempt.timeoutMs,
+                'asExternalUri'
+            );
             const externalBase = externalUri.toString().replace(/\/$/, '');
             log(`REMOTE: → ${externalBase}`);
 
@@ -1127,7 +1277,13 @@ async function resolveRemoteViewerUrl(url) {
             }
 
             if (vscode.env.remoteName === 'tunnel') {
-                await ensurePortPublic(port, externalBase);
+                const publicReady = await ensurePortPublic(
+                    port, externalBase, expectedServerId
+                );
+                if (!publicReady) {
+                    throw new Error('public tunnel route is not ready');
+                }
+                _rememberTunnelBase(port, externalBase);
             }
 
             const finalUrl = externalBase + '/' + origQuery;
@@ -1136,9 +1292,8 @@ async function resolveRemoteViewerUrl(url) {
         } catch (err) {
             log(`REMOTE: asExternalUri attempt ${i + 1} failed: ${err.message}`);
             if (i === 0) {
-                try {
-                    await vscode.commands.executeCommand('~remote.forwardedPorts.focus');
-                } catch (_) {}
+                log(`REMOTE: repairing stale forward before retry`);
+                await _closeStaleTunnelForward(port);
             }
         }
     }
@@ -1199,7 +1354,7 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
 
     const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
     const remoteUrlPromise = vscode.env.remoteName
-        ? resolveRemoteViewerUrl(url)
+        ? resolveRemoteViewerUrl(url, data.serverId || null)
         : null;
     // A newly spawned daemon creates the session asynchronously.  During
     // loading /metadata/<sid> is temporarily 404; treating that as expired
@@ -1527,4 +1682,12 @@ function deactivate() {
     log(`deactivate v${version}`);
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+    activate,
+    deactivate,
+    __test: {
+        _withTimeout,
+        _asExternalUriSingleFlight,
+        _externalUriInFlight,
+    },
+};
