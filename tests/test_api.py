@@ -301,6 +301,50 @@ class TestLoad:
         assert client.get(f"/metadata/{base_sid}").status_code == 200
         assert client.get(f"/metadata/{overlay_sid}").status_code == 200
 
+    def test_load_directory_collection_excludes_cli_accepted_missing_cases(
+        self, client, tmp_path
+    ):
+        images = tmp_path / "images"
+        overlays = tmp_path / "overlays"
+        images.mkdir()
+        overlays.mkdir()
+        for case in ("caseA", "caseB", "caseC"):
+            np.save(images / f"{case}.npy", np.zeros((4, 5, 6), dtype=np.float32))
+        for case in ("caseA", "caseB"):
+            np.save(overlays / f"{case}.npy", np.ones((4, 5, 6), dtype=np.uint8))
+
+        request = {
+            "name": "paired collection",
+            "dir_patterns": [str(images / "*.npy")],
+            "dir_overlay_specs": [["mask", str(overlays / "*.npy")]],
+            "dir_case_regex": r"(?P<case>case[A-Z])",
+            "dir_exclude_cases": ["caseC"],
+            "load": "lazy",
+            "stack": "auto",
+        }
+        body = client.post(
+            "/load",
+            json=request,
+        ).json()
+
+        assert "error" not in body
+        assert body["overlay_names"] == ["mask"]
+        meta = client.get(f"/metadata/{body['sid']}").json()
+        assert meta["shape"] == [4, 5, 6, 2]
+
+        repeated = client.post("/load", json=request).json()
+        assert repeated["sid"] == body["sid"]
+        assert repeated["reused"] is True
+
+        different_subset = client.post(
+            "/load",
+            json={**request, "dir_exclude_cases": ["caseB", "caseC"]},
+        ).json()
+        assert "error" not in different_subset
+        assert different_subset["sid"] != body["sid"]
+        subset_meta = client.get(f"/metadata/{different_subset['sid']}").json()
+        assert subset_meta["shape"] == [4, 5, 6, 1]
+
     def test_load_sparse_overlay_dir_contract_infers_cases_without_regex(
         self, client, tmp_path
     ):
@@ -3011,6 +3055,7 @@ class TestCliOpenHelpers:
             dir_patterns=["/data/*/*.nii.gz"],
             dir_overlay_specs=[("mask", "/data/*/mask.nii.gz")],
             dir_case_regex="(?P<case>[^/]+)",
+            dir_exclude_cases=["caseB"],
             collection_load="lazy",
             collection_stack="auto",
         )
@@ -3020,6 +3065,7 @@ class TestCliOpenHelpers:
             ("mask", "/data/*/mask.nii.gz")
         ]
         assert calls[0][3]["dir_case_regex"] == "(?P<case>[^/]+)"
+        assert calls[0][3]["dir_exclude_cases"] == ["caseB"]
         assert calls[0][3]["collection_load"] == "lazy"
         assert calls[0][3]["collection_stack"] == "auto"
         assert result["sid"] == "sid_dir"
@@ -3257,6 +3303,58 @@ class TestCliOpenHelpers:
         assert spawned[0]["dir_patterns"] == ["/data/*/CT/*.nii.gz"]
         assert spawned[0]["dir_case_regex"] is None
 
+    def test_handle_cli_existing_server_falls_back_when_exclusions_are_ignored(
+        self, monkeypatch, capsys
+    ):
+        import arrayview._launcher as launcher
+
+        spawned = []
+
+        def fail_register(**kwargs):
+            raise RuntimeError(
+                "Error from server: Overlay 'GTV' is missing case(s): 'caseB'."
+            )
+
+        monkeypatch.setattr(
+            launcher,
+            "_register_cli_session_with_existing_server",
+            fail_register,
+        )
+        monkeypatch.setattr(launcher, "_find_server_port", lambda port: (port, False))
+        monkeypatch.setattr(
+            launcher,
+            "_handle_cli_spawned_daemon",
+            lambda **kwargs: spawned.append(kwargs),
+        )
+
+        launcher._handle_cli_existing_server(
+            port=8000,
+            base_file="/data/*/T2*.nii.gz",
+            name="dir collection",
+            compare_files=[],
+            overlay_files=[],
+            rgb=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            use_native_shell=False,
+            dims_override=None,
+            watch=False,
+            window_mode="browser",
+            floating=False,
+            is_remote=True,
+            dir_patterns=["/data/*/T2*.nii.gz"],
+            dir_overlay_specs=[("GTV", "/data/*/GTVp_7000.nii.gz")],
+            dir_case_regex=r"(?P<case>case[A-Z])",
+            dir_exclude_cases=["caseB"],
+            collection_load="lazy",
+            collection_stack="auto",
+        )
+
+        out = capsys.readouterr().out
+        assert "Existing server on port 8000" in out
+        assert spawned[0]["port"] == 8001
+        assert spawned[0]["dir_exclude_cases"] == ["caseB"]
+
     def test_handle_cli_spawned_daemon_opens_spawned_session(self, monkeypatch):
         import arrayview._launcher as launcher
 
@@ -3266,6 +3364,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_configure_vscode_port_preview", lambda port: None
         )
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(
             launcher.subprocess,
             "Popen",
@@ -3300,6 +3399,7 @@ class TestCliOpenHelpers:
             rgb=True,
             demo_name="demo",
             demo_cleanup=True,
+            dir_exclude_cases=["caseB"],
         )
 
         assert spawned
@@ -3307,6 +3407,7 @@ class TestCliOpenHelpers:
         assert "persist=False" in spawned[0][0][2]
         assert "rgb=True" in spawned[0][0][2]
         assert "overlay_names=['ground truth']" in spawned[0][0][2]
+        assert "dir_exclude_cases=['caseB']" in spawned[0][0][2]
         assert spawned[0][1]["stdin"] is launcher.subprocess.DEVNULL
         assert spawned[0][1]["stdout"] is launcher.subprocess.DEVNULL
         assert spawned[0][1]["stderr"] is launcher.subprocess.DEVNULL

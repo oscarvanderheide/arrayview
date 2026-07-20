@@ -108,6 +108,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     for item in body.get("dir_overlay_specs", [])
                 ),
                 body.get("dir_case_regex"),
+                tuple(str(case) for case in body.get("dir_exclude_cases", [])),
                 body.get("load", "lazy"),
                 body.get("stack", "auto"),
             )
@@ -259,6 +260,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     list(dir_patterns),
                     overlays=[tuple(item) for item in body.get("dir_overlay_specs", [])],
                     case_regex=body.get("dir_case_regex"),
+                    exclude_cases=body.get("dir_exclude_cases", []),
                     load=body.get("load", "lazy"),
                     stack=body.get("stack", "auto"),
                 )

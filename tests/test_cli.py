@@ -414,6 +414,176 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
     assert "caseA, caseB" in text
 
 
+def test_cli_stack_can_continue_with_only_cases_that_have_overlays(
+    monkeypatch, tmp_path
+):
+    shape = (4, 5, 6)
+    images = tmp_path / "images"
+    masks = tmp_path / "masks"
+    images.mkdir()
+    masks.mkdir()
+    for case in ("caseA", "caseB"):
+        np.save(images / f"{case}.npy", np.zeros(shape, dtype=np.float32))
+    np.save(masks / "caseA.npy", np.ones(shape, dtype=np.uint8))
+
+    class TtyInput(io.StringIO):
+        def isatty(self):
+            return True
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--stack",
+            str(images / "*.npy"),
+            "--overlay",
+            f"gt={masks / '*.npy'}",
+            "--case-regex",
+            r"(?P<case>case[A-Z])",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdin", TtyInput("yes\n"))
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert "Overlay 'gt' has no mask for 1 of 2 image cases" in text
+    assert "Continue with the 1 image cases that have masks?" in text
+    assert "cases: 1" in text
+    assert "case order: caseA" in text
+
+
+def test_cli_stack_declining_partial_overlay_match_keeps_error(
+    monkeypatch, tmp_path
+):
+    shape = (4, 5, 6)
+    images = tmp_path / "images"
+    masks = tmp_path / "masks"
+    images.mkdir()
+    masks.mkdir()
+    for case in ("caseA", "caseB"):
+        np.save(images / f"{case}.npy", np.zeros(shape, dtype=np.float32))
+    np.save(masks / "caseA.npy", np.ones(shape, dtype=np.uint8))
+
+    class TtyInput(io.StringIO):
+        def isatty(self):
+            return True
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--stack",
+            str(images / "*.npy"),
+            "--overlay",
+            f"gt={masks / '*.npy'}",
+            "--case-regex",
+            r"(?P<case>case[A-Z])",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdin", TtyInput("n\n"))
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    with pytest.raises(SystemExit, match="1"):
+        appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert "Continue with the 1 image cases that have masks?" in text
+    assert "Error: --stack could not match collection" in text
+
+
+def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
+    monkeypatch, tmp_path
+):
+    shape = (4, 5, 6)
+    images = tmp_path / "images"
+    masks = tmp_path / "masks"
+    images.mkdir()
+    masks.mkdir()
+    for case in ("caseA", "caseB"):
+        np.save(images / f"{case}.npy", np.zeros(shape, dtype=np.float32))
+    np.save(masks / "caseA.npy", np.ones(shape, dtype=np.uint8))
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--stack",
+            str(images / "*.npy"),
+            "--overlay",
+            f"gt={masks / '*.npy'}",
+            "--case-regex",
+            r"(?P<case>case[A-Z])",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO("yes\n"))
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    with pytest.raises(SystemExit, match="1"):
+        appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert "Continue with" not in text
+    assert "Error: --stack could not match collection" in text
+
+
+def test_cli_stack_partial_overlays_keep_case_intersection(monkeypatch, tmp_path):
+    shape = (4, 5, 6)
+    images = tmp_path / "images"
+    first_masks = tmp_path / "first"
+    second_masks = tmp_path / "second"
+    images.mkdir()
+    first_masks.mkdir()
+    second_masks.mkdir()
+    for case in ("caseA", "caseB", "caseC"):
+        np.save(images / f"{case}.npy", np.zeros(shape, dtype=np.float32))
+    for case in ("caseA", "caseB"):
+        np.save(first_masks / f"{case}.npy", np.ones(shape, dtype=np.uint8))
+    for case in ("caseB", "caseC"):
+        np.save(second_masks / f"{case}.npy", np.ones(shape, dtype=np.uint8))
+
+    class TtyInput(io.StringIO):
+        def isatty(self):
+            return True
+
+    stdout = io.StringIO()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            "--stack",
+            str(images / "*.npy"),
+            "--overlay",
+            f"first={first_masks / '*.npy'}",
+            "--overlay",
+            f"second={second_masks / '*.npy'}",
+            "--case-regex",
+            r"(?P<case>case[A-Z])",
+            "--dry-run",
+        ],
+    )
+    monkeypatch.setattr(sys, "stdin", TtyInput("yes\nyes\n"))
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    appmod.arrayview()
+
+    text = stdout.getvalue()
+    assert text.count("Continue with") == 2
+    assert "cases: 1" in text
+    assert "case order: caseB" in text
+
+
 def test_cli_overlay_dir_discovers_sparse_roles(monkeypatch, tmp_path):
     shape = (4, 5, 6)
     for case in ("caseA", "caseB"):

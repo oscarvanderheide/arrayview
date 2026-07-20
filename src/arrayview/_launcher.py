@@ -918,6 +918,7 @@ def _load_session_from_filepath(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     background: bool = False,
@@ -935,6 +936,7 @@ def _load_session_from_filepath(
         payload["dir_patterns"] = dir_patterns
         payload["dir_overlay_specs"] = dir_overlay_specs or []
         payload["dir_case_regex"] = dir_case_regex
+        payload["dir_exclude_cases"] = dir_exclude_cases or []
         payload["load"] = collection_load
         payload["stack"] = collection_stack
     if notify and compare_sids:
@@ -1165,6 +1167,7 @@ def _register_cli_session_with_existing_server(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
@@ -1203,6 +1206,7 @@ def _register_cli_session_with_existing_server(
         dir_patterns=dir_patterns,
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=dir_case_regex,
+        dir_exclude_cases=dir_exclude_cases,
         collection_load=collection_load,
         collection_stack=collection_stack,
         background=background_base,
@@ -1268,6 +1272,7 @@ def _handle_cli_existing_server(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
@@ -1287,6 +1292,7 @@ def _handle_cli_existing_server(
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=dir_case_regex,
+            dir_exclude_cases=dir_exclude_cases,
             collection_load=collection_load,
             collection_stack=collection_stack,
             overlay_names=overlay_names,
@@ -1305,6 +1311,10 @@ def _handle_cli_existing_server(
             and (
                 "Unsupported format" in err
                 or "Sparse overlays from --overlay-dir require --case-regex" in err
+                or (
+                    dir_exclude_cases
+                    and "is missing case(s)" in err
+                )
             )
         )
         if stale_stack_server:
@@ -1336,6 +1346,7 @@ def _handle_cli_existing_server(
                     dir_patterns=dir_patterns,
                     dir_overlay_specs=dir_overlay_specs,
                     dir_case_regex=dir_case_regex,
+                    dir_exclude_cases=dir_exclude_cases,
                     collection_load=collection_load,
                     collection_stack=collection_stack,
                     overlay_names=overlay_names,
@@ -1401,6 +1412,7 @@ def _handle_cli_spawned_daemon(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
@@ -1437,6 +1449,7 @@ def _handle_cli_spawned_daemon(
         f" dir_patterns={repr(dir_patterns)},"
         f" dir_overlay_specs={repr(dir_overlay_specs)},"
         f" dir_case_regex={repr(dir_case_regex)},"
+        f" dir_exclude_cases={repr(dir_exclude_cases)},"
         f" collection_load={repr(collection_load)},"
         f" collection_stack={repr(collection_stack)},"
         f")"
@@ -1468,6 +1481,7 @@ def _handle_cli_spawned_daemon(
                 dir_patterns=dir_patterns,
                 dir_overlay_specs=dir_overlay_specs,
                 dir_case_regex=dir_case_regex,
+                dir_exclude_cases=dir_exclude_cases,
                 collection_load=collection_load,
                 collection_stack=collection_stack,
                 overlay_names=resolved_overlay_names,
@@ -3078,6 +3092,7 @@ def _serve_daemon(
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
+    dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
 ) -> None:
@@ -3145,6 +3160,7 @@ def _serve_daemon(
                     dir_patterns,
                     overlays=dir_overlay_specs or [],
                     case_regex=dir_case_regex,
+                    exclude_cases=dir_exclude_cases,
                     load=collection_load,
                     stack=collection_stack,
                 )
@@ -3699,6 +3715,33 @@ def _print_dir_collection_summary(summary):
     print(f"  case order: {preview}")
 
 
+def _confirm_partial_overlay_match(error):
+    """Ask an interactive CLI user whether cases without an overlay may be dropped."""
+    if not bool(getattr(sys.stdin, "isatty", lambda: False)()):
+        return False
+
+    keep_count = error.total_cases - len(error.missing_cases)
+    if keep_count <= 0:
+        return False
+
+    preview = ", ".join(error.missing_cases[:6])
+    if len(error.missing_cases) > 6:
+        preview += ", ..."
+    print(
+        f"[ArrayView] Overlay {error.overlay_name!r} has no mask for "
+        f"{len(error.missing_cases)} of {error.total_cases} image cases."
+    )
+    print(f"  Missing cases: {preview}")
+    try:
+        answer = input(
+            f"Continue with the {keep_count} image cases that have masks? [y/N] "
+        )
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer.strip().lower() in {"y", "yes"}
+
+
 # ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
@@ -4149,6 +4192,7 @@ def arrayview():
             )
     if args.dry_run and not args.stack_mode:
         parser.error("--dry-run requires --stack.")
+    excluded_cases = set()
     if args.stack_mode:
         if args.stack_select:
             parser.error("--stack pattern mode is incompatible with --select.")
@@ -4317,24 +4361,33 @@ def arrayview():
         base_file = dir_patterns[0]
         compare_files = []
         name = args.array_name or "dir collection"
-        try:
-            from arrayview._io import load_dir_collection
+        from arrayview._io import MissingOverlayCasesError, load_dir_collection
 
-            scan_progress = _CliCollectionScanProgress()
+        excluded_cases = set()
+        while True:
             try:
-                data, spatial_meta, overlay_items, summary = load_dir_collection(
-                    dir_patterns,
-                    overlays=dir_overlay_specs,
-                    case_regex=args.case_regex,
-                    load=args.load,
-                    stack=args.stack_policy or "auto",
-                    scan_progress=scan_progress.update,
-                )
-            finally:
-                scan_progress.finish()
-        except Exception as e:
-            print(f"Error: --stack could not match collection: {e}")
-            sys.exit(1)
+                scan_progress = _CliCollectionScanProgress()
+                try:
+                    data, spatial_meta, overlay_items, summary = load_dir_collection(
+                        dir_patterns,
+                        overlays=dir_overlay_specs,
+                        case_regex=args.case_regex,
+                        load=args.load,
+                        stack=args.stack_policy or "auto",
+                        scan_progress=scan_progress.update,
+                        exclude_cases=excluded_cases,
+                    )
+                finally:
+                    scan_progress.finish()
+                break
+            except MissingOverlayCasesError as e:
+                if not _confirm_partial_overlay_match(e):
+                    print(f"Error: --stack could not match collection: {e}")
+                    sys.exit(1)
+                excluded_cases.update(e.missing_cases)
+            except Exception as e:
+                print(f"Error: --stack could not match collection: {e}")
+                sys.exit(1)
         _print_dir_collection_summary(summary)
         if args.dry_run:
             return
@@ -4543,6 +4596,7 @@ def arrayview():
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
+            dir_exclude_cases=sorted(excluded_cases),
             collection_load=args.load,
             collection_stack=args.stack_policy or "auto",
         )
@@ -4572,6 +4626,7 @@ def arrayview():
         dir_patterns=dir_patterns,
         dir_overlay_specs=dir_overlay_specs,
         dir_case_regex=args.case_regex,
+        dir_exclude_cases=sorted(excluded_cases),
         collection_load=args.load,
         collection_stack=args.stack_policy or "auto",
     )

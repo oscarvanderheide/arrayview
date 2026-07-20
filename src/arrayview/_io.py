@@ -19,6 +19,19 @@ import numpy as np
 _nib_mod = None
 
 
+class MissingOverlayCasesError(ValueError):
+    """A required collection overlay has no file for some image cases."""
+
+    def __init__(self, overlay_name, missing_cases, total_cases):
+        self.overlay_name = str(overlay_name)
+        self.missing_cases = tuple(str(case) for case in missing_cases)
+        self.total_cases = int(total_cases)
+        missing = ", ".join(repr(case) for case in self.missing_cases)
+        super().__init__(
+            f"Overlay {self.overlay_name!r} is missing case(s): {missing}."
+        )
+
+
 def _nib():
     """Lazy nibabel import."""
     global _nib_mod
@@ -1103,6 +1116,7 @@ def load_dir_collection(
     load="lazy",
     stack="auto",
     scan_progress=None,
+    exclude_cases=None,
 ):
     """Load recursive collection patterns as aligned lazy image/overlay stacks.
 
@@ -1111,6 +1125,9 @@ def load_dir_collection(
     sparse overlay whose missing cases should render as empty masks. By
     default, each pattern's sorted matches are paired by position. With
     *case_regex*, files are paired by the regex's named ``case`` group instead.
+    *exclude_cases* removes known case ids before any image or overlay data is
+    opened. It is used by the interactive CLI after the user accepts a partial
+    overlay match.
     """
     if not base_patterns:
         raise ValueError("--stack requires at least one positional image pattern.")
@@ -1160,6 +1177,19 @@ def load_dir_collection(
                     for path in base_lists[0]
                 ]
             base_matrix = [list(row) for row in zip(*base_lists)]
+
+    excluded = {str(case) for case in (exclude_cases or ())}
+    if excluded:
+        kept = [
+            (case, row)
+            for case, row in zip(case_ids, base_matrix)
+            if case not in excluded
+        ]
+        if not kept:
+            raise ValueError("No image cases remain after excluding missing overlays.")
+        case_ids = [case for case, _row in kept]
+        base_matrix = [row for _case, row in kept]
+
     data, spatial_meta = _series_from_file_matrix(
         base_matrix,
         load=load,
@@ -1179,9 +1209,8 @@ def load_dir_collection(
             by_case = pattern
             missing_cases = [case for case in case_ids if case not in by_case]
             if missing_cases and not allow_missing:
-                raise ValueError(
-                    f"Overlay {name!r} is missing case(s): "
-                    f"{', '.join(repr(c) for c in missing_cases)}."
+                raise MissingOverlayCasesError(
+                    name, missing_cases, total_cases=len(case_ids)
                 )
             matrix = [[by_case.get(case)] for case in case_ids]
             extras = sorted(set(by_case.keys()) - set(case_ids))
@@ -1189,9 +1218,8 @@ def load_dir_collection(
             by_case = _collection_pattern_map(pattern, case_regex=case_regex)
             missing_cases = [case for case in case_ids if case not in by_case]
             if missing_cases and not allow_missing:
-                raise ValueError(
-                    f"Overlay {name!r} is missing case(s): "
-                    f"{', '.join(repr(c) for c in missing_cases)}."
+                raise MissingOverlayCasesError(
+                    name, missing_cases, total_cases=len(case_ids)
                 )
             matrix = [[by_case.get(case)] for case in case_ids]
             extras = sorted(set(by_case.keys()) - set(case_ids))
@@ -1207,9 +1235,8 @@ def load_dir_collection(
                 )
             missing_cases = [case for case in case_ids if case not in by_case]
             if missing_cases and not allow_missing:
-                raise ValueError(
-                    f"Overlay {name!r} is missing case(s): "
-                    f"{', '.join(repr(c) for c in missing_cases)}."
+                raise MissingOverlayCasesError(
+                    name, missing_cases, total_cases=len(case_ids)
                 )
             matrix = [[by_case.get(case)] for case in case_ids]
             extras = sorted(set(by_case) - set(case_ids))
