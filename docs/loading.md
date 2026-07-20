@@ -54,6 +54,8 @@ Key parameters:
 | `name` | str | Label shown in the viewer tab |
 | `port` | int | Server port (default 8123 for Python API, 8000 for CLI) |
 | `window` | str \| None | How to open the viewer (see below) |
+| `height` | int | Default inline notebook height in pixels |
+| `mode_heights` | dict | Inline height overrides, e.g. `{"ortho": 360, "qmri": 480}` |
 | `rgb` | bool | Treat last/first axis as RGB/RGBA channels |
 | `overlay` | array or list | Arrays composited as overlays |
 

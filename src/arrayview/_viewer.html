@@ -7306,6 +7306,15 @@
             return 'single';
         }
 
+        function _reportInlineModeChange(event) {
+            const mode = event && event.detail && event.detail.mode;
+            if (typeof mode === 'string' && mode) {
+                reportParent('mode-change', { mode });
+            }
+        }
+        window.addEventListener('modechange', _reportInlineModeChange);
+        document.addEventListener('modechange', _reportInlineModeChange);
+
         function _setWindowIdentity(name) {
             const clean = String(name || '').trim();
             const title = clean && clean !== 'welcome' ? `ArrayView: ${clean}` : 'ArrayView';

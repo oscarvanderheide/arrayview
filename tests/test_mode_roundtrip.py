@@ -21,6 +21,66 @@ from conftest import register_array
 pytestmark = pytest.mark.browser
 
 
+def test_inline_wrapper_resizes_for_ortho_and_restores_default(
+    page, server_url, sid_3d
+):
+    from arrayview._launcher import _make_jupyter_inline_html
+
+    inline = _make_jupyter_inline_html(
+        f"{server_url}/?sid={sid_3d}&inline=1",
+        int(server_url.rsplit(":", 1)[1]),
+        600,
+        {"ortho": 320},
+        use_proxy=False,
+    )
+    page.set_content(inline.data)
+    host = page.locator("div[id^='arrayview-inline-']")
+    frame = page.frame_locator("iframe")
+    frame.locator("#canvas-wrap").wait_for(state="visible", timeout=15_000)
+
+    assert host.evaluate("el => el.getBoundingClientRect().height") == 600
+
+    frame.locator("body").press("v")
+    frame.locator("#multi-view-wrap.active").wait_for(timeout=5_000)
+    page.wait_for_function(
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 320"
+    )
+
+    frame.locator("body").press("v")
+    page.wait_for_function(
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 600"
+    )
+
+
+def test_inline_wrapper_resizes_for_qmri_and_restores_default(
+    page, server_url, sid_4d
+):
+    from arrayview._launcher import _make_jupyter_inline_html
+
+    inline = _make_jupyter_inline_html(
+        f"{server_url}/?sid={sid_4d}&inline=1",
+        int(server_url.rsplit(":", 1)[1]),
+        600,
+        {"qmri": 420},
+        use_proxy=False,
+    )
+    page.set_content(inline.data)
+    host = page.locator("div[id^='arrayview-inline-']")
+    frame = page.frame_locator("iframe")
+    frame.locator("#canvas-wrap").wait_for(state="visible", timeout=15_000)
+
+    frame.locator("body").press("q")
+    page.wait_for_function(
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 420"
+    )
+
+    frame.locator("body").press("q")
+    page.wait_for_function(
+        "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 600"
+    )
+    assert host.evaluate("el => el.getBoundingClientRect().height") == 600
+
+
 # ---------------------------------------------------------------------------
 # Mode entry/exit specs
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-15
+last_updated: 2026-07-20
 ---
 
 # Project State
@@ -60,6 +60,10 @@ last_updated: 2026-07-15
 
 ## Recently Completed
 
+- Jupyter inline viewports support per-mode heights through
+  `view(..., mode_heights={"ortho": 320, "qmri": 420})`, restoring the default
+  `height` when the viewer returns to an unconfigured mode. Direct, proxied,
+  multi-array, and IJulia inline paths share the same mode-change bridge.
 - ROI keybind changed from `r` to `Shift+R` (`R`); rotate/flip is now `r`, transpose is `t`
 - Crossfade animation added to rotate/transpose transitions
 - `--version` flag and version string in help overlay

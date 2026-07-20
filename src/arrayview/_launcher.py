@@ -18,6 +18,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Mapping
 from importlib.resources import files as _pkg_files
 
 # ---------------------------------------------------------------------------
@@ -2053,18 +2054,57 @@ def _should_use_jupyter_proxy_inline() -> bool:
     return _JUPYTER_PROXY_INLINE_CACHE
 
 
-def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
-    from IPython.display import HTML
+def _normalize_inline_mode_heights(mode_heights) -> dict[str, int]:
+    if mode_heights is None:
+        return {}
+    if not isinstance(mode_heights, Mapping):
+        raise TypeError("mode_heights must be a mapping of mode names to pixel heights")
 
+    normalized = {}
+    for mode, value in mode_heights.items():
+        if not isinstance(mode, str) or not mode.strip():
+            raise ValueError("mode_heights keys must be non-empty strings")
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("mode_heights values must be positive integer pixel heights")
+        normalized[mode.strip().lower()] = value
+    return normalized
+
+
+def _normalize_inline_height(height) -> int:
+    if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
+        raise ValueError("height must be a positive integer pixel height")
+    return height
+
+
+def _script_json(value) -> str:
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+def _build_jupyter_inline_html(
+    viewer_url: str,
+    port: int,
+    height: int,
+    mode_heights: dict[str, int],
+    *,
+    use_proxy: bool,
+):
     parsed = urllib.parse.urlparse(viewer_url)
     proxied_target = f"proxy/{port}{parsed.path or '/'}"
     if parsed.query:
         proxied_target += f"?{parsed.query}"
-    initial_src = urllib.parse.urljoin(_jupyter_base_url_prefix(), proxied_target)
+    initial_src = (
+        urllib.parse.urljoin(_jupyter_base_url_prefix(), proxied_target)
+        if use_proxy
+        else viewer_url
+    )
     container_id = f"arrayview-inline-{uuid.uuid4().hex}"
 
-    return HTML(
-        f"""
+    return f"""
 <div id={json.dumps(container_id)} style="width:100%;height:{height}px;background:#0c0c0c;overflow:hidden;border:0;border-radius:6px;">
   <iframe
     src={json.dumps(initial_src)}
@@ -2082,6 +2122,18 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
   const frame = host.querySelector('iframe');
   if (!frame) return;
   const directSrc = {json.dumps(viewer_url)};
+  const useProxy = {json.dumps(use_proxy)};
+  const defaultHeight = {height};
+  const modeHeights = {_script_json(mode_heights)};
+  const modeAliases = {{
+    multiview: 'ortho',
+    'compare-mv': 'compare-ortho',
+  }};
+  const resizeForMode = (mode) => {{
+    if (typeof mode !== 'string') return;
+    const requested = modeHeights[mode] ?? modeHeights[modeAliases[mode]] ?? defaultHeight;
+    host.style.height = `${{requested}}px`;
+  }};
   const baseCandidates = [
     document.body && document.body.dataset ? document.body.dataset.baseUrl : '',
     window.Jupyter && window.Jupyter.notebook ? window.Jupyter.notebook.base_url : '',
@@ -2092,7 +2144,9 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
   let base = baseCandidates.find(value => typeof value === 'string' && value.length) || {json.dumps(_jupyter_base_url_prefix())};
   if (!base.startsWith('/')) base = '/' + base;
   if (!base.endsWith('/')) base += '/';
-  const proxiedSrc = new URL({json.dumps(proxied_target)}, window.location.origin + base).toString();
+  const proxiedSrc = useProxy
+    ? new URL({json.dumps(proxied_target)}, window.location.origin + base).toString()
+    : directSrc;
   let loaded = false;
   const cleanup = () => {{
     window.removeEventListener('message', onMessage);
@@ -2100,21 +2154,87 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
   }};
   const onMessage = (event) => {{
     const msg = event && event.data;
-    if (!msg || msg.source !== 'arrayview-viewer' || msg.phase !== 'script-loaded') return;
+    if (!msg || msg.source !== 'arrayview-viewer') return;
     if (event.source !== frame.contentWindow) return;
+    if (msg.phase === 'mode-change') {{
+      resizeForMode(msg.detail && msg.detail.mode);
+      return;
+    }}
+    if (msg.phase !== 'script-loaded') return;
     loaded = true;
-    cleanup();
+    if (fallbackTimer) window.clearTimeout(fallbackTimer);
+    if (!Object.keys(modeHeights).length) cleanup();
   }};
   window.addEventListener('message', onMessage);
   const fallbackTimer = window.setTimeout(() => {{
-    if (loaded) return;
+    if (loaded || !useProxy) return;
     frame.src = directSrc;
   }}, 1500);
-  frame.src = proxiedSrc;
+  frame.src = useProxy ? proxiedSrc : directSrc;
 }})();
 </script>
 """.strip()
+
+
+def _make_jupyter_inline_html(
+    viewer_url: str,
+    port: int,
+    height: int,
+    mode_heights: dict[str, int],
+    *,
+    use_proxy: bool,
+):
+    from IPython.display import HTML
+
+    return HTML(
+        _build_jupyter_inline_html(
+            viewer_url,
+            port,
+            height,
+            mode_heights,
+            use_proxy=use_proxy,
+        )
     )
+
+
+def _make_jupyter_proxy_inline_html(
+    viewer_url: str,
+    port: int,
+    height: int,
+    mode_heights: dict[str, int] | None = None,
+):
+    return _make_jupyter_inline_html(
+        viewer_url,
+        port,
+        height,
+        mode_heights or {},
+        use_proxy=True,
+    )
+
+
+def _make_resizable_jupyter_iframe(
+    viewer_url: str,
+    port: int,
+    height: int,
+    mode_heights: dict[str, int],
+):
+    from types import MethodType
+
+    from IPython.display import IFrame
+
+    iframe = IFrame(src=viewer_url, width="100%", height=height)
+
+    def _repr_html_(self):
+        return _make_jupyter_inline_html(
+            self.src,
+            port,
+            self.height,
+            mode_heights,
+            use_proxy=False,
+        ).data
+
+    iframe._repr_html_ = MethodType(_repr_html_, iframe)
+    return iframe
 
 
 # ── ViewHandle and view() API ────────────────────────────────────
@@ -2224,6 +2344,7 @@ def view(
     port: int = 8123,
     inline: bool | None = None,
     height: int = 600,
+    mode_heights: Mapping[str, int] | None = None,
     window: str | bool | None = None,
     rgb: bool | list = False,
     overlay=None,
@@ -2251,7 +2372,9 @@ def view(
       - ``'vscode'``   open in a VS Code tab
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
 
-        ``height`` sets the pixel height of inline notebook IFrames.
+        ``height`` sets the default pixel height of inline notebook IFrames.
+        ``mode_heights`` can override it while a viewer mode is active, for
+        example ``{"ortho": 360, "qmri": 480}``.
 
     Persistent defaults can be set via ``arrayview config set window.<env> <mode>``
     where ``<env>`` is one of: terminal, vscode, jupyter, ssh, julia.
@@ -2274,6 +2397,9 @@ def view(
     """
     import numpy as np
     from arrayview._io import _tensor_to_numpy
+
+    height = _normalize_inline_height(height)
+    _inline_mode_heights = _normalize_inline_mode_heights(mode_heights)
 
     # --- Validate array count ---
     n_arrays = len(arrays)
@@ -2419,6 +2545,7 @@ def view(
             window=window,
             inline=inline,
             height=height,
+            mode_heights=_inline_mode_heights,
             floating=floating,
         )
 
@@ -2474,12 +2601,20 @@ def view(
                     port, sid, compare_sids=_compare_sids, inline=True
                 )
                 if _should_use_jupyter_proxy_inline():
-                    _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
+                    _inline_html = _make_jupyter_proxy_inline_html(
+                        _inline_url, port, height, _inline_mode_heights
+                    )
                     if n_arrays == 1:
                         return _inline_html
                     _ipy_display(_inline_html)
                     return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
-                iframe = IFrame(src=_inline_url, width="100%", height=height)
+                iframe = (
+                    _make_resizable_jupyter_iframe(
+                        _inline_url, port, height, _inline_mode_heights
+                    )
+                    if _inline_mode_heights
+                    else IFrame(src=_inline_url, width="100%", height=height)
+                )
                 if n_arrays == 1:
                     return iframe
                 _ipy_display(iframe)
@@ -2682,13 +2817,21 @@ def view(
             inline=True,
         )
         if _should_use_jupyter_proxy_inline():
-            _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
+            _inline_html = _make_jupyter_proxy_inline_html(
+                _inline_url, port, height, _inline_mode_heights
+            )
             if n_arrays == 1:
                 return _inline_html
             _ipy_display(_inline_html)
             handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
             return handles
-        iframe = IFrame(src=_inline_url, width="100%", height=height)
+        iframe = (
+            _make_resizable_jupyter_iframe(
+                _inline_url, port, height, _inline_mode_heights
+            )
+            if _inline_mode_heights
+            else IFrame(src=_inline_url, width="100%", height=height)
+        )
         if n_arrays == 1:
             return iframe
         # Multi-array inline: display the IFrame and return a uniform tuple of handles.
@@ -2871,6 +3014,7 @@ def _view_julia(
     window: bool,
     inline: bool = False,
     height: int = 600,
+    mode_heights: dict[str, int] | None = None,
     floating: bool = False,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
@@ -2889,6 +3033,7 @@ def _view_julia(
         window,
         inline=inline,
         height=height,
+        mode_heights=mode_heights,
         force_vscode=force_vscode,
         floating=floating,
     )
@@ -2901,6 +3046,7 @@ def _view_subprocess(
     window: bool,
     inline: bool = False,
     height: int = 600,
+    mode_heights: dict[str, int] | None = None,
     rgb: bool = False,
     force_vscode: bool = False,
     floating: bool = False,
@@ -2981,8 +3127,18 @@ def _view_subprocess(
     if inline:
         _inline_url = _viewer_url(port, sid, inline=True)
         iframe_html = (
-            f"<iframe src='{_inline_url}' width='100%'"
-            f" height='{height}' frameborder='0'></iframe>"
+            _build_jupyter_inline_html(
+                _inline_url,
+                port,
+                height,
+                mode_heights,
+                use_proxy=False,
+            )
+            if mode_heights
+            else (
+                f"<iframe src='{_inline_url}' width='100%'"
+                f" height='{height}' frameborder='0'></iframe>"
+            )
         )
         # IJulia kernel: push HTML through Julia's display stack (routes to Jupyter
         # frontend). Must be a side-effect call, not a return value, because
@@ -2990,7 +3146,7 @@ def _view_subprocess(
         try:
             import juliacall as _jl
 
-            _jl.Main.seval(f'display("text/html", "{iframe_html}")')
+            _jl.Main.seval(f'display("text/html", {json.dumps(iframe_html)})')
             return None
         except Exception:
             pass

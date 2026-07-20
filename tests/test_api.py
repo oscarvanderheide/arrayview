@@ -5132,6 +5132,73 @@ class TestViewValidation:
         from arrayview._launcher import view
 
         assert inspect.signature(view).parameters["height"].default == 600
+        assert inspect.signature(view).parameters["mode_heights"].default is None
+
+    @pytest.mark.parametrize(
+        "value, error",
+        [
+            (320, TypeError),
+            ({"": 320}, ValueError),
+            ({"ortho": 0}, ValueError),
+            ({"ortho": True}, ValueError),
+            ({"ortho": 320.5}, ValueError),
+        ],
+    )
+    def test_invalid_inline_mode_heights_raise(self, value, error):
+        from arrayview._launcher import _normalize_inline_mode_heights
+
+        with pytest.raises(error):
+            _normalize_inline_mode_heights(value)
+
+    @pytest.mark.parametrize("value", [0, -1, True, 600.5, "600"])
+    def test_invalid_inline_height_raises(self, value):
+        from arrayview._launcher import _normalize_inline_height
+
+        with pytest.raises(ValueError):
+            _normalize_inline_height(value)
+
+    def test_inline_mode_heights_are_normalized_without_mutating_input(self):
+        from arrayview._launcher import _normalize_inline_mode_heights
+
+        supplied = {" Ortho ": 320, "QMRI": 480}
+
+        assert _normalize_inline_mode_heights(supplied) == {
+            "ortho": 320,
+            "qmri": 480,
+        }
+        assert supplied == {" Ortho ": 320, "QMRI": 480}
+
+    def test_inline_mode_heights_are_script_safe(self):
+        from arrayview._launcher import _build_jupyter_inline_html
+
+        rendered = _build_jupyter_inline_html(
+            "http://localhost:8123/?sid=test&inline=1",
+            8123,
+            600,
+            {"</script><script>alert(1)</script>": 320},
+            use_proxy=False,
+        )
+
+        assert "</script><script>alert(1)</script>" not in rendered
+        assert "\\u003c/script\\u003e" in rendered
+
+    def test_resizable_inline_keeps_iframe_return_contract(self):
+        from IPython.display import IFrame
+        from arrayview._launcher import _make_resizable_jupyter_iframe
+
+        iframe = _make_resizable_jupyter_iframe(
+            "http://localhost:8123/?sid=test&inline=1",
+            8123,
+            600,
+            {"ortho": 320},
+        )
+
+        assert isinstance(iframe, IFrame)
+        assert iframe.height == 600
+        rendered = iframe._repr_html_()
+        assert 'const modeHeights = {"ortho": 320}' in rendered
+        assert "msg.phase === 'mode-change'" in rendered
+        assert "event.source !== frame.contentWindow" in rendered
 
     def test_zero_arrays_raises(self):
         from arrayview._launcher import view
