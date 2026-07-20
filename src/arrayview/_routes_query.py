@@ -14,7 +14,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
     def get_autocrop_bounds(
         sid: str,
         indices: str,
-        margin_mm: float = 12.0,
+        margin_mm: float = 3.0,
         session=Depends(get_session_or_404),
     ):
         """Return a cached nonzero spatial bounding box for the selected item.

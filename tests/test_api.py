@@ -130,6 +130,17 @@ class TestHealth:
         }
         assert np.array_equal(np.load(path), arr)
 
+    def test_autocrop_default_margin_is_three_millimeters(self, client, tmp_path):
+        arr = np.zeros((40, 50, 30), dtype=np.float32)
+        arr[10:20, 15:30, 8:18] = 1
+        path = tmp_path / "autocrop_default_margin.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        response = client.get(f"/autocrop/{sid}?indices=0,0,0")
+
+        assert response.status_code == 200
+        assert response.json()["bounds"] == [[7, 23], [12, 33], [5, 21]]
 
 # ---------------------------------------------------------------------------
 # /load
