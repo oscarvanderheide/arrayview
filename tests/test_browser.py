@@ -284,6 +284,55 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
+def test_overlay_palette_lists_each_label_in_single_mask(
+    page, client, server_url, tmp_path
+):
+    base = np.zeros((8, 32, 32), dtype=np.float32)
+    labels = np.zeros((8, 32, 32), dtype=np.uint8)
+    labels[:, 2:8, 2:8] = 1
+    labels[:, 10:16, 2:8] = 2
+    labels[:, 2:8, 10:16] = 3
+    labels[:, 10:16, 10:16] = 4
+
+    sids = []
+    for name, array in (("base", base), ("labels", labels)):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, array)
+        sids.append(
+            client.post(
+                "/load", json={"filepath": str(path), "name": name}
+            ).json()["sid"]
+        )
+
+    page.goto(
+        f"{server_url}/?sid={sids[0]}&overlay_sid={sids[1]}"
+        "&overlay_names=labels"
+    )
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    palette = page.locator("#overlay-palette")
+    palette.wait_for(state="visible", timeout=5_000)
+
+    assert palette.locator(".overlay-palette-row").count() == 4
+    assert palette.locator(".overlay-palette-name").all_text_contents() == [
+        "labels · label 1",
+        "labels · label 2",
+        "labels · label 3",
+        "labels · label 4",
+    ]
+    assert palette.locator(".overlay-palette-swatch").evaluate_all(
+        "els => els.map(el => getComputedStyle(el).backgroundColor)"
+    ) == [
+        "rgb(255, 80, 80)",
+        "rgb(80, 160, 255)",
+        "rgb(80, 210, 80)",
+        "rgb(255, 175, 50)",
+    ]
+
+    page.keyboard.press("v")
+    page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+    assert palette.locator(".overlay-palette-row").count() == 4
+
+
 def _enter_compare(page, partner_sid, timeout=5000):
     """Enter compare mode with a given partner sid.
 

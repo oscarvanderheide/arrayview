@@ -85,7 +85,11 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             )
 
     @app.get("/info/{sid}")
-    def get_info(sid: str, session=Depends(get_session_or_404)):
+    def get_info(
+        sid: str,
+        include_overlay_labels: bool = False,
+        session=Depends(get_session_or_404),
+    ):
         try:
             dtype_str = str(session.data.dtype)
         except AttributeError:
@@ -109,6 +113,16 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         except Exception:
             info["recommended_colormap"] = None
             info["recommended_colormap_reason"] = None
+        if include_overlay_labels:
+            info["overlay_labels"] = []
+            try:
+                if np.issubdtype(session.data.dtype, np.integer):
+                    labels = np.unique(session.data)
+                    labels = labels[labels > 0]
+                    if labels.size <= 16:
+                        info["overlay_labels"] = [int(value) for value in labels]
+            except (AttributeError, TypeError, ValueError):
+                pass
         if session.fft_axes is not None:
             info["fft_axes"] = list(session.fft_axes)
         if getattr(session, "spatial_meta", None) is not None:

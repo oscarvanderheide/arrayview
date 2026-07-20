@@ -30,6 +30,7 @@ import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
 from arrayview._render import (
     COLORMAP_GRADIENT_STOPS,
     COMPLEX_MODES,
+    LABEL_COLORS,
     REAL_MODES,
     _init_luts,
     _ensure_lut,
@@ -277,6 +278,7 @@ def get_ui(sid: str = None):
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
+        .replace("__LABEL_COLORS__", json.dumps(LABEL_COLORS.astype(int).tolist()))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)

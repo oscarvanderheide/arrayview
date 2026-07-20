@@ -5147,6 +5147,7 @@
         const COLORMAPS = __COLORMAPS__;
 
         const COLORMAP_GRADIENT_STOPS = __COLORMAP_GRADIENT_STOPS__;
+        const LABEL_COLORS = __LABEL_COLORS__;
         const COMPLEX_MODES = __COMPLEX_MODES__;
         const REAL_MODES = __REAL_MODES__;
 
@@ -5173,9 +5174,24 @@
         // Per-overlay visibility + display labels. _overlayVisibility (legacy) still
         // drives Shift+O cycling; the island toggles _overlayVisible[i] directly.
         let _overlayVisible = _overlaySids.map(() => true);
+        let _overlayLabelValues = _overlaySids.map(() => []);
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
         const _overlayNamesArr = _overlayNamesParam ? _overlayNamesParam.split(',').map(s => s.trim()).filter(Boolean) : [];
         let _overlayLabels = _overlaySids.map((_, i) => _overlayNamesArr[i] || `overlay ${i + 1}`);
+
+        async function _loadOverlayLabelValues() {
+            const results = await Promise.all(_overlaySids.map(async overlaySid => {
+                try {
+                    const response = await proxyFetch(`/info/${overlaySid}?include_overlay_labels=1`);
+                    if (!response.ok) return [];
+                    const info = await response.json();
+                    return Array.isArray(info.overlay_labels) ? info.overlay_labels : [];
+                } catch (_error) {
+                    return [];
+                }
+            }));
+            _overlayLabelValues = results;
+        }
         const _LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path><path d="m22 12.5-8.58 3.91a2 2 0 0 1-1.66 0L3 12.5"></path><path d="m22 17.5-8.58 3.91a2 2 0 0 1-1.66 0L3 17.5"></path></svg>';
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
@@ -14030,6 +14046,8 @@
                 data = await res.json();
             }
 
+            await _loadOverlayLabelValues();
+
             reportParent('metadata-loaded', {
                 sid,
                 shape: data.shape,
@@ -16519,13 +16537,23 @@
                 const visible = _overlayActuallyVisible(i);
                 const focused = focusActive && i === _overlayFocusIdx;
                 const dimmed = focusActive && visible && !focused;
-                const name = _roiHtmlEscape(_overlayLabels[i] || `overlay ${i + 1}`);
-                const color = `#${_overlayColors[i]}`;
-                html += `<div class="overlay-palette-row${visible ? '' : ' off'}${focused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}" onpointerenter="_overlayPaletteFocus(${i})" onclick="_overlayPaletteToggle(${i})" title="Toggle ${name}">`;
-                html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
-                html += `<span class="overlay-palette-name">${name}</span>`;
-                html += `<span class="overlay-palette-glyph">${_LAYERS_ICON}</span>`;
-                html += `</div>`;
+                const baseName = _overlayLabels[i] || `overlay ${i + 1}`;
+                const labels = _overlayLabelValues[i] || [];
+                const rows = labels.length > 1 ? labels : [null];
+                for (const label of rows) {
+                    const rawName = label === null ? baseName : `${baseName} · label ${label}`;
+                    const name = _roiHtmlEscape(rawName);
+                    let color = `#${_overlayColors[i]}`;
+                    if (label !== null && LABEL_COLORS.length) {
+                        const rgb = LABEL_COLORS[(label - 1) % LABEL_COLORS.length];
+                        color = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+                    }
+                    html += `<div class="overlay-palette-row${visible ? '' : ' off'}${focused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}" onpointerenter="_overlayPaletteFocus(${i})" onclick="_overlayPaletteToggle(${i})" title="Toggle ${_roiHtmlEscape(baseName)}">`;
+                    html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
+                    html += `<span class="overlay-palette-name">${name}</span>`;
+                    html += `<span class="overlay-palette-glyph">${_LAYERS_ICON}</span>`;
+                    html += `</div>`;
+                }
             }
             el.innerHTML = html;
         }
@@ -16713,6 +16741,7 @@
             _overlaySids.splice(idx, 1);
             _overlayColors.splice(idx, 1);
             _overlayVisible.splice(idx, 1);
+            _overlayLabelValues.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
             if (!_overlaySids.length) _overlayPaletteHidden = false;
             renderIsland();
@@ -16786,6 +16815,15 @@
                 _overlayColors.push(nextColor);
                 _overlayVisible.push(true);
                 _overlayLabels.push(result.name || `overlay ${_overlaySids.length}`);
+                let labels = [];
+                try {
+                    const response = await proxyFetch(`/info/${result.sid}?include_overlay_labels=1`);
+                    if (response.ok) {
+                        const info = await response.json();
+                        labels = Array.isArray(info.overlay_labels) ? info.overlay_labels : [];
+                    }
+                } catch (_error) { /* keep the source-level row */ }
+                _overlayLabelValues.push(labels);
                 _overlayVisibility = 'all';
                 renderIsland();
                 _reconcileOverlayPalette();
