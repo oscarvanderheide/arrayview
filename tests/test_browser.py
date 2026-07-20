@@ -397,6 +397,38 @@ class TestBasicRender:
         info = page.evaluate(_JS_CANVAS_INFO)
         assert info["nonBgPixels"] > 0
 
+    def test_4d_active_dim_highlights_visible_label(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        active_color = page.evaluate(
+            """() => {
+                const probe = document.createElement('span');
+                probe.style.color = 'var(--active-dim)';
+                document.body.appendChild(probe);
+                const color = getComputedStyle(probe).color;
+                probe.remove();
+                return color;
+            }"""
+        )
+
+        for dim in range(4):
+            page.click(f'#info [data-dim="{dim}"]')
+            page.wait_for_selector(f'#info .active-dim[data-dim="{dim}"]')
+            colors = page.evaluate(
+                """dim => {
+                    const label = document.querySelector(`#info .dim-label[data-dim="${dim}"]`);
+                    const visible = label.querySelector('.dim-idx') || label;
+                    const labelStyle = getComputedStyle(label);
+                    const visibleStyle = getComputedStyle(visible);
+                    return {
+                        labelColor: labelStyle.webkitTextFillColor || labelStyle.color,
+                        visibleColor: visibleStyle.webkitTextFillColor || visibleStyle.color,
+                    };
+                }""",
+                dim,
+            )
+            assert colors["labelColor"] == active_color
+            assert colors["visibleColor"] == active_color
+
     def test_slice_jump_previews_pending_index(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         page.click('#info [data-dim="1"]')
