@@ -397,6 +397,21 @@ class TestBasicRender:
         info = page.evaluate(_JS_CANVAS_INFO)
         assert info["nonBgPixels"] > 0
 
+    def test_slice_jump_previews_pending_index(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        page.click('#info [data-dim="1"]')
+
+        page.keyboard.press("2")
+        index = page.locator("#info .active-dim .dim-idx")
+        assert index.inner_text().endswith("2")
+        assert "dim-idx-pending" in (index.get_attribute("class") or "")
+        pending_color = index.evaluate("e => getComputedStyle(e).color")
+
+        page.keyboard.press("Enter")
+        assert "dim-idx-pending" not in (index.get_attribute("class") or "")
+        confirmed_color = index.evaluate("e => getComputedStyle(e).color")
+        assert pending_color != confirmed_color
+
     def test_loading_overlay_gone_after_render(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         # #loading-overlay should be hidden once startup animation completes

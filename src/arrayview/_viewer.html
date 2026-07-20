@@ -696,6 +696,14 @@
         #hist-tooltip .hist-tip-state.frozen { color: var(--muted); }
         #hist-tooltip.visible { display: block; }
         .dim-idx { font-variant-numeric: tabular-nums; }
+        #info .active-dim.dim-label .dim-idx {
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
+        }
+        #info .active-dim.dim-label .dim-idx.dim-idx-pending {
+            color: var(--muted);
+            -webkit-text-fill-color: var(--muted);
+        }
         #info .dim-label {
             display: inline-flex;
             align-items: baseline;
@@ -770,7 +778,6 @@
             color: var(--spatial-dim);
             -webkit-text-fill-color: var(--spatial-dim);
         }
-        #info .active-dim.dim-label .dim-idx,
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
             color: var(--active-dim);
@@ -17048,6 +17055,13 @@
             return `${pad}${text}`;
         }
 
+        function _dimIndexDisplay(i, value, maxValue, active) {
+            const pending = active && sliceJumpBuffer.length > 0;
+            const shownValue = pending ? sliceJumpBuffer : value;
+            const cls = pending ? 'dim-idx dim-idx-pending' : 'dim-idx';
+            return `<span class="${cls}">${_dimIndexHtml(shownValue, maxValue)}</span>`;
+        }
+
         function renderInfo() {
             _ensureQmriActiveDimVisible();
             const idxParts = indices.map((v, i) => {
@@ -17078,9 +17092,8 @@
                         return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                    const padded = _dimIndexHtml(v + 1, shape[i]);
                     const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
-                    const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
+                    const inner = `${_dimIndexDisplay(i, v + 1, shape[i], active)}${slash}<span class="dim-size">${shape[i]}</span>`;
                     if (active || playing) return `<span class="${dimCls} dim-label" ${d}>${inner}</span>`;
                     return `<span class="dim-label" ${d}>${inner}</span>`;
                 }
@@ -17102,9 +17115,8 @@
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                const padded = _dimIndexHtml(v + 1, shape[i]);
                 const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
-                const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
+                const inner = `${_dimIndexDisplay(i, v + 1, shape[i], active)}${slash}<span class="dim-size">${shape[i]}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                               : `<span class="dim-label" ${d}>${inner}</span>`;
             }).filter(Boolean);
@@ -17122,9 +17134,8 @@
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
-                const paddedT = _dimIndexHtml(vfieldT + 1, vfieldNTimes);
                 const slash = dimSlash(pct, tActive, false, true);
-                const inner = `<span class="dim-idx">${paddedT}</span>${slash}<span class="dim-size">${vfieldNTimes}</span>`;
+                const inner = `${_dimIndexDisplay(VFIELD_T_DIM, vfieldT + 1, vfieldNTimes, tActive)}${slash}<span class="dim-size">${vfieldNTimes}</span>`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
                 idxStr += `<span class="dim-sep">·</span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
@@ -22788,6 +22799,7 @@
                     if (sliceJumpBuffer.length > 0) {
                         sliceJumpBuffer = '';
                         if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        renderInfo();
                         showStatus('');
                     }
                 },
@@ -22802,6 +22814,7 @@
                         const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
                         sliceJumpBuffer = '';
                         if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        renderInfo();
                         if (cutawayActive) { _cutawaySetSliceIndex(targetIndex, true); showStatus(`slice: ${targetIndex + 1} / ${shape[current_slice_dim]}`); return; }
                         if (activeDim === VFIELD_T_DIM) {
                             if (targetIndex >= 0 && targetIndex < vfieldNTimes) {
@@ -22843,12 +22856,14 @@
                 when: [],
                 run: (ctx, e) => {
                     // Digit key (1-9): accumulate for slice index jump
-                    if (cutawayActive) { sliceJumpBuffer += e.key; showStatus(`jump to slice: ${sliceJumpBuffer}_`); return; }
+                    if (cutawayActive) { sliceJumpBuffer += e.key; renderInfo(); showStatus(`jump to slice: ${sliceJumpBuffer}_`); return; }
                     sliceJumpBuffer += e.key;
+                    renderInfo();
                     if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
                     // Auto-clear buffer after 2 seconds of inactivity
                     sliceJumpTimeout = setTimeout(() => {
                         sliceJumpBuffer = '';
+                        renderInfo();
                         showStatus('');
                     }, 2000);
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
