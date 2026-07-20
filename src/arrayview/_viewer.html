@@ -11827,7 +11827,26 @@
         function _maybeAutoRecomputeRange(navDim) {
             if (vminLocked && vmaxLocked) return;
             if (Number.isInteger(navDim) && navDim >= 0) {
-                if (_dimStateFor(navDim) !== 'recompute') return;
+                const dimState = _dimStateFor(navDim);
+                if (dimState === 'frozen') {
+                    const seedVmin = !vminLocked && manualVmin === null;
+                    const seedVmax = !vmaxLocked && manualVmax === null;
+                    if (seedVmin) manualVmin = currentVmin;
+                    if (seedVmax) manualVmax = currentVmax;
+                    const view = modeManager.getFocusedView() || modeManager.currentViews[0];
+                    if (view) {
+                        if (seedVmin) view.displayState.vmin = manualVmin;
+                        if (seedVmax) view.displayState.vmax = manualVmax;
+                    }
+                    if (multiViewActive) {
+                        mvViews.forEach((v, i) => {
+                            if (seedVmin) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
+                            if (seedVmax) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
+                        });
+                    }
+                    return;
+                }
+                if (dimState !== 'recompute') return;
             } else if (rangeLocked) {
                 return;
             }
@@ -18791,6 +18810,12 @@
             _beginPatientLoading();
             const view = modeManager.currentViews[0];
             if (view && modeManager.modeName === 'normal') {
+                const navDim = _pendingNavDim;
+                _pendingNavDim = null;
+                if (Number.isInteger(navDim)) {
+                    _maybeAutoRecomputeRange(navDim);
+                    _scheduleRoiStatsRefresh(navDim);
+                }
                 _mainRenderPatientIndex = _currentPatientIndex();
                 view.requestRender();
                 return;
@@ -23101,7 +23126,9 @@
                             saveState();
                         } else {
                             lastDirection = 1;
-                            indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                            const nextIndex = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                            if (nextIndex === indices[activeDim]) return;
+                            indices[activeDim] = nextIndex;
                             _pendingNavDim = activeDim;
                             updateView();
                             saveState();
@@ -23116,7 +23143,9 @@
                         renderInfo(); saveState();
                     } else {
                         lastDirection = 1;
-                        indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        const nextIndex = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        if (nextIndex === indices[activeDim]) return;
+                        indices[activeDim] = nextIndex;
                         _pendingNavDim = activeDim;
                         updateView();
                         saveState();
@@ -23142,7 +23171,9 @@
                             saveState();
                         } else {
                             lastDirection = -1;
-                            indices[activeDim] = Math.max(0, indices[activeDim] - 1);
+                            const nextIndex = Math.max(0, indices[activeDim] - 1);
+                            if (nextIndex === indices[activeDim]) return;
+                            indices[activeDim] = nextIndex;
                             _pendingNavDim = activeDim;
                             updateView();
                             saveState();
@@ -23157,7 +23188,9 @@
                         renderInfo(); saveState();
                     } else {
                         lastDirection = -1;
-                        indices[activeDim] = Math.max(0, indices[activeDim] - 1);
+                        const nextIndex = Math.max(0, indices[activeDim] - 1);
+                        if (nextIndex === indices[activeDim]) return;
+                        indices[activeDim] = nextIndex;
                         _pendingNavDim = activeDim;
                         updateView();
                         saveState();
@@ -31299,17 +31332,23 @@
             if (isSpatialNormal || isSpatialMv || isSpatialCmv || isQmriDim) return;
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
-            indices[hoveredDim] = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
+            const nextIndex = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
+            if (nextIndex === indices[hoveredDim]) return;
+            indices[hoveredDim] = nextIndex;
             // Activate the hovered dim (make it yellow)
             if (activeDim !== hoveredDim) { activeDim = hoveredDim; }
             renderInfo();
             if (compareQmriActive) {
+                _maybeAutoRecomputeRange(hoveredDim);
                 compareQmriViews.forEach(v => compareQmriRender(v));
             } else if (compareMvActive) {
+                _maybeAutoRecomputeRange(hoveredDim);
                 compareMvViews.forEach(v => compareMvRender(v));
             } else if (multiViewActive) {
+                _maybeAutoRecomputeRange(hoveredDim);
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
             } else if (qmriActive) {
+                _maybeAutoRecomputeRange(hoveredDim);
                 qmriViews.forEach(v => qvRender(v));
                 _scheduleRoiStatsRefresh(hoveredDim);
             } else {

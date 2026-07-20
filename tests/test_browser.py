@@ -1596,11 +1596,46 @@ class TestKeyboard:
         before = page.evaluate("""() => {
             return {range: [manualVmin, manualVmax], index: indices[activeDim]};
         }""")
-        page.keyboard.press("ArrowRight")
+        page.locator(f'#info [data-dim="{page.evaluate("() => activeDim")}"]').hover()
+        page.mouse.wheel(0, -120)
         page.wait_for_timeout(300)
         after = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim]})")
         assert after["index"] > before["index"]
         assert after["range"] == before["range"], "scrolling an in-scope dimension must retain the histogram range"
+
+    def test_histogram_frozen_dim_keeps_range_and_boundary_is_noop(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.wait_for_timeout(500)
+        frozen_dim = page.evaluate("""() => {
+            const dim = shape.findIndex((size, i) => i !== dim_x && i !== dim_y && size > 1);
+            for (let i = 0; i < shape.length; i++) {
+                if (i !== dim_x && i !== dim_y) _histDimState.set(i, 'frozen');
+            }
+            activeDim = dim;
+            manualVmin = null;
+            manualVmax = null;
+            const view = modeManager.currentViews[0];
+            if (view) { view.displayState.vmin = null; view.displayState.vmax = null; }
+            renderInfo();
+            return dim;
+        }""")
+        assert frozen_dim >= 0
+
+        before = page.evaluate("() => ({range: [currentVmin, currentVmax], index: indices[activeDim]})")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_timeout(300)
+        after = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim]})")
+        assert after["index"] > before["index"]
+        assert after["range"] == before["range"], "scrolling a frozen dimension must retain the displayed range"
+
+        page.evaluate("() => { indices[activeDim] = shape[activeDim] - 1; updateView(); }")
+        page.wait_for_timeout(300)
+        at_boundary = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim], seq: wsSentSeq})")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_timeout(300)
+        after_boundary = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim], seq: wsSentSeq})")
+        assert after_boundary == at_boundary, "navigation past the final index must be a complete no-op"
 
     def test_initial_scoped_volume_range_stays_fixed_without_opening_histogram(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
