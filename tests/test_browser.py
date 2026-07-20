@@ -3898,7 +3898,7 @@ class TestMinimapCursor:
 
 
 class TestNormalInspectInteractions:
-    def test_mouse_hold_loupe_dims_only_the_viewed_pane(self, loaded_viewer, sid_2d):
+    def test_mouse_hold_info_only_ctrl_hold_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
@@ -3910,7 +3910,42 @@ class TestNormalInspectInteractions:
         page.mouse.down()
         page.wait_for_timeout(160)
 
-        held = page.evaluate(
+        plain_held = page.evaluate(
+            """() => {
+                const pane = document.getElementById('canvas-inner');
+                const loupe = getComputedStyle(document.getElementById('main-loupe'));
+                const loupeInfoEl = document.getElementById('main-loupe-info');
+                const pixelInfoEl = document.getElementById('main-pixel-info');
+                return {
+                    dimmed: pane.classList.contains('loupe-pane-dimmed'),
+                    loupeVisible: loupe.display !== 'none',
+                    loupeInfoVisible: getComputedStyle(loupeInfoEl).display !== 'none',
+                    pixelInfoVisible: getComputedStyle(pixelInfoEl).display !== 'none',
+                    pixelInfoText: pixelInfoEl.textContent.trim(),
+                };
+            }"""
+        )
+
+        page.mouse.up()
+        released = page.evaluate(
+            "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
+        )
+
+        assert not before, "the pane should remain at full brightness before the mouse is held"
+        assert not plain_held["dimmed"], "plain mouse hold should not dim the viewed pane"
+        assert not plain_held["loupeVisible"], "plain mouse hold should not show the loupe"
+        assert not plain_held["loupeInfoVisible"], "plain mouse hold should not use the loupe value label"
+        assert plain_held["pixelInfoVisible"], "plain mouse hold should show the regular pixel info label"
+        assert "x=" in plain_held["pixelInfoText"] and "y=" in plain_held["pixelInfoText"], (
+            "plain mouse hold label should include coordinates"
+        )
+        assert not released, "the pane dimming should end immediately on mouse release"
+
+        page.keyboard.down("Control")
+        page.mouse.down()
+        page.wait_for_timeout(160)
+
+        ctrl_held = page.evaluate(
             """() => {
                 const pane = document.getElementById('canvas-inner');
                 const dim = getComputedStyle(pane, '::after');
@@ -3931,19 +3966,17 @@ class TestNormalInspectInteractions:
         )
 
         page.mouse.up()
-        released = page.evaluate(
-            "() => document.getElementById('canvas-inner').classList.contains('loupe-pane-dimmed')"
-        )
+        page.keyboard.up("Control")
 
-        assert not before, "the pane should remain at full brightness before the mouse is held"
-        assert held["dimmed"], "holding the mouse for the loupe should dim the viewed pane"
-        assert held["dimColor"] == "rgba(0, 0, 0, 0.62)", "the pane dimmer should darken both themes"
-        assert held["loupeVisible"], "the loupe should remain visible above the dimmed pane"
-        assert held["loupeZ"] > held["dimZ"], "the loupe should stay bright above the pane dimmer"
-        assert held["infoZ"] > held["dimZ"], "the loupe value label should stay bright above the pane dimmer"
-        assert held["infoVisible"], "holding the mouse should show the loupe value label"
-        assert "x=" in held["infoText"] and "y=" in held["infoText"], "the loupe value label should include coordinates"
-        assert not released, "the pane dimming should end immediately on mouse release"
+        assert ctrl_held["dimmed"], "Control mouse hold for the loupe should dim the viewed pane"
+        assert ctrl_held["dimColor"] == "rgba(0, 0, 0, 0.38)", "the pane dimmer should subtly darken both themes"
+        assert ctrl_held["loupeVisible"], "Control mouse hold should show the loupe"
+        assert ctrl_held["loupeZ"] > ctrl_held["dimZ"], "the loupe should stay bright above the pane dimmer"
+        assert ctrl_held["infoZ"] > ctrl_held["dimZ"], "the loupe value label should stay bright above the pane dimmer"
+        assert ctrl_held["infoVisible"], "Control mouse hold should show the loupe value label"
+        assert "x=" in ctrl_held["infoText"] and "y=" in ctrl_held["infoText"], (
+            "Control mouse hold label should include coordinates"
+        )
 
     def test_ctrl_hover_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

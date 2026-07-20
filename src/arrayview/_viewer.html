@@ -16,7 +16,7 @@
             --dim-hover: #777; --surface-shadow: none; --surface-shadow-strong: 0 20px 60px rgba(0,0,0,0.45);
             --layout-shadow: 0 12px 48px rgba(0,0,0,0.45); --button-shadow: none;
             --button-shadow-hover: none; --pane-shadow: none;
-            --loupe-pane-dim: rgba(0,0,0,0.62);
+            --loupe-pane-dim: rgba(0,0,0,0.38);
         }
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
@@ -5413,7 +5413,8 @@
         function _mainLoupeHeldByMouse(e = null) {
             if (!_pixelInfoHeld) return false;
             if (e && ((e.buttons ?? 1) & 1) !== 1) return false;
-            if (e && (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey)) return false;
+            if (e && !e.ctrlKey) return false;
+            if (e && (e.shiftKey || e.altKey || e.metaKey)) return false;
             return true;
         }
         function _mainLoupeInspecting() {
@@ -19569,13 +19570,13 @@
             };
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
             // Hold left mouse button to activate pixel info readout
-            if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+            if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
                 _pixelInfoHeld = true;
-                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, bubbles: true }));
+                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
                 setTimeout(() => {
                     if (!_pixelInfoHeld) return;
-                    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, bubbles: true }));
+                    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
                 }, 70);
             }
         });
@@ -28454,10 +28455,10 @@
                         }
                     });
                     cv.addEventListener('mousedown', (e) => {
-                        if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+                        if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                             && !_cropActive && !_segMode && !_rulerMode) {
                             _pixelInfoHeld = true;
-                            cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+                            cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
                         }
                         if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey) return;
                         e.preventDefault(); sink.focus();
@@ -28882,10 +28883,10 @@
                         });
                     });
                     cv.addEventListener('mousedown', (e) => {
-                        if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey
+                        if (e.button !== 0 || e.shiftKey || e.metaKey || e.altKey
                             || _cropActive || _segMode || _rulerMode) return;
                         _pixelInfoHeld = true;
-                        cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+                        cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
                     });
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
@@ -31410,7 +31411,7 @@
             // Pure zoom only — immersive mode is opt-in via Shift+F (immersive.toggle),
             // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
             // animation and surprised users.
-            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+            if ((e.metaKey || (e.ctrlKey && !_mainLoupeInspecting())) && !e.shiftKey && !e.altKey) {
                 const anchor = _captureZoomAnchor(e.clientX, e.clientY);
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
