@@ -26,10 +26,10 @@ PR.
 
 - [x] Detailed convergence plan committed separately.
 - [x] Every supported production entry point has an owner in this ledger.
-- [ ] Test runtime, registry, HOME, VS Code signal files, environment, and ports are isolated.
-- [ ] Lifecycle results are unchanged by a developer daemon on ports 8000 or 8123.
-- [ ] Opt-in JSONL traces correlate caller, daemon, session, adapter, and cleanup without recording paths or data names.
-- [ ] A real-subprocess probe observes the public CLI, server identity, SID readiness, display handoff, and process cleanup.
+- [x] The black-box gate isolates runtime, registry, HOME, VS Code signal files, environment, and ports.
+- [x] Ambient-sensitive lifecycle tests pass unchanged with compatible listeners active on both ports 8000 and 8123.
+- [x] Opt-in JSONL traces correlate caller, daemon, session, adapter, and cleanup without recording paths or data names.
+- [x] A real-subprocess Chromium gate observes the public CLI, server identity, SID readiness, display handoff, first frame, and process cleanup.
 - [ ] The exact `debug/parameter_maps.nii --window native` case has host evidence showing native or declared browser fallback and zero VS Code signal requests.
 - [ ] A deterministic slow-registration barrier reproduces the ordering independently of file size.
 
@@ -45,3 +45,19 @@ PR.
   config, and native dependencies can change their result.
 - Native, real VS Code Extension Host, tunnels, MATLAB, and notebook first-frame
   readiness still require host evidence; mocked policy tests are not substitutes.
+
+## 2026-07-21 exact native observation
+
+`debug/parameter_maps.nii --window native` was run with local VS Code-terminal
+facts and the Phase 0 trace. The plan selected native and wrote zero VS Code
+requests. The external behavior was still not acceptable:
+
+- the early native process advertised its ready flag but failed activation;
+- the CLI terminated that process and launched a second native process;
+- the second process reached only the shell WebSocket, not a viewer first frame;
+- no `viewer.connected` event occurred, and the transient daemon later exited.
+
+This is a real failure, not a passing native gate. It confirms that the current
+two-attempt native path treats process/shell evidence as success too early. The
+Phase 2 slice must produce one serialized native attempt and require viewer
+first-frame evidence before reporting success.
