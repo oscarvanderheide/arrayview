@@ -78,7 +78,19 @@ needed to override the automatic size.
 
 ## Drag and Drop
 
-Drop a file onto the viewer.
+Drop a file onto an open viewer, then choose:
+
+- Compare side by side
+- Open separately
+- Add as overlay
+
+Compare and overlay require an exact shape match. Incompatible actions stay
+visible with the required shape. Dropped folders open as stacks; DICOM folders
+show a series selector when needed. Escape or clicking outside cancels without
+creating a session.
+
+Notebook output accepts single-file drops. Folder drop stays disabled there;
+opening separately uses a browser tab.
 
 ## Startup
 

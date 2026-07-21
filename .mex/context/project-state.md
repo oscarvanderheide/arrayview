@@ -20,6 +20,10 @@ last_updated: 2026-07-20
 - DICOM series use physical patient-position ordering, canonical RAS geometry,
   modality rescale, explicit multi-series selection, and a privacy-filtered
   MRI-aware Shift+I tab with header/derived provenance.
+- Browser drops use staged inspection: file and folder uploads create no session
+  until Compare, Open separately, or Overlay is chosen. Compatibility reasons,
+  opaque DICOM series selection, cancellation, expiry, and final-release cleanup
+  share one server contract across browser-backed display environments.
 - Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling

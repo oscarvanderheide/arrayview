@@ -18,6 +18,7 @@ uvx arrayview path/to/dicom-series/
 
 Press `v` for the three-plane ortho view. `Shift+3` replaces the current slice,
 or all three ortho panes, with interactive 3D cutaway renders.
+Drop another file onto an open viewer to compare, open separately, or overlay it.
 
 
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 

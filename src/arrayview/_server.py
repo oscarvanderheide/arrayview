@@ -39,6 +39,7 @@ from arrayview._render import (
 )
 from arrayview._routes_analysis import register_analysis_routes
 from arrayview._routes_loading import register_loading_routes
+from arrayview._routes_drop import register_drop_routes
 from arrayview._routes_persistence import register_persistence_routes
 from arrayview._routes_export import register_export_routes
 from arrayview._routes_preload import register_preload_routes
@@ -66,6 +67,7 @@ SERVER_CAPABILITIES = (
     "viewer-websocket",
     "shell-websocket",
     "dir-collection-case-inference",
+    "staged-drop-import",
 )
 
 
@@ -168,6 +170,7 @@ def get_session_or_404(sid: str) -> "Session":
 register_analysis_routes(app, get_session_or_404)
 register_websocket_routes(app)
 register_loading_routes(app, notify_shells=_notify_shells, setup_rgb=_setup_rgb)
+register_drop_routes(app)
 register_persistence_routes(app)
 register_segmentation_routes(app, get_session_or_404)
 register_state_routes(app, get_session_or_404)

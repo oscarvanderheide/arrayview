@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import threading
 
 from arrayview._session import PENDING_SESSION_EVENTS, PENDING_SESSIONS, SESSIONS
@@ -52,6 +53,9 @@ def release_session(sid: str) -> bool:
         session.data = None
     except Exception:
         pass
+    staging_dir = getattr(session, "_drop_staging_dir", None)
+    if staging_dir:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     try:
         from arrayview._routes_persistence import _CROP_LOCK, _CROP_STATE

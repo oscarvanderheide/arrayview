@@ -9,6 +9,16 @@ projected onto the orientation normal, validate geometry across the series, and
 fall back to unique `InstanceNumber` only with a warning. Keep Shift+I metadata
 allowlisted and attach provenance to every derived or inferred value.
 
+## Browser Drop Staging
+
+**Problem:** Browser drops do not expose dependable filesystem paths, and
+creating a session before the user chooses Compare/Open/Overlay leaks state on
+cancel.
+**Solution:** Stream files with sanitized relative paths into a TTL staging
+directory, inspect compatibility server-side, and create the session only on
+commit. Keep staged files until the final session lease is released so lazy
+arrays remain valid.
+
 Hard-won knowledge from past development sessions. Check this before starting work on related areas.
 
 ## Launch Identity and Ownership

@@ -1691,6 +1691,30 @@
             font-size: 8px; text-transform: uppercase;
         }
         .dicom-warning { color: var(--muted); font-size: 10px; line-height: 1.5; margin-top: 10px; }
+        #drop-action-menu {
+            display: none; position: fixed; z-index: 70; width: min(300px, calc(100vw - 24px));
+            padding: 8px; background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); color: var(--text); font: 11px var(--mono);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            transform-origin: top left;
+        }
+        #drop-action-menu.visible { display: block; animation: drop-menu-in 120ms ease-out; }
+        @keyframes drop-menu-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+        #drop-action-title { padding: 4px 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #drop-action-summary { color: var(--muted); padding: 0 6px 7px; font-size: 10px; }
+        #drop-series-select {
+            width: calc(100% - 12px); margin: 5px 6px 7px; padding: 5px 6px;
+            border: 1px solid var(--border); border-radius: var(--radius);
+            background: var(--surface-2); color: var(--text); font: inherit;
+        }
+        .drop-action {
+            display: block; width: 100%; border: 0; border-radius: var(--radius);
+            background: transparent; color: var(--text); font: inherit; text-align: left;
+            padding: 7px 8px; cursor: pointer;
+        }
+        .drop-action:hover:not(:disabled) { color: var(--active-dim); background: var(--surface-2); }
+        .drop-action:disabled { color: var(--muted); cursor: default; opacity: 0.5; }
+        .drop-action-reason { display: block; margin-top: 2px; font-size: 9px; color: var(--muted); }
         .mode-badge {
             display: inline-block; font-size: 0.62em; font-weight: 600;
             letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
@@ -5092,6 +5116,11 @@
             <div id="info-array-pane" class="info-pane"><table id="info-table"></table></div>
             <div id="info-dicom-pane" class="info-pane"></div>
         </div>
+    </div>
+    <div id="drop-action-menu" aria-hidden="true">
+        <div id="drop-action-title"></div>
+        <div id="drop-action-summary"></div>
+        <div id="drop-action-list"></div>
     </div>
     <div id="help-overlay">
         <div id="help-box">
@@ -16871,12 +16900,8 @@
             return _pickerBaseDir;
         }
 
-        async function _islandAddOverlay() {
-            const result = await showUnifiedPicker('overlay');
-            if (!result || result.action !== 'add-overlay') return;
-            showStatus('loading overlay...');
-            try {
-                _overlaySids.push(result.sid);
+        async function _attachOverlaySession(result) {
+            _overlaySids.push(result.sid);
                 const nextColor = _OVERLAY_PALETTE[_overlayColors.length % _OVERLAY_PALETTE.length];
                 _overlayColors.push(nextColor);
                 _overlayVisible.push(true);
@@ -16896,6 +16921,14 @@
                 updateView();
                 saveState();
                 showStatus(`overlay added: ${result.name}`);
+        }
+
+        async function _islandAddOverlay() {
+            const result = await showUnifiedPicker('overlay');
+            if (!result || result.action !== 'add-overlay') return;
+            showStatus('loading overlay...');
+            try {
+                await _attachOverlaySession(result);
             } catch (err) {
                 showToast(`overlay: ${err.message}`);
             }
@@ -18853,17 +18886,183 @@
             saveState();
         }
 
-        // ── Shape compatibility check for compare-on-drop ─────────────────────
-        function _shapesCompatibleForCompare(shapeA, shapeB) {
-            if (!shapeA || !shapeB) return false;
-            if (shapeA.length !== shapeB.length) return false;
-            // All dimensions must match
-            return shapeA.every((s, i) => s === shapeB[i]);
+        // ── Staged drag-and-drop imports ────────────────────────────────────────
+        let _dropMenuVisible = false;
+        let _activeDrop = null;
+
+        function _dropRunsInNotebookFrame() {
+            if (window.parent === window) return false;
+            try { return !window.parent.__arrayviewShell; }
+            catch (_) { return true; }
         }
 
-        // ── Drag-and-drop array files ──────────────────────────────────────────
-        // Drop a compatible file to enter compare mode; otherwise open in a new tab.
-        const _SUPPORTED_EXTS = new Set(['npy', 'npz', 'nii', 'gz', 'zarr', 'pt', 'pth', 'h5', 'hdf5', 'tif', 'tiff', 'mat']);
+        function _readDirectoryBatch(reader) {
+            return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+        }
+
+        async function _walkDroppedEntry(entry, prefix = '') {
+            const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isFile) {
+                const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+                return [{ file, relativePath }];
+            }
+            if (!entry.isDirectory) return [];
+            const reader = entry.createReader();
+            const children = [];
+            while (true) {
+                const batch = await _readDirectoryBatch(reader);
+                if (!batch.length) break;
+                children.push(...batch);
+            }
+            const nested = await Promise.all(children.map(child => _walkDroppedEntry(child, relativePath)));
+            return nested.flat();
+        }
+
+        async function _collectDroppedFiles(dataTransfer) {
+            const items = Array.from(dataTransfer.items || []);
+            const entries = items.map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+            const hasDirectory = entries.some(entry => entry.isDirectory);
+            if (hasDirectory && _dropRunsInNotebookFrame()) {
+                throw new Error('Folder drop is unavailable in notebook output; drop one file instead.');
+            }
+            if (entries.length) {
+                const nested = await Promise.all(entries.map(entry => _walkDroppedEntry(entry)));
+                return nested.flat();
+            }
+            return Array.from(dataTransfer.files || []).map(file => ({ file, relativePath: file.name }));
+        }
+
+        async function _discardActiveDrop() {
+            const dropId = _activeDrop?.drop_id;
+            _activeDrop = null;
+            _dropMenuVisible = false;
+            _reconcileUI();
+            if (dropId) {
+                try { await proxyFetch(`/drop/${dropId}`, { method: 'DELETE' }); }
+                catch (_) { /* expiry and disconnect are already safe */ }
+            }
+        }
+
+        function _selectedDropSeries() {
+            if (!_activeDrop?.series?.length) return null;
+            const select = document.getElementById('drop-series-select');
+            return _activeDrop.series.find(item => item.selector === select?.value) || null;
+        }
+
+        function _renderDropActionList() {
+            if (!_activeDrop) return;
+            const seriesSelect = document.getElementById('drop-series-select');
+            if (seriesSelect) seriesSelect.disabled = false;
+            const selectedSeries = _selectedDropSeries();
+            const descriptor = selectedSeries || _activeDrop;
+            const actions = descriptor.actions || {};
+            const list = document.getElementById('drop-action-list');
+            const kind = _activeDrop.kind;
+            const isNotebook = _dropRunsInNotebookFrame();
+            const openLabel = isNotebook ? 'Open in browser tab'
+                : kind === 'dicom' ? 'Open DICOM series separately'
+                : kind === 'folder' ? 'Open stack separately'
+                : 'Open separately';
+            const needsSeries = (_activeDrop.series || []).length > 1 && !selectedSeries;
+            const actionRows = [
+                ['compare', 'Compare side by side'],
+                ['open', openLabel],
+                ['overlay', 'Add as overlay'],
+            ];
+            list.innerHTML = actionRows.map(([action, label]) => {
+                const info = actions[action] || {};
+                const disabled = needsSeries || !info.enabled;
+                const reason = needsSeries ? 'Choose a DICOM series.' : info.reason;
+                return `<button class="drop-action" data-drop-action="${action}" ${disabled ? 'disabled' : ''}>${_escapeHtml(label)}${reason ? `<span class="drop-action-reason">${_escapeHtml(reason)}</span>` : ''}</button>`;
+            }).join('');
+            list.querySelectorAll('.drop-action:not(:disabled)').forEach(button => {
+                button.addEventListener('click', () => _commitActiveDrop(button.dataset.dropAction));
+            });
+            const shapeValue = descriptor.shape;
+            document.getElementById('drop-action-summary').textContent = shapeValue
+                ? `${shapeValue.join(' x ')} · ${descriptor.dtype || ''}`
+                : `${_activeDrop.series?.length || 0} DICOM series`;
+        }
+
+        function _showDropMenu(payload, clientX, clientY) {
+            _activeDrop = payload;
+            const title = document.getElementById('drop-action-title');
+            document.getElementById('drop-series-select')?.remove();
+            title.textContent = payload.name || 'Dropped data';
+            if ((payload.series || []).length > 1) {
+                const choices = payload.series.map(item =>
+                    `<option value="${_escapeHtml(item.selector)}">series ${_escapeHtml(item.series_number || '?')} · ${_escapeHtml(item.modality || 'DICOM')} · ${item.count} images</option>`
+                ).join('');
+                title.insertAdjacentHTML('afterend', `<select id="drop-series-select"><option value="">Choose series…</option>${choices}</select>`);
+                document.getElementById('drop-series-select').addEventListener('change', _renderDropActionList);
+            }
+            _dropMenuVisible = true;
+            _reconcileUI();
+            requestAnimationFrame(() => {
+                const menu = document.getElementById('drop-action-menu');
+                const rect = menu.getBoundingClientRect();
+                menu.style.left = Math.max(8, Math.min(clientX, window.innerWidth - rect.width - 8)) + 'px';
+                menu.style.top = Math.max(8, Math.min(clientY, window.innerHeight - rect.height - 8)) + 'px';
+            });
+            _renderDropActionList();
+        }
+
+        function _dropViewerUrl(serverUrl) {
+            const queryIndex = String(serverUrl || '').indexOf('?');
+            const query = queryIndex >= 0 ? String(serverUrl).slice(queryIndex) : '';
+            return `${window.location.origin}${window.location.pathname}${query}`;
+        }
+
+        async function _commitActiveDrop(action, { replaceCurrent = false } = {}) {
+            if (!_activeDrop) return;
+            const staged = _activeDrop;
+            const selectedSeries = _selectedDropSeries();
+            let popup = null;
+            let shellOpen = false;
+            try { shellOpen = window.parent !== window && !!window.parent.__arrayviewShell; }
+            catch (_) { shellOpen = false; }
+            if (action === 'open' && !replaceCurrent && !shellOpen) popup = window.open('about:blank', '_blank');
+            document.querySelectorAll('#drop-action-menu button, #drop-action-menu select').forEach(el => { el.disabled = true; });
+            try {
+                const response = await proxyFetch('/drop/commit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        drop_id: staged.drop_id,
+                        action,
+                        base_sid: sid || null,
+                        series: selectedSeries?.selector || null,
+                    }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || String(response.status));
+                _activeDrop = null;
+                _dropMenuVisible = false;
+                _reconcileUI();
+                if (action === 'compare') {
+                    await enterCompareModeBySid(result.sid, result.name);
+                    showStatus(`Compare: ${result.name}`);
+                } else if (action === 'overlay') {
+                    await _attachOverlaySession(result);
+                } else if (replaceCurrent || !sid) {
+                    window.location.href = _dropViewerUrl(result.url);
+                } else if (shellOpen) {
+                    await proxyFetch(`/notify/${result.sid}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: result.name, url: result.url, wait: false }),
+                    });
+                    showStatus(`Opened: ${result.name}`);
+                } else if (popup) {
+                    popup.location.href = _dropViewerUrl(result.url);
+                    showStatus(`Opened: ${result.name}`);
+                }
+            } catch (error) {
+                if (popup) popup.close();
+                showStatus(`Drop failed: ${error.message}`);
+                _renderDropActionList();
+            }
+        }
+
         document.body.addEventListener('dragover', (e) => {
             // e.dataTransfer.types may be a DOMStringList (no .includes) in older WebKit
             const types = e.dataTransfer.types;
@@ -18875,61 +19074,44 @@
             }
         });
         document.body.addEventListener('drop', async (e) => {
-            if (!e.dataTransfer.files.length) return;
+            if (!e.dataTransfer.files.length && !e.dataTransfer.items?.length) return;
             e.preventDefault();
-            const file = e.dataTransfer.files[0];
-            const nameLower = file.name.toLowerCase();
-            const ext = nameLower.includes('.') ? nameLower.split('.').pop() : '';
-            // Accept .nii.gz as a special case (double extension)
-            const isNiiGz = nameLower.endsWith('.nii.gz');
-            if (!isNiiGz && !_SUPPORTED_EXTS.has(ext)) {
-                showStatus(`Unsupported file type: .${ext || '?'}`);
-                return;
-            }
-            showStatus(`Loading ${file.name}…`);
-            const form = new FormData();
-            form.append('file', file);
             try {
-                const res = await proxyFetch('/load-upload', { method: 'POST', body: form });
-                const body = await res.json();
-                if (!res.ok) throw new Error(body.detail || String(res.status));
-                if (body.array_keys) {
-                    const key = await showArrayPicker(body.array_keys, '');
-                    if (!key) { showStatus('Cancelled'); return; }
-                    const form2 = new FormData();
-                    form2.append('file', file);
-                    form2.append('key', key);
-                    const res2 = await proxyFetch('/load-upload', { method: 'POST', body: form2 });
-                    const body2 = await res2.json();
-                    if (!res2.ok) throw new Error(body2.detail || String(res2.status));
-                    if (!sid) {
-                        window.location.href = '/?sid=' + body2.sid;
-                    } else {
-                        window.open('/?sid=' + body2.sid, '_blank');
-                        showStatus(`Opened: ${body2.name}`);
-                    }
-                    return;
-                }
-                if (!sid) {
-                    // Welcome screen — navigate in-place (replaces the welcome tab)
-                    window.location.href = '/?sid=' + body.sid;
-                } else if (!compareActive && body.shape && shape && shape.length > 0
-                           && _shapesCompatibleForCompare(shape, body.shape)) {
-                    // Shapes are compatible — enter compare mode with dropped array
-                    await enterCompareModeBySid(body.sid, body.name || file.name);
-                    showStatus(`Compare: ${body.name || file.name}`);
-                } else if (window.parent !== window && window.parent.__arrayviewShell) {
-                    // Shell with real array — server WS will add the tab
-                    showStatus(`Opened: ${body.name}`);
+                if (_activeDrop) await _discardActiveDrop();
+                const dropped = await _collectDroppedFiles(e.dataTransfer);
+                if (!dropped.length) throw new Error('No readable files were dropped.');
+                showStatus(`Inspecting ${dropped.length === 1 ? dropped[0].file.name : `${dropped.length} files`}…`);
+                const form = new FormData();
+                dropped.forEach(item => {
+                    form.append('files', item.file, item.file.name);
+                    form.append('relative_paths', item.relativePath);
+                });
+                if (sid) form.append('base_sid', sid);
+                const response = await proxyFetch('/drop/inspect', { method: 'POST', body: form });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.detail || String(response.status));
+                if (!sid && (payload.series || []).length <= 1) {
+                    _activeDrop = payload;
+                    await _commitActiveDrop('open', { replaceCurrent: true });
                 } else {
-                    // Browser (non-shell) — open in new tab
-                    window.open('/?sid=' + body.sid, '_blank');
-                    showStatus(`Opened: ${body.name}`);
+                    _showDropMenu(payload, e.clientX, e.clientY);
                 }
-            } catch (err) {
-                showStatus(`Failed to load file: ${err.message}`);
+            } catch (error) {
+                showStatus(`Drop failed: ${error.message}`);
             }
         });
+        document.addEventListener('pointerdown', (event) => {
+            if (_dropMenuVisible && !document.getElementById('drop-action-menu').contains(event.target)) {
+                _discardActiveDrop();
+            }
+        });
+        window.addEventListener('keydown', (event) => {
+            if (_dropMenuVisible && event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                _discardActiveDrop();
+            }
+        }, true);
 
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
@@ -32823,6 +33005,11 @@
             if (patientLoadingOverlay) {
                 patientLoadingOverlay.classList.toggle('visible', _patientLoadingVisible);
                 patientLoadingOverlay.setAttribute('aria-hidden', _patientLoadingVisible ? 'false' : 'true');
+            }
+            const dropMenu = document.getElementById('drop-action-menu');
+            if (dropMenu) {
+                dropMenu.classList.toggle('visible', _dropMenuVisible);
+                dropMenu.setAttribute('aria-hidden', _dropMenuVisible ? 'false' : 'true');
             }
             if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
