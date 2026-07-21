@@ -4579,6 +4579,46 @@ class TestPortAndTunnelHelpers:
 
         assert platform._is_vscode_remote() is False
 
+    def test_local_vscode_injection_and_leftover_remote_cli_are_not_remote(
+        self, monkeypatch
+    ):
+        import arrayview._platform as platform
+
+        monkeypatch.setenv("TERM_PROGRAM", "vscode")
+        monkeypatch.setenv("VSCODE_IPC_HOOK_CLI", "/tmp/local-vscode-ipc")
+        monkeypatch.setenv("VSCODE_INJECTION", "1")
+        monkeypatch.delenv("VSCODE_AGENT_FOLDER", raising=False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr(
+            platform,
+            "_exact_vscode_registration_remote",
+            lambda ipc: None,
+        )
+        monkeypatch.setattr(
+            platform,
+            "_find_code_cli",
+            lambda: "/home/user/.vscode-server/bin/hash/bin/remote-cli/code",
+        )
+
+        assert platform._is_vscode_remote() is False
+
+    def test_exact_local_window_registration_overrides_generic_remote_markers(
+        self, monkeypatch
+    ):
+        import arrayview._platform as platform
+
+        monkeypatch.setenv("VSCODE_IPC_HOOK_CLI", "/tmp/local-vscode-ipc")
+        monkeypatch.setenv("VSCODE_INJECTION", "1")
+        monkeypatch.setenv("VSCODE_AGENT_FOLDER", "/stale/agent/folder")
+        monkeypatch.setattr(
+            platform,
+            "_exact_vscode_registration_remote",
+            lambda ipc: False,
+        )
+
+        assert platform._is_vscode_remote() is False
+
     def test_linux_vscode_tunnel_requires_server_marker(self, monkeypatch):
         import arrayview._platform as platform
 

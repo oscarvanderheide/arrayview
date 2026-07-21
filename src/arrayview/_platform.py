@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -351,6 +353,65 @@ def _has_vscode_window_registration() -> bool:
         return False
 
 
+def _process_is_alive(pid: object) -> bool:
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _exact_vscode_registration_remote(ipc: str) -> bool | None:
+    """Return the owning extension host's remote flag when registered.
+
+    The registration is the display host's own statement of placement. Generic
+    terminal variables and installed ``remote-cli`` helpers are not authority:
+    both can exist in a local desktop window.
+    """
+    candidate_ids: list[str] = []
+    if window_id := os.environ.get("ARRAYVIEW_WINDOW_ID"):
+        candidate_ids.append(window_id)
+    if ipc:
+        candidate_ids.append(hashlib.sha256(ipc.encode()).hexdigest()[:16])
+
+    signal_dir = os.path.expanduser("~/.arrayview")
+    for window_id in dict.fromkeys(candidate_ids):
+        try:
+            with open(
+                os.path.join(signal_dir, f"window-{window_id}.json"),
+                encoding="utf-8",
+            ) as handle:
+                registration = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            continue
+        if not _process_is_alive(registration.get("pid")):
+            continue
+        if "remoteName" in registration:
+            return registration.get("remoteName") is not None
+    return None
+
+
+def _has_live_vscode_remote_registration() -> bool:
+    signal_dir = os.path.expanduser("~/.arrayview")
+    try:
+        filenames = os.listdir(signal_dir)
+    except OSError:
+        return False
+    for filename in filenames:
+        if not filename.startswith("window-") or not filename.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(signal_dir, filename), encoding="utf-8") as handle:
+                registration = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            continue
+        if registration.get("remoteName") is not None and _process_is_alive(
+            registration.get("pid")
+        ):
+            return True
+    return False
+
+
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session.
 
@@ -361,17 +422,13 @@ def _is_vscode_remote() -> bool:
     """
     # Try env var first, then walk process tree (handles uv run env stripping).
     ipc = os.environ.get("VSCODE_IPC_HOOK_CLI") or _find_vscode_ipc_hook()
+    registered_remote = _exact_vscode_registration_remote(ipc)
+    if registered_remote is not None:
+        return registered_remote
     ssh = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
-    vscode_server = bool(
-        os.environ.get("VSCODE_AGENT_FOLDER")
-        or os.environ.get("VSCODE_INJECTION")
-    )
+    vscode_server = bool(os.environ.get("VSCODE_AGENT_FOLDER"))
     if ipc and (ssh or vscode_server):
         return True
-    if ipc:
-        code = _find_code_cli()
-        if code and "remote-cli" in code:
-            return True
     # TERM_PROGRAM=vscode + SSH_CONNECTION = VS Code SSH remote (belt-and-suspenders)
     if os.environ.get("TERM_PROGRAM") == "vscode" and (
         os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")
@@ -379,13 +436,10 @@ def _is_vscode_remote() -> bool:
         return True
     # Notebook kernels do not inherit the integrated terminal's IPC env vars,
     # so remote VS Code notebooks need a second detection path. The remote
-    # machine has the VS Code server's remote-cli helper installed locally, and
-    # the opener extension keeps a window registration under ~/.arrayview while
-    # the client window is active.
+    # opener extension keeps a live remote window registration while the client
+    # window is active.
     if _in_jupyter():
-        code = _find_code_cli()
-        if code and "remote-cli" in code and _has_vscode_window_registration():
-            return True
+        return _has_live_vscode_remote_registration()
     return False
 
 
