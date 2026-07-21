@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -33,6 +34,14 @@ def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("localhost", 0))
         return int(sock.getsockname()[1])
+
+
+def _tcp_port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("localhost", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
 
 
 def _wait_until(predicate, *, timeout: float, message: str):
@@ -198,6 +207,118 @@ def test_native_frame_observation_survives_shell_websocket_reconnect(
         lambda body: f"{sid}:{request_id}"
         in body.get("native_ready_requests", []),
         timeout=5.0,
+    )
+
+
+def test_real_ipykernel_inline_session_renders_and_is_kernel_owned(
+    page,
+    monkeypatch,
+    tmp_path,
+):
+    from jupyter_client.manager import start_new_kernel
+
+    port = _free_port()
+    kernel_root = tmp_path / "jupyter"
+    kernel_dir = kernel_root / "kernels" / "arrayview-test"
+    kernel_dir.mkdir(parents=True)
+    (kernel_dir / "kernel.json").write_text(
+        json.dumps(
+            {
+                "argv": [
+                    sys.executable,
+                    "-m",
+                    "ipykernel_launcher",
+                    "-f",
+                    "{connection_file}",
+                ],
+                "display_name": "ArrayView test kernel",
+                "language": "python",
+            }
+        )
+    )
+    monkeypatch.setenv("JUPYTER_PATH", str(kernel_root))
+
+    manager, kernel = start_new_kernel(
+        kernel_name="arrayview-test",
+        startup_timeout=30,
+    )
+    try:
+        message_id = kernel.execute(
+            "\n".join(
+                [
+                    "import numpy as np",
+                    "from IPython.display import display",
+                    "import arrayview",
+                    f"artifact = arrayview.view(np.arange(64, dtype=np.float32).reshape(8, 8), name='ipykernel-gate', window='inline', port={port})",
+                    "display(artifact)",
+                ]
+            )
+        )
+        html_outputs = []
+        kernel_errors = []
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            message = kernel.get_iopub_msg(timeout=5.0)
+            if message.get("parent_header", {}).get("msg_id") != message_id:
+                continue
+            message_type = message["header"]["msg_type"]
+            content = message["content"]
+            if message_type in {"display_data", "execute_result"}:
+                html = content.get("data", {}).get("text/html")
+                if html:
+                    html_outputs.append(html)
+            elif message_type == "error":
+                kernel_errors.append("\n".join(content.get("traceback", [])))
+            elif message_type == "status" and content.get("execution_state") == "idle":
+                break
+        else:
+            raise AssertionError("ipykernel execution did not become idle")
+
+        assert not kernel_errors, "\n".join(kernel_errors)
+        assert html_outputs, "ipykernel did not publish an inline HTML artifact"
+        iframe_match = re.search(r"src=['\"]([^'\"]+)['\"]", html_outputs[-1])
+        assert iframe_match, html_outputs[-1]
+        initial_iframe_url = iframe_match.group(1)
+        assert f"{port}" in initial_iframe_url
+        assert "inline=1" in initial_iframe_url
+
+        status = _wait_json(
+            f"http://localhost:{port}/ping",
+            lambda body: body.get("owner_mode") == "kernel"
+            and body.get("active_sessions") == 1,
+        )
+        assert status["pid"] == manager.provisioner.pid
+
+        # Render the actual notebook MIME wrapper. When jupyter-server-proxy is
+        # importable but the current frontend has no proxy route, its bounded
+        # fallback must replace the failed relative URL with localhost.
+        page.goto(f"http://localhost:{port}/")
+        page.set_content(html_outputs[-1])
+        viewer_frame = page.frame_locator("iframe")
+        viewer_frame.locator("#canvas-wrap").wait_for(
+            state="visible",
+            timeout=15_000,
+        )
+        viewer_frame.locator("body").wait_for(state="visible")
+        viewer_page = next(frame for frame in page.frames if frame != page.main_frame)
+        viewer_page.wait_for_function(
+            """() => {
+                const canvas = document.querySelector('canvas#viewer');
+                return !!(canvas && canvas.width && canvas.height);
+            }""",
+            timeout=15_000,
+        )
+        assert viewer_page.url.startswith(f"http://localhost:{port}/")
+    finally:
+        try:
+            manager.shutdown_kernel(now=True)
+        finally:
+            kernel.stop_channels()
+
+    _wait_until(
+        lambda: not _tcp_port_open(port),
+        timeout=10.0,
+        message="kernel-owned ArrayView server survived kernel shutdown",
     )
 
 
