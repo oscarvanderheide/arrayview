@@ -43,7 +43,7 @@ def test_spawn_readiness_requires_the_spawned_child_pid(monkeypatch):
     assert launcher._wait_for_spawned_server(child, 8123, timeout=0.5) is True
 
 
-def test_cli_spawn_failure_terminates_owned_backend_and_preload(
+def test_cli_spawn_failure_terminates_backend_before_opening_native(
     monkeypatch, tmp_path
 ):
     import arrayview._launcher as launcher
@@ -52,12 +52,11 @@ def test_cli_spawn_failure_terminates_owned_backend_and_preload(
     monkeypatch.setattr(launcher.sys, "platform", "darwin")
     monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
     backend = _FakeProcess(321)
-    preload = _FakeProcess(654)
     monkeypatch.setattr(launcher.subprocess, "Popen", lambda *a, **k: backend)
     monkeypatch.setattr(
         launcher,
         "_open_webview_cli_tracked",
-        lambda *a, **k: (True, preload),
+        lambda *a, **k: pytest.fail("native must wait for backend identity"),
     )
     monkeypatch.setattr(
         launcher, "_wait_for_spawned_server", lambda *a, **k: False
@@ -89,7 +88,6 @@ def test_cli_spawn_failure_terminates_owned_backend_and_preload(
         )
 
     assert backend.terminated == 1
-    assert preload.terminated == 1
 
 
 def test_julia_spawn_failure_terminates_only_its_child(monkeypatch, tmp_path):

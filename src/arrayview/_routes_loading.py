@@ -23,6 +23,7 @@ from arrayview._session import (
     SESSIONS,
     Session,
     file_signature,
+    wait_for_session_ready,
 )
 
 
@@ -436,9 +437,6 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
     @app.post("/notify/{sid}")
     async def notify_existing_session(sid: str, request: Request):
         """Notify native shell windows about a session that already exists."""
-        session = SESSIONS.get(sid)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
         body = await request.json()
         expected_server_id = body.get("expected_server_id")
         if expected_server_id is not None:
@@ -449,6 +447,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     status_code=409,
                     detail="ArrayView server generation changed before notify",
                 )
+        session = await wait_for_session_ready(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
         name = str(body.get("name") or session.name)
         url = body.get("url")
         wait = bool(body.get("wait", False))

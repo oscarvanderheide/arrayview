@@ -222,7 +222,7 @@ def test_public_cli_spawned_native_in_local_vscode_stays_native(
         ),
     )
     monkeypatch.setattr(
-        launcher, "_activate_early_cli_native_shell", lambda **kwargs: True
+        launcher, "_wait_for_native_ready", lambda *args, **kwargs: True
     )
     monkeypatch.setattr(
         launcher, "_load_compare_sids", lambda port, files, **kwargs: []

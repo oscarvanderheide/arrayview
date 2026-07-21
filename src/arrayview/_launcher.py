@@ -486,8 +486,11 @@ def _open_webview(
                 ready_file or "",
                 gui_name,
             ],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=sys.platform != "win32",
         )
 
     # URL mode — direct load (used when shell_port not provided)
@@ -533,8 +536,11 @@ def _open_webview(
             ready_file or "",
             gui_name,
         ],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=sys.platform != "win32",
     )
 
 
@@ -949,11 +955,7 @@ def _open_cli_native_shell_after_server(
             adapter="native",
             stage="post_tcp",
             state="ready",
-            evidence=(
-                connection_evidence
-                if isinstance(connection_evidence, str)
-                else "connection_observed"
-            ),
+            evidence="native_frame_ack",
         )
         return True
     if opened:
@@ -969,61 +971,6 @@ def _open_cli_native_shell_after_server(
         state="failed",
         evidence="connection_timeout" if opened else "process_exit",
     )
-    return False
-
-
-def _activate_early_cli_native_shell(
-    *,
-    port: int,
-    sid: str,
-    name: str,
-    proc: subprocess.Popen | None,
-    native_request_id: str,
-    expected_server_id: str,
-) -> bool:
-    """Attach an already-started preload shell to a spawned daemon session."""
-    viewer_url = _viewer_path(sid)
-    separator = "&" if "?" in viewer_url else "?"
-    viewer_url += (
-        f"{separator}native_request_id="
-        f"{urllib.parse.quote(native_request_id)}"
-    )
-    try:
-        notify_result = _notify_existing_session(
-            port,
-            sid,
-            name,
-            url=viewer_url,
-            wait=True,
-            expected_server_id=expected_server_id,
-        )
-        notified = bool(notify_result.get("notified"))
-    except Exception:
-        notified = False
-    if notified and _wait_for_native_ready(
-        port,
-        sid=sid,
-        native_request_id=native_request_id,
-        expected_server_id=expected_server_id,
-    ):
-        _trace_launch_event(
-            "display.activation_evidence",
-            adapter="native",
-            stage="early",
-            evidence="viewer_websocket",
-        )
-        return True
-    _trace_launch_event(
-        "display.activation_evidence",
-        adapter="native",
-        stage="early",
-        evidence="viewer_timeout" if notified else "notification_failed",
-    )
-    _vprint(
-        "[ArrayView] Native window did not connect to the backend; falling back to browser",
-        flush=True,
-    )
-    _terminate_native_process(proc)
     return False
 
 
@@ -2032,10 +1979,6 @@ def _handle_cli_spawned_daemon(
     )
 
     vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
-    early_native_shell_opened = False
-    early_native_shell_proc = None
-    early_native_shell_connected = False
-    early_native_request_id = None
     daemon_server_id = None
 
     from arrayview._instance_registry import InstanceRegistry
@@ -2143,47 +2086,7 @@ def _handle_cli_spawned_daemon(
             sid_tag=_launch_trace_tag(sid),
         )
 
-        if (
-            use_native_shell
-            and not is_remote
-            and not overlay_files
-            and not dir_overlay_specs
-            and not compare_files
-            and not sys.platform.startswith("linux")
-        ):
-            # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
-            # parent shell was created from inline data. Let Linux open the normal
-            # HTTP shell after the daemon is listening instead.
-            early_native_request_id = uuid.uuid4().hex
-            url_shell_early = (
-                f"http://{_LOOPBACK_HOST}:{port}/shell"
-                f"?native_request_id={early_native_request_id}"
-            )
-            _trace_launch_event(
-                "display.attempt_started",
-                adapter="native",
-                stage="early",
-            )
-            early_native_shell_opened, early_native_shell_proc = (
-                _open_webview_cli_tracked(
-                    url_shell_early,
-                    1400,
-                    900,
-                    shell_port=port,
-                    trace_stage="early",
-                )
-            )
-            if not early_native_shell_opened:
-                _trace_launch_event(
-                    "display.attempt_finished",
-                    adapter="native",
-                    stage="early",
-                    state="failed",
-                    evidence="process_exit",
-                )
-
         if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
-            _terminate_native_process(early_native_shell_proc)
             _terminate_owned_process(daemon_proc)
             _trace_launch_event("backend.tcp_failed", port=port)
             print(
@@ -2193,7 +2096,6 @@ def _handle_cli_spawned_daemon(
             sys.exit(1)
         daemon_identity = _server_runtime_identity(port)
         if daemon_identity is None or daemon_identity[0] is None:
-            _terminate_native_process(early_native_shell_proc)
             _terminate_owned_process(daemon_proc)
             print(
                 "Error: the spawned ArrayView server did not publish a stable "
@@ -2214,40 +2116,9 @@ def _handle_cli_spawned_daemon(
             expected_server_id=daemon_server_id,
         )
     except Exception as e:
-        _terminate_native_process(early_native_shell_proc)
         _terminate_owned_process(daemon_proc)
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
-
-    if early_native_shell_opened:
-        assert early_native_request_id is not None
-        assert daemon_server_id is not None
-        early_native_shell_connected = _activate_early_cli_native_shell(
-            port=port,
-            sid=sid,
-            name=name,
-            proc=early_native_shell_proc,
-            native_request_id=early_native_request_id,
-            expected_server_id=daemon_server_id,
-        )
-        _trace_launch_event(
-            "display.attempt_finished",
-            adapter="native",
-            stage="early",
-            state="ready" if early_native_shell_connected else "failed",
-            evidence=(
-                "viewer_websocket"
-                if early_native_shell_connected
-                else "activation_failed"
-            ),
-        )
-
-    # A large file can keep the daemon busy long enough for the preload shell
-    # to hit the URL before the server starts listening.  The failed shell is
-    # terminated by _activate_early_cli_native_shell(), so retry once now that
-    # the backend is ready instead of dropping an explicit native request into
-    # the environment-default opener (a VS Code tab in integrated terminals).
-    should_retry_native_shell = use_native_shell
 
     try:
         _open_cli_spawned_view(
@@ -2257,7 +2128,7 @@ def _handle_cli_spawned_daemon(
             overlay_sid=overlay_sid,
             overlay_names=resolved_overlay_names,
             dims_override=dims_override,
-            use_native_shell=should_retry_native_shell,
+            use_native_shell=use_native_shell,
             name=name,
             base_file=base_file,
             watch=watch,
@@ -2269,11 +2140,9 @@ def _handle_cli_spawned_daemon(
                 if launch_context is not None
                 else {}
             ),
-            native_shell_already_opened=early_native_shell_connected,
             expected_server_id=daemon_server_id,
         )
     except Exception:
-        _terminate_native_process(early_native_shell_proc)
         _terminate_owned_process(daemon_proc)
         raise
 
@@ -2293,7 +2162,6 @@ def _open_cli_spawned_view(
     floating: bool,
     is_remote: bool,
     launch_context=None,
-    native_shell_already_opened: bool = False,
     overlay_names: list[str] | None = None,
     expected_server_id: str | None = None,
 ) -> None:
@@ -2314,8 +2182,6 @@ def _open_cli_spawned_view(
         else {}
     )
     if _should_notify_native_shell(use_native_shell, overlay_sid):
-        if native_shell_already_opened:
-            return
         native_ready = _open_cli_native_shell_after_server(
             port=port,
             sid=sid,

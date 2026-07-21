@@ -581,6 +581,37 @@ class TestLoad:
 
         assert r.status_code == 404
 
+    def test_notify_waits_for_pending_session_before_native_handoff(self, client):
+        import arrayview._session as session_mod
+
+        sid = "pending-native-notify"
+        event = threading.Event()
+        session = session_mod.Session(np.ones((3, 4), dtype=np.float32), name="pending")
+        session.sid = sid
+        session_mod.PENDING_SESSIONS.add(sid)
+        session_mod.PENDING_SESSION_EVENTS[sid] = event
+
+        def commit_session():
+            time.sleep(0.05)
+            session_mod.SESSIONS[sid] = session
+            session_mod.PENDING_SESSIONS.discard(sid)
+            event.set()
+
+        worker = threading.Thread(target=commit_session)
+        worker.start()
+        try:
+            response = client.post(
+                f"/notify/{sid}",
+                json={"name": "pending", "wait": False},
+            )
+            assert response.status_code == 200
+            assert response.json()["sid"] == sid
+        finally:
+            worker.join(timeout=1)
+            session_mod.SESSIONS.pop(sid, None)
+            session_mod.PENDING_SESSIONS.discard(sid)
+            session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
+
     def test_notify_rejects_replaced_server_generation(self, client, sid_2d):
         response = client.post(
             f"/notify/{sid_2d}",
@@ -3220,10 +3251,22 @@ class TestCliOpenHelpers:
         )
 
         launcher._open_webview("http://localhost:8000/shell", 1200, 800)
+        launcher._open_webview(
+            "http://localhost:8000/shell",
+            1200,
+            800,
+            shell_port=8000,
+        )
 
-        assert calls
-        assert calls[0][0][-1] == "gtk"
-        assert "kw = {'gui': gui} if gui else {}" in calls[0][0][2]
+        assert len(calls) == 2
+        for command, kwargs in calls:
+            assert command[-1] == "gtk"
+            assert "kw = {'gui': gui} if gui else {}" in command[2]
+            assert kwargs["stdin"] is subprocess.DEVNULL
+            assert kwargs["close_fds"] is True
+            assert kwargs["start_new_session"] is (
+                launcher.sys.platform != "win32"
+            )
 
     def test_build_inline_shell_html_preserves_init_query(self):
         import arrayview._launcher as launcher
@@ -4203,12 +4246,11 @@ class TestCliOpenHelpers:
                 "window_mode": "browser",
                 "floating": False,
                 "is_remote": False,
-                "native_shell_already_opened": False,
                 "expected_server_id": "spawned-server",
             }
         ]
 
-    def test_handle_cli_spawned_daemon_opens_native_shell_before_port_wait(
+    def test_handle_cli_spawned_daemon_defers_native_until_backend_identity(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -4282,12 +4324,9 @@ class TestCliOpenHelpers:
             demo_cleanup=False,
         )
 
-        event_names = [event[0] for event in events]
-        assert event_names[:3] == ["spawn", "native_shell", "wait"]
-        assert "notify" in event_names
-        assert urllib.parse.urlsplit(events[1][1][0]).path == "/shell"
-        assert events[1][2]["shell_port"] == 8000
-        assert opened[0]["native_shell_already_opened"] is True
+        assert [event[0] for event in events] == ["spawn", "wait"]
+        assert opened[0]["use_native_shell"] is True
+        assert "native_shell_already_opened" not in opened[0]
 
     def test_handle_cli_spawned_daemon_defers_linux_native_shell_until_server_ready(
         self, monkeypatch
@@ -4354,9 +4393,9 @@ class TestCliOpenHelpers:
 
         assert [event[0] for event in events] == ["spawn", "wait"]
         assert opened[0]["use_native_shell"] is True
-        assert opened[0]["native_shell_already_opened"] is False
+        assert "native_shell_already_opened" not in opened[0]
 
-    def test_handle_cli_spawned_daemon_retries_when_early_native_never_connects(
+    def test_handle_cli_spawned_daemon_does_not_preload_native_before_backend(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -4430,11 +4469,11 @@ class TestCliOpenHelpers:
             demo_cleanup=False,
         )
 
-        assert terminated == [True]
+        assert terminated == []
         assert opened[0]["use_native_shell"] is True
-        assert opened[0]["native_shell_already_opened"] is False
+        assert "native_shell_already_opened" not in opened[0]
 
-    def test_handle_cli_spawned_daemon_keeps_native_when_early_viewer_connects(
+    def test_handle_cli_spawned_daemon_passes_native_intent_after_startup(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -4512,7 +4551,7 @@ class TestCliOpenHelpers:
 
         assert terminated == []
         assert opened[0]["use_native_shell"] is True
-        assert opened[0]["native_shell_already_opened"] is True
+        assert "native_shell_already_opened" not in opened[0]
 
     def test_handle_cli_spawned_daemon_does_not_early_open_remote_native_shell(
         self, monkeypatch
@@ -4571,7 +4610,7 @@ class TestCliOpenHelpers:
 
         assert events[0][0] == "spawn"
         assert events[1][0] == "open"
-        assert events[1][1]["native_shell_already_opened"] is False
+        assert "native_shell_already_opened" not in events[1][1]
 
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint

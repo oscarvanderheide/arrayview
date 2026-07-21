@@ -43,8 +43,15 @@ Implemented on `feat/launch-tunnel-reliability`:
 - focused public-path, ownership-race, process-cleanup, protocol-restart,
   reconnect, relay-rollback, deadline, and packaging tests cover the implemented
   contracts. Current evidence is 218/218 launch-contract tests, all Node
-  extension tests, a passing package build, and 272/274 API tests; the two API
+  extension tests, a passing package build, and 273/275 API tests; the two API
   failures are isolated pre-existing thumbnail rendering defects.
+- the dated macOS host run of
+  `uv run arrayview debug/parameter_maps.nii --window native` under captured
+  `vscode_local` evidence launched one detached PyWebView process after exact
+  backend identity, received the correlated native-frame ACK, emitted no VS Code
+  signal, survived CLI exit, and automatically reaped its transient daemon when
+  the test-owned native window closed. The speculative pre-server native window
+  that caused double opens and parent-exit teardown has been removed.
 
 Still required before this plan is complete:
 
