@@ -9,6 +9,7 @@ import os
 import socket
 import sys
 import urllib.request
+import uuid
 
 _LOOPBACK_HOST = "localhost"
 _PING_TIMEOUT_SECONDS = 0.2
@@ -52,6 +53,15 @@ class Environment(_StrEnum):
     MATLAB = "matlab"
 
 
+class Placement(_StrEnum):
+    """Where the caller can actually observe a display."""
+
+    LOCAL = "local"
+    VSCODE_LOCAL = "vscode_local"
+    VSCODE_REMOTE = "vscode_remote"
+    SSH = "ssh"
+
+
 class Transport(_StrEnum):
     HTTP = "http"
     NONE = "none"
@@ -87,6 +97,18 @@ class LaunchFailure(_StrEnum):
     INVALID_WINDOW = "invalid_window"
     VSCODE_UNAVAILABLE = "vscode_unavailable"
     REMOTE_PORT_CONFLICT = "remote_port_conflict"
+
+
+class CompletionTarget(_StrEnum):
+    """Observable milestone at which the invocation may return successfully."""
+
+    SESSION_ACCEPTED = "session_accepted"
+    DISPLAY_ACCEPTED = "display_accepted"
+    DISPATCH_ACCEPTED = "dispatch_accepted"
+    FRAME_READY = "frame_ready"
+    MIME_RETURNED_OR_EMITTED = "mime_returned_or_emitted"
+    DISPLAY_SIDE_EFFECT_EMITTED = "display_side_effect_emitted"
+    GUIDANCE_PRINTED = "guidance_printed"
 
 
 @dataclass(frozen=True)
@@ -164,6 +186,80 @@ class LaunchPlan:
     def to_dict(self) -> dict:
         """Return a JSON-compatible representation suitable for diagnostics."""
         return _jsonable(asdict(self))
+
+
+@dataclass(frozen=True)
+class LaunchContext:
+    """Immutable selection authority carried through one launch execution.
+
+    Dynamic resources may be revalidated after this is created, but downstream
+    code must not re-detect the host or choose a different display adapter.
+    """
+
+    launch_id: str
+    intent: LaunchIntent
+    evidence: LaunchEnvironmentSnapshot
+    plan: LaunchPlan
+    placement: Placement
+    completion_target: CompletionTarget
+
+    def to_dict(self) -> dict:
+        return _jsonable(asdict(self))
+
+
+def create_launch_context(
+    intent: LaunchIntent,
+    evidence: LaunchEnvironmentSnapshot | None = None,
+    *,
+    launch_id: str | None = None,
+) -> LaunchContext:
+    """Capture facts once and bind them to the resulting immutable plan."""
+    snapshot = evidence or snapshot_launch_environment(
+        intent.port, intent.invocation, requested_window=intent.requested_window
+    )
+    plan = plan_launch(intent, snapshot)
+    return LaunchContext(
+        launch_id=(
+            launch_id
+            or os.environ.get("ARRAYVIEW_LAUNCH_ID")
+            or uuid.uuid4().hex
+        ),
+        intent=intent,
+        evidence=snapshot,
+        plan=plan,
+        placement=_placement(snapshot),
+        completion_target=_completion_target(intent.invocation, plan, snapshot),
+    )
+
+
+def _completion_target(
+    invocation: Invocation,
+    plan: LaunchPlan,
+    evidence: LaunchEnvironmentSnapshot,
+) -> CompletionTarget:
+    if plan.display is Display.NONE:
+        return CompletionTarget.SESSION_ACCEPTED
+    if plan.display is Display.INLINE:
+        if invocation is Invocation.JULIA:
+            return CompletionTarget.DISPLAY_SIDE_EFFECT_EMITTED
+        return CompletionTarget.MIME_RETURNED_OR_EMITTED
+    if plan.display is Display.BROWSER:
+        if _placement(evidence) is Placement.SSH:
+            return CompletionTarget.GUIDANCE_PRINTED
+        return CompletionTarget.DISPATCH_ACCEPTED
+    if invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}:
+        return CompletionTarget.FRAME_READY
+    return CompletionTarget.DISPLAY_ACCEPTED
+
+
+def _placement(evidence: LaunchEnvironmentSnapshot) -> Placement:
+    if evidence.is_vscode_remote:
+        return Placement.VSCODE_REMOTE
+    if evidence.in_vscode_terminal:
+        return Placement.VSCODE_LOCAL
+    if evidence.ssh_connection or evidence.ssh_client:
+        return Placement.SSH
+    return Placement.LOCAL
 
 
 def plan_launch(

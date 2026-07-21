@@ -283,6 +283,77 @@ def test_plan_is_pure_and_json_serializable():
     assert json.loads(json.dumps(plan.to_dict()))["display"] == "native"
 
 
+def test_launch_context_keeps_host_placement_orthogonal_to_invocation():
+    from arrayview._launch_plan import (
+        CompletionTarget,
+        Environment,
+        Invocation,
+        LaunchIntent,
+        Placement,
+        create_launch_context,
+    )
+
+    julia_over_ssh = _facts(
+        invocation=Invocation.JULIA,
+        environment=Environment.JULIA,
+        in_julia=True,
+        ssh_connection=True,
+    )
+    context = create_launch_context(
+        LaunchIntent(Invocation.JULIA, 8123),
+        julia_over_ssh,
+        launch_id="launch-1",
+    )
+
+    assert context.launch_id == "launch-1"
+    assert context.plan.environment is Environment.JULIA
+    assert context.placement is Placement.SSH
+    assert context.completion_target is CompletionTarget.GUIDANCE_PRINTED
+    assert json.loads(json.dumps(context.to_dict()))["placement"] == "ssh"
+
+
+@pytest.mark.parametrize(
+    "invocation, facts, requested_window, expected_target",
+    [
+        ("cli", {}, "browser", "dispatch_accepted"),
+        ("cli", {"native_backend": "gtk"}, "native", "frame_ready"),
+        ("python", {}, "none", "session_accepted"),
+        (
+            "python",
+            {"environment": "jupyter", "in_jupyter": True},
+            "inline",
+            "mime_returned_or_emitted",
+        ),
+        (
+            "julia",
+            {"environment": "julia", "in_julia": True},
+            "inline",
+            "display_side_effect_emitted",
+        ),
+    ],
+)
+def test_launch_context_declares_mode_specific_completion(
+    invocation, facts, requested_window, expected_target
+):
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchIntent,
+        create_launch_context,
+    )
+
+    normalized = dict(facts)
+    if "environment" in normalized:
+        normalized["environment"] = Environment(normalized["environment"])
+    inv = Invocation(invocation)
+    context = create_launch_context(
+        LaunchIntent(inv, 8123, requested_window=requested_window),
+        _facts(invocation=inv, **normalized),
+    )
+
+    assert context.completion_target.value == expected_target
+
+
 @pytest.mark.parametrize(
     "environment, invocation, expected_display",
     [

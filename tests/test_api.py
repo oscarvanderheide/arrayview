@@ -2784,7 +2784,9 @@ class TestCliOpenHelpers:
             "_wait_for_native_shell_or_viewer_connection",
             lambda *args, **kwargs: False,
         )
-        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
+        monkeypatch.setattr(
+            launcher, "_print_viewer_location", lambda url, **kwargs: None
+        )
         monkeypatch.setattr(
             launcher,
             "_open_browser",
@@ -5486,20 +5488,20 @@ class TestViewDisplayRouting:
             "_open_browser",
             lambda url, **kwargs: opened.append({"url": url, **kwargs}),
         )
-        monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
+        monkeypatch.setattr(
+            launcher, "_print_viewer_location", lambda url, **kwargs: None
+        )
 
         result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="remote-tab")
 
         assert result.sid == "sid_remote"
-        assert opened == [
-            {
-                "url": "http://localhost:8123/?sid=sid_remote",
-                "force_vscode": True,
-                "blocking": True,
-                "title": "ArrayView: remote-tab",
-                "floating": False,
-            }
-        ]
+        assert len(opened) == 1
+        assert opened[0]["url"] == "http://localhost:8123/?sid=sid_remote"
+        assert opened[0]["force_vscode"] is True
+        assert opened[0]["blocking"] is True
+        assert opened[0]["title"] == "ArrayView: remote-tab"
+        assert opened[0]["floating"] is False
+        assert opened[0]["launch_context"].placement.value == "vscode_remote"
 
     def test_jupyter_window_browser_disables_inline(self, monkeypatch):
         import arrayview._launcher as launcher

@@ -277,3 +277,13 @@ leave a large black surface around a small volume.
 **Fix:** Give each ortho pane its own absolutely positioned WebGL canvas inside
 the existing canvas box, and verify its bounds against the corresponding 2D
 canvas before testing navigation and colormap updates.
+
+## Launch Host and Placement Authority
+
+**Problem:** A correct launch plan can still be defeated when a native fallback,
+Julia bridge, browser helper, or VS Code signal writer re-detects the environment
+and chooses another adapter. A single environment enum also loses combinations
+such as Julia-over-SSH.
+**Fix:** Carry one immutable launch context through execution. Keep invocation
+host and observable placement orthogonal, and let lower adapters revalidate only
+their dynamic resources—not host placement, display choice, or fallback policy.

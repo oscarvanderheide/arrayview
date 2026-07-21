@@ -538,6 +538,7 @@ def _open_webview_with_fallback(
     win_h: int,
     shell_port: int | None = None,
     floating: bool = False,
+    launch_context=None,
 ) -> subprocess.Popen:
     """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
     OR if no viewer WebSocket connects within ~10 s (catches macOS non-framework Python
@@ -570,7 +571,12 @@ def _open_webview_with_fallback(
                 )
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(url, floating=floating)
+                _open_browser(
+                    url,
+                    floating=floating,
+                    launch_context=launch_context,
+                    use_fallback=True,
+                )
                 return
 
         # Phase 2: process is alive — wait up to 8 s for a NEW viewer or shell
@@ -606,7 +612,12 @@ def _open_webview_with_fallback(
                 )
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(url, floating=floating)
+                _open_browser(
+                    url,
+                    floating=floating,
+                    launch_context=launch_context,
+                    use_fallback=True,
+                )
                 return
 
         # Phase 3: alive but no UI connection after 10 s — zombie (e.g. non-framework Python on macOS)
@@ -618,7 +629,12 @@ def _open_webview_with_fallback(
             proc.terminate()
         except Exception:
             pass
-        _open_browser(url, floating=floating)
+        _open_browser(
+            url,
+            floating=floating,
+            launch_context=launch_context,
+            use_fallback=True,
+        )
 
     threading.Thread(target=_watchdog, daemon=True).start()
     return proc
@@ -1216,6 +1232,7 @@ def _open_cli_existing_server_view(
     watch: bool,
     window_mode: str | None,
     floating: bool,
+    launch_context=None,
     overlay_names: list[str] | None = None,
 ) -> None:
     url = _viewer_url(
@@ -1225,6 +1242,14 @@ def _open_cli_existing_server_view(
         overlay_sids=overlay_sid,
         overlay_names=overlay_names,
         dims=dims_override,
+    )
+    route_kwargs = (
+        {"launch_context": launch_context} if launch_context is not None else {}
+    )
+    fallback_kwargs = (
+        {"launch_context": launch_context, "use_fallback": True}
+        if launch_context is not None
+        else {}
     )
     if notify_native_shell and notified:
         _vprint(f"Injected into existing window (port {port})")
@@ -1246,17 +1271,20 @@ def _open_cli_existing_server_view(
                 reason="native_connection_failed",
             )
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            _print_viewer_location(url)
+            _print_viewer_location(url, **route_kwargs)
             _open_browser(
                 url,
                 blocking=True,
                 prefer_system_browser=True,
                 title=f"ArrayView: {name}",
                 floating=floating,
+                **fallback_kwargs,
             )
         return
     if watch:
         _start_watch_thread(base_file, sid, port)
+    if launch_context is not None and launch_context.plan.display.value == "none":
+        return
     _open_browser(
         url,
         blocking=True,
@@ -1264,6 +1292,14 @@ def _open_cli_existing_server_view(
         prefer_system_browser=(window_mode == "native"),
         title=f"ArrayView: {name}",
         floating=floating,
+        **(
+            {
+                "launch_context": launch_context,
+                "use_fallback": launch_context.plan.display.value == "native",
+            }
+            if launch_context is not None
+            else {}
+        ),
     )
 
 
@@ -1381,6 +1417,7 @@ def _handle_cli_existing_server(
     window_mode: str | None,
     floating: bool,
     is_remote: bool = False,
+    launch_context=None,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
     dir_case_regex: str | None = None,
@@ -1449,6 +1486,11 @@ def _handle_cli_existing_server(
                     window_mode=window_mode,
                     floating=floating,
                     is_remote=is_remote,
+                    **(
+                        {"launch_context": launch_context}
+                        if launch_context is not None
+                        else {}
+                    ),
                     vectorfield=vectorfield,
                     vfield_components_dim=vfield_components_dim,
                     rgb=rgb,
@@ -1504,6 +1546,11 @@ def _handle_cli_existing_server(
         watch=watch,
         window_mode=window_mode,
         floating=floating,
+        **(
+            {"launch_context": launch_context}
+            if launch_context is not None
+            else {}
+        ),
     )
 
 
@@ -1532,6 +1579,7 @@ def _handle_cli_spawned_daemon(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
+    launch_context=None,
 ) -> None:
     sid = uuid.uuid4().hex
     overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
@@ -1544,7 +1592,11 @@ def _handle_cli_spawned_daemon(
         or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
     )
 
-    if not use_native_shell:
+    if (
+        launch_context is not None
+        and launch_context.plan.display.value == "vscode"
+        and is_remote
+    ) or (launch_context is None and not use_native_shell):
         _configure_vscode_port_preview(port)
 
     vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
@@ -1598,6 +1650,11 @@ def _handle_cli_spawned_daemon(
                 window_mode=window_mode,
                 floating=floating,
                 is_remote=is_remote,
+                **(
+                    {"launch_context": launch_context}
+                    if launch_context is not None
+                    else {}
+                ),
                 dir_patterns=dir_patterns,
                 dir_overlay_specs=dir_overlay_specs,
                 dir_case_regex=dir_case_regex,
@@ -1727,6 +1784,11 @@ def _handle_cli_spawned_daemon(
         window_mode=window_mode,
         floating=floating,
         is_remote=is_remote,
+        **(
+            {"launch_context": launch_context}
+            if launch_context is not None
+            else {}
+        ),
         native_shell_already_opened=early_native_shell_connected,
     )
 
@@ -1745,6 +1807,7 @@ def _open_cli_spawned_view(
     window_mode: str | None,
     floating: bool,
     is_remote: bool,
+    launch_context=None,
     native_shell_already_opened: bool = False,
     overlay_names: list[str] | None = None,
 ) -> None:
@@ -1755,6 +1818,14 @@ def _open_cli_spawned_view(
         overlay_sids=overlay_sid,
         overlay_names=overlay_names,
         dims=dims_override,
+    )
+    route_kwargs = (
+        {"launch_context": launch_context} if launch_context is not None else {}
+    )
+    fallback_kwargs = (
+        {"launch_context": launch_context, "use_fallback": True}
+        if launch_context is not None
+        else {}
     )
     if _should_notify_native_shell(use_native_shell, overlay_sid):
         if native_shell_already_opened:
@@ -1775,7 +1846,7 @@ def _open_cli_spawned_view(
                 reason="native_connection_failed",
             )
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            _print_viewer_location(url)
+            _print_viewer_location(url, **route_kwargs)
             _open_browser(
                 url,
                 blocking=(window_mode == "vscode"),
@@ -1783,6 +1854,7 @@ def _open_cli_spawned_view(
                 prefer_system_browser=(window_mode == "native"),
                 title=f"ArrayView: {name}",
                 floating=floating,
+                **fallback_kwargs,
             )
         return
     if use_native_shell and overlay_sid:
@@ -1790,9 +1862,11 @@ def _open_cli_spawned_view(
             "[ArrayView] Overlay mode: opening browser (native shell injection not supported with overlay)",
             flush=True,
         )
-    _print_viewer_location(url)
+    _print_viewer_location(url, **route_kwargs)
     if watch:
         _start_watch_thread(base_file, sid, port)
+    if launch_context is not None and launch_context.plan.display.value == "none":
+        return
     _open_browser(
         url,
         blocking=True,
@@ -1800,6 +1874,14 @@ def _open_cli_spawned_view(
         prefer_system_browser=(window_mode == "native"),
         title=f"ArrayView: {name}",
         floating=floating,
+        **(
+            {
+                "launch_context": launch_context,
+                "use_fallback": launch_context.plan.display.value == "native",
+            }
+            if launch_context is not None
+            else {}
+        ),
     )
 
 
@@ -2682,10 +2764,10 @@ def view(
 
     from arrayview._launch_plan import (
         Display,
+        Environment,
         Invocation,
         LaunchIntent,
-        plan_launch,
-        snapshot_launch_environment,
+        create_launch_context,
     )
 
     if _is_julia_env():
@@ -2710,10 +2792,7 @@ def view(
         _requested_window = "inline"
         inline = True
 
-    _launch_snapshot = snapshot_launch_environment(
-        port, _invocation, _requested_window
-    )
-    _launch_plan = plan_launch(
+    _launch_context = create_launch_context(
         LaunchIntent(
             invocation=_invocation,
             port=port,
@@ -2721,9 +2800,10 @@ def view(
             inline=inline,
             window_explicit=_explicit_window,
             inline_explicit=_explicit_inline,
-        ),
-        _launch_snapshot,
+        )
     )
+    _launch_snapshot = _launch_context.evidence
+    _launch_plan = _launch_context.plan
     if not _launch_plan.ok:
         raise ValueError(f"Cannot launch ArrayView: {_launch_plan.failure.value}")
 
@@ -2750,6 +2830,7 @@ def view(
             height=height,
             mode_heights=_inline_mode_heights,
             floating=floating,
+            launch_context=_launch_context,
         )
 
     # VS Code tunnel/remote: use the server + WebSocket path.
@@ -2826,6 +2907,7 @@ def view(
                     900,
                     shell_port=port,
                     floating=floating,
+                    launch_context=_launch_context,
                 )
             elif not _suppress_open:
                 _open_browser(
@@ -2834,8 +2916,9 @@ def view(
                     blocking=True,
                     title=f"ArrayView: {name}",
                     floating=floating,
+                    launch_context=_launch_context,
                 )
-            _print_viewer_location(url_viewer)
+            _print_viewer_location(url_viewer, launch_context=_launch_context)
             if n_arrays == 1:
                 return ViewHandle(url_viewer, sid, port)
             return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
@@ -2924,7 +3007,7 @@ def view(
                     f"Choose a different port in view(..., port=...)."
                 )
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
-        if _is_vscode_remote():
+        if _launch_context.evidence.is_vscode_remote:
             _configure_vscode_port_preview(port)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
@@ -2938,7 +3021,7 @@ def view(
                         "transient"
                         if _script
                         else "kernel"
-                        if _in_jupyter()
+                        if _launch_plan.environment is Environment.JUPYTER
                         else "in_process"
                     ),
                 )
@@ -2947,7 +3030,7 @@ def view(
             name="arrayview-server",
         ).start()
 
-        can_native_window = _can_native_window() if window else False
+        can_native_window = _launch_plan.display is Display.NATIVE
         _early_window_opened = False
         if (
             window
@@ -2963,7 +3046,12 @@ def view(
                         port, session.sid, name, compare_sids=_compare_sids
                     )
                     _session_mod._window_process = _open_webview_with_fallback(
-                        url_shell_early, win_w, win_h, shell_port=port, floating=floating
+                        url_shell_early,
+                        win_w,
+                        win_h,
+                        shell_port=port,
+                        floating=floating,
+                        launch_context=_launch_context,
                     )
                     _early_window_opened = True
             except Exception:
@@ -2981,10 +3069,10 @@ def view(
             )
         _platform_mod._jupyter_server_port = port
     else:
-        if _is_vscode_remote():
+        if _launch_context.evidence.is_vscode_remote:
             _configure_vscode_port_preview(port)
         _platform_mod._jupyter_server_port = port  # server already ours on this port
-        can_native_window = _can_native_window() if window else False
+        can_native_window = _launch_plan.display is Display.NATIVE
         _early_window_opened = False
         global _loading_port
         _loading_port = None  # server is already up — no loading page needed
@@ -3073,7 +3161,12 @@ def view(
                         notified = False
                 if not notified:
                     _session_mod._window_process = _open_webview_with_fallback(
-                        url_shell, win_w, win_h, shell_port=port, floating=floating
+                        url_shell,
+                        win_w,
+                        win_h,
+                        shell_port=port,
+                        floating=floating,
+                        launch_context=_launch_context,
                     )
             except Exception:
                 _open_browser(
@@ -3082,6 +3175,8 @@ def view(
                     prefer_system_browser=_requested_window == "native",
                     title=f"ArrayView: {name}",
                     floating=floating,
+                    launch_context=_launch_context,
+                    use_fallback=True,
                 )
     elif not _suppress_open:
         if (
@@ -3095,10 +3190,15 @@ def view(
                 flush=True,
             )
         _open_browser(
-            _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
+            _with_loading(url_viewer),
+            force_vscode=_force_vscode,
+            title=f"ArrayView: {name}",
+            floating=floating,
+            launch_context=_launch_context,
+            use_fallback=_launch_plan.display is Display.NATIVE,
         )
 
-    _print_viewer_location(url_viewer)
+    _print_viewer_location(url_viewer, launch_context=_launch_context)
     if n_arrays == 1:
         return ViewHandle(url_viewer, session.sid, port)
     return tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
@@ -3215,16 +3315,17 @@ def _view_julia(
     height: int = 600,
     mode_heights: dict[str, int] | None = None,
     floating: bool = False,
+    launch_context=None,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
     """
 
-    # Detect VS Code *now*, in the parent process where TERM_PROGRAM and
-    # VSCODE_IPC_HOOK_CLI are still available.  The subprocess inherits a
-    # stripped environment (Julia/PythonCall, uv run, etc.) so detection
-    # there would fail and the VS Code tab would never open.
-    force_vscode = _in_vscode_terminal()
+    force_vscode = (
+        launch_context.plan.display.value == "vscode"
+        if launch_context is not None
+        else _in_vscode_terminal()
+    )
     return _view_subprocess(
         data,
         name,
@@ -3235,6 +3336,7 @@ def _view_julia(
         mode_heights=mode_heights,
         force_vscode=force_vscode,
         floating=floating,
+        launch_context=launch_context,
     )
 
 
@@ -3249,6 +3351,7 @@ def _view_subprocess(
     rgb: bool = False,
     force_vscode: bool = False,
     floating: bool = False,
+    launch_context=None,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -3271,7 +3374,15 @@ def _view_subprocess(
         # window rather than requiring the caller to open a new native window.
         try:
             result = _load_session_from_filepath(
-                port, tmp_path, name, notify=True, rgb=rgb
+                port,
+                tmp_path,
+                name,
+                notify=(
+                    launch_context.plan.display.value == "native"
+                    if launch_context is not None
+                    else True
+                ),
+                rgb=rgb,
             )
             if "error" in result:
                 raise RuntimeError(result["error"])
@@ -3321,7 +3432,7 @@ def _view_subprocess(
 
     url_viewer = _viewer_url(port, sid)
     url_shell = _shell_url(port, sid, name)
-    _print_viewer_location(url_viewer)
+    _print_viewer_location(url_viewer, launch_context=launch_context)
 
     if inline:
         _inline_url = _viewer_url(port, sid, inline=True)
@@ -3363,7 +3474,11 @@ def _view_subprocess(
         _vprint("[ArrayView] New tab injected into existing window", flush=True)
         return ViewHandle(url_viewer, sid, port)
 
-    can_native = _can_native_window()
+    can_native = (
+        launch_context.plan.display.value == "native"
+        if launch_context is not None
+        else _can_native_window()
+    )
     if window and can_native:
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
@@ -3374,6 +3489,8 @@ def _view_subprocess(
                 prefer_system_browser=window and not force_vscode,
                 title=f"ArrayView: {name}",
                 floating=floating,
+                launch_context=launch_context,
+                use_fallback=True,
             )
     else:
         # blocking=True when force_vscode so signal file is written before
@@ -3384,6 +3501,7 @@ def _view_subprocess(
             blocking=force_vscode,
             title=f"ArrayView: {name}",
             floating=floating,
+            launch_context=launch_context,
         )
     return ViewHandle(url_viewer, sid, port)
 
@@ -4759,26 +4877,26 @@ def arrayview():
         LaunchFailure,
         LaunchIntent,
         Registration,
-        plan_launch,
-        snapshot_launch_environment,
+        create_launch_context,
     )
 
-    launch_snapshot = snapshot_launch_environment(
-        args.port, Invocation.CLI, requested_window=args.window
-    )
-    launch_plan = plan_launch(
+    launch_context = create_launch_context(
         LaunchIntent(
             invocation=Invocation.CLI,
             port=args.port,
             requested_window=args.window,
             browser=args.browser,
-        ),
-        launch_snapshot,
+        )
     )
+    launch_snapshot = launch_context.evidence
+    launch_plan = launch_context.plan
     if os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
         from arrayview._launch_trace import configure_launch_trace
 
-        configure_launch_trace(role="parent")
+        configure_launch_trace(
+            launch_id=launch_context.launch_id,
+            role="parent",
+        )
         _trace_launch_event(
             "launch.started",
             invocation="cli",
@@ -4787,6 +4905,8 @@ def arrayview():
             environment=launch_plan.environment.value,
             vscode_terminal=launch_snapshot.in_vscode_terminal,
             vscode_remote=launch_snapshot.is_vscode_remote,
+            placement=launch_context.placement.value,
+            completion_target=launch_context.completion_target.value,
         )
         _trace_launch_event(
             "plan.selected",
@@ -4902,7 +5022,7 @@ def arrayview():
         # Warn if we can't find the IPC hook (multi-window targeting falls back to PID matching)
         from arrayview._platform import _find_vscode_ipc_hook as _check_ipc_hook
 
-        if not _is_vscode_remote() and not _check_ipc_hook():
+        if not launch_snapshot.is_vscode_remote and not _check_ipc_hook():
             # IPC hook not available — broadcast with focus guard handles this
             _vprint(
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
@@ -4930,6 +5050,7 @@ def arrayview():
             window_mode=window_mode,
             floating=args.floating,
             is_remote=is_remote,
+            launch_context=launch_context,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
@@ -4954,6 +5075,7 @@ def arrayview():
         window_mode=window_mode,
         floating=args.floating,
         is_remote=is_remote,
+        launch_context=launch_context,
         vectorfield=args.vectorfield,
         vfield_components_dim=vfield_components_dim,
         rgb=args.rgb,

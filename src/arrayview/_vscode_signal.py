@@ -388,6 +388,7 @@ def _open_via_signal_file(
     *,
     server_id: str | None = None,
     window_id: str | None = None,
+    is_remote: bool | None = None,
 ) -> SignalRequest:
     """Write the URL to the versioned ArrayView opener signal file.
 
@@ -428,7 +429,10 @@ def _open_via_signal_file(
     }
     from arrayview._vscode_extension import _VSCODE_EXT_VERSION
     payload["requiredExtensionVersion"] = _VSCODE_EXT_VERSION
-    if _is_vscode_remote():
+    remote_was_supplied = is_remote is not None
+    if is_remote is None:
+        is_remote = _is_vscode_remote()
+    if is_remote:
         payload["remoteOnly"] = True
     if window_id:
         payload["windowId"] = window_id
@@ -440,7 +444,10 @@ def _open_via_signal_file(
         payload["handoffPath"] = handoff_path
     if floating:
         payload["floating"] = True
-    written = _write_vscode_signal(payload, delay=delay)
+    if remote_was_supplied:
+        written = _write_vscode_signal(payload, delay=delay, is_remote=is_remote)
+    else:
+        written = _write_vscode_signal(payload, delay=delay)
     resolved_window_id = payload.get("windowId")
     return SignalRequest(
         request_id,
@@ -481,7 +488,13 @@ def _schedule_remote_open_retries(
     threading.Thread(target=_loop, daemon=True).start()
 
 
-def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = False) -> bool:
+def _write_vscode_signal(
+    payload: dict,
+    delay: float = 0.0,
+    skip_compat: bool = False,
+    *,
+    is_remote: bool | None = None,
+) -> bool:
     """Write a versioned control payload for the VS Code opener extension.
 
     Signal-file targeting strategy (in priority order):
@@ -506,6 +519,9 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
     """
     import hashlib
     from arrayview._platform import _find_vscode_ipc_hook
+
+    if is_remote is None:
+        is_remote = _is_vscode_remote()
 
     signal_dir = os.path.expanduser("~/.arrayview")
     try:
@@ -630,7 +646,7 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
 
         if targeted_via_env:
             pass  # filenames already set — skip to write logic below
-        elif (ipc_hook := _find_vscode_ipc_hook()) and not _is_vscode_remote():
+        elif (ipc_hook := _find_vscode_ipc_hook()) and not is_remote:
             own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
             data["hookTag"] = own_tag
 
@@ -709,7 +725,7 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                             _VSCODE_SIGNAL_FILENAME,
                             *_VSCODE_COMPAT_SIGNAL_FILENAMES,
                         )
-        elif not _is_vscode_remote():
+        elif not is_remote:
             # Local VS Code but no IPC hook found: try to find the current window
             # by matching our parent process tree against extension host PIDs.
             window_id = _find_current_vscode_window_id()

@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from arrayview._session import _vprint
 from arrayview._platform import _in_vscode_terminal, _is_vscode_remote
@@ -23,6 +24,9 @@ from arrayview._vscode_signal import (
     _schedule_remote_open_retries,
     _wait_for_vscode_ack,
 )
+
+if TYPE_CHECKING:
+    from arrayview._launch_plan import LaunchContext
 
 # Whether the "set port to Public" message has been printed this session.
 _remote_message_shown = False
@@ -89,7 +93,9 @@ def _server_id_for_url(url: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _print_viewer_location(url: str) -> None:
+def _print_viewer_location(
+    url: str, *, launch_context: "LaunchContext | None" = None
+) -> None:
     """Print a viewer location hint.
 
     In VS Code remote/tunnel sessions the plain ``http://localhost:<port>/``
@@ -104,7 +110,12 @@ def _print_viewer_location(url: str) -> None:
     query string is harmless and helps debugging.  We print the URL without
     ANSI styling so VS Code's detector matches it cleanly.
     """
-    if _is_vscode_remote():
+    is_remote = (
+        launch_context.evidence.is_vscode_remote
+        if launch_context is not None
+        else _is_vscode_remote()
+    )
+    if is_remote:
         print(url, flush=True)
         return
     _vprint(f"[ArrayView] {url}", flush=True)
@@ -117,6 +128,9 @@ def _open_browser(
     prefer_system_browser: bool = False,
     title: str | None = None,
     floating: bool = False,
+    *,
+    launch_context: "LaunchContext | None" = None,
+    use_fallback: bool = False,
 ) -> OpenResult:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
 
@@ -144,24 +158,56 @@ def _open_browser(
     )
 
     def _route() -> OpenResult:
-        # A failed explicit native-window launch may fall back to a browser,
-        # but it must not silently turn back into a VS Code tab. Remote VS Code
-        # still takes precedence because a browser on the remote host is not
-        # useful to the caller.
-        in_vscode = _in_vscode_terminal() and not prefer_system_browser
-        is_remote = _is_vscode_remote()
-        is_plain_ssh = (
-            not is_remote
-            and not in_vscode
-            and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
-        )
-        selected_adapter = (
-            "vscode"
-            if is_remote or force_vscode or in_vscode
-            else "ssh-guidance"
-            if is_plain_ssh
-            else "system-browser"
-        )
+        if launch_context is not None:
+            selected_display = (
+                launch_context.plan.fallback_display
+                if use_fallback
+                else launch_context.plan.display
+            )
+            if selected_display is None:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "launch-plan",
+                    "launch plan has no fallback display",
+                )
+            display_value = selected_display.value
+            placement = launch_context.placement.value
+            is_remote = placement == "vscode_remote"
+            in_vscode = placement == "vscode_local"
+            is_plain_ssh = placement == "ssh"
+            if display_value == "vscode":
+                selected_adapter = "vscode"
+            elif display_value == "browser":
+                selected_adapter = (
+                    "ssh-guidance" if is_plain_ssh else "system-browser"
+                )
+            else:
+                return OpenResult(
+                    OpenState.FAILED,
+                    "launch-plan",
+                    f"{display_value} is not a URL-opening adapter",
+                )
+        else:
+            # Compatibility path for internal callers not yet migrated to a
+            # LaunchContext. Public launch paths pass the captured context and
+            # therefore never re-detect their environment here.
+            in_vscode = _in_vscode_terminal() and not prefer_system_browser
+            is_remote = _is_vscode_remote()
+            is_plain_ssh = (
+                not is_remote
+                and not in_vscode
+                and bool(
+                    os.environ.get("SSH_CLIENT")
+                    or os.environ.get("SSH_CONNECTION")
+                )
+            )
+            selected_adapter = (
+                "vscode"
+                if is_remote or force_vscode or in_vscode
+                else "ssh-guidance"
+                if is_plain_ssh
+                else "system-browser"
+            )
         _trace_launch_event(
             "display.router_evaluated",
             force_vscode=force_vscode,
@@ -183,7 +229,7 @@ def _open_browser(
         except Exception:
             parsed_port = 8000
 
-        if is_remote:
+        if selected_adapter == "vscode" and is_remote:
             # Remote/tunnel: install extension + write signal file.
             ext_ok = _ensure_vscode_extension()
             from arrayview import _vscode_extension as _extension_state
@@ -201,6 +247,7 @@ def _open_browser(
                 title=title,
                 floating=floating,
                 server_id=_server_id_for_url(url),
+                is_remote=True,
             )
             _trace_launch_event(
                 "vscode.request_written",
@@ -235,7 +282,7 @@ def _open_browser(
                 ack.message or ack.state.value,
             )
 
-        if force_vscode or in_vscode:
+        if selected_adapter == "vscode":
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
             _configure_vscode_port_preview(parsed_port)
             ext_ok = _ensure_vscode_extension()
@@ -253,6 +300,7 @@ def _open_browser(
                 title=title,
                 floating=floating,
                 server_id=_server_id_for_url(url),
+                is_remote=False,
             )
             _trace_launch_event(
                 "vscode.request_written",
@@ -353,7 +401,9 @@ def _open_browser(
         _vprint(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
         if opened:
             mechanism = (
-                "vscode-signal" if (force_vscode or in_vscode) else "system-browser"
+                "vscode-signal"
+                if selected_adapter == "vscode"
+                else "system-browser"
             )
             state = (
                 OpenState.ACCEPTED

@@ -9,6 +9,49 @@ from arrayview import _vscode_browser as browser
 from arrayview._vscode_signal import AckState, SignalRequest
 
 
+def _context(
+    *,
+    requested_window: str,
+    environment: str,
+    invocation: str = "cli",
+    native_backend: str | None = None,
+    ssh: bool = False,
+):
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchEnvironmentSnapshot,
+        LaunchIntent,
+        ServerSnapshot,
+        create_launch_context,
+    )
+
+    env = Environment(environment)
+    inv = Invocation(invocation)
+    evidence = LaunchEnvironmentSnapshot(
+        invocation=inv,
+        requested_window=requested_window,
+        environment=env,
+        platform="linux",
+        env_vars={},
+        config_default=None,
+        native_backend=native_backend,
+        server=ServerSnapshot(8123, False, False),
+        in_jupyter=env is Environment.JUPYTER,
+        in_julia=env is Environment.JULIA,
+        in_vscode_terminal=env is Environment.VSCODE_LOCAL,
+        is_vscode_remote=env is Environment.VSCODE_REMOTE,
+        in_vscode_tunnel=env is Environment.VSCODE_REMOTE and not ssh,
+        ssh_connection=ssh,
+        ssh_client=ssh,
+        hostname="test-host",
+    )
+    return create_launch_context(
+        LaunchIntent(inv, 8123, requested_window=requested_window),
+        evidence,
+    )
+
+
 def _local(monkeypatch) -> None:
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: False)
     monkeypatch.setattr(browser, "_is_vscode_remote", lambda: False)
@@ -100,6 +143,165 @@ def test_native_fallback_bypasses_local_vscode(monkeypatch):
 
     assert opened == [["open", "http://localhost:8123/"]]
     assert result == browser.OpenResult(browser.OpenState.OPENED, "system-browser")
+
+
+@pytest.mark.parametrize("requested_window", ["browser", "native"])
+def test_planned_system_browser_cannot_be_overridden_by_vscode_detection(
+    monkeypatch, requested_window
+):
+    context = _context(
+        requested_window=requested_window,
+        environment="vscode_local",
+        native_backend=None,
+    )
+    assert context.plan.display.value == "browser"
+    monkeypatch.setattr(
+        browser,
+        "_in_vscode_terminal",
+        lambda: pytest.fail("planned route must not re-detect VS Code"),
+    )
+    monkeypatch.setattr(
+        browser,
+        "_is_vscode_remote",
+        lambda: pytest.fail("planned route must not re-detect remote placement"),
+    )
+    monkeypatch.setattr(browser.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        browser,
+        "_open_via_signal_file",
+        lambda *args, **kwargs: pytest.fail("planned browser must not signal VS Code"),
+    )
+    opened = []
+    monkeypatch.setattr(
+        browser.subprocess,
+        "run",
+        lambda args, **kwargs: opened.append(args)
+        or type("Completed", (), {"returncode": 0})(),
+    )
+
+    result = browser._open_browser(
+        "http://localhost:8123/",
+        blocking=True,
+        launch_context=context,
+    )
+
+    assert opened == [["open", "http://localhost:8123/"]]
+    assert result.mechanism == "system-browser"
+
+
+def test_planned_remote_vscode_passes_frozen_placement_to_signal(monkeypatch):
+    context = _context(
+        requested_window="vscode",
+        environment="vscode_remote",
+    )
+    monkeypatch.setattr(
+        browser,
+        "_in_vscode_terminal",
+        lambda: pytest.fail("planned route must not re-detect VS Code"),
+    )
+    monkeypatch.setattr(
+        browser,
+        "_is_vscode_remote",
+        lambda: pytest.fail("planned route must not re-detect remote placement"),
+    )
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: True)
+    monkeypatch.setattr(browser, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(browser, "_server_id_for_url", lambda url: "server-1")
+    captured = {}
+
+    def _signal(*args, **kwargs):
+        captured.update(kwargs)
+        return SignalRequest("request-1", "window-1", "server-1", Path("ack"), True)
+
+    monkeypatch.setattr(browser, "_open_via_signal_file", _signal)
+    monkeypatch.setattr(
+        browser,
+        "_wait_for_vscode_ack",
+        lambda request, timeout: SimpleNamespace(state=AckState.BACKEND_READY),
+    )
+
+    result = browser._open_browser(
+        "http://localhost:8123/",
+        blocking=True,
+        launch_context=context,
+    )
+
+    assert captured["is_remote"] is True
+    assert result.state is browser.OpenState.READY
+
+
+def test_planned_plain_ssh_guidance_survives_julia_host_classification(monkeypatch):
+    context = _context(
+        requested_window="browser",
+        environment="julia",
+        invocation="julia",
+        ssh=True,
+    )
+    monkeypatch.setattr(browser, "_ssh_message_shown", False)
+    monkeypatch.setattr(
+        browser,
+        "_is_vscode_remote",
+        lambda: pytest.fail("planned route must not re-detect remote placement"),
+    )
+
+    result = browser._open_browser(
+        "http://localhost:8123/",
+        blocking=True,
+        launch_context=context,
+    )
+
+    assert result == browser.OpenResult(browser.OpenState.PRINTED, "ssh-guidance")
+
+
+def test_python_native_watchdog_uses_the_planned_browser_fallback(monkeypatch):
+    import arrayview._launcher as launcher
+
+    context = _context(
+        requested_window="native",
+        environment="vscode_local",
+        invocation="python",
+        native_backend="cocoa",
+    )
+    assert context.plan.display.value == "native"
+    assert context.plan.fallback_display.value == "browser"
+
+    class FailedProcess:
+        pid = 123
+        returncode = 1
+        stderr = SimpleNamespace(read=lambda: b"native failed")
+
+        def poll(self):
+            return 1
+
+    class ImmediateThread:
+        def __init__(self, *, target, daemon):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    opened = []
+    monkeypatch.setattr(launcher, "_open_webview", lambda *args, **kwargs: FailedProcess())
+    monkeypatch.setattr(launcher.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(
+        launcher,
+        "_open_browser",
+        lambda url, **kwargs: opened.append((url, kwargs)),
+    )
+
+    launcher._open_webview_with_fallback(
+        "http://localhost:8123/shell",
+        800,
+        600,
+        launch_context=context,
+    )
+
+    assert opened == [
+        (
+            "http://localhost:8123/shell",
+            {"floating": False, "launch_context": context, "use_fallback": True},
+        )
+    ]
 
 
 def test_vscode_signal_reports_correlated_failure(monkeypatch):
