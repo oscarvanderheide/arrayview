@@ -5348,6 +5348,89 @@ def _isolate_view_planner(
 
 
 class TestViewDisplayRouting:
+    def test_matlab_embedding_is_not_treated_as_plain_script(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
+        monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: True)
+        monkeypatch.delattr(launcher.sys, "ps1", raising=False)
+
+        assert launcher._is_script_mode() is False
+
+    def test_ijulia_defaults_to_inline_kernel_side_effect(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        captured = {}
+        monkeypatch.setattr(launcher, "_is_julia_env", lambda: True)
+        monkeypatch.setattr(launcher, "_in_julia_jupyter", lambda: True)
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        _isolate_view_planner(monkeypatch, launcher)
+        monkeypatch.setattr(launcher._platform_mod, "_is_julia_env", lambda: True)
+
+        def _julia(*args, **kwargs):
+            captured.update(kwargs)
+            return "ijulia-result"
+
+        monkeypatch.setattr(launcher, "_view_julia", _julia)
+
+        result = launcher.view(np.zeros((4, 4), dtype=np.float32))
+
+        assert result == "ijulia-result"
+        assert captured["inline"] is True
+        assert captured["launch_context"].caller_scope.value == "kernel"
+        assert (
+            captured["launch_context"].completion_target.value
+            == "display_side_effect_emitted"
+        )
+
+    def test_python_runtime_port_race_never_kills_another_server(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+        import arrayview._session as session_mod
+
+        class _DummyEvent:
+            def clear(self):
+                return None
+
+            def wait(self, timeout=None):
+                return True
+
+        class _DummyThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                pass
+
+            def start(self):
+                return None
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
+        monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        _isolate_view_planner(monkeypatch, launcher)
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
+        monkeypatch.setattr(launcher, "_server_pid", lambda port: 9876)
+        monkeypatch.setattr(launcher, "_find_server_port", lambda port: (8124, False))
+        monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
+        monkeypatch.setattr(
+            launcher.os,
+            "kill",
+            lambda *args: pytest.fail("a port observation must never authorize kill"),
+        )
+        monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
+        monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
+
+        before_sids = set(session_mod.SESSIONS)
+        try:
+            handle = launcher.view(
+                np.zeros((4, 4), dtype=np.float32),
+                window=False,
+            )
+            assert handle.port == 8124
+        finally:
+            for sid in set(session_mod.SESSIONS) - before_sids:
+                session_mod.SESSIONS.pop(sid, None)
+
     def test_local_matlab_view_prefers_native_window(self, monkeypatch):
         import arrayview._launcher as launcher
         import arrayview._session as session_mod

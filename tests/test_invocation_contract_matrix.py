@@ -173,7 +173,7 @@ def test_foreign_port_policy_differs_only_at_remote_forwarding_boundary(platform
 
 
 @pytest.mark.parametrize("platform", SUPPORTED_OSES)
-def test_remote_native_request_preserves_vscode_fallback_contract(platform):
+def test_remote_native_request_never_falls_back_to_remote_system_browser(platform):
     remote_case = next(case for case in CONTRACT_CASES if case.name == "cli_vscode_remote")
 
     plan = plan_launch(
@@ -182,8 +182,8 @@ def test_remote_native_request_preserves_vscode_fallback_contract(platform):
     )
 
     assert plan.display is Display.VSCODE
-    assert plan.fallback_display is Display.BROWSER
-    assert plan.fallback_allowed
+    assert plan.fallback_display is None
+    assert not plan.fallback_allowed
     assert "remote_native_redirected_to_vscode" in plan.reasons
 
 

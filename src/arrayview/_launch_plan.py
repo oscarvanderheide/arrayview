@@ -62,6 +62,15 @@ class Placement(_StrEnum):
     SSH = "ssh"
 
 
+class CallerScope(_StrEnum):
+    CLI = "cli"
+    SCRIPT = "script"
+    INTERACTIVE = "interactive"
+    KERNEL = "kernel"
+    EMBEDDED = "embedded"
+    EXPLORER = "explorer"
+
+
 class Transport(_StrEnum):
     HTTP = "http"
     NONE = "none"
@@ -201,6 +210,7 @@ class LaunchContext:
     evidence: LaunchEnvironmentSnapshot
     plan: LaunchPlan
     placement: Placement
+    caller_scope: CallerScope
     completion_target: CompletionTarget
 
     def to_dict(self) -> dict:
@@ -212,6 +222,7 @@ def create_launch_context(
     evidence: LaunchEnvironmentSnapshot | None = None,
     *,
     launch_id: str | None = None,
+    caller_scope: CallerScope | str | None = None,
 ) -> LaunchContext:
     """Capture facts once and bind them to the resulting immutable plan."""
     snapshot = evidence or snapshot_launch_environment(
@@ -228,6 +239,11 @@ def create_launch_context(
         evidence=snapshot,
         plan=plan,
         placement=_placement(snapshot),
+        caller_scope=(
+            CallerScope(caller_scope)
+            if caller_scope is not None
+            else _caller_scope(intent.invocation, snapshot)
+        ),
         completion_target=_completion_target(intent.invocation, plan, snapshot),
     )
 
@@ -260,6 +276,20 @@ def _placement(evidence: LaunchEnvironmentSnapshot) -> Placement:
     if evidence.ssh_connection or evidence.ssh_client:
         return Placement.SSH
     return Placement.LOCAL
+
+
+def _caller_scope(
+    invocation: Invocation, evidence: LaunchEnvironmentSnapshot
+) -> CallerScope:
+    if invocation is Invocation.CLI:
+        return CallerScope.CLI
+    if invocation is Invocation.VSCODE_EXPLORER:
+        return CallerScope.EXPLORER
+    if invocation is Invocation.JUPYTER or evidence.in_jupyter:
+        return CallerScope.KERNEL
+    if invocation in {Invocation.JULIA, Invocation.MATLAB}:
+        return CallerScope.EMBEDDED
+    return CallerScope.INTERACTIVE
 
 
 def plan_launch(
@@ -411,14 +441,19 @@ def _display_policy(
         and environment in {Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE}
     ):
         reasons.append("vscode_environment" if window is None else "explicit_vscode")
+        if environment is Environment.VSCODE_REMOTE:
+            return Display.VSCODE, None, False
         return Display.VSCODE, Display.BROWSER, True
     if window == "browser":
+        if environment is Environment.VSCODE_REMOTE:
+            reasons.append("remote_browser_redirected_to_vscode")
+            return Display.VSCODE, None, False
         reasons.append("explicit_browser")
         return Display.BROWSER, None, False
     if window == "native":
         if environment is Environment.VSCODE_REMOTE:
             reasons.append("remote_native_redirected_to_vscode")
-            return Display.VSCODE, Display.BROWSER, True
+            return Display.VSCODE, None, False
         if native_available:
             reasons.append("explicit_native")
             return Display.NATIVE, Display.BROWSER, True

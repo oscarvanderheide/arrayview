@@ -2763,10 +2763,12 @@ def view(
     _explicit_window = bool(_window_request["explicit_window"])
 
     from arrayview._launch_plan import (
+        CallerScope,
         Display,
         Environment,
         Invocation,
         LaunchIntent,
+        Registration,
         create_launch_context,
     )
 
@@ -2774,6 +2776,8 @@ def view(
         _invocation = Invocation.JULIA
     elif _platform_mod._in_matlab():
         _invocation = Invocation.MATLAB
+    elif _in_jupyter():
+        _invocation = Invocation.JUPYTER
     else:
         _invocation = Invocation.PYTHON
 
@@ -2791,6 +2795,19 @@ def view(
     if _invocation is Invocation.JULIA and _raw_window is False:
         _requested_window = "inline"
         inline = True
+    _is_ijulia = _invocation is Invocation.JULIA and _in_julia_jupyter()
+    if _is_ijulia and not _explicit_window and not _explicit_inline:
+        _requested_window = "inline"
+        inline = True
+
+    if _invocation is Invocation.JUPYTER or _is_ijulia:
+        _caller_scope = CallerScope.KERNEL
+    elif _invocation is Invocation.MATLAB:
+        _caller_scope = CallerScope.EMBEDDED
+    elif _invocation is Invocation.PYTHON and _is_script_mode():
+        _caller_scope = CallerScope.SCRIPT
+    else:
+        _caller_scope = CallerScope.INTERACTIVE
 
     _launch_context = create_launch_context(
         LaunchIntent(
@@ -2800,7 +2817,8 @@ def view(
             inline=inline,
             window_explicit=_explicit_window,
             inline_explicit=_explicit_inline,
-        )
+        ),
+        caller_scope=_caller_scope,
     )
     _launch_snapshot = _launch_context.evidence
     _launch_plan = _launch_context.plan
@@ -2926,7 +2944,11 @@ def view(
             _vprint(
                 f"[ArrayView] Failed to register with --serve server: {e}", flush=True
             )
-            # Fall through to subprocess/in-process paths.
+            if _launch_plan.registration is Registration.HTTP_LOAD:
+                raise RuntimeError(
+                    "ArrayView could not register the session with the selected "
+                    "existing server"
+                ) from e
 
     from arrayview._render import _setup_rgb
 
@@ -2968,33 +2990,31 @@ def view(
     server_pid = _server_pid(port)
     our_pid = os.getpid()
     if server_pid is not None and server_pid != our_pid:
-        # A stale ArrayView server (different process) is on this port — sessions
-        # stored in our process won't be visible to it.  Kill it so we can bind.
+        # A compatible server appeared after the launch snapshot. Our in-memory
+        # sessions are not registered there, and port ownership alone is never
+        # authority to terminate another ArrayView process. Move this launch to
+        # a free port while keeping its captured ownership/display policy.
         _vprint(
-            f"[ArrayView] Stale server (pid {server_pid}) on port {port}, terminating it...",
+            f"[ArrayView] Another ArrayView server (pid {server_pid}) now owns "
+            f"port {port}; selecting a free port for this in-process session...",
             flush=True,
         )
-        import signal as _signal
-
-        try:
-            os.kill(server_pid, _signal.SIGTERM)
-        except Exception:
-            pass
-        # Wait up to 1 s for a clean exit, then SIGKILL.
-        for _ in range(10):
-            if not _port_in_use(port):
+        candidate = port + 1
+        for _ in range(4):
+            candidate, already_running = _find_server_port(candidate)
+            if not already_running:
+                _trace_launch_event(
+                    "server.revalidated",
+                    decision="alternate_port",
+                    previous_port=port,
+                    effective_port=candidate,
+                    observed_pid=server_pid,
+                )
+                port = candidate
                 break
-            time.sleep(0.1)
-        if _port_in_use(port):
-            try:
-                os.kill(server_pid, _signal.SIGKILL)
-            except Exception:
-                pass
-            # Wait up to 2 more seconds after SIGKILL.
-            for _ in range(20):
-                if not _port_in_use(port):
-                    break
-                time.sleep(0.1)
+            candidate += 1
+        else:
+            raise RuntimeError("Could not find a free port for the in-process server")
         server_pid = None  # treat as not alive
 
     if server_pid is None:
@@ -3007,11 +3027,14 @@ def view(
                     f"Choose a different port in view(..., port=...)."
                 )
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
-        if _launch_context.evidence.is_vscode_remote:
+        if (
+            _launch_context.evidence.is_vscode_remote
+            and _launch_plan.display is Display.VSCODE
+        ):
             _configure_vscode_port_preview(port)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
-        _script = _is_script_mode()
+        _script = _launch_context.caller_scope is CallerScope.SCRIPT
         threading.Thread(
             target=lambda: asyncio.run(
                 _serve_background(
@@ -3069,7 +3092,10 @@ def view(
             )
         _platform_mod._jupyter_server_port = port
     else:
-        if _launch_context.evidence.is_vscode_remote:
+        if (
+            _launch_context.evidence.is_vscode_remote
+            and _launch_plan.display is Display.VSCODE
+        ):
             _configure_vscode_port_preview(port)
         _platform_mod._jupyter_server_port = port  # server already ours on this port
         can_native_window = _launch_plan.display is Display.NATIVE
@@ -3209,7 +3235,7 @@ def view(
 
 def _is_script_mode() -> bool:
     """True when running as a plain Python script (not interactive REPL, not Jupyter, not Julia)."""
-    if _in_jupyter() or _is_julia_env():
+    if _in_jupyter() or _is_julia_env() or _platform_mod._in_matlab():
         return False
     if sys.flags.interactive or hasattr(sys, "ps1"):
         return False

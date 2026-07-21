@@ -287,3 +287,12 @@ such as Julia-over-SSH.
 **Fix:** Carry one immutable launch context through execution. Keep invocation
 host and observable placement orthogonal, and let lower adapters revalidate only
 their dynamic resources—not host placement, display choice, or fallback policy.
+
+## Launch Port Ownership
+
+**Problem:** Seeing another compatible ArrayView PID on a planned port does not
+mean the current launch owns or may terminate it; it may have appeared after the
+snapshot and may serve unrelated viewers.
+**Fix:** Treat port changes as revalidation. Reuse only through the planned
+registration contract, otherwise select a free port or return a typed failure.
+Never derive kill authority from a port or service name alone.

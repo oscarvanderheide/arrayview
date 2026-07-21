@@ -393,8 +393,20 @@ def test_explicit_native_redirects_to_vscode_in_remote():
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123, "native"), facts)
 
     assert plan.display.value == "vscode"
-    assert plan.fallback_allowed
+    assert plan.fallback_display is None
+    assert not plan.fallback_allowed
     assert "remote_native_redirected_to_vscode" in plan.reasons
+
+
+def test_explicit_browser_in_remote_vscode_stays_on_the_client_side():
+    from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
+
+    facts = _facts(environment=Environment.VSCODE_REMOTE, is_vscode_remote=True)
+    plan = plan_launch(LaunchIntent(Invocation.CLI, 8123, "browser"), facts)
+
+    assert plan.display.value == "vscode"
+    assert plan.fallback_display is None
+    assert "remote_browser_redirected_to_vscode" in plan.reasons
 
 
 def test_cli_browser_flag_and_config_precedence():
