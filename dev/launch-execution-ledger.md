@@ -30,34 +30,45 @@ PR.
 - [x] Ambient-sensitive lifecycle tests pass unchanged with compatible listeners active on both ports 8000 and 8123.
 - [x] Opt-in JSONL traces correlate caller, daemon, session, adapter, and cleanup without recording paths or data names.
 - [x] A real-subprocess Chromium gate observes the public CLI, server identity, SID readiness, display handoff, first frame, and process cleanup.
-- [ ] The exact `debug/parameter_maps.nii --window native` case has host evidence showing native or declared browser fallback and zero VS Code signal requests.
+- [x] The exact `debug/parameter_maps.nii --window native` case has host evidence showing one native first frame and zero VS Code signal requests.
 - [ ] A deterministic slow-registration barrier reproduces the ordering independently of file size.
 
 ## Known failures and evidence gaps
 
-- Explicit native execution is still split across an early preload attempt, a
-  post-TCP retry, and `_open_browser`; tracing must prove which adapter actually
-  won before this branch is migrated.
-- The current subprocess gate calls `_serve_daemon` directly. It proves daemon
-  shutdown but not the public CLI, display handoff, or built-wheel behavior.
+- The real local VS Code panel gate is not green yet. A temporary-profile
+  Extension Development Host reproduced and isolated the reload livelock, but
+  macOS keychain prompts contaminated post-fix first-frame validation.
 - Several `view()` tests mock `_launcher` aliases while the planner probes
   `_launch_plan` and `_platform` directly, so ambient ports, VS Code variables,
   config, and native dependencies can change their result.
-- Native, real VS Code Extension Host, tunnels, MATLAB, and notebook first-frame
-  readiness still require host evidence; mocked policy tests are not substitutes.
+- Real VS Code tunnel/reconnect, IJulia, and MATLAB still require host evidence;
+  mocked policy tests are not substitutes.
 
 ## 2026-07-21 exact native observation
 
 `debug/parameter_maps.nii --window native` was run with local VS Code-terminal
-facts and the Phase 0 trace. The plan selected native and wrote zero VS Code
-requests. The external behavior was still not acceptable:
+facts and the current trace. The plan selected native and wrote zero VS Code
+requests. One detached PyWebView process connected to the exact backend/SID,
+reported the correlated first frame, survived CLI exit, and reaped its transient
+daemon after the native window closed. The former speculative first process and
+double-open path have been removed.
 
-- the early native process advertised its ready flag but failed activation;
-- the CLI terminated that process and launched a second native process;
-- the second process reached only the shell WebSocket, not a viewer first frame;
-- no `viewer.connected` event occurred, and the transient daemon later exited.
+The same exact-frame and cleanup gate also passed from a Python script and from
+Julia/PythonCall. A real ipykernel inline render/shutdown and a real temporary
+`sshd` plus `ssh -L` browser workflow passed on the same date.
 
-This is a real failure, not a passing native gate. It confirms that the current
-two-attempt native path treats process/shell evidence as success too early. The
-Phase 2 slice must produce one serialized native attempt and require viewer
-first-frame evidence before reporting success.
+## 2026-07-21 local VS Code panel observation
+
+A real Extension Development Host accepted the exact request and loaded the
+viewer. Backend traces exposed a deterministic livelock: the wrapper reloaded
+the iframe 1.5 seconds after every load, even after `script-loaded`, repeatedly
+disconnecting a healthy viewer before its first frame. Version 0.14.51 cancels
+wrapper reloads after document bootstrap while keeping success gated on
+`frame-rendered`.
+
+After that change the test host held one stable WebSocket and completed wrapper,
+metadata, and title phases. Its fresh temporary macOS profile also raised a
+keychain modal, so the absence of a later frame is not counted as a valid
+product failure or pass. A same-origin headless iframe rendered the NIfTI and
+emitted `frame-rendered`. The remaining acceptance gate is 0.14.51 in an
+ordinary existing VS Code window, including tab disposal and daemon cleanup.

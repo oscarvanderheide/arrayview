@@ -271,8 +271,9 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
     env.update(
         {
             "TERM_PROGRAM": "vscode",
-            "ARRAYVIEW_WINDOW_ID": "test-window",
-            "HOME": str(tmp_path),
+                "ARRAYVIEW_WINDOW_ID": "test-window",
+                "ARRAYVIEW_LOCAL_VSCODE_REQUEST_LEASE_SECONDS": "0.2",
+                "HOME": str(tmp_path),
         }
     )
 

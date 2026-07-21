@@ -453,13 +453,13 @@ def test_vscode_request_deadline_matches_display_owner_lifetime():
 
     assert browser._vscode_request_max_age_ms(
         blocking=True, is_remote=False, launch_context=interactive_context
-    ) == 14_000
+    ) == 60_000
     assert browser._vscode_request_max_age_ms(
         blocking=True, is_remote=True, launch_context=interactive_context
     ) == 190_000
     assert browser._vscode_request_max_age_ms(
         blocking=False, is_remote=False, launch_context=script_context
-    ) == 14_000
+    ) == 60_000
     assert browser._vscode_request_max_age_ms(
         blocking=False, is_remote=True, launch_context=script_context
     ) == 190_000

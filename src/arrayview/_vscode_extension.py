@@ -47,7 +47,7 @@ def _vscode_app_bundle() -> str | None:
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
-_VSCODE_EXT_VERSION = "0.14.50"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.51"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:

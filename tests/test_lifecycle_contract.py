@@ -734,6 +734,7 @@ def test_persistent_daemon_bounds_failed_open_and_recoverable_disconnects():
     import arrayview._routes_websocket as websocket_routes
 
     assert launcher._PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS == 210.0
+    assert launcher._LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS == 70.0
     assert launcher._PERSIST_DAEMON_IDLE_SECONDS == 1800.0
     assert websocket_routes._RECOVERABLE_DISCONNECT_GRACE_SECONDS == 1800.0
 
@@ -810,6 +811,7 @@ def test_transient_daemon_exits_after_quick_viewer_disconnect(tmp_path):
 
 def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
     import arrayview._launcher as launcher
+    from types import SimpleNamespace
 
     spawned = []
 
@@ -834,6 +836,13 @@ def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
     )
     monkeypatch.setattr(launcher, "_open_cli_spawned_view", lambda **kwargs: None)
     monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid"})())
+    monkeypatch.setattr(
+        launcher, "_revalidate_launch_server", lambda context, port: port
+    )
+    launch_context = SimpleNamespace(
+        placement=SimpleNamespace(value="vscode_local"),
+        plan=SimpleNamespace(display=SimpleNamespace(value="vscode")),
+    )
 
     launcher._handle_cli_spawned_daemon(
         port=8000,
@@ -852,10 +861,12 @@ def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
         rgb=False,
         demo_name=None,
         demo_cleanup=False,
+        launch_context=launch_context,
     )
 
     assert spawned
     assert "persist=False" in spawned[0][0][2]
+    assert "connect_timeout=70.0" in spawned[0][0][2]
 
 
 def test_remote_vscode_spawned_daemon_keeps_backend_persistent(monkeypatch):
@@ -1058,7 +1069,7 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     assert "sessionMetadataUrlFromViewerUrl(url)" in source
     assert "expired before a panel could be opened" in source
     assert "serverReady && await httpStatus2xx(metadataUrl)" in source
-    assert "waitForViewerReady(panel)" in source
+    assert "waitForViewerReady(panel, viewerTimeoutMs)" in source
     assert "message.phase === 'frame-rendered'" in source
     assert "await viewerReady" in source
     assert "Viewer session did not become ready" in source
@@ -1177,7 +1188,8 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
         "vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)"
         in extension_source
     )
-    assert "const SIGNAL_HARD_TIMEOUT_MS = 185000" in extension_source
+    assert "const signalHardTimeoutMs = remainingSignalMs === null" in extension_source
+    assert "Math.max(1000, remainingSignalMs + 1000)" in extension_source
     assert "const TUNNEL_ROUTE_CACHE_FILE" in extension_source
     assert "function _asExternalUriAttempt(baseUri)" in extension_source
     assert "REMOTE: cached route ready" in extension_source

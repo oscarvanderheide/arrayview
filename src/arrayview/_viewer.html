@@ -5387,6 +5387,20 @@
             }
         }
 
+        window.addEventListener('error', (event) => {
+            reportParent('runtime-error', {
+                message: event.message || 'unknown error',
+                line: event.lineno || null,
+                column: event.colno || null,
+            });
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason;
+            reportParent('runtime-error', {
+                message: reason && reason.message ? reason.message : String(reason || 'unhandled rejection'),
+            });
+        });
+
         reportParent('script-loaded', {
             href: window.location.href,
             transport,
@@ -14228,7 +14242,9 @@
             for (let i = 0; i < shape.length; i++) flipDims[i] = false;
             // Phase 2: enter normal mode via modeManager (before restoreState so shims are live)
             const _bootSession = { sid: sid, ndim: shape.length, isComplex: isComplex, isRgb: rgbMode };
+            reportParent('initial-layout-start', { sid });
             await modeManager.enterMode(new NormalLayout(), [_bootSession]);
+            reportParent('initial-layout-ready', { sid });
             restoreStateFromSessionStorage();
             _syncRaggedShapeForCollection();
             _ensureViewingDimsAreSpatial();
@@ -14241,7 +14257,10 @@
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             if (!_useWsMeta) initWebSocket();
             _metadataProcessed = true;
-            if (_useWsMeta && wsReady) updateView();
+            if (_useWsMeta && wsReady) {
+                reportParent('initial-render-request', { sid });
+                updateView();
+            }
             void _seedInitialScopedVolumeRange();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();

@@ -2021,6 +2021,14 @@ def _handle_cli_spawned_daemon(
                 port, in_vscode=not is_remote, is_remote=is_remote
             )
 
+        daemon_connect_timeout = (
+            _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
+            if launch_context is not None
+            and launch_context.placement.value == "vscode_local"
+            and launch_context.plan.display.value == "vscode"
+            else None
+        )
+
         script = (
             f"from arrayview._launcher import _serve_daemon;"
             f"_serve_daemon("
@@ -2033,6 +2041,7 @@ def _handle_cli_spawned_daemon(
             f" vfield_filepath={repr(vfield_abs)},"
             f" vfield_components_dim={repr(vfield_components_dim)},"
             f" persist={is_remote},"
+            f" connect_timeout={repr(daemon_connect_timeout)},"
             f" rgb={rgb},"
             f" dir_patterns={repr(dir_patterns)},"
             f" dir_overlay_specs={repr(dir_overlay_specs)},"
@@ -2562,6 +2571,7 @@ _OVERLAY_PALETTE = ["d65b5b", "5aa66a", "5f84d7", "d5ad4f", "c06bb7", "55b9bd"]
 
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
 _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
+_LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS = 70.0
 # CLI-launched transient viewers should shut down promptly once the last viewer
 # closes. Keeping a warm idle daemon around caused native-window sessions to
 # appear orphaned after close.
@@ -3467,13 +3477,21 @@ def view(
                 _session_mod.SERVER_LOOP = None
                 _server_ready_event.clear()
                 _script = _launch_context.caller_scope is CallerScope.SCRIPT
-                _script_connect_timeout = (
-                    _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS
-                    if _script
-                    and _launch_context.placement.value == "vscode_remote"
-                    and _launch_plan.display is Display.VSCODE
-                    else _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
-                )
+                if _script and _launch_plan.display is Display.VSCODE:
+                    if _launch_context.placement.value == "vscode_remote":
+                        _script_connect_timeout = (
+                            _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS
+                        )
+                    elif _launch_context.placement.value == "vscode_local":
+                        _script_connect_timeout = (
+                            _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
+                        )
+                    else:
+                        _script_connect_timeout = (
+                            _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
+                        )
+                else:
+                    _script_connect_timeout = _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
                 threading.Thread(
                     target=lambda: asyncio.run(
                         _serve_background(
@@ -3931,6 +3949,13 @@ def _view_subprocess(
             and launch_context.placement.value == "vscode_remote"
             and launch_context.plan.display.value == "vscode"
         )
+        daemon_connect_timeout = (
+            _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
+            if launch_context is not None
+            and launch_context.placement.value == "vscode_local"
+            and launch_context.plan.display.value == "vscode"
+            else None
+        )
         from arrayview._instance_registry import InstanceRegistry
 
         daemon_proc = None
@@ -3954,7 +3979,8 @@ def _view_subprocess(
                     f"from arrayview._launcher import _serve_daemon;"
                     f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
                     f"name={repr(name)}, cleanup=True, "
-                    f"persist={persist_daemon}, rgb={rgb})"
+                    f"persist={persist_daemon}, "
+                    f"connect_timeout={repr(daemon_connect_timeout)}, rgb={rgb})"
                 )
                 daemon_proc = subprocess.Popen(
                     [sys.executable, "-c", script],
@@ -4117,6 +4143,7 @@ def _serve_daemon(
     vfield_filepath: str = None,
     vfield_components_dim: int | None = None,
     persist: bool = False,
+    connect_timeout: float | None = None,
     rgb: bool = False,
     dir_patterns: list[str] | None = None,
     dir_overlay_specs: list[tuple[str, str]] | None = None,
@@ -4334,7 +4361,14 @@ def _serve_daemon(
         # Transient CLI launches should stop as soon as the last viewer is
         # really gone, aside from the short grace period inside
         # _wait_for_viewer_close for page refreshes.
-        _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
+        _wait_for_viewer_close(
+            idle_seconds=_CLI_DAEMON_IDLE_SECONDS,
+            connect_timeout=(
+                _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
+                if connect_timeout is None
+                else connect_timeout
+            ),
+        )
     _trace_launch_event(
         "daemon.exiting",
         reason="viewer_lifecycle_complete",

@@ -37,13 +37,15 @@ Implemented on `feat/launch-tunnel-reliability`:
 - VS Code delivery has a durable request journal, exact claim ownership,
   owner-fenced monotonic ACKs, restart recovery, request-stable panel identity,
   deadline fencing, and stale-panel disposal protection;
-- the bundled VS Code opener is version 0.14.50 and that exact VSIX is installed
-  locally; a currently running 0.14.47 extension host still requires one window
-  reload before live validation;
+- the bundled VS Code opener is version 0.14.51. Its panel wrapper no longer
+  reloads a healthy iframe after `script-loaded`, readiness remains gated on
+  the exact `frame-rendered` message, and the local/remote request, caller, and
+  backend leases have an explicit bounded ordering;
 - focused public-path, ownership-race, process-cleanup, protocol-restart,
   reconnect, relay-rollback, deadline, and packaging tests cover the implemented
-  contracts. Current evidence is 218/218 launch-contract tests, all Node
-  extension tests, a passing package build, and 273/275 API tests; the two API
+  contracts. Current evidence is 280 launch-contract tests before this panel
+  slice, all Node extension tests including the panel-readiness state machine,
+  a passing package build, and 273/275 API tests; the two API
   failures are isolated pre-existing thumbnail rendering defects.
 - the dated macOS host run of
   `uv run arrayview debug/parameter_maps.nii --window native` under captured
@@ -52,6 +54,14 @@ Implemented on `feat/launch-tunnel-reliability`:
   signal, survived CLI exit, and automatically reaped its transient daemon when
   the test-owned native window closed. The speculative pre-server native window
   that caused double opens and parent-exit teardown has been removed.
+- dated host gates also pass for a Python-script native launch, Julia/PythonCall
+  native launch, a real ipykernel inline render and shutdown, and plain SSH with
+  an actual `ssh -L` forward. The local VS Code Extension Development Host
+  reproduced a destructive two-second reload loop; after the fix it held one
+  stable viewer connection, but its fresh temporary profile triggered a macOS
+  keychain modal and did not produce a valid first-frame host gate. A normal
+  existing VS Code window still needs 0.14.51 installation/reload and a real
+  frame/disposal run before this row is green.
 
 Still required before this plan is complete:
 
@@ -61,10 +71,9 @@ Still required before this plan is complete:
   point and finish `SessionSpec` production convergence;
 - run the independent-process concurrency/fault soak and the full scenario
   ledger;
-- collect dated real-host evidence for native GUI, local VS Code Extension
-  Development Host, VS Code tunnel/reconnect, ipykernel, Julia/IJulia, MATLAB,
-  and plain SSH. Automated component tests are not presented as proof of those
-  host boundaries.
+- finish the real local VS Code frame/disposal gate without a temporary-profile
+  keychain modal, plus VS Code tunnel/reconnect, IJulia, and MATLAB. Automated
+  component tests are not presented as proof of those host boundaries.
 
 ## Executive decision
 

@@ -68,6 +68,7 @@ jobs:
           node vscode-extension/test_lifecycle_helpers.js
           node vscode-extension/test_tunnel_resolution.js
           node vscode-extension/test_panel_replay.js
+          node vscode-extension/test_panel_readiness.js
           node vscode-extension/test_request_journal.js
           node vscode-extension/test_request_deadline.js
       - name: VS Code extension syntax

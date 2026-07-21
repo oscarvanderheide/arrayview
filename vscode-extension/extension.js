@@ -1284,7 +1284,9 @@ function _viewerPanelHtml(url) {
 const vscodeApi = acquireVsCodeApi();
 const arrayviewUrl = ${jsonUrl};
 const frame = document.getElementById('f');
+vscodeApi.postMessage({ type: 'panel-phase', phase: 'wrapper-started' });
 let viewerReady = false;
+let viewerLoaded = false;
 let reloadTimer = null;
 let reloadCount = 0;
 const MAX_RELOADS = 12;
@@ -1297,11 +1299,11 @@ function showBackendError() {
     frame.style.display = 'none';
 }
 function scheduleReload() {
-    if (viewerReady) return;
+    if (viewerReady || viewerLoaded) return;
     if (reloadTimer) { clearTimeout(reloadTimer); }
     reloadTimer = setTimeout(() => {
         reloadTimer = null;
-        if (viewerReady) return;
+        if (viewerReady || viewerLoaded) return;
         if (reloadCount >= MAX_RELOADS) { showBackendError(); return; }
         reloadCount++;
         console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
@@ -1317,12 +1319,16 @@ window.addEventListener('message', (event) => {
         return;
     }
     if (!msg || msg.source !== 'arrayview-viewer') return;
+    vscodeApi.postMessage({ type: 'viewer-phase', phase: msg.phase || 'unknown' });
     if (msg.phase === 'script-loaded') {
+        viewerLoaded = true;
+        if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
         console.log('[arrayview-opener] viewer script loaded; waiting for first frame');
         return;
     }
     if (msg.phase === 'frame-rendered') {
         if (!viewerReady) {
+            viewerLoaded = true;
             viewerReady = true;
             if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
             console.log('[arrayview-opener] viewer phase ' + msg.phase);
@@ -1332,6 +1338,7 @@ window.addEventListener('message', (event) => {
 });
 frame.addEventListener('load', () => {
     console.log('[arrayview-opener] iframe loaded ' + arrayviewUrl);
+    vscodeApi.postMessage({ type: 'panel-phase', phase: 'iframe-loaded' });
     scheduleReload();
 });
 frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
@@ -1356,6 +1363,9 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
             resolve(error);
         };
         messageSubscription = panel.webview.onDidReceiveMessage((message) => {
+            if (message?.type === 'panel-phase' || message?.type === 'viewer-phase') {
+                log(`PANEL: ${message.type} ${message.phase || 'unknown'}`);
+            }
             if (message?.type === 'viewer-ready' && message.phase === 'frame-rendered') {
                 finish();
             }
@@ -1375,7 +1385,8 @@ async function openInWebviewPanel(
     floating = false,
     backendUrl = null,
     requestKey = null,
-    serverId = null
+    serverId = null,
+    viewerTimeoutMs = 25000
 ) {
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
@@ -1387,7 +1398,7 @@ async function openInWebviewPanel(
         try {
             if (existing.__arrayviewUrl !== url) {
                 _readyPanels.delete(existing);
-                const viewerReady = waitForViewerReady(existing).then((error) => {
+                const viewerReady = waitForViewerReady(existing, viewerTimeoutMs).then((error) => {
                     if (!error) _readyPanels.add(existing);
                     return error;
                 });
@@ -1402,7 +1413,7 @@ async function openInWebviewPanel(
             log(`PANEL: revealed existing panel for ${url}`);
             return _readyPanels.has(existing)
                 ? Promise.resolve(null)
-                : waitForViewerReady(existing);
+                : waitForViewerReady(existing, viewerTimeoutMs);
         } catch (_) {
             _openPanels.delete(panelKey);
         }
@@ -1423,7 +1434,7 @@ async function openInWebviewPanel(
         }
     );
 
-    const viewerReady = waitForViewerReady(panel).then((error) => {
+    const viewerReady = waitForViewerReady(panel, viewerTimeoutMs).then((error) => {
         if (!error) _readyPanels.add(panel);
         return error;
     });
@@ -1691,7 +1702,10 @@ async function processSignalData(data) {
     // always releases so the 1s poll picks up queued signals again. The
     // The cancellation flag prevents a timed-out body from opening a panel or
     // overwriting the terminal failure ACK after the queue lock is released.
-    const SIGNAL_HARD_TIMEOUT_MS = 185000;
+    const remainingSignalMs = _remainingSignalMs(data);
+    const signalHardTimeoutMs = remainingSignalMs === null
+        ? 185000
+        : Math.max(1000, remainingSignalMs + 1000);
     const operation = { cancelled: false };
     let hardTimer = null;
     try {
@@ -1700,8 +1714,8 @@ async function processSignalData(data) {
             new Promise((_, reject) =>
                 hardTimer = setTimeout(() => {
                     operation.cancelled = true;
-                    reject(new Error(`processSignalData hard timeout after ${SIGNAL_HARD_TIMEOUT_MS}ms`));
-                }, SIGNAL_HARD_TIMEOUT_MS)
+                    reject(new Error(`processSignalData hard timeout after ${signalHardTimeoutMs}ms`));
+                }, signalHardTimeoutMs)
             ),
         ]);
     } catch (error) {
@@ -1810,6 +1824,10 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     }
     ensureActive();
     advanceAck('port_resolved');
+    const remainingViewerMs = _remainingSignalMs(data);
+    const viewerTimeoutMs = remainingViewerMs === null
+        ? 25000
+        : Math.max(1, remainingViewerMs);
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
@@ -1826,7 +1844,7 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             _pendingPlaceholders.delete(filePath);
             try {
                 ensureActive();
-                viewerReady = waitForViewerReady(placeholder.panel);
+                viewerReady = waitForViewerReady(placeholder.panel, viewerTimeoutMs);
                 placeholder.panel.webview.html = _viewerPanelHtml(openUrl);
                 placeholder.panel.__arrayviewUrl = openUrl;
                 placeholder.panel.title = data.title || placeholder.title;
@@ -1861,7 +1879,8 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             !!data.floating,
             data.url,
             panelKey,
-            data.serverId || null
+            data.serverId || null,
+            viewerTimeoutMs
         );
         log('openInWebviewPanel done');
         advanceAck('panel_opened');
@@ -2134,6 +2153,7 @@ module.exports = {
         _processSignalDataBody,
         _remainingSignalMs,
         tryOpenSignalFile,
+        _viewerPanelHtml,
         openInWebviewPanel,
         _openPanels,
         extensionInstanceId: EXTENSION_INSTANCE_ID,
