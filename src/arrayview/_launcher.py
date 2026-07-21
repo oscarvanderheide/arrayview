@@ -1146,6 +1146,7 @@ def _open_cli_existing_server_view(
         url,
         blocking=True,
         force_vscode=(window_mode == "vscode"),
+        prefer_system_browser=(window_mode == "native"),
         title=f"ArrayView: {name}",
         floating=floating,
     )
@@ -1527,9 +1528,12 @@ def _handle_cli_spawned_daemon(
             proc=early_native_shell_proc,
         )
 
-    should_retry_native_shell = use_native_shell and not (
-        early_native_shell_opened and not early_native_shell_connected
-    )
+    # A large file can keep the daemon busy long enough for the preload shell
+    # to hit the URL before the server starts listening.  The failed shell is
+    # terminated by _activate_early_cli_native_shell(), so retry once now that
+    # the backend is ready instead of dropping an explicit native request into
+    # the environment-default opener (a VS Code tab in integrated terminals).
+    should_retry_native_shell = use_native_shell
 
     _open_cli_spawned_view(
         port=port,
@@ -1609,6 +1613,7 @@ def _open_cli_spawned_view(
         url,
         blocking=True,
         force_vscode=(window_mode == "vscode"),
+        prefer_system_browser=(window_mode == "native"),
         title=f"ArrayView: {name}",
         floating=floating,
     )

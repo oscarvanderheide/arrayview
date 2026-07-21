@@ -2723,11 +2723,42 @@ class TestCliOpenHelpers:
                 "url": "http://localhost:8000/?sid=sid_base",
                 "blocking": True,
                 "force_vscode": True,
+                "prefer_system_browser": False,
                 "title": "ArrayView: base.npy",
                 "floating": True,
             }
         ]
         assert "filepath" not in opened[0]
+
+    def test_open_cli_existing_server_native_browser_path_bypasses_vscode(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        opened = []
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+
+        launcher._open_cli_existing_server_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid="sid_overlay",
+            dims_override=None,
+            notify_native_shell=False,
+            notified=False,
+            name="base.npy",
+            base_file="/tmp/base.npy",
+            watch=False,
+            window_mode="native",
+            floating=False,
+        )
+
+        assert opened[0]["force_vscode"] is False
+        assert opened[0]["prefer_system_browser"] is True
 
     def test_open_cli_existing_server_view_falls_back_when_native_never_connects(
         self, monkeypatch
@@ -2989,6 +3020,7 @@ class TestCliOpenHelpers:
                 "url": "http://localhost:8000/?sid=sid_base&overlay_sid=sid_overlay",
                 "blocking": True,
                 "force_vscode": False,
+                "prefer_system_browser": False,
                 "title": "ArrayView: base.npy",
                 "floating": True,
             }
@@ -3451,6 +3483,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(launcher.sys, "platform", "darwin")
         events = []
         opened = []
@@ -3524,6 +3557,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(launcher.sys, "platform", "linux")
         events = []
         opened = []
@@ -3578,7 +3612,7 @@ class TestCliOpenHelpers:
         assert opened[0]["use_native_shell"] is True
         assert opened[0]["native_shell_already_opened"] is False
 
-    def test_handle_cli_spawned_daemon_falls_back_when_early_native_never_connects(
+    def test_handle_cli_spawned_daemon_retries_when_early_native_never_connects(
         self, monkeypatch
     ):
         import arrayview._launcher as launcher
@@ -3600,6 +3634,7 @@ class TestCliOpenHelpers:
             "Popen",
             lambda cmd, *args, **kwargs: object(),
         )
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
@@ -3643,7 +3678,7 @@ class TestCliOpenHelpers:
         )
 
         assert terminated == [True]
-        assert opened[0]["use_native_shell"] is False
+        assert opened[0]["use_native_shell"] is True
         assert opened[0]["native_shell_already_opened"] is False
 
     def test_handle_cli_spawned_daemon_keeps_native_when_early_viewer_connects(
@@ -3651,6 +3686,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(launcher.sys, "platform", "darwin")
         opened = []
         terminated = []
@@ -3721,6 +3757,7 @@ class TestCliOpenHelpers:
     ):
         import arrayview._launcher as launcher
 
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         events = []
 
         monkeypatch.setattr(
