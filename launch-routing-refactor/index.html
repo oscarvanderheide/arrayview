@@ -1,0 +1,1471 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Launch Reliability Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#launch-reliability-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Launch Reliability Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stack-overlays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stack and Overlays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-the-problem-on-independent-axes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model The Problem On Independent Axes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#target-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Target Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-thin-invocation-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Thin invocation adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-one-fact-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. One fact snapshot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-one-pure-planner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. One pure planner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-instance-registry-identity-and-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Instance registry, identity, and compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-explicit-lifecycle-scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Explicit lifecycle scopes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-display-openers-return-acknowledgements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Display openers return acknowledgements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-tunnel-setup-becomes-managed-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Tunnel setup becomes managed state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-registration-adapters-share-one-semantic-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Registration adapters share one semantic contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recovery-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recovery Policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#user-facing-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        User-Facing Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Phases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Phases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-baseline-and-executable-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Baseline and executable contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-complete-the-planner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Complete the planner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-instance-manager-and-safe-self-healing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Instance manager and safe self-healing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-display-opener-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Display opener protocol
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-vs-code-ack-and-tunnel-reconciliation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: VS Code ACK and tunnel reconciliation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-registration-and-foreign-host-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Registration and foreign-host adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-cross-platform-gate-and-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: Cross-platform gate and rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remote-tunnel-test-handoff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote tunnel test handoff
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#success-measures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Success Measures
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit Non-Goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-first-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended First Slice
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="launch-reliability-plan">Launch Reliability Plan</h1>
+<p>Status: implementation in progress, 2026-07-10. This supersedes the first
+launch-routing plan.
+The earlier work added environment snapshots and several targeted fixes, but the
+shared planner and end-to-end recovery protocol were not completed.</p>
+<p>Current implementation status:</p>
+<ul>
+<li>complete locally: executable planner, CLI and <code>view()</code> display execution,
+  diagnostics, invocation matrix, instance identity/registry/startup lock,
+  identity-safe stop, explicit handle cleanup, structured opener results,
+  versioned VS Code request/ACK, verified backend readiness, doctor/instances/
+  stop commands, host docs, bundled VSIX, and three-OS CI configuration;</li>
+<li>foundation complete: shared <code>SessionSpec</code> and registration capability model;</li>
+<li>real tunnel evidence on 2026-07-11: single-window ACK/identity, exact
+  multi-window routing, simultaneous launch convergence, forwarded URL and
+  automatic public privacy, owned-crash recovery, and foreign-port safety
+  passed; disconnect/reconnect remains blocked. The simultaneous-launch defect
+  was fixed in extension 0.14.38 with unique disk-backed request queue files;</li>
+<li>still future work: authenticated viewer access for public tunnel exposure,
+  full registration migration to <code>SessionSpec</code>, and automatic browser/notebook
+  lease expiry beyond explicit close/panel release.</li>
+</ul>
+<h2 id="outcome">Outcome</h2>
+<p>Opening ArrayView should become boring:</p>
+<ul>
+<li>the same request behaves consistently from the CLI, Python, Jupyter, MATLAB,
+  Julia, a VS Code terminal, or the VS Code Explorer;</li>
+<li>local, SSH, and VS Code tunnel launches select the correct display without the
+  caller knowing about ports or server processes;</li>
+<li>repeated launches and several simultaneous VS Code windows reuse the correct
+  backend and open in the originating window;</li>
+<li>crashed or outdated ArrayView backends recover automatically when safe;</li>
+<li>ArrayView never kills an unrelated process because it happens to own a port;</li>
+<li><code>--diagnose</code> explains the exact plan that real execution will use;</li>
+<li>Windows is a supported CI target even though the primary development machines
+  are macOS and Linux.</li>
+</ul>
+<p>This is a lifecycle and routing redesign. It is not a sequence of extra
+environment checks in <code>_launcher.py</code>.</p>
+<h2 id="current-state">Current State</h2>
+<p>The repository already has useful foundations:</p>
+<ul>
+<li><code>_launch_plan.py</code> defines launch dimensions and an environment snapshot;</li>
+<li><code>_platform.py</code> detects Jupyter, MATLAB, Julia, VS Code, SSH, and native GUI
+  capability;</li>
+<li>the FastAPI <code>/ping</code> route identifies ArrayView servers;</li>
+<li>the VS Code extension registers windows, forwards ports, resolves external
+  URIs, and opens webview panels;</li>
+<li><code>.mex/context/lifecycle.md</code> defines ownership and shutdown expectations;</li>
+<li><code>tests/lifecycle_matrix.py</code> groups several lifecycle checks.</li>
+</ul>
+<p>The foundation is incomplete:</p>
+<ul>
+<li><code>LaunchPlan</code> exists, but <code>plan_launch(...)</code> does not;</li>
+<li>CLI and <code>view()</code> still compute policy through separate helpers and branches in
+  <code>_launcher.py</code>;</li>
+<li><code>--diagnose</code> independently reconstructs policy instead of printing the plan
+  used by execution;</li>
+<li>port discovery, backend identity, compatibility, ownership, and stale-process
+  recovery are not represented as one atomic decision;</li>
+<li>opening a VS Code tab is an asynchronous signal-file attempt, not a
+  request/acknowledgement protocol;</li>
+<li>predictable tunnel ports and public visibility are operational requirements,
+  but setup, readiness, and failure recovery are spread across Python and the
+  extension;</li>
+<li>MATLAB is detected as a special host but is absent from the launch model;</li>
+<li>automated tests cover many helpers, but not the complete invocation x host x
+  lifecycle contract.</li>
+</ul>
+<h2 id="model-the-problem-on-independent-axes">Model The Problem On Independent Axes</h2>
+<p>Do not encode combinations such as "VS Code Julia over SSH" as special modes.
+Represent the axes independently:</p>
+<table>
+<thead>
+<tr>
+<th>Axis</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Invocation</td>
+<td>CLI, Python API, VS Code Explorer, MATLAB bridge, Julia bridge</td>
+</tr>
+<tr>
+<td>Host</td>
+<td>terminal, Jupyter kernel, MATLAB, Julia/IJulia</td>
+</tr>
+<tr>
+<td>Placement</td>
+<td>local, plain SSH, VS Code remote/tunnel</td>
+</tr>
+<tr>
+<td>OS</td>
+<td>macOS, Linux, Windows</td>
+</tr>
+<tr>
+<td>Display intent</td>
+<td>auto, native, browser, VS Code, inline, none</td>
+</tr>
+<tr>
+<td>Server scope</td>
+<td>transient viewer, caller-owned, kernel-owned, persistent user server</td>
+</tr>
+<tr>
+<td>Server state</td>
+<td>absent, compatible, incompatible, stale record, foreign port owner</td>
+</tr>
+<tr>
+<td>Registration</td>
+<td>in-process array, HTTP file load, HTTP byte upload, daemon startup, relay</td>
+</tr>
+</tbody>
+</table>
+<p>The full Cartesian product is too large to hand-code or manually test. The
+planner applies orthogonal rules, and tests cover each rule plus high-risk
+pairwise combinations.</p>
+<h2 id="target-architecture">Target Architecture</h2>
+<div class="highlight"><pre><span></span><code>CLI / view() / Jupyter / MATLAB / Julia / VS Code Explorer
+                         |
+                  normalized LaunchIntent
+                         |
+             snapshot facts + discover instances
+                         |
+               pure plan_launch(intent, facts)
+                         |
+           LaunchPlan + ordered recovery actions
+                         |
+       +-----------------+------------------+
+       |                 |                  |
+ server executor   registration adapter   display opener
+       |                 |                  |
+       +---------- launch result -----------+
+                         |
+            request id, URL, server id, ACK
+</code></pre></div>
+<h3 id="1-thin-invocation-adapters">1. Thin invocation adapters</h3>
+<p>Each public entry point only validates input and builds a <code>LaunchIntent</code>.
+It does not detect environments, choose a port, kill a process, or choose a
+fallback display.</p>
+<p>Add explicit invocations for <code>vscode_explorer</code>, <code>matlab</code>, and <code>julia</code>; Jupyter
+is a host/placement fact as well as a display option. Preserve the existing API
+surface while converting it internally.</p>
+<h3 id="2-one-fact-snapshot">2. One fact snapshot</h3>
+<p>Extend <code>LaunchEnvironmentSnapshot</code> into the only source of launch facts. It
+must be immutable and cheap to build before importing NumPy or the server stack.
+Include:</p>
+<ul>
+<li>OS, host, local/SSH/tunnel placement, notebook state, and GUI backend;</li>
+<li>requested and configured display intent, with the source of the choice;</li>
+<li>candidate ArrayView instances and their protocol/package versions;</li>
+<li>port owner state: free, compatible ArrayView, incompatible ArrayView, or
+  foreign process;</li>
+<li>exact VS Code window registration and extension capability/version;</li>
+<li>whether tunnel forwarding, external URI resolution, and required privacy are
+  confirmed—not merely requested.</li>
+</ul>
+<p>Detection functions return evidence and confidence. A cached heuristic must
+not silently override a later explicit fact.</p>
+<h3 id="3-one-pure-planner">3. One pure planner</h3>
+<p>Implement:</p>
+<div class="highlight"><pre><span></span><code><span class="n">plan_launch</span><span class="p">(</span><span class="n">intent</span><span class="p">:</span> <span class="n">LaunchIntent</span><span class="p">,</span> <span class="n">facts</span><span class="p">:</span> <span class="n">LaunchFacts</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LaunchPlan</span>
+</code></pre></div>
+<p>The plan is data-only and serializable. It selects:</p>
+<ul>
+<li>server instance and ownership scope;</li>
+<li>transport and registration adapter;</li>
+<li>display opener and fallback chain;</li>
+<li>port policy;</li>
+<li>recovery actions and which are safe automatically;</li>
+<li>lifecycle release policy;</li>
+<li>user-visible warnings or terminal errors;</li>
+<li>reasons for every non-default decision.</li>
+</ul>
+<p>CLI, <code>view()</code>, <code>--serve</code>, Explorer opens, bridges, and <code>--diagnose</code> must all use
+this same function. Executors may report that an action failed, but they must
+return to the planner for a fallback instead of inventing policy.</p>
+<h3 id="4-instance-registry-identity-and-compatibility">4. Instance registry, identity, and compatibility</h3>
+<p>Stop treating a port as the identity of a backend. Maintain an atomic,
+per-user runtime registry outside the repository. Each entry contains:</p>
+<ul>
+<li>random server instance ID and management token;</li>
+<li>PID plus process start identity, hostname, port, and start time;</li>
+<li>ArrayView package version and launch-protocol version;</li>
+<li>owner scope and owner ID (viewer, process, kernel, or persistent user);</li>
+<li>capabilities and last successful health check.</li>
+</ul>
+<p>Use a filesystem lock around discovery/startup so two simultaneous launches do
+not start competing daemons. Validate PID and process-start identity to avoid PID
+reuse. Treat missing processes as stale records and clean records automatically.</p>
+<p>A port hosting another application is a foreign owner. Never kill it. Either
+choose another port or, where a stable tunnel port is explicitly required, fail
+with a precise explanation. Replace an ArrayView instance automatically only
+when identity and ownership prove that it is safe and the requested server scope
+permits replacement.</p>
+<p>The health handshake must distinguish:</p>
+<ul>
+<li>alive and protocol-compatible: reuse;</li>
+<li>alive and backward-compatible: reuse through advertised capabilities;</li>
+<li>alive but incompatible: start a separate instance or request an explicit
+  upgrade/restart;</li>
+<li>dead/stale registry entry: remove and restart;</li>
+<li>TCP listener that is not ArrayView: leave untouched.</li>
+</ul>
+<p>Make <code>8000</code> the canonical explicit/default port for both CLI and <code>view()</code>.
+During one compatibility release, discover a healthy legacy API server on
+<code>8123</code>, report that migration in diagnostics, and reuse it only when the plan
+says compatibility is safe. Local automatic fallback ports are registry-owned
+implementation details; tunnel/persistent ports remain stable configuration.</p>
+<p>Server startup is a transaction: acquire the scope lock, recheck discovery,
+spawn with an expected nonce and retained log/process handle, wait for an HTTP
+status matching nonce, PID, instance ID, and protocol, register the session,
+verify that exact SID, then open the display. On failure, clean temporary state
+and terminate only the process identity created by this transaction.</p>
+<h3 id="5-explicit-lifecycle-scopes">5. Explicit lifecycle scopes</h3>
+<p>Use a small set of ownership contracts:</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Used by</th>
+<th>Lifetime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transient viewer</td>
+<td>ordinary CLI/browser/native launch</td>
+<td>through the last attached viewer</td>
+</tr>
+<tr>
+<td>Caller-owned</td>
+<td>long-running Python process</td>
+<td>explicit handle close or caller shutdown policy</td>
+</tr>
+<tr>
+<td>Kernel-owned</td>
+<td>Jupyter/IJulia</td>
+<td>through kernel lifetime; iframe loss is not a hard kill</td>
+</tr>
+<tr>
+<td>Persistent user</td>
+<td><code>--serve</code>, tunnel workflows that opt into persistence</td>
+<td>explicit stop or managed idle policy</td>
+</tr>
+</tbody>
+</table>
+<p>Sessions are reference-counted independently from servers. Every display open
+receives a lease token; explicit panel/window close releases that lease. A crash
+is handled by heartbeat/expiry, not by assuming every WebSocket disappearance is
+intentional. Starting a new invocation must never require manual <code>--kill</code> for a
+stale registry or dead ArrayView process.</p>
+<p>Keep <code>--kill</code> as an administrative command, but change it to target a proven
+ArrayView instance ID or all owned ArrayView instances. A port alone is not
+sufficient authority. A separately named <code>--force-kill-port</code> may remain as an
+explicit dangerous escape hatch, with confirmation and no use in normal repair.</p>
+<h3 id="6-display-openers-return-acknowledgements">6. Display openers return acknowledgements</h3>
+<p>Define one interface for native, browser, inline, VS Code, and no-display
+openers. An opener returns a structured result: accepted, ready, timed out,
+unsupported, or failed, with evidence.</p>
+<p>For VS Code, replace fire-and-forget signaling with a request protocol:</p>
+<ol>
+<li>Python writes an atomic request containing request ID, exact window ID,
+   server identity, local URL, expiry, and required capabilities.</li>
+<li>Only the registered target window claims it.</li>
+<li>The extension ensures forwarding and the required privacy, calls
+   <code>asExternalUri</code>, verifies backend health from the extension host, and creates
+   or reuses the panel.</li>
+<li>The extension writes an ACK containing the resolved URL, panel ID, and
+   forwarding state, or a typed error.</li>
+<li>Python waits for the ACK with a bounded timeout and applies the planned
+   fallback or prints one actionable diagnostic.</li>
+</ol>
+<p>Shared/broadcast signaling remains only as a compatibility fallback. With
+multiple windows and no provable target, fail closed; never guess which window
+the user meant.</p>
+<h3 id="7-tunnel-setup-becomes-managed-state">7. Tunnel setup becomes managed state</h3>
+<p>The extension—not shell instructions—owns VS Code port forwarding. The desired
+state is explicit: port, protocol, privacy, source instance, and external URI.
+It reconciles this state on activation, server restart, panel reopen, and tunnel
+reconnect.</p>
+<p>Because a public forwarded port may be reachable beyond the current user, add
+an unguessable per-instance access token to viewer HTTP/WebSocket requests before
+making automatic public exposure the default. Do not put reusable management
+credentials in viewer URLs or logs.</p>
+<p>First prototype a supported private extension-host proxy/tunnel that carries
+both HTTP and WebSocket traffic. Prefer it if it removes the public-port
+requirement. Do not depend on VS Code's private <code>remote.tunnel.privacypublic</code>
+command as the only production path. If public forwarding remains necessary,
+capability authentication and explicit verified privacy state are release
+blockers.</p>
+<p>If a tunnel platform cannot programmatically set the required privacy, the ACK
+must report <code>manual_privacy_required</code> and identify the exact port. The user does
+the manual step once; subsequent launches confirm and reuse it.</p>
+<h3 id="8-registration-adapters-share-one-semantic-contract">8. Registration adapters share one semantic contract</h3>
+<p>File load, byte upload, in-process arrays, Julia/MATLAB serialization, relay,
+compare, overlay, RGB, directories, and array-key selection must yield the same
+<code>SessionSpec</code>. Centralize validation and feature capability checks before
+transport-specific execution.</p>
+<p>MATLAB and Julia are adapters, not environment exceptions inside <code>view()</code>:</p>
+<ul>
+<li>both use an out-of-process server path where host/GIL constraints require it;</li>
+<li>both pass serialized intent and receive a structured launch result;</li>
+<li>Julia terminal and IJulia select different display openers through facts;</li>
+<li>MATLAB desktop, batch, and remote sessions are separately classified;</li>
+<li>unsupported combinations fail before a server is started and say exactly what
+  is unsupported.</li>
+</ul>
+<p>The VS Code Explorer adapter must use an explicitly configured or VS Code
+Python-extension-selected interpreter. It must not independently guess a
+workspace <code>.venv</code>, <code>uv</code>, or <code>python3</code> and silently launch a different ArrayView
+version from the terminal/notebook environment.</p>
+<h2 id="recovery-policy">Recovery Policy</h2>
+<p>Recovery should be automatic only when ArrayView can prove ownership.</p>
+<table>
+<thead>
+<tr>
+<th>Failure</th>
+<th>Automatic action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Registry entry exists, process is gone</td>
+<td>remove record and start a compatible instance</td>
+</tr>
+<tr>
+<td>Compatible ArrayView instance is healthy</td>
+<td>reuse it</td>
+</tr>
+<tr>
+<td>Owned transient ArrayView is hung</td>
+<td>authenticated graceful stop, then replace</td>
+</tr>
+<tr>
+<td>Foreign process owns preferred local port</td>
+<td>select another port</td>
+</tr>
+<tr>
+<td>Foreign process owns required tunnel port</td>
+<td>stop with exact port-owner diagnostic</td>
+</tr>
+<tr>
+<td>Exact VS Code target is stale and one window exists</td>
+<td>refresh registration, then retry once</td>
+</tr>
+<tr>
+<td>Exact VS Code target is unknown and several windows exist</td>
+<td>fail closed with window-target diagnostic</td>
+</tr>
+<tr>
+<td>Extension is missing/outdated</td>
+<td>install/update once, wait for activation ACK, retry once</td>
+</tr>
+<tr>
+<td>Forwarded port disappeared</td>
+<td>extension recreates it and resolves a fresh external URI</td>
+</tr>
+<tr>
+<td>Native opener fails</td>
+<td>use the plan's browser fallback; do not change server ownership</td>
+</tr>
+<tr>
+<td>Caller crashes</td>
+<td>lease expires; release session; stop transient server when last lease is gone</td>
+</tr>
+</tbody>
+</table>
+<p>Every retry has an idempotency key and a fixed budget. Avoid layered Python and
+extension retry loops that multiply attempts.</p>
+<h2 id="user-facing-contract">User-Facing Contract</h2>
+<p>Keep the common path quiet. On failure, print one summary and one next action.</p>
+<p>Add:</p>
+<div class="highlight"><pre><span></span><code>arrayview doctor
+arrayview doctor --json
+arrayview instances
+arrayview stop &lt;instance-id&gt;
+arrayview stop --all
+</code></pre></div>
+<p><code>doctor</code> calls the same snapshot and planner as launch, then performs optional
+non-destructive probes. It should show:</p>
+<ul>
+<li>detected invocation/host/placement/OS;</li>
+<li>requested display and where that preference came from;</li>
+<li>chosen server, transport, display, target VS Code window, and fallback;</li>
+<li>instance compatibility and ownership evidence;</li>
+<li>tunnel forwarding/privacy/extension state;</li>
+<li>typed warnings with copyable remediation.</li>
+</ul>
+<p>Keep <code>--diagnose</code> as a deprecated alias until users have migrated. Add a short
+request ID to verbose output so Python and extension logs can be correlated.
+Add extension commands for ArrayView status, repair connection, and open/copy
+redacted diagnostics; the blank/error panel should expose those same actions.</p>
+<h2 id="implementation-phases">Implementation Phases</h2>
+<p>Each phase lands as a separate feature branch/PR and preserves behavior unless
+its acceptance criteria explicitly change it.</p>
+<h3 id="phase-0-baseline-and-executable-contract">Phase 0: Baseline and executable contract</h3>
+<ul>
+<li>inventory every public entry point and current ownership rule;</li>
+<li>turn the lifecycle table into parameterized contract fixtures;</li>
+<li>record current known failures without encoding accidental behavior as the new
+  contract;</li>
+<li>add deterministic fakes for OS, process table, ports, clocks, VS Code windows,
+  and extension acknowledgements.</li>
+<li>lock down known platform hazards: local Linux VS Code versus remote/tunnel
+  classification, exact macOS multi-window routing, and Windows parent-process,
+  interpreter, process-control, and SSH-guidance behavior.</li>
+</ul>
+<p>Exit: every supported combination has an owner in the matrix and is marked
+automated, CI-emulated, or manual hardware verification.</p>
+<h3 id="phase-1-complete-the-planner">Phase 1: Complete the planner</h3>
+<ul>
+<li>add <code>LaunchIntent</code>, richer facts, <code>plan_launch</code>, reasons, and typed failures;</li>
+<li>route <code>--diagnose</code>/<code>doctor</code> through the planner;</li>
+<li>adapt CLI and <code>view()</code> to execute plans without changing launch behavior;</li>
+<li>delete the old resolver helpers only after parity tests prove they are unused.</li>
+</ul>
+<p>Exit: the executed plan and diagnosed plan are byte-for-byte equivalent after
+removing volatile fields; no launch policy remains in CLI/API executors.</p>
+<h3 id="phase-2-instance-manager-and-safe-self-healing">Phase 2: Instance manager and safe self-healing</h3>
+<ul>
+<li>add locked instance discovery, identity handshake, compatibility negotiation,
+  and lease management;</li>
+<li>migrate <code>--serve</code>, reuse, stale cleanup, and stop operations;</li>
+<li>remove blind port-based process killing;</li>
+<li>add simultaneous-launch, crash, PID-reuse, version-skew, and foreign-port
+  process tests.</li>
+</ul>
+<p>Exit: 100 concurrent launch-planning/start attempts create at most one instance
+per intended scope; stale ArrayView state needs no manual <code>--kill</code>; foreign
+processes are never terminated.</p>
+<h3 id="phase-3-display-opener-protocol">Phase 3: Display opener protocol</h3>
+<ul>
+<li>define structured opener results and fallback execution;</li>
+<li>make native/browser/inline openers conform;</li>
+<li>add request IDs and readiness evidence;</li>
+<li>ensure display failure cannot silently mutate registration or server policy.</li>
+</ul>
+<p>Exit: each opener has deterministic timeout/failure tests, and fallback follows
+the serialized plan exactly.</p>
+<h3 id="phase-4-vs-code-ack-and-tunnel-reconciliation">Phase 4: VS Code ACK and tunnel reconciliation</h3>
+<ul>
+<li>add versioned request/ACK files or a local authenticated IPC channel;</li>
+<li>make exact window targeting mandatory when several windows are registered;</li>
+<li>move forwarding/privacy/external-URI readiness behind the extension ACK;</li>
+<li>evaluate and select the supported private-proxy path or the authenticated
+  public-forwarding fallback before migration;</li>
+<li>reconcile tunnel state after reconnect and backend restart;</li>
+<li>keep one release of compatibility with existing signal files;</li>
+<li>add viewer access tokens before automatic public exposure.</li>
+</ul>
+<p>Exit: repeated launches from two local and two tunnel windows always open in the
+originating window; a tunnel reconnect or server restart recovers without VS
+Code reload, manual <code>--kill</code>, or rewriting port settings.</p>
+<h3 id="phase-5-registration-and-foreign-host-adapters">Phase 5: Registration and foreign-host adapters</h3>
+<ul>
+<li>converge all transports on <code>SessionSpec</code>;</li>
+<li>move MATLAB and Julia to explicit adapters;</li>
+<li>cover Jupyter, IJulia, MATLAB desktop/batch, VS Code Explorer, file keys,
+  compare, overlays, and directory registration;</li>
+<li>negotiate capabilities when a compatible older server is reused.</li>
+</ul>
+<p>Exit: equivalent data/options produce equivalent session metadata across every
+adapter, or a typed preflight error before side effects.</p>
+<h3 id="phase-6-cross-platform-gate-and-rollout">Phase 6: Cross-platform gate and rollout</h3>
+<ul>
+<li>run planner and process tests on macOS, Ubuntu, and Windows CI;</li>
+<li>run extension tests on Linux and Windows path/filesystem semantics;</li>
+<li>keep macOS/Linux native and real tunnel smoke checks as scheduled/manual jobs;</li>
+<li>add upgrade tests with the previous released Python package and VSIX;</li>
+<li>publish concise migration/recovery docs after the implementation stabilizes.</li>
+</ul>
+<p>Exit: the support matrix is green, compatibility behavior is documented, and
+release notes contain no routine instruction to use <code>--kill</code> or reload VS Code.</p>
+<h3 id="remote-tunnel-test-handoff">Remote tunnel test handoff</h3>
+<p>At the end of every tunnel-sensitive phase, and once more at the end of the
+complete implementation, write or refresh:</p>
+<div class="highlight"><pre><span></span><code>dev/launch-tunnel-test-handoff.md
+</code></pre></div>
+<p>This is an executable handoff for another agent running inside a real VS Code
+remote tunnel window. It must contain:</p>
+<ul>
+<li>commit and branch under test, package/VSIX versions, remote OS, and Python;</li>
+<li>what changed and which local automated checks already passed;</li>
+<li>required VS Code window/tunnel setup, test data, ports, and preconditions;</li>
+<li>exact commands and UI actions for each remaining real-tunnel scenario;</li>
+<li>expected server ID, window ID, request/ACK states, URL/forwarding state, and
+  lifecycle outcome;</li>
+<li>log locations and request IDs needed to correlate Python and extension events;</li>
+<li>a result table with <code>PASS</code>, <code>FAIL</code>, or <code>BLOCKED</code>, plus evidence paths;</li>
+<li>safe cleanup commands that target ArrayView identities, never arbitrary port
+  owners;</li>
+<li>known limitations and the precise questions the tunnel agent must answer.</li>
+</ul>
+<p>The handoff must not ask the remote agent to repeat tests already proven locally.
+It should isolate only behavior that requires the real extension host, forwarded
+port, external URI, remote window identity, or reconnect lifecycle. A
+tunnel-sensitive phase is not complete until the handoff exists and the remote
+result has either passed or been recorded as an explicit release blocker.</p>
+<h2 id="verification-matrix">Verification Matrix</h2>
+<p>At minimum, automate or explicitly schedule these scenarios:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Required assertions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CLI local, macOS/Linux/Windows</td>
+<td>correct opener; reuse; close releases transient instance</td>
+</tr>
+<tr>
+<td>Python short script</td>
+<td>viewer survives caller long enough to attach; no orphan after close</td>
+</tr>
+<tr>
+<td>Python long process</td>
+<td>handle close releases its session without affecting other sessions</td>
+</tr>
+<tr>
+<td>Jupyter and VS Code notebook</td>
+<td>kernel-owned reuse; disappearing iframe does not kill server</td>
+</tr>
+<tr>
+<td>Julia terminal and IJulia</td>
+<td>subprocess isolation; correct browser/inline selection</td>
+</tr>
+<tr>
+<td>MATLAB desktop and batch</td>
+<td>no false VS Code detection; native/browser/no-display contract</td>
+</tr>
+<tr>
+<td>Plain SSH</td>
+<td>printed/selected forwarding contract; no accidental remote browser</td>
+</tr>
+<tr>
+<td>VS Code local Explorer/terminal</td>
+<td>exact originating window; extension version compatibility</td>
+</tr>
+<tr>
+<td>VS Code tunnel, several windows</td>
+<td>exact target; ACK; forwarded port; reconnect recovery</td>
+</tr>
+<tr>
+<td>Two simultaneous launches</td>
+<td>one compatible instance; two independent sessions</td>
+</tr>
+<tr>
+<td>Dead registry / hung owned server</td>
+<td>automatic bounded recovery</td>
+</tr>
+<tr>
+<td>Foreign preferred-port owner</td>
+<td>never killed; alternate port or precise fixed-port error</td>
+</tr>
+<tr>
+<td>Old Python/new extension and inverse</td>
+<td>capability negotiation or explicit upgrade error</td>
+</tr>
+</tbody>
+</table>
+<p>Use real subprocesses and sockets for lifecycle tests; mocks alone cannot prove
+process shutdown, lock behavior, or port ownership. Use CI fault injection for
+crash points between registry write, bind, session registration, signal claim,
+port forwarding, ACK, and lease release.</p>
+<h2 id="success-measures">Success Measures</h2>
+<p>The redesign is complete when:</p>
+<ul>
+<li>routine local and tunnel launches do not require <code>--kill</code> or VS Code reload;</li>
+<li>the same intent produces the same serialized plan across public entry points;</li>
+<li>every started process has a recorded owner and deterministic cleanup path;</li>
+<li>multiple VS Code windows never receive a best-guess launch;</li>
+<li>diagnostics reproduce the actual decision and correlate Python/extension logs;</li>
+<li>a foreign process is never terminated by ArrayView recovery;</li>
+<li>Windows planner, lifecycle, and browser/VS Code paths pass in CI;</li>
+<li>release verification includes real macOS, Linux, and tunnel smoke evidence.</li>
+<li>another agent can execute the final remote-tunnel handoff without reconstructing
+  context from chat or git history.</li>
+</ul>
+<h2 id="explicit-non-goals">Explicit Non-Goals</h2>
+<ul>
+<li>one immortal global daemon for every environment;</li>
+<li>hiding a security-sensitive public-port change from the user;</li>
+<li>preserving undocumented behavior caused by current branch order;</li>
+<li>testing the full Cartesian product manually;</li>
+<li>adding more launch policy to <code>_app.py</code> or the viewer frontend.</li>
+</ul>
+<h2 id="recommended-first-slice">Recommended First Slice</h2>
+<p>Implement Phase 0 and Phase 1 together, without changing lifecycle behavior.
+That slice makes the current decisions observable and forces CLI, <code>view()</code>, and
+diagnostics through one planner. Only then introduce the instance registry and
+self-healing; otherwise recovery will hard-code another copy of today's routing
+policy.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
