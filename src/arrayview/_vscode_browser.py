@@ -29,6 +29,22 @@ _remote_message_shown = False
 _ssh_message_shown = False
 
 
+def _trace_launch_event(event: str, **attrs: object) -> None:
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        return
+    from arrayview._launch_trace import emit_launch_event
+
+    emit_launch_event(event, **attrs)
+
+
+def _trace_tag(value: object) -> str | None:
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE") or value is None:
+        return None
+    from arrayview._launch_trace import trace_tag
+
+    return trace_tag(value)
+
+
 class OpenState(str, Enum):
     """Best evidence available after requesting a viewer display."""
 
@@ -120,13 +136,45 @@ def _open_browser(
      4. Always print the URL.
     """
 
-    def _do() -> OpenResult:
+    _trace_launch_event(
+        "display.routing_scheduled",
+        blocking=blocking,
+        force_vscode=force_vscode,
+        prefer_system_browser=prefer_system_browser,
+    )
+
+    def _route() -> OpenResult:
         # A failed explicit native-window launch may fall back to a browser,
         # but it must not silently turn back into a VS Code tab. Remote VS Code
         # still takes precedence because a browser on the remote host is not
         # useful to the caller.
         in_vscode = _in_vscode_terminal() and not prefer_system_browser
         is_remote = _is_vscode_remote()
+        is_plain_ssh = (
+            not is_remote
+            and not in_vscode
+            and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
+        )
+        selected_adapter = (
+            "vscode"
+            if is_remote or force_vscode or in_vscode
+            else "ssh-guidance"
+            if is_plain_ssh
+            else "system-browser"
+        )
+        _trace_launch_event(
+            "display.router_evaluated",
+            force_vscode=force_vscode,
+            prefer_system_browser=prefer_system_browser,
+            detected_vscode=in_vscode,
+            detected_remote=is_remote,
+            selected_adapter=selected_adapter,
+        )
+        _trace_launch_event(
+            "display.attempt_started",
+            adapter=selected_adapter,
+            stage="browser_router",
+        )
         opened = False
         guidance_printed = False
 
@@ -153,6 +201,13 @@ def _open_browser(
                 title=title,
                 floating=floating,
                 server_id=_server_id_for_url(url),
+            )
+            _trace_launch_event(
+                "vscode.request_written",
+                written=bool(request),
+                request_tag=_trace_tag(request.request_id),
+                window_tag=_trace_tag(request.window_id),
+                server_tag=_trace_tag(request.server_id),
             )
             if not ext_ok:
                 _vprint(
@@ -199,6 +254,13 @@ def _open_browser(
                 floating=floating,
                 server_id=_server_id_for_url(url),
             )
+            _trace_launch_event(
+                "vscode.request_written",
+                written=bool(request),
+                request_tag=_trace_tag(request.request_id),
+                window_tag=_trace_tag(request.window_id),
+                server_tag=_trace_tag(request.server_id),
+            )
             # Schedule a retry in case the extension was mid-reload when the
             # first signal was written (e.g. first run with old version removed).
             if not request:
@@ -223,11 +285,6 @@ def _open_browser(
             _schedule_remote_open_retries(url, interval=10.0, count=2)
             opened = True
 
-        is_plain_ssh = (
-            not is_remote
-            and not in_vscode
-            and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
-        )
         if is_plain_ssh:
             guidance_printed = True
             global _ssh_message_shown
@@ -307,6 +364,16 @@ def _open_browser(
         if guidance_printed:
             return OpenResult(OpenState.PRINTED, "ssh-guidance")
         return OpenResult(OpenState.FAILED, "system-browser", "no opener accepted the URL")
+
+    def _do() -> OpenResult:
+        result = _route()
+        _trace_launch_event(
+            "display.attempt_finished",
+            adapter=result.mechanism,
+            stage="browser_router",
+            state=result.state.value,
+        )
+        return result
 
     if blocking:
         result = _do()

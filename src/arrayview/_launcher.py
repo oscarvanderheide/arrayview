@@ -44,6 +44,23 @@ import arrayview._platform as _platform_mod  # for mutable globals
 _vscode_mod_cache = None
 
 
+def _trace_launch_event(event: str, **attrs: object) -> None:
+    """Emit an opt-in launch event without loading tracing on normal paths."""
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        return
+    from arrayview._launch_trace import emit_launch_event
+
+    emit_launch_event(event, **attrs)
+
+
+def _launch_trace_tag(value: object) -> str | None:
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        return None
+    from arrayview._launch_trace import trace_tag
+
+    return trace_tag(value)
+
+
 def _vscode_mod():
     global _vscode_mod_cache
     if _vscode_mod_cache is None:
@@ -151,6 +168,12 @@ def _stop_verified_server(port: int) -> tuple[str, int | None]:
 
     import signal as _signal
 
+    _trace_launch_event(
+        "server.stop_requested",
+        instance_tag=_launch_trace_tag(instance_id),
+        target_pid=pid,
+        port=port,
+    )
     try:
         os.kill(pid, _signal.SIGTERM)
     except ProcessLookupError:
@@ -185,7 +208,18 @@ def _stop_verified_server(port: int) -> tuple[str, int | None]:
         if process_start_identity(pid) == claimed_start:
             return f"Failed to stop ArrayView process {pid}: still running", None
 
+    _trace_launch_event(
+        "server.stopped",
+        instance_tag=_launch_trace_tag(instance_id),
+        target_pid=pid,
+        port=port,
+    )
     registry.remove(matching_record.instance_id)
+    _trace_launch_event(
+        "server.unregistered",
+        instance_tag=_launch_trace_tag(instance_id),
+        port=port,
+    )
     return f"Killed process {pid} on port {port}", pid
 
 
@@ -610,6 +644,7 @@ def _open_webview_cli_tracked(
     win_w: int,
     win_h: int,
     shell_port: int | None = None,
+    trace_stage: str | None = None,
 ) -> tuple[bool, subprocess.Popen | None]:
     """Launch pywebview and return the child process when startup succeeds."""
     import tempfile
@@ -629,6 +664,12 @@ def _open_webview_cli_tracked(
         shell_port=shell_port,
         ready_file=ready_file,
     )
+    _trace_launch_event(
+        "display.process_started",
+        adapter="native",
+        stage=trace_stage,
+        child_pid=getattr(proc, "pid", None),
+    )
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -647,6 +688,14 @@ def _open_webview_cli_tracked(
             )
             if stderr_out:
                 _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+            _trace_launch_event(
+                "display.process_evidence",
+                adapter="native",
+                stage=trace_stage,
+                state="failed",
+                evidence="process_exit",
+                returncode=proc.returncode,
+            )
             return False, None
         if os.path.exists(ready_file):
             try:
@@ -654,6 +703,13 @@ def _open_webview_cli_tracked(
             except OSError:
                 pass
             _vprint("[ArrayView] Native window started successfully", flush=True)
+            _trace_launch_event(
+                "display.process_evidence",
+                adapter="native",
+                stage=trace_stage,
+                state="accepted",
+                evidence="ready_flag",
+            )
             return True, proc
         time.sleep(0.02)
     try:
@@ -661,6 +717,13 @@ def _open_webview_cli_tracked(
     except OSError:
         pass
     _vprint("[ArrayView] Native window started successfully", flush=True)
+    _trace_launch_event(
+        "display.process_evidence",
+        adapter="native",
+        stage=trace_stage,
+        state="accepted_unverified",
+        evidence="ready_flag_timeout",
+    )
     return True, proc
 
 
@@ -718,16 +781,16 @@ def _wait_for_native_shell_or_viewer_connection(
     *,
     viewer_before: int,
     timeout: float = 8.0,
-) -> bool:
-    """Wait until pywebview proves it is alive via shell or viewer WebSocket."""
+) -> str | None:
+    """Return the WebSocket evidence proving that pywebview became reachable."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if _server_viewer_connections_seen(port, timeout=0.3) > viewer_before:
-            return True
+            return "viewer_websocket"
         if _server_shell_sockets_open(port, timeout=0.3) > 0:
-            return True
+            return "shell_websocket"
         time.sleep(0.1)
-    return False
+    return None
 
 
 def _terminate_native_process(proc: subprocess.Popen | None) -> None:
@@ -751,10 +814,37 @@ def _open_cli_native_shell_after_server(
     """Open a CLI native shell and return whether it is usable."""
     url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
     viewer_before = _server_viewer_connections_seen(port)
-    opened, proc = _open_webview_cli_tracked(url_shell, win_w, win_h)
-    if opened and _wait_for_native_shell_or_viewer_connection(
-        port, viewer_before=viewer_before
-    ):
+    _trace_launch_event(
+        "display.attempt_started",
+        adapter="native",
+        stage="post_tcp",
+    )
+    opened, proc = _open_webview_cli_tracked(
+        url_shell,
+        win_w,
+        win_h,
+        trace_stage="post_tcp",
+    )
+    connection_evidence = (
+        _wait_for_native_shell_or_viewer_connection(
+            port,
+            viewer_before=viewer_before,
+        )
+        if opened
+        else None
+    )
+    if connection_evidence:
+        _trace_launch_event(
+            "display.attempt_finished",
+            adapter="native",
+            stage="post_tcp",
+            state="ready",
+            evidence=(
+                connection_evidence
+                if isinstance(connection_evidence, str)
+                else "connection_observed"
+            ),
+        )
         return True
     if opened:
         _vprint(
@@ -762,6 +852,13 @@ def _open_cli_native_shell_after_server(
             flush=True,
         )
     _terminate_native_process(proc)
+    _trace_launch_event(
+        "display.attempt_finished",
+        adapter="native",
+        stage="post_tcp",
+        state="failed",
+        evidence="connection_timeout" if opened else "process_exit",
+    )
     return False
 
 
@@ -786,7 +883,19 @@ def _activate_early_cli_native_shell(
     except Exception:
         notified = False
     if notified and _wait_for_viewer_connection(port, before=viewer_before):
+        _trace_launch_event(
+            "display.activation_evidence",
+            adapter="native",
+            stage="early",
+            evidence="viewer_websocket",
+        )
         return True
+    _trace_launch_event(
+        "display.activation_evidence",
+        adapter="native",
+        stage="early",
+        evidence="viewer_timeout" if notified else "notification_failed",
+    )
     _vprint(
         "[ArrayView] Native window did not connect to the backend; falling back to browser",
         flush=True,
@@ -1130,6 +1239,12 @@ def _open_cli_existing_server_view(
             win_h=800,
         )
         if not native_ready:
+            _trace_launch_event(
+                "fallback.applied",
+                from_adapter="native",
+                to_adapter="system_browser",
+                reason="native_connection_failed",
+            )
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
@@ -1274,6 +1389,7 @@ def _handle_cli_existing_server(
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
 ) -> None:
+    _trace_launch_event("server.decision", decision="reuse", port=port)
     try:
         session_info = _register_cli_session_with_existing_server(
             port=port,
@@ -1364,6 +1480,12 @@ def _handle_cli_existing_server(
         )
         sys.exit(1)
 
+    _trace_launch_event(
+        "session.registered",
+        registration="http_load",
+        sid_tag=_launch_trace_tag(session_info["sid"]),
+        port=port,
+    )
     _open_cli_existing_server_view(
         port=port,
         sid=str(session_info["sid"]),
@@ -1454,7 +1576,13 @@ def _handle_cli_spawned_daemon(
     from arrayview._instance_registry import InstanceRegistry
 
     with InstanceRegistry().startup_lock(timeout=20.0):
-        if _server_alive(port):
+        server_already_live = _server_alive(port)
+        _trace_launch_event(
+            "server.decision",
+            decision="reuse" if server_already_live else "spawn",
+            port=port,
+        )
+        if server_already_live:
             _handle_cli_existing_server(
                 port=port,
                 base_file=base_file,
@@ -1480,13 +1608,33 @@ def _handle_cli_spawned_daemon(
             )
             return
 
-        subprocess.Popen(
+        popen_kwargs = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "close_fds": True,
+            "start_new_session": sys.platform != "win32",
+        }
+        if os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+            from arrayview._launch_trace import trace_child_environment
+
+            child_env = trace_child_environment()
+            if child_env is not None:
+                popen_kwargs["env"] = child_env
+        _trace_launch_event(
+            "daemon.spawn_requested",
+            port=port,
+            owner="persistent" if is_remote else "transient",
+            sid_tag=_launch_trace_tag(sid),
+        )
+        daemon_proc = subprocess.Popen(
             [sys.executable, "-c", script],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=(sys.platform != "win32"),
+            **popen_kwargs,
+        )
+        _trace_launch_event(
+            "daemon.spawned",
+            child_pid=getattr(daemon_proc, "pid", None),
+            sid_tag=_launch_trace_tag(sid),
         )
 
         if (
@@ -1501,18 +1649,37 @@ def _handle_cli_spawned_daemon(
             # parent shell was created from inline data. Let Linux open the normal
             # HTTP shell after the daemon is listening instead.
             url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
+            _trace_launch_event(
+                "display.attempt_started",
+                adapter="native",
+                stage="early",
+            )
             early_native_shell_opened, early_native_shell_proc = (
                 _open_webview_cli_tracked(
-                    url_shell_early, 1400, 900, shell_port=port
+                    url_shell_early,
+                    1400,
+                    900,
+                    shell_port=port,
+                    trace_stage="early",
                 )
             )
+            if not early_native_shell_opened:
+                _trace_launch_event(
+                    "display.attempt_finished",
+                    adapter="native",
+                    stage="early",
+                    state="failed",
+                    evidence="process_exit",
+                )
 
         if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+            _trace_launch_event("backend.tcp_failed", port=port)
             print(
                 f"Error: ArrayView server failed to start on port {port}. "
                 "Use --port to pick another."
             )
             sys.exit(1)
+        _trace_launch_event("backend.tcp_accepting", port=port)
 
     try:
         compare_sids = _load_compare_sids(port, compare_files)
@@ -1526,6 +1693,17 @@ def _handle_cli_spawned_daemon(
             sid=sid,
             name=name,
             proc=early_native_shell_proc,
+        )
+        _trace_launch_event(
+            "display.attempt_finished",
+            adapter="native",
+            stage="early",
+            state="ready" if early_native_shell_connected else "failed",
+            evidence=(
+                "viewer_websocket"
+                if early_native_shell_connected
+                else "activation_failed"
+            ),
         )
 
     # A large file can keep the daemon busy long enough for the preload shell
@@ -1590,6 +1768,12 @@ def _open_cli_spawned_view(
             win_h=900,
         )
         if not native_ready:
+            _trace_launch_event(
+                "fallback.applied",
+                from_adapter="native",
+                to_adapter="system_browser",
+                reason="native_connection_failed",
+            )
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _print_viewer_location(url)
             _open_browser(
@@ -3261,16 +3445,30 @@ def _serve_daemon(
     persist=False: exits when the UI closes (default, used locally).
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
+    sid_tag = _launch_trace_tag(sid)
+    _trace_launch_event(
+        "daemon.started",
+        port=port,
+        owner="persistent" if persist else "transient",
+    )
     # Register sid as pending so /metadata can poll while data loads.
     _session_mod.PENDING_SESSIONS.add(sid)
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
+    _trace_launch_event("session.pending_declared", sid_tag=sid_tag)
 
     sock = _make_loopback_sockets(port)
+    _trace_launch_event("backend.socket_reserved", port=port)
     registry, record = _register_server_runtime(
         port,
         "persistent" if persist else "transient",
+    )
+    _trace_launch_event(
+        "server.registered",
+        instance_tag=_launch_trace_tag(record.instance_id),
+        owner=record.owner_mode,
+        port=record.port,
     )
 
     def _run_uvicorn_on_socket():
@@ -3287,6 +3485,7 @@ def _serve_daemon(
         target=_run_uvicorn_on_socket,
         daemon=True,
     ).start()
+    _trace_launch_event("backend.http_thread_started", port=port)
 
     # Pre-warm colormap LUTs in background (saves ~200 ms on first frame render).
     def _warm_luts():
@@ -3306,6 +3505,7 @@ def _serve_daemon(
         )
         from arrayview._session import file_signature
 
+        _trace_launch_event("session.load_started", sid_tag=sid_tag)
         try:
             signature_before_load = (
                 file_signature(filepath)
@@ -3425,6 +3625,14 @@ def _serve_daemon(
                         f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                         flush=True,
                     )
+            _trace_launch_event("session.ready", sid_tag=sid_tag)
+        except Exception as exc:
+            _trace_launch_event(
+                "session.load_failed",
+                sid_tag=sid_tag,
+                error_type=type(exc).__name__,
+            )
+            raise
         finally:
             _session_mod.PENDING_SESSIONS.discard(sid)
             _pending_event.set()
@@ -3442,7 +3650,16 @@ def _serve_daemon(
         # really gone, aside from the short grace period inside
         # _wait_for_viewer_close for page refreshes.
         _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
+    _trace_launch_event(
+        "daemon.exiting",
+        reason="viewer_lifecycle_complete",
+        instance_tag=_launch_trace_tag(record.instance_id),
+    )
     registry.remove(record.instance_id)
+    _trace_launch_event(
+        "server.unregistered",
+        instance_tag=_launch_trace_tag(record.instance_id),
+    )
     os._exit(0)
 
 
@@ -4558,6 +4775,34 @@ def arrayview():
         ),
         launch_snapshot,
     )
+    if os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        from arrayview._launch_trace import configure_launch_trace
+
+        configure_launch_trace(role="parent")
+        _trace_launch_event(
+            "launch.started",
+            invocation="cli",
+            requested_display=args.window,
+            explicit_display=args.window is not None or args.browser,
+            environment=launch_plan.environment.value,
+            vscode_terminal=launch_snapshot.in_vscode_terminal,
+            vscode_remote=launch_snapshot.is_vscode_remote,
+        )
+        _trace_launch_event(
+            "plan.selected",
+            primary_display=launch_plan.display.value,
+            fallback_display=(
+                launch_plan.fallback_display.value
+                if launch_plan.fallback_display is not None
+                else None
+            ),
+            fallback_allowed=launch_plan.fallback_allowed,
+            server_owner=launch_plan.server_owner.value,
+            registration=launch_plan.registration.value,
+            requested_port=launch_plan.requested_port,
+            effective_port=launch_plan.effective_port,
+            failure=(launch_plan.failure.value if launch_plan.failure else None),
+        )
     if args.verbose:
         print(
             "[ArrayView] Launch plan: "

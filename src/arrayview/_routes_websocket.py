@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 
 import numpy as np
@@ -38,10 +39,15 @@ from arrayview._synthetic_mri import (
     synthetic_qmri_slice,
     synthetic_window,
 )
-
-
 from arrayview._imaging import ensure_image as _pil_image
 
+
+def _trace_viewer_event(event: str, sid: str) -> None:
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        return
+    from arrayview._launch_trace import emit_launch_event, trace_tag
+
+    emit_launch_event(event, sid_tag=trace_tag(sid))
 
 def _render_rgba_from_data(data, colormap, vmin, vmax):
     if vmax > vmin:
@@ -112,6 +118,7 @@ def register_websocket_routes(app) -> None:
             _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
         )
         _session_mod.VIEWER_SIDS.add(sid)
+        _trace_viewer_event("viewer.connected", sid)
         loop = asyncio.get_running_loop()
         _pending: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -459,3 +466,4 @@ def register_websocket_routes(app) -> None:
             else:
                 _session_mod.VIEWER_SID_COUNTS.pop(sid, None)
                 _session_mod.VIEWER_SIDS.discard(sid)
+            _trace_viewer_event("viewer.disconnected", sid)
