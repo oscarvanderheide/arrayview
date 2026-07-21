@@ -5270,6 +5270,44 @@ class TestViewValidation:
             view(a, a, rgb=[True])
 
 
+def _isolate_view_planner(
+    monkeypatch,
+    launcher,
+    *,
+    in_jupyter=False,
+    in_vscode=False,
+    is_remote=False,
+    native_backend=None,
+    alive_ports=(),
+):
+    import arrayview._launch_plan as launch_plan
+
+    monkeypatch.setattr(launcher._platform_mod, "_in_jupyter", lambda: in_jupyter)
+    monkeypatch.setattr(launcher._platform_mod, "_is_julia_env", lambda: False)
+    monkeypatch.setattr(
+        launcher._platform_mod,
+        "_in_vscode_terminal",
+        lambda: in_vscode,
+    )
+    monkeypatch.setattr(
+        launcher._platform_mod,
+        "_is_vscode_remote",
+        lambda: is_remote,
+    )
+    monkeypatch.setattr(launcher._platform_mod, "_in_vscode_tunnel", lambda: False)
+    monkeypatch.setattr(launch_plan, "_config_window_default", lambda _env: None)
+    monkeypatch.setattr(launch_plan, "_native_window_gui", lambda: native_backend)
+    monkeypatch.setattr(
+        launch_plan,
+        "_server_snapshot",
+        lambda port: launch_plan.ServerSnapshot(
+            port,
+            port in alive_ports,
+            port in alive_ports,
+        ),
+    )
+
+
 class TestViewDisplayRouting:
     def test_local_matlab_view_prefers_native_window(self, monkeypatch):
         import arrayview._launcher as launcher
@@ -5304,8 +5342,12 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(launcher, "_server_pid", lambda port: None)
         monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
-        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
-        monkeypatch.setattr("arrayview._platform.detect_environment", lambda: "terminal")
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: True)
+        _isolate_view_planner(
+            monkeypatch,
+            launcher,
+            native_backend="test-native",
+        )
         monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
         monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
         monkeypatch.setattr(
@@ -5321,16 +5363,25 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(session_mod, "_window_process", None)
         monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
 
-        handle = launcher.view(np.zeros((4, 4), dtype=np.float32), name="matlab-local")
+        before_sids = set(session_mod.SESSIONS)
+        try:
+            handle = launcher.view(
+                np.zeros((4, 4), dtype=np.float32),
+                name="matlab-local",
+            )
 
-        assert isinstance(handle, launcher.ViewHandle)
-        assert native_calls
-        assert native_calls[0]["url"].startswith("http://localhost:8123/shell?")
-        assert browser_calls == []
+            assert isinstance(handle, launcher.ViewHandle)
+            assert native_calls
+            assert native_calls[0]["url"].startswith("http://localhost:8123/shell?")
+            assert browser_calls == []
+        finally:
+            for sid in set(session_mod.SESSIONS) - before_sids:
+                session_mod.SESSIONS.pop(sid, None)
 
     def test_jupyter_proxy_inline_uses_notebook_server_proxy(self, monkeypatch):
         pytest.importorskip("IPython.display")
         import arrayview._launcher as launcher
+        import arrayview._session as session_mod
 
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
@@ -5338,19 +5389,28 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(launcher, "_server_pid", lambda port: os.getpid())
         monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: True)
-        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
-
-        result = launcher.view(
-            np.zeros((4, 4), dtype=np.float32),
-            name="nbclassic-inline",
-            inline=True,
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        _isolate_view_planner(
+            monkeypatch,
+            launcher,
+            in_jupyter=True,
         )
+        before_sids = set(session_mod.SESSIONS)
+        try:
+            result = launcher.view(
+                np.zeros((4, 4), dtype=np.float32),
+                name="nbclassic-inline",
+                inline=True,
+            )
 
-        assert result.__class__.__name__ == "HTML"
-        assert "proxy/8123/" in result.data
-        assert "document.body && document.body.dataset" in result.data
-        assert "frame.src = directSrc" in result.data
-        assert "phase !== 'script-loaded'" in result.data
+            assert result.__class__.__name__ == "HTML"
+            assert "proxy/8123/" in result.data
+            assert "document.body && document.body.dataset" in result.data
+            assert "frame.src = directSrc" in result.data
+            assert "phase !== 'script-loaded'" in result.data
+        finally:
+            for sid in set(session_mod.SESSIONS) - before_sids:
+                session_mod.SESSIONS.pop(sid, None)
 
     def test_remote_vscode_jupyter_auto_opens_vscode_tab(self, monkeypatch):
         """VS Code tunnel notebook can't reach localhost through the webview sandbox,
@@ -5368,6 +5428,15 @@ class TestViewDisplayRouting:
         )
         monkeypatch.setattr(
             launcher._platform_mod, "_is_vscode_remote", lambda: True
+        )
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        _isolate_view_planner(
+            monkeypatch,
+            launcher,
+            in_jupyter=True,
+            in_vscode=True,
+            is_remote=True,
+            alive_ports=(8123,),
         )
         monkeypatch.setattr(launcher, "_server_alive", lambda port: port == 8123)
         monkeypatch.setattr(
@@ -5397,6 +5466,7 @@ class TestViewDisplayRouting:
 
     def test_jupyter_window_browser_disables_inline(self, monkeypatch):
         import arrayview._launcher as launcher
+        import arrayview._session as session_mod
 
         opened = []
 
@@ -5409,14 +5479,23 @@ class TestViewDisplayRouting:
             "_open_browser",
             lambda url, **kwargs: opened.append({"url": url, **kwargs}),
         )
-        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
-
-        handle = launcher.view(
-            np.zeros((4, 4), dtype=np.float32),
-            name="browser-only",
-            window="browser",
+        monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        _isolate_view_planner(
+            monkeypatch,
+            launcher,
+            in_jupyter=True,
         )
+        before_sids = set(session_mod.SESSIONS)
+        try:
+            handle = launcher.view(
+                np.zeros((4, 4), dtype=np.float32),
+                name="browser-only",
+                window="browser",
+            )
 
-        assert isinstance(handle, launcher.ViewHandle)
-        assert opened
-        assert opened[0]["url"].startswith("http://localhost:8123/?sid=")
+            assert isinstance(handle, launcher.ViewHandle)
+            assert opened
+            assert opened[0]["url"].startswith("http://localhost:8123/?sid=")
+        finally:
+            for sid in set(session_mod.SESSIONS) - before_sids:
+                session_mod.SESSIONS.pop(sid, None)

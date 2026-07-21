@@ -7,16 +7,51 @@ from fastapi.testclient import TestClient
 
 
 def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod):
+    import arrayview._launch_plan as launch_plan
+
     monkeypatch.setattr(launcher, "_server_pid", lambda port: None)
     monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
     monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
     monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+    monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
     monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+    monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
     monkeypatch.setattr(launcher, "_can_native_window", lambda: False)
-    monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
-    monkeypatch.setattr("arrayview._platform.detect_environment", lambda: "terminal")
     monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
+
+    def deterministic_snapshot(port, invocation, requested_window=None):
+        inv = launch_plan.Invocation(invocation)
+        in_jupyter = launcher._in_jupyter()
+        environment = (
+            launch_plan.Environment.JUPYTER
+            if in_jupyter
+            else launch_plan.Environment.TERMINAL
+        )
+        return launch_plan.LaunchEnvironmentSnapshot(
+            invocation=inv,
+            requested_window=requested_window,
+            environment=environment,
+            platform="test",
+            env_vars={},
+            config_default=None,
+            native_backend=None,
+            server=launch_plan.ServerSnapshot(port, False, False),
+            in_jupyter=in_jupyter,
+            in_julia=False,
+            in_vscode_terminal=False,
+            is_vscode_remote=False,
+            in_vscode_tunnel=False,
+            ssh_connection=False,
+            ssh_client=False,
+            hostname="test-host",
+        )
+
+    monkeypatch.setattr(
+        launch_plan,
+        "snapshot_launch_environment",
+        deterministic_snapshot,
+    )
 
 
 def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeypatch):
@@ -59,19 +94,24 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
     monkeypatch.setattr(launcher, "_serve_background", _fake_serve_background)
     monkeypatch.setattr(launcher, "_open_browser", lambda *args, **kwargs: None)
 
-    handle = launcher.view(
-        np.zeros((4, 4), dtype=np.float32),
-        name="script-view",
-        window=False,
-    )
+    before_sids = set(session_mod.SESSIONS)
+    try:
+        handle = launcher.view(
+            np.zeros((4, 4), dtype=np.float32),
+            name="script-view",
+            window=False,
+        )
 
-    assert isinstance(handle, launcher.ViewHandle)
-    assert thread_calls[0]["daemon"] is False
-    assert thread_calls[1] == {
-        "port": 8123,
-        "stop_when_closed": True,
-        "owner_mode": "transient",
-    }
+        assert isinstance(handle, launcher.ViewHandle)
+        assert thread_calls[0]["daemon"] is False
+        assert thread_calls[1] == {
+            "port": 8123,
+            "stop_when_closed": True,
+            "owner_mode": "transient",
+        }
+    finally:
+        for sid in set(session_mod.SESSIONS) - before_sids:
+            session_mod.SESSIONS.pop(sid, None)
 
 
 def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(monkeypatch):
@@ -114,15 +154,24 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
     monkeypatch.setattr(launcher, "_serve_background", _fake_serve_background)
 
-    result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="jupyter-view", inline=True)
+    before_sids = set(session_mod.SESSIONS)
+    try:
+        result = launcher.view(
+            np.zeros((4, 4), dtype=np.float32),
+            name="jupyter-view",
+            inline=True,
+        )
 
-    assert result.__class__.__name__ == "IFrame"
-    assert thread_calls[0]["daemon"] is True
-    assert thread_calls[1] == {
-        "port": 8123,
-        "stop_when_closed": False,
-        "owner_mode": "kernel",
-    }
+        assert result.__class__.__name__ == "IFrame"
+        assert thread_calls[0]["daemon"] is True
+        assert thread_calls[1] == {
+            "port": 8123,
+            "stop_when_closed": False,
+            "owner_mode": "kernel",
+        }
+    finally:
+        for sid in set(session_mod.SESSIONS) - before_sids:
+            session_mod.SESSIONS.pop(sid, None)
 
 
 def test_plain_ssh_browser_guidance_keeps_localhost_forwarding_url(monkeypatch, capsys):
