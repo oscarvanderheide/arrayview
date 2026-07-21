@@ -265,7 +265,7 @@ def _find_vscode_ipc_hook() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _find_code_cli() -> str | None:
+def _find_code_cli(*, is_remote: bool | None = None) -> str | None:
     """Return path to the VS Code CLI ('code'), or None if not found.
 
     In a VS Code tunnel/remote, the tunnel server provides its own ``code``
@@ -277,10 +277,13 @@ def _find_code_cli() -> str | None:
     import glob
     import shutil
 
+    if is_remote is None:
+        is_remote = _is_vscode_remote()
+
     # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
     # uv run and similar launchers may strip VSCODE_IPC_HOOK_CLI from the
     # current process, so also consult the recovered ancestor-process value.
-    if os.environ.get("VSCODE_IPC_HOOK_CLI") or _find_vscode_ipc_hook():
+    if is_remote:
         # The tunnel helper is typically at one of:
         #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
         #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
@@ -298,7 +301,7 @@ def _find_code_cli() -> str | None:
                     return m
 
     found = shutil.which("code")
-    if found:
+    if found and (is_remote or "remote-cli" not in found):
         return found
     candidates: list[str] = []
     if sys.platform == "darwin":

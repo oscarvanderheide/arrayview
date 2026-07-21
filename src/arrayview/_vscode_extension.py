@@ -21,7 +21,7 @@ from arrayview._platform import _find_code_cli, _find_vscode_ipc_hook, _in_vscod
 
 def _vscode_app_bundle() -> str | None:
     """Return the path to the VS Code .app bundle on macOS, derived from the code CLI."""
-    code = _find_code_cli()
+    code = _find_code_cli(is_remote=False)
     if not code:
         return None
     try:
@@ -47,7 +47,7 @@ def _vscode_app_bundle() -> str | None:
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
-_VSCODE_EXT_VERSION = "0.14.48"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.50"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -280,7 +280,7 @@ def _run_extension_installer(command: list[str], env: dict[str, str]) -> subproc
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
-def _ensure_vscode_extension() -> bool:
+def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
     The extension bridges local VS Code terminals to a webview panel tab
@@ -310,7 +310,8 @@ def _ensure_vscode_extension() -> bool:
     # Fast path: correct version and content already installed — no reinstall
     # needed.  Reinstalling with --force triggers an extension-host reload,
     # which creates a ~10-15s gap during which the signal file can be missed.
-    is_remote = _is_vscode_remote()
+    if is_remote is None:
+        is_remote = _is_vscode_remote()
     active_version = _active_extension_version()
     if _extension_on_disk(ext_version, vsix_path, remote=is_remote):
         if active_version not in (None, ext_version):
@@ -346,7 +347,7 @@ def _ensure_vscode_extension() -> bool:
         )
         return True
 
-    code = _find_code_cli()
+    code = _find_code_cli(is_remote=is_remote)
     if not code:
         return False
 
@@ -410,7 +411,12 @@ def _ensure_vscode_extension() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _configure_vscode_port_preview(port: int) -> bool:
+def _configure_vscode_port_preview(
+    port: int,
+    *,
+    in_vscode: bool | None = None,
+    is_remote: bool | None = None,
+) -> bool:
     """Write VS Code port settings for the arrayview server.
 
     In VS Code remote/tunnel sessions this writes both Machine and User
@@ -468,8 +474,10 @@ def _configure_vscode_port_preview(port: int) -> bool:
     try:
         if port in _VSCODE_CONFIGURED_PORTS:
             return True
-        in_vscode = _in_vscode_terminal()
-        is_remote = _is_vscode_remote()
+        if in_vscode is None:
+            in_vscode = _in_vscode_terminal()
+        if is_remote is None:
+            is_remote = _is_vscode_remote()
 
         if is_remote:
             home = os.path.expanduser("~")

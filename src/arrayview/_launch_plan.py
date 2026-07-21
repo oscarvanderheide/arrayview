@@ -8,6 +8,7 @@ import json
 import os
 import socket
 import sys
+import time
 import urllib.request
 import uuid
 
@@ -127,6 +128,10 @@ class ServerSnapshot:
     arrayview_server_alive: bool
     server_pid: int | None = None
     server_hostname: str | None = None
+    server_instance_id: str | None = None
+    server_process_start: str | None = None
+    server_capabilities: tuple[str, ...] = ()
+    server_protocol_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -355,11 +360,16 @@ def plan_launch(
         and intent.port == 8123
         and environment is Environment.VSCODE_REMOTE
         and facts.cli_default_server is not None
-        and facts.cli_default_server.arrayview_server_alive
+        and _server_reusable(facts.cli_default_server)
     ):
         port = facts.cli_default_server.port
         server = facts.cli_default_server
         reasons.append("reuse_remote_cli_default_server")
+
+    if server.arrayview_server_alive and not _server_reusable(server):
+        port += 1
+        reasons.append("incompatible_server_new_port")
+        server = ServerSnapshot(port, False, False)
 
     busy_foreign = server.port_busy and not server.arrayview_server_alive
     if busy_foreign and environment is Environment.VSCODE_REMOTE:
@@ -371,7 +381,7 @@ def plan_launch(
         port += 1
         reasons.append("scan_from_next_port")
 
-    if server.arrayview_server_alive:
+    if _server_reusable(server):
         owner = ServerOwner.EXISTING
         registration = Registration.HTTP_LOAD
         reasons.append("reuse_compatible_server")
@@ -620,6 +630,34 @@ def _server_snapshot(port: int) -> ServerSnapshot:
         arrayview_server_alive=payload is not None,
         server_pid=_int_or_none(payload.get("pid")) if payload else None,
         server_hostname=_str_or_none(payload.get("hostname")) if payload else None,
+        server_instance_id=(
+            _str_or_none(payload.get("instance_id")) if payload else None
+        ),
+        server_process_start=(
+            _str_or_none(payload.get("process_start")) if payload else None
+        ),
+        server_capabilities=(
+            tuple(
+                item
+                for item in payload.get("capabilities", [])
+                if isinstance(item, str)
+            )
+            if payload
+            else ()
+        ),
+        server_protocol_version=(
+            _str_or_none(payload.get("protocol_version")) if payload else None
+        ),
+    )
+
+
+def _server_reusable(server: ServerSnapshot) -> bool:
+    return (
+        server.arrayview_server_alive
+        and server.server_instance_id is not None
+        and server.server_protocol_version == "1"
+        and "identity-fenced-load" in server.server_capabilities
+        and "identity-fenced-mutations" in server.server_capabilities
     )
 
 
@@ -635,15 +673,18 @@ def _port_busy(port: int) -> bool:
 
 def _ping_arrayview_server(port: int) -> dict | None:
     url = f"http://{_LOOPBACK_HOST}:{port}/ping"
-    try:
-        with urllib.request.urlopen(url, timeout=_PING_TIMEOUT_SECONDS) as resp:
-            if resp.status != 200:
-                return None
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return None
-    if payload.get("ok") is True and payload.get("service") == "arrayview":
-        return payload
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=_PING_TIMEOUT_SECONDS) as resp:
+                if resp.status != 200:
+                    raise RuntimeError("unexpected health status")
+                payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return payload
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(0.05)
     return None
 
 

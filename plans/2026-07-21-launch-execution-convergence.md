@@ -1,8 +1,63 @@
 # ArrayView Launch Execution Convergence Plan
 
-Status: proposed; implementation not started  
+Status: active; transactional hardening implemented, host validation and strategy convergence pending
 Date: 2026-07-21  
 Scope: CLI, Python, Jupyter, Julia, MATLAB, VS Code local/remote, and plain SSH launch behavior
+
+## Implementation progress
+
+Implemented on `feat/launch-tunnel-reliability`:
+
+- one immutable `LaunchContext` now carries captured placement, caller scope,
+  plan, and completion target through the migrated CLI/Python/Julia paths;
+- display helpers, VS Code extension installation, and port configuration accept
+  captured placement instead of independently reclassifying the environment;
+- existing servers are revalidated by instance/process identity before reuse;
+  protocol and mutation capabilities must also match, and a replacement on the
+  same port fails closed;
+- HTTP registration uses client-selected session IDs, generation-fenced
+  mutations, rollback tombstones, and atomic session-group commit so lost
+  responses and cancelled background loads cannot leak or resurrect sessions;
+- display handoffs return checked outcomes; failed handoffs roll back leases or
+  terminate only the daemon spawned by that transaction;
+- native completion requires an exact backend/SID/attempt first-frame ACK;
+  unrelated shell or viewer sockets cannot satisfy readiness;
+- no-handle browser/inline sessions use cancellation- and epoch-fenced cleanup:
+  explicit panel release is immediate, reconnects preserve the exact session,
+  and silent abandonment has a bounded 30-minute recovery lease; compare and
+  overlay sessions remain owned by the primary session;
+- CLI, Julia, `--serve`, and Codex startup use the registry startup lock and
+  accept readiness only when `/ping` identifies the child they spawned;
+- failed startup terminates only the process and native preload owned by that
+  invocation;
+- remote Jupyter keeps kernel-owned in-process lifetime, remote CLI daemon
+  lifetime is explicit, and relay uploads now require a compatible advertised
+  protocol, use a client-selected SID, roll back lost responses, derive local
+  versus remote placement on the target, and wait for the exact display ACK;
+- VS Code delivery has a durable request journal, exact claim ownership,
+  owner-fenced monotonic ACKs, restart recovery, request-stable panel identity,
+  deadline fencing, and stale-panel disposal protection;
+- the bundled VS Code opener is version 0.14.50 and that exact VSIX is installed
+  locally; a currently running 0.14.47 extension host still requires one window
+  reload before live validation;
+- focused public-path, ownership-race, process-cleanup, protocol-restart,
+  reconnect, relay-rollback, deadline, and packaging tests cover the implemented
+  contracts. Current evidence is 218/218 launch-contract tests, all Node
+  extension tests, a passing package build, and 272/274 API tests; the two API
+  failures are isolated pre-existing thumbnail rendering defects.
+
+Still required before this plan is complete:
+
+- finish the typed registrar/display strategy migration and remove remaining
+  flattened legacy arguments and environment-aware compatibility entry points;
+- replace opaque `python -c` daemon startup with a supported manifest entry
+  point and finish `SessionSpec` production convergence;
+- run the independent-process concurrency/fault soak and the full scenario
+  ledger;
+- collect dated real-host evidence for native GUI, local VS Code Extension
+  Development Host, VS Code tunnel/reconnect, ipykernel, Julia/IJulia, MATLAB,
+  and plain SSH. Automated component tests are not presented as proof of those
+  host boundaries.
 
 ## Executive decision
 
@@ -29,20 +84,20 @@ completed and connected, not replaced under new names.
 
 ## Why this plan is different from the previous one
 
-`docs/launch-routing-refactor.md` already proposed a shared intent, fact
+At the planning baseline, `docs/launch-routing-refactor.md` had already proposed a shared intent, fact
 snapshot, planner, instance registry, registration contract, display openers,
 and verification matrix. Much of its foundation was implemented and then
 described as complete. Its own exit criteria were not met:
 
-- `LaunchPlan.fallback_display` and `fallback_allowed` have no production
-  consumer;
+- `LaunchPlan.fallback_display` and `fallback_allowed` did not govern all
+  production fallback paths;
 - `SessionSpec` is only used by its tests, not by a real invocation path;
 - `view()` converts the plan back into `window`, `inline`, and `_force_*`
   booleans and continues through legacy routing;
 - CLI execution converts the plan back into `window_mode` and
   `use_native_shell` and implements fallback locally;
-- `_open_browser()` still detects VS Code/remote state and therefore remains a
-  second router;
+- `_open_browser()` still detected VS Code/remote state and therefore remained
+  a second router;
 - old resolver functions with no production callers are still tested;
 - the actual native, VS Code, and Jupyter handoffs are marked manual in the
   lifecycle matrix;
@@ -50,19 +105,21 @@ described as complete. Its own exit criteria were not met:
   owner, so `_launcher.py` remained where new launch policy accrued.
 
 The earlier architecture was therefore not disproved. Its migration and
-completion discipline failed. This plan makes production call sites, legacy
-deletion, hermetic tests, and real handoff evidence explicit exit gates.
+completion discipline failed. The current implementation has closed the
+highest-risk identity, ownership, and VS Code delivery gaps, but the remaining
+strategy convergence and real-host gates above still apply.
 
 ## Evidence behind the diagnosis
 
-The current launch stack has several independent decision points:
+At the planning baseline, the launch stack had several independent decision
+points:
 
 - `_launch_plan.py` chooses display, server ownership, registration, and a
   fallback.
 - `_launcher.py` rechecks server and environment state, reconstructs display
   intent as booleans, and contains multiple fallback branches.
-- `_vscode_browser.py::_open_browser()` detects local VS Code, remote VS Code,
-  SSH, and the operating system, then chooses a mechanism itself.
+- `_vscode_browser.py::_open_browser()` detected local VS Code, remote VS Code,
+  SSH, and the operating system, then chose a mechanism itself.
 - `_platform.py::_native_window_gui()` answers whether a native backend exists,
   while `_can_native_window()` also embeds an auto-routing preference against
   VS Code terminals. The planner and executor can therefore disagree about the
@@ -74,12 +131,12 @@ The current launch stack has several independent decision points:
   or VS Code ACK received. These milestones are currently combined through
   fixed timeouts and local heuristics.
 
-The repository history supports this being systemic rather than a single bug.
+The repository history supported this being systemic rather than a single bug.
 Since 2026-06-01, 66 commits touched `_launcher.py`, `_launch_plan.py`,
 `_platform.py`, or `_vscode_browser.py`, adding 3,007 lines and removing 1,182.
 The current `_launcher.py` is 4,723 lines.
 
-The lifecycle matrix also demonstrates the coverage gap. It passes the pure
+The lifecycle matrix also demonstrates the remaining coverage gap. It passes the pure
 planner, CLI helpers, protocol helpers, packaging, and one real daemon/WebSocket
 shutdown probe. It leaves native, live VS Code, and Jupyter as manual. In a
 normal development workspace with an ArrayView daemon on port 8000, two

@@ -9,20 +9,39 @@ const originalHome = process.env.HOME;
 process.env.HOME = tempHome;
 
 let panelCount = 0;
-const messageHandlers = [];
-const panel = {
-    title: '',
-    reveal() {},
-    webview: {
-        html: '',
-        onDidReceiveMessage(handler) {
-            messageHandlers.push(handler);
+const panels = [];
+
+function makePanel() {
+    const messageHandlers = [];
+    const disposeHandlers = [];
+    return {
+        title: '',
+        throwOnReveal: false,
+        reveal() {
+            if (this.throwOnReveal) throw new Error('stale panel');
+        },
+        webview: {
+            html: '',
+            onDidReceiveMessage(handler) {
+                messageHandlers.push(handler);
+                return { dispose() {} };
+            },
+            postMessage: async () => true,
+        },
+        onDidDispose(handler) {
+            disposeHandlers.push(handler);
             return { dispose() {} };
         },
-        postMessage: async () => true,
-    },
-    onDidDispose() { return { dispose() {} }; },
-};
+        triggerReady() {
+            for (const handler of messageHandlers) {
+                handler({ type: 'viewer-ready', phase: 'frame-rendered' });
+            }
+        },
+        triggerDispose() {
+            for (const handler of disposeHandlers) handler();
+        },
+    };
+}
 const vscodeMock = {
     env: { remoteName: null, uiKind: 1 },
     UIKind: { Web: 2 },
@@ -31,6 +50,8 @@ const vscodeMock = {
         activeTextEditor: null,
         createWebviewPanel() {
             panelCount += 1;
+            const panel = makePanel();
+            panels.push(panel);
             return panel;
         },
     },
@@ -64,14 +85,56 @@ Module._load = originalLoad;
         );
 
         assert.strictEqual(panelCount, 1, 'same request ID must own one logical panel');
-        assert.strictEqual(__test._openPanels.get(requestKey), panel);
-        assert.match(panel.webview.html, /new-route\.example/);
+        assert.strictEqual(__test._openPanels.get(requestKey), panels[0]);
+        assert.match(panels[0].webview.html, /new-route\.example/);
 
-        for (const handler of messageHandlers) {
-            handler({ type: 'viewer-ready', phase: 'frame-rendered' });
-        }
+        panels[0].triggerReady();
         assert.strictEqual(await firstReady, null);
         assert.strictEqual(await replayReady, null);
+
+        const replacementKey = 'request:replacement-race';
+        const oldPanelReady = __test.openInWebviewPanel(
+            'replace-old/?sid=same-sid',
+            'ArrayView',
+            false,
+            'replace-old/?sid=same-sid',
+            replacementKey
+        );
+        panels[1].throwOnReveal = true;
+        const replacementReady = __test.openInWebviewPanel(
+            'replace-new/?sid=same-sid',
+            'ArrayView',
+            false,
+            'replace-old/?sid=same-sid',
+            replacementKey
+        );
+        assert.strictEqual(panelCount, 3);
+        assert.strictEqual(__test._openPanels.get(replacementKey), panels[2]);
+
+        panels[1].triggerReady();
+        assert.strictEqual(await oldPanelReady, null);
+        panels[1].triggerDispose();
+        assert.strictEqual(
+            __test._openPanels.get(replacementKey),
+            panels[2],
+            'disposing a superseded panel must not erase its replacement'
+        );
+
+        const sameReplacementReady = __test.openInWebviewPanel(
+            'replace-new/?sid=same-sid',
+            'ArrayView',
+            false,
+            'replace-old/?sid=same-sid',
+            replacementKey
+        );
+        assert.strictEqual(
+            panelCount,
+            3,
+            'same-ID replay after stale disposal must reuse the live replacement'
+        );
+        panels[2].triggerReady();
+        assert.strictEqual(await replacementReady, null);
+        assert.strictEqual(await sameReplacementReady, null);
 
         console.log('panel replay tests passed');
     } finally {

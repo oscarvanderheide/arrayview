@@ -688,12 +688,15 @@ async function waitForHttpStatus2xx(url, timeoutMs = 150000, pollMs = 500) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         if (await httpStatus2xx(url)) return true;
-        await new Promise(resolve => setTimeout(resolve, pollMs));
+        const remaining = deadline - Date.now();
+        if (remaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(pollMs, remaining)));
+        }
     }
     return false;
 }
 
-function httpPostOk(url, timeoutMs = 1500) {
+function httpPostOk(url, timeoutMs = 1500, headers = {}) {
     return new Promise((resolve) => {
         let parsed;
         try {
@@ -709,10 +712,14 @@ function httpPostOk(url, timeoutMs = 1500) {
             settled = true;
             resolve(ok);
         };
-        const req = lib.request(parsed, { method: 'POST', timeout: timeoutMs }, (res) => {
+        const req = lib.request(
+            parsed,
+            { method: 'POST', timeout: timeoutMs, headers },
+            (res) => {
             res.resume();
-            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 500);
-        });
+            done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300);
+            }
+        );
         req.on('timeout', () => {
             req.destroy();
             done(false);
@@ -722,13 +729,16 @@ function httpPostOk(url, timeoutMs = 1500) {
     });
 }
 
-function releaseUrlSession(url, backendUrl = null) {
+function releaseUrlSession(url, backendUrl = null, serverId = null) {
     const sids = collectReleaseSidsFromUrl(url);
     if (!sids.length) return;
     for (const sid of sids) {
         const releaseUrl = releaseUrlForSid(url, backendUrl, sid);
         if (!releaseUrl) continue;
-        void httpPostOk(releaseUrl).then((ok) => {
+        const headers = serverId
+            ? { 'X-ArrayView-Expected-Server-ID': serverId }
+            : {};
+        void httpPostOk(releaseUrl, 1500, headers).then((ok) => {
             log(`PANEL: release sid=${sid.slice(0, 8)} ok=${ok}`);
         });
     }
@@ -739,9 +749,16 @@ function isExpiredSignal(data) {
     const maxAgeMs = Number(data.maxAgeMs || 15000);
     if (!sentAtMs || maxAgeMs <= 0) return false;
     const ageMs = Date.now() - sentAtMs;
-    if (ageMs <= maxAgeMs) return false;
+    if (ageMs < maxAgeMs) return false;
     log(`SIGNAL: expired ageMs=${ageMs} maxAgeMs=${maxAgeMs}`);
     return true;
+}
+
+function _remainingSignalMs(data) {
+    const sentAtMs = Number(data?.sentAtMs || 0);
+    const maxAgeMs = Number(data?.maxAgeMs || 0);
+    if (!sentAtMs || maxAgeMs <= 0) return null;
+    return Math.max(0, sentAtMs + maxAgeMs - Date.now());
 }
 
 function isProcessAlive(pid) {
@@ -1357,7 +1374,8 @@ async function openInWebviewPanel(
     title,
     floating = false,
     backendUrl = null,
-    requestKey = null
+    requestKey = null,
+    serverId = null
 ) {
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
@@ -1417,8 +1435,12 @@ async function openInWebviewPanel(
     let panelDisposed = false;
     panel.onDidDispose(() => {
         panelDisposed = true;
-        _openPanels.delete(panelKey);
-        releaseUrlSession(url, backendUrl);
+        if (_openPanels.get(panelKey) === panel) {
+            _openPanels.delete(panelKey);
+            releaseUrlSession(url, backendUrl, serverId);
+        } else {
+            log(`PANEL: ignored disposal from superseded request panel ${panelKey}`);
+        }
     });
     log(`PANEL: created "${label}" for ${url}`);
 
@@ -1699,6 +1721,11 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         if (operation.cancelled) {
             throw new Error('Signal processing was cancelled before panel open');
         }
+        if (isExpiredSignal(data)) {
+            operation.cancelled = true;
+            _expireProtocolRequest(data, _ackForProtocolRequest(data));
+            throw new Error('Signal expired before display side effect');
+        }
         if (!_ownsProtocolClaim(data)) {
             throw new Error('Signal claim ownership was lost before display side effect');
         }
@@ -1722,7 +1749,15 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     // loading /metadata/<sid> is temporarily 404; treating that as expired
     // races large remote-file loads and loses the viewer before its panel can
     // open.
-    if (localMetadataUrl && !await waitForHttpStatus2xx(localMetadataUrl)) {
+    const remainingMs = _remainingSignalMs(data);
+    const metadataWaitMs = remainingMs === null
+        ? 150000
+        : Math.max(1, Math.min(150000, remainingMs));
+    if (
+        localMetadataUrl
+        && !await waitForHttpStatus2xx(localMetadataUrl, metadataWaitMs)
+    ) {
+        ensureActive();
         throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
     }
     ensureActive();
@@ -1797,8 +1832,15 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
                 placeholder.panel.title = data.title || placeholder.title;
                 if (panelKey) _openPanels.set(panelKey, placeholder.panel);
                 placeholder.panel.onDidDispose(() => {
-                    if (panelKey) _openPanels.delete(panelKey);
-                    releaseUrlSession(openUrl, data.url);
+                    if (
+                        !panelKey
+                        || _openPanels.get(panelKey) === placeholder.panel
+                    ) {
+                        if (panelKey) _openPanels.delete(panelKey);
+                        releaseUrlSession(openUrl, data.url, data.serverId || null);
+                    } else {
+                        log(`HANDOFF: ignored disposal from superseded panel ${panelKey}`);
+                    }
                 });
                 log(`HANDOFF: navigated placeholder for ${placeholder.basename} to ${openUrl}`);
                 handedOff = true;
@@ -1818,7 +1860,8 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             data.title,
             !!data.floating,
             data.url,
-            panelKey
+            panelKey,
+            data.serverId || null
         );
         log('openInWebviewPanel done');
         advanceAck('panel_opened');
@@ -2088,6 +2131,8 @@ module.exports = {
         _releaseAckLock,
         _removeRegistrationIfOwned,
         _targetedSignalPath,
+        _processSignalDataBody,
+        _remainingSignalMs,
         tryOpenSignalFile,
         openInWebviewPanel,
         _openPanels,

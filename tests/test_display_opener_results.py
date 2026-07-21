@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,6 +60,40 @@ def _local(monkeypatch) -> None:
     monkeypatch.delenv("SSH_CONNECTION", raising=False)
 
 
+def test_server_id_probe_retries_transient_failure(monkeypatch):
+    attempts = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "service": "arrayview",
+                    "instance_id": "server-generation-a",
+                }
+            ).encode()
+
+    def urlopen(*args, **kwargs):
+        attempts.append(None)
+        if len(attempts) < 3:
+            raise TimeoutError("transient")
+        return Response()
+
+    monkeypatch.setattr(browser.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(browser.time, "sleep", lambda delay: None)
+
+    assert (
+        browser._server_id_for_url("http://localhost:8123/?sid=abc")
+        == "server-generation-a"
+    )
+    assert len(attempts) == 3
+
+
 def test_system_browser_reports_opened(monkeypatch):
     _local(monkeypatch)
     monkeypatch.setattr(browser.sys, "platform", "darwin")
@@ -93,8 +128,10 @@ def test_system_browser_reports_failed(monkeypatch):
 def test_vscode_signal_reports_backend_ready(monkeypatch):
     _local(monkeypatch)
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
-    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: True)
-    monkeypatch.setattr(browser, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: True)
+    monkeypatch.setattr(
+        browser, "_configure_vscode_port_preview", lambda port, **kwargs: None
+    )
     request = SignalRequest("request-1", "window-1", "server-1", Path("ack"), True)
     monkeypatch.setattr(
         browser,
@@ -202,8 +239,10 @@ def test_planned_remote_vscode_passes_frozen_placement_to_signal(monkeypatch):
         "_is_vscode_remote",
         lambda: pytest.fail("planned route must not re-detect remote placement"),
     )
-    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: True)
-    monkeypatch.setattr(browser, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: True)
+    monkeypatch.setattr(
+        browser, "_configure_vscode_port_preview", lambda port, **kwargs: None
+    )
     monkeypatch.setattr(browser, "_server_id_for_url", lambda url: "server-1")
     captured = {}
 
@@ -305,8 +344,10 @@ def test_python_native_watchdog_uses_the_planned_browser_fallback(monkeypatch):
 def test_vscode_signal_reports_correlated_failure(monkeypatch):
     _local(monkeypatch)
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
-    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: True)
-    monkeypatch.setattr(browser, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: True)
+    monkeypatch.setattr(
+        browser, "_configure_vscode_port_preview", lambda port, **kwargs: None
+    )
     request = SignalRequest("request-1", "window-1", None, Path("ack"), True)
     monkeypatch.setattr(browser, "_open_via_signal_file", lambda *args, **kwargs: request)
     monkeypatch.setattr(browser, "_server_id_for_url", lambda url: None)
@@ -332,7 +373,7 @@ def test_stale_vscode_host_fails_before_writing_open_signal(monkeypatch):
 
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
     monkeypatch.setattr(browser, "_is_vscode_remote", lambda: True)
-    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda: False)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: False)
     monkeypatch.setattr(extension_state, "_VSCODE_EXT_RELOAD_REQUIRED", True)
     monkeypatch.setattr(
         browser,
@@ -383,16 +424,16 @@ def test_vscode_request_deadline_matches_display_owner_lifetime():
 
     assert browser._vscode_request_max_age_ms(
         blocking=True, is_remote=False, launch_context=interactive_context
-    ) == 15_000
+    ) == 14_000
     assert browser._vscode_request_max_age_ms(
         blocking=True, is_remote=True, launch_context=interactive_context
-    ) == 195_000
+    ) == 190_000
     assert browser._vscode_request_max_age_ms(
         blocking=False, is_remote=False, launch_context=script_context
-    ) == 15_000
+    ) == 14_000
     assert browser._vscode_request_max_age_ms(
         blocking=False, is_remote=True, launch_context=script_context
-    ) == 195_000
+    ) == 190_000
     assert (
         browser._vscode_request_max_age_ms(
             blocking=False,

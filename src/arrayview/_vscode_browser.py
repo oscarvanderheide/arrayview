@@ -33,6 +33,8 @@ _ssh_message_shown = False
 
 _LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS = 15.0
 _REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS = 195.0
+_LOCAL_VSCODE_REQUEST_MAX_AGE_MS = 14_000
+_REMOTE_VSCODE_REQUEST_MAX_AGE_MS = 190_000
 
 
 def _vscode_request_max_age_ms(
@@ -43,20 +45,16 @@ def _vscode_request_max_age_ms(
 ) -> int | None:
     """Bound durable display recovery by the backend owner's lifetime."""
     if blocking:
-        timeout = (
-            _REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS
+        return (
+            _REMOTE_VSCODE_REQUEST_MAX_AGE_MS
             if is_remote
-            else _LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS
+            else _LOCAL_VSCODE_REQUEST_MAX_AGE_MS
         )
-        return int(timeout * 1000)
     if launch_context is not None and launch_context.caller_scope.value == "script":
-        return int(
-            (
-                _REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS
-                if is_remote
-                else _LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS
-            )
-            * 1000
+        return (
+            _REMOTE_VSCODE_REQUEST_MAX_AGE_MS
+            if is_remote
+            else _LOCAL_VSCODE_REQUEST_MAX_AGE_MS
         )
     return None
 
@@ -101,19 +99,23 @@ class OpenResult:
 
 def _server_id_for_url(url: str) -> str | None:
     """Read the instance ID used to correlate a VS Code readiness ACK."""
-    try:
-        parsed = urllib.parse.urlsplit(url)
-        ping_url = urllib.parse.urlunsplit(
-            (parsed.scheme, parsed.netloc, "/ping", "", "")
-        )
-        with urllib.request.urlopen(ping_url, timeout=0.5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return None
-    if payload.get("service") != "arrayview":
-        return None
-    instance_id = payload.get("instance_id")
-    return instance_id if isinstance(instance_id, str) and instance_id else None
+    parsed = urllib.parse.urlsplit(url)
+    ping_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, "/ping", "", "")
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(ping_url, timeout=0.5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if payload.get("service") == "arrayview":
+                instance_id = payload.get("instance_id")
+                if isinstance(instance_id, str) and instance_id:
+                    return instance_id
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(0.05)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +261,7 @@ def _open_browser(
 
         if selected_adapter == "vscode" and is_remote:
             # Remote/tunnel: install extension + write signal file.
-            ext_ok = _ensure_vscode_extension()
+            ext_ok = _ensure_vscode_extension(is_remote=True)
             from arrayview import _vscode_extension as _extension_state
             if not ext_ok and _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
                 return OpenResult(
@@ -269,7 +271,9 @@ def _open_browser(
                 )
             # URL-based mode: port is forwarded by VS Code and the viewer
             # connects via WebSocket through the devtunnel.
-            _configure_vscode_port_preview(parsed_port)
+            _configure_vscode_port_preview(
+                parsed_port, in_vscode=False, is_remote=True
+            )
             request = _open_via_signal_file(
                 url,
                 title=title,
@@ -318,8 +322,10 @@ def _open_browser(
 
         if selected_adapter == "vscode":
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
-            _configure_vscode_port_preview(parsed_port)
-            ext_ok = _ensure_vscode_extension()
+            _configure_vscode_port_preview(
+                parsed_port, in_vscode=True, is_remote=False
+            )
+            ext_ok = _ensure_vscode_extension(is_remote=False)
             from arrayview import _vscode_extension as _extension_state
             if not ext_ok and _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
                 return OpenResult(

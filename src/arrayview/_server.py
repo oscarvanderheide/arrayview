@@ -64,6 +64,9 @@ SERVER_PROTOCOL_VERSION = "1"
 SERVER_CAPABILITIES = (
     "health-status",
     "session-registration",
+    "identity-fenced-load",
+    "identity-fenced-mutations",
+    "transactional-relay-display",
     "viewer-websocket",
     "shell-websocket",
     "dir-collection-case-inference",
@@ -239,6 +242,16 @@ def ping():
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
         "viewer_connections_seen": _session_mod.VIEWER_CONNECTIONS_SEEN,
         "shell_sockets": len(_session_mod.SHELL_SOCKETS),
+        "shell_request_ids": sorted(_session_mod.SHELL_REQUEST_IDS),
+        "active_viewer_requests": sorted(
+            f"{sid}:{request_id}"
+            for (sid, request_id), count in _session_mod.VIEWER_REQUEST_COUNTS.items()
+            if count > 0
+        ),
+        "native_ready_requests": sorted(
+            f"{sid}:{request_id}"
+            for sid, request_id in _session_mod.NATIVE_READY_REQUESTS
+        ),
     }
 
 

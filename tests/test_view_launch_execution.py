@@ -6,6 +6,46 @@ import numpy as np
 import pytest
 
 
+def _snapshot(launch_plan, invocation, *, server_alive=False):
+    return launch_plan.LaunchEnvironmentSnapshot(
+        invocation=invocation,
+        requested_window=None,
+        environment=(
+            launch_plan.Environment.JULIA
+            if invocation is launch_plan.Invocation.JULIA
+            else launch_plan.Environment.TERMINAL
+        ),
+        platform="test",
+        env_vars={},
+        config_default=None,
+        native_backend=None,
+        server=launch_plan.ServerSnapshot(
+            8123,
+            server_alive,
+            server_alive,
+            4242 if server_alive else None,
+            "test-host" if server_alive else None,
+            "existing-server" if server_alive else None,
+            "process-start" if server_alive else None,
+            (
+                "identity-fenced-load",
+                "identity-fenced-mutations",
+            )
+            if server_alive
+            else (),
+            "1" if server_alive else None,
+        ),
+        in_jupyter=False,
+        in_julia=invocation is launch_plan.Invocation.JULIA,
+        in_vscode_terminal=False,
+        is_vscode_remote=False,
+        in_vscode_tunnel=False,
+        ssh_connection=False,
+        ssh_client=False,
+        hostname="test-host",
+    )
+
+
 @pytest.mark.parametrize(
     ("display", "expected_window", "expected_inline"),
     [
@@ -25,7 +65,7 @@ def test_view_executes_planned_display_for_julia(
     snapshots = []
     intents = []
     julia_calls = []
-    snapshot = object()
+    snapshot = _snapshot(launch_plan, launch_plan.Invocation.JULIA)
 
     monkeypatch.setattr(launcher, "_is_julia_env", lambda: True)
     monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
@@ -44,9 +84,13 @@ def test_view_executes_planned_display_for_julia(
             failure=None,
             effective_port=8000,
             display=launch_plan.Display(display),
+            registration=launch_plan.Registration.DAEMON_STARTUP,
         )
 
     monkeypatch.setattr(launch_plan, "plan_launch", fake_plan)
+    monkeypatch.setattr(
+        launcher, "_revalidate_launch_server", lambda context, port: port
+    )
     monkeypatch.setattr(
         launcher,
         "_view_julia",
@@ -77,7 +121,9 @@ def test_view_preserves_explicit_inline_intent(monkeypatch):
     monkeypatch.setattr(
         launch_plan,
         "snapshot_launch_environment",
-        lambda *args, **kwargs: object(),
+        lambda *args, **kwargs: _snapshot(
+            launch_plan, launch_plan.Invocation.JULIA
+        ),
     )
 
     def fake_plan(intent, facts):
@@ -87,9 +133,13 @@ def test_view_preserves_explicit_inline_intent(monkeypatch):
             failure=None,
             effective_port=8123,
             display=launch_plan.Display.INLINE,
+            registration=launch_plan.Registration.DAEMON_STARTUP,
         )
 
     monkeypatch.setattr(launch_plan, "plan_launch", fake_plan)
+    monkeypatch.setattr(
+        launcher, "_revalidate_launch_server", lambda context, port: port
+    )
     monkeypatch.setattr(launcher, "_view_julia", lambda *args, **kwargs: None)
 
     launcher.view(np.zeros((2, 2)), inline=False)
@@ -99,11 +149,19 @@ def test_view_preserves_explicit_inline_intent(monkeypatch):
     assert captured[0].inline is False
 
 
-def _install_python_plan(monkeypatch, launcher, launch_plan, display):
+def _install_python_plan(
+    monkeypatch, launcher, launch_plan, display, *, existing
+):
     monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
     monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
     monkeypatch.setattr(
-        launch_plan, "snapshot_launch_environment", lambda *args, **kwargs: object()
+        launch_plan,
+        "snapshot_launch_environment",
+        lambda *args, **kwargs: _snapshot(
+            launch_plan,
+            launch_plan.Invocation.PYTHON,
+            server_alive=existing,
+        ),
     )
     monkeypatch.setattr(
         launch_plan,
@@ -113,7 +171,15 @@ def _install_python_plan(monkeypatch, launcher, launch_plan, display):
             failure=None,
             effective_port=8123,
             display=launch_plan.Display(display),
+            registration=(
+                launch_plan.Registration.HTTP_LOAD
+                if existing
+                else launch_plan.Registration.IN_PROCESS_SESSION
+            ),
         ),
+    )
+    monkeypatch.setattr(
+        launcher, "_revalidate_launch_server", lambda context, port: port
     )
 
 
@@ -127,7 +193,9 @@ def test_existing_server_executes_python_plan(
     import arrayview._launch_plan as launch_plan
     import arrayview._launcher as launcher
 
-    _install_python_plan(monkeypatch, launcher, launch_plan, display)
+    _install_python_plan(
+        monkeypatch, launcher, launch_plan, display, existing=True
+    )
     opened = []
     monkeypatch.setattr(launcher, "_server_alive", lambda port: True)
     monkeypatch.setattr(
@@ -158,7 +226,9 @@ def test_in_process_server_executes_python_plan(
     import arrayview._launcher as launcher
     import arrayview._session as session_mod
 
-    _install_python_plan(monkeypatch, launcher, launch_plan, display)
+    _install_python_plan(
+        monkeypatch, launcher, launch_plan, display, existing=False
+    )
     opened = []
     monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
     monkeypatch.setattr(launcher, "_server_pid", lambda port: launcher.os.getpid())
@@ -185,7 +255,11 @@ def test_julia_window_false_preserves_inline_compatibility(monkeypatch):
     monkeypatch.setattr(launcher, "_is_julia_env", lambda: True)
     monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
     monkeypatch.setattr(
-        launch_plan, "snapshot_launch_environment", lambda *args, **kwargs: object()
+        launch_plan,
+        "snapshot_launch_environment",
+        lambda *args, **kwargs: _snapshot(
+            launch_plan, launch_plan.Invocation.JULIA
+        ),
     )
 
     def fake_plan(intent, facts):
@@ -195,10 +269,14 @@ def test_julia_window_false_preserves_inline_compatibility(monkeypatch):
             failure=None,
             effective_port=8123,
             display=launch_plan.Display.INLINE,
+            registration=launch_plan.Registration.DAEMON_STARTUP,
         )
 
     calls = []
     monkeypatch.setattr(launch_plan, "plan_launch", fake_plan)
+    monkeypatch.setattr(
+        launcher, "_revalidate_launch_server", lambda context, port: port
+    )
     monkeypatch.setattr(
         launcher,
         "_view_julia",

@@ -83,7 +83,13 @@ def _print_viewer_location(*args, **kwargs):
 
 
 def _open_browser(*args, **kwargs):
-    return _vscode_mod()._open_browser(*args, **kwargs)
+    result = _vscode_mod()._open_browser(*args, **kwargs)
+    if kwargs.get("blocking") and not result:
+        detail = getattr(result, "detail", None) or getattr(
+            getattr(result, "state", None), "value", "display handoff failed"
+        )
+        raise RuntimeError(f"ArrayView display handoff failed: {detail}")
+    return result
 
 # _server.py (FastAPI) is imported lazily via _server_mod() to keep the
 # import-time cost of ``import arrayview`` low (~175 ms saved).
@@ -546,12 +552,32 @@ def _open_webview_with_fallback(
 
     Used from view() (Python API) where the host process stays alive.
     """
-    proc = _open_webview(url, win_w, win_h, capture_stderr=True, shell_port=shell_port)
+    fallback_url = url
+    native_request_id = uuid.uuid4().hex
+    separator = "&" if "?" in url else "?"
+    native_url = (
+        f"{url}{separator}native_request_id="
+        f"{urllib.parse.quote(native_request_id)}"
+    )
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(native_url).query)
+    sid = (query.get("init_sid") or query.get("sid") or [""])[0]
+    expected_server_id = None
+    expected_server_pid = os.getpid()
+    if launch_context is not None and launch_context.plan.registration.value == "http_load":
+        expected_server_id = _planned_server_snapshot(
+            launch_context,
+            shell_port or launch_context.plan.effective_port,
+        ).server_instance_id
+        expected_server_pid = None
+
+    proc = _open_webview(
+        native_url,
+        win_w,
+        win_h,
+        capture_stderr=True,
+        shell_port=shell_port,
+    )
     _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
-    sockets_before = (
-        _session_mod.VIEWER_SOCKETS
-    )  # capture count so we detect a NEW connection
-    shell_sockets_before = len(_session_mod.SHELL_SOCKETS)
 
     def _read_stderr():
         try:
@@ -572,25 +598,24 @@ def _open_webview_with_fallback(
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
                 _open_browser(
-                    url,
+                    fallback_url,
                     floating=floating,
                     launch_context=launch_context,
                     use_fallback=True,
                 )
                 return
 
-        # Phase 2: process is alive — wait up to 8 s for a NEW viewer or shell
-        # WebSocket.  The native shell connection proves pywebview is usable;
-        # the embedded viewer iframe can legitimately connect later.
-        import arrayview._session as _sm
-
+        # Phase 2: wait for a frame ACK from this exact backend/SID/attempt.
         for _ in range(80):
             time.sleep(0.1)
-            shell_connected = (
-                shell_port is not None
-                and len(_sm.SHELL_SOCKETS) > shell_sockets_before
-            )
-            if _sm.VIEWER_SOCKETS > sockets_before or shell_connected:
+            if sid and shell_port is not None and _server_native_ready(
+                shell_port,
+                sid=sid,
+                native_request_id=native_request_id,
+                expected_server_id=expected_server_id,
+                expected_server_pid=expected_server_pid,
+                timeout=0.2,
+            ):
                 _vprint("[ArrayView] Native window connected successfully", flush=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(
@@ -613,7 +638,7 @@ def _open_webview_with_fallback(
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
                 _open_browser(
-                    url,
+                    fallback_url,
                     floating=floating,
                     launch_context=launch_context,
                     use_fallback=True,
@@ -630,7 +655,7 @@ def _open_webview_with_fallback(
         except Exception:
             pass
         _open_browser(
-            url,
+            fallback_url,
             floating=floating,
             launch_context=launch_context,
             use_fallback=True,
@@ -809,6 +834,64 @@ def _wait_for_native_shell_or_viewer_connection(
     return None
 
 
+def _server_native_ready(
+    port: int,
+    *,
+    sid: str,
+    native_request_id: str,
+    expected_server_id: str | None,
+    expected_server_pid: int | None = None,
+    timeout: float = 0.5,
+) -> bool:
+    """Return whether this exact native attempt rendered on this backend."""
+    url = f"http://{_LOOPBACK_HOST}:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return False
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    if payload.get("ok") is not True or payload.get("service") != "arrayview":
+        return False
+    if expected_server_id is not None:
+        if payload.get("instance_id") != expected_server_id:
+            return False
+    elif expected_server_pid is not None:
+        if payload.get("pid") != expected_server_pid:
+            return False
+    else:
+        return False
+    return (
+        f"{sid}:{native_request_id}"
+        in payload.get("native_ready_requests", [])
+    )
+
+
+def _wait_for_native_ready(
+    port: int,
+    *,
+    sid: str,
+    native_request_id: str,
+    expected_server_id: str | None,
+    expected_server_pid: int | None = None,
+    timeout: float = 8.0,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _server_native_ready(
+            port,
+            sid=sid,
+            native_request_id=native_request_id,
+            expected_server_id=expected_server_id,
+            expected_server_pid=expected_server_pid,
+            timeout=0.3,
+        ):
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def _terminate_native_process(proc: subprocess.Popen | None) -> None:
     if proc is None or proc.poll() is not None:
         return
@@ -826,10 +909,18 @@ def _open_cli_native_shell_after_server(
     compare_sids: "_CompareSids | None",
     win_w: int,
     win_h: int,
+    expected_server_id: str | None,
+    expected_server_pid: int | None = None,
 ) -> bool:
     """Open a CLI native shell and return whether it is usable."""
-    url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
-    viewer_before = _server_viewer_connections_seen(port)
+    native_request_id = uuid.uuid4().hex
+    url_shell = _shell_url(
+        port,
+        sid,
+        name,
+        compare_sids=compare_sids,
+        native_request_id=native_request_id,
+    )
     _trace_launch_event(
         "display.attempt_started",
         adapter="native",
@@ -842,9 +933,12 @@ def _open_cli_native_shell_after_server(
         trace_stage="post_tcp",
     )
     connection_evidence = (
-        _wait_for_native_shell_or_viewer_connection(
+        _wait_for_native_ready(
             port,
-            viewer_before=viewer_before,
+            sid=sid,
+            native_request_id=native_request_id,
+            expected_server_id=expected_server_id,
+            expected_server_pid=expected_server_pid,
         )
         if opened
         else None
@@ -884,21 +978,34 @@ def _activate_early_cli_native_shell(
     sid: str,
     name: str,
     proc: subprocess.Popen | None,
+    native_request_id: str,
+    expected_server_id: str,
 ) -> bool:
     """Attach an already-started preload shell to a spawned daemon session."""
-    viewer_before = _server_viewer_connections_seen(port)
+    viewer_url = _viewer_path(sid)
+    separator = "&" if "?" in viewer_url else "?"
+    viewer_url += (
+        f"{separator}native_request_id="
+        f"{urllib.parse.quote(native_request_id)}"
+    )
     try:
         notify_result = _notify_existing_session(
             port,
             sid,
             name,
-            url=_viewer_path(sid),
+            url=viewer_url,
             wait=True,
+            expected_server_id=expected_server_id,
         )
         notified = bool(notify_result.get("notified"))
     except Exception:
         notified = False
-    if notified and _wait_for_viewer_connection(port, before=viewer_before):
+    if notified and _wait_for_native_ready(
+        port,
+        sid=sid,
+        native_request_id=native_request_id,
+        expected_server_id=expected_server_id,
+    ):
         _trace_launch_event(
             "display.activation_evidence",
             adapter="native",
@@ -951,6 +1058,102 @@ def _server_pid(port: int) -> int | None:
     return None
 
 
+def _server_runtime_identity(
+    port: int,
+    *,
+    attempts: int = 3,
+    host: str = _LOOPBACK_HOST,
+) -> tuple[str | None, str | None, int | None] | None:
+    """Return a stable server identity, tolerating brief health-check stalls."""
+    payload = _server_runtime_status(port, attempts=attempts, host=host)
+    if payload is None:
+        return None
+    instance_id = payload.get("instance_id")
+    process_start = payload.get("process_start")
+    pid = payload.get("pid")
+    return (
+        instance_id if isinstance(instance_id, str) else None,
+        process_start if isinstance(process_start, str) else None,
+        pid if isinstance(pid, int) else None,
+    )
+
+
+def _server_runtime_status(
+    port: int,
+    *,
+    attempts: int = 3,
+    host: str = _LOOPBACK_HOST,
+) -> dict | None:
+    """Return the complete health contract for a specific server endpoint."""
+    url = f"http://{host}:{port}/ping"
+    for attempt in range(max(1, attempts)):
+        try:
+            with urllib.request.urlopen(url, timeout=0.5) as resp:
+                if resp.status != 200:
+                    raise RuntimeError("unexpected health status")
+                payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return payload
+        except Exception:
+            pass
+        if attempt + 1 < max(1, attempts):
+            time.sleep(0.05)
+    return None
+
+
+def _planned_server_snapshot(launch_context, port: int):
+    expected = launch_context.evidence.server
+    cli_default = launch_context.evidence.cli_default_server
+    if cli_default is not None and cli_default.port == port:
+        return cli_default
+    return expected
+
+
+def _revalidate_launch_server(launch_context, port: int) -> int:
+    """Preserve the server ownership selected by an immutable launch plan."""
+    if launch_context.plan.registration.value == "http_load":
+        expected = _planned_server_snapshot(launch_context, port)
+
+        current = _server_runtime_identity(port)
+        if expected.server_instance_id is None:
+            raise RuntimeError(
+                "The selected ArrayView server does not expose generation "
+                "identity; restart it before loading a new session"
+            )
+        same_server = (
+            current is not None
+            and current[0] == expected.server_instance_id
+            and (
+                expected.server_process_start is None
+                or current[1] == expected.server_process_start
+            )
+            and (expected.server_pid is None or current[2] == expected.server_pid)
+        )
+        if not same_server:
+            raise RuntimeError(
+                "The selected existing ArrayView server disappeared or was "
+                "replaced before the session could be registered"
+            )
+        return port
+
+    if not _port_in_use(port):
+        return port
+    original_port = port
+    for candidate in range(port + 1, port + 101):
+        if not _port_in_use(candidate):
+            _trace_launch_event(
+                "server.revalidated",
+                decision="alternate_port",
+                previous_port=original_port,
+                effective_port=candidate,
+                reason="planned_owner_preserved",
+            )
+            return candidate
+    raise RuntimeError(
+        "Could not preserve planned server ownership: no free ArrayView port"
+    )
+
+
 def _server_hostname(port: int, timeout: float = 0.5) -> str | None:
     """Return the hostname reported by the ArrayView server on ``port``, or None."""
     url = f"http://{_LOOPBACK_HOST}:{port}/ping"
@@ -972,6 +1175,7 @@ def _relay_array_to_server(
     name: str,
     rgb: bool = False,
     relay_host: str = _LOOPBACK_HOST,
+    expected_server_id: str | None = None,
 ) -> None:
     """Load *filepath* locally and POST the bytes to an ArrayView relay server.
 
@@ -986,6 +1190,25 @@ def _relay_array_to_server(
     import numpy as np
     from arrayview._io import load_data
 
+    status = _server_runtime_status(port, host=relay_host)
+    capabilities = set(status.get("capabilities", [])) if status else set()
+    compatible = (
+        status is not None
+        and isinstance(status.get("instance_id"), str)
+        and status.get("protocol_version") == "1"
+        and "transactional-relay-display" in capabilities
+    )
+    if not compatible:
+        raise RuntimeError(
+            f"No transaction-compatible ArrayView relay found on "
+            f"{relay_host}:{port}; update or restart the remote ArrayView server"
+        )
+    current_server_id = str(status["instance_id"])
+    if expected_server_id is not None and expected_server_id != current_server_id:
+        raise RuntimeError("The selected relay server was replaced before upload")
+    expected_server_id = current_server_id
+    requested_sid = uuid.uuid4().hex
+
     print("[ArrayView] Relay mode: sending array to remote server...", flush=True)
     try:
         data = load_data(filepath)
@@ -997,18 +1220,55 @@ def _relay_array_to_server(
     np.save(buf, data)
     data_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    body = json.dumps({"data_b64": data_b64, "name": name, "rgb": rgb}).encode()
+    body = json.dumps(
+        {
+            "data_b64": data_b64,
+            "name": name,
+            "rgb": rgb,
+            "expected_server_id": expected_server_id,
+            "requested_sid": requested_sid,
+            "require_display_ack": True,
+        }
+    ).encode()
     req = urllib.request.Request(
         f"http://{relay_host}:{port}/load_bytes",
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        result = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read())
+    except Exception:
+        _release_remote_sessions(
+            port,
+            [requested_sid],
+            expected_server_id=expected_server_id,
+            host=relay_host,
+        )
+        raise
 
     if "error" in result:
+        _release_remote_sessions(
+            port,
+            [requested_sid],
+            expected_server_id=expected_server_id,
+            host=relay_host,
+        )
         raise RuntimeError(f"[ArrayView] Relay server error: {result['error']}")
+    if (
+        result.get("sid") != requested_sid
+        or result.get("display_acknowledged") is not True
+    ):
+        _release_remote_sessions(
+            port,
+            [requested_sid],
+            expected_server_id=expected_server_id,
+            host=relay_host,
+        )
+        raise RuntimeError(
+            "[ArrayView] Relay server did not confirm the exact session display"
+        )
 
     print(
         "[ArrayView] Array sent to relay server. "
@@ -1032,6 +1292,30 @@ def _server_json_request(port: int, path: str, payload: dict) -> dict:
         return json.loads(resp.read())
 
 
+def _release_remote_sessions(
+    port: int,
+    sids: list[str],
+    *,
+    expected_server_id: str,
+    host: str = _LOOPBACK_HOST,
+) -> None:
+    """Best-effort rollback fenced to the server that created the leases."""
+    for sid in reversed(sids):
+        request = urllib.request.Request(
+            f"http://{host}:{port}/release/{sid}",
+            data=b"",
+            headers={
+                "X-ArrayView-Expected-Server-ID": expected_server_id,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+        except Exception:
+            pass
+
+
 def _load_session_from_filepath(
     port: int,
     filepath: str,
@@ -1047,11 +1331,19 @@ def _load_session_from_filepath(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     background: bool = False,
+    expected_server_id: str | None = None,
+    native_request_id: str | None = None,
+    release_on_disconnect: bool = False,
+    related_sids: list[str] | None = None,
 ) -> dict:
+    requested_sid = uuid.uuid4().hex
     payload = {
         "filepath": filepath,
         "name": name,
         "notify": notify,
+        "requested_sid": requested_sid,
+        "release_on_disconnect": release_on_disconnect,
+        "related_sids": related_sids or [],
     }
     if rgb:
         payload["rgb"] = True
@@ -1067,7 +1359,20 @@ def _load_session_from_filepath(
         payload["compare_sids"] = _join_query_values(compare_sids)
     if background:
         payload["background"] = True
-    return _server_json_request(port, "/load", payload)
+    if expected_server_id is not None:
+        payload["expected_server_id"] = expected_server_id
+    if native_request_id is not None:
+        payload["native_request_id"] = native_request_id
+    try:
+        return _server_json_request(port, "/load", payload)
+    except Exception:
+        if expected_server_id is not None:
+            _release_remote_sessions(
+                port,
+                [requested_sid],
+                expected_server_id=expected_server_id,
+            )
+        raise
 
 
 def _notify_existing_session(
@@ -1077,24 +1382,35 @@ def _notify_existing_session(
     *,
     url: str | None = None,
     wait: bool = False,
+    expected_server_id: str | None = None,
 ) -> dict:
     payload = {"name": name, "wait": wait}
     if url:
         payload["url"] = url
+    if expected_server_id is not None:
+        payload["expected_server_id"] = expected_server_id
     return _server_json_request(port, f"/notify/{sid}", payload)
 
 
 def _attach_vectorfield_to_session(
-    port: int, sid: str, filepath: str, *, components_dim: int | None = None
+    port: int,
+    sid: str,
+    filepath: str,
+    *,
+    components_dim: int | None = None,
+    expected_server_id: str | None = None,
 ) -> dict:
+    payload = {
+        "sid": sid,
+        "filepath": filepath,
+        "components_dim": components_dim,
+    }
+    if expected_server_id is not None:
+        payload["expected_server_id"] = expected_server_id
     return _server_json_request(
         port,
         "/attach_vectorfield",
-        {
-            "sid": sid,
-            "filepath": filepath,
-            "components_dim": components_dim,
-        },
+        payload,
     )
 
 
@@ -1202,11 +1518,20 @@ def _normalize_view_window_request(
     }
 
 
-def _load_compare_sids(port: int, compare_files: list[str]) -> list[str]:
+def _load_compare_sids(
+    port: int,
+    compare_files: list[str],
+    *,
+    expected_server_id: str | None = None,
+    loaded_sids: list[str] | None = None,
+) -> list[str]:
     compare_sids: list[str] = []
     for compare_file in compare_files:
         cmp_result = _load_session_from_filepath(
-            port, compare_file, os.path.basename(compare_file)
+            port,
+            compare_file,
+            os.path.basename(compare_file),
+            expected_server_id=expected_server_id,
         )
         if "error" in cmp_result:
             raise RuntimeError(
@@ -1214,7 +1539,10 @@ def _load_compare_sids(port: int, compare_files: list[str]) -> list[str]:
             )
         compare_sid = cmp_result.get("sid")
         if compare_sid:
+            compare_sid = str(compare_sid)
             compare_sids.append(compare_sid)
+            if loaded_sids is not None:
+                loaded_sids.append(compare_sid)
     return compare_sids
 
 
@@ -1227,6 +1555,7 @@ def _open_cli_existing_server_view(
     dims_override: tuple[int, int] | None,
     notify_native_shell: bool,
     notified: bool,
+    native_request_id: str | None = None,
     name: str,
     base_file: str,
     watch: bool,
@@ -1251,10 +1580,27 @@ def _open_cli_existing_server_view(
         if launch_context is not None
         else {}
     )
+    expected_server_id = (
+        _planned_server_snapshot(launch_context, port).server_instance_id
+        if launch_context is not None
+        else None
+    )
+    expected_server_pid = None
+    if expected_server_id is None:
+        identity = _server_runtime_identity(port)
+        expected_server_pid = identity[2] if identity is not None else None
     if notify_native_shell and notified:
-        _vprint(f"Injected into existing window (port {port})")
-        return
-    if notify_native_shell and not notified:
+        if native_request_id and _wait_for_native_ready(
+            port,
+            sid=sid,
+            native_request_id=native_request_id,
+            expected_server_id=expected_server_id,
+            expected_server_pid=expected_server_pid,
+        ):
+            _vprint(f"Injected into existing window (port {port})")
+            return
+        notified = False
+    if notify_native_shell:
         native_ready = _open_cli_native_shell_after_server(
             port=port,
             sid=sid,
@@ -1262,6 +1608,8 @@ def _open_cli_existing_server_view(
             compare_sids=compare_sids,
             win_w=1200,
             win_h=800,
+            expected_server_id=expected_server_id,
+            expected_server_pid=expected_server_pid,
         )
         if not native_ready:
             _trace_launch_event(
@@ -1303,7 +1651,7 @@ def _open_cli_existing_server_view(
     )
 
 
-def _register_cli_session_with_existing_server(
+def _register_cli_session_with_existing_server_impl(
     *,
     port: int,
     overlay_paths: list[str],
@@ -1322,6 +1670,9 @@ def _register_cli_session_with_existing_server(
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
     background_base: bool = False,
+    expected_server_id: str | None = None,
+    native_request_id: str | None = None,
+    _loaded_sids: list[str],
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
     resolved_overlay_names = overlay_names or [
@@ -1333,6 +1684,7 @@ def _register_cli_session_with_existing_server(
             port,
             os.path.abspath(ov_path),
             ov_name,
+            expected_server_id=expected_server_id,
         )
         if "error" in ov_result:
             raise RuntimeError(
@@ -1340,10 +1692,17 @@ def _register_cli_session_with_existing_server(
             )
         ov_sid = ov_result.get("sid")
         if ov_sid:
+            ov_sid = str(ov_sid)
             overlay_sids_list.append(ov_sid)
+            _loaded_sids.append(ov_sid)
     overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
 
-    compare_sids = _load_compare_sids(port, compare_files)
+    compare_sids = _load_compare_sids(
+        port,
+        compare_files,
+        expected_server_id=expected_server_id,
+        loaded_sids=_loaded_sids,
+    )
     notify_native_shell = _should_notify_native_shell(use_native_shell, overlay_sid)
     result = _load_session_from_filepath(
         port,
@@ -1359,6 +1718,10 @@ def _register_cli_session_with_existing_server(
         collection_load=collection_load,
         collection_stack=collection_stack,
         background=background_base,
+        expected_server_id=expected_server_id,
+        native_request_id=native_request_id,
+        release_on_disconnect=True,
+        related_sids=[*compare_sids, *overlay_sids_list],
     )
     if "error" in result:
         error = str(result["error"])
@@ -1374,12 +1737,14 @@ def _register_cli_session_with_existing_server(
                 f"Restart it with: arrayview --kill --port {port}"
             )
         raise RuntimeError(f"Error from server: {error}")
+    _loaded_sids.append(str(result["sid"]))
     if vectorfield:
         vf_result = _attach_vectorfield_to_session(
             port,
             result["sid"],
             os.path.abspath(vectorfield),
             components_dim=vfield_components_dim,
+            expected_server_id=expected_server_id,
         )
         if "error" in vf_result:
             raise RuntimeError(
@@ -1388,6 +1753,7 @@ def _register_cli_session_with_existing_server(
     collection_overlay_sids = [str(sid) for sid in result.get("overlay_sids", [])]
     if collection_overlay_sids:
         overlay_sids_list.extend(collection_overlay_sids)
+        _loaded_sids.extend(collection_overlay_sids)
         overlay_sid = ",".join(overlay_sids_list)
     session_info = {
         "sid": result["sid"],
@@ -1395,10 +1761,29 @@ def _register_cli_session_with_existing_server(
         "compare_sids": compare_sids,
         "notify_native_shell": notify_native_shell,
         "notified": bool(result.get("notified", False)),
+        "native_request_id": native_request_id,
     }
     if result.get("overlay_names"):
         session_info["overlay_names"] = result["overlay_names"]
     return session_info
+
+
+def _register_cli_session_with_existing_server(**kwargs) -> dict[str, object]:
+    loaded_sids: list[str] = []
+    expected_server_id = kwargs.get("expected_server_id")
+    try:
+        return _register_cli_session_with_existing_server_impl(
+            **kwargs,
+            _loaded_sids=loaded_sids,
+        )
+    except Exception:
+        if isinstance(expected_server_id, str):
+            _release_remote_sessions(
+                int(kwargs["port"]),
+                loaded_sids,
+                expected_server_id=expected_server_id,
+            )
+        raise
 
 
 def _handle_cli_existing_server(
@@ -1427,6 +1812,12 @@ def _handle_cli_existing_server(
     overlay_names: list[str] | None = None,
 ) -> None:
     _trace_launch_event("server.decision", decision="reuse", port=port)
+    expected_server_id = (
+        _planned_server_snapshot(launch_context, port).server_instance_id
+        if launch_context is not None
+        else None
+    )
+    native_request_id = uuid.uuid4().hex if use_native_shell else None
     try:
         session_info = _register_cli_session_with_existing_server(
             port=port,
@@ -1451,6 +1842,8 @@ def _handle_cli_existing_server(
                 and not dir_patterns
                 and not base_file.endswith((".npz", ".mat"))
             ),
+            expected_server_id=expected_server_id,
+            native_request_id=native_request_id,
         )
     except Exception as e:
         err = str(e)
@@ -1474,6 +1867,26 @@ def _handle_cli_existing_server(
                     f"this stack request; starting this checkout on port {fallback_port}.",
                     flush=True,
                 )
+                replacement_context = None
+                if launch_context is not None:
+                    from arrayview._launch_plan import (
+                        Invocation,
+                        LaunchIntent,
+                        create_launch_context,
+                    )
+
+                    replacement_context = create_launch_context(
+                        LaunchIntent(
+                            invocation=Invocation.CLI,
+                            port=fallback_port,
+                            requested_window=window_mode,
+                            persistent=is_remote,
+                        )
+                    )
+                    if not replacement_context.plan.ok:
+                        raise RuntimeError(
+                            "Could not plan a compatible replacement server"
+                        )
                 _handle_cli_spawned_daemon(
                     port=fallback_port,
                     base_file=base_file,
@@ -1487,8 +1900,8 @@ def _handle_cli_existing_server(
                     floating=floating,
                     is_remote=is_remote,
                     **(
-                        {"launch_context": launch_context}
-                        if launch_context is not None
+                        {"launch_context": replacement_context}
+                        if replacement_context is not None
                         else {}
                     ),
                     vectorfield=vectorfield,
@@ -1528,30 +1941,56 @@ def _handle_cli_existing_server(
         sid_tag=_launch_trace_tag(session_info["sid"]),
         port=port,
     )
-    _open_cli_existing_server_view(
-        port=port,
-        sid=str(session_info["sid"]),
-        compare_sids=session_info["compare_sids"],
-        overlay_sid=session_info["overlay_sid"],
-        overlay_names=(
-            list(session_info.get("overlay_names", []))
-            or overlay_names
-            or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
-        ),
-        dims_override=dims_override,
-        notify_native_shell=bool(session_info["notify_native_shell"]),
-        notified=bool(session_info["notified"]),
-        name=name,
-        base_file=base_file,
-        watch=watch,
-        window_mode=window_mode,
-        floating=floating,
-        **(
-            {"launch_context": launch_context}
-            if launch_context is not None
-            else {}
-        ),
-    )
+    try:
+        _open_cli_existing_server_view(
+            port=port,
+            sid=str(session_info["sid"]),
+            compare_sids=session_info["compare_sids"],
+            overlay_sid=session_info["overlay_sid"],
+            overlay_names=(
+                list(session_info.get("overlay_names", []))
+                or overlay_names
+                or [
+                    os.path.basename(path) or f"overlay {i + 1}"
+                    for i, path in enumerate(overlay_files)
+                ]
+            ),
+            dims_override=dims_override,
+            notify_native_shell=bool(session_info["notify_native_shell"]),
+            notified=bool(session_info["notified"]),
+            native_request_id=(
+                str(session_info["native_request_id"])
+                if session_info.get("native_request_id")
+                else None
+            ),
+            name=name,
+            base_file=base_file,
+            watch=watch,
+            window_mode=window_mode,
+            floating=floating,
+            **(
+                {"launch_context": launch_context}
+                if launch_context is not None
+                else {}
+            ),
+        )
+    except Exception:
+        if expected_server_id is not None:
+            rollback_sids = [str(session_info["sid"])]
+            rollback_sids.extend(
+                str(sid) for sid in session_info["compare_sids"]
+            )
+            rollback_sids.extend(
+                sid
+                for sid in str(session_info["overlay_sid"] or "").split(",")
+                if sid
+            )
+            _release_remote_sessions(
+                port,
+                rollback_sids,
+                expected_server_id=expected_server_id,
+            )
+        raise
 
 
 def _handle_cli_spawned_daemon(
@@ -1592,43 +2031,19 @@ def _handle_cli_spawned_daemon(
         or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
     )
 
-    if (
-        launch_context is not None
-        and launch_context.plan.display.value == "vscode"
-        and is_remote
-    ) or (launch_context is None and not use_native_shell):
-        _configure_vscode_port_preview(port)
-
     vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
-    script = (
-        f"from arrayview._launcher import _serve_daemon;"
-        f"_serve_daemon("
-        f"{repr(base_file)}, {port}, {repr(sid)},"
-        f" name={repr(demo_name)},"
-        f" cleanup={demo_cleanup},"
-        f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
-        f" overlay_sids={repr(overlay_sids)},"
-        f" overlay_names={repr(resolved_overlay_names)},"
-        f" vfield_filepath={repr(vfield_abs)},"
-        f" vfield_components_dim={repr(vfield_components_dim)},"
-        f" persist={is_remote},"
-        f" rgb={rgb},"
-        f" dir_patterns={repr(dir_patterns)},"
-        f" dir_overlay_specs={repr(dir_overlay_specs)},"
-        f" dir_case_regex={repr(dir_case_regex)},"
-        f" dir_exclude_cases={repr(dir_exclude_cases)},"
-        f" collection_load={repr(collection_load)},"
-        f" collection_stack={repr(collection_stack)},"
-        f")"
-    )
     early_native_shell_opened = False
     early_native_shell_proc = None
     early_native_shell_connected = False
+    early_native_request_id = None
+    daemon_server_id = None
 
     from arrayview._instance_registry import InstanceRegistry
 
     with InstanceRegistry().startup_lock(timeout=20.0):
-        server_already_live = _server_alive(port)
+        server_already_live = (
+            _server_alive(port) if launch_context is None else False
+        )
         _trace_launch_event(
             "server.decision",
             decision="reuse" if server_already_live else "spawn",
@@ -1664,6 +2079,40 @@ def _handle_cli_spawned_daemon(
                 overlay_names=resolved_overlay_names,
             )
             return
+
+        if launch_context is not None:
+            port = _revalidate_launch_server(launch_context, port)
+
+        if (
+            launch_context is not None
+            and launch_context.plan.display.value == "vscode"
+            and is_remote
+        ) or (launch_context is None and not use_native_shell):
+            _configure_vscode_port_preview(
+                port, in_vscode=not is_remote, is_remote=is_remote
+            )
+
+        script = (
+            f"from arrayview._launcher import _serve_daemon;"
+            f"_serve_daemon("
+            f"{repr(base_file)}, {port}, {repr(sid)},"
+            f" name={repr(demo_name)},"
+            f" cleanup={demo_cleanup},"
+            f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
+            f" overlay_sids={repr(overlay_sids)},"
+            f" overlay_names={repr(resolved_overlay_names)},"
+            f" vfield_filepath={repr(vfield_abs)},"
+            f" vfield_components_dim={repr(vfield_components_dim)},"
+            f" persist={is_remote},"
+            f" rgb={rgb},"
+            f" dir_patterns={repr(dir_patterns)},"
+            f" dir_overlay_specs={repr(dir_overlay_specs)},"
+            f" dir_case_regex={repr(dir_case_regex)},"
+            f" dir_exclude_cases={repr(dir_exclude_cases)},"
+            f" collection_load={repr(collection_load)},"
+            f" collection_stack={repr(collection_stack)},"
+            f")"
+        )
 
         popen_kwargs = {
             "stdin": subprocess.DEVNULL,
@@ -1705,7 +2154,11 @@ def _handle_cli_spawned_daemon(
             # Linux QtWebEngine denies sessionStorage to the viewer iframe when its
             # parent shell was created from inline data. Let Linux open the normal
             # HTTP shell after the daemon is listening instead.
-            url_shell_early = f"http://{_LOOPBACK_HOST}:{port}/shell"
+            early_native_request_id = uuid.uuid4().hex
+            url_shell_early = (
+                f"http://{_LOOPBACK_HOST}:{port}/shell"
+                f"?native_request_id={early_native_request_id}"
+            )
             _trace_launch_event(
                 "display.attempt_started",
                 adapter="native",
@@ -1729,27 +2182,53 @@ def _handle_cli_spawned_daemon(
                     evidence="process_exit",
                 )
 
-        if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+        if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
+            _terminate_native_process(early_native_shell_proc)
+            _terminate_owned_process(daemon_proc)
             _trace_launch_event("backend.tcp_failed", port=port)
             print(
-                f"Error: ArrayView server failed to start on port {port}. "
+                f"Error: the spawned ArrayView server did not claim port {port}. "
                 "Use --port to pick another."
             )
             sys.exit(1)
-        _trace_launch_event("backend.tcp_accepting", port=port)
+        daemon_identity = _server_runtime_identity(port)
+        if daemon_identity is None or daemon_identity[0] is None:
+            _terminate_native_process(early_native_shell_proc)
+            _terminate_owned_process(daemon_proc)
+            print(
+                "Error: the spawned ArrayView server did not publish a stable "
+                "generation identity."
+            )
+            sys.exit(1)
+        daemon_server_id = daemon_identity[0]
+        _trace_launch_event(
+            "backend.identity_verified",
+            port=port,
+            child_pid=getattr(daemon_proc, "pid", None),
+        )
 
     try:
-        compare_sids = _load_compare_sids(port, compare_files)
+        compare_sids = _load_compare_sids(
+            port,
+            compare_files,
+            expected_server_id=daemon_server_id,
+        )
     except Exception as e:
+        _terminate_native_process(early_native_shell_proc)
+        _terminate_owned_process(daemon_proc)
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
 
     if early_native_shell_opened:
+        assert early_native_request_id is not None
+        assert daemon_server_id is not None
         early_native_shell_connected = _activate_early_cli_native_shell(
             port=port,
             sid=sid,
             name=name,
             proc=early_native_shell_proc,
+            native_request_id=early_native_request_id,
+            expected_server_id=daemon_server_id,
         )
         _trace_launch_event(
             "display.attempt_finished",
@@ -1770,27 +2249,33 @@ def _handle_cli_spawned_daemon(
     # the environment-default opener (a VS Code tab in integrated terminals).
     should_retry_native_shell = use_native_shell
 
-    _open_cli_spawned_view(
-        port=port,
-        sid=sid,
-        compare_sids=compare_sids,
-        overlay_sid=overlay_sid,
-        overlay_names=resolved_overlay_names,
-        dims_override=dims_override,
-        use_native_shell=should_retry_native_shell,
-        name=name,
-        base_file=base_file,
-        watch=watch,
-        window_mode=window_mode,
-        floating=floating,
-        is_remote=is_remote,
-        **(
-            {"launch_context": launch_context}
-            if launch_context is not None
-            else {}
-        ),
-        native_shell_already_opened=early_native_shell_connected,
-    )
+    try:
+        _open_cli_spawned_view(
+            port=port,
+            sid=sid,
+            compare_sids=compare_sids,
+            overlay_sid=overlay_sid,
+            overlay_names=resolved_overlay_names,
+            dims_override=dims_override,
+            use_native_shell=should_retry_native_shell,
+            name=name,
+            base_file=base_file,
+            watch=watch,
+            window_mode=window_mode,
+            floating=floating,
+            is_remote=is_remote,
+            **(
+                {"launch_context": launch_context}
+                if launch_context is not None
+                else {}
+            ),
+            native_shell_already_opened=early_native_shell_connected,
+            expected_server_id=daemon_server_id,
+        )
+    except Exception:
+        _terminate_native_process(early_native_shell_proc)
+        _terminate_owned_process(daemon_proc)
+        raise
 
 
 def _open_cli_spawned_view(
@@ -1810,6 +2295,7 @@ def _open_cli_spawned_view(
     launch_context=None,
     native_shell_already_opened: bool = False,
     overlay_names: list[str] | None = None,
+    expected_server_id: str | None = None,
 ) -> None:
     url = _viewer_url(
         port,
@@ -1837,6 +2323,7 @@ def _open_cli_spawned_view(
             compare_sids=compare_sids,
             win_w=1400,
             win_h=900,
+            expected_server_id=expected_server_id,
         )
         if not native_ready:
             _trace_launch_event(
@@ -1849,7 +2336,7 @@ def _open_cli_spawned_view(
             _print_viewer_location(url, **route_kwargs)
             _open_browser(
                 url,
-                blocking=(window_mode == "vscode"),
+                blocking=True,
                 force_vscode=(window_mode == "vscode"),
                 prefer_system_browser=(window_mode == "native"),
                 title=f"ArrayView: {name}",
@@ -1994,6 +2481,45 @@ def _wait_for_port(port: int, timeout: float = 10.0, tcp_only: bool = False) -> 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if check(port):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def _terminate_owned_process(proc: subprocess.Popen | None) -> None:
+    """Stop only a process created by this invocation."""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is not None:
+            return
+        proc.terminate()
+        proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            proc.wait(timeout=2.0)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _wait_for_spawned_server(
+    proc: subprocess.Popen, port: int, timeout: float = 15.0
+) -> bool:
+    """Wait for *proc* itself—not merely some listener—to own *port*."""
+    expected_pid = getattr(proc, "pid", None)
+    if not isinstance(expected_pid, int):
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if proc.poll() is not None:
+                return False
+        except Exception:
+            return False
+        if _server_pid(port) == expected_pid:
             return True
         time.sleep(0.02)
     return False
@@ -2195,7 +2721,7 @@ _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS = float(
     os.environ.get("ARRAYVIEW_PERSIST_CONNECT_TIMEOUT_SECONDS", "210")
 )
 _PERSIST_DAEMON_IDLE_SECONDS = float(
-    os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "120")
+    os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "1800")
 )
 
 
@@ -2280,7 +2806,12 @@ def _viewer_url(
 
 
 def _shell_url(
-    port: int, sid: str, name: str, *, compare_sids: _CompareSids | None = None
+    port: int,
+    sid: str,
+    name: str,
+    *,
+    compare_sids: _CompareSids | None = None,
+    native_request_id: str | None = None,
 ) -> str:
     parts = [
         f"init_sid={sid}",
@@ -2289,6 +2820,10 @@ def _shell_url(
     if compare_sids:
         parts.append(f"init_compare_sid={compare_sids[0]}")
         parts.append(f"init_compare_sids={_join_query_values(compare_sids)}")
+    if native_request_id:
+        parts.append(
+            f"native_request_id={urllib.parse.quote(native_request_id)}"
+        )
     return f"http://localhost:{port}/shell?" + "&".join(parts)
 
 
@@ -2542,10 +3077,17 @@ class ViewHandle(str):
         v.update(arr2)        # viewer refreshes in-place
     """
 
-    def __new__(cls, url: str, sid: str, port: int):
+    def __new__(
+        cls,
+        url: str,
+        sid: str,
+        port: int,
+        server_id: str | None = None,
+    ):
         obj = super().__new__(cls, url)
         obj._sid = sid
         obj._port = port
+        obj._server_id = server_id
         obj._closed = False
         return obj
 
@@ -2583,6 +3125,11 @@ class ViewHandle(str):
         request = _req.Request(
             f"http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}",
             data=body,
+            headers=(
+                {"X-ArrayView-Expected-Server-ID": self._server_id}
+                if self._server_id is not None
+                else {}
+            ),
             method="POST",
         )
         try:
@@ -2607,7 +3154,16 @@ class ViewHandle(str):
         release_url = (
             f"http://{_LOOPBACK_HOST}:{self._port}/release/{self._sid}"
         )
-        request = urllib.request.Request(release_url, data=b"", method="POST")
+        request = urllib.request.Request(
+            release_url,
+            data=b"",
+            headers=(
+                {"X-ArrayView-Expected-Server-ID": self._server_id}
+                if self._server_id is not None
+                else {}
+            ),
+            method="POST",
+        )
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
                 response.read()
@@ -2836,6 +3392,8 @@ def view(
     _force_vscode = _launch_plan.display is Display.VSCODE
     _suppress_open = _launch_plan.display is Display.NONE
 
+    port = _revalidate_launch_server(_launch_context, port)
+
     # --- Julia path: only single-array supported ---
     if _invocation is Invocation.JULIA:
         if n_arrays > 1:
@@ -2860,44 +3418,56 @@ def view(
     # calls ensurePortPublic() before asExternalUri.
     # Fall through to the server-based path below (don't return early).
 
-    # With an existing --serve server: register the array via /load and open
-    # the viewer through the signal-file mechanism.
-    if _server_alive(port):
+    # With a planned existing server: register arrays via /load. Keep display
+    # failures outside the registration exception boundary so callers receive
+    # the real adapter error.
+    if _launch_plan.registration is Registration.HTTP_LOAD:
+        _loaded_sids: list[str] = []
+        _expected_server_id = _planned_server_snapshot(
+            _launch_context, port
+        ).server_instance_id
+        assert _expected_server_id is not None
         try:
             import tempfile as _tf
 
-            # Load primary array
-            with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
-                _tmp_path = _tmp.name
-            np.save(_tmp_path, data)
-            result = _load_session_from_filepath(
-                port, _tmp_path, name, rgb=rgb_primary
-            )
-            try:
-                os.unlink(_tmp_path)
-            except Exception:
-                pass
-            if "error" in result:
-                raise RuntimeError(result["error"])
-            sid = result["sid"]
-
-            # Load compare arrays (arrays[1:])
-            _compare_sids = []
-            for _ci, _carr in enumerate(arrays[1:], start=1):
-                with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _ctmp:
-                    _ctmp_path = _ctmp.name
-                np.save(_ctmp_path, _carr)
-                _cresult = _load_session_from_filepath(
-                    port, _ctmp_path, names[_ci], rgb=rgbs[_ci]
-                )
+            for _array, _name, _rgb in zip(arrays, names, rgbs):
+                with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
+                    _tmp_path = _tmp.name
                 try:
-                    os.unlink(_ctmp_path)
-                except Exception:
-                    pass
-                if "error" in _cresult:
-                    raise RuntimeError(_cresult["error"])
-                _compare_sids.append(_cresult["sid"])
+                    np.save(_tmp_path, _array)
+                    _result = _load_session_from_filepath(
+                        port,
+                        _tmp_path,
+                        _name,
+                        rgb=_rgb,
+                        expected_server_id=_expected_server_id,
+                        release_on_disconnect=inline,
+                    )
+                finally:
+                    try:
+                        os.unlink(_tmp_path)
+                    except OSError:
+                        pass
+                if "error" in _result:
+                    raise RuntimeError(_result["error"])
+                _loaded_sids.append(str(_result["sid"]))
+        except Exception as e:
+            _release_remote_sessions(
+                port,
+                _loaded_sids,
+                expected_server_id=_expected_server_id,
+            )
+            _vprint(
+                f"[ArrayView] Failed to register with --serve server: {e}",
+                flush=True,
+            )
+            raise RuntimeError(
+                "ArrayView could not register the session with the selected "
+                "existing server"
+            ) from e
 
+        try:
+            sid, *_compare_sids = _loaded_sids
             url_viewer = _viewer_url(port, sid, compare_sids=_compare_sids)
 
             if inline:
@@ -2913,14 +3483,20 @@ def view(
                     if n_arrays == 1:
                         return _inline_html
                     _ipy_display(_inline_html)
-                    return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
+                    return tuple(
+                        ViewHandle(url_viewer, s, port, _expected_server_id)
+                        for s in [sid] + _compare_sids
+                    )
                 iframe = _make_resizable_jupyter_iframe(
                     _inline_url, port, height, _inline_mode_heights
                 )
                 if n_arrays == 1:
                     return iframe
                 _ipy_display(iframe)
-                return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
+                return tuple(
+                    ViewHandle(url_viewer, s, port, _expected_server_id)
+                    for s in [sid] + _compare_sids
+                )
 
             if _launch_plan.display is Display.NATIVE:
                 _session_mod._window_process = _open_webview_with_fallback(
@@ -2942,17 +3518,18 @@ def view(
                 )
             _print_viewer_location(url_viewer, launch_context=_launch_context)
             if n_arrays == 1:
-                return ViewHandle(url_viewer, sid, port)
-            return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
-        except Exception as e:
-            _vprint(
-                f"[ArrayView] Failed to register with --serve server: {e}", flush=True
+                return ViewHandle(url_viewer, sid, port, _expected_server_id)
+            return tuple(
+                ViewHandle(url_viewer, s, port, _expected_server_id)
+                for s in [sid] + _compare_sids
             )
-            if _launch_plan.registration is Registration.HTTP_LOAD:
-                raise RuntimeError(
-                    "ArrayView could not register the session with the selected "
-                    "existing server"
-                ) from e
+        except Exception:
+            _release_remote_sessions(
+                port,
+                _loaded_sids,
+                expected_server_id=_expected_server_id,
+            )
+            raise
 
     from arrayview._render import _setup_rgb
 
@@ -2988,132 +3565,98 @@ def view(
             _overlay_sids.append(_ov_session.sid)
             _overlay_colors.append(_OVERLAY_PALETTE[_i % len(_OVERLAY_PALETTE)])
 
+    session.release_on_disconnect = bool(
+        inline or _launch_context.caller_scope is CallerScope.EMBEDDED
+    )
+    session.related_release_sids = [*_compare_sids, *_overlay_sids]
+
     win_w, win_h = 1400, 900
 
-    # Start (or restart) the background server if it isn't responding or is stale.
-    server_pid = _server_pid(port)
-    our_pid = os.getpid()
-    if server_pid is not None and server_pid != our_pid:
-        # A compatible server appeared after the launch snapshot. Our in-memory
-        # sessions are not registered there, and port ownership alone is never
-        # authority to terminate another ArrayView process. Move this launch to
-        # a free port while keeping its captured ownership/display policy.
-        _vprint(
-            f"[ArrayView] Another ArrayView server (pid {server_pid}) now owns "
-            f"port {port}; selecting a free port for this in-process session...",
-            flush=True,
-        )
-        candidate = port + 1
-        for _ in range(4):
-            candidate, already_running = _find_server_port(candidate)
-            if not already_running:
-                _trace_launch_event(
-                    "server.revalidated",
-                    decision="alternate_port",
-                    previous_port=port,
-                    effective_port=candidate,
-                    observed_pid=server_pid,
-                )
-                port = candidate
-                break
-            candidate += 1
-        else:
-            raise RuntimeError("Could not find a free port for the in-process server")
-        server_pid = None  # treat as not alive
+    # Revalidate and bind while holding the cross-process startup lock. Session
+    # objects are caller-owned and must never be left committed after a lost
+    # bind race.
+    from arrayview._instance_registry import InstanceRegistry
 
-    if server_pid is None:
-        if _port_in_use(port) and not _server_alive(port):
-            # Port busy by another process — auto-scan for a free one.
-            port, _already = _find_server_port(port + 1)
-            if _port_in_use(port) and not _server_alive(port):
-                raise RuntimeError(
-                    f"Port {port} is already in use by another process. "
-                    f"Choose a different port in view(..., port=...)."
+    global _loading_port
+    _early_window_opened = False
+    can_native_window = _launch_plan.display is Display.NATIVE
+    owned_sids = [session.sid, *_compare_sids, *_overlay_sids]
+    try:
+        with InstanceRegistry().startup_lock(timeout=20.0):
+            identity = _server_runtime_identity(port) if _port_in_use(port) else None
+            server_pid = identity[2] if identity is not None else None
+            our_pid = os.getpid()
+            if server_pid != our_pid and _port_in_use(port):
+                original_port = port
+                for candidate in range(port + 1, min(65535, port + 100) + 1):
+                    if not _port_in_use(candidate):
+                        port = candidate
+                        _trace_launch_event(
+                            "server.revalidated",
+                            decision="alternate_port",
+                            previous_port=original_port,
+                            effective_port=port,
+                            observed_pid=server_pid,
+                        )
+                        break
+                else:
+                    raise RuntimeError(
+                        "Could not find a free port for the in-process server"
+                    )
+                server_pid = None
+                _vprint(
+                    f"[ArrayView] Port {original_port} was claimed; using {port}",
+                    flush=True,
                 )
-            _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
-        if (
-            _launch_context.evidence.is_vscode_remote
-            and _launch_plan.display is Display.VSCODE
-        ):
-            _configure_vscode_port_preview(port)
-        _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
-        _server_ready_event.clear()
-        _script = _launch_context.caller_scope is CallerScope.SCRIPT
-        _script_connect_timeout = (
-            _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS
-            if _script
-            and _launch_context.placement.value == "vscode_remote"
-            and _launch_plan.display is Display.VSCODE
-            else _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
-        )
-        threading.Thread(
-            target=lambda: asyncio.run(
-                _serve_background(
-                    port,
-                    stop_when_closed=_script,
-                    connect_timeout=_script_connect_timeout,
-                    owner_mode=(
-                        "transient"
-                        if _script
-                        else "kernel"
-                        if _launch_context.caller_scope is CallerScope.KERNEL
-                        else "in_process"
+
+            if server_pid is None:
+                _session_mod.SERVER_LOOP = None
+                _server_ready_event.clear()
+                _script = _launch_context.caller_scope is CallerScope.SCRIPT
+                _script_connect_timeout = (
+                    _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS
+                    if _script
+                    and _launch_context.placement.value == "vscode_remote"
+                    and _launch_plan.display is Display.VSCODE
+                    else _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
+                )
+                threading.Thread(
+                    target=lambda: asyncio.run(
+                        _serve_background(
+                            port,
+                            stop_when_closed=_script,
+                            connect_timeout=_script_connect_timeout,
+                            owner_mode=(
+                                "transient"
+                                if _script
+                                else "kernel"
+                                if _launch_context.caller_scope is CallerScope.KERNEL
+                                else "in_process"
+                            ),
+                        )
                     ),
-                )
-            ),
-            daemon=not _script,
-            name="arrayview-server",
-        ).start()
-
-        can_native_window = _launch_plan.display is Display.NATIVE
-        _early_window_opened = False
-        if (
-            window
-            and can_native_window
-            and not _force_browser
-            and not _force_vscode
-            and not inline
-        ):
-            try:
-                wp = _session_mod._window_process
-                if wp is None or wp.poll() is not None:
-                    url_shell_early = _shell_url(
-                        port, session.sid, name, compare_sids=_compare_sids
+                    daemon=not _script,
+                    name="arrayview-server",
+                ).start()
+                if not _server_ready_event.wait(timeout=10.0):
+                    raise RuntimeError(
+                        f"ArrayView server did not bind port {port} within timeout."
                     )
-                    _session_mod._window_process = _open_webview_with_fallback(
-                        url_shell_early,
-                        win_w,
-                        win_h,
-                        shell_port=port,
-                        floating=floating,
-                        launch_context=_launch_context,
-                    )
-                    _early_window_opened = True
-            except Exception:
-                pass
+            else:
+                _loading_port = None
 
-        # Wait for the socket to be ready (event-based, much faster than HTTP polling).
-        if not _server_ready_event.wait(timeout=10.0):
-            if _port_in_use(port) and not _server_alive(port):
-                raise RuntimeError(
-                    f"Port {port} is in use by another process (not ArrayView). "
-                    f"Choose a different port in view(..., port=...)."
+            if (
+                _launch_context.evidence.is_vscode_remote
+                and _launch_plan.display is Display.VSCODE
+            ):
+                _configure_vscode_port_preview(
+                    port, in_vscode=False, is_remote=True
                 )
-            raise RuntimeError(
-                f"ArrayView server did not start on port {port} within timeout."
-            )
-        _platform_mod._jupyter_server_port = port
-    else:
-        if (
-            _launch_context.evidence.is_vscode_remote
-            and _launch_plan.display is Display.VSCODE
-        ):
-            _configure_vscode_port_preview(port)
-        _platform_mod._jupyter_server_port = port  # server already ours on this port
-        can_native_window = _launch_plan.display is Display.NATIVE
-        _early_window_opened = False
-        global _loading_port
-        _loading_port = None  # server is already up — no loading page needed
+            _platform_mod._jupyter_server_port = port
+    except Exception:
+        for owned_sid in owned_sids:
+            _session_mod.SESSIONS.pop(owned_sid, None)
+        raise
 
     # SERVER_LOOP is set as the first statement of _serve_background, before
     # _server_ready_event fires, so it is guaranteed non-None by this point.
@@ -3148,7 +3691,15 @@ def view(
             if n_arrays == 1:
                 return _inline_html
             _ipy_display(_inline_html)
-            handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
+            handles = tuple(
+                ViewHandle(
+                    url_viewer,
+                    s,
+                    port,
+                    _session_mod.SERVER_RUNTIME.instance_id,
+                )
+                for s in [session.sid] + _compare_sids
+            )
             return handles
         iframe = _make_resizable_jupyter_iframe(
             _inline_url, port, height, _inline_mode_heights
@@ -3157,7 +3708,15 @@ def view(
             return iframe
         # Multi-array inline: display the IFrame and return a uniform tuple of handles.
         _ipy_display(iframe)
-        handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
+        handles = tuple(
+            ViewHandle(
+                url_viewer,
+                s,
+                port,
+                _session_mod.SERVER_RUNTIME.instance_id,
+            )
+            for s in [session.sid] + _compare_sids
+        )
         return handles
 
     if window and can_native_window and not _force_browser and not _force_vscode:
@@ -3186,10 +3745,19 @@ def view(
                 server_loop = _session_mod.SERVER_LOOP
                 window_alive = wp is not None and wp.poll() is None
                 notified = False
+                native_request_id = uuid.uuid4().hex
                 if server_loop is not None and (window_alive or _server_alive(port)):
+                    tab_url = _viewer_path(session.sid)
+                    tab_url += (
+                        "&native_request_id="
+                        + urllib.parse.quote(native_request_id)
+                    )
                     future = asyncio.run_coroutine_threadsafe(
                         _server_mod()._notify_shells(
-                            session.sid, name, wait=window_alive
+                            session.sid,
+                            name,
+                            url=tab_url,
+                            wait=window_alive,
                         ),
                         server_loop,
                     )
@@ -3197,6 +3765,14 @@ def view(
                         notified = future.result(timeout=3.0)
                     except Exception:
                         notified = False
+                    if notified:
+                        notified = _wait_for_native_ready(
+                            port,
+                            sid=session.sid,
+                            native_request_id=native_request_id,
+                            expected_server_id=None,
+                            expected_server_pid=os.getpid(),
+                        )
                 if not notified:
                     _session_mod._window_process = _open_webview_with_fallback(
                         url_shell,
@@ -3209,6 +3785,7 @@ def view(
             except Exception:
                 _open_browser(
                     _with_loading(url_viewer),
+                    blocking=True,
                     force_vscode=_force_vscode,
                     prefer_system_browser=_requested_window == "native",
                     title=f"ArrayView: {name}",
@@ -3229,6 +3806,7 @@ def view(
             )
         _open_browser(
             _with_loading(url_viewer),
+            blocking=True,
             force_vscode=_force_vscode,
             title=f"ArrayView: {name}",
             floating=floating,
@@ -3238,8 +3816,21 @@ def view(
 
     _print_viewer_location(url_viewer, launch_context=_launch_context)
     if n_arrays == 1:
-        return ViewHandle(url_viewer, session.sid, port)
-    return tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
+        return ViewHandle(
+            url_viewer,
+            session.sid,
+            port,
+            _session_mod.SERVER_RUNTIME.instance_id,
+        )
+    return tuple(
+        ViewHandle(
+            url_viewer,
+            s,
+            port,
+            _session_mod.SERVER_RUNTIME.instance_id,
+        )
+        for s in [session.sid] + _compare_sids
+    )
 
 
 # ── Server Lifecycle ──────────────────────────────────────────────
@@ -3339,6 +3930,8 @@ def _wait_for_viewer_close(
         while time.monotonic() < idle_deadline:
             if _sm.VIEWER_SOCKETS > 0:
                 break  # new viewer connected → back to Phase 2
+            if not _sm.SESSIONS and not _sm.PENDING_SESSIONS:
+                return  # an explicit panel/window release ended ownership
             time.sleep(1.0)
         else:
             return  # idle timeout expired — really done
@@ -3406,7 +3999,28 @@ def _view_subprocess(
     np.save(tmp_path, data)
 
     tab_injected = False  # True when an existing shell window received the new tab
-    if _server_alive(port):
+    active_server_id = None
+    reuse_existing = (
+        launch_context.plan.registration.value == "http_load"
+        if launch_context is not None
+        else _server_alive(port)
+    )
+    if reuse_existing:
+        if launch_context is not None:
+            active_server_id = _planned_server_snapshot(
+                launch_context, port
+            ).server_instance_id
+        else:
+            identity = _server_runtime_identity(port)
+            active_server_id = identity[0] if identity is not None else None
+        native_request_id = (
+            uuid.uuid4().hex
+            if (
+                launch_context is not None
+                and launch_context.plan.display.value == "native"
+            )
+            else None
+        )
         # Existing subprocess server — register the new array via /load.
         # Pass notify=True so the server injects a new tab into any open shell
         # window rather than requiring the caller to open a new native window.
@@ -3421,6 +4035,9 @@ def _view_subprocess(
                     else True
                 ),
                 rgb=rgb,
+                expected_server_id=active_server_id,
+                native_request_id=native_request_id,
+                release_on_disconnect=True,
             )
             if "error" in result:
                 raise RuntimeError(result["error"])
@@ -3431,6 +4048,13 @@ def _view_subprocess(
                 pass
             sid = result["sid"]
             tab_injected = bool(result.get("notified", False))
+            if tab_injected and native_request_id:
+                tab_injected = _wait_for_native_ready(
+                    port,
+                    sid=str(sid),
+                    native_request_id=native_request_id,
+                    expected_server_id=active_server_id,
+                )
         except Exception as e:
             _vprint(
                 f"[ArrayView] Failed to register with existing server: {e}", flush=True
@@ -3441,37 +4065,63 @@ def _view_subprocess(
                 pass
             raise
     else:
-        if _port_in_use(port):
-            # Port busy by another process — auto-scan for a free one.
-            port, _already = _find_server_port(port + 1)
-            if _port_in_use(port):
-                raise RuntimeError(
-                    f"Port {port} is already in use by another process. "
-                    f"Choose a different port in view(..., port=...)."
-                )
-            _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         sid = uuid.uuid4().hex
         persist_daemon = bool(
             launch_context is not None
             and launch_context.placement.value == "vscode_remote"
             and launch_context.plan.display.value == "vscode"
         )
-        # Spawn a self-contained server subprocess (same as CLI path).
-        script = (
-            f"from arrayview._launcher import _serve_daemon;"
-            f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
-            f"name={repr(name)}, cleanup=True, persist={persist_daemon}, rgb={rgb})"
-        )
-        subprocess.Popen(
-            [sys.executable, "-c", script],
-        )
+        from arrayview._instance_registry import InstanceRegistry
 
-        if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+        daemon_proc = None
+        try:
+            with InstanceRegistry().startup_lock(timeout=20.0):
+                if launch_context is not None:
+                    port = _revalidate_launch_server(launch_context, port)
+                elif _port_in_use(port):
+                    port, _already = _find_server_port(port + 1)
+                    if _port_in_use(port):
+                        raise RuntimeError(
+                            f"Port {port} is already in use by another process. "
+                            "Choose a different port in view(..., port=...)."
+                        )
+                    _vprint(
+                        f"[ArrayView] Default port busy, using port {port}",
+                        flush=True,
+                    )
+                # Spawn a self-contained server subprocess (same as CLI path).
+                script = (
+                    f"from arrayview._launcher import _serve_daemon;"
+                    f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
+                    f"name={repr(name)}, cleanup=True, "
+                    f"persist={persist_daemon}, rgb={rgb})"
+                )
+                daemon_proc = subprocess.Popen(
+                    [sys.executable, "-c", script],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    start_new_session=sys.platform != "win32",
+                )
+                if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
+                    raise RuntimeError(
+                        f"The spawned ArrayView server did not claim port {port}."
+                    )
+                daemon_identity = _server_runtime_identity(port)
+                if daemon_identity is None or daemon_identity[0] is None:
+                    raise RuntimeError(
+                        "The spawned ArrayView server did not publish generation "
+                        "identity."
+                    )
+                active_server_id = daemon_identity[0]
+        except Exception:
+            _terminate_owned_process(daemon_proc)
             try:
                 os.unlink(tmp_path)
-            except Exception:
+            except OSError:
                 pass
-            raise RuntimeError(f"ArrayView server failed to start on port {port}.")
+            raise
 
     url_viewer = _viewer_url(port, sid)
     url_shell = _shell_url(port, sid, name)
@@ -3515,7 +4165,7 @@ def _view_subprocess(
     if tab_injected:
         # Tab was injected into the existing native shell window — no new window needed.
         _vprint("[ArrayView] New tab injected into existing window", flush=True)
-        return ViewHandle(url_viewer, sid, port)
+        return ViewHandle(url_viewer, sid, port, active_server_id)
 
     can_native = (
         launch_context.plan.display.value == "native"
@@ -3523,12 +4173,20 @@ def _view_subprocess(
         else _can_native_window()
     )
     if window and can_native:
-        if not _open_webview_cli(url_shell, 1400, 900):
+        if not _open_cli_native_shell_after_server(
+            port=port,
+            sid=sid,
+            name=name,
+            compare_sids=None,
+            win_w=1400,
+            win_h=900,
+            expected_server_id=active_server_id,
+        ):
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _open_browser(
                 url_viewer,
                 force_vscode=force_vscode,
-                blocking=force_vscode,
+                blocking=True,
                 prefer_system_browser=window and not force_vscode,
                 title=f"ArrayView: {name}",
                 floating=floating,
@@ -3541,12 +4199,12 @@ def _view_subprocess(
         _open_browser(
             url_viewer,
             force_vscode=force_vscode,
-            blocking=force_vscode,
+            blocking=True,
             title=f"ArrayView: {name}",
             floating=floating,
             launch_context=launch_context,
         )
-    return ViewHandle(url_viewer, sid, port)
+    return ViewHandle(url_viewer, sid, port, active_server_id)
 
 
 def _serve_empty(port: int) -> None:
@@ -4712,7 +5370,8 @@ def arrayview():
             print(f"Error: file not found: {relay_file}")
             sys.exit(1)
         relay_name = os.path.basename(relay_file)
-        if not _server_alive(relay_port):
+        relay_identity = _server_runtime_identity(relay_port, host=relay_host)
+        if relay_identity is None or relay_identity[0] is None:
             print(
                 f"[ArrayView] No ArrayView server found on {relay_host}:{relay_port}.\n"
                 f"  Make sure the reverse tunnel is active:"
@@ -4727,6 +5386,7 @@ def arrayview():
                 relay_name,
                 args.rgb,
                 relay_host=relay_host,
+                expected_server_id=relay_identity[0],
             )
         except Exception as e:
             print(f"[ArrayView] Relay failed: {e}", flush=True)
@@ -4746,47 +5406,88 @@ def arrayview():
 
     # -- --serve: start a persistent empty server and exit --
     if args.serve:
-        if _server_alive(args.port):
-            print(
-                f"[ArrayView] Server already running on port {args.port}. "
-                "Set port to Public in VS Code Ports tab if not done yet, "
-                "then run: arrayview your_file.npy"
+        from arrayview._instance_registry import InstanceRegistry
+        from arrayview._launch_plan import (
+            Invocation,
+            LaunchIntent,
+            Registration,
+            create_launch_context,
+        )
+
+        serve_context = create_launch_context(
+            LaunchIntent(
+                invocation=Invocation.CLI,
+                port=args.port,
+                requested_window="none",
+                persistent=True,
             )
-            return
-        if _port_in_use(args.port):
-            if _is_vscode_remote():
-                # In tunnel mode the port must be predictable so the user can
-                # set the right port to Public.  Auto-scanning would silently
-                # pick a different port, leaving the user's Ports tab stale.
-                print(
-                    f"[ArrayView] Port {args.port} is in use by another process.\n"
-                    f"  Run 'arrayview --kill --port {args.port}' to free it, "
-                    f"or use --port to specify a different port.",
-                    flush=True,
-                )
-                sys.exit(1)
-            # Non-tunnel: auto-scan for a free port.
-            args.port, _ = _find_server_port(args.port + 1)
-            if _port_in_use(args.port):
-                print(
-                    f"Error: port {args.port} is in use by another process. "
-                    "Use --port to pick another."
-                )
-                sys.exit(1)
+        )
+        if not serve_context.plan.ok:
             print(
-                f"[ArrayView] Default port busy, using port {args.port}",
+                f"[ArrayView] Cannot start server: "
+                f"{serve_context.plan.failure.value}",
                 flush=True,
             )
-        # Write VS Code port settings BEFORE starting the server so VS Code
-        # sees privacy=public when it first detects the new port listening.
-        _configure_vscode_port_preview(args.port)
-        script = (
-            f"from arrayview._launcher import _serve_empty; _serve_empty({args.port})"
-        )
-        proc = subprocess.Popen([sys.executable, "-c", script])
-        if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
-            print(f"Error: ArrayView server failed to start on port {args.port}.")
             sys.exit(1)
+
+        proc = None
+        with InstanceRegistry().startup_lock(timeout=20.0):
+            args.port = serve_context.plan.effective_port
+            if serve_context.plan.registration is Registration.HTTP_LOAD:
+                _revalidate_launch_server(serve_context, args.port)
+                print(
+                    f"[ArrayView] Server already running on port {args.port}. "
+                    "Set port to Public in VS Code Ports tab if not done yet, "
+                    "then run: arrayview your_file.npy"
+                )
+                return
+
+            if _port_in_use(args.port):
+                if serve_context.evidence.is_vscode_remote:
+                    print(
+                        f"[ArrayView] Port {args.port} was claimed while starting.\n"
+                        f"  Run 'arrayview --kill --port {args.port}' to free it, "
+                        "or use --port to specify a different port.",
+                        flush=True,
+                    )
+                    sys.exit(1)
+                for candidate in range(args.port + 1, args.port + 101):
+                    if not _port_in_use(candidate):
+                        args.port = candidate
+                        break
+                else:
+                    print("Error: no free ArrayView server port was found.")
+                    sys.exit(1)
+                print(
+                    f"[ArrayView] Default port busy, using port {args.port}",
+                    flush=True,
+                )
+
+            # Write VS Code settings before binding, using captured placement.
+            _configure_vscode_port_preview(
+                args.port,
+                in_vscode=serve_context.evidence.in_vscode_terminal,
+                is_remote=serve_context.evidence.is_vscode_remote,
+            )
+            script = (
+                "from arrayview._launcher import _serve_empty; "
+                f"_serve_empty({args.port})"
+            )
+            proc = subprocess.Popen(
+                [sys.executable, "-c", script],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=sys.platform != "win32",
+            )
+            if not _wait_for_spawned_server(proc, args.port, timeout=15.0):
+                _terminate_owned_process(proc)
+                print(
+                    f"Error: the spawned ArrayView server did not claim "
+                    f"port {args.port}."
+                )
+                sys.exit(1)
         print(
             f"\n  \033[1;36m\u2192 ArrayView server started on port {args.port} (PID {proc.pid})\033[0m\n"
             f"\n  Run: arrayview your_file.npy\n"
@@ -5023,23 +5724,25 @@ def arrayview():
         )
         sys.exit(1)
     if "scan_from_next_port" in launch_plan.reasons:
-        # Non-tunnel: auto-scan for a free port.
-        args.port, is_arrayview_server_new = _find_server_port(
-            launch_plan.effective_port
-        )
-        is_arrayview_server = is_arrayview_server_new
-        if is_arrayview_server:
-            execution_registration = Registration.HTTP_LOAD
-        if _port_in_use(args.port) and not is_arrayview_server:
-            print(
-                f"Error: port {args.port} is in use by another process. "
-                "Use --port to pick another."
-            )
+        # The plan selected a new daemon. Scan for a free port, but never
+        # silently adopt a compatible server that appeared after the snapshot.
+        args.port = launch_plan.effective_port
+        for candidate in range(args.port, min(65535, args.port + 100) + 1):
+            if not _port_in_use(candidate):
+                args.port = candidate
+                break
+        else:
+            print("Error: no free ArrayView server port was found.")
             sys.exit(1)
         print(
             f"[ArrayView] Default port busy, using port {args.port}",
             flush=True,
         )
+    else:
+        args.port = launch_plan.effective_port
+
+    if execution_registration is Registration.HTTP_LOAD:
+        args.port = _revalidate_launch_server(launch_context, args.port)
 
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
@@ -5051,7 +5754,15 @@ def arrayview():
         _remote_host = _server_hostname(args.port, timeout=3.0)
         if _remote_host and _remote_host != _socket.gethostname():
             try:
-                _relay_array_to_server(base_file, args.port, name, args.rgb)
+                _relay_array_to_server(
+                    base_file,
+                    args.port,
+                    name,
+                    args.rgb,
+                    expected_server_id=_planned_server_snapshot(
+                        launch_context, args.port
+                    ).server_instance_id,
+                )
             except Exception as e:
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)

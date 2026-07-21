@@ -43,6 +43,14 @@ class _PingHandler(BaseHTTPRequestHandler):
                 "service": "arrayview",
                 "pid": 4321,
                 "hostname": "test-host",
+                "instance_id": "test-instance",
+                "process_start": "test-process-start",
+                "protocol_version": "1",
+                "capabilities": [
+                    "identity-fenced-load",
+                    "identity-fenced-mutations",
+                    "viewer-websocket",
+                ],
             }
         ).encode("utf-8")
         self.send_response(200)
@@ -216,6 +224,14 @@ def test_snapshot_reports_arrayview_server_ping(monkeypatch, clear_launch_env, p
     assert snapshot.server.arrayview_server_alive is True
     assert snapshot.server.server_pid == 4321
     assert snapshot.server.server_hostname == "test-host"
+    assert snapshot.server.server_instance_id == "test-instance"
+    assert snapshot.server.server_process_start == "test-process-start"
+    assert snapshot.server.server_capabilities == (
+        "identity-fenced-load",
+        "identity-fenced-mutations",
+        "viewer-websocket",
+    )
+    assert snapshot.server.server_protocol_version == "1"
 
 
 def test_importing_launch_plan_keeps_server_and_numpy_lazy():
@@ -281,6 +297,49 @@ def test_plan_is_pure_and_json_serializable():
     assert plan.fallback_display.value == "browser"
     assert "native_available" in plan.reasons
     assert json.loads(json.dumps(plan.to_dict()))["display"] == "native"
+
+
+def test_server_health_snapshot_retries_transient_timeout(monkeypatch):
+    import arrayview._launch_plan as launch_plan
+
+    attempts = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "ok": True,
+                    "service": "arrayview",
+                    "instance_id": "server-a",
+                    "protocol_version": "1",
+                    "capabilities": [
+                        "identity-fenced-load",
+                        "identity-fenced-mutations",
+                    ],
+                }
+            ).encode()
+
+    def urlopen(*args, **kwargs):
+        attempts.append(None)
+        if len(attempts) < 3:
+            raise TimeoutError("transient health-check stall")
+        return Response()
+
+    monkeypatch.setattr(launch_plan.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(launch_plan.time, "sleep", lambda delay: None)
+
+    payload = launch_plan._ping_arrayview_server(8123)
+
+    assert payload["instance_id"] == "server-a"
+    assert len(attempts) == 3
 
 
 def test_launch_context_keeps_host_placement_orthogonal_to_invocation():
@@ -501,13 +560,52 @@ def test_remote_python_reuses_healthy_cli_default_server():
     facts = _facts(
         environment=Environment.VSCODE_REMOTE,
         is_vscode_remote=True,
-        cli_default_server=ServerSnapshot(8000, True, True, 42, "remote-host"),
+        cli_default_server=ServerSnapshot(
+            8000,
+            True,
+            True,
+            42,
+            "remote-host",
+            "remote-instance",
+            "remote-process-start",
+            ("identity-fenced-load", "identity-fenced-mutations"),
+            "1",
+        ),
     )
     plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
 
     assert plan.effective_port == 8000
     assert plan.server_owner.value == "existing"
     assert "reuse_remote_cli_default_server" in plan.reasons
+
+
+def test_server_without_identity_fenced_load_uses_new_port():
+    from arrayview._launch_plan import (
+        Invocation,
+        LaunchIntent,
+        ServerSnapshot,
+        plan_launch,
+    )
+
+    legacy = ServerSnapshot(
+        8123,
+        True,
+        True,
+        42,
+        "host",
+        "legacy-instance",
+        "legacy-process-start",
+        ("session-registration",),
+    )
+
+    plan = plan_launch(
+        LaunchIntent(Invocation.CLI, 8123),
+        _facts(server=legacy),
+    )
+
+    assert plan.effective_port == 8124
+    assert plan.registration.value == "daemon_startup"
+    assert "incompatible_server_new_port" in plan.reasons
 
 
 def test_local_matlab_prefers_native_when_available():
@@ -536,7 +634,19 @@ def test_vscode_explorer_uses_extension_owned_subprocess():
 def test_existing_server_is_reused_through_http():
     from arrayview._launch_plan import Invocation, LaunchIntent, ServerSnapshot, plan_launch
 
-    facts = _facts(server=ServerSnapshot(8123, True, True, 99, "host"))
+    facts = _facts(
+        server=ServerSnapshot(
+            8123,
+            True,
+            True,
+            99,
+            "host",
+            "instance",
+            "process-start",
+            ("identity-fenced-load", "identity-fenced-mutations"),
+            "1",
+        )
+    )
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123), facts)
 
     assert plan.server_owner.value == "existing"

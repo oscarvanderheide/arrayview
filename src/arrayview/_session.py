@@ -30,11 +30,17 @@ SERVER_RUNTIME = None  # configured by _server when launch identity is known
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 VIEWER_SID_COUNTS: dict[str, int] = {}  # active viewer WS count per session ID
+VIEWER_CONNECTION_EPOCHS: dict[str, int] = {}
+VIEWER_RELEASE_TASKS: dict[str, asyncio.Task] = {}
 VIEWER_CONNECTIONS_SEEN = 0  # monotonic count of accepted viewer WS connections
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
+SHELL_REQUEST_IDS: set[str] = set()
+VIEWER_REQUEST_COUNTS: dict[tuple[str, str], int] = {}
+NATIVE_READY_REQUESTS: set[tuple[str, str]] = set()
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
+CANCELLED_PENDING_SESSIONS: set[str] = set()
 
 
 def file_signature(filepath: str):

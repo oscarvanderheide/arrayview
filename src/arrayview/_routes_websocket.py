@@ -42,6 +42,23 @@ from arrayview._synthetic_mri import (
 from arrayview._imaging import ensure_image as _pil_image
 
 
+_RECOVERABLE_DISCONNECT_GRACE_SECONDS = float(
+    os.environ.get("ARRAYVIEW_DISCONNECT_GRACE_SECONDS", "1800")
+)
+
+
+def _advance_viewer_epoch(sid: str) -> int:
+    epoch = _session_mod.VIEWER_CONNECTION_EPOCHS.get(sid, 0) + 1
+    _session_mod.VIEWER_CONNECTION_EPOCHS[sid] = epoch
+    return epoch
+
+
+def _cancel_pending_viewer_release(sid: str) -> None:
+    task = _session_mod.VIEWER_RELEASE_TASKS.pop(sid, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 def _trace_viewer_event(event: str, sid: str) -> None:
     if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
         return
@@ -82,8 +99,11 @@ async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
 def register_websocket_routes(app) -> None:
     @app.websocket("/ws/shell")
     async def shell_websocket(ws: WebSocket):
+        native_request_id = ws.query_params.get("native_request_id")
         await ws.accept()
         SHELL_SOCKETS.append(ws)
+        if native_request_id:
+            _session_mod.SHELL_REQUEST_IDS.add(native_request_id)
         try:
             while True:
                 msg = await ws.receive_json()
@@ -91,20 +111,43 @@ def register_websocket_routes(app) -> None:
                     sid = msg.get("sid")
                     if sid:
                         release_session(sid)
+                elif msg.get("action") == "native_ready":
+                    sid = str(msg.get("sid") or "")
+                    request_id = str(msg.get("native_request_id") or "")
+                    if (
+                        sid in SESSIONS
+                        and request_id
+                        and _session_mod.VIEWER_REQUEST_COUNTS.get(
+                            (sid, request_id), 0
+                        )
+                        > 0
+                    ):
+                        _session_mod.NATIVE_READY_REQUESTS.add(
+                            (sid, request_id)
+                        )
         except Exception:
             pass
         finally:
             if ws in SHELL_SOCKETS:
                 SHELL_SOCKETS.remove(ws)
+            if native_request_id:
+                _session_mod.SHELL_REQUEST_IDS.discard(native_request_id)
 
     @app.websocket("/ws/{sid}")
     async def websocket_endpoint(ws: WebSocket, sid: str):
+        native_request_id = ws.query_params.get("native_request_id")
         session = await wait_for_session_ready(sid)
         if not session:
             await ws.close()
             return
 
         await ws.accept()
+
+        # A new viewer proves that the prior disconnect was a reload, tunnel
+        # interruption, or other recoverable transport break. Invalidate and
+        # cancel its cleanup before recording this connection.
+        _advance_viewer_epoch(sid)
+        _cancel_pending_viewer_release(sid)
 
         try:
             meta = _build_metadata(session)
@@ -118,6 +161,11 @@ def register_websocket_routes(app) -> None:
             _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
         )
         _session_mod.VIEWER_SIDS.add(sid)
+        if native_request_id:
+            request_key = (sid, native_request_id)
+            _session_mod.VIEWER_REQUEST_COUNTS[request_key] = (
+                _session_mod.VIEWER_REQUEST_COUNTS.get(request_key, 0) + 1
+            )
         _trace_viewer_event("viewer.connected", sid)
         loop = asyncio.get_running_loop()
         _pending: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -466,4 +514,54 @@ def register_websocket_routes(app) -> None:
             else:
                 _session_mod.VIEWER_SID_COUNTS.pop(sid, None)
                 _session_mod.VIEWER_SIDS.discard(sid)
+                disconnected_session = SESSIONS.get(sid)
+                if getattr(
+                    disconnected_session,
+                    "release_on_disconnect",
+                    False,
+                ):
+                    disconnect_epoch = _advance_viewer_epoch(sid)
+                    grace_seconds = max(
+                        0.0,
+                        float(
+                            getattr(
+                                disconnected_session,
+                                "disconnect_release_grace_seconds",
+                                _RECOVERABLE_DISCONNECT_GRACE_SECONDS,
+                            )
+                        ),
+                    )
+
+                    async def _release_after_reconnect_grace(
+                        expected_session=disconnected_session,
+                        expected_epoch=disconnect_epoch,
+                    ) -> None:
+                        try:
+                            await asyncio.sleep(grace_seconds)
+                            if (
+                                _session_mod.VIEWER_SID_COUNTS.get(sid, 0) == 0
+                                and _session_mod.VIEWER_CONNECTION_EPOCHS.get(sid)
+                                == expected_epoch
+                                and SESSIONS.get(sid) is expected_session
+                            ):
+                                _session_mod.VIEWER_RELEASE_TASKS.pop(sid, None)
+                                release_session(sid)
+                        except asyncio.CancelledError:
+                            return
+
+                    _cancel_pending_viewer_release(sid)
+                    release_task = asyncio.create_task(
+                        _release_after_reconnect_grace()
+                    )
+                    _session_mod.VIEWER_RELEASE_TASKS[sid] = release_task
+            if native_request_id:
+                request_key = (sid, native_request_id)
+                request_count = max(
+                    0,
+                    _session_mod.VIEWER_REQUEST_COUNTS.get(request_key, 0) - 1,
+                )
+                if request_count:
+                    _session_mod.VIEWER_REQUEST_COUNTS[request_key] = request_count
+                else:
+                    _session_mod.VIEWER_REQUEST_COUNTS.pop(request_key, None)
             _trace_viewer_event("viewer.disconnected", sid)

@@ -35,6 +35,29 @@ def test_close_posts_release_request(monkeypatch):
     assert timeout == 10
 
 
+def test_close_fences_release_to_original_server_generation(monkeypatch):
+    requests = []
+
+    def urlopen(request, timeout):
+        requests.append(request)
+        return _Response()
+
+    monkeypatch.setattr("arrayview._launcher.urllib.request.urlopen", urlopen)
+    handle = ViewHandle(
+        "http://localhost:8123/?sid=abc",
+        "abc",
+        8123,
+        "server-generation-a",
+    )
+
+    handle.close()
+
+    assert (
+        requests[0].get_header("X-arrayview-expected-server-id")
+        == "server-generation-a"
+    )
+
+
 def test_repeated_close_is_local_no_op(monkeypatch):
     requests = []
 

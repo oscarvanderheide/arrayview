@@ -137,7 +137,17 @@ def test_invocation_host_placement_contract(case, platform):
 @pytest.mark.parametrize("case", CONTRACT_CASES, ids=lambda case: case.name)
 def test_compatible_server_reuse_is_identical_for_every_adapter(case, platform):
     """All adapters register through HTTP when a compatible server exists."""
-    server = ServerSnapshot(8123, True, True, 4242, "contract-host")
+    server = ServerSnapshot(
+        8123,
+        True,
+        True,
+        4242,
+        "contract-host",
+        "contract-instance",
+        "contract-process-start",
+        ("identity-fenced-load", "identity-fenced-mutations"),
+        "1",
+    )
 
     plan = plan_launch(
         LaunchIntent(invocation=case.invocation, port=8123),

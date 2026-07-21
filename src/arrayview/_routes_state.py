@@ -45,6 +45,17 @@ def register_state_routes(app, get_session_or_404) -> None:
     @app.post("/update/{sid}")
     async def update_session(sid: str, request: Request, session=Depends(get_session_or_404)):
         """Replace session data with a new numpy array sent as raw .npy bytes."""
+        expected_server_id = request.headers.get(
+            "X-ArrayView-Expected-Server-ID"
+        )
+        if expected_server_id:
+            import arrayview._session as _session_mod
+
+            if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ArrayView server generation changed before update",
+                )
         raw = await request.body()
         if not raw:
             return Response(status_code=400, content="empty body")

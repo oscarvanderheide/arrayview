@@ -130,6 +130,7 @@ def check_node_extension_helpers() -> CheckResult:
         "test_lifecycle_helpers.js",
         "test_tunnel_resolution.js",
         "test_request_journal.js",
+        "test_request_deadline.js",
         "test_panel_replay.js",
     ]
     for script in scripts:

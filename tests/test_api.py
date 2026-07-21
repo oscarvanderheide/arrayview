@@ -3,11 +3,13 @@
 import base64
 import io
 import inspect
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 import httpx
 import numpy as np
@@ -30,6 +32,7 @@ class TestHealth:
         assert body["service"] == "arrayview"
         assert "shell_sockets" in body
         assert "dir-collection-case-inference" in body["capabilities"]
+        assert "transactional-relay-display" in body["capabilities"]
 
     def test_root_without_sid_returns_html(self, client):
         r = client.get("/", follow_redirects=False)
@@ -148,6 +151,26 @@ class TestHealth:
 
 
 class TestLoad:
+    def test_load_rejects_replaced_server_generation_before_side_effect(
+        self, client, arr_2d, tmp_path
+    ):
+        import arrayview._session as session_mod
+
+        path = tmp_path / "generation-fence.npy"
+        np.save(path, arr_2d)
+        before = set(session_mod.SESSIONS)
+
+        response = client.post(
+            "/load",
+            json={
+                "filepath": str(path),
+                "expected_server_id": "replaced-server-generation",
+            },
+        )
+
+        assert response.status_code == 409
+        assert set(session_mod.SESSIONS) == before
+
     def test_load_2d_returns_sid_and_name(self, client, arr_2d, tmp_path):
         np.save(tmp_path / "a.npy", arr_2d)
         r = client.post(
@@ -202,6 +225,49 @@ class TestLoad:
             session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
             session_mod.SESSIONS.pop(sid, None)
 
+    def test_cancelled_background_load_cannot_resurrect_session(
+        self, client, tmp_path, monkeypatch
+    ):
+        import arrayview._io as io_mod
+        import arrayview._session as session_mod
+
+        path = tmp_path / "cancelled-slow.npy"
+        np.save(path, np.zeros((4, 4), dtype=np.float32))
+        started = threading.Event()
+        finish = threading.Event()
+
+        def slow_load(filepath, key=None, select=None, *, load="lazy", stack="auto"):
+            started.set()
+            assert finish.wait(2.0)
+            return np.zeros((4, 4), dtype=np.float32), None
+
+        monkeypatch.setattr(io_mod, "load_data_with_meta", slow_load)
+        server_id = client.get("/ping").json()["instance_id"]
+        response = client.post(
+            "/load",
+            json={
+                "filepath": str(path),
+                "background": True,
+                "requested_sid": "abc123",
+                "expected_server_id": server_id,
+            },
+        )
+        assert response.status_code == 200
+        assert started.wait(0.5)
+
+        released = client.post(
+            "/release/abc123",
+            headers={"X-ArrayView-Expected-Server-ID": server_id},
+        )
+        assert released.json()["released"] is True
+        finish.set()
+
+        deadline = time.monotonic() + 2.0
+        while "abc123" in session_mod.PENDING_SESSIONS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert "abc123" not in session_mod.SESSIONS
+        assert client.get("/metadata/abc123").status_code == 404
+
     def test_reused_file_session_stays_alive_until_all_tabs_release(
         self, client, arr_2d, tmp_path
     ):
@@ -221,6 +287,39 @@ class TestLoad:
         assert client.get(f"/metadata/{sid}").status_code == 200
         assert client.post(f"/release/{sid}").json()["released"] is True
         assert client.get(f"/metadata/{sid}").status_code == 404
+
+    def test_release_rejects_replaced_server_generation(self, client, sid_2d):
+        response = client.post(
+            f"/release/{sid_2d}",
+            headers={
+                "X-ArrayView-Expected-Server-ID": "replacement-generation"
+            },
+        )
+
+        assert response.status_code == 409
+        assert client.get(f"/metadata/{sid_2d}").status_code == 200
+
+    def test_release_cascades_to_transaction_related_sessions(
+        self, client, tmp_path
+    ):
+        related_path = tmp_path / "related.npy"
+        base_path = tmp_path / "base-related.npy"
+        np.save(related_path, np.ones((3, 3), dtype=np.float32))
+        np.save(base_path, np.zeros((3, 3), dtype=np.float32))
+        related_sid = client.post(
+            "/load", json={"filepath": str(related_path)}
+        ).json()["sid"]
+        base_sid = client.post(
+            "/load",
+            json={
+                "filepath": str(base_path),
+                "related_sids": [related_sid],
+            },
+        ).json()["sid"]
+
+        assert client.post(f"/release/{base_sid}").json()["released"] is True
+        assert client.get(f"/metadata/{base_sid}").status_code == 404
+        assert client.get(f"/metadata/{related_sid}").status_code == 404
 
     def test_overwritten_file_creates_fresh_session(self, client, tmp_path):
         path = tmp_path / "changing.npy"
@@ -399,7 +498,7 @@ class TestLoad:
 
         assert client.post(f"/release/{body['sid']}").json()["released"] is True
         for overlay_sid in body["overlay_sids"]:
-            assert client.post(f"/release/{overlay_sid}").json()["released"] is True
+            assert client.get(f"/metadata/{overlay_sid}").status_code == 404
 
     def test_load_directory_collection_error_creates_no_session(self, client, tmp_path):
         before = {item["sid"] for item in client.get("/sessions").json()}
@@ -482,6 +581,17 @@ class TestLoad:
 
         assert r.status_code == 404
 
+    def test_notify_rejects_replaced_server_generation(self, client, sid_2d):
+        response = client.post(
+            f"/notify/{sid_2d}",
+            json={
+                "name": "wrong-generation",
+                "expected_server_id": "replacement-generation",
+            },
+        )
+
+        assert response.status_code == 409
+
     def test_wait_for_session_ready_uses_pending_event(self):
         import asyncio
 
@@ -545,23 +655,163 @@ class TestFsList:
 
 
 class TestLoadBytes:
-    def test_load_bytes_creates_session_and_uses_localhost_url(self, client, monkeypatch):
+    @staticmethod
+    def _encoded_array() -> str:
+        buf = io.BytesIO()
+        np.save(buf, np.arange(12, dtype=np.float32).reshape(3, 4))
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    def test_load_bytes_rejects_replaced_server_before_decode(
+        self, client, monkeypatch
+    ):
+        import arrayview._session as session_mod
+
+        monkeypatch.setattr(
+            session_mod,
+            "SERVER_RUNTIME",
+            type("Runtime", (), {"instance_id": "server-generation-a"})(),
+        )
+
+        response = client.post(
+            "/load_bytes",
+            json={
+                "data_b64": "not-even-decoded",
+                "name": "remote.npy",
+                "expected_server_id": "replacement-generation",
+            },
+        )
+
+        assert response.status_code == 409
+
+    def test_load_bytes_binds_signal_to_current_server_generation(
+        self, client, monkeypatch
+    ):
         import arrayview._session as session_mod
         import arrayview._vscode as vscode
 
         opened = []
-        monkeypatch.setattr(vscode, "_open_via_signal_file", opened.append)
+        monkeypatch.setattr(
+            vscode,
+            "_open_via_signal_file",
+            lambda url, **kwargs: opened.append((url, kwargs)),
+        )
         monkeypatch.setattr(session_mod, "SERVER_PORT", 8123)
+        monkeypatch.setattr(
+            session_mod,
+            "SERVER_RUNTIME",
+            type("Runtime", (), {"instance_id": "server-generation-a"})(),
+        )
 
         buf = io.BytesIO()
         np.save(buf, np.arange(12, dtype=np.float32).reshape(3, 4))
         payload = base64.b64encode(buf.getvalue()).decode("ascii")
 
-        r = client.post("/load_bytes", json={"data_b64": payload, "name": "remote.npy"})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["url"] == f"http://localhost:8123/?sid={body['sid']}"
-        assert opened == [body["url"]]
+        bodies = []
+        for _ in range(2):
+            response = client.post(
+                "/load_bytes",
+                json={"data_b64": payload, "name": "remote.npy"},
+            )
+            assert response.status_code == 200
+            bodies.append(response.json())
+
+        assert bodies[0]["sid"] != bodies[1]["sid"]
+        for body, (opened_url, kwargs) in zip(bodies, opened, strict=True):
+            assert body["url"] == f"http://localhost:8123/?sid={body['sid']}"
+            assert opened_url == body["url"]
+            assert kwargs == {"server_id": "server-generation-a"}
+
+    def test_transactional_relay_commits_exact_sid_after_backend_ack(
+        self, client, monkeypatch
+    ):
+        import arrayview._session as session_mod
+        import arrayview._vscode as vscode
+        import arrayview._vscode_signal as signal
+
+        request = type("Request", (), {"request_id": "request-a"})()
+        open_calls = []
+        monkeypatch.setattr(
+            vscode,
+            "_open_via_signal_file",
+            lambda *args, **kwargs: open_calls.append((args, kwargs)) or request,
+        )
+        monkeypatch.setattr(
+            signal,
+            "_wait_for_vscode_ack",
+            lambda *args, **kwargs: signal.AckResult(
+                signal.AckState.BACKEND_READY,
+                "request-a",
+            ),
+        )
+        monkeypatch.setattr(session_mod, "SERVER_PORT", 8123)
+        monkeypatch.setattr(
+            session_mod,
+            "SERVER_RUNTIME",
+            type("Runtime", (), {"instance_id": "server-generation-a"})(),
+        )
+
+        response = client.post(
+            "/load_bytes",
+            json={
+                "data_b64": self._encoded_array(),
+                "name": "remote.npy",
+                "requested_sid": "abc123",
+                "expected_server_id": "server-generation-a",
+                "require_display_ack": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "sid": "abc123",
+            "url": "http://localhost:8123/?sid=abc123",
+            "display_acknowledged": True,
+        }
+        assert "abc123" in session_mod.SESSIONS
+        assert open_calls[0][1] == {
+            "server_id": "server-generation-a",
+            "max_age_ms": 190_000,
+        }
+
+    def test_transactional_relay_rolls_back_failed_display_ack(
+        self, client, monkeypatch
+    ):
+        import arrayview._session as session_mod
+        import arrayview._vscode as vscode
+        import arrayview._vscode_signal as signal
+
+        request = type("Request", (), {"request_id": "request-b"})()
+        monkeypatch.setattr(vscode, "_open_via_signal_file", lambda *args, **kwargs: request)
+        monkeypatch.setattr(
+            signal,
+            "_wait_for_vscode_ack",
+            lambda *args, **kwargs: signal.AckResult(
+                signal.AckState.FAILED,
+                "request-b",
+                message="panel failed",
+            ),
+        )
+        monkeypatch.setattr(session_mod, "SERVER_PORT", 8123)
+        monkeypatch.setattr(
+            session_mod,
+            "SERVER_RUNTIME",
+            type("Runtime", (), {"instance_id": "server-generation-a"})(),
+        )
+
+        response = client.post(
+            "/load_bytes",
+            json={
+                "data_b64": self._encoded_array(),
+                "name": "remote.npy",
+                "requested_sid": "def456",
+                "expected_server_id": "server-generation-a",
+                "require_display_ack": True,
+            },
+        )
+
+        assert response.status_code == 502
+        assert "panel failed" in response.json()["detail"]
+        assert "def456" not in session_mod.SESSIONS
 
 
 @pytest.fixture
@@ -1044,6 +1294,20 @@ class TestMetadata:
         assert data["stride"] >= 1
         assert len(data["arrows"]) > 0
         assert any(abs(a[2]) > 0 or abs(a[3]) > 0 for a in data["arrows"])
+
+    def test_attach_vectorfield_rejects_replaced_server_generation(
+        self, client, sid_2d
+    ):
+        response = client.post(
+            "/attach_vectorfield",
+            json={
+                "sid": sid_2d,
+                "filepath": "/does/not/exist.npy",
+                "expected_server_id": "replacement-generation",
+            },
+        )
+
+        assert response.status_code == 409
 
     def test_vectorfield_auto_detects_unique_non_trailing_component_axis(
         self, client, tmp_path
@@ -1813,6 +2077,43 @@ class TestOverlayWebSocket:
 
             assert c.get(f"/metadata/{sid}").status_code == 404
 
+    def test_native_ready_requires_correlated_viewer_connection(self, tmp_path):
+        import arrayview._session as session_mod
+        from arrayview._app import app
+
+        path = tmp_path / "native-ready.npy"
+        np.save(path, np.ones((4, 4), dtype=np.float32))
+
+        with TestClient(app) as c:
+            sid = c.post("/load", json={"filepath": str(path)}).json()["sid"]
+            request_id = "native-attempt-a"
+            with c.websocket_connect("/ws/shell") as shell:
+                shell.send_json(
+                    {
+                        "action": "native_ready",
+                        "sid": sid,
+                        "native_request_id": request_id,
+                    }
+                )
+            assert (sid, request_id) not in session_mod.NATIVE_READY_REQUESTS
+
+            with c.websocket_connect(
+                f"/ws/{sid}?native_request_id={request_id}"
+            ) as viewer:
+                assert viewer.receive_json()["type"] == "metadata"
+                with c.websocket_connect("/ws/shell") as shell:
+                    shell.send_json(
+                        {
+                            "action": "native_ready",
+                            "sid": sid,
+                            "native_request_id": request_id,
+                        }
+                    )
+                assert (sid, request_id) in session_mod.NATIVE_READY_REQUESTS
+
+            c.post(f"/release/{sid}")
+            assert (sid, request_id) not in session_mod.NATIVE_READY_REQUESTS
+
     def test_overlay_visible_over_transparent_base(self, tmp_path):
         from arrayview._app import app
 
@@ -2127,6 +2428,24 @@ class TestUpdate:
     def test_update_bad_bytes_is_400(self, client, sid_2d):
         r = client.post(f"/update/{sid_2d}", content=b"not a numpy array")
         assert r.status_code == 400
+
+    def test_update_rejects_replaced_server_generation_before_mutation(
+        self, client, sid_2d
+    ):
+        before = client.get(f"/metadata/{sid_2d}").json()
+        buf = io.BytesIO()
+        np.save(buf, np.ones((3, 5), dtype=np.float32))
+
+        response = client.post(
+            f"/update/{sid_2d}",
+            content=buf.getvalue(),
+            headers={
+                "X-ArrayView-Expected-Server-ID": "replacement-generation"
+            },
+        )
+
+        assert response.status_code == 409
+        assert client.get(f"/metadata/{sid_2d}").json()["shape"] == before["shape"]
 
     def test_update_clears_cache_and_recomputes_stats(self, client, sid_2d):
         """After update, data_version reflects sequential updates."""
@@ -2538,6 +2857,356 @@ class TestViewWindowHelpers:
 
 
 class TestCliOpenHelpers:
+    def test_julia_native_reuse_requires_exact_frame_before_skipping_new_shell(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        context = type(
+            "Context",
+            (),
+            {
+                "plan": type(
+                    "Plan",
+                    (),
+                    {
+                        "registration": type("R", (), {"value": "http_load"})(),
+                        "display": type("D", (), {"value": "native"})(),
+                    },
+                )(),
+                "evidence": type(
+                    "Evidence",
+                    (),
+                    {
+                        "server": type(
+                            "Server", (), {"server_instance_id": "server-a"}
+                        )(),
+                        "cli_default_server": None,
+                    },
+                )(),
+            },
+        )()
+        loads = []
+        ready_checks = []
+        native_opens = []
+        monkeypatch.setattr(
+            launcher,
+            "_load_session_from_filepath",
+            lambda *args, **kwargs: loads.append(kwargs)
+            or {"sid": "julia-sid", "notified": True},
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_native_ready",
+            lambda *args, **kwargs: ready_checks.append(kwargs) or False,
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_native_shell_after_server",
+            lambda **kwargs: native_opens.append(kwargs) or True,
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda *a, **k: None)
+
+        handle = launcher._view_subprocess(
+            np.zeros((3, 3), dtype=np.float32),
+            "julia-array",
+            8123,
+            True,
+            launch_context=context,
+        )
+
+        assert isinstance(handle, launcher.ViewHandle)
+        assert loads[0]["native_request_id"]
+        assert loads[0]["expected_server_id"] == "server-a"
+        assert ready_checks[0]["sid"] == "julia-sid"
+        assert native_opens[0]["sid"] == "julia-sid"
+
+    def test_lost_load_response_rolls_back_client_selected_sid(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        payloads = []
+        rollbacks = []
+
+        def fail_request(port, path, payload):
+            payloads.append(payload)
+            raise TimeoutError("response lost")
+
+        monkeypatch.setattr(launcher, "_server_json_request", fail_request)
+        monkeypatch.setattr(
+            launcher,
+            "_release_remote_sessions",
+            lambda port, sids, **kwargs: rollbacks.append((port, sids, kwargs)),
+        )
+        monkeypatch.setattr(
+            launcher.uuid,
+            "uuid4",
+            lambda: type("U", (), {"hex": "client-selected-sid"})(),
+        )
+
+        with pytest.raises(TimeoutError, match="response lost"):
+            launcher._load_session_from_filepath(
+                8123,
+                "/tmp/a.npy",
+                "a.npy",
+                expected_server_id="server-a",
+            )
+
+        assert payloads[0]["requested_sid"] == "client-selected-sid"
+        assert rollbacks == [
+            (
+                8123,
+                ["client-selected-sid"],
+                {"expected_server_id": "server-a"},
+            )
+        ]
+
+    def test_relay_upload_is_fenced_to_requested_host_generation(
+        self, monkeypatch, tmp_path
+    ):
+        import arrayview._launcher as launcher
+
+        path = tmp_path / "relay.npy"
+        np.save(path, np.arange(6, dtype=np.float32).reshape(2, 3))
+        status_calls = []
+        requests = []
+
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_status",
+            lambda port, **kwargs: status_calls.append((port, kwargs))
+            or {
+                "instance_id": "relay-generation",
+                "protocol_version": "1",
+                "capabilities": ["transactional-relay-display"],
+            },
+        )
+        monkeypatch.setattr(
+            launcher.uuid,
+            "uuid4",
+            lambda: type("U", (), {"hex": "relay-request-sid"})(),
+        )
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return (
+                    b'{"sid":"relay-request-sid",'
+                    b'"display_acknowledged":true}'
+                )
+
+        monkeypatch.setattr(
+            launcher.urllib.request,
+            "urlopen",
+            lambda request, timeout: requests.append((request, timeout)) or Response(),
+        )
+
+        launcher._relay_array_to_server(
+            str(path),
+            9000,
+            "relay.npy",
+            relay_host="relay.example",
+        )
+
+        assert status_calls == [(9000, {"host": "relay.example"})]
+        request, timeout = requests[0]
+        assert request.full_url == "http://relay.example:9000/load_bytes"
+        body = json.loads(request.data)
+        assert body["expected_server_id"] == "relay-generation"
+        assert body["requested_sid"] == "relay-request-sid"
+        assert body["require_display_ack"] is True
+        assert timeout == 300
+
+    def test_relay_rejects_server_without_transactional_capability(
+        self, monkeypatch, tmp_path
+    ):
+        import arrayview._launcher as launcher
+
+        path = tmp_path / "relay.npy"
+        np.save(path, np.ones((2, 2), dtype=np.float32))
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_status",
+            lambda *args, **kwargs: {
+                "instance_id": "old-generation",
+                "protocol_version": "1",
+                "capabilities": ["identity-fenced-load"],
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="transaction-compatible"):
+            launcher._relay_array_to_server(
+                str(path),
+                9000,
+                "relay.npy",
+                relay_host="relay.example",
+            )
+
+    def test_lost_relay_response_rolls_back_exact_sid_on_requested_host(
+        self, monkeypatch, tmp_path
+    ):
+        import arrayview._launcher as launcher
+
+        path = tmp_path / "relay.npy"
+        np.save(path, np.ones((2, 2), dtype=np.float32))
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_status",
+            lambda *args, **kwargs: {
+                "instance_id": "relay-generation",
+                "protocol_version": "1",
+                "capabilities": ["transactional-relay-display"],
+            },
+        )
+        monkeypatch.setattr(
+            launcher.uuid,
+            "uuid4",
+            lambda: type("U", (), {"hex": "relay-request-sid"})(),
+        )
+        requests = []
+
+        class ReleaseResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def urlopen(request, timeout):
+            requests.append((request, timeout))
+            if request.full_url.endswith("/load_bytes"):
+                raise TimeoutError("response lost")
+            return ReleaseResponse()
+
+        monkeypatch.setattr(launcher.urllib.request, "urlopen", urlopen)
+
+        with pytest.raises(TimeoutError, match="response lost"):
+            launcher._relay_array_to_server(
+                str(path),
+                9000,
+                "relay.npy",
+                relay_host="relay.example",
+            )
+
+        release_request, timeout = requests[-1]
+        assert release_request.full_url == (
+            "http://relay.example:9000/release/relay-request-sid"
+        )
+        assert release_request.headers[
+            "X-arrayview-expected-server-id"
+        ] == "relay-generation"
+        assert timeout == 10
+
+    def test_server_runtime_identity_retries_transient_timeout(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        attempts = []
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "service": "arrayview",
+                        "instance_id": "server-a",
+                        "process_start": "start-a",
+                        "pid": 42,
+                    }
+                ).encode()
+
+        def urlopen(*args, **kwargs):
+            attempts.append(None)
+            if len(attempts) < 3:
+                raise TimeoutError("transient health-check stall")
+            return Response()
+
+        monkeypatch.setattr(launcher.urllib.request, "urlopen", urlopen)
+        monkeypatch.setattr(launcher.time, "sleep", lambda delay: None)
+
+        assert launcher._server_runtime_identity(8123) == (
+            "server-a",
+            "start-a",
+            42,
+        )
+        assert len(attempts) == 3
+
+    def test_native_ready_requires_exact_server_sid_and_attempt(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "service": "arrayview",
+                        "pid": 4242,
+                        "instance_id": "server-a",
+                        "viewer_connections_seen": 99,
+                        "shell_sockets": 12,
+                        "native_ready_requests": ["other-sid:other-attempt"],
+                    }
+                ).encode()
+
+        monkeypatch.setattr(launcher.urllib.request, "urlopen", lambda *a, **k: Response())
+
+        assert not launcher._server_native_ready(
+            8123,
+            sid="sid-a",
+            native_request_id="attempt-a",
+            expected_server_id="server-a",
+        )
+        assert not launcher._server_native_ready(
+            8123,
+            sid="other-sid",
+            native_request_id="other-attempt",
+            expected_server_id="replacement-server",
+        )
+
+        monkeypatch.setattr(
+            Response,
+            "read",
+            lambda self: json.dumps(
+                {
+                    "ok": True,
+                    "service": "arrayview",
+                    "pid": 4242,
+                    "instance_id": "server-a",
+                    "native_ready_requests": ["sid-a:attempt-a"],
+                }
+            ).encode(),
+        )
+        assert launcher._server_native_ready(
+            8123,
+            sid="sid-a",
+            native_request_id="attempt-a",
+            expected_server_id="server-a",
+        )
+
     def test_open_webview_passes_selected_linux_gui_backend(self, monkeypatch):
         import arrayview._launcher as launcher
 
@@ -2627,6 +3296,12 @@ class TestCliOpenHelpers:
             "_open_browser",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
         )
+        monkeypatch.setattr(
+            launcher, "_server_runtime_identity", lambda port: ("server-a", None, 42)
+        )
+        monkeypatch.setattr(
+            launcher, "_wait_for_native_ready", lambda *args, **kwargs: True
+        )
 
         launcher._open_cli_existing_server_view(
             port=8000,
@@ -2636,6 +3311,7 @@ class TestCliOpenHelpers:
             dims_override=None,
             notify_native_shell=True,
             notified=True,
+            native_request_id="attempt-a",
             name="base.npy",
             base_file="/tmp/base.npy",
             watch=False,
@@ -2778,10 +3454,9 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
-        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 4)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(
@@ -2832,10 +3507,9 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
-        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
@@ -2863,7 +3537,7 @@ class TestCliOpenHelpers:
 
         assert terminated == [True]
         assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
-        assert opened[0]["blocking"] is False
+        assert opened[0]["blocking"] is True
         assert opened[0]["prefer_system_browser"] is True
 
     def test_open_cli_spawned_view_vscode_fallback_blocks_until_signal_written(
@@ -2884,10 +3558,9 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
-        monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_native_shell_or_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(launcher, "_print_viewer_location", lambda url: None)
@@ -2944,10 +3617,7 @@ class TestCliOpenHelpers:
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
         monkeypatch.setattr(
-            launcher, "_server_viewer_connections_seen", lambda *args, **kwargs: 0
-        )
-        monkeypatch.setattr(
-            launcher, "_server_shell_sockets_open", lambda *args, **kwargs: 1
+            launcher, "_wait_for_native_ready", lambda *args, **kwargs: True
         )
         monkeypatch.setattr(
             launcher,
@@ -3046,7 +3716,7 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher,
             "_attach_vectorfield_to_session",
-            lambda port, sid, filepath, components_dim=None: attach_calls.append(
+            lambda port, sid, filepath, components_dim=None, **kwargs: attach_calls.append(
                 (port, sid, filepath, components_dim)
             )
             or {"ok": True},
@@ -3070,8 +3740,49 @@ class TestCliOpenHelpers:
             "compare_sids": ["sid_cmp"],
             "notify_native_shell": False,
             "notified": True,
+            "native_request_id": None,
         }
         assert attach_calls == [(8000, "sid_base", "/tmp/vf.npy", 2)]
+
+    def test_existing_server_registration_rolls_back_partial_leases(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        def fake_load(port, filepath, name, **kwargs):
+            if filepath.endswith("overlay.npy"):
+                return {"sid": "sid_overlay"}
+            return {"error": "compare failed"}
+
+        rollbacks = []
+        monkeypatch.setattr(launcher, "_load_session_from_filepath", fake_load)
+        monkeypatch.setattr(
+            launcher,
+            "_release_remote_sessions",
+            lambda port, sids, **kwargs: rollbacks.append((port, sids, kwargs)),
+        )
+
+        with pytest.raises(RuntimeError, match="compare array"):
+            launcher._register_cli_session_with_existing_server(
+                port=8000,
+                overlay_paths=["/tmp/overlay.npy"],
+                compare_files=["/tmp/compare.npy"],
+                base_file="/tmp/base.npy",
+                name="base.npy",
+                rgb=False,
+                use_native_shell=False,
+                vectorfield=None,
+                vfield_components_dim=None,
+                expected_server_id="server-generation-a",
+            )
+
+        assert rollbacks == [
+            (
+                8000,
+                ["sid_overlay"],
+                {"expected_server_id": "server-generation-a"},
+            )
+        ]
 
     def test_register_dir_collection_with_existing_server_forwards_contract(
         self, monkeypatch
@@ -3086,6 +3797,7 @@ class TestCliOpenHelpers:
                 "sid": "sid_dir",
                 "name": name,
                 "notified": False,
+                "native_request_id": None,
                 "overlay_sids": ["sid_mask"],
                 "overlay_names": ["mask"],
             }
@@ -3168,6 +3880,7 @@ class TestCliOpenHelpers:
                 "compare_sids": ["sid_cmp"],
                 "notify_native_shell": True,
                 "notified": False,
+                "native_request_id": None,
             },
         )
         monkeypatch.setattr(
@@ -3202,6 +3915,7 @@ class TestCliOpenHelpers:
                 "dims_override": (1, 2),
                 "notify_native_shell": True,
                 "notified": False,
+                "native_request_id": None,
                 "name": "base.npy",
                 "base_file": "/tmp/base.npy",
                 "watch": True,
@@ -3411,7 +4125,9 @@ class TestCliOpenHelpers:
         opened = []
 
         monkeypatch.setattr(
-            launcher, "_configure_vscode_port_preview", lambda port: None
+            launcher,
+            "_configure_vscode_port_preview",
+            lambda port, **kwargs: None,
         )
         monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
         monkeypatch.setattr(
@@ -3419,8 +4135,19 @@ class TestCliOpenHelpers:
             "Popen",
             lambda cmd, *args, **kwargs: spawned.append((cmd, kwargs)) or object(),
         )
-        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: ["sid_cmp"])
+        monkeypatch.setattr(
+            launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_load_compare_sids",
+            lambda port, files, **kwargs: ["sid_cmp"],
+        )
         monkeypatch.setattr(
             launcher,
             "_open_cli_spawned_view",
@@ -3477,6 +4204,7 @@ class TestCliOpenHelpers:
                 "floating": False,
                 "is_remote": False,
                 "native_shell_already_opened": False,
+                "expected_server_id": "spawned-server",
             }
         ]
 
@@ -3505,16 +4233,23 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(
             launcher,
-            "_wait_for_port",
+            "_wait_for_spawned_server",
             lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
         )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: True,
         )
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+        )
         monkeypatch.setattr(
             launcher,
             "_notify_existing_session",
@@ -3550,7 +4285,7 @@ class TestCliOpenHelpers:
         event_names = [event[0] for event in events]
         assert event_names[:3] == ["spawn", "native_shell", "wait"]
         assert "notify" in event_names
-        assert events[1][1][0] == "http://localhost:8000/shell"
+        assert urllib.parse.urlsplit(events[1][1][0]).path == "/shell"
         assert events[1][2]["shell_port"] == 8000
         assert opened[0]["native_shell_already_opened"] is True
 
@@ -3578,10 +4313,17 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(
             launcher,
-            "_wait_for_port",
+            "_wait_for_spawned_server",
             lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
         )
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
+        )
+        monkeypatch.setattr(
+            launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+        )
         monkeypatch.setattr(
             launcher,
             "_open_cli_spawned_view",
@@ -3640,12 +4382,21 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
-        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
+        )
+        monkeypatch.setattr(
+            launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+        )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: False,
         )
         monkeypatch.setattr(
@@ -3709,12 +4460,21 @@ class TestCliOpenHelpers:
         monkeypatch.setattr(
             launcher, "_open_webview_cli_tracked", lambda *args, **kwargs: (True, proc)
         )
-        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
+        )
+        monkeypatch.setattr(
+            launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+        )
         monkeypatch.setattr(launcher, "_server_viewer_connections_seen", lambda port: 0)
         monkeypatch.setattr(
             launcher,
-            "_wait_for_viewer_connection",
+            "_wait_for_native_ready",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(
@@ -3772,8 +4532,17 @@ class TestCliOpenHelpers:
             "_open_webview_cli_tracked",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
         )
-        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("spawned-server", "process-start", 12345),
+        )
+        monkeypatch.setattr(
+            launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+        )
         monkeypatch.setattr(
             launcher,
             "_open_cli_spawned_view",
@@ -4619,6 +5388,20 @@ class TestPortAndTunnelHelpers:
 
         assert platform._is_vscode_remote() is False
 
+    def test_code_cli_selection_uses_captured_placement(self, monkeypatch):
+        import glob
+        import shutil
+        import arrayview._platform as platform
+
+        remote_cli = "/home/user/.vscode-server/bin/hash/bin/remote-cli/code"
+        monkeypatch.setattr(glob, "glob", lambda pattern: [remote_cli])
+        monkeypatch.setattr(platform.os.path, "getmtime", lambda path: 1.0)
+        monkeypatch.setattr(platform.os, "access", lambda path, mode: True)
+        monkeypatch.setattr(shutil, "which", lambda command: "/usr/local/bin/code")
+
+        assert platform._find_code_cli(is_remote=False) == "/usr/local/bin/code"
+        assert platform._find_code_cli(is_remote=True) == remote_cli
+
     def test_linux_vscode_tunnel_requires_server_marker(self, monkeypatch):
         import arrayview._platform as platform
 
@@ -5383,8 +6166,29 @@ def _isolate_view_planner(
             port,
             port in alive_ports,
             port in alive_ports,
+            4242 if port in alive_ports else None,
+            "test-host" if port in alive_ports else None,
+            "existing-server" if port in alive_ports else None,
+            None,
+            (
+                "identity-fenced-load",
+                "identity-fenced-mutations",
+            )
+            if port in alive_ports
+            else (),
+            "1" if port in alive_ports else None,
         ),
     )
+    if alive_ports:
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: (
+                ("existing-server", None, 4242)
+                if port in alive_ports
+                else None
+            ),
+        )
 
 
 class TestViewDisplayRouting:
@@ -5449,9 +6253,14 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
         _isolate_view_planner(monkeypatch, launcher)
         monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
-        monkeypatch.setattr(launcher, "_server_pid", lambda port: 9876)
-        monkeypatch.setattr(launcher, "_find_server_port", lambda port: (8124, False))
-        monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("foreign-server", "foreign-start", 9876)
+            if port == 8123
+            else None,
+        )
+        monkeypatch.setattr(launcher, "_port_in_use", lambda port: port == 8123)
         monkeypatch.setattr(
             launcher.os,
             "kill",
@@ -5549,7 +6358,15 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
         monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
         monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
-        monkeypatch.setattr(launcher, "_server_pid", lambda port: os.getpid())
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("our-server", "our-start", os.getpid()),
+        )
+        monkeypatch.setattr(launcher, "_port_in_use", lambda port: True)
+        monkeypatch.setattr(
+            launcher, "_revalidate_launch_server", lambda context, port: port
+        )
         monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: True)
         monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
         _isolate_view_planner(
@@ -5604,7 +6421,7 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(
             launcher,
             "_load_session_from_filepath",
-            lambda port, path, name, rgb=False: {"sid": "sid_remote"},
+            lambda port, path, name, **kwargs: {"sid": "sid_remote"},
         )
         monkeypatch.setattr(
             launcher,
@@ -5635,7 +6452,15 @@ class TestViewDisplayRouting:
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
         monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
-        monkeypatch.setattr(launcher, "_server_pid", lambda port: os.getpid())
+        monkeypatch.setattr(
+            launcher,
+            "_server_runtime_identity",
+            lambda port: ("our-server", "our-start", os.getpid()),
+        )
+        monkeypatch.setattr(launcher, "_port_in_use", lambda port: True)
+        monkeypatch.setattr(
+            launcher, "_revalidate_launch_server", lambda context, port: port
+        )
         monkeypatch.setattr(
             launcher,
             "_open_browser",

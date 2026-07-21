@@ -149,7 +149,11 @@ def test_cli_startup_lock_rechecks_and_reuses_concurrent_server(monkeypatch):
         "Popen",
         lambda *_args, **_kwargs: pytest.fail("must not spawn a second server"),
     )
-    monkeypatch.setattr(_launcher, "_configure_vscode_port_preview", lambda _port: None)
+    monkeypatch.setattr(
+        _launcher,
+        "_configure_vscode_port_preview",
+        lambda _port, **kwargs: None,
+    )
 
     _launcher._handle_cli_spawned_daemon(
         port=8123,

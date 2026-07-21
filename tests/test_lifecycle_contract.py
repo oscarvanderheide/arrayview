@@ -483,7 +483,7 @@ def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatc
     monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
     monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
     monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.14.40")
-    monkeypatch.setattr(extension, "_find_code_cli", lambda: "code")
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "code")
 
     def timed_out(*args, **kwargs):
         raise TimeoutError("installer wedged")
@@ -679,11 +679,13 @@ def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     assert sleeps == [0.2]
 
 
-def test_persistent_daemon_timeouts_when_opener_never_connects():
+def test_persistent_daemon_bounds_failed_open_and_recoverable_disconnects():
     import arrayview._launcher as launcher
+    import arrayview._routes_websocket as websocket_routes
 
     assert launcher._PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS == 210.0
-    assert launcher._PERSIST_DAEMON_IDLE_SECONDS == 120.0
+    assert launcher._PERSIST_DAEMON_IDLE_SECONDS == 1800.0
+    assert websocket_routes._RECOVERABLE_DISCONNECT_GRACE_SECONDS == 1800.0
 
 
 def test_transient_daemon_exits_after_quick_viewer_disconnect(tmp_path):
@@ -761,14 +763,25 @@ def test_local_vscode_spawned_daemon_uses_transient_backend(monkeypatch):
 
     spawned = []
 
-    monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(
+        launcher, "_configure_vscode_port_preview", lambda port, **kwargs: None
+    )
     monkeypatch.setattr(
         launcher.subprocess,
         "Popen",
         lambda cmd, *args, **kwargs: spawned.append((cmd, kwargs)) or object(),
     )
-    monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-    monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+    monkeypatch.setattr(
+        launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_server_runtime_identity",
+        lambda port: ("spawned-server", "process-start", 12345),
+    )
+    monkeypatch.setattr(
+        launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+    )
     monkeypatch.setattr(launcher, "_open_cli_spawned_view", lambda **kwargs: None)
     monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid"})())
 
@@ -800,14 +813,25 @@ def test_remote_vscode_spawned_daemon_keeps_backend_persistent(monkeypatch):
 
     spawned = []
 
-    monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+    monkeypatch.setattr(
+        launcher, "_configure_vscode_port_preview", lambda port, **kwargs: None
+    )
     monkeypatch.setattr(
         launcher.subprocess,
         "Popen",
         lambda cmd, *args, **kwargs: spawned.append((cmd, kwargs)) or object(),
     )
-    monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
-    monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+    monkeypatch.setattr(
+        launcher, "_wait_for_spawned_server", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_server_runtime_identity",
+        lambda port: ("spawned-server", "process-start", 12345),
+    )
+    monkeypatch.setattr(
+        launcher, "_load_compare_sids", lambda port, files, **kwargs: []
+    )
     monkeypatch.setattr(launcher, "_open_cli_spawned_view", lambda **kwargs: None)
     monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid"})())
 
@@ -861,6 +885,71 @@ def test_viewer_sid_tracking_clears_on_websocket_disconnect(tmp_path):
         assert session_mod.VIEWER_SOCKETS == 0
         assert sid not in session_mod.VIEWER_SIDS
         assert sid not in session_mod.VIEWER_SID_COUNTS
+
+
+def test_disconnect_owned_session_releases_after_reconnect_grace(tmp_path):
+    import time
+
+    from arrayview._app import app
+
+    path = tmp_path / "disconnect-release.npy"
+    np.save(path, np.ones((4, 4), dtype=np.float32))
+
+    with TestClient(app) as client:
+        sid = client.post(
+            "/load",
+            json={
+                "filepath": str(path),
+                "release_on_disconnect": True,
+            },
+        ).json()["sid"]
+        from arrayview._session import SESSIONS
+
+        SESSIONS[sid].disconnect_release_grace_seconds = 0.05
+        with client.websocket_connect(f"/ws/{sid}") as ws:
+            assert ws.receive_json()["type"] == "metadata"
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if client.get(f"/metadata/{sid}").status_code == 404:
+                break
+            time.sleep(0.05)
+        assert client.get(f"/metadata/{sid}").status_code == 404
+
+
+def test_reconnect_cancels_and_fences_pending_disconnect_release(tmp_path):
+    import time
+
+    from arrayview._app import app
+    from arrayview._session import SESSIONS
+
+    path = tmp_path / "disconnect-reconnect.npy"
+    np.save(path, np.ones((4, 4), dtype=np.float32))
+
+    with TestClient(app) as client:
+        sid = client.post(
+            "/load",
+            json={
+                "filepath": str(path),
+                "release_on_disconnect": True,
+            },
+        ).json()["sid"]
+        SESSIONS[sid].disconnect_release_grace_seconds = 0.2
+
+        with client.websocket_connect(f"/ws/{sid}") as ws:
+            assert ws.receive_json()["type"] == "metadata"
+
+        with client.websocket_connect(f"/ws/{sid}") as ws:
+            assert ws.receive_json()["type"] == "metadata"
+            time.sleep(0.3)
+            assert client.get(f"/metadata/{sid}").status_code == 200
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if client.get(f"/metadata/{sid}").status_code == 404:
+                break
+            time.sleep(0.02)
+        assert client.get(f"/metadata/{sid}").status_code == 404
 
 
 def test_release_route_drops_session_and_is_idempotent(tmp_path):
@@ -942,11 +1031,12 @@ def test_vscode_tunnel_resolution_reuses_verified_routes_and_retries_fresh():
 def test_vscode_url_panel_dispose_releases_primary_sid():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
-    assert "function releaseUrlSession(url, backendUrl = null)" in source
+    assert "function releaseUrlSession(url, backendUrl = null, serverId = null)" in source
     assert "collectReleaseSidsFromUrl(url)" in source
     assert "releaseUrlForSid(url, backendUrl, sid)" in source
-    assert "releaseUrlSession(url, backendUrl)" in source
-    assert "releaseUrlSession(openUrl, data.url);" in source
+    assert "releaseUrlSession(url, backendUrl, serverId)" in source
+    assert "releaseUrlSession(openUrl, data.url, data.serverId || null);" in source
+    assert "X-ArrayView-Expected-Server-ID" in source
     assert "}, 60000)" not in source
 
 
@@ -986,7 +1076,11 @@ def test_vscode_tunnel_resolution_with_node():
 
 @pytest.mark.parametrize(
     "script",
-    ["test_request_journal.js", "test_panel_replay.js"],
+    [
+        "test_request_journal.js",
+        "test_request_deadline.js",
+        "test_panel_replay.js",
+    ],
 )
 def test_vscode_transaction_contracts_with_node(script):
     import shutil
@@ -1025,7 +1119,8 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     assert "collectReleaseSidsFromUrl(url)" in extension_source
     assert "data.remoteOnly === true && !vscode.env.remoteName" in extension_source
     assert "extensionVersion: version" in extension_source
-    assert "releaseUrlSession(url, backendUrl)" in extension_source
+    assert "releaseUrlSession(url, backendUrl = null, serverId = null)" in extension_source
+    assert "releaseUrlSession(url, backendUrl, serverId)" in extension_source
     assert "const lockPath = `${ackPath}.lock`" in extension_source
     assert "_atomicWriteJson(ackPath" in extension_source
     assert (

@@ -5335,7 +5335,12 @@
          * Create a WebSocket transport connection.
          */
         function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
-            const wsTarget = resolveServerPath(`/ws/${transportSid}`);
+            let wsTarget = resolveServerPath(`/ws/${transportSid}`);
+            const nativeRequestId = new URLSearchParams(location.search).get('native_request_id');
+            if (nativeRequestId) {
+                const separator = wsTarget.includes('?') ? '&' : '?';
+                wsTarget += `${separator}native_request_id=${encodeURIComponent(nativeRequestId)}`;
+            }
             let ws;
             if (_embeddedServerOrigin) {
                 const wsUrl = new URL(wsTarget);
@@ -5375,6 +5380,7 @@
                         source: 'arrayview-viewer',
                         phase,
                         detail: detail || null,
+                        nativeRequestId: urlParams.get('native_request_id'),
                     }, '*');
                 }
             } catch (_) {

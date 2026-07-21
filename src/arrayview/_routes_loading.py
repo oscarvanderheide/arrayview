@@ -10,14 +10,23 @@ from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from arrayview._io import _SUPPORTED_EXTS, _peek_file_shape, load_data
-from arrayview._lifecycle import acquire_session_leases, release_session
+from arrayview._lifecycle import (
+    acquire_session_leases,
+    commit_pending_session,
+    commit_session_group_unless_cancelled,
+    release_session,
+)
 from arrayview._session import (
+    CANCELLED_PENDING_SESSIONS,
     PENDING_SESSION_EVENTS,
     PENDING_SESSIONS,
     SESSIONS,
     Session,
     file_signature,
 )
+
+
+_RELAY_DISPLAY_ACK_TIMEOUT_SECONDS = 195.0
 
 
 def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
@@ -90,11 +99,61 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
     async def load_file(request: Request):
         """Load a file into a new session. Optionally notify webview shells."""
         body = await request.json()
+        native_request_id = str(body.get("native_request_id") or "")
+        requested_sid = str(body.get("requested_sid") or "")
+        if requested_sid and (
+            len(requested_sid) > 128
+            or any(ch not in "0123456789abcdefABCDEF-" for ch in requested_sid)
+        ):
+            raise HTTPException(status_code=400, detail="invalid requested_sid")
+        expected_server_id = body.get("expected_server_id")
+        if expected_server_id is not None:
+            import arrayview._session as _session_mod
+
+            actual_server_id = _session_mod.SERVER_RUNTIME.instance_id
+            if expected_server_id != actual_server_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ArrayView server generation changed before load",
+                )
         dir_patterns = body.get("dir_patterns")
         filepath = str(body.get("filepath") or (dir_patterns or [""])[0])
         name = str(body.get("name") or os.path.basename(filepath))
         notify = bool(body.get("notify", False))
         abs_path = os.path.abspath(filepath)
+        if requested_sid in CANCELLED_PENDING_SESSIONS:
+            CANCELLED_PENDING_SESSIONS.discard(requested_sid)
+            raise HTTPException(status_code=409, detail="load request was cancelled")
+        if requested_sid in PENDING_SESSIONS:
+            return {
+                "sid": requested_sid,
+                "name": name,
+                "notified": False,
+                "overlay_sids": [],
+                "overlay_names": [],
+                "pending": True,
+                "reused_request": True,
+            }
+        requested_session = SESSIONS.get(requested_sid) if requested_sid else None
+        if requested_session is not None:
+            existing_path = getattr(requested_session, "filepath", None)
+            if existing_path and os.path.abspath(existing_path) != abs_path:
+                raise HTTPException(
+                    status_code=409,
+                    detail="requested_sid already belongs to another file",
+                )
+            return {
+                "sid": requested_sid,
+                "name": requested_session.name,
+                "notified": False,
+                "overlay_sids": list(
+                    getattr(requested_session, "collection_overlay_sids", [])
+                ),
+                "overlay_names": list(
+                    getattr(requested_session, "collection_overlay_names", [])
+                ),
+                "reused_request": True,
+            }
         collection_identity = None
         if dir_patterns:
             collection_identity = (
@@ -112,7 +171,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 body.get("load", "lazy"),
                 body.get("stack", "auto"),
             )
-            for existing in SESSIONS.values():
+            for existing in [] if requested_sid else SESSIONS.values():
                 if getattr(existing, "collection_identity", None) == collection_identity:
                     reused_sids = [existing.sid, *getattr(existing, "collection_overlay_sids", [])]
                     if not acquire_session_leases(reused_sids):
@@ -132,6 +191,12 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                                 f"&overlay_sid={','.join(existing_overlay_sids)}"
                                 f"&overlay_names={urllib.parse.quote(','.join(existing_overlay_names))}"
                             )
+                        if native_request_id:
+                            tab_url = tab_url or f"/?sid={existing.sid}"
+                            tab_url += (
+                                "&native_request_id="
+                                + urllib.parse.quote(native_request_id)
+                            )
                         notified = await notify_shells(
                             existing.sid, name, url=tab_url, wait=False
                         )
@@ -149,7 +214,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     }
         else:
             current_signature = file_signature(abs_path)
-            for existing in SESSIONS.values():
+            for existing in [] if requested_sid else SESSIONS.values():
                 if (
                     existing.filepath
                     and os.path.abspath(existing.filepath) == abs_path
@@ -195,7 +260,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             # array loads. This uses the same pending-session contract as a
             # freshly spawned daemon, so metadata/WebSocket requests wait for
             # the real Session instead of seeing a transient 404.
-            sid = uuid.uuid4().hex
+            sid = requested_sid or uuid.uuid4().hex
             pending_event = threading.Event()
             PENDING_SESSIONS.add(sid)
             PENDING_SESSION_EVENTS[sid] = pending_event
@@ -219,7 +284,13 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         session.original_volume = data
                     if body.get("rgb"):
                         setup_rgb(session)
-                    SESSIONS[sid] = session
+                    session.release_on_disconnect = bool(
+                        body.get("release_on_disconnect", False)
+                    )
+                    session.related_release_sids = [
+                        str(value) for value in body.get("related_sids", [])
+                    ]
+                    commit_pending_session(sid, session)
                 except Exception as exc:
                     # Keep the server alive and make the failure visible in its
                     # log. The opener will fail closed when metadata never
@@ -229,6 +300,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     traceback.print_exc()
                 finally:
                     PENDING_SESSIONS.discard(sid)
+                    CANCELLED_PENDING_SESSIONS.discard(sid)
                     pending_event.set()
                     PENDING_SESSION_EVENTS.pop(sid, None)
 
@@ -281,6 +353,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         session = await asyncio.to_thread(
             Session, data, filepath=None if dir_patterns else filepath, name=name
         )
+        if requested_sid:
+            session.sid = requested_sid
+        session.release_on_disconnect = bool(
+            body.get("release_on_disconnect", False)
+        )
+        session.related_release_sids = [
+            str(value) for value in body.get("related_sids", [])
+        ]
         if not dir_patterns:
             signature_after_load = file_signature(abs_path)
             if signature_before_load == signature_after_load:
@@ -299,19 +379,30 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 await asyncio.to_thread(setup_rgb, session)
             except ValueError as e:
                 return {"error": str(e)}
-        SESSIONS[session.sid] = session
         overlay_sids = []
         overlay_names = []
+        overlay_sessions = []
         for item in dir_overlay_items if dir_patterns else []:
             overlay_session = await asyncio.to_thread(
                 Session, item["data"], filepath=None, name=item["name"]
             )
-            SESSIONS[overlay_session.sid] = overlay_session
+            overlay_sessions.append(overlay_session)
             overlay_sids.append(overlay_session.sid)
             overlay_names.append(item["name"])
         if dir_patterns:
             session.collection_overlay_sids = list(overlay_sids)
             session.collection_overlay_names = list(overlay_names)
+        if requested_sid:
+            if not commit_session_group_unless_cancelled(
+                session.sid,
+                [session, *overlay_sessions],
+            ):
+                CANCELLED_PENDING_SESSIONS.discard(session.sid)
+                return {"error": "load request was cancelled"}
+        else:
+            SESSIONS[session.sid] = session
+            for overlay_session in overlay_sessions:
+                SESSIONS[overlay_session.sid] = overlay_session
         notified = False
         if notify:
             tab_url = None
@@ -326,6 +417,12 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     f"/?sid={session.sid}"
                     f"&overlay_sid={','.join(overlay_sids)}"
                     f"&overlay_names={urllib.parse.quote(','.join(overlay_names))}"
+                )
+            if native_request_id:
+                tab_url = tab_url or f"/?sid={session.sid}"
+                tab_url += (
+                    "&native_request_id="
+                    + urllib.parse.quote(native_request_id)
                 )
             notified = await notify_shells(session.sid, name, url=tab_url, wait=False)
         return {
@@ -343,6 +440,15 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
         body = await request.json()
+        expected_server_id = body.get("expected_server_id")
+        if expected_server_id is not None:
+            import arrayview._session as _session_mod
+
+            if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ArrayView server generation changed before notify",
+                )
         name = str(body.get("name") or session.name)
         url = body.get("url")
         wait = bool(body.get("wait", False))
@@ -355,9 +461,26 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         return {"sid": session.sid, "name": name, "notified": notified}
 
     @app.post("/release/{sid}")
-    def release_viewer_session(sid: str):
+    def release_viewer_session(sid: str, request: Request):
         """Release a session when its owning viewer tab/window closes."""
-        return {"sid": sid, "released": release_session(sid)}
+        expected_server_id = request.headers.get(
+            "X-ArrayView-Expected-Server-ID"
+        )
+        if expected_server_id:
+            import arrayview._session as _session_mod
+
+            if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ArrayView server generation changed before release",
+                )
+        return {
+            "sid": sid,
+            "released": release_session(
+                sid,
+                cancel_if_missing=bool(expected_server_id),
+            ),
+        }
 
     @app.post("/session/{sid}/reload-key")
     async def reload_array_key(sid: str, request: Request):
@@ -509,6 +632,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
 
         session = await asyncio.to_thread(Session, data, name=filename)
         SESSIONS[session.sid] = session
+        session.release_on_disconnect = True
         await notify_shells(session.sid, filename, wait=False)
         resp_shape = [
             int(s)
@@ -524,31 +648,101 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         import base64
 
         body = await request.json()
+        expected_server_id = body.get("expected_server_id")
+        if expected_server_id is not None:
+            import arrayview._session as _session_mod
+
+            if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ArrayView server generation changed before byte upload",
+                )
         data_b64 = body.get("data_b64", "")
         name = str(body.get("name") or "array")
         rgb = bool(body.get("rgb", False))
+        requested_sid = str(body.get("requested_sid") or "")
+        require_display_ack = bool(body.get("require_display_ack", False))
+        if requested_sid and (
+            len(requested_sid) > 128
+            or any(ch not in "0123456789abcdefABCDEF-" for ch in requested_sid)
+        ):
+            raise HTTPException(status_code=400, detail="invalid requested_sid")
+        if require_display_ack and (not requested_sid or expected_server_id is None):
+            raise HTTPException(
+                status_code=400,
+                detail="transactional relay requires requested_sid and expected_server_id",
+            )
+        if requested_sid in CANCELLED_PENDING_SESSIONS:
+            CANCELLED_PENDING_SESSIONS.discard(requested_sid)
+            raise HTTPException(status_code=409, detail="relay request was cancelled")
 
-        try:
-            raw = base64.b64decode(data_b64)
-            arr = np.load(io.BytesIO(raw))
-        except Exception as e:
-            return {"error": f"Failed to decode array: {e}"}
-
-        session = await asyncio.to_thread(Session, arr, name=name)
-        if rgb:
+        session = SESSIONS.get(requested_sid) if requested_sid else None
+        if session is None:
             try:
-                await asyncio.to_thread(setup_rgb, session)
-            except ValueError as e:
-                return {"error": str(e)}
-        SESSIONS[session.sid] = session
+                raw = base64.b64decode(data_b64)
+                arr = np.load(io.BytesIO(raw))
+            except Exception as e:
+                return {"error": f"Failed to decode array: {e}"}
+
+            session = await asyncio.to_thread(Session, arr, name=name)
+            if requested_sid:
+                session.sid = requested_sid
+            if rgb:
+                try:
+                    await asyncio.to_thread(setup_rgb, session)
+                except ValueError as e:
+                    return {"error": str(e)}
+            session.release_on_disconnect = True
+            if requested_sid:
+                if not commit_session_group_unless_cancelled(
+                    requested_sid,
+                    [session],
+                ):
+                    CANCELLED_PENDING_SESSIONS.discard(requested_sid)
+                    return {"error": "relay request was cancelled"}
+            else:
+                SESSIONS[session.sid] = session
 
         import arrayview._session as _session_mod
         from arrayview._vscode import _open_via_signal_file
+        from arrayview._vscode_signal import AckState, _wait_for_vscode_ack
 
         port = _session_mod.SERVER_PORT or 8000
         url = f"http://localhost:{port}/?sid={session.sid}"
-        _open_via_signal_file(url)
-        return {"sid": session.sid, "url": url}
+        try:
+            signal_request = _open_via_signal_file(
+                url,
+                server_id=_session_mod.SERVER_RUNTIME.instance_id,
+                **(
+                    {"max_age_ms": 190_000}
+                    if require_display_ack
+                    else {}
+                ),
+            )
+            if require_display_ack:
+                if not signal_request:
+                    raise RuntimeError("VS Code display request could not be written")
+                ack = await asyncio.to_thread(
+                    _wait_for_vscode_ack,
+                    signal_request,
+                    _RELAY_DISPLAY_ACK_TIMEOUT_SECONDS,
+                )
+                if ack.state is not AckState.BACKEND_READY:
+                    raise RuntimeError(
+                        ack.message
+                        or f"VS Code display request ended in {ack.state.value}"
+                    )
+        except Exception as exc:
+            release_session(session.sid)
+            raise HTTPException(
+                status_code=502,
+                detail=f"relay display handoff failed: {exc}",
+            ) from exc
+        return {
+            "sid": session.sid,
+            "url": url,
+            "display_acknowledged": require_display_ack,
+        }
 
 
 def _peek_shape(path: str) -> tuple | None:

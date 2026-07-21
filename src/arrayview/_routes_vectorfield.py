@@ -1,5 +1,5 @@
 import numpy as np
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 
 from arrayview._io import load_data
 from arrayview._session import SESSIONS
@@ -50,6 +50,18 @@ def register_vectorfield_routes(app) -> None:
     async def attach_vectorfield(request: Request):
         """Attach a vector field to an existing session."""
         body = await request.json()
+        expected_server_id = body.get("expected_server_id")
+        if expected_server_id is not None:
+            import arrayview._session as _session_mod
+
+            if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "ArrayView server generation changed before vector-field "
+                        "attachment"
+                    ),
+                )
         sid = str(body["sid"])
         filepath = str(body["filepath"])
         components_dim = body.get("components_dim")

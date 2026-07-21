@@ -50,8 +50,24 @@ def _mock_launch_server_snapshot(monkeypatch, *, alive: bool, busy: bool | None 
     monkeypatch.setattr(
         _launch_plan_mod,
         "_server_snapshot",
-        lambda port: _launch_plan_mod.ServerSnapshot(port, busy, alive),
+        lambda port: _launch_plan_mod.ServerSnapshot(
+            port,
+            busy,
+            alive,
+            4242 if alive else None,
+            "test-host" if alive else None,
+            "existing-server" if alive else None,
+            None,
+            ("identity-fenced-load", "identity-fenced-mutations") if alive else (),
+            "1" if alive else None,
+        ),
     )
+    if alive:
+        monkeypatch.setattr(
+            _launcher_mod,
+            "_server_runtime_identity",
+            lambda port: ("existing-server", None, 4242),
+        )
 
 
 def _wait_for_ping(port: int, timeout: float = 10.0) -> bool:
@@ -161,7 +177,17 @@ def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, 
         env_vars={},
         config_default=None,
         native_backend=None,
-        server=ServerSnapshot(8000, True, True),
+        server=ServerSnapshot(
+            8000,
+            True,
+            True,
+            4242,
+            "test-host",
+            "existing-server",
+            None,
+            ("identity-fenced-load", "identity-fenced-mutations"),
+            "1",
+        ),
         in_jupyter=False,
         in_julia=False,
         in_vscode_terminal=True,
@@ -189,6 +215,11 @@ def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, 
     monkeypatch.setattr(_launch_plan_mod, "plan_launch", lambda intent, snap: plan)
     monkeypatch.setattr(_launcher_mod, "_find_vscode_ipc_hook", lambda: "/tmp/ipc")
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_server_runtime_identity",
+        lambda port: ("existing-server", None, 4242),
+    )
     monkeypatch.setattr(
         _launcher_mod,
         "_handle_cli_existing_server",
@@ -238,7 +269,7 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
     try:
         assert result.returncode != 0
         assert "VS Code viewer failed to become ready" in result.stderr
-        assert _wait_for_ping(port)
+        assert not _wait_for_ping(port, timeout=1.0)
     finally:
         subprocess.run(
             [sys.executable, "-m", "arrayview", "--kill", "--port", str(port)],
@@ -639,6 +670,9 @@ def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_pat
         "_vprint",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        _launcher_mod, "_wait_for_native_ready", lambda *args, **kwargs: True
+    )
 
     def fake_urlopen(req, timeout=5):
         body = json.loads((req.data or b"{}").decode())
@@ -684,6 +718,9 @@ def test_cli_existing_server_native_shell_connection_skips_browser(
         lambda *args, **kwargs: opened.append((args, kwargs)),
     )
     monkeypatch.setattr(_launcher_mod, "_vprint", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        _launcher_mod, "_wait_for_native_ready", lambda *args, **kwargs: True
+    )
 
     def fake_urlopen(req, timeout=5):
         url = req if isinstance(req, str) else req.full_url
@@ -727,7 +764,16 @@ def test_cli_spawn_daemon_opens_viewer_url(monkeypatch, tmp_path):
     monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: False)
     monkeypatch.setattr(_launcher_mod, "_port_in_use", lambda _: False)
     _mock_launch_server_snapshot(monkeypatch, alive=False, busy=False)
-    monkeypatch.setattr(_launcher_mod, "_wait_for_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_wait_for_spawned_server",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_server_runtime_identity",
+        lambda port: ("spawned-server", "process-start", 43210),
+    )
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(
         _launcher_mod.subprocess,
