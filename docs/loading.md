@@ -68,6 +68,7 @@ Key parameters:
 | `"browser"` | System browser |
 | `"vscode"` | VS Code tab |
 | `"inline"` | Inline IFrame (Jupyter / VS Code notebook) |
+| `"none"` | Register the session without opening a display |
 
 Inline ortho view automatically removes unused height. `mode_heights` is only
 needed to override the automatic size.

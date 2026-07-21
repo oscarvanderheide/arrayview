@@ -127,6 +127,34 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
+def test_cli_accepts_explicit_none_without_display_handoff(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    handled = []
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "none"])
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_handle_cli_existing_server",
+        lambda **kwargs: handled.append(kwargs),
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda *args, **kwargs: pytest.fail("no-display mode opened a display"),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    appmod.arrayview()
+
+    assert len(handled) == 1
+    assert handled[0]["window_mode"] == "none"
+    assert handled[0]["use_native_shell"] is False
+    assert handled[0]["launch_context"].plan.display.value == "none"
+
+
 def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, tmp_path):
     from arrayview._launch_plan import (
         Display,

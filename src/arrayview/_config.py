@@ -6,7 +6,7 @@ import os
 
 CONFIG_PATH = os.path.expanduser("~/.arrayview/config.toml")
 
-_VALID_WINDOW_MODES = {"browser", "vscode", "native", "inline"}
+_VALID_WINDOW_MODES = {"browser", "vscode", "native", "inline", "none"}
 _VALID_ENV_KEYS = {"default", "terminal", "vscode", "jupyter", "ssh", "julia"}
 
 

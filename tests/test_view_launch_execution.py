@@ -184,11 +184,19 @@ def _install_python_plan(
 
 
 @pytest.mark.parametrize(
-    ("display", "expected_force_vscode", "expected_opens"),
-    [("browser", False, 1), ("vscode", True, 1), ("none", None, 0)],
+    ("display", "requested_window", "expected_force_vscode", "expected_opens"),
+    [
+        ("browser", "browser", False, 1),
+        ("vscode", "vscode", True, 1),
+        ("none", "none", None, 0),
+    ],
 )
 def test_existing_server_executes_python_plan(
-    monkeypatch, display, expected_force_vscode, expected_opens
+    monkeypatch,
+    display,
+    requested_window,
+    expected_force_vscode,
+    expected_opens,
 ):
     import arrayview._launch_plan as launch_plan
     import arrayview._launcher as launcher
@@ -207,7 +215,7 @@ def test_existing_server_executes_python_plan(
         launcher, "_open_browser", lambda url, **kwargs: opened.append(kwargs)
     )
 
-    handle = launcher.view(np.zeros((2, 2)), window=False)
+    handle = launcher.view(np.zeros((2, 2)), window=requested_window)
 
     assert isinstance(handle, launcher.ViewHandle)
     assert len(opened) == expected_opens
@@ -216,11 +224,19 @@ def test_existing_server_executes_python_plan(
 
 
 @pytest.mark.parametrize(
-    ("display", "expected_force_vscode", "expected_opens"),
-    [("browser", False, 1), ("vscode", True, 1), ("none", None, 0)],
+    ("display", "requested_window", "expected_force_vscode", "expected_opens"),
+    [
+        ("browser", "browser", False, 1),
+        ("vscode", "vscode", True, 1),
+        ("none", "none", None, 0),
+    ],
 )
 def test_in_process_server_executes_python_plan(
-    monkeypatch, display, expected_force_vscode, expected_opens
+    monkeypatch,
+    display,
+    requested_window,
+    expected_force_vscode,
+    expected_opens,
 ):
     import arrayview._launch_plan as launch_plan
     import arrayview._launcher as launcher
@@ -239,7 +255,7 @@ def test_in_process_server_executes_python_plan(
     )
     monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
 
-    handle = launcher.view(np.zeros((2, 2)), window=False)
+    handle = launcher.view(np.zeros((2, 2)), window=requested_window)
 
     assert isinstance(handle, launcher.ViewHandle)
     assert len(opened) == expected_opens

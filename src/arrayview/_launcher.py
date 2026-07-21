@@ -1432,9 +1432,13 @@ def _normalize_view_window_request(
             window = False
             inline = False
             force_vscode = True
+        elif window_lower == "none":
+            window = False
+            inline = False
         else:
             raise ValueError(
-                "window must be 'inline', 'native', 'browser', or 'vscode', "
+                "window must be 'inline', 'native', 'browser', 'vscode', or "
+                "'none', "
                 f"got {window!r}"
             )
     return {
@@ -3983,6 +3987,12 @@ def _view_subprocess(
     url_shell = _shell_url(port, sid, name)
     _print_viewer_location(url_viewer, launch_context=launch_context)
 
+    if (
+        launch_context is not None
+        and launch_context.plan.display.value == "none"
+    ):
+        return ViewHandle(url_viewer, sid, port, active_server_id)
+
     if inline:
         _inline_url = _viewer_url(port, sid, inline=True)
         iframe_html = (
@@ -4889,9 +4899,12 @@ def arrayview():
     )
     parser.add_argument(
         "--window",
-        choices=["browser", "vscode", "native"],
+        choices=["browser", "vscode", "native", "none"],
         default=None,
-        help="How to open the viewer: browser, vscode, or native. Overrides config (see 'arrayview config')",
+        help=(
+            "How to open the viewer: browser, vscode, native, or none. "
+            "Overrides config (see 'arrayview config')"
+        ),
     )
     parser.add_argument(
         "--floating",

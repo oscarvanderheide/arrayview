@@ -2818,6 +2818,18 @@ class TestViewWindowHelpers:
             "explicit_window": True,
         }
 
+    def test_normalize_view_window_request_none(self):
+        from arrayview._launcher import _normalize_view_window_request
+
+        assert _normalize_view_window_request("none", None) == {
+            "window": False,
+            "inline": False,
+            "force_browser": False,
+            "force_vscode": False,
+            "explicit_inline": False,
+            "explicit_window": True,
+        }
+
     def test_normalize_view_window_request_invalid_mode(self):
         from arrayview._launcher import _normalize_view_window_request
 
@@ -2953,6 +2965,66 @@ class TestCliOpenHelpers:
         assert loads[0]["expected_server_id"] == "server-a"
         assert ready_checks[0]["sid"] == "julia-sid"
         assert native_opens[0]["sid"] == "julia-sid"
+
+    def test_julia_none_registers_without_opening_display(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        context = type(
+            "Context",
+            (),
+            {
+                "plan": type(
+                    "Plan",
+                    (),
+                    {
+                        "registration": type("R", (), {"value": "http_load"})(),
+                        "display": type("D", (), {"value": "none"})(),
+                    },
+                )(),
+                "evidence": type(
+                    "Evidence",
+                    (),
+                    {
+                        "server": type(
+                            "Server",
+                            (),
+                            {"server_instance_id": "server-a"},
+                        )(),
+                        "cli_default_server": None,
+                    },
+                )(),
+            },
+        )()
+        loads = []
+        monkeypatch.setattr(
+            launcher,
+            "_load_session_from_filepath",
+            lambda *args, **kwargs: loads.append(kwargs)
+            or {"sid": "julia-none-sid", "notified": False},
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda *args, **kwargs: pytest.fail("Julia no-display opened browser"),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_native_shell_after_server",
+            lambda **kwargs: pytest.fail("Julia no-display opened native shell"),
+        )
+        monkeypatch.setattr(launcher, "_print_viewer_location", lambda *a, **k: None)
+
+        handle = launcher._view_subprocess(
+            np.zeros((3, 3), dtype=np.float32),
+            "julia-none",
+            8123,
+            False,
+            launch_context=context,
+        )
+
+        assert isinstance(handle, launcher.ViewHandle)
+        assert handle.sid == "julia-none-sid"
+        assert loads[0]["notify"] is False
 
     def test_lost_load_response_rolls_back_client_selected_sid(self, monkeypatch):
         import arrayview._launcher as launcher

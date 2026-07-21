@@ -94,6 +94,11 @@ class TestGetWindowDefault:
         monkeypatch.setenv("ARRAYVIEW_WINDOW", "browser")
         assert get_window_default("terminal") == "browser"
 
+    def test_none_is_a_valid_no_display_default(self, tmp_config, monkeypatch):
+        monkeypatch.setenv("ARRAYVIEW_WINDOW", "none")
+
+        assert get_window_default("terminal") == "none"
+
     def test_invalid_value_returns_none(self, tmp_config, monkeypatch):
         monkeypatch.delenv("ARRAYVIEW_WINDOW", raising=False)
         tmp_config.write_text(textwrap.dedent("""\
