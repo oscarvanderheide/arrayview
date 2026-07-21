@@ -1397,13 +1397,17 @@ def _load_nifti_series(path, *, load="lazy", stack="auto"):
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
-def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto"):
+def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select=None):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
     When *filepath* is a directory, loads it as a file series (see
     ``_load_file_series``).
     """
+    from ._dicom import is_dicom_source, load_dicom_series
+
+    if (os.path.isdir(filepath) or filepath.lower().endswith(".dcm")) and is_dicom_source(filepath):
+        return load_dicom_series(filepath, select=select)
     if os.path.isdir(filepath):
         return _load_file_series(filepath, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
@@ -1412,7 +1416,17 @@ def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto"):
 
 
 def load_data(filepath, key=None):
+    if filepath.lower().endswith(".dcm"):
+        from ._dicom import load_dicom_series
+
+        data, _meta = load_dicom_series(filepath)
+        return data
     if os.path.isdir(filepath):
+        from ._dicom import is_dicom_source, load_dicom_series
+
+        if is_dicom_source(filepath):
+            data, _meta = load_dicom_series(filepath)
+            return data
         series, _meta = _load_file_series(filepath)
         return series
     if filepath.endswith(".npy"):
@@ -1545,6 +1559,7 @@ _SUPPORTED_EXTS = frozenset(
         ".tif",
         ".tiff",
         ".mat",
+        ".dcm",
     ]
 )
 
@@ -1557,8 +1572,18 @@ def _peek_file_shape(fpath: str, ext: str):
     """Try to return shape quickly without loading the full array. Returns None on failure."""
     try:
         if os.path.isdir(fpath):
+            from ._dicom import is_dicom_source, load_dicom_series
+
+            if is_dicom_source(fpath):
+                data, _ = load_dicom_series(fpath)
+                return list(data.shape)
             series, _ = _load_file_series(fpath)
             return list(series.shape)
+        if ext == ".dcm":
+            from ._dicom import load_dicom_series
+
+            data, _ = load_dicom_series(fpath)
+            return list(data.shape)
         if ext == ".npy":
             arr = np.load(fpath, mmap_mode="r", allow_pickle=False)
             return list(arr.shape)

@@ -149,8 +149,21 @@ uvx arrayview --stack \
 
 More examples: [Stack and Overlay Collections](stack-overlays.md).
 
-Patient folders with no NIfTI files (e.g. only `.dcm`) raise an error —
-convert DICOM to NIfTI first (e.g. `dcm2niix`).
+## DICOM Series
+
+```bash
+uvx arrayview path/to/dicom-series/
+uvx arrayview path/to/one-slice.dcm
+uvx arrayview path/to/study/ --series 2
+```
+
+A slice path discovers sibling images from the same series. A directory with
+multiple series requires `--series INDEX`; SeriesNumber and exact
+SeriesInstanceUID selectors are also accepted. `--stack` keeps its collection
+meaning and does not treat DICOM slices as separate cases.
+
+Shift+I shows privacy-filtered acquisition and geometry fields. Patient
+identity, dates, institutions, and raw UIDs are not sent to the viewer.
 
 ### First image from compressed patients
 

@@ -16,7 +16,10 @@ last_updated: 2026-07-20
 
 - CLI (`uvx arrayview file.npy`) and Python API (`view(arr)`) — both stable
 - Display environments: Jupyter inline, VS Code local, VS Code tunnel via forwarded WebSocket, Julia, native pywebview, SSH URL print (user forwards port with `ssh -L`)
-- File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
+- File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.dcm`/DICOM series directories, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
+- DICOM series use physical patient-position ordering, canonical RAS geometry,
+  modality rescale, explicit multi-series selection, and a privacy-filtered
+  MRI-aware Shift+I tab with header/derived provenance.
 - Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling

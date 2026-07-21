@@ -274,6 +274,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 load_data_with_meta,
                 filepath,
                 key=_key,
+                select=body.get("select"),
             ) if not dir_patterns else (data, spatial_meta)
         except Exception as e:
             return {"error": str(e)}

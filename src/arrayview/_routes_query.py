@@ -147,6 +147,8 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             info["ras_resample_active"] = bool(
                 getattr(session, "ras_resample_active", False)
             )
+            if spatial_meta.get("dicom_meta") is not None:
+                info["dicom_meta"] = spatial_meta["dicom_meta"]
         return info
 
     @app.get("/thumbnail/{sid}")

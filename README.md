@@ -13,6 +13,7 @@ It is meant to feel simple but there's more to it than meets the eye.
 Curious? Give it a try with
 ```bash
 uvx arrayview your_array.npy
+uvx arrayview path/to/dicom-series/
 ```
 
 Press `v` for the three-plane ortho view. `Shift+3` replaces the current slice,

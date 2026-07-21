@@ -4113,6 +4113,14 @@ def arrayview():
         ),
     )
     parser.add_argument(
+        "--series",
+        default=None,
+        help=(
+            "Select a DICOM series by displayed index, SeriesNumber, or exact "
+            "SeriesInstanceUID when a source contains multiple series."
+        ),
+    )
+    parser.add_argument(
         "--case-regex",
         default=None,
         dest="case_regex",
@@ -4462,7 +4470,27 @@ def arrayview():
         data = spatial_meta = overlay_items = summary = None
         name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
-    if not args.stack_policy and not args.stack_mode and not os.path.isfile(base_file):
+    if not args.stack_mode and os.path.isdir(base_file):
+        from arrayview._dicom import is_dicom_source, resolve_dicom_series_path
+
+        if is_dicom_source(base_file):
+            try:
+                base_file = resolve_dicom_series_path(base_file, args.series)
+            except ValueError as e:
+                parser.error(str(e))
+        elif args.series is not None:
+            parser.error("--series is only valid for a DICOM source.")
+    elif args.series is not None:
+        from arrayview._dicom import is_dicom_source, resolve_dicom_series_path
+
+        if not is_dicom_source(base_file):
+            parser.error("--series is only valid for a DICOM source.")
+        try:
+            base_file = resolve_dicom_series_path(base_file, args.series)
+        except ValueError as e:
+            parser.error(str(e))
+
+    if not args.stack_policy and not args.stack_mode and not os.path.exists(base_file):
         print(f"Error: file not found: {base_file}")
         sys.exit(1)
 

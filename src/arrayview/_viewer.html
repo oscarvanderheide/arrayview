@@ -1667,9 +1667,30 @@
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            max-height: 88vh; max-width: 92vw; overflow: auto; box-sizing: border-box;
+            width: min(680px, 92vw); max-height: 88vh; overflow: auto; box-sizing: border-box;
             color: var(--text);
         }
+        #info-tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+        .info-tab {
+            border: 0; border-bottom: 2px solid transparent; background: transparent;
+            color: var(--muted); padding: 5px 9px 7px; font: inherit; font-size: 11px;
+            cursor: pointer;
+        }
+        .info-tab.active { color: var(--active-dim); border-bottom-color: var(--active-dim); }
+        .info-pane { display: none; }
+        .info-pane.active { display: block; }
+        .dicom-section + .dicom-section { margin-top: 14px; }
+        .dicom-section-title {
+            color: var(--text); font-size: 10px; letter-spacing: 0.08em;
+            text-transform: uppercase; border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 5px;
+        }
+        .dicom-provenance {
+            color: var(--active-dim); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1px 4px; margin-left: 7px;
+            font-size: 8px; text-transform: uppercase;
+        }
+        .dicom-warning { color: var(--muted); font-size: 10px; line-height: 1.5; margin-top: 10px; }
         .mode-badge {
             display: inline-block; font-size: 0.62em; font-weight: 600;
             letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
@@ -2166,8 +2187,8 @@
         }
         #picker-cancel:hover { border-color: var(--muted); }
         #picker-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 12px; }
-        #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
-        #info-box table { border-collapse: collapse; }
+        #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
+        #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
         #help-hint, #tool-hint, #qmri-hint {
             position: fixed; bottom: 14px; cursor: pointer;
@@ -5066,7 +5087,11 @@
     <div id="dynamic-island"></div>
     <div id="tool-launcher" aria-hidden="true"></div>
     <div id="info-overlay">
-        <div id="info-box"><table id="info-table"></table></div>
+        <div id="info-box">
+            <div id="info-tabs"></div>
+            <div id="info-array-pane" class="info-pane"><table id="info-table"></table></div>
+            <div id="info-dicom-pane" class="info-pane"></div>
+        </div>
     </div>
     <div id="help-overlay">
         <div id="help-box">
@@ -12760,9 +12785,51 @@
 
         /* ── JS: Utility Functions and Vector Field ────────────────── */
 
-        function showDataInfo(rows) {
+        function _formatDicomValue(field) {
+            let value = field.value;
+            if (Array.isArray(value)) value = value.join(' x ');
+            else if (typeof value === 'boolean') value = value ? 'yes' : 'no';
+            if (field.unit) value = `${value} ${field.unit}`;
+            return String(value);
+        }
+
+        function showDataInfo(rows, dicomMeta = null) {
             document.getElementById('info-table').innerHTML =
                 rows.map(([k, v]) => `<tr><td>${_escapeHtml(k)}</td><td>${_escapeHtml(v)}</td></tr>`).join('');
+            const tabs = document.getElementById('info-tabs');
+            const arrayPane = document.getElementById('info-array-pane');
+            const dicomPane = document.getElementById('info-dicom-pane');
+            const tabItems = [['array', 'Array']];
+            if (dicomMeta) tabItems.push(['dicom', 'DICOM']);
+            tabs.innerHTML = tabItems.map(([id, label], index) =>
+                `<button class="info-tab${index === 0 ? ' active' : ''}" data-info-tab="${id}">${label}</button>`
+            ).join('');
+            arrayPane.classList.add('active');
+            dicomPane.classList.remove('active');
+            dicomPane.innerHTML = '';
+            if (dicomMeta) {
+                const sections = (dicomMeta.sections || []).map(section => {
+                    const fields = (section.fields || []).map(field => {
+                        const badge = field.provenance && field.provenance !== 'header'
+                            ? `<span class="dicom-provenance" title="${_escapeHtml(field.source || field.provenance)}">${_escapeHtml(field.provenance)}</span>`
+                            : '';
+                        return `<tr><td>${_escapeHtml(field.label)}</td><td>${_escapeHtml(_formatDicomValue(field))}${badge}</td></tr>`;
+                    }).join('');
+                    return `<section class="dicom-section"><div class="dicom-section-title">${_escapeHtml(section.label)}</div><table>${fields}</table></section>`;
+                }).join('');
+                const diffusionRows = (dicomMeta.diffusion_rows || []).length
+                    ? `<section class="dicom-section"><div class="dicom-section-title">Diffusion</div><table><tr><td>b-value</td><td>NEX</td><td>directions</td></tr>${dicomMeta.diffusion_rows.map(row => `<tr><td>${_escapeHtml(String(row.b_value))} s/mm2</td><td>${_escapeHtml(String(row.nex ?? '—'))}</td><td>${_escapeHtml(String(row.directions ?? '—'))}</td></tr>`).join('')}</table></section>`
+                    : '';
+                const warnings = (dicomMeta.warnings || []).map(warning =>
+                    `<div class="dicom-warning">${_escapeHtml(warning)}</div>`
+                ).join('');
+                dicomPane.innerHTML = sections + diffusionRows + warnings;
+            }
+            tabs.querySelectorAll('.info-tab').forEach(button => button.addEventListener('click', () => {
+                tabs.querySelectorAll('.info-tab').forEach(tab => tab.classList.toggle('active', tab === button));
+                arrayPane.classList.toggle('active', button.dataset.infoTab === 'array');
+                dicomPane.classList.toggle('active', button.dataset.infoTab === 'dicom');
+            }));
             document.getElementById('info-overlay').classList.add('visible');
         }
 
@@ -22714,7 +22781,7 @@
                                 rows.push(['Filename', _basenameFromPath(d.filepath)]);
                             }
                             if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
-                            showDataInfo(rows);
+                            showDataInfo(rows, d.dicom_meta || null);
                         });
                     }
                 },

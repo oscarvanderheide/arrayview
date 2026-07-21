@@ -1,5 +1,14 @@
 # Lessons Learned
 
+## DICOM Series Geometry and Metadata
+
+**Problem:** Filename or `InstanceNumber` ordering can silently scramble slices,
+and a generic header dump leaks identifying fields.
+**Solution:** Group by `SeriesInstanceUID`, order by `ImagePositionPatient`
+projected onto the orientation normal, validate geometry across the series, and
+fall back to unique `InstanceNumber` only with a warning. Keep Shift+I metadata
+allowlisted and attach provenance to every derived or inferred value.
+
 Hard-won knowledge from past development sessions. Check this before starting work on related areas.
 
 ## Launch Identity and Ownership
