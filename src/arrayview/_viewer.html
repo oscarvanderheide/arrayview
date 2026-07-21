@@ -35144,15 +35144,23 @@
         function _hideLineProfile() {
             if (_lineProfileOverlay) _lineProfileOverlay.classList.remove('active');
         }
+        function _rulerScreenScale() {
+            const rect = canvas.getBoundingClientRect();
+            return rect.width ? canvas.width / rect.width : 1;
+        }
         function _drawRuler(ax, ay, bx, by) {
             if (!_rulerSvg) return;
             const dist = Math.hypot(bx - ax, by - ay).toFixed(1);
             const mx = (ax + bx) / 2, my = (ay + by) / 2;
+            const scale = _rulerScreenScale();
+            const dotRadius = 2 * scale;
+            const labelOffset = 4 * scale;
             _rulerSvg.innerHTML = `
-                <circle class="ruler-dot" cx="${ax}" cy="${ay}" r="3"/>
-                <circle class="ruler-dot" cx="${bx}" cy="${by}" r="3"/>
+                <circle class="ruler-dot" cx="${ax}" cy="${ay}" r="${dotRadius}"/>
+                <circle class="ruler-dot" cx="${bx}" cy="${by}" r="${dotRadius}"/>
                 <line class="ruler-line" x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"/>
-                <text class="ruler-lbl" x="${mx + 4}" y="${my - 4}">${dist} px</text>`;
+                <text class="ruler-lbl" style="font-size:${11 * scale}px;stroke-width:${2 * scale}px"
+                      x="${mx + labelOffset}" y="${my - labelOffset}">${dist} px</text>`;
         }
         function _updateRulerSize() {
             if (!_rulerSvg || !canvas) return;
@@ -35242,7 +35250,7 @@
                 _hideLineProfile();
                 if (_rulerSvg) {
                     _updateRulerSize();
-                    _rulerSvg.innerHTML = `<circle class="ruler-dot" cx="${px}" cy="${py}" r="3"/>`;
+                    _rulerSvg.innerHTML = `<circle class="ruler-dot" cx="${px}" cy="${py}" r="${2 * _rulerScreenScale()}"/>`;
                 }
                 showStatus('ruler: click second point');
             } else {
