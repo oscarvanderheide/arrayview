@@ -17,12 +17,16 @@ const {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isTerminalAck,
+    sameClaimOwner,
+    claimJournalDisposition,
     isArrayViewStatus,
 } = require('./lifecycle_helpers');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
 const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');  // fallback
 const LOG_FILE = path.join(SIGNAL_DIR, 'extension.log');
+const EXTENSION_INSTANCE_ID = crypto.randomBytes(16).toString('hex');
 
 // Per-window targeted signal file: Python writes to a file named by the SHA256
 // of VSCODE_IPC_HOOK_CLI, which is unique per VS Code window on the remote.
@@ -107,12 +111,13 @@ let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
 let lastHandledAt = 0;
+const _activeClaimedFiles = new Set();
 
-// Track open webview panels by URL so we can reveal instead of re-creating.
-const _openPanels = new Map(); // url -> vscode.WebviewPanel
+// Track open webview panels by stable request identity. The externally resolved
+// tunnel URL may change while one request is being recovered.
+const _openPanels = new Map(); // request key (or URL for legacy calls) -> panel
 const _readyPanels = new WeakSet();
 const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
-const _externalUriInFlight = new Map(); // port -> the one live VS Code resolver promise
 const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
 
 function _cachedTunnelBase(port) {
@@ -160,27 +165,11 @@ function _withTimeout(promise, timeoutMs, label) {
     ]).finally(() => clearTimeout(timer));
 }
 
-function _asExternalUriSingleFlight(port, baseUri) {
-    const existing = _externalUriInFlight.get(port);
-    if (existing) {
-        log(`REMOTE: reusing in-flight asExternalUri for localhost:${port}`);
-        return existing;
-    }
-    let tracked;
-    const raw = Promise.resolve()
-        .then(() => vscode.env.asExternalUri(baseUri))
-        .then((externalUri) => {
-            if (vscode.env.remoteName === 'tunnel') {
-                const externalBase = externalUri.toString().replace(/\/$/, '');
-                if (!isLoopbackUrl(externalBase)) _rememberTunnelBase(port, externalBase);
-            }
-            return externalUri;
-        });
-    tracked = raw.finally(() => {
-        if (_externalUriInFlight.get(port) === tracked) _externalUriInFlight.delete(port);
-    });
-    _externalUriInFlight.set(port, tracked);
-    return tracked;
+function _asExternalUriAttempt(baseUri) {
+    // A timed-out VS Code resolver cannot be cancelled. Keep attempts
+    // request-local and side-effect free so a hung promise cannot poison all
+    // future launches for the same port.
+    return Promise.resolve().then(() => vscode.env.asExternalUri(baseUri));
 }
 
 async function _boundedCommand(command, args, timeoutMs = 3000) {
@@ -207,12 +196,6 @@ function _tunnelItem(port) {
     };
 }
 
-async function _closeStaleTunnelForward(port) {
-    await _boundedCommand('remote.tunnel.closeInline', [_tunnelItem(port)]);
-    await new Promise(resolve => setTimeout(resolve, 250));
-    await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
-}
-
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
 // creating a second panel, avoiding a visible flicker.
@@ -225,6 +208,100 @@ function log(message) {
     console.log(`[arrayview-opener] ${prefix}${message}`);
 }
 
+function _claimOwner() {
+    return {
+        pid: process.pid,
+        windowId: logWindowId,
+        extensionInstanceId: EXTENSION_INSTANCE_ID,
+        claimToken: crypto.randomBytes(16).toString('hex'),
+    };
+}
+
+function _evidenceForClaimOwner(owner) {
+    if (!owner || !owner.windowId) return { pidAlive: false, registration: null };
+    const pidAlive = Boolean(owner.pid && isProcessAlive(owner.pid));
+    try {
+        const registration = JSON.parse(fs.readFileSync(
+            path.join(SIGNAL_DIR, `window-${owner.windowId}.json`),
+            'utf8'
+        ));
+        return {
+            pidAlive,
+            registration: {
+                pid: registration.pid,
+                windowId: owner.windowId,
+                extensionInstanceId: registration.extensionInstanceId,
+            },
+        };
+    } catch (_) {
+        return { pidAlive, registration: null };
+    }
+}
+
+function _atomicWriteJson(filePath, payload) {
+    const tmpPath = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+        fs.writeFileSync(tmpPath, JSON.stringify(payload));
+        fs.renameSync(tmpPath, filePath);
+    } catch (error) {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        throw error;
+    }
+}
+
+function _writeClaimAck(ackPath, data, owner) {
+    _atomicWriteJson(
+        ackPath,
+        ackPayload('claimed', data, logWindowId, null, version, owner)
+    );
+    return true;
+}
+
+function _acquireAckLock(lockPath, owner) {
+    const tryAcquire = () => {
+        let descriptor;
+        try {
+            descriptor = fs.openSync(lockPath, 'wx');
+            fs.writeFileSync(descriptor, JSON.stringify(owner));
+            fs.closeSync(descriptor);
+            descriptor = null;
+            return true;
+        } catch (error) {
+            if (descriptor !== undefined && descriptor !== null) {
+                try { fs.closeSync(descriptor); } catch (_) {}
+            }
+            if (error.code !== 'EEXIST') throw error;
+            return false;
+        }
+    };
+
+    if (tryAcquire()) return true;
+    let stale = false;
+    try {
+        const lockOwner = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        stale = claimJournalDisposition(
+            { state: 'claimed', claimOwner: lockOwner },
+            _evidenceForClaimOwner(lockOwner)
+        ) === 'takeover';
+    } catch (_) {
+        try {
+            stale = Date.now() - fs.statSync(lockPath).mtimeMs > 10000;
+        } catch (__) {
+            stale = false;
+        }
+    }
+    if (!stale) return false;
+    try { fs.unlinkSync(lockPath); } catch (_) { return false; }
+    return tryAcquire();
+}
+
+function _releaseAckLock(lockPath, owner) {
+    try {
+        const lockOwner = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        if (sameClaimOwner(lockOwner, owner)) fs.unlinkSync(lockPath);
+    } catch (_) {}
+}
+
 function writeProtocolAck(data, state, message) {
     if (data?.protocolVersion !== 1 || !data.requestId || !data.ackPath) return false;
     const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
@@ -232,61 +309,103 @@ function writeProtocolAck(data, state, message) {
         log(`ACK: rejected invalid path for requestId=${data.requestId}`);
         return false;
     }
+
+    const owner = data.__claimOwner || null;
+    const lockOwner = owner || _claimOwner();
+    const lockPath = `${ackPath}.lock`;
+    let acquired = false;
     try {
-        const existing = JSON.parse(fs.readFileSync(ackPath, 'utf8'));
-        if (existing.state === 'backend_ready' || existing.state === 'failed') {
+        acquired = _acquireAckLock(lockPath, lockOwner);
+        if (!acquired) {
+            log(`ACK: lock busy state=${state} requestId=${data.requestId}`);
+            return false;
+        }
+
+        let existing = null;
+        try { existing = JSON.parse(fs.readFileSync(ackPath, 'utf8')); } catch (_) {}
+        if (isTerminalAck(existing)) {
             log(`ACK: preserving terminal state=${existing.state} requestId=${data.requestId}`);
             return true;
         }
-    } catch (_) {}
-    const tmpPath = `${ackPath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-    try {
-        fs.writeFileSync(tmpPath, JSON.stringify(ackPayload(state, data, logWindowId, message, version)));
-        fs.renameSync(tmpPath, ackPath);
+        if (owner && !sameClaimOwner(owner, existing?.claimOwner)) {
+            log(`ACK: fenced stale owner state=${state} requestId=${data.requestId}`);
+            return false;
+        }
+        if (!owner && existing?.claimOwner) {
+            log(`ACK: unowned write rejected state=${state} requestId=${data.requestId}`);
+            return false;
+        }
+
+        _atomicWriteJson(
+            ackPath,
+            ackPayload(state, data, logWindowId, message, version, owner)
+        );
         log(`ACK: state=${state} requestId=${data.requestId}`);
         return true;
     } catch (error) {
-        try { fs.unlinkSync(tmpPath); } catch (_) {}
         log(`ACK: write failed state=${state}: ${error.message}`);
         return false;
+    } finally {
+        if (acquired) {
+            _releaseAckLock(lockPath, lockOwner);
+        }
     }
 }
 
+function _ownsProtocolClaim(data) {
+    if (data?.protocolVersion !== 1) return true;
+    const owner = data.__claimOwner;
+    const existing = _ackForProtocolRequest(data);
+    return sameClaimOwner(owner, existing?.claimOwner) && !isTerminalAck(existing);
+}
+
 function claimProtocolRequest(data) {
-    if (data?.protocolVersion !== 1 || !data.requestId || !data.ackPath) return true;
+    if (data?.protocolVersion !== 1) return 'acquired';
+    if (!data.requestId || !data.ackPath) return 'retry';
     const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
     if (!ackPath) {
         log(`ACK: rejected invalid claim path for requestId=${data.requestId}`);
-        return false;
+        return 'retry';
     }
-    let descriptor;
+    const owner = _claimOwner();
+    const lockPath = `${ackPath}.lock`;
+    let acquired = false;
     try {
-        // The same broadcast is present under current and compatibility queue
-        // names. Exclusive creation makes the request claim global across all
-        // extension hosts, rather than merely atomic for one queue file.
-        descriptor = fs.openSync(ackPath, 'wx');
-        fs.writeFileSync(
-            descriptor,
-            JSON.stringify(ackPayload('claimed', data, logWindowId, null, version))
+        acquired = _acquireAckLock(lockPath, owner);
+        if (!acquired) {
+            log(`ACK: claim lock busy requestId=${data.requestId}`);
+            return 'retry';
+        }
+
+        const ackExists = fs.existsSync(ackPath);
+        let existing = null;
+        try { existing = JSON.parse(fs.readFileSync(ackPath, 'utf8')); } catch (_) {}
+        if (!ackExists) {
+            _writeClaimAck(ackPath, data, owner);
+            data.__claimOwner = owner;
+            log(`ACK: state=claimed requestId=${data.requestId}`);
+            return 'acquired';
+        }
+
+        const disposition = claimJournalDisposition(
+            existing,
+            _evidenceForClaimOwner(existing?.claimOwner)
         );
-        fs.closeSync(descriptor);
-        descriptor = null;
-        log(`ACK: state=claimed requestId=${data.requestId}`);
-        return true;
+        if (disposition === 'takeover') {
+            _writeClaimAck(ackPath, data, owner);
+            data.__claimOwner = owner;
+            log(`ACK: took over stale requestId=${data.requestId}`);
+            return 'acquired';
+        }
+        log(`ACK: request disposition=${disposition} state=${existing?.state || 'unknown'} requestId=${data.requestId}`);
+        return disposition === 'terminal' || disposition === 'active'
+            ? 'duplicate'
+            : 'retry';
     } catch (error) {
-        if (descriptor !== undefined && descriptor !== null) {
-            try { fs.closeSync(descriptor); } catch (_) {}
-        }
-        if (error.code === 'EEXIST') {
-            let existingState = 'unknown';
-            try {
-                existingState = JSON.parse(fs.readFileSync(ackPath, 'utf8')).state || existingState;
-            } catch (_) {}
-            log(`ACK: request already claimed state=${existingState} requestId=${data.requestId}`);
-            return false;
-        }
         log(`ACK: claim failed requestId=${data.requestId}: ${error.message}`);
-        return false;
+        return 'retry';
+    } finally {
+        if (acquired) _releaseAckLock(lockPath, owner);
     }
 }
 
@@ -629,6 +748,150 @@ function isProcessAlive(pid) {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+function _removeRegistrationIfOwned(regFile, owner) {
+    try {
+        const current = JSON.parse(fs.readFileSync(regFile, 'utf8'));
+        const matches = current.pid === owner.pid
+            && current.windowId === owner.windowId
+            && current.extensionInstanceId === owner.extensionInstanceId;
+        if (!matches) return false;
+        fs.unlinkSync(regFile);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function _ackForProtocolRequest(data) {
+    if (data?.protocolVersion !== 1 || !data.requestId || !data.ackPath) return null;
+    const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
+    if (!ackPath) return null;
+    try {
+        return JSON.parse(fs.readFileSync(ackPath, 'utf8'));
+    } catch (_) {
+        return null;
+    }
+}
+
+function _recoveryQueuePath(filename, data, ack) {
+    const claimedWindowId = ack?.claimOwner?.windowId || null;
+    if (claimedWindowId && claimedWindowId !== logWindowId) return null;
+    if (data?.broadcast === true && claimedWindowId && TARGETED_SIGNAL_FILE) {
+        const base = TARGETED_SIGNAL_FILE.replace(/\.json$/, '');
+        return `${base}.request-${data.requestId}.json`;
+    }
+    const original = filename.replace(/\.claimed-\d+$/, '');
+    return path.join(SIGNAL_DIR, original);
+}
+
+function _restoreClaimedFile(fullPath, filename, data, ack = null) {
+    const queuePath = _recoveryQueuePath(filename, data, ack);
+    if (!queuePath) {
+        log(`CLEANUP: retained claim for window=${ack?.claimOwner?.windowId || 'unknown'} ${filename}`);
+        return false;
+    }
+    if (!fs.existsSync(queuePath)) {
+        fs.renameSync(fullPath, queuePath);
+        log(`CLEANUP: restored interrupted claim ${filename} -> ${path.basename(queuePath)}`);
+    } else {
+        fs.unlinkSync(fullPath);
+        log(`CLEANUP: removed duplicate claim ${filename} (queue copy exists)`);
+    }
+    return true;
+}
+
+function _deleteTerminalClaimedFile(claimedFile, data) {
+    if (data?.protocolVersion !== 1) {
+        try { fs.unlinkSync(claimedFile); } catch (_) {}
+        return true;
+    }
+    if (!isTerminalAck(_ackForProtocolRequest(data))) return false;
+    try {
+        fs.unlinkSync(claimedFile);
+        log(`JOURNAL: removed terminal claim ${path.basename(claimedFile)} requestId=${data.requestId}`);
+    } catch (_) {}
+    return true;
+}
+
+function _requeueOwnedClaim(claimedFile, signalFile, data) {
+    if (data?.protocolVersion !== 1) {
+        try { fs.unlinkSync(claimedFile); } catch (_) {}
+        return true;
+    }
+    const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
+    const owner = data.__claimOwner;
+    if (!ackPath || !owner) return false;
+    const lockPath = `${ackPath}.lock`;
+    let acquired = false;
+    try {
+        acquired = _acquireAckLock(lockPath, owner);
+        if (!acquired) return false;
+        const existing = _ackForProtocolRequest(data);
+        if (isTerminalAck(existing)) return _deleteTerminalClaimedFile(claimedFile, data);
+        if (!sameClaimOwner(owner, existing?.claimOwner)) return false;
+        fs.unlinkSync(ackPath);
+        return _restoreClaimedFile(
+            claimedFile,
+            path.basename(signalFile),
+            data,
+            existing
+        );
+    } catch (error) {
+        log(`JOURNAL: requeue failed requestId=${data.requestId}: ${error.message}`);
+        return false;
+    } finally {
+        if (acquired) {
+            _releaseAckLock(lockPath, owner);
+        }
+    }
+}
+
+function _scheduleClaimedRecovery(claimedFile, signalFile, data, attempts = 3) {
+    let remaining = attempts;
+    const retry = () => {
+        if (!fs.existsSync(claimedFile)) return;
+        if (_deleteTerminalClaimedFile(claimedFile, data)) return;
+        if (_requeueOwnedClaim(claimedFile, signalFile, data)) return;
+        remaining -= 1;
+        if (remaining > 0) setTimeout(retry, 1000);
+        else log(`JOURNAL: recovery deferred to scanner requestId=${data.requestId || 'none'}`);
+    };
+    setTimeout(retry, 250);
+}
+
+function _expireProtocolRequest(data, existingAck) {
+    if (data?.protocolVersion !== 1 || !isExpiredSignal(data)) return false;
+    const ackPath = validatedAckPath(data.ackPath, data.requestId, os.homedir());
+    if (!ackPath) return false;
+    const fenceOwner = _claimOwner();
+    const lockPath = `${ackPath}.lock`;
+    let acquired = false;
+    try {
+        acquired = _acquireAckLock(lockPath, fenceOwner);
+        if (!acquired) return false;
+        const latest = _ackForProtocolRequest(data);
+        if (isTerminalAck(latest)) return true;
+        const payload = ackPayload(
+            'failed',
+            data,
+            latest?.windowId || existingAck?.windowId || data.windowId || logWindowId,
+            'Signal expired during extension-host recovery',
+            version,
+            fenceOwner
+        );
+        _atomicWriteJson(ackPath, payload);
+        log(`ACK: fenced expired requestId=${data.requestId}`);
+        return true;
+    } catch (error) {
+        log(`ACK: expiry fencing failed requestId=${data.requestId}: ${error.message}`);
+        return false;
+    } finally {
+        if (acquired) {
+            _releaseAckLock(lockPath, fenceOwner);
+        }
+    }
+}
+
 function cleanupStaleFiles() {
     // Recover or remove stale .claimed-* files left behind by crashes, and
     // remove incomplete .tmp files. Also remove window-*.json registration
@@ -649,25 +912,56 @@ function cleanupStaleFiles() {
             }
             if (f.startsWith('open-request-') && f.includes('.claimed-')) {
                 const fullPath = path.join(SIGNAL_DIR, f);
+                if (_activeClaimedFiles.has(fullPath)) {
+                    log(`CLEANUP: retained in-flight claim ${f}`);
+                    continue;
+                }
                 try {
                     const data = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-                    if (isExpiredSignal(data)) {
+                    const ack = _ackForProtocolRequest(data);
+                    if (isTerminalAck(ack)) {
                         fs.unlinkSync(fullPath);
-                        log(`CLEANUP: removed expired claimed ${f}`);
-                    } else {
-                        // Restore to the original un-claimed basename so the
-                        // poll re-claims it. Skip if that file already exists
-                        // (another claim/restore or a fresh write beat us).
-                        const original = f.replace(/\.claimed-\d+$/, '');
-                        const originalPath = path.join(SIGNAL_DIR, original);
-                        if (!fs.existsSync(originalPath)) {
-                            fs.renameSync(fullPath, originalPath);
-                            log(`CLEANUP: restored non-expired claimed ${f} -> ${original}`);
+                        log(`CLEANUP: removed terminal claim ${f}`);
+                        continue;
+                    }
+
+                    if (isExpiredSignal(data)) {
+                        if (_expireProtocolRequest(data, ack)) {
+                            _deleteTerminalClaimedFile(fullPath, data);
+                            log(`CLEANUP: failed expired interrupted claim ${f}`);
                         } else {
-                            fs.unlinkSync(fullPath);
-                            log(`CLEANUP: dropped claimed ${f} (original already present)`);
+                            log(`CLEANUP: retained expired claim pending safe fencing ${f}`);
+                        }
+                        continue;
+                    }
+
+                    let disposition = 'unknown';
+                    if (ack?.claimOwner) {
+                        disposition = claimJournalDisposition(
+                            ack,
+                            _evidenceForClaimOwner(ack.claimOwner)
+                        );
+                    } else {
+                        const suffixPid = Number((f.match(/\.claimed-(\d+)$/) || [])[1] || 0);
+                        const activeLegacyOwner = suffixPid > 0
+                            && suffixPid !== process.pid
+                            && isProcessAlive(suffixPid);
+                        disposition = activeLegacyOwner ? 'active' : 'takeover';
+                    }
+                    if (disposition === 'active' || disposition === 'unknown') {
+                        log(`CLEANUP: retained ${disposition} claim ${f}`);
+                        continue;
+                    }
+
+                    if (!ack && data?.ackPath) {
+                        const corruptAckPath = validatedAckPath(
+                            data.ackPath, data.requestId, os.homedir()
+                        );
+                        if (corruptAckPath && fs.existsSync(corruptAckPath)) {
+                            try { fs.unlinkSync(corruptAckPath); } catch (_) {}
                         }
                     }
+                    _restoreClaimedFile(fullPath, f, data, ack);
                 } catch (_) {
                     try { fs.unlinkSync(fullPath); log(`CLEANUP: removed unparseable claimed ${f}`); } catch (__) {}
                 }
@@ -691,6 +985,14 @@ const SHARED_FALLBACK_BASENAMES = new Set([
     'open-request-v0800.json',
     'open-request-v0400.json',
 ]);
+
+function _targetedSignalPath(hookTag, data) {
+    const base = path.join(SIGNAL_DIR, `open-request-ipc-${hookTag}.json`);
+    if (data?.protocolVersion === 1 && data.requestId) {
+        return base.replace(/\.json$/, `.request-${data.requestId}.json`);
+    }
+    return base;
+}
 
 async function tryOpenSignalFile() {
     // If we are currently showing a URL, leave any pending signal files on disk.
@@ -832,8 +1134,8 @@ async function tryOpenSignalFile() {
             signalBasename.startsWith('open-request-v0400.request-');
         if (isSharedFallback && data.hookTag && OWN_HOOK_TAG && data.hookTag !== OWN_HOOK_TAG) {
             log(`SIGNAL: hookTag mismatch (ours=${OWN_HOOK_TAG} signal=${data.hookTag}), forwarding to correct window`);
-            const targetedFile = path.join(SIGNAL_DIR, `open-request-ipc-${data.hookTag}.json`);
-            const tmp = targetedFile + '.tmp';
+            const targetedFile = _targetedSignalPath(data.hookTag, data);
+            const tmp = `${targetedFile}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
             try {
                 fs.writeFileSync(tmp, JSON.stringify(data));
                 fs.renameSync(tmp, targetedFile);
@@ -847,14 +1149,35 @@ async function tryOpenSignalFile() {
         // If this signal is marked as broadcast (Python couldn't determine which window
         // to target), only process it if this window is currently focused. This ensures
         // only the active window opens the viewer when multiple windows are open.
-        if (data.broadcast === true && !isFocused) {
+        if (data.broadcast === true && !isOwnTargetedFile(signalFile) && !isFocused) {
             log(`SIGNAL: broadcast signal skipped (window not focused)`);
             try { fs.unlinkSync(claimedFile); } catch (_) {}
             continue;
         }
 
-        if (!claimProtocolRequest(data)) {
-            try { fs.unlinkSync(claimedFile); } catch (_) {}
+        if (isExpiredSignal(data)) {
+            if (data.protocolVersion !== 1) {
+                try { fs.unlinkSync(claimedFile); } catch (_) {}
+            } else if (_expireProtocolRequest(data, _ackForProtocolRequest(data))) {
+                _deleteTerminalClaimedFile(claimedFile, data);
+            } else {
+                log(`JOURNAL: retained expired pre-claim request ${path.basename(claimedFile)}`);
+            }
+            continue;
+        }
+
+        const claimResult = claimProtocolRequest(data);
+        if (claimResult !== 'acquired') {
+            if (claimResult === 'duplicate') {
+                try { fs.unlinkSync(claimedFile); } catch (_) {}
+            } else if (!_restoreClaimedFile(
+                claimedFile,
+                path.basename(signalFile),
+                data,
+                _ackForProtocolRequest(data)
+            )) {
+                log(`JOURNAL: retained indeterminate claim ${path.basename(claimedFile)}`);
+            }
             continue;
         }
 
@@ -872,19 +1195,27 @@ async function tryOpenSignalFile() {
             }
         }
 
-        try { fs.unlinkSync(claimedFile); } catch (_) {}
-
         if (isExpiredSignal(data)) {
             writeProtocolAck(data, 'failed', 'Signal expired before processing');
+            _deleteTerminalClaimedFile(claimedFile, data);
             continue;
         }
 
         log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
+        _activeClaimedFiles.add(claimedFile);
         try {
             await processSignalData(data);
         } catch (error) {
             log(`ERROR: ${error.message}`);
             writeProtocolAck(data, 'failed', error.message);
+        } finally {
+            _activeClaimedFiles.delete(claimedFile);
+        }
+        if (!_deleteTerminalClaimedFile(claimedFile, data)) {
+            log(`JOURNAL: requeueing non-terminal claim ${path.basename(claimedFile)} requestId=${data.requestId || 'none'}`);
+            if (!_requeueOwnedClaim(claimedFile, signalFile, data)) {
+                _scheduleClaimedRecovery(claimedFile, signalFile, data);
+            }
         }
         return;  // processed one signal, done for this tick
     }
@@ -1021,20 +1352,41 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
     });
 }
 
-async function openInWebviewPanel(url, title, floating = false, backendUrl = null) {
+async function openInWebviewPanel(
+    url,
+    title,
+    floating = false,
+    backendUrl = null,
+    requestKey = null
+) {
     const label = title || 'ArrayView';
+    const panelKey = requestKey || url;
 
-    // Reveal existing panel for this URL if still open.
-    const existing = _openPanels.get(url);
+    // Reveal/reconcile the existing logical panel for this request. A replay
+    // may resolve the same backend SID through a new external tunnel URL.
+    const existing = _openPanels.get(panelKey);
     if (existing) {
         try {
+            if (existing.__arrayviewUrl !== url) {
+                _readyPanels.delete(existing);
+                const viewerReady = waitForViewerReady(existing).then((error) => {
+                    if (!error) _readyPanels.add(existing);
+                    return error;
+                });
+                existing.__arrayviewUrl = url;
+                existing.webview.html = _viewerPanelHtml(url);
+                existing.title = label;
+                existing.reveal(undefined, false);
+                log(`PANEL: reconciled existing request panel to ${url}`);
+                return viewerReady;
+            }
             existing.reveal(undefined, false);
             log(`PANEL: revealed existing panel for ${url}`);
             return _readyPanels.has(existing)
                 ? Promise.resolve(null)
                 : waitForViewerReady(existing);
         } catch (_) {
-            _openPanels.delete(url);
+            _openPanels.delete(panelKey);
         }
     }
 
@@ -1058,13 +1410,14 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
         return error;
     });
     panel.webview.html = _viewerPanelHtml(url);
+    panel.__arrayviewUrl = url;
 
-    _openPanels.set(url, panel);
+    _openPanels.set(panelKey, panel);
     const pingUrl = pingUrlFromViewerUrl(url);
     let panelDisposed = false;
     panel.onDidDispose(() => {
         panelDisposed = true;
-        _openPanels.delete(url);
+        _openPanels.delete(panelKey);
         releaseUrlSession(url, backendUrl);
     });
     log(`PANEL: created "${label}" for ${url}`);
@@ -1111,7 +1464,13 @@ async function openInWebviewPanel(url, title, floating = false, backendUrl = nul
  *      the error is caught and logged — the settings write from step 1
  *      still helps for future forwards.
  */
-async function ensurePortPublic(port, externalBase, expectedServerId = null) {
+async function ensurePortPublic(
+    port,
+    externalBase,
+    expectedServerId = null,
+    ensureActive = () => {}
+) {
+    ensureActive();
     const publicPingUrl = `${externalBase}/ping`;
     if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
         _rememberTunnelBase(port, externalBase);
@@ -1122,6 +1481,7 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
 
     // Step 1: write portsAttributes via the settings API
     try {
+        ensureActive();
         const config = vscode.workspace.getConfiguration('remote');
         let attrs = config.get('portsAttributes') || {};
         const current = attrs[String(port)] || {};
@@ -1134,6 +1494,7 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
         const alreadyConfigured = Object.entries(wanted)
             .every(([key, value]) => current[key] === value);
         if (!alreadyConfigured) {
+            ensureActive();
             attrs[String(port)] = Object.assign({}, current, wanted);
             await config.update('portsAttributes', attrs, vscode.ConfigurationTarget.Global);
             log(`PORT: wrote portsAttributes[${port}] privacy=public`);
@@ -1143,6 +1504,7 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
     } catch (e) {
         log(`PORT: failed to write portsAttributes: ${e.message || e}`);
     }
+    ensureActive();
 
     // Step 2: change privacy of already-forwarded port
     // The privacy command (remote.tunnel.privacypublic) is lazily
@@ -1151,25 +1513,9 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
     // the forwarded ports view first to trigger lazy loading, then retry.
     const tunnelItem = _tunnelItem(port);
 
-    // A restarted backend can leave VS Code holding a dead forward for the
-    // same port. Remove only that stale forward before asking asExternalUri
-    // to create a fresh one. Never disturb a route that passed /ping above.
-    try {
-        const closed = await _boundedCommand('remote.tunnel.closeInline', [tunnelItem]);
-        if (closed !== null) log(`PORT: closed stale forward for localhost:${port}`);
-        await new Promise(resolve => setTimeout(resolve, 250));
-        await _withTimeout(
-            _asExternalUriSingleFlight(port, vscode.Uri.parse(`http://localhost:${port}/`)),
-            6000,
-            'asExternalUri stale-forward recovery'
-        );
-        log(`PORT: recreated forward for localhost:${port}`);
-    } catch (e) {
-        log(`PORT: stale-forward recovery unavailable: ${e.message || e}`);
-    }
-
     let privacyDone = false;
     try {
+        ensureActive();
         const result = await _boundedCommand(
             'remote.tunnel.privacypublic', [tunnelItem]
         );
@@ -1180,14 +1526,17 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
     } catch (e) {
         log(`PORT: privacy command failed: ${e.message || e}`);
     }
+    ensureActive();
 
     if (!privacyDone) {
         // Retry: force-load forwarded ports view, then retry the command
         log(`PORT: privacy not found — loading forwarded ports view...`);
         try {
+            ensureActive();
             await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
             await new Promise(r => setTimeout(r, 500));
         } catch (_) {}
+        ensureActive();
 
         // Check if the command is now registered
         const cmds = await _withTimeout(
@@ -1197,12 +1546,13 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
         );
         if (cmds.includes('remote.tunnel.privacypublic')) {
             try {
+                ensureActive();
                 log(`PORT: privacy command found after view load — retrying`);
 
                 // Re-call asExternalUri to refresh the tunnel item reference
                 // (the privacy command needs the current forwarded tunnel item)
                 await _withTimeout(
-                    _asExternalUriSingleFlight(port, vscode.Uri.parse(`http://localhost:${port}/`)),
+                    _asExternalUriAttempt(vscode.Uri.parse(`http://localhost:${port}/`)),
                     6000,
                     'asExternalUri privacy retry'
                 ).catch(() => {});
@@ -1220,11 +1570,13 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
         } else {
             log(`PORT: privacypublic still not available after view load`);
         }
+        ensureActive();
     }
     if (!privacyDone) return false;
 
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
+        ensureActive();
         if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
             _rememberTunnelBase(port, externalBase);
             log(`PORT: public route ready for ${externalBase}`);
@@ -1236,7 +1588,12 @@ async function ensurePortPublic(port, externalBase, expectedServerId = null) {
     return false;
 }
 
-async function resolveRemoteViewerUrl(url, expectedServerId = null) {
+async function resolveRemoteViewerUrl(
+    url,
+    expectedServerId = null,
+    ensureActive = () => {}
+) {
+    ensureActive();
     let port = 8000;
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
@@ -1244,6 +1601,7 @@ async function resolveRemoteViewerUrl(url, expectedServerId = null) {
     const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
     const cachedBase = vscode.env.remoteName === 'tunnel' ? _cachedTunnelBase(port) : null;
     if (cachedBase) {
+        ensureActive();
         log(`REMOTE: checking cached route ${cachedBase}`);
         if (await arrayViewStatusOk(`${cachedBase}/ping`, expectedServerId)) {
             _rememberTunnelBase(port, cachedBase);
@@ -1258,14 +1616,16 @@ async function resolveRemoteViewerUrl(url, expectedServerId = null) {
     ];
 
     for (let i = 0; i < attempts.length; i++) {
+        ensureActive();
         const attempt = attempts[i];
         if (attempt.pauseMs) {
             await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
         }
         try {
+            ensureActive();
             log(`REMOTE: asExternalUri(http://localhost:${port}/) attempt=${i + 1}`);
             const externalUri = await _withTimeout(
-                _asExternalUriSingleFlight(port, baseUri),
+                _asExternalUriAttempt(baseUri),
                 attempt.timeoutMs,
                 'asExternalUri'
             );
@@ -1278,7 +1638,7 @@ async function resolveRemoteViewerUrl(url, expectedServerId = null) {
 
             if (vscode.env.remoteName === 'tunnel') {
                 const publicReady = await ensurePortPublic(
-                    port, externalBase, expectedServerId
+                    port, externalBase, expectedServerId, ensureActive
                 );
                 if (!publicReady) {
                     throw new Error('public tunnel route is not ready');
@@ -1291,10 +1651,6 @@ async function resolveRemoteViewerUrl(url, expectedServerId = null) {
             return finalUrl;
         } catch (err) {
             log(`REMOTE: asExternalUri attempt ${i + 1} failed: ${err.message}`);
-            if (i === 0) {
-                log(`REMOTE: repairing stale forward before retry`);
-                await _closeStaleTunnelForward(port);
-            }
         }
     }
 
@@ -1343,6 +1699,15 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         if (operation.cancelled) {
             throw new Error('Signal processing was cancelled before panel open');
         }
+        if (!_ownsProtocolClaim(data)) {
+            throw new Error('Signal claim ownership was lost before display side effect');
+        }
+    };
+    const advanceAck = (state, message = null) => {
+        ensureActive();
+        if (!writeProtocolAck(data, state, message)) {
+            throw new Error(`Failed to persist ${state} launch progress`);
+        }
     };
     log(`SIGNAL-DATA: mode=${data.mode} url=${data.url || '(none)'}`);
     const url = data.url;
@@ -1353,9 +1718,6 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     }
 
     const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
-    const remoteUrlPromise = vscode.env.remoteName
-        ? resolveRemoteViewerUrl(url, data.serverId || null)
-        : null;
     // A newly spawned daemon creates the session asynchronously.  During
     // loading /metadata/<sid> is temporarily 404; treating that as expired
     // races large remote-file loads and loses the viewer before its panel can
@@ -1366,8 +1728,9 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     ensureActive();
 
     const requestId = data.requestId || null;
+    const panelKey = requestId ? `request:${requestId}` : null;
     const now = Date.now();
-    if (requestId && requestId === lastHandledRequestId) {
+    if (data.protocolVersion !== 1 && requestId && requestId === lastHandledRequestId) {
         log(`SIGNAL: duplicate requestId ignored: ${requestId}`);
         return;
     }
@@ -1397,7 +1760,11 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         // exists. Resolve a real external URI before opening the panel; a
         // localhost fallback inside a tunnel webview points at the wrong side
         // of the connection and renders as a blank tab.
-        const remoteUrl = await remoteUrlPromise;
+        const remoteUrl = await resolveRemoteViewerUrl(
+            url,
+            data.serverId || null,
+            ensureActive
+        );
         ensureActive();
         if (!remoteUrl) {
             log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
@@ -1407,7 +1774,7 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         openUrl = remoteUrl;
     }
     ensureActive();
-    writeProtocolAck(data, 'port_resolved');
+    advanceAck('port_resolved');
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
@@ -1423,10 +1790,16 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         if (exactHandoff || legacyTitleMatch) {
             _pendingPlaceholders.delete(filePath);
             try {
+                ensureActive();
                 viewerReady = waitForViewerReady(placeholder.panel);
                 placeholder.panel.webview.html = _viewerPanelHtml(openUrl);
+                placeholder.panel.__arrayviewUrl = openUrl;
                 placeholder.panel.title = data.title || placeholder.title;
-                placeholder.panel.onDidDispose(() => releaseUrlSession(openUrl, data.url));
+                if (panelKey) _openPanels.set(panelKey, placeholder.panel);
+                placeholder.panel.onDidDispose(() => {
+                    if (panelKey) _openPanels.delete(panelKey);
+                    releaseUrlSession(openUrl, data.url);
+                });
                 log(`HANDOFF: navigated placeholder for ${placeholder.basename} to ${openUrl}`);
                 handedOff = true;
             } catch (_) {
@@ -1436,12 +1809,19 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         }
     }
     if (handedOff) {
-        writeProtocolAck(data, 'panel_opened');
+        advanceAck('panel_opened');
     } else {
+        ensureActive();
         log(`openInWebviewPanel(${openUrl})`);
-        viewerReady = openInWebviewPanel(openUrl, data.title, !!data.floating, data.url);
+        viewerReady = openInWebviewPanel(
+            openUrl,
+            data.title,
+            !!data.floating,
+            data.url,
+            panelKey
+        );
         log('openInWebviewPanel done');
-        writeProtocolAck(data, 'panel_opened');
+        advanceAck('panel_opened');
     }
 
     const pingUrl = pingUrlFromViewerUrl(openUrl);
@@ -1455,8 +1835,8 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             const viewerError = await viewerReady;
             if (viewerError) throw viewerError;
             ensureActive();
-            writeProtocolAck(data, 'visibility_verified');
-            writeProtocolAck(data, 'backend_ready');
+            advanceAck('visibility_verified');
+            advanceAck('backend_ready');
             return;
         }
         await new Promise(resolve => setTimeout(resolve, 250));
@@ -1543,20 +1923,26 @@ function activate(context) {
     }
     const regFile = path.join(SIGNAL_DIR, `window-${windowId}.json`);
     try {
-        fs.writeFileSync(regFile, JSON.stringify({
+        _atomicWriteJson(regFile, {
             hookTag: OWN_HOOK_TAG || '',
             pid: process.pid,
+            windowId,
             ppids: EXT_PPIDS,   // ancestor PIDs for multi-window matching by Python
             ts: Date.now(),
             fallbackId: !OWN_HOOK_TAG,  // true if using PID fallback
             remoteName: vscode.env.remoteName || null,
             extensionVersion: version,
+            extensionInstanceId: EXTENSION_INSTANCE_ID,
             signalQueueVersion: 1
-        }));
+        });
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);
         context.subscriptions.push({ dispose: () => {
-            try { fs.unlinkSync(regFile); } catch (_) {}
-            log(`REGISTER: deleted ${path.basename(regFile)}`);
+            const removed = _removeRegistrationIfOwned(regFile, {
+                pid: process.pid,
+                windowId,
+                extensionInstanceId: EXTENSION_INSTANCE_ID,
+            });
+            log(`REGISTER: dispose ${removed ? 'deleted' : 'preserved replacement'} ${path.basename(regFile)}`);
         }});
     } catch (e) {
         log(`REGISTER: failed to write: ${e.message}`);
@@ -1598,6 +1984,9 @@ function activate(context) {
 
     const interval = setInterval(() => void tryOpenSignalFile(), 1000);
     context.subscriptions.push({ dispose: () => clearInterval(interval) });
+
+    const recoveryInterval = setInterval(() => cleanupStaleFiles(), 5000);
+    context.subscriptions.push({ dispose: () => clearInterval(recoveryInterval) });
 
     try {
         const ownBasename = TARGETED_SIGNAL_FILE ? path.basename(TARGETED_SIGNAL_FILE) : null;
@@ -1687,7 +2076,24 @@ module.exports = {
     deactivate,
     __test: {
         _withTimeout,
-        _asExternalUriSingleFlight,
-        _externalUriInFlight,
+        _asExternalUriAttempt,
+        claimProtocolRequest,
+        writeProtocolAck,
+        cleanupStaleFiles,
+        _deleteTerminalClaimedFile,
+        _requeueOwnedClaim,
+        _ownsProtocolClaim,
+        _expireProtocolRequest,
+        _acquireAckLock,
+        _releaseAckLock,
+        _removeRegistrationIfOwned,
+        _targetedSignalPath,
+        tryOpenSignalFile,
+        openInWebviewPanel,
+        _openPanels,
+        extensionInstanceId: EXTENSION_INSTANCE_ID,
+        signalDir: SIGNAL_DIR,
+        setWindowId(windowId) { logWindowId = windowId; },
+        setTargetedSignalFile(filePath) { TARGETED_SIGNAL_FILE = filePath; },
     },
 };

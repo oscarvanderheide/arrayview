@@ -107,8 +107,6 @@ def test_vscode_signal_reports_backend_ready(monkeypatch):
         "_wait_for_vscode_ack",
         lambda request, timeout: SimpleNamespace(state=AckState.BACKEND_READY),
     )
-    monkeypatch.setattr(browser, "_schedule_remote_open_retries", lambda *args, **kwargs: None)
-
     result = browser._open_browser("http://localhost:8123/", blocking=True)
 
     assert result == browser.OpenResult(
@@ -373,3 +371,33 @@ def test_nonblocking_reports_background_acceptance(monkeypatch):
     result = browser._open_browser("http://localhost:8123/")
 
     assert result == browser.OpenResult(browser.OpenState.ACCEPTED, "background-thread")
+
+
+def test_vscode_request_deadline_matches_display_owner_lifetime():
+    script_context = SimpleNamespace(
+        caller_scope=SimpleNamespace(value="script")
+    )
+    interactive_context = SimpleNamespace(
+        caller_scope=SimpleNamespace(value="interactive")
+    )
+
+    assert browser._vscode_request_max_age_ms(
+        blocking=True, is_remote=False, launch_context=interactive_context
+    ) == 15_000
+    assert browser._vscode_request_max_age_ms(
+        blocking=True, is_remote=True, launch_context=interactive_context
+    ) == 195_000
+    assert browser._vscode_request_max_age_ms(
+        blocking=False, is_remote=False, launch_context=script_context
+    ) == 15_000
+    assert browser._vscode_request_max_age_ms(
+        blocking=False, is_remote=True, launch_context=script_context
+    ) == 195_000
+    assert (
+        browser._vscode_request_max_age_ms(
+            blocking=False,
+            is_remote=True,
+            launch_context=interactive_context,
+        )
+        is None
+    )

@@ -2116,6 +2116,7 @@ async def _serve_background(
     port: int,
     stop_when_closed: bool = False,
     owner_mode: str = "in_process",
+    connect_timeout: float = 20.0,
 ):
     global _loading_port
     _loading_port = None  # reset for this server lifetime
@@ -2155,7 +2156,11 @@ async def _serve_background(
     )
     server = _uvicorn().Server(config)
     if stop_when_closed:
-        asyncio.create_task(_stop_server_when_viewer_closes(server))
+        asyncio.create_task(
+            _stop_server_when_viewer_closes(
+                server, connect_timeout=connect_timeout
+            )
+        )
     try:
         await server.serve(sockets=socks)
     finally:
@@ -2765,7 +2770,6 @@ def view(
     from arrayview._launch_plan import (
         CallerScope,
         Display,
-        Environment,
         Invocation,
         LaunchIntent,
         Registration,
@@ -3035,16 +3039,24 @@ def view(
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
         _script = _launch_context.caller_scope is CallerScope.SCRIPT
+        _script_connect_timeout = (
+            _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS
+            if _script
+            and _launch_context.placement.value == "vscode_remote"
+            and _launch_plan.display is Display.VSCODE
+            else _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
+        )
         threading.Thread(
             target=lambda: asyncio.run(
                 _serve_background(
                     port,
                     stop_when_closed=_script,
+                    connect_timeout=_script_connect_timeout,
                     owner_mode=(
                         "transient"
                         if _script
                         else "kernel"
-                        if _launch_plan.environment is Environment.JUPYTER
+                        if _launch_context.caller_scope is CallerScope.KERNEL
                         else "in_process"
                     ),
                 )
@@ -3439,11 +3451,16 @@ def _view_subprocess(
                 )
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         sid = uuid.uuid4().hex
+        persist_daemon = bool(
+            launch_context is not None
+            and launch_context.placement.value == "vscode_remote"
+            and launch_context.plan.display.value == "vscode"
+        )
         # Spawn a self-contained server subprocess (same as CLI path).
         script = (
             f"from arrayview._launcher import _serve_daemon;"
             f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
-            f"name={repr(name)}, cleanup=True, rgb={rgb})"
+            f"name={repr(name)}, cleanup=True, persist={persist_daemon}, rgb={rgb})"
         )
         subprocess.Popen(
             [sys.executable, "-c", script],

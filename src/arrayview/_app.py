@@ -128,7 +128,6 @@ from arrayview._vscode import (  # noqa: F401
     _ensure_vscode_extension,
     _configure_vscode_port_preview,
     _open_via_signal_file,
-    _schedule_remote_open_retries,
     _write_vscode_signal,
     _print_viewer_location,
     _open_browser,

@@ -17,7 +17,6 @@ from arrayview._vscode_signal import (  # noqa: F401
     _find_arrayview_window_id,
     _find_current_vscode_window_id,
     _open_via_signal_file,
-    _schedule_remote_open_retries,
     _write_vscode_signal,
     _VSCODE_COMPAT_SIGNAL_FILENAMES,
     _VSCODE_PORT_SETTINGS_SETTLE_SECONDS,

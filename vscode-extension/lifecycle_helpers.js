@@ -103,7 +103,7 @@ function validatedAckPath(ackPath, requestId, homeDir) {
     return resolved;
 }
 
-function ackPayload(state, data, windowId, message, extensionVersion = null) {
+function ackPayload(state, data, windowId, message, extensionVersion = null, claimOwner = null) {
     const payload = {
         protocolVersion: 1,
         state,
@@ -114,7 +114,48 @@ function ackPayload(state, data, windowId, message, extensionVersion = null) {
         timestampMs: Date.now(),
     };
     if (message) payload.message = String(message);
+    if (claimOwner) {
+        payload.claimOwner = {
+            pid: claimOwner.pid,
+            windowId: claimOwner.windowId,
+            extensionInstanceId: claimOwner.extensionInstanceId,
+        };
+        if (claimOwner.claimToken) payload.claimOwner.claimToken = claimOwner.claimToken;
+    }
     return payload;
+}
+
+function isTerminalAck(payload) {
+    return payload?.state === 'backend_ready' || payload?.state === 'failed';
+}
+
+function sameClaimOwner(left, right) {
+    return Boolean(
+        left
+        && right
+        && left.pid === right.pid
+        && left.windowId === right.windowId
+        && left.extensionInstanceId === right.extensionInstanceId
+        && left.claimToken === right.claimToken
+    );
+}
+
+function claimJournalDisposition(payload, ownerEvidence) {
+    if (isTerminalAck(payload)) return 'terminal';
+
+    const owner = payload?.claimOwner;
+    if (!owner) return 'unknown';
+    if (ownerEvidence?.pidAlive === false) return 'takeover';
+
+    const registration = ownerEvidence?.registration;
+    const registrationMatches = Boolean(
+        ownerEvidence?.pidAlive === true
+        && registration
+        && owner.pid === registration.pid
+        && owner.windowId === registration.windowId
+        && owner.extensionInstanceId === registration.extensionInstanceId
+    );
+    return registrationMatches ? 'active' : 'unknown';
 }
 
 function isArrayViewStatus(payload, expectedServerId = null) {
@@ -136,5 +177,8 @@ module.exports = {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isTerminalAck,
+    sameClaimOwner,
+    claimJournalDisposition,
     isArrayViewStatus,
 };

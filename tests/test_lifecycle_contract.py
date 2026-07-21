@@ -6,14 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod):
+def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod, *, remote=False):
     import arrayview._launch_plan as launch_plan
 
     monkeypatch.setattr(launcher, "_server_pid", lambda port: None)
     monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
     monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
-    monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
-    monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+    monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: remote)
+    monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: remote)
     monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
     monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
     monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
@@ -24,6 +24,9 @@ def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod):
         inv = launch_plan.Invocation(invocation)
         in_jupyter = launcher._in_jupyter()
         environment = (
+            launch_plan.Environment.VSCODE_REMOTE
+            if remote
+            else
             launch_plan.Environment.JUPYTER
             if in_jupyter
             else launch_plan.Environment.TERMINAL
@@ -39,9 +42,9 @@ def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod):
             server=launch_plan.ServerSnapshot(port, False, False),
             in_jupyter=in_jupyter,
             in_julia=False,
-            in_vscode_terminal=False,
-            is_vscode_remote=False,
-            in_vscode_tunnel=False,
+            in_vscode_terminal=remote,
+            is_vscode_remote=remote,
+            in_vscode_tunnel=remote,
             ssh_connection=False,
             ssh_client=False,
             hostname="test-host",
@@ -79,13 +82,17 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
             return self.target()
 
     async def _fake_serve_background(
-        port, stop_when_closed=False, owner_mode="in_process"
+        port,
+        stop_when_closed=False,
+        owner_mode="in_process",
+        connect_timeout=20.0,
     ):
         thread_calls.append(
             {
                 "port": port,
                 "stop_when_closed": stop_when_closed,
                 "owner_mode": owner_mode,
+                "connect_timeout": connect_timeout,
             }
         )
 
@@ -108,17 +115,23 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
             "port": 8123,
             "stop_when_closed": True,
             "owner_mode": "transient",
+            "connect_timeout": 20.0,
         }
     finally:
         for sid in set(session_mod.SESSIONS) - before_sids:
             session_mod.SESSIONS.pop(sid, None)
 
 
-def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(monkeypatch):
+@pytest.mark.parametrize("remote", [False, True])
+def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
+    monkeypatch, remote
+):
     import arrayview._launcher as launcher
     import arrayview._session as session_mod
 
-    _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod)
+    _install_lifecycle_view_mocks(
+        monkeypatch, launcher, session_mod, remote=remote
+    )
     monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
     monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: False)
 
@@ -140,19 +153,24 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
             return self.target()
 
     async def _fake_serve_background(
-        port, stop_when_closed=False, owner_mode="in_process"
+        port,
+        stop_when_closed=False,
+        owner_mode="in_process",
+        connect_timeout=20.0,
     ):
         thread_calls.append(
             {
                 "port": port,
                 "stop_when_closed": stop_when_closed,
                 "owner_mode": owner_mode,
+                "connect_timeout": connect_timeout,
             }
         )
 
     monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
     monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
     monkeypatch.setattr(launcher, "_serve_background", _fake_serve_background)
+    monkeypatch.setattr(launcher, "_open_browser", lambda *args, **kwargs: None)
 
     before_sids = set(session_mod.SESSIONS)
     try:
@@ -162,12 +180,13 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
             inline=True,
         )
 
-        assert result.__class__.__name__ == "IFrame"
+        assert result.__class__.__name__ == ("ViewHandle" if remote else "IFrame")
         assert thread_calls[0]["daemon"] is True
         assert thread_calls[1] == {
             "port": 8123,
             "stop_when_closed": False,
             "owner_mode": "kernel",
+            "connect_timeout": 20.0,
         }
     finally:
         for sid in set(session_mod.SESSIONS) - before_sids:
@@ -906,16 +925,16 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     assert "Viewer session did not become ready" in source
 
 
-def test_vscode_tunnel_resolution_reuses_verified_route_and_single_flights_recovery():
+def test_vscode_tunnel_resolution_reuses_verified_routes_and_retries_fresh():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "const TUNNEL_ROUTE_CACHE_FILE" in source
     assert "cache[`${logWindowId}:${port}`]" in source
     assert "REMOTE: cached route ready" in source
-    assert "const _externalUriInFlight = new Map()" in source
-    assert "REMOTE: reusing in-flight asExternalUri" in source
-    assert "REMOTE: repairing stale forward before retry" in source
-    assert "_closeStaleTunnelForward(port)" in source
+    assert "function _asExternalUriAttempt(baseUri)" in source
+    assert "a hung promise cannot poison all" in source
+    assert "_externalUriInFlight" not in source
+    assert "remote.tunnel.closeInline" not in source
     assert "asExternalUri timeout after 15000ms" not in source
     assert "asExternalUri timeout after 20000ms" not in source
 
@@ -927,7 +946,7 @@ def test_vscode_url_panel_dispose_releases_primary_sid():
     assert "collectReleaseSidsFromUrl(url)" in source
     assert "releaseUrlForSid(url, backendUrl, sid)" in source
     assert "releaseUrlSession(url, backendUrl)" in source
-    assert "placeholder.panel.onDidDispose(() => releaseUrlSession(openUrl, data.url))" in source
+    assert "releaseUrlSession(openUrl, data.url);" in source
     assert "}, 60000)" not in source
 
 
@@ -965,6 +984,25 @@ def test_vscode_tunnel_resolution_with_node():
     )
 
 
+@pytest.mark.parametrize(
+    "script",
+    ["test_request_journal.js", "test_panel_replay.js"],
+)
+def test_vscode_transaction_contracts_with_node(script):
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    repo_root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        [node, f"vscode-extension/{script}"],
+        cwd=repo_root,
+        check=True,
+    )
+
+
 def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     import json
     import zipfile
@@ -988,14 +1026,15 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     assert "data.remoteOnly === true && !vscode.env.remoteName" in extension_source
     assert "extensionVersion: version" in extension_source
     assert "releaseUrlSession(url, backendUrl)" in extension_source
-    assert "fs.openSync(ackPath, 'wx')" in extension_source
+    assert "const lockPath = `${ackPath}.lock`" in extension_source
+    assert "_atomicWriteJson(ackPath" in extension_source
     assert (
         "vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)"
         in extension_source
     )
     assert "const SIGNAL_HARD_TIMEOUT_MS = 185000" in extension_source
     assert "const TUNNEL_ROUTE_CACHE_FILE" in extension_source
-    assert "const _externalUriInFlight = new Map()" in extension_source
+    assert "function _asExternalUriAttempt(baseUri)" in extension_source
     assert "REMOTE: cached route ready" in extension_source
     assert "compare_sids" in helper_source
     assert "overlay_sid" in helper_source

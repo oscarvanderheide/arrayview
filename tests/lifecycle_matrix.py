@@ -126,10 +126,17 @@ def check_node_extension_helpers() -> CheckResult:
     )
     if result.returncode != 0:
         return CheckResult("FAIL", "VS Code extension syntax", _short_output(result))
-    result = _run([node, "vscode-extension/test_lifecycle_helpers.js"], timeout=20.0)
-    if result.returncode == 0:
-        return CheckResult("PASS", "vscode-extension/test_lifecycle_helpers.js", _short_output(result))
-    return CheckResult("FAIL", "vscode-extension/test_lifecycle_helpers.js", _short_output(result))
+    scripts = [
+        "test_lifecycle_helpers.js",
+        "test_tunnel_resolution.js",
+        "test_request_journal.js",
+        "test_panel_replay.js",
+    ]
+    for script in scripts:
+        result = _run([node, f"vscode-extension/{script}"], timeout=20.0)
+        if result.returncode != 0:
+            return CheckResult("FAIL", script, _short_output(result))
+    return CheckResult("PASS", "VS Code transaction contracts")
 
 
 def check_vsix_content() -> CheckResult:

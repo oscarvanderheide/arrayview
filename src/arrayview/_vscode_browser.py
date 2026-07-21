@@ -21,7 +21,6 @@ from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_
 from arrayview._vscode_signal import (
     AckState,
     _open_via_signal_file,
-    _schedule_remote_open_retries,
     _wait_for_vscode_ack,
 )
 
@@ -31,6 +30,35 @@ if TYPE_CHECKING:
 # Whether the "set port to Public" message has been printed this session.
 _remote_message_shown = False
 _ssh_message_shown = False
+
+_LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS = 15.0
+_REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS = 195.0
+
+
+def _vscode_request_max_age_ms(
+    *,
+    blocking: bool,
+    is_remote: bool,
+    launch_context: "LaunchContext | None",
+) -> int | None:
+    """Bound durable display recovery by the backend owner's lifetime."""
+    if blocking:
+        timeout = (
+            _REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS
+            if is_remote
+            else _LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS
+        )
+        return int(timeout * 1000)
+    if launch_context is not None and launch_context.caller_scope.value == "script":
+        return int(
+            (
+                _REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS
+                if is_remote
+                else _LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS
+            )
+            * 1000
+        )
+    return None
 
 
 def _trace_launch_event(event: str, **attrs: object) -> None:
@@ -248,6 +276,11 @@ def _open_browser(
                 floating=floating,
                 server_id=_server_id_for_url(url),
                 is_remote=True,
+                max_age_ms=_vscode_request_max_age_ms(
+                    blocking=blocking,
+                    is_remote=True,
+                    launch_context=launch_context,
+                ),
             )
             _trace_launch_event(
                 "vscode.request_written",
@@ -268,12 +301,13 @@ def _open_browser(
                     "signal request was not written",
                 )
             if not blocking:
-                _schedule_remote_open_retries(url, interval=10.0, count=2)
                 return OpenResult(OpenState.ACCEPTED, "vscode-signal")
             # Large remote files can remain in PENDING_SESSIONS while the
             # extension is opening the forwarded panel. Keep the terminal
             # alive long enough for that load and the first frame.
-            ack = _wait_for_vscode_ack(request, timeout=195.0)
+            ack = _wait_for_vscode_ack(
+                request, timeout=_REMOTE_VSCODE_REQUEST_TIMEOUT_SECONDS
+            )
             if ack.state is AckState.BACKEND_READY:
                 return OpenResult(OpenState.READY, "vscode-signal", request.request_id)
             return OpenResult(
@@ -301,6 +335,11 @@ def _open_browser(
                 floating=floating,
                 server_id=_server_id_for_url(url),
                 is_remote=False,
+                max_age_ms=_vscode_request_max_age_ms(
+                    blocking=blocking,
+                    is_remote=False,
+                    launch_context=launch_context,
+                ),
             )
             _trace_launch_event(
                 "vscode.request_written",
@@ -318,7 +357,9 @@ def _open_browser(
                     "signal request was not written",
                 )
             if blocking:
-                ack = _wait_for_vscode_ack(request, timeout=15.0)
+                ack = _wait_for_vscode_ack(
+                    request, timeout=_LOCAL_VSCODE_REQUEST_TIMEOUT_SECONDS
+                )
                 if ack.state is AckState.BACKEND_READY:
                     return OpenResult(
                         OpenState.READY,
@@ -330,7 +371,6 @@ def _open_browser(
                     "vscode-signal",
                     ack.message or ack.state.value,
                 )
-            _schedule_remote_open_retries(url, interval=10.0, count=2)
             opened = True
 
         if is_plain_ssh:

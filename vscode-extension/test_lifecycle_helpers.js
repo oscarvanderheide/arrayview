@@ -11,6 +11,9 @@ const {
     shouldRemoveSameTunnelRegistration,
     validatedAckPath,
     ackPayload,
+    isTerminalAck,
+    sameClaimOwner,
+    claimJournalDisposition,
     isArrayViewStatus,
 } = require('./lifecycle_helpers');
 
@@ -109,6 +112,77 @@ assert.strictEqual(typeof ack.timestampMs, 'number');
 const failedAck = ackPayload('failed', { requestId: 'req-2' }, 'window-2', 'boom');
 assert.strictEqual(failedAck.serverId, null);
 assert.strictEqual(failedAck.message, 'boom');
+
+const claimOwner = {
+    pid: 123,
+    windowId: 'window-1',
+    extensionInstanceId: 'extension-instance-1',
+    claimToken: 'claim-token-1',
+};
+const claimedAck = ackPayload(
+    'claimed',
+    { requestId: 'req-3', serverId: 'server-1' },
+    'window-1',
+    null,
+    '0.14.41',
+    claimOwner
+);
+assert.deepStrictEqual(claimedAck.claimOwner, claimOwner);
+assert.strictEqual(Object.hasOwn(ack, 'claimOwner'), false);
+
+assert.strictEqual(isTerminalAck({ state: 'backend_ready' }), true);
+assert.strictEqual(isTerminalAck({ state: 'failed' }), true);
+assert.strictEqual(isTerminalAck({ state: 'panel_opened' }), false);
+assert.strictEqual(isTerminalAck(null), false);
+
+const liveOwnerEvidence = {
+    pidAlive: true,
+    registration: {
+        pid: claimOwner.pid,
+        windowId: claimOwner.windowId,
+        extensionInstanceId: claimOwner.extensionInstanceId,
+    },
+};
+assert.strictEqual(
+    claimJournalDisposition({ state: 'backend_ready', claimOwner }, liveOwnerEvidence),
+    'terminal'
+);
+assert.strictEqual(
+    claimJournalDisposition({ state: 'failed', claimOwner }, liveOwnerEvidence),
+    'terminal'
+);
+assert.strictEqual(claimJournalDisposition({ state: 'failed' }, null), 'terminal');
+assert.strictEqual(claimJournalDisposition(claimedAck, liveOwnerEvidence), 'active');
+assert.strictEqual(
+    claimJournalDisposition(claimedAck, { pidAlive: false, registration: null }),
+    'takeover'
+);
+assert.strictEqual(
+    claimJournalDisposition(claimedAck, { pidAlive: true, registration: null }),
+    'unknown'
+);
+assert.strictEqual(
+    claimJournalDisposition(claimedAck, {
+        pidAlive: true,
+        registration: {
+            ...liveOwnerEvidence.registration,
+            extensionInstanceId: 'extension-instance-2',
+        },
+    }),
+    'unknown'
+);
+assert.strictEqual(
+    claimJournalDisposition({ state: 'claimed' }, liveOwnerEvidence),
+    'unknown'
+);
+assert.strictEqual(claimJournalDisposition(null, liveOwnerEvidence), 'unknown');
+
+assert.strictEqual(sameClaimOwner(claimOwner, { ...claimOwner }), true);
+assert.strictEqual(
+    sameClaimOwner(claimOwner, { ...claimOwner, claimToken: 'claim-token-2' }),
+    false
+);
+assert.strictEqual(sameClaimOwner(claimOwner, null), false);
 
 assert.strictEqual(isArrayViewStatus({ service: 'arrayview' }), true);
 assert.strictEqual(

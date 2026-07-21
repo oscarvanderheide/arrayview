@@ -2,13 +2,13 @@ const assert = require('assert');
 const Module = require('module');
 
 let resolverCalls = 0;
-let resolvePending = null;
+const pendingResolvers = [];
 const vscodeMock = {
     env: {
         remoteName: null,
         asExternalUri: () => {
             resolverCalls += 1;
-            return new Promise(resolve => { resolvePending = resolve; });
+            return new Promise(resolve => { pendingResolvers.push(resolve); });
         },
     },
 };
@@ -23,10 +23,7 @@ Module._load = originalLoad;
 
 (async () => {
     const baseUri = { toString: () => 'http://localhost:8000/' };
-    const first = __test._asExternalUriSingleFlight(8000, baseUri);
-    const second = __test._asExternalUriSingleFlight(8000, baseUri);
-
-    assert.strictEqual(first, second);
+    const first = __test._asExternalUriAttempt(baseUri);
     await Promise.resolve();
     assert.strictEqual(resolverCalls, 1);
     await assert.rejects(
@@ -34,19 +31,25 @@ Module._load = originalLoad;
         /asExternalUri timeout after 5ms/
     );
 
-    const afterTimeout = __test._asExternalUriSingleFlight(8000, baseUri);
-    assert.strictEqual(afterTimeout, first);
-    assert.strictEqual(resolverCalls, 1, 'a caller timeout must not start another VS Code resolver');
-
-    resolvePending({ toString: () => 'https://example-8000.devtunnels.ms/' });
-    await afterTimeout;
-    assert.strictEqual(__test._externalUriInFlight.has(8000), false);
-
-    const next = __test._asExternalUriSingleFlight(8000, baseUri);
+    const next = __test._asExternalUriAttempt(baseUri);
     await Promise.resolve();
-    assert.strictEqual(resolverCalls, 2, 'a settled resolver may be replaced by a future request');
-    resolvePending({ toString: () => 'https://example-8000.devtunnels.ms/' });
-    await next;
+    assert.strictEqual(
+        resolverCalls,
+        2,
+        'a timed-out resolver must not poison the next request'
+    );
+    pendingResolvers[1]({ toString: () => 'https://fresh-8000.devtunnels.ms/' });
+    assert.strictEqual(
+        (await next).toString(),
+        'https://fresh-8000.devtunnels.ms/'
+    );
+
+    pendingResolvers[0]({ toString: () => 'https://late-8000.devtunnels.ms/' });
+    assert.strictEqual(
+        (await first).toString(),
+        'https://late-8000.devtunnels.ms/',
+        'a late old resolver may settle but has no shared routing side effect'
+    );
 
     console.log('tunnel resolution tests passed');
 })().catch(error => {

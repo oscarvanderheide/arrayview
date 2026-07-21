@@ -1,4 +1,4 @@
-"""VS Code signal-file IPC — window targeting, payload writing, and retry scheduling."""
+"""VS Code signal-file IPC — window targeting, payload writing, and ACKs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -389,6 +388,7 @@ def _open_via_signal_file(
     server_id: str | None = None,
     window_id: str | None = None,
     is_remote: bool | None = None,
+    max_age_ms: int | None = None,
 ) -> SignalRequest:
     """Write the URL to the versioned ArrayView opener signal file.
 
@@ -422,7 +422,11 @@ def _open_via_signal_file(
     payload: dict = {
         "action": "open-preview",
         "url": url,
-        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+        "maxAgeMs": (
+            max(1, int(max_age_ms))
+            if max_age_ms is not None
+            else _VSCODE_SIGNAL_MAX_AGE_MS
+        ),
         "protocolVersion": _VSCODE_ACK_PROTOCOL_VERSION,
         "requestId": request_id,
         "ackPath": str(ack_path),
@@ -457,35 +461,6 @@ def _open_via_signal_file(
         written,
         _VSCODE_EXT_VERSION,
     )
-
-
-def _schedule_remote_open_retries(
-    url: str, interval: float = 15.0, count: int = 2
-) -> None:
-    """Backup retries via signal file (extension handles primary retries internally).
-
-    Reduced to 2 retries at 15s intervals.  The VS Code extension now retries
-    panel opening internally after claiming a signal, so Python-side retries are
-    only needed as a safety net (e.g. extension not loaded yet after a fresh
-    install).
-    """
-    import urllib.parse as _urlparse
-
-    _parsed = _urlparse.urlparse(url)
-    _qs = _urlparse.parse_qs(_parsed.query)
-    _target_sid = _qs.get("sid", [None])[0]
-
-    def _loop() -> None:
-        for i in range(count):
-            time.sleep(interval)
-            if _target_sid:
-                import arrayview._session as _sm
-
-                if _target_sid in _sm.VIEWER_SIDS:
-                    return  # this session's viewer connected
-            _open_via_signal_file(url)
-
-    threading.Thread(target=_loop, daemon=True).start()
 
 
 def _write_vscode_signal(
