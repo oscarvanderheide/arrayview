@@ -354,23 +354,21 @@ def _has_vscode_window_registration() -> bool:
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session.
 
-    This covers:
-    - Linux SSH remote (VSCODE_IPC_HOOK_CLI set, non-macOS/Windows)
-    - macOS/Windows SSH remote (SSH_CONNECTION set)
-    - macOS/Windows tunnel remote: detected by finding a remote-cli binary in
-      ~/.vscode/cli/servers/ or ~/.vscode-server/ (placed there by the tunnel
-      server), which is only present when this machine IS the tunnel remote.
+    A VS Code IPC hook proves that the process is in an integrated terminal;
+    it does not prove that the extension host is remote.  In particular, local
+    Linux terminals have the same hook.  Require an SSH or VS Code server marker
+    before selecting the remote signal/forwarding path.
     """
     # Try env var first, then walk process tree (handles uv run env stripping).
     ipc = os.environ.get("VSCODE_IPC_HOOK_CLI") or _find_vscode_ipc_hook()
+    ssh = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
+    vscode_server = bool(
+        os.environ.get("VSCODE_AGENT_FOLDER")
+        or os.environ.get("VSCODE_INJECTION")
+    )
+    if ipc and (ssh or vscode_server):
+        return True
     if ipc:
-        if sys.platform not in ("darwin", "win32"):
-            return True
-        # SSH remote on macOS/Windows
-        if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"):
-            return True
-        # Tunnel remote on macOS/Windows: the remote-cli binary is present on
-        # this machine only when it is acting as the tunnel server.
         code = _find_code_cli()
         if code and "remote-cli" in code:
             return True
@@ -392,12 +390,10 @@ def _is_vscode_remote() -> bool:
 
 
 def _in_vscode_tunnel() -> bool:
-    """True when running inside a VS Code tunnel or SSH remote session."""
+    """True for a VS Code tunnel remote, excluding Remote-SSH."""
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
-        return True
-    if os.environ.get("VSCODE_INJECTION") or os.environ.get("VSCODE_AGENT_FOLDER"):
-        return True
-    return False
+        return False
+    return _is_vscode_remote()
 
 
 def _can_native_window() -> bool:

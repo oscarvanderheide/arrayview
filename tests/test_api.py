@@ -4558,11 +4558,48 @@ class TestPortAndTunnelHelpers:
             monkeypatch.delenv(k, raising=False)
         assert _in_vscode_tunnel() is False
 
-    def test_in_vscode_tunnel_true_with_ssh(self, monkeypatch):
+    def test_in_vscode_tunnel_false_with_remote_ssh(self, monkeypatch):
         from arrayview._app import _in_vscode_tunnel
 
         monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
-        assert _in_vscode_tunnel() is True
+        assert _in_vscode_tunnel() is False
+
+    def test_local_linux_vscode_ipc_is_not_remote(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setenv("VSCODE_IPC_HOOK_CLI", "/tmp/vscode-ipc")
+        monkeypatch.delenv("VSCODE_AGENT_FOLDER", raising=False)
+        monkeypatch.delenv("VSCODE_INJECTION", raising=False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr(platform, "_find_code_cli", lambda: "/usr/bin/code")
+
+        assert platform._is_vscode_remote() is False
+
+    def test_linux_vscode_tunnel_requires_server_marker(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setenv("VSCODE_IPC_HOOK_CLI", "/tmp/vscode-ipc")
+        monkeypatch.setenv("VSCODE_AGENT_FOLDER", "/tmp/vscode-agent")
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+
+        assert platform._is_vscode_remote() is True
+        assert platform._in_vscode_tunnel() is True
+
+    def test_linux_vscode_remote_ssh_is_remote_but_not_tunnel(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform.sys, "platform", "linux")
+        monkeypatch.setenv("VSCODE_IPC_HOOK_CLI", "/tmp/vscode-ipc")
+        monkeypatch.setenv("SSH_CONNECTION", "client 123 server 22")
+        monkeypatch.delenv("VSCODE_AGENT_FOLDER", raising=False)
+        monkeypatch.delenv("VSCODE_INJECTION", raising=False)
+
+        assert platform._is_vscode_remote() is True
+        assert platform._in_vscode_tunnel() is False
 
     def test_can_native_window_false_in_tunnel(self, monkeypatch):
         from arrayview._app import _can_native_window
