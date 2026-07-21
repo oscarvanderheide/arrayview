@@ -64,7 +64,9 @@ class TestHealth:
         assert '<meta name="color-scheme" content="dark">' in r.text
         assert "function hideShellLoadingOverlay()" in r.text
         assert "phase === 'script-loaded' || phase === 'frame-rendered'" in r.text
-        assert "window.__av_inline ? (window.__av_inlineQuery || '') : window.location.search" in r.text
+        assert "const shellQuery = window.__av_inline" in r.text
+        assert "new URLSearchParams(shellQuery).get('native_request_id')" in r.text
+        assert "const initParams = new URLSearchParams(shellQuery)" in r.text
         assert "skip the overlay entirely" not in r.text
 
     def test_launcher_cold_start_loading_infrastructure(self):
@@ -3280,6 +3282,8 @@ class TestCliOpenHelpers:
         assert "window.__av_inline=true;" in html
         assert "window.__av_inlineQuery='init_sid=sid_base&init_name=base.npy';" in html
         assert '<base href="http://localhost:8000/">' in html
+        assert "`ws://localhost:8000/ws/shell${shellWsQuery}`" in html
+        assert "`${proto}//${location.host}/ws/shell${shellWsQuery}`" not in html
 
     def test_open_webview_cli_returns_after_ready_marker(self, monkeypatch):
         import arrayview._launcher as launcher

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
@@ -26,6 +27,26 @@ class _FakeProcess:
 
     def wait(self, timeout=None):
         return self.returncode
+
+
+def test_native_cleanup_escalates_when_gui_ignores_terminate():
+    import arrayview._launcher as launcher
+
+    class StubbornProcess(_FakeProcess):
+        def terminate(self):
+            self.terminated += 1
+
+        def wait(self, timeout=None):
+            if not self.killed:
+                raise subprocess.TimeoutExpired("native", timeout)
+            return self.returncode
+
+    native = StubbornProcess(456)
+
+    launcher._terminate_native_process(native)
+
+    assert native.terminated == 1
+    assert native.killed == 1
 
 
 def test_spawn_readiness_requires_the_spawned_child_pid(monkeypatch):

@@ -339,8 +339,8 @@ def _build_inline_shell_html(url: str, shell_port: int) -> str | None:
         )
         # Fix WebSocket URL — location.host is "" in inline html= mode
         shell_html = shell_html.replace(
-            "`${proto}//${location.host}/ws/shell`",
-            f"`ws://{_LOOPBACK_HOST}:{shell_port}/ws/shell`",
+            "`${proto}//${location.host}/ws/shell${shellWsQuery}`",
+            f"`ws://{_LOOPBACK_HOST}:{shell_port}/ws/shell${{shellWsQuery}}`",
         )
         return shell_html
     except Exception:
@@ -551,14 +551,11 @@ def _open_webview_with_fallback(
     shell_port: int | None = None,
     floating: bool = False,
     launch_context=None,
-) -> subprocess.Popen:
-    """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
-    OR if no viewer WebSocket connects within ~10 s (catches macOS non-framework Python
-    zombies that start but show nothing).
-
-    Used from view() (Python API) where the host process stays alive.
-    """
-    fallback_url = url
+    fallback_url: str | None = None,
+    title: str | None = None,
+) -> subprocess.Popen | None:
+    """Resolve Python's native handoff or a confirmed browser fallback."""
+    fallback_url = fallback_url or url
     native_request_id = uuid.uuid4().hex
     separator = "&" if "?" in url else "?"
     native_url = (
@@ -576,99 +573,88 @@ def _open_webview_with_fallback(
         ).server_instance_id
         expected_server_pid = None
 
-    proc = _open_webview(
-        native_url,
-        win_w,
-        win_h,
-        capture_stderr=True,
-        shell_port=shell_port,
+    _trace_launch_event(
+        "display.attempt_started",
+        adapter="native",
+        stage="python",
     )
-    _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
-
-    def _read_stderr():
-        try:
-            return proc.stderr.read().decode(errors="replace").strip()
-        except Exception:
-            return ""
-
-    def _watchdog():
-        # Phase 1: watch for an immediate crash (2 s)
-        for _ in range(20):
-            time.sleep(0.1)
-            if proc.poll() is not None:
-                stderr_out = _read_stderr()
-                _vprint(
-                    f"[ArrayView] Native window exited immediately (code {proc.returncode}), opening in browser",
-                    flush=True,
-                )
-                if stderr_out:
-                    _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(
-                    fallback_url,
-                    floating=floating,
-                    launch_context=launch_context,
-                    use_fallback=True,
-                )
-                return
-
-        # Phase 2: wait for a frame ACK from this exact backend/SID/attempt.
-        for _ in range(80):
-            time.sleep(0.1)
-            if sid and shell_port is not None and _server_native_ready(
-                shell_port,
-                sid=sid,
-                native_request_id=native_request_id,
-                expected_server_id=expected_server_id,
-                expected_server_pid=expected_server_pid,
-                timeout=0.2,
-            ):
-                _vprint("[ArrayView] Native window connected successfully", flush=True)
-                if sys.platform == "darwin":
-                    subprocess.Popen(
-                        [
-                            "osascript",
-                            "-e",
-                            f'tell application "System Events" to set frontmost of'
-                            f" (first process whose unix id is {proc.pid}) to true",
-                        ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                return
-            if proc.poll() is not None:
-                stderr_out = _read_stderr()
-                _vprint(
-                    f"[ArrayView] Native window exited (code {proc.returncode}), opening in browser",
-                    flush=True,
-                )
-                if stderr_out:
-                    _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(
-                    fallback_url,
-                    floating=floating,
-                    launch_context=launch_context,
-                    use_fallback=True,
-                )
-                return
-
-        # Phase 3: alive but no UI connection after 10 s — zombie (e.g. non-framework Python on macOS)
-        _vprint(
-            "[ArrayView] Native window did not connect; falling back to browser",
-            flush=True,
+    opened = False
+    proc = None
+    native_failure_evidence = "process_error"
+    try:
+        opened, proc = _open_webview_cli_tracked(
+            native_url,
+            win_w,
+            win_h,
+            shell_port=shell_port,
+            trace_stage="python",
         )
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-        _open_browser(
-            fallback_url,
-            floating=floating,
-            launch_context=launch_context,
-            use_fallback=True,
+        native_failure_evidence = "frame_timeout" if opened else "process_exit"
+    except Exception as exc:
+        _vprint(f"[ArrayView] Native window could not start: {exc}", flush=True)
+        _trace_launch_event(
+            "display.process_evidence",
+            adapter="native",
+            stage="python",
+            state="failed",
+            evidence="process_error",
+            error_type=type(exc).__name__,
         )
+    native_ready = bool(
+        opened
+        and proc is not None
+        and sid
+        and shell_port is not None
+        and _wait_for_native_ready(
+            shell_port,
+            sid=sid,
+            native_request_id=native_request_id,
+            expected_server_id=expected_server_id,
+            expected_server_pid=expected_server_pid,
+        )
+    )
+    if native_ready:
+        _trace_launch_event(
+            "display.attempt_finished",
+            adapter="native",
+            stage="python",
+            state="ready",
+            evidence="native_frame_ack",
+        )
+        _vprint("[ArrayView] Native window connected successfully", flush=True)
+        if sys.platform == "darwin":
+            subprocess.Popen(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to set frontmost of'
+                    f" (first process whose unix id is {proc.pid}) to true",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+        return proc
 
-    threading.Thread(target=_watchdog, daemon=True).start()
-    return proc
+    _trace_launch_event(
+        "display.attempt_finished",
+        adapter="native",
+        stage="python",
+        state="failed",
+        evidence=native_failure_evidence,
+    )
+    _terminate_native_process(proc)
+    _vprint("[ArrayView] Native window failed; falling back to browser", flush=True)
+    _open_browser(
+        fallback_url,
+        blocking=True,
+        floating=floating,
+        title=title,
+        launch_context=launch_context,
+        use_fallback=True,
+    )
+    return None
 
 
 def _open_webview_cli(
@@ -899,12 +885,8 @@ def _wait_for_native_ready(
 
 
 def _terminate_native_process(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    try:
-        proc.terminate()
-    except Exception:
-        return
+    """Stop an owned native child, escalating when a GUI ignores SIGTERM."""
+    _terminate_owned_process(proc)
 
 
 def _open_cli_native_shell_after_server(
@@ -3372,6 +3354,8 @@ def view(
                     shell_port=port,
                     floating=floating,
                     launch_context=_launch_context,
+                    fallback_url=url_viewer,
+                    title=f"ArrayView: {name}",
                 )
             elif not _suppress_open:
                 _open_browser(
@@ -3606,12 +3590,12 @@ def view(
             except Exception:
                 pass
         else:
+            wp = _session_mod._window_process
+            server_loop = _session_mod.SERVER_LOOP
+            window_alive = wp is not None and wp.poll() is None
+            notified = False
+            native_request_id = uuid.uuid4().hex
             try:
-                wp = _session_mod._window_process
-                server_loop = _session_mod.SERVER_LOOP
-                window_alive = wp is not None and wp.poll() is None
-                notified = False
-                native_request_id = uuid.uuid4().hex
                 if server_loop is not None and (window_alive or _server_alive(port)):
                     tab_url = _viewer_path(session.sid)
                     tab_url += (
@@ -3639,7 +3623,10 @@ def view(
                             expected_server_id=None,
                             expected_server_pid=os.getpid(),
                         )
-                if not notified:
+            except Exception:
+                notified = False
+            if not notified:
+                try:
                     _session_mod._window_process = _open_webview_with_fallback(
                         url_shell,
                         win_w,
@@ -3647,18 +3634,13 @@ def view(
                         shell_port=port,
                         floating=floating,
                         launch_context=_launch_context,
+                        fallback_url=_with_loading(url_viewer),
+                        title=f"ArrayView: {name}",
                     )
-            except Exception:
-                _open_browser(
-                    _with_loading(url_viewer),
-                    blocking=True,
-                    force_vscode=_force_vscode,
-                    prefer_system_browser=_requested_window == "native",
-                    title=f"ArrayView: {name}",
-                    floating=floating,
-                    launch_context=_launch_context,
-                    use_fallback=True,
-                )
+                except Exception:
+                    for owned_sid in owned_sids:
+                        _session_mod.SESSIONS.pop(owned_sid, None)
+                    raise
     elif not _suppress_open:
         if (
             window
@@ -3670,15 +3652,20 @@ def view(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
             )
-        _open_browser(
-            _with_loading(url_viewer),
-            blocking=True,
-            force_vscode=_force_vscode,
-            title=f"ArrayView: {name}",
-            floating=floating,
-            launch_context=_launch_context,
-            use_fallback=_launch_plan.display is Display.NATIVE,
-        )
+        try:
+            _open_browser(
+                _with_loading(url_viewer),
+                blocking=True,
+                force_vscode=_force_vscode,
+                title=f"ArrayView: {name}",
+                floating=floating,
+                launch_context=_launch_context,
+                use_fallback=_launch_plan.display is Display.NATIVE,
+            )
+        except Exception:
+            for owned_sid in owned_sids:
+                _session_mod.SESSIONS.pop(owned_sid, None)
+            raise
 
     _print_viewer_location(url_viewer, launch_context=_launch_context)
     if n_arrays == 1:
@@ -3724,6 +3711,9 @@ async def _stop_server_when_viewer_closes(
         _sm.VIEWER_SOCKETS == 0
         and _sm.VIEWER_CONNECTIONS_SEEN == connections_before
     ):
+        if not _sm.SESSIONS and not _sm.PENDING_SESSIONS:
+            server.should_exit = True
+            return
         if time.monotonic() > deadline:
             server.should_exit = True  # no viewer connected; give up
             return

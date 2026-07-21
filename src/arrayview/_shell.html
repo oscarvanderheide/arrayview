@@ -151,6 +151,9 @@
             tabBar.removeChild(tab.btn);
             content.removeChild(tab.pane);
             delete tabs[sid];
+            for (const key of nativeReadyObservations.keys()) {
+                if (key.startsWith(`${sid}:`)) nativeReadyObservations.delete(key);
+            }
 
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({action: "close", sid: sid}));
@@ -191,16 +194,12 @@
             if (phase === 'script-loaded' || phase === 'frame-rendered') {
                 hideShellLoadingOverlay();
             }
-            if (phase === 'frame-rendered' && e.data.nativeRequestId && ws && ws.readyState === WebSocket.OPEN) {
+            if (phase === 'frame-rendered' && e.data.nativeRequestId) {
                 const entry = Object.entries(tabs).find(([, tab]) =>
                     tab.iframe && tab.iframe.contentWindow === e.source
                 );
                 if (entry) {
-                    ws.send(JSON.stringify({
-                        action: 'native_ready',
-                        sid: entry[0],
-                        native_request_id: e.data.nativeRequestId,
-                    }));
+                    rememberNativeReady(entry[0], e.data.nativeRequestId);
                 }
             }
             if (phase === 'title') {
@@ -231,16 +230,36 @@
         // Without this, tab injection via _notify_shells() fails on the second
         // `arrayview` CLI call because SHELL_SOCKETS is empty on the server.
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const nativeRequestId = new URLSearchParams(location.search).get('native_request_id');
+        const shellQuery = window.__av_inline
+            ? (window.__av_inlineQuery || '')
+            : window.location.search;
+        const nativeRequestId = new URLSearchParams(shellQuery).get('native_request_id');
         const shellWsQuery = nativeRequestId
             ? `?native_request_id=${encodeURIComponent(nativeRequestId)}`
             : '';
         let ws = null;
         let heartbeatId = null;
+        const nativeReadyObservations = new Map();
+        function rememberNativeReady(sid, requestId) {
+            const key = `${sid}:${requestId}`;
+            nativeReadyObservations.set(key, {
+                action: 'native_ready',
+                sid,
+                native_request_id: requestId,
+            });
+            flushNativeReady();
+        }
+        function flushNativeReady() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            for (const observation of nativeReadyObservations.values()) {
+                ws.send(JSON.stringify(observation));
+            }
+        }
         function connectShellWS() {
             ws = new WebSocket(`${proto}//${location.host}/ws/shell${shellWsQuery}`);
             ws.onopen = () => {
                 clearInterval(heartbeatId);
+                flushNativeReady();
                 heartbeatId = setInterval(() => {
                     if (ws.readyState === WebSocket.OPEN) ws.send('{"action":"ping"}');
                 }, 15000);
@@ -259,9 +278,7 @@
         }
         connectShellWS();
 
-        const initParams = new URLSearchParams(
-            window.__av_inline ? (window.__av_inlineQuery || '') : window.location.search
-        );
+        const initParams = new URLSearchParams(shellQuery);
         const initSid = initParams.get('init_sid');
         const initName = initParams.get('init_name');
         const initCompareSid = initParams.get('init_compare_sid');

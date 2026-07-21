@@ -1,9 +1,30 @@
 from pathlib import Path
 import os
+from threading import Thread as RealThread
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+
+
+def _run_async_in_thread(coro_factory):
+    """Run an async test probe outside Playwright's main-thread event loop."""
+    errors = []
+
+    def target():
+        import asyncio
+
+        try:
+            asyncio.run(coro_factory())
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = RealThread(target=target)
+    worker.start()
+    worker.join(timeout=15.0)
+    assert not worker.is_alive()
+    if errors:
+        raise errors[0]
 
 
 def _install_lifecycle_view_mocks(monkeypatch, launcher, session_mod, *, remote=False):
@@ -79,7 +100,10 @@ def test_plain_python_script_view_keeps_server_alive_until_viewer_closes(monkeyp
             self.target = target
 
         def start(self):
-            return self.target()
+            worker = RealThread(target=self.target)
+            worker.start()
+            worker.join(timeout=2.0)
+            assert not worker.is_alive()
 
     async def _fake_serve_background(
         port,
@@ -150,7 +174,10 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
             self.target = target
 
         def start(self):
-            return self.target()
+            worker = RealThread(target=self.target)
+            worker.start()
+            worker.join(timeout=2.0)
+            assert not worker.is_alive()
 
     async def _fake_serve_background(
         port,
@@ -679,6 +706,29 @@ def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
     assert sleeps == [0.2]
 
 
+def test_in_process_script_server_stops_immediately_after_display_rollback(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    import arrayview._launcher as launcher
+    import arrayview._session as session_mod
+
+    monkeypatch.setattr(session_mod, "SESSIONS", {})
+    monkeypatch.setattr(session_mod, "PENDING_SESSIONS", set())
+    monkeypatch.setattr(session_mod, "VIEWER_SOCKETS", 0)
+    monkeypatch.setattr(session_mod, "VIEWER_CONNECTIONS_SEEN", 0)
+    server = SimpleNamespace(should_exit=False)
+
+    _run_async_in_thread(
+        lambda: launcher._stop_server_when_viewer_closes(
+            server, connect_timeout=60.0
+        )
+    )
+
+    assert server.should_exit is True
+
+
 def test_persistent_daemon_bounds_failed_open_and_recoverable_disconnects():
     import arrayview._launcher as launcher
     import arrayview._routes_websocket as websocket_routes
@@ -740,7 +790,7 @@ def test_transient_daemon_exits_after_quick_viewer_disconnect(tmp_path):
                 first = await asyncio.wait_for(ws.recv(), timeout=5)
                 assert '"type":"metadata"' in first.replace(" ", "")
 
-        asyncio.run(_connect_and_close())
+        _run_async_in_thread(_connect_and_close)
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:

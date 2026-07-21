@@ -290,7 +290,7 @@ def test_planned_plain_ssh_guidance_survives_julia_host_classification(monkeypat
     assert result == browser.OpenResult(browser.OpenState.PRINTED, "ssh-guidance")
 
 
-def test_python_native_watchdog_uses_the_planned_browser_fallback(monkeypatch):
+def test_python_native_failure_uses_the_planned_browser_fallback(monkeypatch):
     import arrayview._launcher as launcher
 
     context = _context(
@@ -310,16 +310,8 @@ def test_python_native_watchdog_uses_the_planned_browser_fallback(monkeypatch):
         def poll(self):
             return 1
 
-    class ImmediateThread:
-        def __init__(self, *, target, daemon):
-            self.target = target
-
-        def start(self):
-            self.target()
-
     opened = []
     monkeypatch.setattr(launcher, "_open_webview", lambda *args, **kwargs: FailedProcess())
-    monkeypatch.setattr(launcher.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(
         launcher,
         "_open_browser",
@@ -336,9 +328,46 @@ def test_python_native_watchdog_uses_the_planned_browser_fallback(monkeypatch):
     assert opened == [
         (
             "http://localhost:8123/shell",
-            {"floating": False, "launch_context": context, "use_fallback": True},
+            {
+                "blocking": True,
+                "floating": False,
+                "title": None,
+                "launch_context": context,
+                "use_fallback": True,
+            },
         )
     ]
+
+
+def test_python_native_failure_propagates_failed_browser_fallback(monkeypatch):
+    import arrayview._launcher as launcher
+
+    context = _context(
+        requested_window="native",
+        environment="terminal",
+        invocation="python",
+        native_backend="cocoa",
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_open_webview_cli_tracked",
+        lambda *args, **kwargs: (False, None),
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_open_browser",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("browser handoff failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="browser handoff failed"):
+        launcher._open_webview_with_fallback(
+            "http://localhost:8123/shell",
+            800,
+            600,
+            launch_context=context,
+        )
 
 
 def test_vscode_signal_reports_correlated_failure(monkeypatch):

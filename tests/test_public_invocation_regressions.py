@@ -7,6 +7,7 @@ import os
 import socket
 import sys
 import urllib.parse
+from threading import Thread as RealThread
 
 import numpy as np
 import pytest
@@ -288,13 +289,16 @@ def test_public_remote_jupyter_starts_kernel_owned_in_process_server(
 
     thread_calls = []
 
-    class ImmediateThread:
+    class JoinedThread:
         def __init__(self, target=None, daemon=None, name=None):
             self.target = target
             thread_calls.append({"daemon": daemon, "name": name})
 
         def start(self):
-            return self.target()
+            worker = RealThread(target=self.target)
+            worker.start()
+            worker.join(timeout=2.0)
+            assert not worker.is_alive()
 
     server_calls = []
 
@@ -305,7 +309,7 @@ def test_public_remote_jupyter_starts_kernel_owned_in_process_server(
     opened = []
     configured_ports = []
     monkeypatch.setattr(launcher, "_server_ready_event", ReadyEvent())
-    monkeypatch.setattr(launcher.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(launcher.threading, "Thread", JoinedThread)
     monkeypatch.setattr(launcher, "_serve_background", serve_background)
     monkeypatch.setattr(
         launcher,

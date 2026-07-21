@@ -140,6 +140,67 @@ def _event_index(rows: list[dict], event: str) -> int:
     return next(index for index, row in enumerate(rows) if row["event"] == event)
 
 
+def test_native_frame_observation_survives_shell_websocket_reconnect(
+    page,
+    client,
+    server_url,
+    tmp_path,
+):
+    array_path = tmp_path / "native-ready-reconnect.npy"
+    np.save(array_path, np.arange(64, dtype=np.float32).reshape(8, 8))
+    response = client.post(
+        "/load",
+        json={"filepath": str(array_path), "name": "native-ready-reconnect"},
+    )
+    response.raise_for_status()
+    sid = response.json()["sid"]
+    request_id = "native-ready-after-reconnect"
+
+    page.goto(
+        f"{server_url}/shell?init_sid={sid}&init_name=native-ready-reconnect"
+    )
+    page.frame_locator("iframe").locator("#canvas-wrap").wait_for(
+        state="visible",
+        timeout=15_000,
+    )
+    page.wait_for_function("() => ws && ws.readyState === WebSocket.OPEN")
+
+    # Reproduce the race: the viewer's one-shot frame event arrives after the
+    # shell socket starts closing but before its automatic reconnect.
+    page.evaluate(
+        """() => {
+            window.__arrayviewReconnect = connectShellWS;
+            connectShellWS = () => {};
+            ws.close();
+        }"""
+    )
+    page.wait_for_function("() => ws.readyState === WebSocket.CLOSED")
+    page.evaluate(
+        """({ sid, requestId }) => {
+            tabs[sid].iframe.src = `/?sid=${sid}&native_request_id=${requestId}`;
+        }""",
+        {"sid": sid, "requestId": request_id},
+    )
+    page.wait_for_function(
+        "key => nativeReadyObservations.has(key)",
+        arg=f"{sid}:{request_id}",
+        timeout=15_000,
+    )
+    page.evaluate(
+        """() => {
+            connectShellWS = window.__arrayviewReconnect;
+            connectShellWS();
+        }"""
+    )
+
+    _wait_json(
+        f"{server_url}/ping",
+        lambda body: f"{sid}:{request_id}"
+        in body.get("native_ready_requests", []),
+        timeout=5.0,
+    )
+
+
 def test_cli_vscode_protocol_process_session_display_and_cleanup(browser, tmp_path):
     secret = "patient-secret-launch-canary"
     array_path = tmp_path / f"{secret}.npy"

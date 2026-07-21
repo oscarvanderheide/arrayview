@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Thread as RealThread
 
 import numpy as np
 import pytest
@@ -36,13 +37,16 @@ def _install_immediate_in_process_server(monkeypatch, launcher):
 
     thread_calls = []
 
-    class ImmediateThread:
+    class JoinedThread:
         def __init__(self, target=None, daemon=None, name=None):
             self.target = target
             thread_calls.append({"daemon": daemon, "name": name})
 
         def start(self):
-            return self.target()
+            worker = RealThread(target=self.target)
+            worker.start()
+            worker.join(timeout=2.0)
+            assert not worker.is_alive()
 
     server_calls = []
 
@@ -51,7 +55,7 @@ def _install_immediate_in_process_server(monkeypatch, launcher):
         await asyncio.sleep(0)
 
     monkeypatch.setattr(launcher, "_server_ready_event", ReadyEvent())
-    monkeypatch.setattr(launcher.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(launcher.threading, "Thread", JoinedThread)
     monkeypatch.setattr(launcher, "_serve_background", serve_background)
     return thread_calls, server_calls
 
