@@ -55,8 +55,20 @@ jobs:
           tests/test_doctor_commands.py
           tests/test_cli.py
           tests/test_lifecycle_contract.py
+          tests/test_public_invocation_regressions.py
+          tests/test_launch_execution_ownership.py
+          tests/test_spawn_ownership.py
+          tests/test_codex_open.py
+          tests/test_launch_trace.py
+          tests/test_session_spec.py
+          tests/test_launch_blackbox.py
           -q
       - name: VS Code extension contracts
-        run: node vscode-extension/test_lifecycle_helpers.js
+        run: |
+          node vscode-extension/test_lifecycle_helpers.js
+          node vscode-extension/test_tunnel_resolution.js
+          node vscode-extension/test_panel_replay.js
+          node vscode-extension/test_request_journal.js
+          node vscode-extension/test_request_deadline.js
       - name: VS Code extension syntax
         run: node --check vscode-extension/extension.js
