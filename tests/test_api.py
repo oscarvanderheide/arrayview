@@ -2685,6 +2685,7 @@ class TestCliOpenHelpers:
             {
                 "url": "http://localhost:8000/?sid=sid_base&compare_sid=sid_cmp&compare_sids=sid_cmp&dim_x=1&dim_y=2",
                 "blocking": True,
+                "prefer_system_browser": True,
                 "title": "ArrayView: base.npy",
                 "floating": False,
             }
@@ -2778,6 +2779,7 @@ class TestCliOpenHelpers:
         assert terminated == [True]
         assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
         assert opened[0]["blocking"] is True
+        assert opened[0]["prefer_system_browser"] is True
 
     def test_open_cli_spawned_view_falls_back_when_native_never_connects(
         self, monkeypatch
@@ -2829,6 +2831,7 @@ class TestCliOpenHelpers:
         assert terminated == [True]
         assert opened[0]["url"] == "http://localhost:8000/?sid=sid_base"
         assert opened[0]["blocking"] is False
+        assert opened[0]["prefer_system_browser"] is True
 
     def test_open_cli_spawned_view_vscode_fallback_blocks_until_signal_written(
         self, monkeypatch
@@ -2883,6 +2886,7 @@ class TestCliOpenHelpers:
                 "url": "http://localhost:8000/?sid=sid_base",
                 "blocking": True,
                 "force_vscode": True,
+                "prefer_system_browser": False,
                 "title": "ArrayView: base.npy",
                 "floating": True,
             }

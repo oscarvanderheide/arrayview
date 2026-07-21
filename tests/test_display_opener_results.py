@@ -75,6 +75,33 @@ def test_vscode_signal_reports_backend_ready(monkeypatch):
     )
 
 
+def test_native_fallback_bypasses_local_vscode(monkeypatch):
+    _local(monkeypatch)
+    monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
+    monkeypatch.setattr(browser.sys, "platform", "darwin")
+    opened = []
+    monkeypatch.setattr(
+        browser,
+        "_open_via_signal_file",
+        lambda *args, **kwargs: pytest.fail("native fallback must not open a VS Code tab"),
+    )
+    monkeypatch.setattr(
+        browser.subprocess,
+        "run",
+        lambda args, **kwargs: opened.append(args)
+        or type("Completed", (), {"returncode": 0})(),
+    )
+
+    result = browser._open_browser(
+        "http://localhost:8123/",
+        blocking=True,
+        prefer_system_browser=True,
+    )
+
+    assert opened == [["open", "http://localhost:8123/"]]
+    assert result == browser.OpenResult(browser.OpenState.OPENED, "system-browser")
+
+
 def test_vscode_signal_reports_correlated_failure(monkeypatch):
     _local(monkeypatch)
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)

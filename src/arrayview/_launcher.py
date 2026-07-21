@@ -1135,6 +1135,7 @@ def _open_cli_existing_server_view(
             _open_browser(
                 url,
                 blocking=True,
+                prefer_system_browser=True,
                 title=f"ArrayView: {name}",
                 floating=floating,
             )
@@ -1591,6 +1592,7 @@ def _open_cli_spawned_view(
                 url,
                 blocking=(window_mode == "vscode"),
                 force_vscode=(window_mode == "vscode"),
+                prefer_system_browser=(window_mode == "native"),
                 title=f"ArrayView: {name}",
                 floating=floating,
             )
@@ -2886,7 +2888,11 @@ def view(
                     )
             except Exception:
                 _open_browser(
-                    _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
+                    _with_loading(url_viewer),
+                    force_vscode=_force_vscode,
+                    prefer_system_browser=_requested_window == "native",
+                    title=f"ArrayView: {name}",
+                    floating=floating,
                 )
     elif not _suppress_open:
         if (
@@ -3176,6 +3182,7 @@ def _view_subprocess(
                 url_viewer,
                 force_vscode=force_vscode,
                 blocking=force_vscode,
+                prefer_system_browser=window and not force_vscode,
                 title=f"ArrayView: {name}",
                 floating=floating,
             )

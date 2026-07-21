@@ -98,6 +98,7 @@ def _open_browser(
     url: str,
     blocking: bool = False,
     force_vscode: bool = False,
+    prefer_system_browser: bool = False,
     title: str | None = None,
     floating: bool = False,
 ) -> OpenResult:
@@ -120,7 +121,11 @@ def _open_browser(
     """
 
     def _do() -> OpenResult:
-        in_vscode = _in_vscode_terminal()
+        # A failed explicit native-window launch may fall back to a browser,
+        # but it must not silently turn back into a VS Code tab. Remote VS Code
+        # still takes precedence because a browser on the remote host is not
+        # useful to the caller.
+        in_vscode = _in_vscode_terminal() and not prefer_system_browser
         is_remote = _is_vscode_remote()
         opened = False
         guidance_printed = False
