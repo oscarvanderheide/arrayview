@@ -48,6 +48,9 @@ arrayview-codex = "arrayview._codex_open:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/arrayview"]
 
+[tool.hatch.build.targets.sdist]
+only-include = ["src/arrayview", "tests"]
+
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
 
