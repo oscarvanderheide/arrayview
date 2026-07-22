@@ -41,8 +41,10 @@ PR.
 - Several `view()` tests mock `_launcher` aliases while the planner probes
   `_launch_plan` and `_platform` directly, so ambient ports, VS Code variables,
   config, and native dependencies can change their result.
-- Real VS Code tunnel/reconnect, IJulia, and MATLAB still require host evidence;
-  mocked policy tests are not substitutes.
+- IJulia and MATLAB still require host evidence; mocked policy tests are not
+  substitutes. The VS Code tunnel first-frame, repeated-launch, native-policy,
+  and cleanup gates passed on 2026-07-22, but the phase-level external-URI and
+  same-server multi-window gates remain open.
 
 ## 2026-07-21 exact native observation
 
@@ -72,3 +74,25 @@ keychain modal, so the absence of a later frame is not counted as a valid
 product failure or pass. A same-origin headless iframe rendered the NIfTI and
 emitted `frame-rendered`. The remaining acceptance gate is 0.14.51 in an
 ordinary existing VS Code window, including tab disposal and daemon cleanup.
+
+## 2026-07-22 VS Code tunnel observation
+
+Opener 0.14.70 was exercised from the existing VS Code tunnel window without a
+temporary profile. An explicit VS Code launch and a default/auto launch each
+targeted only window `cc23ad5c9220f8b3`, opened one new integrated-browser tab,
+and completed `wrapper-started`, `script-loaded`, `ws-open`,
+`metadata-loaded`, and `frame-rendered` before a correlated `backend_ready` ACK.
+The second launch reused the exact server generation. A simultaneous
+Remote-SSH registration running opener 0.14.47 did not claim either request.
+
+Closing both tabs dropped viewer and shell sockets to zero; after the bounded
+disconnect grace, both SIDs were released, the daemon exited, its registry
+entry disappeared, and port 8000 was free. Explicit `--window native` printed
+the declared unsupported-remote warning, redirected to one client-side VS Code
+tab, reached the same first-frame ACK, and created no remote GUI.
+
+VS Code 1.128 used its integrated-browser remote proxy with the backend
+`localhost` URL directly. This avoided a public developer-tunnel URL and its
+consent page, so the older non-loopback external-URI evidence is not claimed;
+that phase-level forwarding/privacy gate remains separate from the successful
+first-frame and cleanup evidence above.

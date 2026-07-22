@@ -1,7 +1,7 @@
 import io
 
 import numpy as np
-from fastapi import Depends, Response
+from fastapi import Depends, HTTPException, Request, Response
 
 from arrayview._analysis import _build_metadata
 from arrayview._render import render_rgb_rgba, render_rgba
@@ -9,7 +9,147 @@ from arrayview._session import SESSIONS, wait_for_session_ready
 import arrayview._session as _session_mod
 
 
+def _viewer_related_sids(body: dict, primary_sid: str) -> list[str]:
+    """Return validated, deduplicated related sessions from a viewer URL."""
+    related_sids: list[str] = []
+    for field in ("compare_sid", "compare_sids", "overlay_sid"):
+        raw_value = body.get(field)
+        if raw_value is None:
+            continue
+        if not isinstance(raw_value, str) or len(raw_value) > 8192:
+            raise HTTPException(status_code=400, detail="Invalid related session IDs")
+        for value in raw_value.split(","):
+            related_sid = value.strip()
+            if not related_sid or related_sid == primary_sid:
+                continue
+            if len(related_sid) > 128 or related_sid not in SESSIONS:
+                raise HTTPException(status_code=409, detail="Related session changed")
+            if related_sid not in related_sids:
+                related_sids.append(related_sid)
+            if len(related_sids) > 128:
+                raise HTTPException(status_code=400, detail="Too many related sessions")
+    return related_sids
+
+
 def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -> None:
+    @app.post("/viewer-phase/{sid}/{request_id}")
+    async def record_viewer_phase(sid: str, request_id: str, request: Request):
+        """Record browser-observed launch phases for remote display readiness."""
+        if not request_id or len(request_id) > 128:
+            raise HTTPException(status_code=400, detail="Invalid launch request ID")
+        body = await request.json()
+        expected_server_id = body.get("server_id")
+        if expected_server_id != _session_mod.SERVER_RUNTIME.instance_id:
+            raise HTTPException(status_code=409, detail="ArrayView server generation changed")
+        phase = str(body.get("phase") or "")
+        token = str(body.get("token") or "")
+        window_id = str(body.get("window_id") or "")
+        viewer_instance_id = str(body.get("viewer_instance_id") or "")
+        if not token or len(token) > 256 or not window_id:
+            raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
+        allowed = {
+            "script-loaded",
+            "ws-open",
+            "metadata-loaded",
+            "frame-rendered",
+        }
+        if phase != "launch-prepared" and phase not in allowed:
+            raise HTTPException(status_code=400, detail="Invalid viewer phase")
+        if phase != "launch-prepared" and not viewer_instance_id:
+            raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
+        session = await wait_for_session_ready(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        journals = getattr(session, "viewer_phase_journals", None)
+        if journals is None:
+            journals = session.viewer_phase_journals = {}
+        if phase == "launch-prepared":
+            previous_journal = journals.get(request_id)
+            previous_release_task = (
+                previous_journal.get("release_task")
+                if previous_journal is not None
+                else None
+            )
+            if (
+                previous_release_task is not None
+                and not previous_release_task.done()
+            ):
+                previous_release_task.cancel()
+            journal = journals[request_id] = {
+                "token": token,
+                "window_id": window_id,
+                "viewer_instance_ids": [],
+                "phases": [],
+                "related_sids": None,
+                "connection_count": 0,
+                "release_task": None,
+                "disconnect_release_grace_seconds": 30.0,
+            }
+            return {
+                "sid": sid,
+                "request_id": request_id,
+                "window_id": window_id,
+                "server_id": _session_mod.SERVER_RUNTIME.instance_id,
+                "token": token,
+                "phases": [],
+                "viewer_instance_ids": [],
+                "related_sids": [],
+            }
+        journal = journals.get(request_id)
+        if (
+            journal is None
+            or journal["token"] != token
+            or journal["window_id"] != window_id
+        ):
+            raise HTTPException(status_code=409, detail="Viewer phase owner changed")
+        if body.get("sid") != sid:
+            raise HTTPException(status_code=409, detail="Viewer primary session changed")
+        related_sids = _viewer_related_sids(body, sid)
+        if journal["related_sids"] is None:
+            journal["related_sids"] = related_sids
+        elif journal["related_sids"] != related_sids:
+            raise HTTPException(status_code=409, detail="Viewer related sessions changed")
+        if viewer_instance_id not in journal["viewer_instance_ids"]:
+            journal["viewer_instance_ids"].append(viewer_instance_id)
+        phases = journal["phases"]
+        if phase not in phases:
+            phases.append(phase)
+        if bool(body.get("release_on_disconnect")):
+            journal["disconnect_release_grace_seconds"] = 30.0
+        return {
+            "sid": sid,
+            "request_id": request_id,
+            "window_id": window_id,
+            "server_id": _session_mod.SERVER_RUNTIME.instance_id,
+            "token": token,
+            "phases": list(phases),
+            "viewer_instance_ids": list(journal["viewer_instance_ids"]),
+            "related_sids": list(journal["related_sids"]),
+        }
+
+    @app.get("/viewer-phase/{sid}/{request_id}")
+    async def get_viewer_phases(sid: str, request_id: str, token: str):
+        """Return phases correlated to one browser launch transaction."""
+        session = SESSIONS.get(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        journals = getattr(session, "viewer_phase_journals", {})
+        journal = journals.get(request_id, {})
+        if not journal or journal.get("token") != token:
+            raise HTTPException(status_code=409, detail="Viewer phase owner changed")
+        return {
+            "sid": sid,
+            "request_id": request_id,
+            "window_id": journal.get("window_id"),
+            "server_id": _session_mod.SERVER_RUNTIME.instance_id,
+            "token": journal.get("token"),
+            "phases": list(journal.get("phases", [])),
+            "viewer_instance_ids": list(
+                journal.get("viewer_instance_ids", [])
+            ),
+            "related_sids": list(journal.get("related_sids") or []),
+        }
+
     @app.get("/autocrop/{sid}")
     def get_autocrop_bounds(
         sid: str,

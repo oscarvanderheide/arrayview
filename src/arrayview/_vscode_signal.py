@@ -14,7 +14,12 @@ from enum import Enum
 from pathlib import Path
 
 from arrayview._session import _vprint
-from arrayview._platform import _find_vscode_ipc_hook, _is_vscode_remote, get_ppid
+from arrayview._platform import (
+    _exact_vscode_window_registration,
+    _find_vscode_ipc_hook,
+    _is_vscode_remote,
+    get_ppid,
+)
 
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
@@ -508,43 +513,44 @@ def _write_vscode_signal(
         data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
         data.setdefault("requestId", uuid.uuid4().hex)
 
-        def _focused_window_fallback() -> tuple[str, ...]:
-            """Let the focused extension window claim an untargeted request."""
-            data["broadcast"] = True
-            return (
-                (_VSCODE_SIGNAL_FILENAME,)
-                if skip_compat
-                else (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
-            )
-
-        def _registrations_are_remote(window_files: list[str]) -> bool:
-            """Return whether every registration belongs to a remote extension host."""
-            if not window_files:
-                return False
-            for window_file in window_files:
-                try:
-                    with open(os.path.join(signal_dir, window_file)) as registration:
-                        registration_data = json.load(registration)
-                    remote_name = registration_data.get("remoteName")
-                    if remote_name:
-                        continue
-                    pid = int(registration_data["pid"])
-                    with open(f"/proc/{pid}/cmdline", "rb") as command_file:
-                        command = command_file.read().replace(b"\0", b" ").decode()
-                    if (
-                        "/.vscode/cli/servers/" not in command
-                        and "/.vscode-server/" not in command
-                    ):
-                        return False
-                except Exception:
-                    return False
-            return True
-
         # --- Primary: ARRAYVIEW_WINDOW_ID (all platforms) ---
         # The extension injects this env var into every terminal via
         # EnvironmentVariableCollection.  It uniquely identifies the VS Code
         # window even on macOS where IPC hook recovery fails.
         env_wid = _find_arrayview_window_id()
+        current_ipc_hook = _find_vscode_ipc_hook()
+        exact_registration = _exact_vscode_window_registration(current_ipc_hook)
+        if exact_registration is not None:
+            exact_wid = exact_registration[0]
+            if env_wid and env_wid != exact_wid:
+                _vprint(
+                    "[ArrayView] signal: ignoring stale ARRAYVIEW_WINDOW_ID="
+                    f"{env_wid}; exact server registration is {exact_wid}",
+                    flush=True,
+                )
+            env_wid = exact_wid
+        if current_ipc_hook:
+            current_ipc_wid = hashlib.sha256(
+                current_ipc_hook.encode()
+            ).hexdigest()[:16]
+            current_ipc_registration = os.path.join(
+                signal_dir, f"window-{current_ipc_wid}.json"
+            )
+            try:
+                with open(current_ipc_registration) as registration_file:
+                    current_ipc_data = json.load(registration_file)
+                current_ipc_pid = int(current_ipc_data.get("pid", 0))
+                os.kill(current_ipc_pid, 0)
+                if current_ipc_data.get("hookTag") == current_ipc_wid:
+                    if env_wid and env_wid != current_ipc_wid:
+                        _vprint(
+                            "[ArrayView] signal: ignoring stale ARRAYVIEW_WINDOW_ID="
+                            f"{env_wid}; live IPC registration is {current_ipc_wid}",
+                            flush=True,
+                        )
+                    env_wid = current_ipc_wid
+            except (OSError, TypeError, ValueError):
+                pass
         targeted_via_env = False
         if env_wid:
             reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
@@ -598,25 +604,15 @@ def _write_vscode_signal(
                         flush=True,
                     )
                 elif len(_all_windows) > 1:
-                    if _registrations_are_remote(_all_windows):
-                        filenames = _focused_window_fallback()
-                        targeted_via_env = True
-                        _vprint(
-                            "[ArrayView] signal: stale ARRAYVIEW_WINDOW_ID with "
-                            f"{len(_all_windows)} remote windows; "
-                            "using focused-window fallback",
-                            flush=True,
-                        )
-                    else:
-                        print(
-                            "[ArrayView] VS Code window is ambiguous: "
-                            f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
-                            f"and {len(_all_windows)} VS Code windows are active. "
-                            "Open a fresh terminal in the target VS Code window "
-                            "and run ArrayView again.",
-                            flush=True,
-                        )
-                        return False
+                    print(
+                        "[ArrayView] VS Code window is ambiguous: "
+                        f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
+                        f"and {len(_all_windows)} VS Code windows are active. "
+                        "Open a fresh terminal in the target VS Code window "
+                        "and run ArrayView again.",
+                        flush=True,
+                    )
+                    return False
                 # else: 0 windows — fall through to subsequent targeting
 
         if targeted_via_env:
@@ -671,28 +667,15 @@ def _write_vscode_signal(
                         except Exception:
                             pass
                         if len(_wfiles) > 1:
-                            _window_files = [
-                                f"window-{name.split('-', 3)[-1][:-5]}.json"
-                                for name in _wfiles
-                            ]
-                            if _registrations_are_remote(_window_files):
-                                filenames = _focused_window_fallback()
-                                _vprint(
-                                    "[ArrayView] signal: no exact match for local "
-                                    f"terminal with {len(_wfiles)} remote windows; "
-                                    "using focused-window fallback",
-                                    flush=True,
-                                )
-                            else:
-                                print(
-                                    "[ArrayView] VS Code window is ambiguous: "
-                                    "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
-                                    f"and {len(_wfiles)} VS Code windows are active. "
-                                    "Open a fresh terminal in the target VS Code window "
-                                    "and run ArrayView again.",
-                                    flush=True,
-                                )
-                                return False
+                            print(
+                                "[ArrayView] VS Code window is ambiguous: "
+                                "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
+                                f"and {len(_wfiles)} VS Code windows are active. "
+                                "Open a fresh terminal in the target VS Code window "
+                                "and run ArrayView again.",
+                                flush=True,
+                            )
+                            return False
                         else:
                             filenames = tuple(_wfiles) if _wfiles else (_VSCODE_SIGNAL_FILENAME,)
                     else:
@@ -735,29 +718,15 @@ def _write_vscode_signal(
                     except Exception:
                         pass
                     if len(window_files) > 1:
-                        _registration_files = [
-                            fname
-                            for fname in os.listdir(signal_dir_temp)
-                            if fname.startswith("window-") and fname.endswith(".json")
-                        ]
-                        if _registrations_are_remote(_registration_files):
-                            filenames = _focused_window_fallback()
-                            _vprint(
-                                "[ArrayView] signal: local terminal has no exact "
-                                f"match among {len(window_files)} remote windows; "
-                                "using focused-window fallback",
-                                flush=True,
-                            )
-                        else:
-                            print(
-                                "[ArrayView] VS Code window is ambiguous: "
-                                "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
-                                f"and {len(window_files)} VS Code windows are active. "
-                                "Open a fresh terminal in the target VS Code window "
-                                "and run ArrayView again.",
-                                flush=True,
-                            )
-                            return False
+                        print(
+                            "[ArrayView] VS Code window is ambiguous: "
+                            "no exact ARRAYVIEW_WINDOW_ID or PID match is available "
+                            f"and {len(window_files)} VS Code windows are active. "
+                            "Open a fresh terminal in the target VS Code window "
+                            "and run ArrayView again.",
+                            flush=True,
+                        )
+                        return False
                     else:
                         filenames = (
                             tuple(window_files) if window_files else (_VSCODE_SIGNAL_FILENAME,)
@@ -848,13 +817,15 @@ def _write_vscode_signal(
                             flush=True,
                         )
                     elif len(_all_windows_r) > 1:
-                        filenames = _focused_window_fallback()
-                        _vprint(
-                            "[ArrayView] signal: stale remote ARRAYVIEW_WINDOW_ID with "
-                            f"{len(_all_windows_r)} registered windows; "
-                            "using focused-window fallback",
+                        print(
+                            "[ArrayView] VS Code remote window is ambiguous: "
+                            f"ARRAYVIEW_WINDOW_ID={env_wid!r} is not registered "
+                            f"and {len(_all_windows_r)} remote windows are active. "
+                            "Open a fresh terminal in the target VS Code window "
+                            "and run ArrayView again.",
                             flush=True,
                         )
+                        return False
                     else:
                         env_wid = None  # 0 windows: keep existing fallback
 
@@ -881,13 +852,15 @@ def _write_vscode_signal(
                         flush=True,
                     )
                 elif len(_all_windows_r) > 1:
-                    filenames = _focused_window_fallback()
-                    _vprint(
-                        "[ArrayView] signal: remote window ID unavailable with "
-                        f"{len(_all_windows_r)} registered windows; "
-                        "using focused-window fallback",
+                    print(
+                        "[ArrayView] VS Code remote window is ambiguous: "
+                        "no exact ARRAYVIEW_WINDOW_ID or live IPC match is available "
+                        f"and {len(_all_windows_r)} remote windows are active. "
+                        "Open a fresh terminal in the target VS Code window "
+                        "and run ArrayView again.",
                         flush=True,
                     )
+                    return False
                 else:
                     _vprint(f"[ArrayView] signal: no registered remote window, using shared fallback", flush=True)
                     filenames = (

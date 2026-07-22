@@ -207,7 +207,7 @@ def test_jupyter_view_is_kernel_owned_and_does_not_stop_on_iframe_disappearance(
             inline=True,
         )
 
-        assert result.__class__.__name__ == ("ViewHandle" if remote else "IFrame")
+        assert result.__class__.__name__ == "IFrame"
         assert thread_calls[0]["daemon"] is True
         assert thread_calls[1] == {
             "port": 8123,
@@ -254,8 +254,8 @@ def test_plain_ssh_keeps_script_mode_transient(monkeypatch):
     assert launcher._is_script_mode() is True
 
 
-def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
-    monkeypatch, tmp_path
+def test_vscode_tunnel_without_exact_window_with_multiple_hosts_fails_closed(
+    monkeypatch, tmp_path, capsys
 ):
     import json
     import arrayview._vscode_signal as signal
@@ -286,11 +286,9 @@ def test_vscode_tunnel_without_window_id_uses_focused_window_fallback(
         skip_compat=True,
     )
 
-    assert opened is True
-    request = json.loads(
-        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
-    )
-    assert request["broadcast"] is True
+    assert opened is False
+    assert "VS Code remote window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
 
 
 def test_vscode_tunnel_recovers_exact_window_from_ipc_hook(monkeypatch, tmp_path):
@@ -407,6 +405,87 @@ def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_p
     assert extension._extension_on_disk("1.2.3", remote=True) is True
 
 
+@pytest.mark.parametrize("remote", [False, True])
+def test_vscode_extension_missing_hash_verifies_content_without_reinstall(
+    monkeypatch, tmp_path, remote
+):
+    import hashlib
+    import json
+    import zipfile
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    local_base = home / ".vscode" / "extensions"
+    remote_base = home / ".vscode-server" / "extensions"
+    base = remote_base if remote else local_base
+    version = extension._VSCODE_EXT_VERSION
+    installed = base / f"arrayview.arrayview-opener-{version}"
+    installed.mkdir(parents=True)
+    if remote:
+        (home / ".vscode-server").mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    vsix = Path(extension.__file__).with_name("arrayview-opener.vsix")
+    with zipfile.ZipFile(vsix) as archive:
+        for info in archive.infolist():
+            if not info.filename.startswith("extension/") or info.is_dir():
+                continue
+            relative = Path(info.filename).relative_to("extension")
+            target = installed / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(info))
+
+    # VS Code rewrites package.json and injects host-specific metadata.
+    package_json = installed / "package.json"
+    package = json.loads(package_json.read_text())
+    package["__metadata"] = {"targetPlatform": "undefined", "installedTimestamp": 1}
+    package_json.write_text(json.dumps(package, indent=2))
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: version)
+    monkeypatch.setattr(
+        extension,
+        "_run_extension_installer",
+        lambda *args, **kwargs: pytest.fail(
+            "verified extension content must not trigger a reinstall"
+        ),
+    )
+
+    assert not (installed / ".vsix_hash").exists()
+    assert extension._ensure_vscode_extension(is_remote=remote) is True
+    assert (installed / ".vsix_hash").read_text() == hashlib.md5(
+        vsix.read_bytes()
+    ).hexdigest()
+
+
+def test_vscode_extension_missing_hash_rejects_changed_content(monkeypatch, tmp_path):
+    import zipfile
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    version = extension._VSCODE_EXT_VERSION
+    installed = (
+        home
+        / ".vscode"
+        / "extensions"
+        / f"arrayview.arrayview-opener-{version}"
+    )
+    installed.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    vsix = Path(extension.__file__).with_name("arrayview-opener.vsix")
+    with zipfile.ZipFile(vsix) as archive:
+        for info in archive.infolist():
+            if not info.filename.startswith("extension/") or info.is_dir():
+                continue
+            relative = Path(info.filename).relative_to("extension")
+            target = installed / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(info))
+    (installed / "extension.js").write_text("changed")
+
+    assert extension._extension_on_disk(version, str(vsix), remote=False) is False
+    assert not (installed / ".vsix_hash").exists()
+
+
 def test_vscode_port_settings_preserve_unreadable_jsonc(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
 
@@ -521,6 +600,249 @@ def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatc
     assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
 
 
+def test_remote_vscode_launch_automatically_runs_exact_installer(monkeypatch, tmp_path):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    remote_base = home / ".vscode-server" / "extensions"
+    old_version = "0.14.47"
+    wanted = extension._VSCODE_EXT_VERSION
+    (remote_base / f"arrayview.arrayview-opener-{old_version}").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: old_version)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: "/exact/ipc.sock")
+    calls = []
+
+    def install(command, env):
+        calls.append((command, env.get("VSCODE_IPC_HOOK_CLI")))
+        target = remote_base / f"arrayview.arrayview-opener-{wanted}"
+        target.mkdir(parents=True)
+        (target / "package.json").write_text("{}")
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+    monkeypatch.setattr(extension, "_patch_vscode_extension_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_wait_for_active_extension_version", lambda *args, **kwargs: True)
+
+    assert extension._ensure_vscode_extension(is_remote=True) is True
+    assert calls and calls[0][0][0] == "/exact/code"
+    assert calls[0][1] == "/exact/ipc.sock"
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is False
+
+
+def test_active_extension_version_prefers_live_ipc_over_stale_terminal_env(
+    monkeypatch, tmp_path
+):
+    import hashlib
+    import json
+    import os
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    ipc = "/run/user/1/current-window.sock"
+    current_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "stale-window")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: ipc)
+    (signal_dir / "window-stale-window.json").write_text(
+        json.dumps({"pid": os.getpid(), "extensionVersion": "0.14.47"})
+    )
+    (signal_dir / f"window-{current_id}.json").write_text(
+        json.dumps({"pid": os.getpid(), "extensionVersion": "0.14.70"})
+    )
+
+    assert extension._active_extension_version() == "0.14.70"
+
+
+def test_active_extension_version_recovers_revived_terminal_from_exact_server(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._platform as platform
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "stale-window")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: None)
+    monkeypatch.setattr(
+        platform,
+        "_current_vscode_remote_cli",
+        lambda: "/servers/tunnel/server/bin/remote-cli/code",
+    )
+    monkeypatch.setattr(platform, "_process_is_alive", lambda pid: pid in (101, 202))
+    monkeypatch.setattr(
+        platform.os,
+        "readlink",
+        lambda path: {
+            "/proc/101/exe": "/servers/tunnel/server/node",
+            "/proc/202/exe": "/servers/ssh/server/node",
+        }[path],
+    )
+    (signal_dir / "window-tunnel.json").write_text(
+        json.dumps(
+            {
+                "pid": 101,
+                "remoteName": "tunnel",
+                "extensionVersion": "0.14.70",
+            }
+        )
+    )
+    (signal_dir / "window-ssh.json").write_text(
+        json.dumps(
+            {
+                "pid": 202,
+                "remoteName": "ssh-remote",
+                "extensionVersion": "0.14.47",
+            }
+        )
+    )
+
+    assert extension._active_extension_version() == "0.14.70"
+
+
+def test_revived_terminal_does_not_guess_between_same_server_windows(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._platform as platform
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "stale-window")
+    monkeypatch.setattr(
+        platform,
+        "_current_vscode_remote_cli",
+        lambda: "/servers/tunnel/server/bin/remote-cli/code",
+    )
+    monkeypatch.setattr(platform, "_process_is_alive", lambda pid: pid in (101, 102))
+    monkeypatch.setattr(
+        platform.os,
+        "readlink",
+        lambda path: "/servers/tunnel/server/node",
+    )
+    for wid, pid in (("tunnel-a", 101), ("tunnel-b", 102)):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps({"pid": pid, "remoteName": "tunnel"})
+        )
+
+    assert platform._exact_vscode_window_registration(None) is None
+
+
+def test_extension_activation_wait_requires_fresh_exact_registration(monkeypatch):
+    import arrayview._vscode_extension as extension
+
+    previous = (100, "old-instance", 1)
+    monkeypatch.setattr(
+        extension,
+        "_active_extension_registration",
+        lambda: {
+            "pid": 100,
+            "extensionInstanceId": "old-instance",
+            "ts": 1,
+            "extensionVersion": "0.14.70",
+        },
+    )
+    assert not extension._wait_for_active_extension_version(
+        "0.14.70", timeout=0, previous_marker=previous
+    )
+
+    monkeypatch.setattr(
+        extension,
+        "_active_extension_registration",
+        lambda: {
+            "pid": 101,
+            "extensionInstanceId": "new-instance",
+            "ts": 2,
+            "extensionVersion": "0.14.70",
+        },
+    )
+    assert extension._wait_for_active_extension_version(
+        "0.14.70", timeout=0, previous_marker=previous
+    )
+
+
+def test_remote_vscode_setup_touches_only_active_extension_base(
+    monkeypatch, tmp_path
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    local_base = home / ".vscode" / "extensions"
+    remote_base = home / ".vscode-server" / "extensions"
+    old_version = "0.14.47"
+    wanted = extension._VSCODE_EXT_VERSION
+    (remote_base / f"arrayview.arrayview-opener-{old_version}").mkdir(parents=True)
+    unrelated_local = local_base / f"arrayview.arrayview-opener-{wanted}"
+    unrelated_local.mkdir(parents=True)
+    (unrelated_local / ".vsix_hash").write_text("leave-this-profile-alone")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: old_version)
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: "/exact/ipc.sock")
+
+    def install(command, env):
+        target = remote_base / f"arrayview.arrayview-opener-{wanted}"
+        target.mkdir(parents=True)
+        (target / "package.json").write_text("{}")
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+    monkeypatch.setattr(extension, "_patch_vscode_extension_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_wait_for_active_extension_version", lambda *args, **kwargs: True)
+
+    assert extension._ensure_vscode_extension(is_remote=True) is True
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is False
+    assert (remote_base / f"arrayview.arrayview-opener-{wanted}" / ".vsix_hash").is_file()
+    assert (unrelated_local / ".vsix_hash").read_text() == "leave-this-profile-alone"
+    assert (remote_base / f"arrayview.arrayview-opener-{old_version}").is_dir()
+
+
+def test_remote_vscode_install_requires_exact_activation_before_launch(
+    monkeypatch, tmp_path
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    remote_base = home / ".vscode-server" / "extensions"
+    old_version = "0.14.47"
+    wanted = extension._VSCODE_EXT_VERSION
+    (remote_base / f"arrayview.arrayview-opener-{old_version}").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: old_version)
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: "/exact/ipc.sock")
+
+    def install(command, env):
+        target = remote_base / f"arrayview.arrayview-opener-{wanted}"
+        target.mkdir(parents=True)
+        (target / "package.json").write_text("{}")
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+    monkeypatch.setattr(extension, "_patch_vscode_extension_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(extension, "_wait_for_active_extension_version", lambda *args, **kwargs: False)
+
+    assert extension._ensure_vscode_extension(is_remote=True) is False
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
+
+
 def test_vscode_local_exact_window_id_is_not_redirected_to_newer_sibling(
     monkeypatch, tmp_path
 ):
@@ -582,8 +904,153 @@ def test_vscode_local_stale_window_id_with_multiple_windows_fails_closed(
     assert not list(signal_dir.glob("open-request-*"))
 
 
-def test_vscode_local_missing_window_match_uses_focused_window_fallback(
+def test_vscode_remote_stale_window_id_prefers_live_ipc_registration(
     monkeypatch, tmp_path
+):
+    import hashlib
+    import json
+    import os
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    ipc_hook = "/run/user/1/current-tunnel.sock"
+    current_wid = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
+    monkeypatch.setattr(signal, "_find_vscode_ipc_hook", lambda: ipc_hook)
+    monkeypatch.setattr(
+        "arrayview._platform._find_vscode_ipc_hook", lambda: ipc_hook
+    )
+
+    (signal_dir / f"window-{current_wid}.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": current_wid,
+                "remoteName": "tunnel",
+                "fallbackId": False,
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+    (signal_dir / "window-other.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": "other",
+                "remoteName": "ssh-remote",
+                "fallbackId": False,
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+        is_remote=True,
+    )
+
+    assert opened is True
+    assert list(signal_dir.glob(f"open-request-ipc-{current_wid}.request-*.json"))
+    assert not list(signal_dir.glob("open-request-v0900.request-*.json"))
+
+
+def test_vscode_remote_revived_terminal_targets_exact_server_registration(
+    monkeypatch, tmp_path
+):
+    import json
+    import os
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
+    monkeypatch.setattr(signal, "_find_vscode_ipc_hook", lambda: None)
+    monkeypatch.setattr(
+        signal,
+        "_exact_vscode_window_registration",
+        lambda ipc: (
+            "tunnel",
+            {"pid": os.getpid(), "remoteName": "tunnel"},
+        ),
+    )
+    for wid, remote_name in (("tunnel", "tunnel"), ("ssh", "ssh-remote")):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "hookTag": wid,
+                    "remoteName": remote_name,
+                    "fallbackId": False,
+                    "signalQueueVersion": 1,
+                }
+            )
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+        is_remote=True,
+    )
+
+    assert opened is True
+    assert list(signal_dir.glob("open-request-ipc-tunnel.request-*.json"))
+    assert not list(signal_dir.glob("open-request-ipc-ssh.request-*.json"))
+    assert not list(signal_dir.glob("open-request-v0900.request-*.json"))
+
+
+def test_vscode_remote_stale_window_id_without_exact_match_fails_closed(
+    monkeypatch, tmp_path, capsys
+):
+    import json
+    import os
+    import arrayview._vscode_signal as signal
+
+    home = tmp_path / "home"
+    signal_dir = home / ".arrayview"
+    signal_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(signal, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
+    monkeypatch.setattr(signal, "_find_vscode_ipc_hook", lambda: None)
+    monkeypatch.setattr("arrayview._platform._find_vscode_ipc_hook", lambda: None)
+
+    for wid, remote_name in (("tunnel", "tunnel"), ("ssh", "ssh-remote")):
+        (signal_dir / f"window-{wid}.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "hookTag": wid,
+                    "remoteName": remote_name,
+                    "fallbackId": False,
+                    "signalQueueVersion": 1,
+                }
+            )
+        )
+
+    opened = signal._write_vscode_signal(
+        {"url": "http://localhost:8000/?sid=abc"},
+        skip_compat=True,
+        is_remote=True,
+    )
+
+    assert opened is False
+    assert "VS Code window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
+
+
+def test_vscode_local_missing_window_match_with_remote_hosts_fails_closed(
+    monkeypatch, tmp_path, capsys
 ):
     import json
     import arrayview._vscode_signal as signal
@@ -617,11 +1084,9 @@ def test_vscode_local_missing_window_match_uses_focused_window_fallback(
         skip_compat=True,
     )
 
-    assert opened is True
-    request = json.loads(
-        next(signal_dir.glob("open-request-v0900.request-*.json")).read_text()
-    )
-    assert request["broadcast"] is True
+    assert opened is False
+    assert "VS Code window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
 
 
 def test_vscode_local_missing_window_match_with_local_windows_fails_closed(
@@ -948,34 +1413,185 @@ def test_viewer_sid_tracking_clears_on_websocket_disconnect(tmp_path):
         assert sid not in session_mod.VIEWER_SID_COUNTS
 
 
-def test_disconnect_owned_session_releases_after_reconnect_grace(tmp_path):
+def test_disconnect_owned_session_releases_related_sessions_after_reconnect_grace(
+    tmp_path,
+):
     import time
 
     from arrayview._app import app
 
     path = tmp_path / "disconnect-release.npy"
     np.save(path, np.ones((4, 4), dtype=np.float32))
+    compare_path = tmp_path / "disconnect-release-compare.npy"
+    np.save(compare_path, np.ones((4, 4), dtype=np.float32) * 2)
+    overlay_path = tmp_path / "disconnect-release-overlay.npy"
+    np.save(overlay_path, np.ones((4, 4), dtype=np.float32) * 3)
 
     with TestClient(app) as client:
         sid = client.post(
             "/load",
-            json={
-                "filepath": str(path),
-                "release_on_disconnect": True,
-            },
+            json={"filepath": str(path)},
+        ).json()["sid"]
+        compare_sid = client.post(
+            "/load", json={"filepath": str(compare_path)}
+        ).json()["sid"]
+        overlay_sid = client.post(
+            "/load", json={"filepath": str(overlay_path)}
         ).json()["sid"]
         from arrayview._session import SESSIONS
 
-        SESSIONS[sid].disconnect_release_grace_seconds = 0.05
-        with client.websocket_connect(f"/ws/{sid}") as ws:
+        server_id = client.get("/ping").json()["instance_id"]
+        phase_path = f"/viewer-phase/{sid}/related-release-request"
+        prepared = client.post(
+            phase_path,
+            json={
+                "phase": "launch-prepared",
+                "server_id": server_id,
+                "window_id": "related-release-window",
+                "token": "related-release-token",
+            },
+        )
+        assert prepared.status_code == 200
+        reported = client.post(
+            phase_path,
+            json={
+                "phase": "script-loaded",
+                "server_id": server_id,
+                "window_id": "related-release-window",
+                "token": "related-release-token",
+                "viewer_instance_id": "related-release-viewer",
+                "release_on_disconnect": True,
+                "sid": sid,
+                "compare_sid": compare_sid,
+                "compare_sids": compare_sid,
+                "overlay_sid": overlay_sid,
+            },
+        )
+        assert reported.status_code == 200
+        journal = SESSIONS[sid].viewer_phase_journals[
+            "related-release-request"
+        ]
+        journal["disconnect_release_grace_seconds"] = 0.05
+        socket_path = (
+            f"/ws/{sid}?launch_request_id=related-release-request"
+            "&launch_token=related-release-token"
+        )
+        with client.websocket_connect(socket_path) as ws:
             assert ws.receive_json()["type"] == "metadata"
+
+        with client.websocket_connect(socket_path) as ws:
+            assert ws.receive_json()["type"] == "metadata"
+            time.sleep(0.1)
+            for owned_sid in (sid, compare_sid, overlay_sid):
+                assert client.get(f"/metadata/{owned_sid}").status_code == 200
 
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
-            if client.get(f"/metadata/{sid}").status_code == 404:
+            if all(
+                client.get(f"/metadata/{owned_sid}").status_code == 404
+                for owned_sid in (sid, compare_sid, overlay_sid)
+            ):
                 break
             time.sleep(0.05)
-        assert client.get(f"/metadata/{sid}").status_code == 404
+        for owned_sid in (sid, compare_sid, overlay_sid):
+            assert client.get(f"/metadata/{owned_sid}").status_code == 404
+
+
+def test_integrated_launch_cleanup_is_scoped_per_request_token(tmp_path):
+    import time
+
+    from arrayview._app import app
+    from arrayview._session import SESSIONS
+
+    paths = []
+    for index in range(3):
+        path = tmp_path / f"related-lease-{index}.npy"
+        np.save(path, np.ones((4, 4), dtype=np.float32) * (index + 1))
+        paths.append(path)
+
+    with TestClient(app) as client:
+        primary_sid, first_related_sid, second_related_sid = [
+            client.post("/load", json={"filepath": str(path)}).json()["sid"]
+            for path in paths
+        ]
+        SESSIONS[primary_sid].viewer_leases = 2
+        SESSIONS[primary_sid].related_release_sids = [first_related_sid]
+        SESSIONS[first_related_sid].viewer_leases = 2
+        server_id = client.get("/ping").json()["instance_id"]
+
+        def prepare_launch(request_id, token, related_sid):
+            phase_path = f"/viewer-phase/{primary_sid}/{request_id}"
+            prepared = client.post(
+                phase_path,
+                json={
+                    "phase": "launch-prepared",
+                    "server_id": server_id,
+                    "window_id": f"window-{request_id}",
+                    "token": token,
+                },
+            )
+            assert prepared.status_code == 200
+            reported = client.post(
+                phase_path,
+                json={
+                    "phase": "script-loaded",
+                    "server_id": server_id,
+                    "window_id": f"window-{request_id}",
+                    "token": token,
+                    "viewer_instance_id": f"viewer-{request_id}",
+                    "release_on_disconnect": True,
+                    "sid": primary_sid,
+                    "compare_sid": related_sid,
+                    "compare_sids": related_sid,
+                    "overlay_sid": None,
+                },
+            )
+            assert reported.status_code == 200
+            journal = SESSIONS[primary_sid].viewer_phase_journals[request_id]
+            journal["disconnect_release_grace_seconds"] = 0.05
+            return f"/ws/{primary_sid}?launch_request_id={request_id}&launch_token={token}"
+
+        first_socket = prepare_launch(
+            "first-request", "first-token", first_related_sid
+        )
+        second_socket = prepare_launch(
+            "second-request", "second-token", second_related_sid
+        )
+
+        with client.websocket_connect(first_socket) as first_ws:
+            assert first_ws.receive_json()["type"] == "metadata"
+            with client.websocket_connect(second_socket) as second_ws:
+                assert second_ws.receive_json()["type"] == "metadata"
+
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if second_related_sid not in SESSIONS:
+                    break
+                time.sleep(0.02)
+            assert second_related_sid not in SESSIONS
+            assert first_related_sid in SESSIONS
+            assert SESSIONS[primary_sid].viewer_leases == 1
+            assert (
+                "second-request"
+                not in SESSIONS[primary_sid].viewer_phase_journals
+            )
+
+            from starlette.websockets import WebSocketDisconnect
+
+            with pytest.raises(WebSocketDisconnect) as stale_reconnect:
+                with client.websocket_connect(second_socket):
+                    pass
+            assert stale_reconnect.value.code == 1008
+            assert SESSIONS[primary_sid].viewer_leases == 1
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if primary_sid not in SESSIONS:
+                break
+            time.sleep(0.02)
+        assert primary_sid not in SESSIONS
+        assert SESSIONS[first_related_sid].viewer_leases == 1
+        assert client.post(f"/release/{first_related_sid}").json()["released"] is True
 
 
 def test_reconnect_cancels_and_fences_pending_disconnect_release(tmp_path):
@@ -1118,7 +1734,15 @@ def test_vscode_lifecycle_helpers_with_node():
     )
 
 
-def test_vscode_tunnel_resolution_with_node():
+@pytest.mark.parametrize(
+    "script",
+    [
+        "test_tunnel_resolution.js",
+        "test_tunnel_desktop_loopback.js",
+        "test_tunnel_loopback_promotion.js",
+    ],
+)
+def test_vscode_tunnel_resolution_with_node(script):
     import shutil
     import subprocess
 
@@ -1129,7 +1753,7 @@ def test_vscode_tunnel_resolution_with_node():
         pytest.skip("node is not installed")
     repo_root = Path(__file__).resolve().parents[1]
     subprocess.run(
-        [node, "vscode-extension/test_tunnel_resolution.js"],
+        [node, f"vscode-extension/{script}"],
         cwd=repo_root,
         check=True,
     )
@@ -1156,6 +1780,23 @@ def test_vscode_transaction_contracts_with_node(script):
         cwd=repo_root,
         check=True,
     )
+
+
+def test_vscode_extension_defaults_integrated_browser_to_remote_proxy():
+    import json
+    import zipfile
+
+    repo_root = Path(__file__).resolve().parents[1]
+    source_package = json.loads(
+        (repo_root / "vscode-extension" / "package.json").read_text()
+    )
+    with zipfile.ZipFile(repo_root / "src/arrayview/arrayview-opener.vsix") as zf:
+        bundled_package = json.loads(zf.read("extension/package.json"))
+
+    for package in (source_package, bundled_package):
+        assert package["contributes"]["configurationDefaults"][
+            "workbench.browser.enableRemoteProxy"
+        ] is True
 
 
 def test_bundled_vscode_vsix_matches_release_lifecycle_source():

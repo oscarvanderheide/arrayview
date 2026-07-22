@@ -5341,6 +5341,16 @@
                 const separator = wsTarget.includes('?') ? '&' : '?';
                 wsTarget += `${separator}native_request_id=${encodeURIComponent(nativeRequestId)}`;
             }
+            const launchRequestId = urlParams.get('_av_launch_request_id');
+            const launchToken = urlParams.get('_av_launch_token');
+            // Launch readiness belongs to the primary viewer only. Compare,
+            // overlay, and multiview SIDs do not own its phase journal and
+            // must connect as ordinary related-session sockets.
+            if (transportSid === sid && launchRequestId && launchToken) {
+                const separator = wsTarget.includes('?') ? '&' : '?';
+                wsTarget += `${separator}launch_request_id=${encodeURIComponent(launchRequestId)}`;
+                wsTarget += `&launch_token=${encodeURIComponent(launchToken)}`;
+            }
             let ws;
             if (_embeddedServerOrigin) {
                 const wsUrl = new URL(wsTarget);
@@ -5373,6 +5383,20 @@
             return fetch(resolveServerPath(url), options);
         }
 
+        const _launchPhaseRequestId = urlParams.get('_av_launch_request_id');
+        const _launchPhaseServerId = urlParams.get('_av_launch_server_id');
+        const _launchPhaseWindowId = urlParams.get('_av_launch_window_id');
+        const _launchPhaseToken = urlParams.get('_av_launch_token');
+        const _launchViewerInstanceId = (
+            typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random()}`
+        );
+        const _launchPhaseNames = new Set([
+            'script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered',
+        ]);
+        let _launchPhaseTail = Promise.resolve();
+
         function reportParent(phase, detail) {
             try {
                 if (window.parent && window.parent !== window) {
@@ -5384,6 +5408,32 @@
                     }, '*');
                 }
             } catch (_) {
+            }
+            if (
+                _launchPhaseRequestId
+                && _launchPhaseServerId
+                && _launchPhaseWindowId
+                && _launchPhaseToken
+                && _launchPhaseNames.has(phase)
+            ) {
+                const phasePath = `/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(_launchPhaseRequestId)}`;
+                _launchPhaseTail = _launchPhaseTail.then(() => proxyFetch(phasePath, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phase,
+                        detail: detail || null,
+                        server_id: _launchPhaseServerId,
+                        window_id: _launchPhaseWindowId,
+                        token: _launchPhaseToken,
+                        viewer_instance_id: _launchViewerInstanceId,
+                        release_on_disconnect: true,
+                        sid: urlParams.get('sid'),
+                        compare_sid: urlParams.get('compare_sid'),
+                        compare_sids: urlParams.get('compare_sids'),
+                        overlay_sid: urlParams.get('overlay_sid'),
+                    }),
+                })).catch(() => {});
             }
         }
 
@@ -13923,6 +13973,13 @@
                 _reconcileCbVisibility();
                 drawCompareFramesFromCache();
                 hideLoadingOverlay();
+                if (!_reportedFirstFrame && compareFrames.length) {
+                    _reportedFirstFrame = true;
+                    reportParent('frame-rendered', {
+                        mode: 'compare',
+                        panes: compareFrames.length,
+                    });
+                }
                 if (diffMode > 0) fetchAndDrawDiff();
             } catch (e) {
                 const compareError = `Compare render failed: ${e.message || e}`;

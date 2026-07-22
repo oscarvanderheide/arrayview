@@ -265,14 +265,30 @@ def _open_browser(
             parsed_port = 8000
 
         if selected_adapter == "vscode" and is_remote:
-            # Remote/tunnel: install extension + write signal file.
+            # Remote/tunnel: install through this exact window's server, then
+            # require exact-window activation before writing any signal.
             ext_ok = _ensure_vscode_extension(is_remote=True)
             from arrayview import _vscode_extension as _extension_state
-            if not ext_ok and _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
+            if not ext_ok:
+                if _extension_state._VSCODE_EXT_INSTALL_FAILED:
+                    detail = (
+                        "ArrayView could not safely install its VS Code opener in "
+                        "this exact remote window; no viewer request was sent."
+                    )
+                elif _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
+                    detail = (
+                        "ArrayView's VS Code opener was installed; reload this exact "
+                        "window once, then retry."
+                    )
+                else:
+                    detail = (
+                        "ArrayView could not verify the VS Code opener in this exact "
+                        "remote window; no viewer request was sent."
+                    )
                 return OpenResult(
                     OpenState.FAILED,
                     "vscode-extension",
-                    "ArrayView updated its VS Code opener; reload this VS Code window once, then retry",
+                    detail,
                 )
             # URL-based mode: port is forwarded by VS Code and the viewer
             # connects via WebSocket through the devtunnel.
@@ -298,11 +314,6 @@ def _open_browser(
                 window_tag=_trace_tag(request.window_id),
                 server_tag=_trace_tag(request.server_id),
             )
-            if not ext_ok:
-                _vprint(
-                    "[ArrayView] extension install could not be verified — signal file written anyway",
-                    flush=True,
-                )
             if not request:
                 return OpenResult(
                     OpenState.FAILED,

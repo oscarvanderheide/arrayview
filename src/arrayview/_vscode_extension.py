@@ -12,7 +12,13 @@ import zipfile
 from importlib.resources import files as _pkg_files
 
 from arrayview._session import _vprint
-from arrayview._platform import _find_code_cli, _find_vscode_ipc_hook, _in_vscode_terminal, _is_vscode_remote
+from arrayview._platform import (
+    _exact_vscode_window_registration,
+    _find_code_cli,
+    _find_vscode_ipc_hook,
+    _in_vscode_terminal,
+    _is_vscode_remote,
+)
 
 # ---------------------------------------------------------------------------
 # VS Code .app bundle detection (macOS)
@@ -47,7 +53,8 @@ def _vscode_app_bundle() -> str | None:
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
-_VSCODE_EXT_VERSION = "0.14.51"  # current bundled extension version
+_VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
+_VSCODE_EXT_VERSION = "0.14.70"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -66,12 +73,16 @@ def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
         return None
 
 
-def _patch_vscode_extension_metadata(version: str) -> None:
+def _patch_vscode_extension_metadata(
+    version: str, *, bases: tuple[str, ...] | None = None
+) -> None:
     """Remove broken targetPlatform metadata written by VS Code for local VSIX installs."""
-    for base_dir in (
-        os.path.expanduser("~/.vscode-server/extensions"),
-        os.path.expanduser("~/.vscode/extensions"),
-    ):
+    if bases is None:
+        bases = (
+            os.path.expanduser("~/.vscode-server/extensions"),
+            os.path.expanduser("~/.vscode/extensions"),
+        )
+    for base_dir in bases:
         package_json = os.path.join(
             base_dir, f"arrayview.arrayview-opener-{version}", "package.json"
         )
@@ -166,9 +177,10 @@ def _extension_on_disk(
     """Return True if the extension directory for *version* exists on disk.
 
     When *vsix_path* is given, also verifies that the installed extension
-    matches the bundled VSIX by comparing a content hash stored at install
-    time.  This catches rebuilds during development where the version stays
-    the same but the VSIX content changed.
+    matches the bundled VSIX.  The hash written by ArrayView is only a fast
+    path: VS Code may install the extension without that private marker, so a
+    missing or stale marker falls back to comparing the packaged files before
+    deciding that a reinstall is necessary.
     """
     import hashlib
 
@@ -190,12 +202,75 @@ def _extension_on_disk(
             installed_hash = None
         if installed_hash == vsix_hash:
             return True
+        if _installed_extension_matches_vsix(ext_dir, vsix_path):
+            # The marker is an ArrayView optimization, not part of the VSIX.
+            # Backfill it after a verified VS Code install so ordinary launches
+            # do not force a redundant --force install and window reload.
+            try:
+                with open(hash_file, "w") as f:
+                    f.write(vsix_hash)
+            except OSError as exc:
+                _vprint(
+                    f"[ArrayView] could not cache verified VSIX hash at "
+                    f"{hash_file}: {exc}",
+                    flush=True,
+                )
+            return True
         _vprint(
             f"[ArrayView] VSIX content changed (installed={installed_hash}, bundled={vsix_hash}) — reinstalling",
             flush=True,
         )
         return False
     return False
+
+
+def _installed_extension_matches_vsix(ext_dir: str, vsix_path: str) -> bool:
+    """Return whether all files shipped in *vsix_path* match *ext_dir*.
+
+    VS Code injects a top-level ``__metadata`` object into ``package.json``
+    and can rewrite its formatting during installation.  That field is host
+    bookkeeping rather than bundled extension content, so package manifests
+    are compared structurally after removing it.  Every other shipped file is
+    compared byte-for-byte.  Extra host files such as ``.vsix_hash`` do not
+    affect the result.
+    """
+
+    try:
+        with zipfile.ZipFile(vsix_path) as zf:
+            packaged_files = [
+                info
+                for info in zf.infolist()
+                if info.filename.startswith("extension/") and not info.is_dir()
+            ]
+            if not packaged_files:
+                return False
+            for info in packaged_files:
+                relative = info.filename.removeprefix("extension/")
+                parts = relative.split("/")
+                if not relative or any(part in ("", ".", "..") for part in parts):
+                    return False
+                installed_path = os.path.join(ext_dir, *parts)
+                if not os.path.isfile(installed_path):
+                    return False
+                packaged = zf.read(info)
+                with open(installed_path, "rb") as f:
+                    installed = f.read()
+                if relative == "package.json":
+                    packaged_json = json.loads(packaged)
+                    installed_json = json.loads(installed)
+                    if not isinstance(packaged_json, dict) or not isinstance(
+                        installed_json, dict
+                    ):
+                        return False
+                    packaged_json.pop("__metadata", None)
+                    installed_json.pop("__metadata", None)
+                    if installed_json != packaged_json:
+                        return False
+                elif installed != packaged:
+                    return False
+    except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile):
+        return False
+    return True
 
 
 def _newer_extension_on_disk(version: str, *, remote: bool) -> str | None:
@@ -220,35 +295,58 @@ def _newer_extension_on_disk(version: str, *, remote: bool) -> str | None:
     return max(newer)[1] if newer else None
 
 
+def _active_extension_registration() -> dict | None:
+    """Return the live opener registration for this terminal's exact window."""
+    ipc = _find_vscode_ipc_hook()
+    exact = _exact_vscode_window_registration(ipc)
+    return exact[1] if exact is not None else None
+
+
 def _active_extension_version() -> str | None:
     """Return the opener version advertised by this terminal's live host."""
-    window_id = os.environ.get("ARRAYVIEW_WINDOW_ID")
-    if not window_id:
-        ipc = _find_vscode_ipc_hook()
-        if ipc:
-            import hashlib
-
-            window_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
-    if not window_id:
+    registration = _active_extension_registration()
+    if registration is None:
         return None
-    registration = os.path.expanduser(f"~/.arrayview/window-{window_id}.json")
-    try:
-        with open(registration) as file:
-            value = json.load(file).get("extensionVersion")
-        # An existing registration without a version belongs to a legacy host.
-        return value if isinstance(value, str) else ""
-    except (OSError, TypeError, ValueError):
+    value = registration.get("extensionVersion")
+    # An existing registration without a version belongs to a legacy host.
+    return value if isinstance(value, str) else ""
+
+
+def _extension_registration_marker(registration: dict | None) -> tuple | None:
+    if registration is None:
         return None
+    return (
+        registration.get("pid"),
+        registration.get("extensionInstanceId"),
+        registration.get("ts"),
+    )
 
 
-def _wait_for_active_extension_version(version: str, timeout: float = 15.0) -> bool:
+def _wait_for_active_extension_version(
+    version: str,
+    timeout: float = 15.0,
+    *,
+    previous_marker: tuple | None = None,
+) -> bool:
     """Wait for an updated extension host registration after installation."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _active_extension_version() == version:
+        registration = _active_extension_registration()
+        marker = _extension_registration_marker(registration)
+        if (
+            registration is not None
+            and registration.get("extensionVersion") == version
+            and (previous_marker is None or marker != previous_marker)
+        ):
             return True
         time.sleep(0.1)
-    return _active_extension_version() == version
+    registration = _active_extension_registration()
+    marker = _extension_registration_marker(registration)
+    return bool(
+        registration is not None
+        and registration.get("extensionVersion") == version
+        and (previous_marker is None or marker != previous_marker)
+    )
 
 
 def _run_extension_installer(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
@@ -280,24 +378,102 @@ def _run_extension_installer(command: list[str], env: dict[str, str]) -> subproc
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
+def _extension_base_snapshot() -> dict[str, tuple[int, int, tuple[str, ...]]]:
+    """Return registry/directory mtimes used to identify one install target."""
+    snapshot: dict[str, tuple[int, int, tuple[str, ...]]] = {}
+    for base in _extension_bases(remote=None):
+        registry = os.path.join(base, "extensions.json")
+        try:
+            registry_mtime = os.stat(registry).st_mtime_ns
+        except OSError:
+            registry_mtime = -1
+        try:
+            base_mtime = os.stat(base).st_mtime_ns
+        except OSError:
+            base_mtime = -1
+        try:
+            entries = tuple(sorted(os.listdir(base)))
+        except OSError:
+            entries = ()
+        snapshot[base] = (registry_mtime, base_mtime, entries)
+    return snapshot
+
+
+def _remote_install_base(
+    *,
+    active_version: str | None,
+    version: str,
+    before: dict[str, tuple[int, int, tuple[str, ...]]],
+) -> str | None:
+    """Identify the single remote extension root changed by the active CLI."""
+    bases = _extension_bases(remote=None)
+    after = _extension_base_snapshot()
+    if active_version:
+        active_bases = [
+            base
+            for base in bases
+            if os.path.isdir(
+                os.path.join(base, f"arrayview.arrayview-opener-{active_version}")
+            )
+        ]
+        if len(active_bases) == 1:
+            active_base = active_bases[0]
+            desired = os.path.join(
+                active_base, f"arrayview.arrayview-opener-{version}"
+            )
+            return (
+                active_base
+                if os.path.isdir(desired)
+                and after.get(active_base) != before.get(active_base)
+                else None
+            )
+
+    changed = [base for base in bases if after.get(base) != before.get(base)]
+    if len(changed) == 1:
+        return changed[0]
+
+    installed = [
+        base
+        for base in bases
+        if os.path.isdir(os.path.join(base, f"arrayview.arrayview-opener-{version}"))
+    ]
+    return installed[0] if len(installed) == 1 else None
+
+
+def _write_vscode_extension_hash(
+    version: str, vsix_path: str, *, bases: tuple[str, ...]
+) -> None:
+    """Record the bundled content hash only in the selected installation root."""
+    import hashlib
+
+    vsix_hash = hashlib.md5(open(vsix_path, "rb").read()).hexdigest()
+    for base in bases:
+        ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
+        if os.path.isdir(ext_dir):
+            with open(os.path.join(ext_dir, ".vsix_hash"), "w") as f:
+                f.write(vsix_hash)
+
+
 def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
-    """Install the bundled arrayview-opener VS Code extension for local VS Code use.
+    """Verify or install the bundled opener for the current VS Code window.
 
     The extension bridges local VS Code terminals to a webview panel tab
     and, in remote/tunnel sessions, can actively invoke VS Code's forwarded-port
     commands to promote the port to public preview.
 
-    Skips reinstallation if the correct version is already present on disk —
-    reinstalling with --force causes an extension-host reload, which creates a
-    timing gap during which a signal file may be missed.  Old extension
-    directories are cleaned up before any fresh install.
+    Remote installs use the exact current server CLI and must observe activation
+    in the exact current window before launch can continue. Tunnel and Remote-SSH
+    processes can share one extension registry, so remote cleanup never removes
+    older versions and post-processing touches only the identified active base.
 
     The authoritative version is read from the bundled VSIX — no hardcoded
     version constant needed.
     """
-    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL, _VSCODE_EXT_RELOAD_REQUIRED
+    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
+    global _VSCODE_EXT_RELOAD_REQUIRED, _VSCODE_EXT_INSTALL_FAILED
     _VSCODE_EXT_FRESH_INSTALL = False
     _VSCODE_EXT_RELOAD_REQUIRED = False
+    _VSCODE_EXT_INSTALL_FAILED = False
 
     vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
     if not os.path.isfile(vsix_path):
@@ -313,8 +489,20 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     if is_remote is None:
         is_remote = _is_vscode_remote()
     active_version = _active_extension_version()
+    active_registration = _active_extension_registration()
+    active_marker = (
+        _extension_registration_marker(active_registration)
+        if active_registration is not None
+        and active_registration.get("extensionVersion") == active_version
+        else None
+    )
     if _extension_on_disk(ext_version, vsix_path, remote=is_remote):
-        if active_version not in (None, ext_version):
+        active_matches = (
+            active_version == ext_version
+            if is_remote
+            else active_version in (None, ext_version)
+        )
+        if not active_matches:
             _VSCODE_EXT_RELOAD_REQUIRED = True
             _vprint(
                 f"[ArrayView] opener v{ext_version} is installed, but this VS Code "
@@ -322,7 +510,8 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
                 flush=True,
             )
             return False
-        _remove_old_extension_versions(ext_version, remote=is_remote)
+        if not is_remote:
+            _remove_old_extension_versions(ext_version, remote=False)
         _VSCODE_EXT_INSTALLED = True
         _vprint(
             f"[ArrayView] extension v{ext_version} already installed — skipping reinstall",
@@ -332,7 +521,12 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
 
     newer_version = _newer_extension_on_disk(ext_version, remote=is_remote)
     if newer_version is not None:
-        if active_version not in (None, newer_version):
+        active_matches = (
+            active_version == newer_version
+            if is_remote
+            else active_version in (None, newer_version)
+        )
+        if not active_matches:
             _VSCODE_EXT_RELOAD_REQUIRED = True
             _vprint(
                 f"[ArrayView] newer opener v{newer_version} is installed, but this "
@@ -349,13 +543,16 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
 
     code = _find_code_cli(is_remote=is_remote)
     if not code:
+        if is_remote:
+            _VSCODE_EXT_INSTALL_FAILED = True
         return False
 
     env = dict(os.environ)
     ipc = _find_vscode_ipc_hook()
-    if ipc and "VSCODE_IPC_HOOK_CLI" not in env:
+    if ipc:
         env["VSCODE_IPC_HOOK_CLI"] = ipc
 
+    install_snapshot = _extension_base_snapshot() if is_remote else {}
     try:
         r = _run_extension_installer(
             [code, "--install-extension", vsix_path, "--force"], env
@@ -368,25 +565,46 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
             or "Error:" in combined
         )
         if r.returncode == 0 and not install_failed:
-            _patch_vscode_extension_metadata(ext_version)
-            # Write content hash so future runs can detect VSIX rebuilds
-            # without a version bump (common during development).
+            install_bases: tuple[str, ...]
+            if is_remote:
+                active_base = _remote_install_base(
+                    active_version=active_version,
+                    version=ext_version,
+                    before=install_snapshot,
+                )
+                if active_base is None:
+                    _VSCODE_EXT_INSTALL_FAILED = True
+                    print(
+                        "[ArrayView] extension installed, but its active remote "
+                        "profile could not be identified safely; no other VS Code "
+                        "profile was modified",
+                        flush=True,
+                    )
+                    return False
+                install_bases = (active_base,)
+            else:
+                install_bases = _extension_bases(remote=False)
+            _patch_vscode_extension_metadata(ext_version, bases=install_bases)
             try:
-                import hashlib
-                vsix_hash = hashlib.md5(open(vsix_path, "rb").read()).hexdigest()
-                for base in (
-                    os.path.expanduser("~/.vscode/extensions"),
-                    os.path.expanduser("~/.vscode-server/extensions"),
-                ):
-                    ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{ext_version}")
-                    if os.path.isdir(ext_dir):
-                        with open(os.path.join(ext_dir, ".vsix_hash"), "w") as f:
-                            f.write(vsix_hash)
+                _write_vscode_extension_hash(
+                    ext_version, vsix_path, bases=install_bases
+                )
             except Exception:
                 pass  # non-critical
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
-            _remove_old_extension_versions(ext_version, remote=is_remote)
+            if not is_remote:
+                _remove_old_extension_versions(ext_version, remote=False)
+            else:
+                # Do not write a viewer request until this exact window has
+                # advertised the installed version. A bounded wait handles VS
+                # Code's normal hot activation; otherwise one reload is needed.
+                if _wait_for_active_extension_version(
+                    ext_version, previous_marker=active_marker
+                ):
+                    return True
+                _VSCODE_EXT_RELOAD_REQUIRED = True
+                return False
             if active_version not in (None, ext_version):
                 if not _wait_for_active_extension_version(ext_version):
                     _VSCODE_EXT_RELOAD_REQUIRED = True
@@ -399,10 +617,14 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
             return True
         if active_version not in (None, ext_version):
             _VSCODE_EXT_RELOAD_REQUIRED = True
+        if is_remote:
+            _VSCODE_EXT_INSTALL_FAILED = True
         print(f"[ArrayView] extension install failed: {combined.strip()!r}", flush=True)
     except Exception as exc:
         if active_version not in (None, ext_version):
             _VSCODE_EXT_RELOAD_REQUIRED = True
+        if is_remote:
+            _VSCODE_EXT_INSTALL_FAILED = True
         print(f"[ArrayView] extension install error: {exc}", flush=True)
     return False
 

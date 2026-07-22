@@ -341,8 +341,14 @@ def plan_launch(
         )
 
     environment = facts.environment
+    explicit_inline = window == "inline" or (
+        intent.inline is True and intent.inline_explicit
+    )
     remote_jupyter = (
-        facts.is_vscode_remote and facts.in_jupyter and intent.inline is not False
+        facts.is_vscode_remote
+        and facts.in_jupyter
+        and intent.inline is not False
+        and not explicit_inline
     )
     if remote_jupyter:
         environment = Environment.VSCODE_REMOTE

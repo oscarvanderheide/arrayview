@@ -109,7 +109,9 @@ def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_p
     assert request.window_id == "live-window"
 
 
-def test_open_request_leaves_broadcast_window_to_claiming_extension(monkeypatch, tmp_path):
+def test_open_request_with_stale_id_and_multiple_remote_windows_fails_closed(
+    monkeypatch, tmp_path, capsys
+):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "stale-window")
@@ -129,11 +131,9 @@ def test_open_request_leaves_broadcast_window_to_claiming_extension(monkeypatch,
 
     request = signal._open_via_signal_file("http://localhost:8123/")
 
-    queued = signal_dir / f"open-request-v0900.request-{request.request_id}.json"
-    payload = json.loads(queued.read_text())
-    assert payload["broadcast"] is True
-    assert "windowId" not in payload
-    assert request.window_id is None
+    assert request.written is False
+    assert "VS Code window is ambiguous" in capsys.readouterr().out
+    assert not list(signal_dir.glob("open-request-*"))
 
 
 def test_protocol_requests_get_distinct_queue_files(monkeypatch, tmp_path):

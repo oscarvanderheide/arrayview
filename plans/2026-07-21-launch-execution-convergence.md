@@ -37,16 +37,16 @@ Implemented on `feat/launch-tunnel-reliability`:
 - VS Code delivery has a durable request journal, exact claim ownership,
   owner-fenced monotonic ACKs, restart recovery, request-stable panel identity,
   deadline fencing, and stale-panel disposal protection;
-- the bundled VS Code opener is version 0.14.51. Its panel wrapper no longer
+- the bundled VS Code opener is version 0.14.70. Its panel wrapper no longer
   reloads a healthy iframe after `script-loaded`, readiness remains gated on
   the exact `frame-rendered` message, and the local/remote request, caller, and
   backend leases have an explicit bounded ordering;
 - focused public-path, ownership-race, process-cleanup, protocol-restart,
   reconnect, relay-rollback, deadline, and packaging tests cover the implemented
-  contracts. Current evidence is 280 launch-contract tests before this panel
-  slice, all Node extension tests including the panel-readiness state machine,
-  a passing package build, and 273/275 API tests; the two API
-  failures are isolated pre-existing thumbnail rendering defects.
+  contracts. Current evidence is 300/300 launch-contract tests, all ten Node
+  extension tests including the panel-readiness state machine, a passing
+  package build, and 283/285 API tests; the two failures are the isolated
+  pre-existing thumbnail rendering defects.
 - the dated macOS host run of
   `uv run arrayview debug/parameter_maps.nii --window native` under captured
   `vscode_local` evidence launched one detached PyWebView process after exact
@@ -60,8 +60,15 @@ Implemented on `feat/launch-tunnel-reliability`:
   reproduced a destructive two-second reload loop; after the fix it held one
   stable viewer connection, but its fresh temporary profile triggered a macOS
   keychain modal and did not produce a valid first-frame host gate. A normal
-  existing VS Code window still needs 0.14.51 installation/reload and a real
+  existing VS Code window still needs 0.14.70 installation/reload and a real
   frame/disposal run before this row is green.
+- a dated real VS Code tunnel run with opener 0.14.70 passed explicit and
+  default/auto first-frame launches, exact-window targeting in the presence of
+  a live Remote-SSH sibling, repeated-launch server reuse, explicit remote
+  native-policy redirection, SID release, daemon exit, and port cleanup. VS
+  Code 1.128 used the integrated-browser remote proxy directly rather than a
+  public non-loopback developer-tunnel URL, so the phase-level external-URI
+  evidence remains open and is not inferred from the successful frame ACK.
 
 Still required before this plan is complete:
 
@@ -72,8 +79,9 @@ Still required before this plan is complete:
 - run the independent-process concurrency/fault soak and the full scenario
   ledger;
 - finish the real local VS Code frame/disposal gate without a temporary-profile
-  keychain modal, plus VS Code tunnel/reconnect, IJulia, and MATLAB. Automated
-  component tests are not presented as proof of those host boundaries.
+  keychain modal, the remaining tunnel external-URI/same-server multi-window
+  gates, IJulia, and MATLAB. Automated component tests are not presented as
+  proof of those host boundaries.
 
 ## Executive decision
 

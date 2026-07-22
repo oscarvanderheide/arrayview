@@ -129,9 +129,13 @@ def check_node_extension_helpers() -> CheckResult:
     scripts = [
         "test_lifecycle_helpers.js",
         "test_tunnel_resolution.js",
+        "test_tunnel_desktop_loopback.js",
+        "test_tunnel_loopback_promotion.js",
         "test_request_journal.js",
         "test_request_deadline.js",
         "test_panel_replay.js",
+        "test_panel_readiness.js",
+        "test_integrated_browser_readiness.js",
     ]
     for script in scripts:
         result = _run([node, f"vscode-extension/{script}"], timeout=20.0)
