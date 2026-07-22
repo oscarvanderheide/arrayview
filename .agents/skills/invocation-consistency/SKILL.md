@@ -13,6 +13,11 @@ For the affected environment, run the smallest real public invocation before
 editing and preserve it as the acceptance gate. A helper test, open port, new
 process, panel, or WebSocket does not prove that the array appeared.
 
+When validating a working tree, use `uv run arrayview`, never `uvx arrayview`.
+`uvx` may execute a released package whose Python code and bundled opener do
+not match the branch under test. `ARRAYVIEW_LAUNCH_TRACE` is diagnostic evidence,
+not a setup step that users should need for ordinary launches.
+
 Read `.mex/patterns/validate-launch-path.md` for the evidence workflow. For VS
 Code delivery failures, also read
 `.mex/patterns/debug-vscode-extension-python.md`.
@@ -44,6 +49,12 @@ For every affected row, verify all applicable outcomes:
    transient processes.
 7. Remote/reconnect paths recover within a bounded transaction and do not open
    in a stale sibling window.
+
+When a change affects request multiplexing, panel creation, shared-server
+reuse, or session cleanup, exercise five launches before declaring the path
+stable. Close a middle display and prove the others remain usable, then close
+the rest and prove final cleanup. There is no acceptable hidden one-panel or
+two-launch limit.
 
 If a gate fails, retain the trace and diagnose the earliest failed boundary.
 Do not patch a later symptom or start a broad refactor first.
@@ -78,33 +89,62 @@ supported rows deliberately excluded from real validation and why.
 - Keep transient CLI/SSH backends bounded and automatically reaped.
 - Reuse a server only after verifying ArrayView identity and required
   capabilities. Never kill a foreign listener.
-- Use `localhost` in public viewer URLs.
+- Use `localhost` for backend bind URLs and direct viewer URLs. A tunnel's
+  externally resolved `asExternalUri` URL is the deliberate exception.
 
 ## VS Code invariants
 
 - Local VS Code, Remote SSH, and VS Code tunnel are separate host rows.
+- Identify the active VS Code server from the launching terminal's process and
+  environment evidence. Never select a server CLI, extension root, or window
+  because it is the newest glob match.
+- Record `vscode.env.remoteName`, terminal IPC/process ancestry, extension-host
+  registration/version/instance ID, extension placement, and all competing
+  ArrayView registrations before changing delivery logic.
+- A terminal's `ARRAYVIEW_WINDOW_ID` may become stale after reload. Recover the
+  target only from an exact live registration or a unique match to the active
+  VS Code server root. If multiple windows remain possible, fail closed; never
+  broadcast or use focus as a guess.
 - Success requires an ACK correlated to the exact request, window, server, SID,
-  and `frame-rendered` event.
+  extension instance/version, and `frame-rendered` event. An older or sibling
+  extension host must not be able to complete the transaction.
 - `asExternalUri`, port forwarding, panel creation, and WebSocket connection are
   intermediate states.
+- Desktop tunnels have two valid URL routes. With VS Code's integrated-browser
+  remote proxy enabled, a direct loopback backend URL is valid. Without that
+  proxy, require a verified non-loopback `asExternalUri` URL and perform any
+  supported visibility promotion before opening it. Do not apply tunnel-public
+  rules to Remote SSH, and do not rewrite a valid proxied route merely because
+  a port appears private in the Ports view.
 - Closing the panel must release its URL sessions through the backend cleanup
   authority.
 - Reconnect/reload must not duplicate panels, renew a transaction forever, or
   let a stale extension host claim the request.
-- Never launch a temporary VS Code profile/window or reload the user's IDE
-  without explicit permission.
+- Never use a temporary or isolated VS Code profile/window as acceptance
+  evidence; it changes the environment being diagnosed and can trigger account
+  or keychain prompts. Obtain explicit permission before installing into or
+  reloading the user's active IDE.
 
 ## Extension packaging
 
-When `vscode-extension/extension.js` changes:
+When any bundled VS Code extension source changes:
 
 1. Bump `vscode-extension/package.json` and
    `src/arrayview/_vscode_extension.py` together.
 2. Rebuild `src/arrayview/arrayview-opener.vsix`.
 3. Verify source, bundled VSIX, installed version, and live extension-host
    registration separately.
-4. Obtain permission before installing into or reloading the user's active
+4. Do not infer that a missing local VSIX hash means the installed extension is
+   different. Compare installed content, backfill the marker when equivalent,
+   and avoid an unnecessary reinstall/reload cycle.
+5. Install through the exact active host, preserve unrelated installations,
+   and do not signal until that exact window reports the required live version.
+6. Obtain permission before installing into or reloading the user's active
    VS Code profile.
+
+After any release build, inspect both archive membership and size. A successful
+exit code is not sufficient if an sdist has swept in untracked user data,
+editor state, caches, or repository tooling.
 
 ## Stop conditions
 

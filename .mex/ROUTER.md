@@ -55,7 +55,7 @@ Load only the file(s) matching the task. One is usually enough.
 - Test: run targeted `uv run pytest tests/<target>` checks
 - Visual smoke: run `uv run python` on `tests/visual_smoke.py`
 - Working-tree CLI: `uv run arrayview <file>`
-- Installed-package CLI: `uvx arrayview <file>`
+- Installed-release CLI only: `uvx arrayview <file>` (never working-tree evidence)
 - Build: `uv build`
 - Drift check: `mex check --quiet`
 
