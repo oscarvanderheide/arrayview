@@ -31,7 +31,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 | Plain Python script `view(arr)` | Browser/native/VS Code display | Non-daemon background server thread | Calling process remains alive until a viewer connects then closes, or the bounded connect timeout expires |
 | Jupyter `view(arr)` | Notebook kernel inline iframe | Kernel-owned daemon server thread | Iframe disappearance must not hard-kill backend |
 | Julia/PythonCall | Browser/VS Code route from subprocess | Detached subprocess | Never in-process; avoid GIL deadlock |
-| Remote/tunnel | VS Code URL webview panel | Forwarded WebSocket server | Persistent only when `--serve` or tunnel ownership requires it |
+| Remote/tunnel | VS Code integrated browser (desktop tunnel) or URL webview panel | Forwarded WebSocket server | Persistent only when `--serve` or tunnel ownership requires it |
 | Plain SSH | User-forwarded localhost URL | Transient server unless `--serve` requested | Viewer close ends transient session |
 
 ## Local VS Code CLI
@@ -59,11 +59,11 @@ This contract describes who owns the backend, when it starts, and what closes it
 ## Remote, Tunnel, And SSH
 
 - Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it, but persistence must remain bounded. Current defaults use a 210-second viewer-connect timeout and a 1,800-second idle timeout unless configured otherwise.
-- VS Code tunnel display uses forwarded localhost URLs; the extension should configure the port, promote privacy when available, and resolve the URL with `asExternalUri`.
-- With multiple registered tunnel windows, a missing `ARRAYVIEW_WINDOW_ID` first recovers the exact live registration from the terminal's IPC hook. Only when no exact registration exists does it use the shared focused-window broadcast fallback.
+- Desktop VS Code tunnel display uses the integrated browser. With VS Code's remote browser proxy enabled it opens the backend URL directly; otherwise it automatically promotes the tunnel port to public and requires a verified non-loopback `asExternalUri` URL. Other remote hosts retain the URL webview path.
+- With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` recovers the exact live registration from the terminal IPC hook or the uniquely matching VS Code server root. If no exact registration can be recovered, delivery fails closed instead of broadcasting to a possibly wrong window.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
 - Protocol request claims are atomic across extension hosts. Compatibility queue copies with the same request ID must never open in a sibling window or overwrite a terminal ACK.
-- Tunnel `asExternalUri` results must be non-loopback. Remote-SSH may legitimately resolve to a local forwarded URL and must not be subjected to tunnel-only public-port commands.
+- A desktop tunnel may use a loopback backend URL only through VS Code's enabled integrated-browser remote proxy; otherwise desktop and web-hosted tunnels require a verified non-loopback public URL. Remote-SSH may legitimately resolve to a local forwarded URL and must not be subjected to tunnel-only public-port commands. First-frame proof from the correlated backend phase journal remains the acceptance gate.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
 
 ## Shared Rules
@@ -72,8 +72,11 @@ This contract describes who owns the backend, when it starts, and what closes it
 - `release_session()` is the session-release primitive.
 - Viewer WebSocket connect/disconnect owns active viewer counts.
 - URL panel disposal must release every SID encoded in the URL: `sid`, `compare_sid`, `compare_sids`, and `overlay_sid`.
-- Tunnel panel disposal posts release requests to the local backend immediately;
+- Tunnel webview-panel disposal posts release requests to the local backend immediately;
   the forwarded public URL is display-only and is not the cleanup authority.
+- The desktop-tunnel integrated browser has no stable tab-disposal handle. Its
+  correlated viewer marks the SID for fenced WebSocket-disconnect release with
+  a short reconnect grace period.
 - Reused file and collection sessions acquire one lease per tab, so closing one
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only

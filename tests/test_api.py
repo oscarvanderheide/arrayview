@@ -50,6 +50,115 @@ class TestHealth:
         assert "resolveServerPath(path)" in r.text
         assert "window.location.pathname.match(/^(.*\\/proxy\\/\\d+)(?:\\/|$)/)" in r.text
         assert '<script src="gsap.min.js"></script>' in r.text
+        assert "sid: urlParams.get('sid')" in r.text
+        assert "compare_sid: urlParams.get('compare_sid')" in r.text
+        assert "compare_sids: urlParams.get('compare_sids')" in r.text
+        assert "overlay_sid: urlParams.get('overlay_sid')" in r.text
+        assert "launch_request_id=${encodeURIComponent(launchRequestId)}" in r.text
+        assert "launch_token=${encodeURIComponent(launchToken)}" in r.text
+        assert (
+            "transportSid === sid && launchRequestId && launchToken" in r.text
+        )
+        assert "mode: 'compare'" in r.text
+        assert "panes: compareFrames.length" in r.text
+
+    def test_viewer_phase_journal_is_correlated_and_ordered(
+        self, client, sid_2d, sid_3d, sid_4d
+    ):
+        server_id = client.get("/ping").json()["instance_id"]
+        path = f"/viewer-phase/{sid_2d}/request-one"
+        common = {
+            "server_id": server_id,
+            "window_id": "window-one",
+            "token": "token-one",
+            "viewer_instance_id": "viewer-one",
+            "release_on_disconnect": True,
+            "sid": sid_2d,
+            "compare_sid": sid_3d,
+            "compare_sids": f"{sid_3d},{sid_4d}",
+            "overlay_sid": sid_4d,
+        }
+        prepared = client.post(
+            path,
+            json={
+                "phase": "launch-prepared",
+                "server_id": server_id,
+                "window_id": "window-one",
+                "token": "token-one",
+            },
+        )
+        assert prepared.status_code == 200
+        for phase in (
+            "script-loaded",
+            "ws-open",
+            "metadata-loaded",
+            "frame-rendered",
+            "frame-rendered",
+        ):
+            response = client.post(path, json={**common, "phase": phase})
+            assert response.status_code == 200
+
+        journal = client.get(path, params={"token": "token-one"}).json()
+        assert journal == {
+            "sid": sid_2d,
+            "request_id": "request-one",
+            "window_id": "window-one",
+            "server_id": server_id,
+            "token": "token-one",
+            "phases": [
+                "script-loaded",
+                "ws-open",
+                "metadata-loaded",
+                "frame-rendered",
+            ],
+            "viewer_instance_ids": ["viewer-one"],
+            "related_sids": [sid_3d, sid_4d],
+        }
+
+        mismatch = client.post(
+            path,
+            json={**common, "token": "wrong-token", "phase": "frame-rendered"},
+        )
+        assert mismatch.status_code == 409
+        assert client.get(path, params={"token": "wrong-token"}).status_code == 409
+
+        wrong_primary = client.post(
+            path,
+            json={**common, "sid": sid_3d, "phase": "frame-rendered"},
+        )
+        assert wrong_primary.status_code == 409
+
+        missing_related = client.post(
+            path,
+            json={
+                **common,
+                "compare_sid": "missing-session",
+                "phase": "frame-rendered",
+            },
+        )
+        assert missing_related.status_code == 409
+
+        replay = client.post(
+            path,
+            json={
+                "phase": "launch-prepared",
+                "server_id": server_id,
+                "window_id": "window-one",
+                "token": "token-two",
+            },
+        )
+        assert replay.status_code == 200
+        replay_journal = client.get(path, params={"token": "token-two"}).json()
+        assert replay_journal["phases"] == []
+        assert replay_journal["viewer_instance_ids"] == []
+        assert replay_journal["related_sids"] == []
+        assert client.get(path, params={"token": "token-one"}).status_code == 409
+
+        import arrayview._session as session_mod
+
+        session = session_mod.SESSIONS[sid_2d]
+        assert getattr(session, "release_on_disconnect", False) is False
+        assert getattr(session, "related_release_sids", []) == []
 
     def test_startup_overlay_has_no_artificial_dwell(self, client, sid_2d):
         r = client.get(f"/?sid={sid_2d}")
@@ -5433,15 +5542,23 @@ class TestPortAndTunnelHelpers:
             assert found != busy_port  # scanned past the busy port
 
     def test_in_vscode_tunnel_false_in_clean_env(self, monkeypatch):
+        import arrayview._platform as platform
         from arrayview._app import _in_vscode_tunnel
 
         for k in (
+            "TERM_PROGRAM",
             "VSCODE_INJECTION",
             "VSCODE_AGENT_FOLDER",
+            "VSCODE_IPC_HOOK_CLI",
             "SSH_CLIENT",
             "SSH_CONNECTION",
         ):
             monkeypatch.delenv(k, raising=False)
+        monkeypatch.setattr(platform, "_find_vscode_ipc_hook", lambda: None)
+        monkeypatch.setattr(
+            platform, "_exact_vscode_registration_remote", lambda ipc: None
+        )
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
         assert _in_vscode_tunnel() is False
 
     def test_in_vscode_tunnel_false_with_remote_ssh(self, monkeypatch):
@@ -5460,6 +5577,7 @@ class TestPortAndTunnelHelpers:
         monkeypatch.delenv("SSH_CLIENT", raising=False)
         monkeypatch.delenv("SSH_CONNECTION", raising=False)
         monkeypatch.setattr(platform, "_find_code_cli", lambda: "/usr/bin/code")
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
 
         assert platform._is_vscode_remote() is False
 
@@ -5484,6 +5602,7 @@ class TestPortAndTunnelHelpers:
             "_find_code_cli",
             lambda: "/home/user/.vscode-server/bin/hash/bin/remote-cli/code",
         )
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
 
         assert platform._is_vscode_remote() is False
 
@@ -5503,12 +5622,62 @@ class TestPortAndTunnelHelpers:
 
         assert platform._is_vscode_remote() is False
 
+    def test_exact_registration_prefers_live_ipc_over_stale_window_env(
+        self, monkeypatch, tmp_path
+    ):
+        import hashlib
+        import os
+        import arrayview._platform as platform
+
+        home = tmp_path / "home"
+        signal_dir = home / ".arrayview"
+        signal_dir.mkdir(parents=True)
+        ipc = "/run/user/1/current-tunnel.sock"
+        current_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "stale-local")
+        (signal_dir / "window-stale-local.json").write_text(
+            json.dumps({"pid": os.getpid(), "remoteName": None})
+        )
+        (signal_dir / f"window-{current_id}.json").write_text(
+            json.dumps({"pid": os.getpid(), "remoteName": "tunnel"})
+        )
+
+        assert platform._exact_vscode_registration_remote(ipc) is True
+
+    def test_stale_window_registration_cannot_override_unregistered_live_ipc(
+        self, monkeypatch, tmp_path
+    ):
+        import os
+        import arrayview._platform as platform
+
+        home = tmp_path / "home"
+        signal_dir = home / ".arrayview"
+        signal_dir.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "stale-local")
+        (signal_dir / "window-stale-local.json").write_text(
+            json.dumps({"pid": os.getpid(), "remoteName": None})
+        )
+
+        assert (
+            platform._exact_vscode_registration_remote(
+                "/run/user/1/new-unregistered-tunnel.sock"
+            )
+            is None
+        )
+
     def test_code_cli_selection_uses_captured_placement(self, monkeypatch):
         import glob
         import shutil
         import arrayview._platform as platform
 
         remote_cli = "/home/user/.vscode-server/bin/hash/bin/remote-cli/code"
+        monkeypatch.delenv("VSCODE_NLS_CONFIG", raising=False)
+        monkeypatch.setattr(
+            platform, "_find_ancestor_environment_value", lambda name: None
+        )
+        monkeypatch.setattr(platform, "_find_vscode_ipc_hook", lambda: None)
         monkeypatch.setattr(glob, "glob", lambda pattern: [remote_cli])
         monkeypatch.setattr(platform.os.path, "getmtime", lambda path: 1.0)
         monkeypatch.setattr(platform.os, "access", lambda path, mode: True)
@@ -5516,6 +5685,77 @@ class TestPortAndTunnelHelpers:
 
         assert platform._find_code_cli(is_remote=False) == "/usr/local/bin/code"
         assert platform._find_code_cli(is_remote=True) == remote_cli
+
+    def test_code_cli_selection_prefers_exact_active_server(self, monkeypatch):
+        import glob
+        import shutil
+        import arrayview._platform as platform
+
+        exact_cli = "/home/user/.vscode/cli/servers/Stable-exact/server/bin/remote-cli/code"
+        wrong_cli = "/home/user/.vscode-server/cli/servers/Stable-newer/server/bin/remote-cli/code"
+        monkeypatch.setenv(
+            "VSCODE_NLS_CONFIG",
+            json.dumps(
+                {
+                    "defaultMessagesFile": (
+                        "/home/user/.vscode/cli/servers/Stable-exact/"
+                        "server/out/nls.messages.json"
+                    )
+                }
+            ),
+        )
+        monkeypatch.setattr(platform.os.path, "isfile", lambda path: path == exact_cli)
+        monkeypatch.setattr(platform.os, "access", lambda path, mode: path == exact_cli)
+        monkeypatch.setattr(glob, "glob", lambda pattern: [wrong_cli])
+        monkeypatch.setattr(shutil, "which", lambda command: "/usr/bin/code")
+
+        assert platform._find_code_cli(is_remote=True) == exact_cli
+
+    def test_code_cli_selection_uses_current_ipc_wrapper_before_globs(
+        self, monkeypatch
+    ):
+        import glob
+        import shutil
+        import arrayview._platform as platform
+
+        monkeypatch.delenv("VSCODE_NLS_CONFIG", raising=False)
+        monkeypatch.setattr(
+            platform, "_find_ancestor_environment_value", lambda name: None
+        )
+        monkeypatch.setattr(
+            platform, "_find_vscode_ipc_hook", lambda: "/run/user/1/current.sock"
+        )
+        monkeypatch.setattr(
+            glob,
+            "glob",
+            lambda pattern: [
+                "/home/user/.vscode-server/cli/servers/ssh/server/bin/remote-cli/code",
+                "/home/user/.vscode/cli/servers/tunnel/server/bin/remote-cli/code",
+            ],
+        )
+        monkeypatch.setattr(shutil, "which", lambda command: "/usr/bin/code")
+
+        assert platform._find_code_cli(is_remote=True) == "/usr/bin/code"
+
+    def test_code_cli_selection_fails_closed_for_ambiguous_remote_helpers(
+        self, monkeypatch
+    ):
+        import glob
+        import shutil
+        import arrayview._platform as platform
+
+        ssh_cli = "/home/user/.vscode-server/cli/servers/ssh/server/bin/remote-cli/code"
+        tunnel_cli = "/home/user/.vscode/cli/servers/tunnel/server/bin/remote-cli/code"
+        monkeypatch.delenv("VSCODE_NLS_CONFIG", raising=False)
+        monkeypatch.setattr(
+            platform, "_find_ancestor_environment_value", lambda name: None
+        )
+        monkeypatch.setattr(platform, "_find_vscode_ipc_hook", lambda: None)
+        monkeypatch.setattr(glob, "glob", lambda pattern: [ssh_cli, tunnel_cli])
+        monkeypatch.setattr(platform.os, "access", lambda path, mode: True)
+        monkeypatch.setattr(shutil, "which", lambda command: "/usr/local/bin/code")
+
+        assert platform._find_code_cli(is_remote=True) is None
 
     def test_linux_vscode_tunnel_requires_server_marker(self, monkeypatch):
         import arrayview._platform as platform
@@ -5527,6 +5767,54 @@ class TestPortAndTunnelHelpers:
         monkeypatch.delenv("SSH_CONNECTION", raising=False)
 
         assert platform._is_vscode_remote() is True
+
+    def test_vscode_tunnel_uses_recovered_exact_server_marker(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setenv("TERM_PROGRAM", "vscode")
+        monkeypatch.delenv("VSCODE_IPC_HOOK_CLI", raising=False)
+        monkeypatch.delenv("VSCODE_AGENT_FOLDER", raising=False)
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr(
+            platform, "_exact_vscode_registration_remote", lambda ipc: None
+        )
+        monkeypatch.setattr(
+            platform,
+            "_current_vscode_remote_cli",
+            lambda: "/home/user/.vscode/cli/servers/exact/server/bin/remote-cli/code",
+        )
+
+        assert platform._is_vscode_remote() is True
+
+    def test_current_remote_cli_recovers_nls_config_from_ancestor(
+        self, monkeypatch
+    ):
+        import arrayview._platform as platform
+
+        exact_cli = (
+            "/home/user/.vscode/cli/servers/Stable-exact/"
+            "server/bin/remote-cli/code"
+        )
+        monkeypatch.delenv("VSCODE_NLS_CONFIG", raising=False)
+        monkeypatch.setattr(
+            platform,
+            "_find_ancestor_environment_value",
+            lambda name: json.dumps(
+                {
+                    "defaultMessagesFile": (
+                        "/home/user/.vscode/cli/servers/Stable-exact/"
+                        "server/out/nls.messages.json"
+                    )
+                }
+            )
+            if name == "VSCODE_NLS_CONFIG"
+            else None,
+        )
+        monkeypatch.setattr(platform.os.path, "isfile", lambda path: path == exact_cli)
+        monkeypatch.setattr(platform.os, "access", lambda path, mode: path == exact_cli)
+
+        assert platform._current_vscode_remote_cli() == exact_cli
         assert platform._in_vscode_tunnel() is True
 
     def test_linux_vscode_remote_ssh_is_remote_but_not_tunnel(self, monkeypatch):

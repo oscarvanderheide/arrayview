@@ -23,12 +23,13 @@ Module._load = function(request, parent, isMain) {
 const { __test } = require('./extension');
 Module._load = originalLoad;
 
-function createPanelRuntime(url) {
-    const html = __test._viewerPanelHtml(url);
+function createPanelRuntime(url, warmupUrl = null, fetchError = null) {
+    const html = __test._viewerPanelHtml(url, warmupUrl);
     const scriptMatch = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/);
     assert(scriptMatch, 'panel wrapper script must be present');
 
     const messages = [];
+    const fetchCalls = [];
     const srcWrites = [];
     const timers = new Map();
     const windowHandlers = {};
@@ -46,10 +47,19 @@ function createPanelRuntime(url) {
         'backend-error': { classList: { add() {} } },
     };
     const context = {
+        AbortController: class {
+            constructor() { this.signal = {}; }
+            abort() { this.signal.aborted = true; }
+        },
         acquireVsCodeApi: () => ({ postMessage(message) { messages.push(message); } }),
         clearTimeout(id) { timers.delete(id); },
         console: { log() {} },
         document: { getElementById(id) { return elements[id]; } },
+        fetch(...args) {
+            fetchCalls.push(args);
+            if (fetchError) return Promise.reject(fetchError);
+            return Promise.resolve({});
+        },
         setTimeout(handler) {
             const id = nextTimer++;
             timers.set(id, handler);
@@ -66,9 +76,10 @@ function createPanelRuntime(url) {
         },
     };
     vm.runInNewContext(scriptMatch[1], context);
-    return { frameHandlers, messages, srcWrites, timers, windowHandlers };
+    return { fetchCalls, frameHandlers, messages, srcWrites, timers, windowHandlers };
 }
 
+(async () => {
 try {
     const handshaken = createPanelRuntime('http://localhost:8123/?sid=ready');
     assert.strictEqual(handshaken.srcWrites.length, 1);
@@ -109,9 +120,60 @@ try {
         'a document that never handshakes must still be retried'
     );
 
+    const warmed = createPanelRuntime(
+        'http://localhost:8125/?sid=warmed',
+        'http://localhost:8125/ping'
+    );
+    assert.strictEqual(
+        warmed.srcWrites.length,
+        0,
+        'the nested iframe must not navigate before transport warmup completes'
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(warmed.fetchCalls.length, 1);
+    assert.strictEqual(warmed.fetchCalls[0][0], 'http://localhost:8125/ping');
+    assert.strictEqual(warmed.fetchCalls[0][1].mode, 'no-cors');
+    assert.deepStrictEqual(
+        JSON.parse(JSON.stringify(warmed.messages.slice(0, 3))),
+        [
+            { type: 'panel-phase', phase: 'wrapper-started' },
+            { type: 'panel-phase', phase: 'transport-warmup-started' },
+            { type: 'panel-phase', phase: 'transport-warmup-complete' },
+        ]
+    );
+    assert.deepStrictEqual(warmed.srcWrites, [
+        'http://localhost:8125/?sid=warmed',
+    ]);
+
+    const failedWarmup = createPanelRuntime(
+        'http://localhost:8126/?sid=fallback',
+        'http://localhost:8126/ping',
+        new Error('forward unavailable')
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(failedWarmup.srcWrites, [
+        'http://localhost:8126/?sid=fallback',
+    ]);
+    assert.deepStrictEqual(
+        JSON.parse(JSON.stringify(failedWarmup.messages.slice(0, 3))),
+        [
+            { type: 'panel-phase', phase: 'wrapper-started' },
+            { type: 'panel-phase', phase: 'transport-warmup-started' },
+            {
+                type: 'panel-phase',
+                phase: 'transport-warmup-failed',
+                message: 'forward unavailable',
+            },
+        ]
+    );
+
     console.log('panel readiness tests passed');
 } finally {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
     fs.rmSync(tempHome, { recursive: true, force: true });
 }
+})().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+});

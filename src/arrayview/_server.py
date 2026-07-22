@@ -68,6 +68,7 @@ SERVER_CAPABILITIES = (
     "identity-fenced-mutations",
     "transactional-relay-display",
     "viewer-websocket",
+    "viewer-phase-journal",
     "shell-websocket",
     "dir-collection-case-inference",
     "staged-drop-import",

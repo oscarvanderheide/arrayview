@@ -513,7 +513,7 @@ def test_explicit_window_false_suppresses_config_and_opens_browser():
     assert "config_window_default" not in plan.reasons
 
 
-def test_remote_jupyter_routes_to_vscode_unless_inline_false():
+def test_remote_jupyter_defaults_to_vscode_but_preserves_explicit_inline():
     from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
 
     facts = _facts(
@@ -533,6 +533,16 @@ def test_remote_jupyter_routes_to_vscode_unless_inline_false():
         ),
         facts,
     )
+    explicit_inline_window = plan_launch(
+        LaunchIntent(
+            Invocation.PYTHON,
+            8123,
+            requested_window="inline",
+            inline=True,
+            window_explicit=True,
+        ),
+        facts,
+    )
     explicit_noninline = plan_launch(
         LaunchIntent(
             Invocation.PYTHON,
@@ -544,7 +554,8 @@ def test_remote_jupyter_routes_to_vscode_unless_inline_false():
     )
 
     assert implicit.display.value == "vscode"
-    assert explicit_inline.display.value == "vscode"
+    assert explicit_inline.display.value == "inline"
+    assert explicit_inline_window.display.value == "inline"
     assert explicit_noninline.display.value == "browser"
 
 

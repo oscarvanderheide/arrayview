@@ -67,8 +67,12 @@ jobs:
         run: |
           node vscode-extension/test_lifecycle_helpers.js
           node vscode-extension/test_tunnel_resolution.js
+          node vscode-extension/test_tunnel_desktop_loopback.js
+          node vscode-extension/test_tunnel_loopback_promotion.js
+          node vscode-extension/test_tunnel_route_cache.js
           node vscode-extension/test_panel_replay.js
           node vscode-extension/test_panel_readiness.js
+          node vscode-extension/test_integrated_browser_readiness.js
           node vscode-extension/test_request_journal.js
           node vscode-extension/test_request_deadline.js
       - name: VS Code extension syntax

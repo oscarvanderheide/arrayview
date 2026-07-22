@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.14.51",
+  "version": "0.14.70",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -23,6 +23,9 @@
     "LICENSE"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "workbench.browser.enableRemoteProxy": true
+    },
     "configuration": {
       "title": "ArrayView",
       "properties": {

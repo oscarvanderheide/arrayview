@@ -136,18 +136,42 @@ def register_websocket_routes(app) -> None:
     @app.websocket("/ws/{sid}")
     async def websocket_endpoint(ws: WebSocket, sid: str):
         native_request_id = ws.query_params.get("native_request_id")
+        launch_request_id = ws.query_params.get("launch_request_id")
+        launch_token = ws.query_params.get("launch_token")
         session = await wait_for_session_ready(sid)
         if not session:
             await ws.close()
             return
+
+        launch_journal = None
+        if launch_request_id or launch_token:
+            journals = getattr(session, "viewer_phase_journals", {})
+            launch_journal = journals.get(launch_request_id)
+            if (
+                not launch_request_id
+                or not launch_token
+                or launch_journal is None
+                or launch_journal.get("token") != launch_token
+            ):
+                await ws.close(code=1008)
+                return
 
         await ws.accept()
 
         # A new viewer proves that the prior disconnect was a reload, tunnel
         # interruption, or other recoverable transport break. Invalidate and
         # cancel its cleanup before recording this connection.
-        _advance_viewer_epoch(sid)
-        _cancel_pending_viewer_release(sid)
+        if launch_journal is not None:
+            release_task = launch_journal.get("release_task")
+            if release_task is not None and not release_task.done():
+                release_task.cancel()
+            launch_journal["release_task"] = None
+            launch_journal["connection_count"] = (
+                max(0, int(launch_journal.get("connection_count", 0))) + 1
+            )
+        else:
+            _advance_viewer_epoch(sid)
+            _cancel_pending_viewer_release(sid)
 
         try:
             meta = _build_metadata(session)
@@ -514,6 +538,98 @@ def register_websocket_routes(app) -> None:
             else:
                 _session_mod.VIEWER_SID_COUNTS.pop(sid, None)
                 _session_mod.VIEWER_SIDS.discard(sid)
+
+            if launch_journal is not None:
+                launch_connection_count = max(
+                    0,
+                    int(launch_journal.get("connection_count", 0)) - 1,
+                )
+                launch_journal["connection_count"] = launch_connection_count
+                if launch_connection_count == 0:
+                    grace_seconds = max(
+                        0.0,
+                        float(
+                            launch_journal.get(
+                                "disconnect_release_grace_seconds",
+                                30.0,
+                            )
+                        ),
+                    )
+
+                    async def _release_launch_after_reconnect_grace(
+                        expected_session=session,
+                        expected_journal=launch_journal,
+                        expected_request_id=launch_request_id,
+                        expected_token=launch_token,
+                    ) -> None:
+                        try:
+                            await asyncio.sleep(grace_seconds)
+                            current_journals = getattr(
+                                expected_session,
+                                "viewer_phase_journals",
+                                {},
+                            )
+                            if (
+                                SESSIONS.get(sid) is expected_session
+                                and current_journals.get(expected_request_id)
+                                is expected_journal
+                                and expected_journal.get("token")
+                                == expected_token
+                                and expected_journal.get("connection_count", 0)
+                                == 0
+                            ):
+                                expected_journal["release_task"] = None
+                                # This request owns exactly one viewer lease.
+                                # Retire its token before consuming that lease
+                                # so a delayed reconnect cannot later consume a
+                                # second lease belonging to another tab.
+                                current_journals.pop(expected_request_id, None)
+                                related_sids = list(
+                                    expected_journal.get("related_sids") or []
+                                )
+                                primary_related_sids = set()
+                                primary_leases = max(
+                                    1,
+                                    int(
+                                        getattr(
+                                            expected_session,
+                                            "viewer_leases",
+                                            1,
+                                        )
+                                    ),
+                                )
+                                if primary_leases == 1:
+                                    primary_related_sids = {
+                                        str(value)
+                                        for value in [
+                                            *getattr(
+                                                expected_session,
+                                                "related_release_sids",
+                                                [],
+                                            ),
+                                            *getattr(
+                                                expected_session,
+                                                "collection_overlay_sids",
+                                                [],
+                                            ),
+                                        ]
+                                    }
+                                release_session(sid)
+                                for related_sid in related_sids:
+                                    if related_sid not in primary_related_sids:
+                                        release_session(related_sid)
+                        except asyncio.CancelledError:
+                            return
+
+                    release_task = launch_journal.get("release_task")
+                    if release_task is not None and not release_task.done():
+                        release_task.cancel()
+                    release_task = asyncio.create_task(
+                        _release_launch_after_reconnect_grace()
+                    )
+                    launch_journal["release_task"] = release_task
+
+            elif not sid_count:
                 disconnected_session = SESSIONS.get(sid)
                 if getattr(
                     disconnected_session,

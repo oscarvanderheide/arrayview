@@ -120,19 +120,49 @@ const _readyPanels = new WeakSet();
 const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
 const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
 
-function _cachedTunnelBase(port) {
+function _cachedTunnelBases(port) {
+    const candidates = [];
+    const addCandidate = value => {
+        if (typeof value !== 'string' || isLoopbackUrl(value)) return;
+        try {
+            const parsed = new URL(value);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+            const normalized = value.replace(/\/$/, '');
+            if (!candidates.includes(normalized)) candidates.push(normalized);
+        } catch (_) {}
+    };
     const inMemory = _publicTunnelUrls.get(port);
-    if (inMemory) return inMemory;
+    addCandidate(inMemory);
     try {
         const cache = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
-        const value = cache[`${logWindowId}:${port}`];
-        if (typeof value !== 'string' || isLoopbackUrl(value)) return null;
-        const parsed = new URL(value);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-        return value.replace(/\/$/, '');
-    } catch (_) {
-        return null;
+        // Prefer this window's route, but retain verified routes across window
+        // reloads.  VS Code's desktop tunnel resolver can return localhost
+        // even when the provider still exposes the same public port route.
+        addCandidate(cache[`${logWindowId}:${port}`]);
+        for (const [key, value] of Object.entries(cache)) {
+            if (key.endsWith(`:${port}`)) addCandidate(value);
+        }
+    } catch (_) {}
+    return candidates;
+}
+
+async function _verifiedCachedTunnelBase(
+    port,
+    expectedServerId,
+    ensureActive = () => {}
+) {
+    for (const candidate of _cachedTunnelBases(port)) {
+        ensureActive();
+        log(`REMOTE: checking cached route ${candidate}`);
+        if (await arrayViewStatusOk(`${candidate}/ping`, expectedServerId)) {
+            ensureActive();
+            _rememberTunnelBase(port, candidate);
+            log(`REMOTE: cached route ready for localhost:${port}`);
+            return candidate;
+        }
+        log(`REMOTE: cached route stale for localhost:${port}`);
     }
+    return null;
 }
 
 function _rememberTunnelBase(port, externalBase) {
@@ -187,13 +217,66 @@ async function _boundedCommand(command, args, timeoutMs = 3000) {
 
 function _tunnelItem(port) {
     return {
-        tunnelType: 1,
+        // Match VS Code's stripped TunnelItem shape.  The privacy action
+        // forwards this source back to the tunnel provider after closing the
+        // old route, so its enum values must be the real workbench values.
+        tunnelType: 'Forwarded',
         remoteHost: 'localhost',
         remotePort: port,
         localPort: port,
         name: 'ArrayView',
-        source: { source: 'user', description: 'ArrayView' },
+        source: { source: 0, description: 'User Forwarded' },
     };
+}
+
+function _publicBaseFromTunnelResult(result, expectedPort) {
+    if (typeof result === 'string') {
+        try {
+            const parsed = new URL(result);
+            if (
+                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+                && !isLoopbackUrl(result)
+            ) {
+                return result.replace(/\/$/, '');
+            }
+        } catch (_) {}
+        return null;
+    }
+    if (!result || typeof result !== 'object') return null;
+    const remotePort = Number(
+        result.tunnelRemotePort ?? result.remotePort ?? 0
+    );
+    const remoteHost = String(
+        result.tunnelRemoteHost ?? result.remoteHost ?? 'localhost'
+    ).toLowerCase();
+    if (remotePort !== Number(expectedPort) || result.privacy !== 'public') {
+        return null;
+    }
+    if (!['localhost', '127.0.0.1', '::1'].includes(remoteHost)) return null;
+    const candidates = [
+        result.localAddress,
+        result.tunnelLocalAddress,
+        result.localUri,
+    ];
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        let value = typeof candidate === 'string'
+            ? candidate
+            : (typeof candidate.toString === 'function' ? candidate.toString() : '');
+        if (value && !/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+            value = `${result.protocol || 'http'}://${value}`;
+        }
+        try {
+            const parsed = new URL(value);
+            if (
+                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+                && !isLoopbackUrl(parsed.toString())
+            ) {
+                return parsed.toString().replace(/\/$/, '');
+            }
+        } catch (_) {}
+    }
+    return null;
 }
 
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
@@ -681,6 +764,93 @@ function httpStatus2xx(url, timeoutMs = 3000) {
             done(false);
         });
         req.on('error', () => done(false));
+    });
+}
+
+function httpJson(url, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve(null);
+            return;
+        }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
+            if (res.statusCode !== 200) {
+                res.resume();
+                done(null);
+                return;
+            }
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', chunk => {
+                if (body.length < 65536) body += chunk;
+            });
+            res.on('end', () => {
+                try { done(JSON.parse(body)); } catch (_) { done(null); }
+            });
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            done(null);
+        });
+        req.on('error', () => done(null));
+    });
+}
+
+function httpPostJson(url, payload, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve(null);
+            return;
+        }
+        const body = Buffer.from(JSON.stringify(payload));
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const req = lib.request(parsed, {
+            method: 'POST',
+            timeout: timeoutMs,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': String(body.length),
+            },
+        }, (res) => {
+            if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
+                res.resume();
+                done(null);
+                return;
+            }
+            let responseBody = '';
+            res.setEncoding('utf8');
+            res.on('data', chunk => {
+                if (responseBody.length < 65536) responseBody += chunk;
+            });
+            res.on('end', () => {
+                try { done(JSON.parse(responseBody)); } catch (_) { done(null); }
+            });
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            done(null);
+        });
+        req.on('error', () => done(null));
+        req.end(body);
     });
 }
 
@@ -1241,14 +1411,16 @@ async function tryOpenSignalFile() {
 // Open or reveal a VS Code WebviewPanel for the given server URL.
 // The panel is only a URL wrapper: ArrayView data and controls still flow
 // through the FastAPI/WebSocket backend, never direct Python/webview IPC.
-function _viewerPanelHtml(url) {
+function _viewerPanelHtml(url, warmupUrl = null, warmupTimeoutMs = 12000) {
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url);
+    const jsonWarmupUrl = JSON.stringify(warmupUrl);
+    const jsonWarmupTimeoutMs = JSON.stringify(warmupTimeoutMs);
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; frame-src *; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+      content="default-src 'none'; connect-src http: https:; frame-src *; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
   iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: none; }
@@ -1283,6 +1455,8 @@ function _viewerPanelHtml(url) {
 <script nonce="${nonce}">
 const vscodeApi = acquireVsCodeApi();
 const arrayviewUrl = ${jsonUrl};
+const warmupUrl = ${jsonWarmupUrl};
+const warmupTimeoutMs = ${jsonWarmupTimeoutMs};
 const frame = document.getElementById('f');
 vscodeApi.postMessage({ type: 'panel-phase', phase: 'wrapper-started' });
 let viewerReady = false;
@@ -1342,7 +1516,31 @@ frame.addEventListener('load', () => {
     scheduleReload();
 });
 frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
-frame.src = arrayviewUrl;
+async function warmTransportAndOpen() {
+    if (warmupUrl) {
+        vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-started' });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), warmupTimeoutMs);
+        try {
+            await fetch(warmupUrl, {
+                mode: 'no-cors',
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-complete' });
+        } catch (error) {
+            vscodeApi.postMessage({
+                type: 'panel-phase',
+                phase: 'transport-warmup-failed',
+                message: String(error && error.message ? error.message : error),
+            });
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+    frame.src = arrayviewUrl;
+}
+void warmTransportAndOpen();
 </script>
 </body>
 </html>`;
@@ -1379,6 +1577,311 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
     });
 }
 
+function _integratedBrowserLaunchUrl(
+    url,
+    requestId,
+    serverId,
+    windowId,
+    token
+) {
+    try {
+        const parsed = new URL(url);
+        parsed.searchParams.set('_av_integrated_browser', '1');
+        parsed.searchParams.set('_av_launch_request_id', requestId);
+        parsed.searchParams.set('_av_launch_server_id', serverId);
+        parsed.searchParams.set('_av_launch_window_id', windowId);
+        parsed.searchParams.set('_av_launch_token', token);
+        return parsed.toString();
+    } catch (_) {
+        return null;
+    }
+}
+
+async function waitForBackendViewerReady(
+    backendUrl,
+    sid,
+    requestId,
+    serverId,
+    windowId,
+    token,
+    timeoutMs,
+    ensureActive = () => {},
+    retryPreScriptNavigation = null
+) {
+    let statusUrl;
+    try {
+        statusUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
+    } catch (_) {
+        return new Error('Unable to derive viewer phase journal URL');
+    }
+    const required = ['script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered'];
+    const logged = new Set();
+    const deadline = Date.now() + timeoutMs;
+    let activeToken = token;
+    let scriptLoaded = false;
+    let navigationAttempt = 0;
+    let nextNavigationRetryAt = Date.now() + 1500;
+    const maxNavigationRetries = 2;
+    while (Date.now() < deadline) {
+        ensureActive();
+        const payload = await httpJson(
+            `${statusUrl}?token=${encodeURIComponent(activeToken)}`,
+            Math.max(1, Math.min(1500, deadline - Date.now()))
+        );
+        if (
+            payload
+            && payload.sid === sid
+            && payload.request_id === requestId
+            && payload.server_id === serverId
+            && payload.window_id === windowId
+            && payload.token === activeToken
+            && Array.isArray(payload.phases)
+            && Array.isArray(payload.viewer_instance_ids)
+        ) {
+            scriptLoaded = payload.phases.includes('script-loaded');
+            for (const phase of payload.phases) {
+                if (!logged.has(phase)) {
+                    logged.add(phase);
+                    log(`PANEL: viewer-phase ${phase} (backend journal)`);
+                }
+            }
+            if (payload.phases.includes('frame-rendered')) {
+                if (payload.viewer_instance_ids.length !== 1) {
+                    return new Error(
+                        `Integrated browser opened ${payload.viewer_instance_ids.length} viewer instances for one request`
+                    );
+                }
+                let previous = -1;
+                for (const phase of required) {
+                    const index = payload.phases.indexOf(phase);
+                    if (index <= previous) {
+                        return new Error(
+                            `Viewer phase journal reached first frame out of order: ${payload.phases.join(' -> ')}`
+                        );
+                    }
+                    previous = index;
+                }
+                return null;
+            }
+        }
+        if (
+            !scriptLoaded
+            && retryPreScriptNavigation
+            && navigationAttempt < maxNavigationRetries
+            && Date.now() >= nextNavigationRetryAt
+            && deadline - Date.now() > 500
+        ) {
+            navigationAttempt += 1;
+            ensureActive();
+            let replacementToken = null;
+            try {
+                replacementToken = await retryPreScriptNavigation(
+                    navigationAttempt,
+                    deadline
+                );
+            } catch (error) {
+                log(`PANEL: pre-script navigation retry failed: ${error.message || error}`);
+            }
+            ensureActive();
+            if (replacementToken) activeToken = replacementToken;
+            nextNavigationRetryAt = Date.now() + Math.min(
+                6000,
+                1500 * (2 ** navigationAttempt)
+            );
+        }
+        const remaining = deadline - Date.now();
+        if (remaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(100, remaining)));
+        }
+    }
+    return new Error('Integrated browser did not render a frame before timeout');
+}
+
+async function openInIntegratedBrowser(
+    url,
+    backendUrl,
+    requestId,
+    serverId,
+    windowId,
+    viewerTimeoutMs,
+    ensureActive = () => {}
+) {
+    const viewerDeadline = Date.now() + viewerTimeoutMs;
+    ensureActive();
+    const remoteProxyEnabled = vscode.workspace
+        .getConfiguration('workbench.browser')
+        .get('enableRemoteProxy', false);
+    log(`PANEL: integrated browser remoteProxy=${remoteProxyEnabled}`);
+    const sid = collectReleaseSidsFromUrl(backendUrl)[0] || null;
+    if (!sid || !requestId || !serverId || !windowId) {
+        throw new Error('Integrated browser launch is missing correlated viewer identity');
+    }
+    // A replay must navigate the existing request tab but prove readiness from
+    // the newly navigated document.  The reuse filter deliberately excludes
+    // this fresh token; the backend journal is reset before navigation.
+    // With remote proxy enabled the browser resolves localhost in the remote
+    // workspace and must use the backend URL.  Otherwise it runs on the client
+    // and must use the client-forwarded asExternalUri URL.
+    const browserUrl = remoteProxyEnabled ? backendUrl : url;
+    const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
+    const reuseUrlFilter = `?_av_launch_request_id=${encodeURIComponent(requestId)}`;
+    const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
+        ensureActive();
+        const token = crypto.randomBytes(16).toString('hex');
+        let launchUrl = _integratedBrowserLaunchUrl(
+            browserUrl,
+            requestId,
+            serverId,
+            windowId,
+            token
+        );
+        if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
+        if (navigationAttempt > 0) {
+            const parsed = new URL(launchUrl);
+            parsed.searchParams.set('_av_navigation_attempt', String(navigationAttempt));
+            launchUrl = parsed.toString();
+        }
+        const prepared = await httpPostJson(
+            journalUrl,
+            {
+                phase: 'launch-prepared',
+                server_id: serverId,
+                window_id: windowId,
+                token,
+            },
+            Math.max(1, Math.min(1500, viewerDeadline - Date.now()))
+        );
+        if (
+            !prepared
+            || prepared.request_id !== requestId
+            || prepared.server_id !== serverId
+            || prepared.window_id !== windowId
+            || prepared.token !== token
+        ) {
+            throw new Error('Unable to prepare correlated viewer readiness journal');
+        }
+        const commandPromise = vscode.commands.executeCommand('workbench.action.browser.open', {
+            url: launchUrl,
+            // Each invocation gets a new browser tab in the preferred group.
+            // openToSide=true creates and locks a new editor group per launch,
+            // eventually leaving VS Code unable to load another browser page.
+            openToSide: false,
+            // Retry/replay of this exact request reuses its one tab, while every
+            // distinct ArrayView invocation opens a fresh browser tab.
+            reuseUrlFilter,
+        });
+        if (navigationAttempt > 0 && deadline !== null) {
+            try {
+                await _withTimeout(
+                    commandPromise,
+                    Math.max(1, Math.min(3000, deadline - Date.now())),
+                    'integrated browser pre-script navigation'
+                );
+            } catch (error) {
+                // The command may already have dispatched before its promise
+                // stalls. Keep polling this fresh token, then use the one
+                // remaining bounded retry if no script reports readiness.
+                log(`PANEL: pre-script navigation command unavailable: ${error.message || error}`);
+            }
+        } else {
+            await commandPromise;
+        }
+        return token;
+    };
+    let commandAttempted = false;
+    let token;
+    try {
+        commandAttempted = true;
+        token = await prepareNavigation();
+        ensureActive();
+    } catch (error) {
+        if (commandAttempted) releaseUrlSession(url, backendUrl, serverId);
+        throw error;
+    }
+    log(`PANEL: panel-phase wrapper-started transport=integrated-browser`);
+    log(`PANEL: integrated browser opened ${browserUrl}`);
+    return {
+        viewerReady: waitForBackendViewerReady(
+            backendUrl,
+            sid,
+            requestId,
+            serverId,
+            windowId,
+            token,
+            Math.max(1, viewerDeadline - Date.now()),
+            ensureActive,
+            async (navigationAttempt, deadline) => {
+                log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) return null;
+                return prepareNavigation(navigationAttempt, deadline);
+            }
+        ),
+    };
+}
+
+async function integratedBrowserCommandAvailable(timeoutMs = 1500) {
+    try {
+        const commands = await _withTimeout(
+            vscode.commands.getCommands(true),
+            timeoutMs,
+            'integrated browser command discovery'
+        );
+        return commands.includes('workbench.action.browser.open');
+    } catch (error) {
+        // Command enumeration can block on an unrelated extension host. The
+        // built-in command itself remains safe to attempt and will reject
+        // clearly if this VS Code version truly does not provide it.
+        log(`PANEL: command discovery unavailable; attempting integrated browser directly: ${error.message || error}`);
+        return true;
+    }
+}
+
+function _backendPortMapping(displayUrl, backendUrl) {
+    try {
+        const display = new URL(displayUrl);
+        const parsed = new URL(backendUrl);
+        if (!['localhost', '127.0.0.1'].includes(display.hostname.toLowerCase())) return null;
+        if (parsed.hostname.toLowerCase() !== 'localhost') return null;
+        if (display.protocol !== 'http:' && display.protocol !== 'https:') return null;
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        let displayPort;
+        if (display.port) {
+            displayPort = Number(display.port);
+        } else if (display.protocol === 'http:') {
+            displayPort = 80;
+        } else {
+            displayPort = 443;
+        }
+        let backendPort;
+        if (parsed.port) {
+            backendPort = Number(parsed.port);
+        } else if (parsed.protocol === 'http:') {
+            backendPort = 80;
+        } else if (parsed.protocol === 'https:') {
+            backendPort = 443;
+        } else {
+            return null;
+        }
+        if (!Number.isInteger(displayPort) || displayPort < 1 || displayPort > 65535) return null;
+        if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) return null;
+        // The wrapper warms this exact client-visible port before navigating
+        // its nested iframe.  Keeping the real display port is essential:
+        // VS Code does not remap WebSocket ports, and ArrayView's viewer uses
+        // the document origin for both HTTP and WebSocket traffic.
+        return [{ webviewPort: displayPort, extensionHostPort: backendPort }];
+    } catch (_) {
+        return null;
+    }
+}
+
+function _replaceWebviewPortMapping(webview, portMapping) {
+    const options = { ...(webview.options || {}) };
+    delete options.portMapping;
+    if (portMapping) options.portMapping = portMapping;
+    webview.options = options;
+}
+
 async function openInWebviewPanel(
     url,
     title,
@@ -1390,6 +1893,9 @@ async function openInWebviewPanel(
 ) {
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
+    const portMapping = _backendPortMapping(url, backendUrl);
+    const warmupTimeoutMs = Math.max(0, Math.min(12000, viewerTimeoutMs - 1000));
+    const warmupUrl = warmupTimeoutMs > 0 ? pingUrlFromViewerUrl(url) : null;
 
     // Reveal/reconcile the existing logical panel for this request. A replay
     // may resolve the same backend SID through a new external tunnel URL.
@@ -1403,7 +1909,12 @@ async function openInWebviewPanel(
                     return error;
                 });
                 existing.__arrayviewUrl = url;
-                existing.webview.html = _viewerPanelHtml(url);
+                _replaceWebviewPortMapping(existing.webview, portMapping);
+                existing.webview.html = _viewerPanelHtml(
+                    url,
+                    warmupUrl,
+                    warmupTimeoutMs
+                );
                 existing.title = label;
                 existing.reveal(undefined, false);
                 log(`PANEL: reconciled existing request panel to ${url}`);
@@ -1423,26 +1934,29 @@ async function openInWebviewPanel(
         ? vscode.ViewColumn.Beside
         : vscode.ViewColumn.Active;
 
+    const webviewOptions = {
+        enableScripts: true,
+        enableForms: true,
+        retainContextWhenHidden: true,
+    };
+    if (portMapping) webviewOptions.portMapping = portMapping;
+
     const panel = vscode.window.createWebviewPanel(
         'arrayview.preview',
         label,
         { viewColumn, preserveFocus: false },
-        {
-            enableScripts: true,
-            enableForms: true,
-            retainContextWhenHidden: true,
-        }
+        webviewOptions
     );
 
     const viewerReady = waitForViewerReady(panel, viewerTimeoutMs).then((error) => {
         if (!error) _readyPanels.add(panel);
         return error;
     });
-    panel.webview.html = _viewerPanelHtml(url);
+    panel.webview.html = _viewerPanelHtml(url, warmupUrl, warmupTimeoutMs);
     panel.__arrayviewUrl = url;
 
     _openPanels.set(panelKey, panel);
-    const pingUrl = pingUrlFromViewerUrl(url);
+    const pingUrl = pingUrlFromViewerUrl(portMapping ? backendUrl : url);
     let panelDisposed = false;
     panel.onDidDispose(() => {
         panelDisposed = true;
@@ -1484,18 +1998,12 @@ async function openInWebviewPanel(
  * accessible from the VS Code client.  VS Code auto-forwards ports as
  * private by default; the devtunnel URL only works if the port is public.
  *
- * Two-pronged approach:
- *   1. Write remote.portsAttributes with privacy=public via the settings
- *      API — immediate, no file-watcher delay.  This ensures FUTURE
- *      forwards of this port use public privacy.
- *   2. If the port is ALREADY forwarded as private, change its privacy
- *      via the internal `remote.tunnel.privacypublic` command.  This
- *      closes the existing private tunnel and re-forwards with public
- *      visibility.  The command is registered by VS Code's tunnel view
- *      when the tunnel provider supports privacy changes (devtunnels do).
- *      If the command doesn't exist (older VS Code, no privacy support),
- *      the error is caught and logged — the settings write from step 1
- *      still helps for future forwards.
+ * VS Code's remote.portsAttributes schema does not support privacy, so do
+ * not persist a no-op entry for every dynamically selected ArrayView port.
+ * Change the live forward through `remote.tunnel.privacypublic`.  This
+ * closes the existing private tunnel and re-forwards with public visibility.
+ * The command is registered lazily by the Ports view when the provider
+ * supports privacy changes (devtunnels do).
  */
 async function ensurePortPublic(
     port,
@@ -1504,42 +2012,16 @@ async function ensurePortPublic(
     ensureActive = () => {}
 ) {
     ensureActive();
+    const hasExternalRoute = !isLoopbackUrl(externalBase);
     const publicPingUrl = `${externalBase}/ping`;
-    if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
+    if (hasExternalRoute && await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
         _rememberTunnelBase(port, externalBase);
         log(`PORT: verified public route for ${externalBase}`);
         return true;
     }
     _publicTunnelUrls.delete(port);
 
-    // Step 1: write portsAttributes via the settings API
-    try {
-        ensureActive();
-        const config = vscode.workspace.getConfiguration('remote');
-        let attrs = config.get('portsAttributes') || {};
-        const current = attrs[String(port)] || {};
-        const wanted = {
-            protocol: 'http',
-            label: 'ArrayView',
-            onAutoForward: 'silent',
-            privacy: 'public',
-        };
-        const alreadyConfigured = Object.entries(wanted)
-            .every(([key, value]) => current[key] === value);
-        if (!alreadyConfigured) {
-            ensureActive();
-            attrs[String(port)] = Object.assign({}, current, wanted);
-            await config.update('portsAttributes', attrs, vscode.ConfigurationTarget.Global);
-            log(`PORT: wrote portsAttributes[${port}] privacy=public`);
-        } else {
-            log(`PORT: portsAttributes[${port}] already public`);
-        }
-    } catch (e) {
-        log(`PORT: failed to write portsAttributes: ${e.message || e}`);
-    }
-    ensureActive();
-
-    // Step 2: change privacy of already-forwarded port
+    // Change privacy of the already-forwarded port.
     // The privacy command (remote.tunnel.privacypublic) is lazily
     // registered by VS Code's Forwarded Ports view.  In a pure tunnel
     // session (no Remote-SSH), it may not be loaded yet.  Try focusing
@@ -1547,14 +2029,32 @@ async function ensurePortPublic(
     const tunnelItem = _tunnelItem(port);
 
     let privacyDone = false;
+    let promotedExternalBase = null;
     try {
         ensureActive();
         const result = await _boundedCommand(
             'remote.tunnel.privacypublic', [tunnelItem]
         );
-        if (result !== null) {
+        if (result && typeof result === 'object') {
+            log(`PORT: privacy result ${JSON.stringify({
+                remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
+                remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
+                localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
+                privacy: result.privacy ?? null,
+                protocol: result.protocol ?? null,
+            })}`);
+            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+        } else {
+            const detail = typeof result === 'string'
+                ? JSON.stringify(result.slice(0, 500))
+                : (result === null ? 'null' : typeof result);
+            log(`PORT: privacy command returned ${detail}`);
+            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+        }
+        if (promotedExternalBase) {
             privacyDone = true;
             log(`PORT: changed privacy to public via command`);
+            log(`PORT: privacy command returned ${promotedExternalBase}`);
         }
     } catch (e) {
         log(`PORT: privacy command failed: ${e.message || e}`);
@@ -1582,20 +2082,33 @@ async function ensurePortPublic(
                 ensureActive();
                 log(`PORT: privacy command found after view load — retrying`);
 
-                // Re-call asExternalUri to refresh the tunnel item reference
-                // (the privacy command needs the current forwarded tunnel item)
-                await _withTimeout(
-                    _asExternalUriAttempt(vscode.Uri.parse(`http://localhost:${port}/`)),
-                    6000,
-                    'asExternalUri privacy retry'
-                ).catch(() => {});
-
+                // Do not call asExternalUri again here.  It starts another
+                // forward for the same port; VS Code suppresses the privacy
+                // action's replacement forward while that factory operation
+                // is still in progress, making the command resolve undefined.
                 const result = await _boundedCommand(
                     'remote.tunnel.privacypublic', [tunnelItem]
                 );
-                if (result !== null) {
+                if (result && typeof result === 'object') {
+                    log(`PORT: privacy retry result ${JSON.stringify({
+                        remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
+                        remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
+                        localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
+                        privacy: result.privacy ?? null,
+                        protocol: result.protocol ?? null,
+                    })}`);
+                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+                } else {
+                    const detail = typeof result === 'string'
+                        ? JSON.stringify(result.slice(0, 500))
+                        : (result === null ? 'null' : typeof result);
+                    log(`PORT: privacy retry returned ${detail}`);
+                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+                }
+                if (promotedExternalBase) {
                     privacyDone = true;
                     log(`PORT: changed privacy to public via command (retry)`);
+                    log(`PORT: privacy command returned ${promotedExternalBase}`);
                 }
             } catch (e2) {
                 log(`PORT: privacy retry failed: ${e2.message || e2}`);
@@ -1606,6 +2119,31 @@ async function ensurePortPublic(
         ensureActive();
     }
     if (!privacyDone) return false;
+
+    if (promotedExternalBase) {
+        const promotedPingUrl = `${promotedExternalBase}/ping`;
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+            ensureActive();
+            if (await arrayViewStatusOk(promotedPingUrl, expectedServerId)) {
+                _rememberTunnelBase(port, promotedExternalBase);
+                log(`PORT: public route ready for ${promotedExternalBase}`);
+                return promotedExternalBase;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        log(`PORT: returned public route did not become ready for ${promotedExternalBase}`);
+        return false;
+    }
+
+    // A tunnel resolver can return localhost until the forward has been
+    // promoted.  In that case the local /ping says nothing about client
+    // reachability: promotion succeeded, but the caller must resolve again to
+    // obtain and verify the new non-loopback route.
+    if (!hasExternalRoute) {
+        log(`PORT: promoted localhost:${port}; waiting for external URI retry`);
+        return true;
+    }
 
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
@@ -1631,23 +2169,42 @@ async function resolveRemoteViewerUrl(
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
     try { origQuery = new URL(url).search; } catch (_) {}
-    const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
-    const cachedBase = vscode.env.remoteName === 'tunnel' ? _cachedTunnelBase(port) : null;
-    if (cachedBase) {
-        ensureActive();
-        log(`REMOTE: checking cached route ${cachedBase}`);
-        if (await arrayViewStatusOk(`${cachedBase}/ping`, expectedServerId)) {
-            _rememberTunnelBase(port, cachedBase);
-            log(`REMOTE: cached route ready for localhost:${port}`);
-            return cachedBase + '/' + origQuery;
+    const desktopTunnelRemoteProxy = (
+        vscode.env.remoteName === 'tunnel'
+        && vscode.env.appHost === 'desktop'
+        && vscode.workspace
+            .getConfiguration('workbench.browser')
+            .get('enableRemoteProxy', false)
+    );
+    if (desktopTunnelRemoteProxy) {
+        const backendPingUrl = pingUrlFromViewerUrl(url);
+        if (
+            backendPingUrl
+            && await arrayViewStatusOk(backendPingUrl, expectedServerId)
+        ) {
+            ensureActive();
+            log(`REMOTE: desktop integrated-browser proxy uses backend URL directly`);
+            return url;
         }
-        log(`REMOTE: cached route stale for localhost:${port}`);
+        log(`REMOTE: desktop integrated-browser proxy cannot reach expected backend`);
+        return null;
     }
+    const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+    const cachedBase = vscode.env.remoteName === 'tunnel'
+        ? await _verifiedCachedTunnelBase(port, expectedServerId, ensureActive)
+        : null;
+    if (cachedBase) {
+        return cachedBase + '/' + origQuery;
+    }
+    let tunnelPromotionAttempted = false;
     const attempts = [
         { timeoutMs: 6000, pauseMs: 0 },
         { timeoutMs: 10000, pauseMs: 500 },
+        { timeoutMs: 10000, pauseMs: 1500 },
+        { timeoutMs: 10000, pauseMs: 3000 },
+        { timeoutMs: 10000, pauseMs: 5000 },
+        { timeoutMs: 10000, pauseMs: 8000 },
     ];
-
     for (let i = 0; i < attempts.length; i++) {
         ensureActive();
         const attempt = attempts[i];
@@ -1662,11 +2219,64 @@ async function resolveRemoteViewerUrl(
                 attempt.timeoutMs,
                 'asExternalUri'
             );
+            ensureActive();
             const externalBase = externalUri.toString().replace(/\/$/, '');
             log(`REMOTE: → ${externalBase}`);
 
             if (vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)) {
-                throw new Error('asExternalUri returned a loopback URL in a remote window');
+                if (vscode.env.appHost === 'desktop' && desktopTunnelRemoteProxy) {
+                    ensureActive();
+                    if (!await arrayViewStatusOk(
+                        `${externalBase}/ping`, expectedServerId
+                    )) {
+                        throw new Error(
+                            'desktop tunnel loopback does not reach the expected backend'
+                        );
+                    }
+                    ensureActive();
+                    const finalUrl = externalBase + '/' + origQuery;
+                    log(`REMOTE: desktop tunnel remote-proxy URL = ${finalUrl}`);
+                    return finalUrl;
+                }
+                if (!tunnelPromotionAttempted) {
+                    tunnelPromotionAttempted = true;
+                    // Let auto-forwarders in all connected windows finish
+                    // materializing their default/private route.  Privacy
+                    // promotion must be the final forwarding operation.
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    const promoted = await ensurePortPublic(
+                        port, externalBase, expectedServerId, ensureActive
+                    );
+                    if (typeof promoted === 'string') {
+                        ensureActive();
+                        const finalUrl = promoted + '/' + origQuery;
+                        log(`REMOTE: promotion returned final URL = ${finalUrl}`);
+                        return finalUrl;
+                    } else if (promoted) {
+                        log(`REMOTE: tunnel route promoted without a returned public URL`);
+                    } else {
+                        log(`REMOTE: tunnel promotion did not return a verified public URL`);
+                    }
+                    // Promotion may activate a provider route without exposing
+                    // its address through the command API.  Re-check routes
+                    // learned by prior incarnations of this window, accepting
+                    // one only when /ping identifies this exact backend.
+                    const recoveredBase = await _verifiedCachedTunnelBase(
+                        port, expectedServerId, ensureActive
+                    );
+                    if (recoveredBase) {
+                        const finalUrl = recoveredBase + '/' + origQuery;
+                        log(`REMOTE: recovered verified cached URL = ${finalUrl}`);
+                        return finalUrl;
+                    }
+                    // Never call asExternalUri after the final privacy action:
+                    // that recreates the route as private.  A failed verified
+                    // promotion is terminal for this request.
+                    return null;
+                } else {
+                    log(`REMOTE: tunnel route still loopback after promotion; waiting before retry`);
+                }
+                continue;
             }
 
             if (vscode.env.remoteName === 'tunnel') {
@@ -1687,6 +2297,9 @@ async function resolveRemoteViewerUrl(
         }
     }
 
+    if (vscode.env.remoteName === 'tunnel' && tunnelPromotionAttempted) {
+        log(`REMOTE: tunnel route did not converge within bounded retry window`);
+    }
     return null;
 }
 
@@ -1832,9 +2445,21 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
     // instead of creating a second panel — eliminates the flicker.
+    const desktopTunnel = (
+        vscode.env.remoteName === 'tunnel'
+        && vscode.env.appHost === 'desktop'
+    );
+    let useIntegratedBrowser = false;
+    if (desktopTunnel) {
+        useIntegratedBrowser = await integratedBrowserCommandAvailable();
+        if (!useIntegratedBrowser) {
+            log('PANEL: integrated browser unavailable; retaining tunnel webview fallback');
+        }
+    }
     let handedOff = false;
     let viewerReady;
-    for (const [filePath, placeholder] of _pendingPlaceholders) {
+    let integratedBrowserOpened = false;
+    for (const [filePath, placeholder] of useIntegratedBrowser ? [] : _pendingPlaceholders) {
         const exactHandoff = data.handoffPath
             && path.resolve(data.handoffPath) === placeholder.filePath;
         const legacyTitleMatch = !data.handoffPath
@@ -1845,7 +2470,22 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             try {
                 ensureActive();
                 viewerReady = waitForViewerReady(placeholder.panel, viewerTimeoutMs);
-                placeholder.panel.webview.html = _viewerPanelHtml(openUrl);
+                const handoffPortMapping = _backendPortMapping(openUrl, data.url);
+                _replaceWebviewPortMapping(
+                    placeholder.panel.webview,
+                    handoffPortMapping
+                );
+                const handoffWarmupTimeoutMs = Math.max(
+                    0,
+                    Math.min(12000, viewerTimeoutMs - 1000)
+                );
+                placeholder.panel.webview.html = _viewerPanelHtml(
+                    openUrl,
+                    handoffWarmupTimeoutMs > 0
+                        ? pingUrlFromViewerUrl(openUrl)
+                        : null,
+                    handoffWarmupTimeoutMs
+                );
                 placeholder.panel.__arrayviewUrl = openUrl;
                 placeholder.panel.title = data.title || placeholder.title;
                 if (panelKey) _openPanels.set(panelKey, placeholder.panel);
@@ -1872,38 +2512,61 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         advanceAck('panel_opened');
     } else {
         ensureActive();
-        log(`openInWebviewPanel(${openUrl})`);
-        viewerReady = openInWebviewPanel(
-            openUrl,
-            data.title,
-            !!data.floating,
-            data.url,
-            panelKey,
-            data.serverId || null,
-            viewerTimeoutMs
-        );
-        log('openInWebviewPanel done');
+        if (useIntegratedBrowser) {
+            log(`openInIntegratedBrowser(${openUrl})`);
+            const opened = await openInIntegratedBrowser(
+                openUrl,
+                data.url,
+                requestId,
+                data.serverId || null,
+                data.windowId || logWindowId,
+                viewerTimeoutMs,
+                ensureActive
+            );
+            viewerReady = opened.viewerReady;
+            integratedBrowserOpened = true;
+            log('openInIntegratedBrowser done');
+        } else {
+            log(`openInWebviewPanel(${openUrl})`);
+            viewerReady = openInWebviewPanel(
+                openUrl,
+                data.title,
+                !!data.floating,
+                data.url,
+                panelKey,
+                data.serverId || null,
+                viewerTimeoutMs
+            );
+            log('openInWebviewPanel done');
+        }
         advanceAck('panel_opened');
     }
 
-    const pingUrl = pingUrlFromViewerUrl(openUrl);
-    if (!pingUrl) throw new Error('Unable to derive backend ping URL');
-    const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
-    if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
-    for (let attempt = 0; attempt < 10; attempt++) {
-        const serverReady = await arrayViewStatusOk(pingUrl, data.serverId || null);
-        const sessionReady = serverReady && await httpStatus2xx(metadataUrl);
-        if (sessionReady) {
-            const viewerError = await viewerReady;
-            if (viewerError) throw viewerError;
-            ensureActive();
-            advanceAck('visibility_verified');
-            advanceAck('backend_ready');
-            return;
+    try {
+        const pingUrl = pingUrlFromViewerUrl(openUrl);
+        if (!pingUrl) throw new Error('Unable to derive backend ping URL');
+        const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
+        if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const serverReady = await arrayViewStatusOk(pingUrl, data.serverId || null);
+            const sessionReady = serverReady && await httpStatus2xx(metadataUrl);
+            if (sessionReady) {
+                const viewerError = await viewerReady;
+                if (viewerError) throw viewerError;
+                ensureActive();
+                advanceAck('visibility_verified');
+                advanceAck('backend_ready');
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
         }
-        await new Promise(resolve => setTimeout(resolve, 250));
+        throw new Error('Viewer session did not become ready after panel opened');
+    } catch (error) {
+        if (integratedBrowserOpened) {
+            releaseUrlSession(openUrl, data.url, data.serverId || null);
+        }
+        throw error;
     }
-    throw new Error('Viewer session did not become ready after panel opened');
 }
 
 function activate(context) {
@@ -2139,6 +2802,7 @@ module.exports = {
     __test: {
         _withTimeout,
         _asExternalUriAttempt,
+        resolveRemoteViewerUrl,
         claimProtocolRequest,
         writeProtocolAck,
         cleanupStaleFiles,
@@ -2154,6 +2818,11 @@ module.exports = {
         _remainingSignalMs,
         tryOpenSignalFile,
         _viewerPanelHtml,
+        _publicBaseFromTunnelResult,
+        _integratedBrowserLaunchUrl,
+        integratedBrowserCommandAvailable,
+        waitForBackendViewerReady,
+        openInIntegratedBrowser,
         openInWebviewPanel,
         _openPanels,
         extensionInstanceId: EXTENSION_INSTANCE_ID,

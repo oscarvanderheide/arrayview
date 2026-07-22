@@ -47,6 +47,46 @@ def get_ppid(pid: int) -> int:
     return -1
 
 
+def _find_ancestor_environment_value(name: str, depth: int = 12) -> str | None:
+    """Recover one environment value from this process or its ancestors."""
+    value = os.environ.get(name)
+    if value:
+        return value
+
+    pid = os.getpid()
+    encoded_prefix = f"{name}=".encode()
+    text_prefix = f"{name}="
+    for _ in range(depth):
+        pid = get_ppid(pid)
+        if pid <= 1:
+            break
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as handle:
+                for entry in handle.read().split(b"\0"):
+                    if entry.startswith(encoded_prefix):
+                        value = entry[len(encoded_prefix) :].decode()
+                        if value:
+                            return value
+        except Exception:
+            pass
+        if sys.platform == "darwin":
+            try:
+                result = subprocess.run(
+                    ["ps", "ewwww", "-p", str(pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                for token in result.stdout.split():
+                    if token.startswith(text_prefix):
+                        value = token[len(text_prefix) :]
+                        if value:
+                            return value
+            except Exception:
+                pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Jupyter
 # ---------------------------------------------------------------------------
@@ -265,6 +305,36 @@ def _find_vscode_ipc_hook() -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _current_vscode_remote_cli() -> str | None:
+    """Return the remote CLI belonging to this exact VS Code server.
+
+    ``VSCODE_NLS_CONFIG.defaultMessagesFile`` lives below the active server's
+    ``server/out`` directory.  Deriving the CLI from that path avoids guessing
+    between co-located Tunnel and Remote-SSH installations under the same home
+    directory.
+    """
+    # uv may omit this variable from the launched Python process even though
+    # the integrated terminal shell still has it. Recovering it from the
+    # ancestor chain keeps placement bound to this exact VS Code server.
+    raw_config = _find_ancestor_environment_value("VSCODE_NLS_CONFIG")
+    if not raw_config:
+        return None
+    try:
+        messages_file = json.loads(raw_config).get("defaultMessagesFile")
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if not isinstance(messages_file, str) or not messages_file:
+        return None
+    out_dir = os.path.dirname(messages_file)
+    server_dir = os.path.dirname(out_dir)
+    if os.path.basename(out_dir) != "out" or os.path.basename(server_dir) != "server":
+        return None
+    candidate = os.path.join(server_dir, "bin", "remote-cli", "code")
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return None
+
+
 def _find_code_cli(*, is_remote: bool | None = None) -> str | None:
     """Return path to the VS Code CLI ('code'), or None if not found.
 
@@ -280,14 +350,27 @@ def _find_code_cli(*, is_remote: bool | None = None) -> str | None:
     if is_remote is None:
         is_remote = _is_vscode_remote()
 
-    # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
-    # uv run and similar launchers may strip VSCODE_IPC_HOOK_CLI from the
-    # current process, so also consult the recovered ancestor-process value.
+    found = shutil.which("code")
+
+    # In a VS Code remote/tunnel, bind installation to this exact window's
+    # server.  A shared home can contain both Tunnel and Remote-SSH helpers;
+    # choosing the newest glob can update/reload the wrong extension host.
     if is_remote:
+        exact_remote_cli = _current_vscode_remote_cli()
+        if exact_remote_cli:
+            return exact_remote_cli
+
+        # uv run and similar launchers may strip VSCODE_IPC_HOOK_CLI.  When an
+        # exact hook can still be recovered, the normal `code` wrapper is safe:
+        # _ensure_vscode_extension injects that hook into the installer env.
+        if _find_vscode_ipc_hook() and found:
+            return found
+
         # The tunnel helper is typically at one of:
         #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
         #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
         #   ~/.vscode/cli/servers/.../server/bin/remote-cli/code  (newer tunnels)
+        candidates: list[str] = []
         for pattern in [
             os.path.expanduser("~/.vscode-server/bin/*/bin/remote-cli/code"),
             os.path.expanduser(
@@ -295,12 +378,15 @@ def _find_code_cli(*, is_remote: bool | None = None) -> str | None:
             ),
             os.path.expanduser("~/.vscode/cli/servers/*/server/bin/remote-cli/code"),
         ]:
-            matches = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
-            for m in matches:
-                if os.access(m, os.X_OK):
-                    return m
+            for candidate in glob.glob(pattern):
+                if os.access(candidate, os.X_OK) and candidate not in candidates:
+                    candidates.append(candidate)
+        if len(candidates) == 1:
+            return candidates[0]
+        # Multiple uncorrelated helpers are unsafe: fail closed instead of
+        # installing into whichever Tunnel/Remote-SSH profile is newest.
+        return None
 
-    found = shutil.which("code")
     if found and (is_remote or "remote-cli" not in found):
         return found
     candidates: list[str] = []
@@ -364,21 +450,21 @@ def _process_is_alive(pid: object) -> bool:
         return False
 
 
-def _exact_vscode_registration_remote(ipc: str) -> bool | None:
-    """Return the owning extension host's remote flag when registered.
+def _exact_vscode_window_registration(
+    ipc: str | None = None,
+) -> tuple[str, dict] | None:
+    """Return the live registration belonging to this exact VS Code server.
 
-    The registration is the display host's own statement of placement. Generic
-    terminal variables and installed ``remote-cli`` helpers are not authority:
-    both can exist in a local desktop window.
+    A revived integrated terminal can retain ``VSCODE_NLS_CONFIG`` while losing
+    both its IPC hook and the window id injected by the extension.  Tunnel and
+    Remote-SSH windows may also share ``~/.arrayview``, so selecting an arbitrary
+    remote registration is unsafe.  When direct window evidence is unavailable,
+    match the live extension-host executable to the exact server root named by
+    the terminal's NLS configuration, and only accept a unique match.
     """
-    candidate_ids: list[str] = []
-    if window_id := os.environ.get("ARRAYVIEW_WINDOW_ID"):
-        candidate_ids.append(window_id)
-    if ipc:
-        candidate_ids.append(hashlib.sha256(ipc.encode()).hexdigest()[:16])
-
     signal_dir = os.path.expanduser("~/.arrayview")
-    for window_id in dict.fromkeys(candidate_ids):
+
+    def _read(window_id: str) -> tuple[str, dict] | None:
         try:
             with open(
                 os.path.join(signal_dir, f"window-{window_id}.json"),
@@ -386,11 +472,65 @@ def _exact_vscode_registration_remote(ipc: str) -> bool | None:
             ) as handle:
                 registration = json.load(handle)
         except (OSError, ValueError, TypeError):
+            return None
+        if not isinstance(registration, dict) or not _process_is_alive(
+            registration.get("pid")
+        ):
+            return None
+        return window_id, registration
+
+    if ipc:
+        window_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
+        if registration := _read(window_id):
+            return registration
+    elif window_id := os.environ.get("ARRAYVIEW_WINDOW_ID"):
+        if registration := _read(window_id):
+            return registration
+
+    exact_cli = _current_vscode_remote_cli()
+    if exact_cli is None:
+        return None
+    server_dir = os.path.realpath(
+        os.path.dirname(os.path.dirname(os.path.dirname(exact_cli)))
+    )
+    try:
+        filenames = os.listdir(signal_dir)
+    except OSError:
+        return None
+
+    matches: list[tuple[str, dict]] = []
+    for filename in filenames:
+        if not filename.startswith("window-") or not filename.endswith(".json"):
             continue
-        if not _process_is_alive(registration.get("pid")):
+        window_id = filename[len("window-") : -len(".json")]
+        candidate = _read(window_id)
+        if candidate is None:
             continue
-        if "remoteName" in registration:
-            return registration.get("remoteName") is not None
+        registration = candidate[1]
+        if registration.get("remoteName") is None:
+            continue
+        try:
+            executable = os.path.realpath(
+                os.readlink(f"/proc/{int(registration['pid'])}/exe")
+            )
+        except (KeyError, OSError, TypeError, ValueError):
+            continue
+        if os.path.dirname(executable) == server_dir:
+            matches.append(candidate)
+
+    return matches[0] if len(matches) == 1 else None
+
+
+def _exact_vscode_registration_remote(ipc: str) -> bool | None:
+    """Return the owning extension host's remote flag when registered.
+
+    The registration is the display host's own statement of placement. Generic
+    terminal variables and installed ``remote-cli`` helpers are not authority:
+    both can exist in a local desktop window.
+    """
+    exact = _exact_vscode_window_registration(ipc)
+    if exact is not None and "remoteName" in exact[1]:
+        return exact[1].get("remoteName") is not None
     return None
 
 
@@ -428,6 +568,11 @@ def _is_vscode_remote() -> bool:
     registered_remote = _exact_vscode_registration_remote(ipc)
     if registered_remote is not None:
         return registered_remote
+    # VSCODE_NLS_CONFIG points inside the exact active VS Code server. Unlike
+    # the presence of unrelated remote-cli installations on disk, a validated
+    # server/out -> bin/remote-cli/code path is authoritative remote evidence.
+    if _current_vscode_remote_cli() is not None:
+        return True
     ssh = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
     vscode_server = bool(os.environ.get("VSCODE_AGENT_FOLDER"))
     if ipc and (ssh or vscode_server):

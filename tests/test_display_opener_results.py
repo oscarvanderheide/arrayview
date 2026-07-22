@@ -403,6 +403,7 @@ def test_stale_vscode_host_fails_before_writing_open_signal(monkeypatch):
     monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
     monkeypatch.setattr(browser, "_is_vscode_remote", lambda: True)
     monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: False)
+    monkeypatch.setattr(extension_state, "_VSCODE_EXT_INSTALL_FAILED", False)
     monkeypatch.setattr(extension_state, "_VSCODE_EXT_RELOAD_REQUIRED", True)
     monkeypatch.setattr(
         browser,
@@ -414,7 +415,30 @@ def test_stale_vscode_host_fails_before_writing_open_signal(monkeypatch):
 
     assert result.state is browser.OpenState.FAILED
     assert result.mechanism == "vscode-extension"
-    assert "reload this VS Code window" in result.detail
+    assert "installed; reload this exact window once" in result.detail
+
+
+def test_remote_missing_opener_fails_before_writing_broadcast_signal(monkeypatch):
+    from arrayview import _vscode_extension as extension_state
+
+    monkeypatch.setattr(browser, "_in_vscode_terminal", lambda: True)
+    monkeypatch.setattr(browser, "_is_vscode_remote", lambda: True)
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: False)
+    monkeypatch.setattr(extension_state, "_VSCODE_EXT_INSTALL_FAILED", True)
+    monkeypatch.setattr(extension_state, "_VSCODE_EXT_RELOAD_REQUIRED", False)
+    monkeypatch.setattr(
+        browser,
+        "_open_via_signal_file",
+        lambda *args, **kwargs: pytest.fail(
+            "unverified remote opener must not receive any signal"
+        ),
+    )
+
+    result = browser._open_browser("http://localhost:8123/?sid=abc", blocking=True)
+
+    assert result.state is browser.OpenState.FAILED
+    assert result.mechanism == "vscode-extension"
+    assert "could not safely install" in result.detail
 
 
 def test_plain_ssh_reports_printed_guidance(monkeypatch):
