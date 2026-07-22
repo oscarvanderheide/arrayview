@@ -1,136 +1,122 @@
 ---
 name: invocation-consistency
-description: Use when implementing any server-side, startup, display-opening, or environment-detection feature in arrayview. Ensures the feature works correctly across all six ways arrayview can be launched — CLI, Python script, Jupyter, Julia, VS Code tunnel, and SSH.
+description: Use when implementing or diagnosing ArrayView startup, server ownership, display opening, environment detection, VS Code delivery, tunnel forwarding, session handoff, or shutdown. Requires real-first validation across affected CLI, Python, notebook, Julia, MATLAB, VS Code local/remote/tunnel, native, browser, inline, none, and SSH paths without treating mocked tests as host proof.
 ---
 
-# ArrayView Invocation Consistency Checklist
+# Invocation Consistency
 
-## Rule
+## Core rule
 
-Every behavior that depends on *how* arrayview is started (server lifecycle, browser opening, display routing, port forwarding) must be verified across all six invocation paths before it is considered done.
+Prove the user-visible path before trusting the implementation.
 
-## The Six Invocation Paths
+For the affected environment, run the smallest real public invocation before
+editing and preserve it as the acceptance gate. A helper test, open port, new
+process, panel, or WebSocket does not prove that the array appeared.
 
-| Path | Entry point | Display | Server model |
-|------|------------|---------|-------------|
-| **CLI** | `arrayview()` | native window → browser fallback | background thread, blocks until Ctrl-C |
-| **Python script** | `view(arr)` | native window → browser fallback | daemon thread (dies with caller) |
-| **Jupyter** | `view(arr)` | inline IFrame | daemon thread (persists across cells) |
-| **Julia (PythonCall)** | `view(arr)` | system browser | always subprocess (`_view_julia()`) — GIL |
-| **VS Code terminal** | `arrayview()` or `view()` | VS Code Simple Browser | in-process or subprocess |
-| **Plain SSH (no VS Code)** | `arrayview()` or `view()` | prints port-forward hint | in-process or subprocess |
+Read `.mex/patterns/validate-launch-path.md` for the evidence workflow. For VS
+Code delivery failures, also read
+`.mex/patterns/debug-vscode-extension-python.md`.
 
-## Transport
+## Evidence classes
 
-ArrayView uses one viewer backend transport:
+Use these labels exactly:
 
-- **Network mode**: FastAPI routes and WebSocket server. File registration goes through `/load` in `_routes_loading.py`; spawned CLI sessions load in `_launcher._serve_daemon()`.
+- `real host`: public invocation in the actual GUI/kernel/SSH/tunnel host.
+- `real process`: public entry point with real subprocesses, server, sockets,
+  and browser automation, but without the actual external host boundary.
+- `component`: mocks, protocol fixtures, unit tests, and source assertions.
+- `unavailable`: the required host is not accessible. State this explicitly.
 
-VS Code local and remote/tunnel sessions both use signal-file opening plus the
-HTTP/WebSocket viewer. Shared behavior such as file-format key selection belongs
-in `_io.py` helpers and must be used by `/load`, daemon startup, and in-process
-session creation.
+Only `real host` closes a host-dependent acceptance row. Component tests may
+prevent regressions but never upgrade the evidence label.
 
-## Key Detection Functions (all in `_platform.py`)
+## Acceptance contract
 
-```python
-_in_jupyter()           # ipykernel present → display inline IFrame
-_in_vscode_terminal()   # TERM_PROGRAM=vscode OR VSCODE_IPC_HOOK_CLI → use Simple Browser
-_is_vscode_remote()     # tunnel/SSH remote with VS Code server → shared signal fallback
-_is_julia_env()         # juliacall in sys.modules or julia in sys.executable → subprocess
-_can_native_window()    # pywebview available + not remote + display present → native window
-_find_vscode_ipc_hook() # walk process tree for VSCODE_IPC_HOOK_CLI (stripped by uv run)
-```
+For every affected row, verify all applicable outcomes:
 
-## Detection Order in `view()`
+1. The caller's explicit display choice remains authoritative.
+2. The intended host/window receives exactly one display.
+3. The requested array reaches its first rendered frame. For no-display mode,
+   registration completes without any display side effect.
+4. The caller returns, blocks, or remains kernel-owned as promised.
+5. A second launch works without reloads or manual retries.
+6. Closing the display releases only its sessions and reaps only its owned
+   transient processes.
+7. Remote/reconnect paths recover within a bounded transaction and do not open
+   in a stale sibling window.
 
-Julia → Jupyter → VS Code remote → VS Code terminal → local (native/browser)
+If a gate fails, retain the trace and diagnose the earliest failed boundary.
+Do not patch a later symptom or start a broad refactor first.
 
-Any new detection must not break the fallback chain for paths it shouldn't match.
+## Invocation rows
 
-## Julia-Specific Constraints
+Choose affected rows from all three dimensions; do not rely on a fixed "six
+paths" list:
 
-- Never run server in-process when `_is_julia_env()` is True (GIL conflicts)
-- `_view_julia()` starts a detached subprocess; array is serialized to a temp `.npy` file
-- No interactive stdin in subprocesses; all params encoded in CLI flags or files
+- Entry point: CLI, Python script, interactive Python, ipykernel/Jupyter,
+  Julia/PythonCall, IJulia, MATLAB, VS Code Explorer.
+- Placement: ordinary local shell, local VS Code, Remote SSH, VS Code tunnel,
+  plain SSH.
+- Display: auto, native, system browser, VS Code panel, inline, none.
 
-## Jupyter-Specific Constraints
+Test the changed rows plus nearby sentinels that could regress. If a host such
+as MATLAB, IJulia, Windows native, or a real tunnel is unavailable, leave that
+row open and say so.
 
-- `_in_jupyter()` returns True for ipykernel (VS Code notebook, JupyterLab, classic Notebook)
-- Julia's IJulia kernel is NOT ipykernel → `_in_jupyter()` returns False in Julia notebooks
-- `inline=True` → returns `IPython.display.IFrame`; caller must return it from the cell
-- Port reuse: repeated `view()` calls reuse same port/server if already running
+"Affected" includes the reported row, every row selected by changed
+detection/routing logic, and rows sharing changed ownership or fallback. List
+supported rows deliberately excluded from real validation and why.
 
-## Port & URL Rules
+## Ownership invariants
 
-- Always use `localhost` (not `127.0.0.1`) so VS Code port-forwarding works
-- Default port: `8123`; CLI: `--port` flag; `view()`: `port=` kwarg
+- Preserve the launch plan through execution; do not redetect the environment
+  inside a display helper and invent a new policy.
+- Keep Julia/PythonCall out of the in-process server path.
+- Keep notebook servers kernel-owned across output disappearance.
+- For in-process script launches, keep the calling process/server alive until
+  the viewer closes or the bounded connect timeout expires.
+- Keep transient CLI/SSH backends bounded and automatically reaped.
+- Reuse a server only after verifying ArrayView identity and required
+  capabilities. Never kill a foreign listener.
+- Use `localhost` in public viewer URLs.
 
-## tmux and VS Code Terminal Detection
+## VS Code invariants
 
-tmux breaks the ancestor-walk for `VSCODE_IPC_HOOK_CLI` because the process's parent chain goes through `tmux-server` (an independent daemon with no VS Code env), not through the VS Code terminal shell.
+- Local VS Code, Remote SSH, and VS Code tunnel are separate host rows.
+- Success requires an ACK correlated to the exact request, window, server, SID,
+  and `frame-rendered` event.
+- `asExternalUri`, port forwarding, panel creation, and WebSocket connection are
+  intermediate states.
+- Closing the panel must release its URL sessions through the backend cleanup
+  authority.
+- Reconnect/reload must not duplicate panels, renew a transaction forever, or
+  let a stale extension host claim the request.
+- Never launch a temporary VS Code profile/window or reload the user's IDE
+  without explicit permission.
 
-**Why `tmux show-environment` fails:** `VSCODE_IPC_HOOK_CLI` is not in tmux's default `update-environment` list.
+## Extension packaging
 
-**Why `#{client_pid}` alone fails:** returns only one client; breaks with multiple attached clients.
+When `vscode-extension/extension.js` changes:
 
-**Correct approach — enumerate all clients for the current session:**
+1. Bump `vscode-extension/package.json` and
+   `src/arrayview/_vscode_extension.py` together.
+2. Rebuild `src/arrayview/arrayview-opener.vsix`.
+3. Verify source, bundled VSIX, installed version, and live extension-host
+   registration separately.
+4. Obtain permission before installing into or reloading the user's active
+   VS Code profile.
 
-```python
-session_id = subprocess.run(["tmux", "display-message", "-p", "#{session_id}"], ...).stdout.strip()
-client_pids = subprocess.run(
-    ["tmux", "list-clients", "-t", session_id, "-F", "#{client_pid}"], ...
-).stdout.strip().splitlines()
-for pid_str in client_pids:
-    val = _ipc_from_pid(int(pid_str))
-    if val and os.path.exists(val):
-        return val
-```
+## Stop conditions
 
-`list-clients -t <session_id>` scopes to current session only — prevents false-positive from a different VS Code window in another tmux session.
+Stop and report the open evidence row when:
 
-## Step-by-Step Checklist
+- the required real host is unavailable;
+- success was inferred from a port, process, panel, or connection without a
+  first frame;
+- a fix for one display changes another display's policy or ownership;
+- validation would require an unapproved GUI launch, IDE reload, or external
+  profile mutation;
+- cleanup leaves an owned process, session, request, or forwarded route behind.
 
-1. **Server startup/teardown?**
-   - CLI: starts and terminates cleanly
-   - Python script: daemon thread doesn't orphan
-   - Jupyter: repeated calls don't fail on port-already-in-use
-   - Julia: `_view_julia()` passes new params via CLI flag or file
-
-2. **File/session registration consistent?**
-   - FastAPI `/load` path handles the feature
-   - CLI spawned daemon path handles the feature
-   - Multi-array/default-key behavior is centralized in `_io.py`
-
-3. **Browser/display opening?**
-   - Local native window (macOS): `pywebview` opens correctly
-   - VS Code terminal: Simple Browser opens via extension signal file
-   - VS Code tunnel: reaches client-side Simple Browser, not remote host
-   - Verify `_ensure_vscode_extension()` installs/updates if VSIX changed
-
-4. **Environment detection?**
-   - Check detection order: Julia → Jupyter → VS Code remote → VS Code terminal → local
-   - `_find_vscode_ipc_hook()` walks up to 12 parent processes; new subprocess wrappers may need the same
-
-5. **VS Code extension changed?**
-   - Rebuild VSIX: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-opener.vsix`
-   - Bump `_VSCODE_EXT_VERSION` in `_vscode.py` and `vscode-extension/package.json` together
-
-## Quick Automated Checks
-
-```bash
-uv run pytest tests/test_api.py -x
-uv run pytest tests/test_cli.py -x
-uv run python -c "from arrayview import view; import numpy as np; view(np.zeros((10,10)))"
-```
-
-## Red Flags — STOP
-
-- "I changed server startup but only tested CLI" → test all paths
-- "I fixed `/load` but not daemon startup" → spawned CLI sessions can still be broken
-- "I fixed `_serve_daemon()` but `--diagnose` says `is_vscode_remote: true`" → verify the tunnel signal-file, port exposure, and `asExternalUri` path too
-- "Works locally but not in tunnel" → check `_is_vscode_remote()` path and port exposure
-- "I used `127.0.0.1` in the URL" → use `localhost`
-- "I fixed tmux with `#{client_pid}`" → only works with one client; use `list-clients`
-- "I bumped `package.json` but not `_VSCODE_EXT_VERSION`" → must stay in sync
-- "Server starts but leaves an orphan after Ctrl-C" → check `_shutdown_event` and subprocess reaping
+Do not call the launch work robust or complete while any supported affected row
+has only component evidence.

@@ -1,6 +1,6 @@
 ---
 name: debug-vscode-extension-python
-description: Diagnosing VS Code opener failures in the signal-file and forwarded WebSocket path.
+description: Diagnose VS Code opener failures across local, Remote SSH, and tunnel windows without mistaking component health for a rendered viewer.
 triggers:
   - "ArrayView failed to open"
   - "vscode extension"
@@ -8,68 +8,75 @@ triggers:
   - "asExternalUri"
   - "port public"
 edges:
+  - target: patterns/validate-launch-path.md
+    condition: always, to define the real invocation and acceptance evidence
   - target: context/conventions.md
-    condition: when making code changes after confirming the failure mode
-last_updated: 2026-06-26
+    condition: when making code changes after confirming the failure boundary
+last_updated: 2026-07-22
 ---
 
 # Debug VS Code Extension Opening
 
-## Context
+Treat local VS Code, Remote SSH, and VS Code tunnel as different launch rows. A
+process, forwarded port, panel, or successful `/ping` is not proof that the
+array rendered.
 
-The VS Code opener extension no longer starts a Python subprocess or custom
-editor transport. Python writes a signal file with a localhost viewer URL; the
-extension resolves that URL through VS Code, opens a webview panel, and checks
-the backend with `/ping`.
+## Before Running
 
-## Steps
+- Record the exact public command and the VS Code window where it should open.
+- Warn before any step that can open windows or prompts.
+- Do not install/reload an extension or create a temporary VS Code profile
+  without explicit permission.
+- Check the live extension registration/version. Source, bundled VSIX,
+  installed extension, and running extension host can all differ.
 
-1. **Check the extension log first**
+## Trace One Request End To End
+
+1. Inspect the extension log:
+
    ```bash
-   tail -n 120 "$HOME/.arrayview/extension.log"
+   tail -n 160 "$HOME/.arrayview/extension.log"
    ```
-   Look for `SIGNAL-DATA:`, `OPEN:`, `BACKEND:`, `PORT:`, and `asExternalUri`.
 
-2. **Confirm the signal file contains a URL**
-   Signal payloads should have `mode: "url"` and a `http://localhost:<port>/...`
-   URL. Payloads without a URL are stale and should not be produced by current
-   Python code.
+   Correlate one request by `requestId`. Current useful markers include
+   `SIGNAL`, `REMOTE`, `PORT`, `PANEL`, and `ACK`.
 
-3. **Check the backend directly from the extension host**
-   The extension probes `/ping`. From the same remote shell:
-   ```bash
-   curl -fsS http://localhost:8000/ping
-   ```
-   Use the actual port from the signal file. A refused connection means the
-   Python server did not stay alive long enough or the wrong port was signaled.
+2. Inspect the protocol-v1 signal payload. It should identify the action, URL,
+   request ID, ACK path, protocol version, server, and requested window. Do not
+   expect the removed `mode: "url"` field.
 
-4. **Check tunnel forwarding**
-   In remote/tunnel sessions, the extension should call port configuration and
-   `asExternalUri`. If the forwarded URL opens but WebSocket fails, inspect VS
-   Code's Ports view and whether the port was promoted to public.
+3. Check the local backend using the actual signaled port. `/ping` proves only
+   reachability; `/metadata` for the requested SID proves that the intended
+   session exists.
 
-5. **If editing `extension.js`**
-   Bump `vscode-extension/package.json`, bump `_VSCODE_EXT_VERSION` in
-   `src/arrayview/_vscode_extension.py`, rebuild
-   `src/arrayview/arrayview-opener.vsix`, and verify the embedded version.
+4. For a tunnel, verify that the external URL is non-loopback, retains the SID
+   query parameters, targets the expected server, and is reachable through the
+   public route. Remote SSH may legitimately resolve to a local forwarded URL;
+   do not apply tunnel-only public-port rules to it.
 
-## Gotchas
+5. Follow the visible readiness chain: wrapper loaded, viewer script loaded,
+   WebSocket connected, metadata received, `frame-rendered` emitted,
+   `visibility_verified` passed, then terminal `backend_ready` ACK. Stop at the
+   first missing boundary instead of refactoring later layers.
 
-- Always use `localhost`, not `127.0.0.1`; VS Code port forwarding keys off
-  localhost URLs.
-- The extension is a URL opener only. Do not reintroduce a second backend
-  transport inside the extension.
-- If `uv run arrayview --serve --port <port>` reports success but the port
-  refuses connections, start the empty server directly as described in the repo
-  AGENTS instructions.
+6. Close the panel and confirm release, then repeat the same command. For a
+   persistent remote route, also verify a bounded reconnect and eventual idle
+   cleanup.
 
-## Verify
+## Packaging Checks
 
-- [ ] Extension log shows the signal was handled once
-- [ ] `/ping` works on the signaled `localhost` port
-- [ ] Remote/tunnel URL was resolved with `asExternalUri`
-- [ ] If `extension.js` changed, `vscode-extension/package.json`, `_VSCODE_EXT_VERSION`, and the VSIX version all match
+If extension source changes, keep these synchronized:
 
-## Update Scaffold
-- [ ] Update `.mex/context/project-state.md` if the shipped opener behavior changed
-- [ ] Update any `.mex/context/` files that are now out of date
+- `vscode-extension/package.json`
+- `_VSCODE_EXT_VERSION` in `src/arrayview/_vscode_extension.py`
+- `src/arrayview/arrayview-opener.vsix`
+
+Then separately verify the installed version and the version reported by the
+live extension host.
+
+## Reporting
+
+Label each result `real host`, `real process`, `component`, or `unavailable`.
+State whether a human-visible first frame appeared. Follow
+`.mex/patterns/validate-launch-path.md` for the full acceptance contract; a
+green test suite or lifecycle matrix with `MANUAL` rows is not a substitute.

@@ -7,15 +7,15 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-20
+last_updated: 2026-07-22
 ---
 
 # Project State
 
 ## Working
 
-- CLI (`uvx arrayview file.npy`) and Python API (`view(arr)`) — both stable
-- Display environments: Jupyter inline, VS Code local, VS Code tunnel via forwarded WebSocket, Julia, native pywebview, SSH URL print (user forwards port with `ssh -L`)
+- Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
+- Real-host launch evidence has passed for local native CLI, Python-script native, Julia/PythonCall native, a real ipykernel inline view, and plain SSH with `ssh -L`. VS Code local, Remote SSH, and VS Code tunnel are separate acceptance rows and must be reverified independently after opener or routing changes.
 - File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.dcm`/DICOM series directories, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
 - DICOM series use physical patient-position ordering, canonical RAS geometry,
   modality rescale, explicit multi-series selection, and a privacy-filtered
@@ -28,7 +28,7 @@ last_updated: 2026-07-20
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- VS Code extension v0.14.43 — exact tunnel-window recovery from the terminal IPC hook, atomic cross-window request claims, non-loopback tunnel URL enforcement, queued concurrent requests, remote-only tunnel claims, live opener-version ACKs, first-frame readiness, and immediate local-backend session release. Successful port-public promotion is cached per external tunnel URL, and existing-server tunnel loads overlap port setup with pending background data loading.
+- The bundled VS Code opener is v0.14.51. Its component contracts include exact-window recovery, atomic request claims, tunnel URL checks, readiness ACKs, and session release. The installed extension and the extension host actually running in each VS Code window must be checked separately. Real tunnel first-frame, repeat, reconnect, and cleanup behavior is under active repair and is not considered proven by component tests alone.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
@@ -76,14 +76,13 @@ last_updated: 2026-07-20
 - `--version` flag and version string in help overlay
 - In-viewer array picker for multi-array `.mat` and `.npz` files
 - ROI manager modal for qMRI canvases (per-parameter-map stats rows, CSV export, label-mask export)
-- Invocation lifecycle contract defined and hardened: local VS Code CLI launches use transient daemon shutdown, remote/tunnel launches remain persistent only where transport requires it, URL webview backend checks run in the extension host against `/ping`, URL panel disposal releases all sessions encoded in the viewer URL, quick viewer connect/disconnect races detected by monotonic connection counter, ambiguous multi-window tunnel routing fails closed, stale viewer SID retry state cleared on WebSocket disconnect, bundled opener extension rebuilt as v0.14.12
+- Invocation lifecycle contracts and focused component tests cover transient local ownership, URL session release, quick connect/disconnect races, and fail-closed ambiguous window routing. These are safeguards, not proof that every real launch path works.
 - Hover info wrong values fixed
 - Native launcher startup restored
 - qMRI pane sizing stabilized
 - VS Code extension Windows support (select/pipes, venv path, ppid)
 - Tool launcher motion refined
 
-- VS Code tab lifecycle hardening: local VS Code CLI launches now use transient daemon shutdown instead of `persist=True`, remote/tunnel launches remain persistent only where transport requires it, URL webview backend checks run in the extension host against `/ping`, URL panel disposal releases all sessions encoded in the viewer URL via tested lifecycle helpers, quick viewer connect/disconnect races are detected by a monotonic connection counter, ambiguous multi-window tunnel routing now fails closed instead of opening in a guessed window, stale viewer SID retry state is cleared on WebSocket disconnect, and the bundled opener extension was rebuilt as v0.14.12.
 - Shift+C colormap picker redesign: the old centered shortlist is now a narrow translucent right-edge drawer with a close button, a yellow `Colormaps` title plus a `Favorites` subtitle, and a plain 12-swatch two-column quick set that stays visible above the search field. Search matches render in a separate results area below the input, Enter first exits the search field before a second Enter commits, arrow-key movement follows the visible two-column grid, and repeated `c` presses cycle through the currently visible swatches while the picker is open.
 - Detached compare-on-X: single-array non-spatial dimensions now support the same compare-center family as two-array compare. The frontend reuses compare mode with per-pane detached indices, the dimbar shows a purple `X`, the compare titles show index-over-total labels, `[` / `]` control pane A, `{` / `}` control pane B, and repeated `X` exits detached compare after cycling the center modes. Focused coverage now includes a browser regression for detached entry/scrubbing/exit plus API coverage for split `/diff` indices on the same session.
 - Normal-mode dimbar readability: inactive non-spatial dims no longer get a blanket reduced parent opacity, so the current index reads bright while `/total` stays subdued via the existing child dim-size styling.
@@ -97,7 +96,7 @@ last_updated: 2026-07-20
 
 ## In Progress
 
-- VS Code tunnel opener v0.14.43 is installed on disk and fully covered by focused lifecycle/ACK tests; active 0.14.42 extension hosts still need one window reload before post-change live timing and multi-window verification.
+- VS Code tunnel launch behavior is being repaired and validated in a real tunnel window. The repository bundles opener v0.14.51, but repository, packaged VSIX, installed extension, and live extension-host versions are distinct facts. Completion requires a visible first frame, a successful repeat launch, reconnect behavior, and clean release in the same real environment.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 

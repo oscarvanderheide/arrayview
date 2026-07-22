@@ -1,6 +1,6 @@
 # Pattern Index
 
-Last reviewed: 2026-06-19
+Last reviewed: 2026-07-22
 
 Lookup table for all pattern files in this directory. Check here before starting any task — if a pattern exists, follow it.
 
@@ -33,3 +33,4 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [extend-compare-mode.md](extend-compare-mode.md) | Extending compare mode in `_viewer.html`, including new compare entry paths, pane labels, or per-pane diff/render state |
 | [extract-server-route-module.md](extract-server-route-module.md) | Moving an existing route cluster out of `_server.py` into a dedicated `_routes_*.py` module |
 | [frontend-change.md](frontend-change.md) | Any change to `_viewer.html` — CSS, JS, new mode, keybind, layout, colorbar |
+| [validate-launch-path.md](validate-launch-path.md) | Changing or diagnosing startup, display routing, environment detection, readiness, reconnect, or shutdown |

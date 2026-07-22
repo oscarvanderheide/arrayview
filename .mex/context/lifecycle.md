@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-07-14
+last_updated: 2026-07-22
 ---
 
 # Lifecycle
@@ -28,7 +28,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 | Invocation | Display owner | Backend model | Shutdown/release |
 |---|---|---|---|
 | Local VS Code CLI `arrayview file.npy` | VS Code URL webview panel | Shared transient daemon | Panel close releases URL sessions; last viewer WebSocket close stops daemon |
-| Plain Python script `view(arr)` | Browser/native/VS Code display | Non-daemon background server thread | Survives caller until viewer connects then closes |
+| Plain Python script `view(arr)` | Browser/native/VS Code display | Non-daemon background server thread | Calling process remains alive until a viewer connects then closes, or the bounded connect timeout expires |
 | Jupyter `view(arr)` | Notebook kernel inline iframe | Kernel-owned daemon server thread | Iframe disappearance must not hard-kill backend |
 | Julia/PythonCall | Browser/VS Code route from subprocess | Detached subprocess | Never in-process; avoid GIL deadlock |
 | Remote/tunnel | VS Code URL webview panel | Forwarded WebSocket server | Persistent only when `--serve` or tunnel ownership requires it |
@@ -44,8 +44,8 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 ## Python Script
 
-- `view(arr)` from a script should survive the script exiting.
-- The backend must outlive the caller until viewer instances close.
+- `view(arr)` from a script keeps the calling process/server alive while the viewer is active; it does not promise that an in-process server survives process exit.
+- The display call may return while the server thread remains owned by the calling process.
 - When the last viewer instance closes, free arrays and shut the backend down.
 - Quick viewer connect/disconnect races must count as "a viewer connected" so transient waiters do not linger until connect timeout.
 
@@ -58,7 +58,7 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 ## Remote, Tunnel, And SSH
 
-- Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it.
+- Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it, but persistence must remain bounded. Current defaults use a 210-second viewer-connect timeout and a 1,800-second idle timeout unless configured otherwise.
 - VS Code tunnel display uses forwarded localhost URLs; the extension should configure the port, promote privacy when available, and resolve the URL with `asExternalUri`.
 - With multiple registered tunnel windows, a missing `ARRAYVIEW_WINDOW_ID` first recovers the exact live registration from the terminal's IPC hook. Only when no exact registration exists does it use the shared focused-window broadcast fallback.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
@@ -86,9 +86,12 @@ This contract describes who owns the backend, when it starts, and what closes it
 
 ## Verification Anchors
 
-- `tests/lifecycle_matrix.py` is the top-level lifecycle gate; it reports automated, real-process, local-state, and manual-only checks separately.
+- Start with the exact public command in the real environment being changed. Success means the intended display opens, its first array frame renders, caller blocking/return behavior is correct, a second launch works, and closing it releases the session/process as designed.
+- Classify evidence as `real host`, `real process`, `component`, or `unavailable`. Never report component or simulated coverage as real-host validation.
+- `tests/lifecycle_matrix.py` records automated, real-process, local-state, and manual-only checks separately. A green exit with `MANUAL` rows does not prove those rows and is not a complete launch gate.
 - `tests/test_lifecycle_contract.py` covers invocation ownership, release routes, transient daemon shutdown, and bundled VSIX lifecycle content.
 - `tests/test_cli.py` covers CLI launch behavior.
 - `tests/test_api.py` contains the affected WebSocket close and CLI helper coverage.
 - `vscode-extension/test_lifecycle_helpers.js` covers URL SID collection and backend ping URL parsing.
 - `vscode-extension/extension.js` must pass Node syntax checks after any extension change.
+- GUI-affecting validation may open windows, tabs, prompts, install extensions, or reload an extension host. Warn the user first, and do not create temporary VS Code profiles or install/reload extensions without explicit permission.

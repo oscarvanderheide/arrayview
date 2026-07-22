@@ -1,7 +1,7 @@
 ---
 name: router
 description: Entry point for task routing, project non-negotiables, and behavioral guardrails. Start here, then load only the minimum extra context a task needs.
-last_updated: 2026-07-01
+last_updated: 2026-07-22
 ---
 
 # arrayview — Router
@@ -12,7 +12,8 @@ Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI,
 
 - Never split `_viewer.html` — entire frontend is one self-contained file, no build step.
 - All heavy imports (numpy, matplotlib, nibabel, FastAPI, uvicorn) must be lazy — CLI fast path stays near-zero cost.
-- New rendering features must be consistent across all six invocation environments.
+- New rendering features must be consistent across every affected invocation
+  row; local VS Code, Remote SSH, and VS Code tunnel are separate rows.
 - Global state lives in `_session.py` only — `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS` never redefined elsewhere.
 - Render thread must remain a raw `threading.Thread` + `SimpleQueue`, not `concurrent.futures`.
 
@@ -34,6 +35,8 @@ Load only the file(s) matching the task. One is usually enough.
 | Current shipped / in-progress status | `context/project-state.md` |
 | System architecture, component connections | `context/architecture.md` |
 | Startup, shutdown, display ownership, orphans, VS Code tabs, session release | `context/lifecycle.md` |
+| Proving a startup/display fix in real use | `patterns/validate-launch-path.md` |
+| Diagnosing VS Code local/remote/tunnel delivery | `patterns/debug-vscode-extension-python.md` |
 | Specific technology / library choices | `context/stack.md` |
 | Code patterns when writing or reviewing | `context/conventions.md` |
 | Why something is built the way it is / a new architectural choice | `context/decisions.md` |
@@ -49,14 +52,17 @@ Load only the file(s) matching the task. One is usually enough.
 
 ## Commands
 
-- Test: run `uv run pytest` against `tests/`
+- Test: run targeted `uv run pytest tests/<target>` checks
 - Visual smoke: run `uv run python` on `tests/visual_smoke.py`
-- CLI: `uvx arrayview <file>`
+- Working-tree CLI: `uv run arrayview <file>`
+- Installed-package CLI: `uvx arrayview <file>`
 - Build: `uv build`
 - Drift check: `mex check --quiet`
 
 ## After Completing a Task
 
+- [ ] For startup/display work, attach the affected real public launch evidence;
+      a green test suite with `MANUAL` host rows still open is not completion.
 - [ ] Update `context/project-state.md` if shipped or in-progress status changed.
 - [ ] Update any stale `.mex/context/` or `.mex/patterns/` files touched by the task.
 - [ ] If this revealed a repeatable workflow, add or update a pattern in `.mex/patterns/`.

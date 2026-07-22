@@ -32,6 +32,29 @@ Use **subagent-driven development**. Work in **feature branches**.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 
+### Launch and display changes
+
+- Before editing launch code, run the smallest affected **public command** in
+  the real target environment when that environment is available. Record the
+  command and the observable failure.
+- Run that same real command after each meaningful fix. Do not replace it with
+  a mocked extension, fake opener, or helper-level test.
+- A process starting, port responding, tab opening, or WebSocket connecting is
+  progress, not success. Display success requires the requested array's first
+  rendered frame. `--window none` succeeds only after registration completes.
+- Verify caller behavior and cleanup too: prompt/return timing, repeat launch,
+  display close, session release, and owned-process shutdown.
+- Label evidence honestly as `real host`, `real process`, `component`, or
+  `unavailable`. Never describe component evidence as proof of an unavailable
+  host boundary.
+- If the simplest public gate still fails, diagnose that exact boundary before
+  broad refactoring or adding more abstraction.
+- Warn the user before opening or reloading IDE windows, installing an
+  extension into their active profile, or launching any GUI. Never create a
+  temporary VS Code profile/window without explicit permission.
+- Follow `.mex/patterns/validate-launch-path.md`; for VS Code delivery also use
+  `.mex/patterns/debug-vscode-extension-python.md`.
+
 For validation inside the Codex app in-app browser, open a served ArrayView
 session on `http://localhost:<port>/`.
 Do not use raw file links to `src/arrayview/_viewer.html` in the Codex app;
@@ -39,7 +62,8 @@ they open `file://.../_viewer.html` without a backend session and the viewer
 will not work.
 
 If `uv run arrayview --serve --port <port>` reports success but `localhost:<port>`
-refuses connections, start the empty server directly and then load the file:
+refuses connections, start the empty server directly in one terminal, leave it
+running, and load the file from a second terminal:
 
 ```bash
 uv run python -c "from arrayview._launcher import _serve_empty; _serve_empty(8000)"
@@ -59,6 +83,8 @@ clearly needs fresh context.
 ## Testing
 
 Verify narrowly — do not run the full suite unless asked.
+For startup/display work, "narrowly" includes the affected real launch gate
+defined above; automated tests alone are not sufficient.
 
 ```bash
 uv run pytest tests/test_api.py -v
