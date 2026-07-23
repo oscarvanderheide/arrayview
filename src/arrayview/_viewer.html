@@ -5178,7 +5178,6 @@
             <div class="help-footer">
                 <span class="help-footer-version">v__ARRAYVIEW_VERSION__</span>
                 <span class="help-footer-actions">
-                    <button id="help-preferences" class="help-footer-link" type="button">Preferences</button>
                     <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
                 </span>
             </div>
@@ -19746,7 +19745,6 @@
             'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
-            'window.default': ['Fallback launch behavior', 'Used only when no environment-specific preference is set.'],
             'window.terminal': ['Terminal window', 'Used on the next terminal launch.'],
             'window.vscode': ['VS Code window', 'Used on the next VS Code launch.'],
             'window.jupyter': ['Jupyter window', 'Used on the next notebook launch.'],
@@ -19853,7 +19851,9 @@
         function _renderPreferences(data) {
             preferencesBody.replaceChildren();
             const schema = (data && data.schema) || {};
-            for (const [section, entries] of Object.entries(schema)) {
+            for (const section of ['viewer', 'nninteractive', 'window']) {
+                const entries = schema[section];
+                if (!entries) continue;
                 const sectionEl = document.createElement('section');
                 sectionEl.className = 'preferences-section';
                 const heading = document.createElement('div');
@@ -19959,6 +19959,18 @@
                 }
             }
             sink.focus();
+        }
+
+        async function _loadPreferencesHelpTab() {
+            _setPreferencesStatus('Loading…');
+            try {
+                const data = await _fetchPreferences();
+                _renderPreferences(data);
+                _setPreferencesStatus('');
+            } catch (error) {
+                preferencesBody.replaceChildren();
+                _setPreferencesStatus(`Could not load preferences: ${error.message}`, true);
+            }
         }
 
         function setHelpTab(index) {
@@ -24645,6 +24657,27 @@
                 panel.appendChild(wrapper);
                 contentEl.appendChild(panel);
             }
+
+            const preferencesIndex = GUIDE_TABS.length;
+            const preferencesTab = document.createElement('button');
+            preferencesTab.type = 'button';
+            preferencesTab.id = 'help-preferences-tab';
+            preferencesTab.className = 'help-tab';
+            preferencesTab.dataset.helpTab = 'preferences';
+            preferencesTab.textContent = 'Preferences';
+            preferencesTab.addEventListener('click', (e) => {
+                e.preventDefault();
+                setHelpTab(preferencesIndex);
+                _loadPreferencesHelpTab();
+            });
+            tabsEl.appendChild(preferencesTab);
+
+            const preferencesPanel = document.createElement('div');
+            preferencesPanel.className = 'help-panel';
+            preferencesPanel.dataset.helpTab = 'preferences';
+            preferencesPanel.style.display = 'none';
+            preferencesPanel.append(preferencesBody, preferencesStatus);
+            contentEl.appendChild(preferencesPanel);
         }
 
         function _toolTileEnabled(tile) {
@@ -31871,9 +31904,6 @@
         });
         document.getElementById('preferences-hint').addEventListener('click', () => {
             setPreferencesVisible(!_preferencesOpen);
-        });
-        document.getElementById('help-preferences').addEventListener('click', () => {
-            setPreferencesVisible(true);
         });
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape' || !_preferencesOpen) return;

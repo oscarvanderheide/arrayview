@@ -25,6 +25,7 @@ def _response_payload() -> dict:
     schema = deepcopy(PREFERENCE_SCHEMA)
     for key, options in schema["window"].items():
         schema["window"][key] = [value for value in options if value != "none"]
+    schema["window"].pop("default", None)
     try:
         from arrayview._platform import _is_vscode_remote, _native_window_gui
 

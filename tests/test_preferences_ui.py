@@ -62,8 +62,12 @@ def test_preferences_popup_saves_and_applies_viewer_defaults(
     page.route("**/preferences/*", handle_preferences)
     assert not page.locator("#preferences-hint").is_visible()
     page.locator("#help-hint").click()
-    page.locator("#help-preferences").click()
-    page.locator("#preferences-overlay.visible").wait_for()
+    page.locator("#help-preferences-tab").click()
+    page.locator('.help-panel[data-help-tab="preferences"]').wait_for()
+    assert page.locator("#help-preferences-tab").get_attribute("class").endswith(
+        "active"
+    )
+    assert not page.locator("#preferences-overlay").is_visible()
 
     page.locator('[data-preference="viewer.ortho_layout"]').select_option("horizontal")
     page.wait_for_function("() => orthoLayoutMode === 'horizontal'")
@@ -106,11 +110,18 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
     )
 
     page.locator("#help-hint").click()
-    page.locator("#help-preferences").click()
-    page.locator("#preferences-overlay.visible").wait_for()
+    page.locator("#help-preferences-tab").click()
+    page.locator('.help-panel[data-help-tab="preferences"]').wait_for()
     row = page.locator('[data-preference="window.terminal"]').locator("xpath=..")
     assert "next terminal launch" in row.text_content().lower()
-    assert page.locator("#preferences-overlay").get_by_text("Built-in default").count() == 0
+    preferences_panel = page.locator('.help-panel[data-help-tab="preferences"]')
+    assert preferences_panel.get_by_text("Built-in default").count() == 0
+    section_titles = preferences_panel.locator(
+        ".preferences-section-title"
+    ).all_text_contents()
+    assert section_titles[0] == "Viewer"
+    assert section_titles[-1] == "Default launch behavior"
+    assert "Fallback launch behavior" not in preferences_panel.text_content()
     theme_options = page.locator(
         '[data-preference="viewer.theme"] option'
     ).all_text_contents()
@@ -130,7 +141,7 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
 
     page.keyboard.press("Escape")
     page.wait_for_function(
-        "() => !document.getElementById('preferences-overlay').classList.contains('visible')"
+        "() => !document.getElementById('help-overlay').classList.contains('visible')"
     )
 
 
@@ -153,9 +164,11 @@ def test_preferences_initialize_ortho_and_dimbar_defaults(
     )
 
     page.locator("#help-hint").click()
-    page.locator("#help-preferences").click()
-    page.locator("#preferences-overlay.visible").wait_for()
-    page.locator("#preferences-overlay").click(position={"x": 2, "y": 2})
-    page.wait_for_function(
-        "() => !document.getElementById('preferences-overlay').classList.contains('visible')"
-    )
+    page.locator("#help-preferences-tab").click()
+    page.locator('.help-panel[data-help-tab="preferences"]').wait_for()
+    assert page.locator(
+        '[data-preference="viewer.ortho_layout"]'
+    ).input_value() == "big-left"
+    assert page.locator(
+        '[data-preference="viewer.dimbar_mode"]'
+    ).input_value() == "extended"
