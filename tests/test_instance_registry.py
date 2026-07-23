@@ -164,15 +164,17 @@ def test_runtime_directory_override(monkeypatch, tmp_path):
     assert runtime_directory() == tmp_path / "custom"
 
 
-def test_runtime_directory_is_per_user_without_override(monkeypatch, tmp_path):
+def test_runtime_directory_is_per_uid_without_override(monkeypatch, tmp_path):
     monkeypatch.delenv("ARRAYVIEW_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
     monkeypatch.setattr("arrayview._instance_registry.tempfile.gettempdir", lambda: str(tmp_path))
+    current_uid = os.getuid()
     first = runtime_directory()
-    monkeypatch.setattr("arrayview._instance_registry.getpass.getuser", lambda: "different-user")
+    monkeypatch.setattr("arrayview._instance_registry.os.getuid", lambda: current_uid + 1)
     second = runtime_directory()
     assert first.parent == second.parent == tmp_path
     assert first != second
+    assert first.name == f"arrayview-{current_uid}"
 
 
 def test_import_does_not_load_heavy_dependencies():

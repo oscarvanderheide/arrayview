@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,6 +43,7 @@ class _PingHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "service": "arrayview",
                 "pid": 4321,
+                "uid": os.geteuid() if hasattr(os, "geteuid") else None,
                 "hostname": "test-host",
                 "instance_id": "test-instance",
                 "process_start": "test-process-start",
@@ -223,6 +225,9 @@ def test_snapshot_reports_arrayview_server_ping(monkeypatch, clear_launch_env, p
     assert snapshot.server.port_busy is True
     assert snapshot.server.arrayview_server_alive is True
     assert snapshot.server.server_pid == 4321
+    assert snapshot.server.server_uid == (
+        os.geteuid() if hasattr(os, "geteuid") else None
+    )
     assert snapshot.server.server_hostname == "test-host"
     assert snapshot.server.server_instance_id == "test-instance"
     assert snapshot.server.server_process_start == "test-process-start"
@@ -581,6 +586,7 @@ def test_remote_python_reuses_healthy_cli_default_server():
             "remote-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
+            server_uid=os.geteuid(),
         ),
     )
     plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
@@ -656,12 +662,44 @@ def test_existing_server_is_reused_through_http():
             "process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
+            server_uid=os.geteuid(),
         )
     )
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123), facts)
 
     assert plan.server_owner.value == "existing"
     assert plan.registration.value == "http_load"
+
+
+@pytest.mark.parametrize(
+    "server_uid",
+    [None, os.geteuid() + 1],
+    ids=["missing-uid", "different-uid"],
+)
+def test_unowned_existing_server_uses_new_port(server_uid):
+    from arrayview._launch_plan import Invocation, LaunchIntent, ServerSnapshot, plan_launch
+
+    facts = _facts(
+        server=ServerSnapshot(
+            8123,
+            True,
+            True,
+            99,
+            "host",
+            "instance",
+            "process-start",
+            ("identity-fenced-load", "identity-fenced-mutations"),
+            "1",
+            server_uid=server_uid,
+        )
+    )
+
+    plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
+
+    assert plan.effective_port == 8124
+    assert plan.server_owner.value == "in_process"
+    assert plan.registration.value == "in_process_session"
+    assert "incompatible_server_new_port" in plan.reasons
 
 
 def test_julia_always_spawns_daemon():

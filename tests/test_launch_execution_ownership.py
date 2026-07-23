@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from threading import Thread as RealThread
 
 import numpy as np
@@ -167,6 +168,7 @@ def test_http_load_plan_fails_closed_when_selected_server_changes(
             "planned-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
+            server_uid=os.geteuid(),
         ),
     )
     monkeypatch.setattr(
@@ -222,6 +224,7 @@ def test_display_error_after_http_registration_is_not_relabelled(monkeypatch):
             "planned-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
+            server_uid=os.geteuid(),
         ),
     )
     monkeypatch.setattr(

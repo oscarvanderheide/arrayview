@@ -111,8 +111,13 @@ def _register_server_runtime(port: int, owner_mode: str):
     from arrayview._instance_registry import InstanceRecord, InstanceRegistry
 
     registry = InstanceRegistry()
+    registry._prepare()
     log_directory = registry.directory / "logs"
-    log_directory.mkdir(parents=True, exist_ok=True)
+    log_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(log_directory, 0o700)
+    except OSError:
+        pass
     record = InstanceRecord.create(
         port=port,
         protocol_version=_server_mod().SERVER_PROTOCOL_VERSION,

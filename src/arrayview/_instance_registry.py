@@ -9,8 +9,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import ctypes
-import getpass
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,9 +68,9 @@ def runtime_directory() -> Path:
     base = os.environ.get("XDG_RUNTIME_DIR")
     if base:
         return Path(base) / "arrayview"
-    user = getpass.getuser().encode("utf-8", "replace")
-    suffix = hashlib.sha256(user).hexdigest()[:12]
-    return Path(tempfile.gettempdir()) / f"arrayview-{suffix}"
+    if hasattr(os, "getuid"):
+        return Path(tempfile.gettempdir()) / f"arrayview-{os.getuid()}"
+    return Path(tempfile.gettempdir()) / f"arrayview-{os.getpid()}"
 
 
 def process_start_identity(pid: int) -> str | None:

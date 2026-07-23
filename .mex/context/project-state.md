@@ -15,6 +15,11 @@ last_updated: 2026-07-22
 ## Working
 
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
+- Local server reuse is Unix-user-fenced: `/ping` publishes the server UID,
+  callers only reuse a compatible server owned by their effective UID, and a
+  different user's listener causes local launch planning to select a new port.
+  Runtime registry paths prefer `$XDG_RUNTIME_DIR/arrayview` and otherwise use
+  `/tmp/arrayview-<uid>` with private registry and log directories.
 - Real-host launch evidence has passed for local native CLI, Python-script native, Julia/PythonCall native, a real ipykernel inline view, and plain SSH with `ssh -L`. VS Code local, Remote SSH, and VS Code tunnel are separate acceptance rows and must be reverified independently after opener or routing changes.
 - File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.dcm`/DICOM series directories, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
 - DICOM series use physical patient-position ordering, canonical RAS geometry,

@@ -132,6 +132,7 @@ class ServerSnapshot:
     server_process_start: str | None = None
     server_capabilities: tuple[str, ...] = ()
     server_protocol_version: str | None = None
+    server_uid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -635,6 +636,7 @@ def _server_snapshot(port: int) -> ServerSnapshot:
         port_busy=_port_busy(port),
         arrayview_server_alive=payload is not None,
         server_pid=_int_or_none(payload.get("pid")) if payload else None,
+        server_uid=_int_or_none(payload.get("uid")) if payload else None,
         server_hostname=_str_or_none(payload.get("hostname")) if payload else None,
         server_instance_id=(
             _str_or_none(payload.get("instance_id")) if payload else None
@@ -658,8 +660,14 @@ def _server_snapshot(port: int) -> ServerSnapshot:
 
 
 def _server_reusable(server: ServerSnapshot) -> bool:
+    same_user = (
+        server.server_uid == os.geteuid()
+        if hasattr(os, "geteuid")
+        else True
+    )
     return (
         server.arrayview_server_alive
+        and same_user
         and server.server_instance_id is not None
         and server.server_protocol_version == "1"
         and "identity-fenced-load" in server.server_capabilities

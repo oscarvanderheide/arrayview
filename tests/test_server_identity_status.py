@@ -29,6 +29,7 @@ def test_ping_preserves_compatibility_and_reports_stable_runtime(monkeypatch):
     assert first["ok"] is True
     assert first["service"] == "arrayview"
     assert first["pid"] == os.getpid()
+    assert first["uid"] == (os.geteuid() if hasattr(os, "geteuid") else None)
     assert first["viewer_sockets"] == 2
     assert first["shell_sockets"] == 1
     assert first["instance_id"] == "test-instance"

@@ -228,6 +228,7 @@ def ping():
         "ok": True,
         "service": "arrayview",
         "pid": os.getpid(),
+        "uid": os.geteuid() if hasattr(os, "geteuid") else None,
         "hostname": socket.gethostname(),
         "protocol_version": runtime.protocol_version,
         "package_version": _av_version,

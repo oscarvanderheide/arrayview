@@ -60,6 +60,7 @@ def _mock_launch_server_snapshot(monkeypatch, *, alive: bool, busy: bool | None 
             None,
             ("identity-fenced-load", "identity-fenced-mutations") if alive else (),
             "1" if alive else None,
+            server_uid=os.geteuid() if alive else None,
         ),
     )
     if alive:
