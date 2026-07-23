@@ -6054,6 +6054,72 @@ class TestLoadUpload:
         assert r.status_code == 400
 
 
+class TestPreferences:
+    def test_get_and_patch_preferences(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[plugin]\nkeep = "yes"\n')
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get(f"/preferences/{sid_3d}")
+        assert response.status_code == 200
+        assert response.json()["preferences"] == {}
+        assert "ortho_layout" in response.json()["schema"]["viewer"]
+
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={
+                "changes": {
+                    "viewer": {
+                        "theme": "light",
+                        "rounded_panes": False,
+                        "ortho_layout": "big-left",
+                        "dimbar_mode": "extended",
+                    }
+                }
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["preferences"]["viewer"]["dimbar_mode"] == "extended"
+        saved = config.load_config()
+        assert saved["plugin"]["keep"] == "yes"
+        assert saved["viewer"]["rounded_panes"] is False
+
+    def test_rejects_invalid_preference(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={"changes": {"viewer": {"ortho_layout": "diagonal"}}},
+        )
+        assert response.status_code == 422
+        assert not config_path.exists()
+
+    def test_refuses_malformed_config(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        original = "invalid [[[ toml"
+        config_path.write_text(original)
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={"changes": {"viewer": {"theme": "light"}}},
+        )
+        assert response.status_code == 409
+        assert config_path.read_text() == original
+
+    def test_requires_active_session(self, client):
+        assert client.get("/preferences/not-a-session").status_code == 404
+        assert client.patch(
+            "/preferences/not-a-session",
+            json={"changes": {"viewer": {"theme": "light"}}},
+        ).status_code == 404
+
+
 class TestObliquePersistence:
     def test_oblique_save_and_load_recent_roundtrip(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._routes_persistence as routes_persistence

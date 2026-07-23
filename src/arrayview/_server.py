@@ -41,6 +41,7 @@ from arrayview._routes_analysis import register_analysis_routes
 from arrayview._routes_loading import register_loading_routes
 from arrayview._routes_drop import register_drop_routes
 from arrayview._routes_persistence import register_persistence_routes
+from arrayview._routes_preferences import register_preferences_routes
 from arrayview._routes_export import register_export_routes
 from arrayview._routes_preload import register_preload_routes
 from arrayview._routes_query import register_query_routes
@@ -49,7 +50,13 @@ from arrayview._routes_segmentation import register_segmentation_routes
 from arrayview._routes_state import register_state_routes
 from arrayview._routes_vectorfield import register_vectorfield_routes
 from arrayview._routes_websocket import _notify_shells, register_websocket_routes
-from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
+from arrayview._config import (
+    get_viewer_colormaps,
+    get_viewer_dimbar_mode,
+    get_viewer_ortho_layout,
+    get_viewer_rounded_panes,
+    get_viewer_theme,
+)
 
 
 from arrayview._imaging import ensure_image as _pil_image, ensure_imageops as _pil_imageops
@@ -176,6 +183,7 @@ register_websocket_routes(app)
 register_loading_routes(app, notify_shells=_notify_shells, setup_rgb=_setup_rgb)
 register_drop_routes(app)
 register_persistence_routes(app)
+register_preferences_routes(app)
 register_segmentation_routes(app, get_session_or_404)
 register_state_routes(app, get_session_or_404)
 register_export_routes(app, get_session_or_404=get_session_or_404, pil_image=_pil_image)
@@ -293,6 +301,8 @@ def get_ui(sid: str = None):
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
     _cfg_rounded = get_viewer_rounded_panes()
     _default_rounded_panes = "false" if _cfg_rounded is False else "true"
+    _default_ortho_layout = json.dumps(get_viewer_ortho_layout())
+    _default_dimbar_mode = json.dumps(get_viewer_dimbar_mode())
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
@@ -302,6 +312,8 @@ def get_ui(sid: str = None):
         .replace("__ARRAYVIEW_QUERY__", query_val)
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
         .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
+        .replace("__DEFAULT_ORTHO_LAYOUT__", _default_ortho_layout)
+        .replace("__DEFAULT_DIMBAR_MODE__", _default_dimbar_mode)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )

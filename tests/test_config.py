@@ -6,11 +6,15 @@ import textwrap
 import pytest
 
 from arrayview._config import (
+    MalformedConfigError,
+    get_viewer_dimbar_mode,
     get_viewer_colormaps,
+    get_viewer_ortho_layout,
     get_viewer_rounded_panes,
     get_window_default,
     load_config,
     save_config,
+    update_preferences,
 )
 
 
@@ -54,6 +58,58 @@ class TestSaveConfig:
         original = {"window": {"default": "native", "vscode": "vscode", "jupyter": "inline"}}
         save_config(original)
         assert load_config() == original
+
+    def test_roundtrip_preserves_toml_types_and_nested_unknown_keys(self, tmp_config):
+        original = {
+            "viewer": {
+                "rounded_panes": False,
+                "colormaps": ["gray", 'custom"name'],
+            },
+            "plugin": {"nested": {"enabled": True, "count": 3}},
+        }
+        save_config(original)
+        assert load_config() == original
+
+    def test_update_merges_and_preserves_unknown_keys(self, tmp_config):
+        tmp_config.write_text(
+            '[viewer]\ntheme = "dark"\nunknown = "keep"\n\n[plugin]\nvalue = 7\n'
+        )
+        updated = update_preferences(
+            {"viewer": {"theme": "light", "ortho_layout": "big-left"}}
+        )
+        assert updated["viewer"]["unknown"] == "keep"
+        assert updated["plugin"]["value"] == 7
+        assert load_config() == updated
+
+    def test_update_none_removes_only_selected_key(self, tmp_config):
+        tmp_config.write_text('[viewer]\ntheme = "dark"\nrounded_panes = false\n')
+        update_preferences({"viewer": {"theme": None}})
+        assert load_config() == {"viewer": {"rounded_panes": False}}
+
+    def test_update_refuses_to_overwrite_malformed_file(self, tmp_config):
+        original = "not valid [[[ toml"
+        tmp_config.write_text(original)
+        with pytest.raises(MalformedConfigError):
+            update_preferences({"viewer": {"theme": "light"}})
+        assert tmp_config.read_text() == original
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"viewer": {"theme": "sepia"}},
+            {"viewer": {"rounded_panes": 1}},
+            {"viewer": {"colormaps": []}},
+            {"viewer": {"colormaps": ["gray", "gray"]}},
+            {"viewer": {"unknown": True}},
+            {"unknown": {"value": True}},
+        ],
+    )
+    def test_update_rejects_invalid_preferences(self, tmp_config, changes):
+        from arrayview._config import InvalidPreferenceError
+
+        with pytest.raises(InvalidPreferenceError):
+            update_preferences(changes)
+        assert not tmp_config.exists()
 
 
 class TestGetWindowDefault:
@@ -158,6 +214,22 @@ class TestGetViewerRoundedPanes:
             rounded_panes = "sometimes"
         """))
         assert get_viewer_rounded_panes() is None
+
+
+class TestGetViewerLayoutPreferences:
+    def test_returns_ortho_layout_and_dimbar_mode(self, tmp_config):
+        tmp_config.write_text(
+            '[viewer]\northo_layout = "big-left"\ndimbar_mode = "extended"\n'
+        )
+        assert get_viewer_ortho_layout() == "big-left"
+        assert get_viewer_dimbar_mode() == "extended"
+
+    def test_invalid_values_return_none(self, tmp_config):
+        tmp_config.write_text(
+            '[viewer]\northo_layout = "diagonal"\ndimbar_mode = "large"\n'
+        )
+        assert get_viewer_ortho_layout() is None
+        assert get_viewer_dimbar_mode() is None
 
 
 class TestDetectEnvironment:
