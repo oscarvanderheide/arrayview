@@ -6082,6 +6082,12 @@ class TestPreferences:
         assert response.status_code == 200
         assert response.json()["preferences"] == {}
         assert "ortho_layout" in response.json()["schema"]["viewer"]
+        window_defaults = response.json()["defaults"]["window"]
+        assert window_defaults["terminal"] in {"native", "browser"}
+        terminal_options = response.json()["schema"]["window"]["terminal"]
+        assert terminal_options[-2:] == ["browser", "none"]
+        assert ("native" in terminal_options) == (window_defaults["terminal"] == "native")
+        assert response.json()["schema"]["window"]["ssh"] == ["browser", "none"]
         assert response.json()["server_instance_id"]
 
         response = self._patch(

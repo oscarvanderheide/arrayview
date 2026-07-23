@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import os
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from arrayview._config import (
+    BUILTIN_PREFERENCES,
     InvalidPreferenceError,
     MalformedConfigError,
     PREFERENCE_SCHEMA,
@@ -19,6 +21,26 @@ from arrayview._session import SESSIONS
 
 
 def _response_payload() -> dict:
+    defaults = deepcopy(BUILTIN_PREFERENCES)
+    schema = deepcopy(PREFERENCE_SCHEMA)
+    try:
+        from arrayview._platform import _is_vscode_remote, _native_window_gui
+
+        native_available = _native_window_gui() is not None
+        vscode_remote = _is_vscode_remote()
+    except Exception:
+        native_available = False
+        vscode_remote = False
+    if not native_available:
+        defaults["window"]["default"] = "browser"
+        defaults["window"]["terminal"] = "browser"
+        for key in ("default", "terminal", "vscode", "jupyter", "julia"):
+            schema["window"][key] = [
+                value for value in schema["window"][key] if value != "native"
+            ]
+    if vscode_remote:
+        schema["window"]["vscode"] = ["vscode", "none"]
+
     overrides = {}
     if os.environ.get("ARRAYVIEW_WINDOW", "").strip():
         overrides["window"] = "ARRAYVIEW_WINDOW"
@@ -26,7 +48,8 @@ def _response_payload() -> dict:
         overrides["nninteractive.url"] = "ARRAYVIEW_NNINTERACTIVE_URL"
     return {
         "preferences": get_preferences(),
-        "schema": PREFERENCE_SCHEMA,
+        "defaults": defaults,
+        "schema": schema,
         "overrides": overrides,
         "server_instance_id": _session_mod.SERVER_RUNTIME.instance_id,
     }

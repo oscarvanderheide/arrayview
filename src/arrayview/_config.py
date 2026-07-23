@@ -18,8 +18,32 @@ _VALID_ORTHO_LAYOUTS = {"horizontal", "big-left"}
 _VALID_DIMBAR_MODES = {"compact", "extended"}
 _CONFIG_LOCK = threading.Lock()
 
+WINDOW_PREFERENCE_OPTIONS = {
+    "default": ["native", "browser", "none"],
+    "terminal": ["native", "browser", "none"],
+    "vscode": ["vscode", "browser", "native", "none"],
+    "jupyter": ["inline", "browser", "native", "none"],
+    "ssh": ["browser", "none"],
+    "julia": ["browser", "native", "none"],
+}
+BUILTIN_PREFERENCES = {
+    "window": {
+        "default": "native",
+        "terminal": "native",
+        "vscode": "vscode",
+        "jupyter": "inline",
+        "ssh": "browser",
+        "julia": "browser",
+    },
+    "viewer": {
+        "theme": "dark",
+        "rounded_panes": True,
+        "ortho_layout": None,
+        "dimbar_mode": "compact",
+    },
+}
 PREFERENCE_SCHEMA = {
-    "window": {key: sorted(_VALID_WINDOW_MODES) for key in sorted(_VALID_ENV_KEYS)},
+    "window": WINDOW_PREFERENCE_OPTIONS,
     "viewer": {
         "theme": sorted(_VALID_THEMES),
         "rounded_panes": "boolean",
@@ -89,7 +113,9 @@ def _normalized_string(value, allowed: set[str], label: str) -> str:
 
 def _validate_preference(section: str, key: str, value):
     if section == "window" and key in _VALID_ENV_KEYS:
-        return _normalized_string(value, _VALID_WINDOW_MODES, f"window.{key}")
+        return _normalized_string(
+            value, set(WINDOW_PREFERENCE_OPTIONS[key]), f"window.{key}"
+        )
     if section == "viewer" and key == "theme":
         return _normalized_string(value, _VALID_THEMES, "viewer.theme")
     if section == "viewer" and key == "rounded_panes":

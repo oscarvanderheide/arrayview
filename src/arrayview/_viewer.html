@@ -19743,7 +19743,7 @@
             'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
-            'window.default': ['Default window', 'Used on the next launch when no environment-specific preference applies.'],
+            'window.default': ['Fallback launch behavior', 'Used only when no environment-specific preference is set.'],
             'window.terminal': ['Terminal window', 'Used on the next terminal launch.'],
             'window.vscode': ['VS Code window', 'Used on the next VS Code launch.'],
             'window.jupyter': ['Jupyter window', 'Used on the next notebook launch.'],
@@ -19751,17 +19751,18 @@
             'window.julia': ['Julia window', 'Used on the next Julia launch.'],
             'nninteractive.url': ['nnInteractive URL', 'Used the next time the nnInteractive tool starts.'],
         };
-        const PREFERENCE_DEFAULTS = {
-            'viewer.theme': 'dark',
-            'viewer.rounded_panes': true,
-            'viewer.ortho_layout': '',
-            'viewer.dimbar_mode': 'compact',
-        };
-
-        function _preferenceOptionLabel(value) {
-            if (value === '') return 'Auto';
+        function _preferenceOptionLabel(value, path = '') {
+            if (value === null || value === undefined || value === '') return 'Responsive layout';
             if (typeof value === 'boolean') return value ? 'On' : 'Off';
-            return String(value).replaceAll('-', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+            if (path === 'window.ssh' && value === 'browser') return 'Browser / forwarded URL';
+            const labels = {
+                native: 'Native window',
+                browser: 'System browser',
+                vscode: 'VS Code tab',
+                inline: 'Inline notebook',
+                none: 'No window',
+            };
+            return labels[value] || String(value).replaceAll('-', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
         }
 
         function _reconcilePreferencesVisibility() {
@@ -19814,27 +19815,26 @@
             }
         }
 
-        function _preferenceControl(section, key, spec, value, overridden) {
+        function _preferenceControl(section, key, spec, value, defaultValue, overridden) {
             const path = `${section}.${key}`;
             let control;
             if (Array.isArray(spec) || spec === 'boolean') {
                 control = document.createElement('select');
-                const defaultValue = Object.hasOwn(PREFERENCE_DEFAULTS, path)
-                    ? PREFERENCE_DEFAULTS[path]
-                    : '';
                 const defaultOption = document.createElement('option');
-                defaultOption.value = String(defaultValue);
-                defaultOption.textContent = _preferenceOptionLabel(defaultValue);
+                defaultOption.value = defaultValue == null ? '' : String(defaultValue);
+                defaultOption.textContent = _preferenceOptionLabel(defaultValue, path);
                 control.appendChild(defaultOption);
                 const options = spec === 'boolean' ? [true, false] : spec;
                 for (const optionValue of options) {
                     if (String(optionValue) === String(defaultValue)) continue;
                     const option = document.createElement('option');
                     option.value = String(optionValue);
-                    option.textContent = _preferenceOptionLabel(optionValue);
+                    option.textContent = _preferenceOptionLabel(optionValue, path);
                     control.appendChild(option);
                 }
-                control.value = value === undefined ? String(defaultValue) : String(value);
+                control.value = value === undefined
+                    ? (defaultValue == null ? '' : String(defaultValue))
+                    : String(value);
             } else {
                 control = document.createElement('input');
                 control.type = 'text';
@@ -19856,8 +19856,14 @@
                 sectionEl.className = 'preferences-section';
                 const heading = document.createElement('div');
                 heading.className = 'preferences-section-title';
-                heading.textContent = section === 'viewer' ? 'Viewer' : (section === 'window' ? 'Launch behavior' : section);
+                heading.textContent = section === 'viewer' ? 'Viewer' : (section === 'window' ? 'Default launch behavior' : section);
                 sectionEl.appendChild(heading);
+                if (section === 'window') {
+                    const note = document.createElement('div');
+                    note.className = 'preferences-detail';
+                    note.textContent = 'Used unless overridden by --window, ARRAYVIEW_WINDOW, or a Python window= argument.';
+                    sectionEl.appendChild(note);
+                }
                 for (const [key, spec] of Object.entries(entries || {})) {
                     const path = `${section}.${key}`;
                     const copy = PREFERENCE_COPY[path] || [key.replaceAll('_', ' '), section === 'viewer' ? 'Applies to the viewer.' : 'Applies on the next launch.'];
@@ -19872,7 +19878,8 @@
                     detail.className = 'preferences-detail';
                     detail.textContent = overridden ? `${copy[1]} Overridden by environment.` : copy[1];
                     text.append(label, detail);
-                    row.append(text, _preferenceControl(section, key, spec, _preferenceValue(data, section, key), overridden));
+                    const defaultValue = data?.defaults?.[section]?.[key];
+                    row.append(text, _preferenceControl(section, key, spec, _preferenceValue(data, section, key), defaultValue, overridden));
                     sectionEl.appendChild(row);
                 }
                 preferencesBody.appendChild(sectionEl);

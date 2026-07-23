@@ -18,10 +18,19 @@ def _preferences_payload(**viewer):
                 "dimbar_mode": ["compact", "extended"],
             },
             "window": {
-                "terminal": ["browser", "inline", "native", "none", "vscode"],
+                "terminal": ["native", "browser", "none"],
             },
         },
         "overrides": {},
+        "defaults": {
+            "viewer": {
+                "theme": "dark",
+                "rounded_panes": True,
+                "ortho_layout": None,
+                "dimbar_mode": "compact",
+            },
+            "window": {"terminal": "native"},
+        },
         "server_instance_id": "test-server",
     }
 
@@ -110,6 +119,11 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
     assert page.locator(
         '[data-preference="viewer.dimbar_mode"]'
     ).input_value() == "compact"
+    launch_options = page.locator(
+        '[data-preference="window.terminal"] option'
+    ).all_text_contents()
+    assert launch_options == ["Native window", "System browser", "No window"]
+    assert page.locator('[data-preference="window.terminal"]').input_value() == "native"
 
     page.keyboard.press("Escape")
     page.wait_for_function(
