@@ -14,6 +14,7 @@ from arrayview._config import (
     get_preferences,
     update_preferences,
 )
+import arrayview._session as _session_mod
 from arrayview._session import SESSIONS
 
 
@@ -27,6 +28,7 @@ def _response_payload() -> dict:
         "preferences": get_preferences(),
         "schema": PREFERENCE_SCHEMA,
         "overrides": overrides,
+        "server_instance_id": _session_mod.SERVER_RUNTIME.instance_id,
     }
 
 
@@ -41,11 +43,20 @@ def register_preferences_routes(app) -> None:
     async def preferences_patch(sid: str, request: Request):
         if SESSIONS.get(sid) is None:
             return JSONResponse({"error": "session_not_found"}, status_code=404)
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            return JSONResponse({"error": "json_content_type_required"}, status_code=415)
+        if request.headers.get("x-arrayview-preferences") != "1":
+            return JSONResponse({"error": "preferences_header_required"}, status_code=403)
         try:
             body = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid_json"}, status_code=400)
-        changes = body.get("changes") if isinstance(body, dict) else None
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+        if body.get("server_instance_id") != _session_mod.SERVER_RUNTIME.instance_id:
+            return JSONResponse({"error": "stale_server_instance"}, status_code=409)
+        changes = body.get("changes")
         try:
             update_preferences(changes)
         except InvalidPreferenceError as exc:

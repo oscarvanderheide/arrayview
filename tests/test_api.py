@@ -6055,6 +6055,22 @@ class TestLoadUpload:
 
 
 class TestPreferences:
+    @staticmethod
+    def _patch(client, sid, changes, **kwargs):
+        import arrayview._session as session
+
+        headers = {"X-ArrayView-Preferences": "1"}
+        headers.update(kwargs.pop("headers", {}))
+        return client.patch(
+            f"/preferences/{sid}",
+            json={
+                "server_instance_id": session.SERVER_RUNTIME.instance_id,
+                "changes": changes,
+            },
+            headers=headers,
+            **kwargs,
+        )
+
     def test_get_and_patch_preferences(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._config as config
 
@@ -6066,17 +6082,17 @@ class TestPreferences:
         assert response.status_code == 200
         assert response.json()["preferences"] == {}
         assert "ortho_layout" in response.json()["schema"]["viewer"]
+        assert response.json()["server_instance_id"]
 
-        response = client.patch(
-            f"/preferences/{sid_3d}",
-            json={
-                "changes": {
-                    "viewer": {
-                        "theme": "light",
-                        "rounded_panes": False,
-                        "ortho_layout": "big-left",
-                        "dimbar_mode": "extended",
-                    }
+        response = self._patch(
+            client,
+            sid_3d,
+            {
+                "viewer": {
+                    "theme": "light",
+                    "rounded_panes": False,
+                    "ortho_layout": "big-left",
+                    "dimbar_mode": "extended",
                 }
             },
         )
@@ -6091,9 +6107,10 @@ class TestPreferences:
 
         config_path = tmp_path / "config.toml"
         monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
-        response = client.patch(
-            f"/preferences/{sid_3d}",
-            json={"changes": {"viewer": {"ortho_layout": "diagonal"}}},
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"ortho_layout": "diagonal"}},
         )
         assert response.status_code == 422
         assert not config_path.exists()
@@ -6105,9 +6122,10 @@ class TestPreferences:
         original = "invalid [[[ toml"
         config_path.write_text(original)
         monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
-        response = client.patch(
-            f"/preferences/{sid_3d}",
-            json={"changes": {"viewer": {"theme": "light"}}},
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"theme": "light"}},
         )
         assert response.status_code == 409
         assert config_path.read_text() == original
@@ -6118,6 +6136,37 @@ class TestPreferences:
             "/preferences/not-a-session",
             json={"changes": {"viewer": {"theme": "light"}}},
         ).status_code == 404
+
+    def test_patch_requires_json_content_type_and_intent_header(self, client, sid_3d):
+        import arrayview._session as session
+
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            content='{"server_instance_id":"x","changes":{}}',
+            headers={"X-ArrayView-Preferences": "1", "Content-Type": "text/plain"},
+        )
+        assert response.status_code == 415
+
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={
+                "server_instance_id": session.SERVER_RUNTIME.instance_id,
+                "changes": {"viewer": {"theme": "light"}},
+            },
+        )
+        assert response.status_code == 403
+
+    def test_patch_rejects_stale_server_instance(self, client, sid_3d):
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={
+                "server_instance_id": "stale-instance",
+                "changes": {"viewer": {"theme": "light"}},
+            },
+            headers={"X-ArrayView-Preferences": "1"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "stale_server_instance"
 
 
 class TestObliquePersistence:
