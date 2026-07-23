@@ -19751,6 +19751,18 @@
             'window.julia': ['Julia window', 'Used on the next Julia launch.'],
             'nninteractive.url': ['nnInteractive URL', 'Used the next time the nnInteractive tool starts.'],
         };
+        const PREFERENCE_DEFAULTS = {
+            'viewer.theme': 'dark',
+            'viewer.rounded_panes': true,
+            'viewer.ortho_layout': '',
+            'viewer.dimbar_mode': 'compact',
+        };
+
+        function _preferenceOptionLabel(value) {
+            if (value === '') return 'Auto';
+            if (typeof value === 'boolean') return value ? 'On' : 'Off';
+            return String(value).replaceAll('-', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+        }
 
         function _reconcilePreferencesVisibility() {
             preferencesOverlay.classList.toggle('visible', _preferencesOpen);
@@ -19807,25 +19819,27 @@
             let control;
             if (Array.isArray(spec) || spec === 'boolean') {
                 control = document.createElement('select');
+                const defaultValue = Object.hasOwn(PREFERENCE_DEFAULTS, path)
+                    ? PREFERENCE_DEFAULTS[path]
+                    : '';
                 const defaultOption = document.createElement('option');
-                defaultOption.value = '';
-                defaultOption.textContent = 'Built-in default';
+                defaultOption.value = String(defaultValue);
+                defaultOption.textContent = _preferenceOptionLabel(defaultValue);
                 control.appendChild(defaultOption);
                 const options = spec === 'boolean' ? [true, false] : spec;
                 for (const optionValue of options) {
+                    if (String(optionValue) === String(defaultValue)) continue;
                     const option = document.createElement('option');
                     option.value = String(optionValue);
-                    option.textContent = typeof optionValue === 'boolean'
-                        ? (optionValue ? 'On' : 'Off')
-                        : String(optionValue);
+                    option.textContent = _preferenceOptionLabel(optionValue);
                     control.appendChild(option);
                 }
-                control.value = value === undefined ? '' : String(value);
+                control.value = value === undefined ? String(defaultValue) : String(value);
             } else {
                 control = document.createElement('input');
                 control.type = 'text';
                 control.value = Array.isArray(value) ? value.join(', ') : (value || '');
-                control.placeholder = spec === 'non-empty list of names' ? 'gray, viridis, magma' : 'Built-in default';
+                control.placeholder = spec === 'non-empty list of names' ? 'gray, viridis, magma' : 'Not set';
             }
             control.className = 'preferences-control';
             control.dataset.preference = path;

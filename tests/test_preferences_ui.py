@@ -98,6 +98,18 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
     page.locator("#preferences-overlay.visible").wait_for()
     row = page.locator('[data-preference="window.terminal"]').locator("xpath=..")
     assert "next terminal launch" in row.text_content().lower()
+    assert page.locator("#preferences-overlay").get_by_text("Built-in default").count() == 0
+    theme_options = page.locator(
+        '[data-preference="viewer.theme"] option'
+    ).all_text_contents()
+    assert theme_options == ["Dark", "Light"]
+    assert page.locator('[data-preference="viewer.theme"]').input_value() == "dark"
+    assert page.locator(
+        '[data-preference="viewer.rounded_panes"]'
+    ).input_value() == "true"
+    assert page.locator(
+        '[data-preference="viewer.dimbar_mode"]'
+    ).input_value() == "compact"
 
     page.keyboard.press("Escape")
     page.wait_for_function(
