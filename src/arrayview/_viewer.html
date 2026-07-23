@@ -52,9 +52,8 @@
         body.av-loading #canvas-wrap,
         body.av-loading #slim-cb-wrap,
         body.av-loading #help-hint,
-        body.av-loading #tool-hint,
-        body.av-loading #preferences-hint { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint, #preferences-hint {
+        body.av-loading #tool-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -1887,7 +1886,9 @@
         .help-footer-link {
             color: var(--muted); text-decoration: none;
             font-size: 11px; letter-spacing: 0.04em;
+            background: none; border: 0; padding: 0; font-family: inherit; cursor: pointer;
         }
+        .help-footer-actions { display: flex; align-items: center; gap: 16px; }
         .help-footer-link:hover { color: var(--text); }
         @media (max-width: 760px) {
             #help-box { width: min(96vw, 560px); }
@@ -2260,7 +2261,7 @@
         #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #tool-hint, #preferences-hint, #qmri-hint {
+        #help-hint, #tool-hint, #qmri-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -2271,13 +2272,12 @@
         }
         #help-hint { right: 16px; }
         #tool-hint { right: 46px; }
-        #preferences-hint { right: 76px; }
-        #preferences-hint svg { width: 13px; height: 13px; }
-        #qmri-hint { right: 106px; display: none; }
+        #preferences-hint { display: none; }
+        #qmri-hint { right: 76px; display: none; }
         #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #help-hint:hover, #tool-hint:hover, #preferences-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
@@ -4172,7 +4172,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
-        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #preferences-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5177,7 +5177,10 @@
             <div id="help-content"></div>
             <div class="help-footer">
                 <span class="help-footer-version">v__ARRAYVIEW_VERSION__</span>
-                <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
+                <span class="help-footer-actions">
+                    <button id="help-preferences" class="help-footer-link" type="button">Preferences</button>
+                    <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
+                </span>
             </div>
         </div>
     </div>
@@ -19768,7 +19771,6 @@
         function _reconcilePreferencesVisibility() {
             preferencesOverlay.classList.toggle('visible', _preferencesOpen);
             preferencesOverlay.setAttribute('aria-hidden', _preferencesOpen ? 'false' : 'true');
-            document.getElementById('preferences-hint').classList.toggle('active', _preferencesOpen);
         }
 
         function _setPreferencesStatus(message, isError = false) {
@@ -31870,6 +31872,9 @@
         document.getElementById('preferences-hint').addEventListener('click', () => {
             setPreferencesVisible(!_preferencesOpen);
         });
+        document.getElementById('help-preferences').addEventListener('click', () => {
+            setPreferencesVisible(true);
+        });
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape' || !_preferencesOpen) return;
             e.preventDefault();
@@ -34589,7 +34594,7 @@
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#tool-hint', '#preferences-hint',
+                        '#help-hint', '#tool-hint',
                         '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));

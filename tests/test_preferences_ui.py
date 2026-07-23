@@ -60,7 +60,9 @@ def test_preferences_popup_saves_and_applies_viewer_defaults(
         )
 
     page.route("**/preferences/*", handle_preferences)
-    page.locator("#preferences-hint").click()
+    assert not page.locator("#preferences-hint").is_visible()
+    page.locator("#help-hint").click()
+    page.locator("#help-preferences").click()
     page.locator("#preferences-overlay.visible").wait_for()
 
     page.locator('[data-preference="viewer.ortho_layout"]').select_option("horizontal")
@@ -103,7 +105,8 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
         ),
     )
 
-    page.locator("#preferences-hint").click()
+    page.locator("#help-hint").click()
+    page.locator("#help-preferences").click()
     page.locator("#preferences-overlay.visible").wait_for()
     row = page.locator('[data-preference="window.terminal"]').locator("xpath=..")
     assert "next terminal launch" in row.text_content().lower()
@@ -149,7 +152,8 @@ def test_preferences_initialize_ortho_and_dimbar_defaults(
         "() => document.getElementById('info').classList.contains('dimbar-expanded')"
     )
 
-    page.locator("#preferences-hint").click()
+    page.locator("#help-hint").click()
+    page.locator("#help-preferences").click()
     page.locator("#preferences-overlay.visible").wait_for()
     page.locator("#preferences-overlay").click(position={"x": 2, "y": 2})
     page.wait_for_function(
