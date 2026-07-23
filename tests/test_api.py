@@ -6085,9 +6085,13 @@ class TestPreferences:
         window_defaults = response.json()["defaults"]["window"]
         assert window_defaults["terminal"] in {"native", "browser"}
         terminal_options = response.json()["schema"]["window"]["terminal"]
-        assert terminal_options[-2:] == ["browser", "none"]
+        assert terminal_options[-1] == "browser"
         assert ("native" in terminal_options) == (window_defaults["terminal"] == "native")
-        assert response.json()["schema"]["window"]["ssh"] == ["browser", "none"]
+        assert response.json()["schema"]["window"]["ssh"] == ["browser"]
+        assert all(
+            "none" not in options
+            for options in response.json()["schema"]["window"].values()
+        )
         assert response.json()["server_instance_id"]
 
         response = self._patch(

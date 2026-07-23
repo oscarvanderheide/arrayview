@@ -23,6 +23,8 @@ from arrayview._session import SESSIONS
 def _response_payload() -> dict:
     defaults = deepcopy(BUILTIN_PREFERENCES)
     schema = deepcopy(PREFERENCE_SCHEMA)
+    for key, options in schema["window"].items():
+        schema["window"][key] = [value for value in options if value != "none"]
     try:
         from arrayview._platform import _is_vscode_remote, _native_window_gui
 

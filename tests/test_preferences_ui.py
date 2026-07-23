@@ -18,7 +18,7 @@ def _preferences_payload(**viewer):
                 "dimbar_mode": ["compact", "extended"],
             },
             "window": {
-                "terminal": ["native", "browser", "none"],
+                "terminal": ["native", "browser"],
             },
         },
         "overrides": {},
@@ -122,7 +122,7 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
     launch_options = page.locator(
         '[data-preference="window.terminal"] option'
     ).all_text_contents()
-    assert launch_options == ["Native window", "System browser", "No window"]
+    assert launch_options == ["Native window", "System browser"]
     assert page.locator('[data-preference="window.terminal"]').input_value() == "native"
 
     page.keyboard.press("Escape")
