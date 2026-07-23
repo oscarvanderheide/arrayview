@@ -1,5 +1,13 @@
 # Lessons Learned
 
+## Injected Viewer Defaults
+
+**Problem:** Backend template replacements can silently do nothing when the
+frontend never consumes the placeholder.
+**Solution:** Test both rendered HTML replacement and the initialized browser
+state. Opening a preferences editor must not reapply defaults over manual
+changes made in the current viewer.
+
 ## DICOM Series Geometry and Metadata
 
 **Problem:** Filename or `InstanceNumber` ordering can silently scramble slices,

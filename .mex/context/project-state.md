@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-22
+last_updated: 2026-07-23
 ---
 
 # Project State
@@ -72,6 +72,11 @@ last_updated: 2026-07-22
 
 ## Recently Completed
 
+- Persistent preferences menu: the lower-right gear edits allowlisted
+  `~/.arrayview/config.toml` values through a session- and server-fenced API.
+  Viewer theme, rounded panes, ortho layout, and dimbar mode apply immediately;
+  launch-window defaults are labeled for the next launch and remain scoped to
+  the machine running the backend.
 - Jupyter inline viewports automatically fit ortho content and restore the
   normal `height` on exit. `mode_heights` remains available for explicit
   overrides. Direct, proxied, multi-array, and IJulia inline paths share the
@@ -108,4 +113,3 @@ last_updated: 2026-07-22
 ## Not Yet Built
 
 - Independent split view for mismatched-shape arrays (designed, shelved)
-- Admin/config UI (design intent: file-based user config only, no in-app admin panel)
