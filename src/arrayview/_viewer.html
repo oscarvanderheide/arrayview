@@ -52,8 +52,9 @@
         body.av-loading #canvas-wrap,
         body.av-loading #slim-cb-wrap,
         body.av-loading #help-hint,
-        body.av-loading #tool-hint { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint {
+        body.av-loading #tool-hint,
+        body.av-loading #preferences-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint, #preferences-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -1071,13 +1072,58 @@
             border-radius: 3px; font-size: 10px; color: var(--text); cursor: pointer; }
         .ram-block-ok:hover { border-color: var(--picker-accent, var(--active-dim)); }
         /* ── CSS: Help and Info Overlays ──────────────────────────── */
-        #help-overlay, #info-overlay, #cmd-palette {
+        #help-overlay, #info-overlay, #cmd-palette, #preferences-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
             z-index: 20; justify-content: center; align-items: center;
         }
-        #help-overlay.visible, #info-overlay.visible, #cmd-palette.visible { display: flex; }
+        #help-overlay.visible, #info-overlay.visible, #cmd-palette.visible, #preferences-overlay.visible { display: flex; }
+        #preferences-box {
+            width: min(520px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px));
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            overflow: hidden; display: flex; flex-direction: column;
+            opacity: 0; transform: scale(0.98); transition: opacity 0.12s ease, transform 0.12s ease;
+        }
+        #preferences-overlay.visible #preferences-box { opacity: 1; transform: scale(1); }
+        .preferences-head {
+            display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+            padding: 16px 18px 12px; border-bottom: 1px solid var(--border);
+        }
+        .preferences-title { font-size: 15px; color: var(--text); }
+        .preferences-subtitle { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+        #preferences-close {
+            border: 0; background: transparent; color: var(--muted); cursor: pointer;
+            font: inherit; font-size: 13px; padding: 2px 4px;
+        }
+        #preferences-close:hover { color: var(--text); }
+        #preferences-body { overflow-y: auto; padding: 4px 18px 14px; }
+        .preferences-section { padding-top: 12px; }
+        .preferences-section-title {
+            color: var(--muted); font-size: 10px; letter-spacing: 0.08em;
+            text-transform: uppercase; padding-bottom: 5px;
+        }
+        .preferences-row {
+            display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 190px);
+            align-items: center; gap: 16px; padding: 9px 0;
+            border-top: 1px solid var(--border);
+        }
+        .preferences-label { color: var(--text); font-size: 12px; }
+        .preferences-detail { color: var(--muted); font-size: 10px; line-height: 1.4; margin-top: 3px; }
+        .preferences-control {
+            width: 100%; box-sizing: border-box; color: var(--text); background: var(--surface);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            font: inherit; font-size: 11px; padding: 5px 7px; outline: none;
+        }
+        .preferences-control:focus { border-color: var(--active-dim); }
+        .preferences-control:disabled { opacity: 0.5; cursor: wait; }
+        #preferences-status {
+            min-height: 14px; padding: 9px 18px; border-top: 1px solid var(--border);
+            color: var(--muted); font-size: 10px;
+        }
+        #preferences-status.error { color: var(--text); }
         #cmd-palette { z-index: 50; align-items: flex-start; padding-top: 14vh; }
         #cmd-palette-box {
             background: var(--surface); border: 1px solid var(--border);
@@ -2214,7 +2260,7 @@
         #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #tool-hint, #qmri-hint {
+        #help-hint, #tool-hint, #preferences-hint, #qmri-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -2225,11 +2271,13 @@
         }
         #help-hint { right: 16px; }
         #tool-hint { right: 46px; }
-        #qmri-hint { right: 76px; display: none; }
+        #preferences-hint { right: 76px; }
+        #preferences-hint svg { width: 13px; height: 13px; }
+        #qmri-hint { right: 106px; display: none; }
         #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #tool-hint:hover, #preferences-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
@@ -4124,7 +4172,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
-        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #preferences-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5106,6 +5154,7 @@
     </div>
     <div id="help-hint">?</div>
     <div id="tool-hint" title="Tool launcher (/)">/</div>
+    <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
@@ -5130,6 +5179,19 @@
                 <span class="help-footer-version">v__ARRAYVIEW_VERSION__</span>
                 <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
             </div>
+        </div>
+    </div>
+    <div id="preferences-overlay" aria-hidden="true">
+        <div id="preferences-box" role="dialog" aria-modal="true" aria-labelledby="preferences-title">
+            <div class="preferences-head">
+                <div>
+                    <div class="preferences-title" id="preferences-title">Preferences</div>
+                    <div class="preferences-subtitle">Saved on the machine running ArrayView.</div>
+                </div>
+                <button id="preferences-close" type="button" aria-label="Close preferences">&#x2715;</button>
+            </div>
+            <div id="preferences-body"></div>
+            <div id="preferences-status" role="status" aria-live="polite"></div>
         </div>
     </div>
     <div id="export-overlay">
@@ -19668,6 +19730,214 @@
         };
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
+        const preferencesOverlay = document.getElementById('preferences-overlay');
+        const preferencesBody = document.getElementById('preferences-body');
+        const preferencesStatus = document.getElementById('preferences-status');
+        let _preferencesOpen = false;
+        let _preferencesData = null;
+        let _preferencesServerInstanceId = _launchPhaseServerId || null;
+
+        const PREFERENCE_COPY = {
+            'viewer.theme': ['Theme', 'Applies immediately and to future viewers.'],
+            'viewer.rounded_panes': ['Rounded panes', 'Applies immediately across viewer modes.'],
+            'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
+            'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
+            'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
+            'window.default': ['Default window', 'Used on the next launch when no environment-specific preference applies.'],
+            'window.terminal': ['Terminal window', 'Used on the next terminal launch.'],
+            'window.vscode': ['VS Code window', 'Used on the next VS Code launch.'],
+            'window.jupyter': ['Jupyter window', 'Used on the next notebook launch.'],
+            'window.ssh': ['SSH window', 'Used on the next remote SSH launch.'],
+            'window.julia': ['Julia window', 'Used on the next Julia launch.'],
+            'nninteractive.url': ['nnInteractive URL', 'Used the next time the nnInteractive tool starts.'],
+        };
+
+        function _reconcilePreferencesVisibility() {
+            preferencesOverlay.classList.toggle('visible', _preferencesOpen);
+            preferencesOverlay.setAttribute('aria-hidden', _preferencesOpen ? 'false' : 'true');
+            document.getElementById('preferences-hint').classList.toggle('active', _preferencesOpen);
+        }
+
+        function _setPreferencesStatus(message, isError = false) {
+            preferencesStatus.textContent = message || '';
+            preferencesStatus.classList.toggle('error', !!isError);
+        }
+
+        function _preferenceValue(data, section, key) {
+            const values = data && (data.preferences || data.values);
+            return values && values[section] ? values[section][key] : undefined;
+        }
+
+        function _preferenceOverridden(data, section, key) {
+            const overrides = (data && data.overrides) || {};
+            return !!(overrides[`${section}.${key}`] || overrides[section]);
+        }
+
+        function _applyViewerPreference(key, value) {
+            if (value === undefined || value === null) return;
+            if (key === 'theme') {
+                const idx = THEMES.indexOf(value);
+                if (idx >= 0) {
+                    applyTheme(idx);
+                    _reconcileLayout();
+                }
+            } else if (key === 'rounded_panes') {
+                roundedPanes = !!value;
+                _reconcileLayout();
+            } else if (key === 'ortho_layout' && _getOrthoPreset(value)) {
+                orthoLayoutMode = value;
+                _orthoAutoLayoutMode = null;
+                if (multiViewActive) _mvSetOrthoLayoutMode(value, { silent: true });
+            } else if (key === 'dimbar_mode') {
+                _dimbarExtentPinned = value === 'extended';
+                _reconcileDimbarExtent();
+            }
+        }
+
+        function _applyViewerPreferences(data) {
+            const values = data && (data.preferences || data.values);
+            if (!values || !values.viewer) return;
+            for (const [key, value] of Object.entries(values.viewer)) {
+                _applyViewerPreference(key, value);
+            }
+        }
+
+        function _preferenceControl(section, key, spec, value, overridden) {
+            const path = `${section}.${key}`;
+            let control;
+            if (Array.isArray(spec) || spec === 'boolean') {
+                control = document.createElement('select');
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = 'Built-in default';
+                control.appendChild(defaultOption);
+                const options = spec === 'boolean' ? [true, false] : spec;
+                for (const optionValue of options) {
+                    const option = document.createElement('option');
+                    option.value = String(optionValue);
+                    option.textContent = typeof optionValue === 'boolean'
+                        ? (optionValue ? 'On' : 'Off')
+                        : String(optionValue);
+                    control.appendChild(option);
+                }
+                control.value = value === undefined ? '' : String(value);
+            } else {
+                control = document.createElement('input');
+                control.type = 'text';
+                control.value = Array.isArray(value) ? value.join(', ') : (value || '');
+                control.placeholder = spec === 'non-empty list of names' ? 'gray, viridis, magma' : 'Built-in default';
+            }
+            control.className = 'preferences-control';
+            control.dataset.preference = path;
+            control.disabled = overridden;
+            control.addEventListener('change', () => _savePreferenceControl(control, section, key, spec));
+            return control;
+        }
+
+        function _renderPreferences(data) {
+            preferencesBody.replaceChildren();
+            const schema = (data && data.schema) || {};
+            for (const [section, entries] of Object.entries(schema)) {
+                const sectionEl = document.createElement('section');
+                sectionEl.className = 'preferences-section';
+                const heading = document.createElement('div');
+                heading.className = 'preferences-section-title';
+                heading.textContent = section === 'viewer' ? 'Viewer' : (section === 'window' ? 'Launch behavior' : section);
+                sectionEl.appendChild(heading);
+                for (const [key, spec] of Object.entries(entries || {})) {
+                    const path = `${section}.${key}`;
+                    const copy = PREFERENCE_COPY[path] || [key.replaceAll('_', ' '), section === 'viewer' ? 'Applies to the viewer.' : 'Applies on the next launch.'];
+                    const overridden = _preferenceOverridden(data, section, key);
+                    const row = document.createElement('label');
+                    row.className = 'preferences-row';
+                    const text = document.createElement('div');
+                    const label = document.createElement('div');
+                    label.className = 'preferences-label';
+                    label.textContent = copy[0];
+                    const detail = document.createElement('div');
+                    detail.className = 'preferences-detail';
+                    detail.textContent = overridden ? `${copy[1]} Overridden by environment.` : copy[1];
+                    text.append(label, detail);
+                    row.append(text, _preferenceControl(section, key, spec, _preferenceValue(data, section, key), overridden));
+                    sectionEl.appendChild(row);
+                }
+                preferencesBody.appendChild(sectionEl);
+            }
+        }
+
+        async function _fetchPreferences() {
+            const response = await proxyFetch(`/preferences/${encodeURIComponent(sid)}`, {
+                headers: { 'X-ArrayView-Preferences': '1' },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+            _preferencesServerInstanceId = data.server_instance_id || _preferencesServerInstanceId;
+            _preferencesData = data;
+            return data;
+        }
+
+        async function _savePreferenceControl(control, section, key, spec) {
+            let value = control.value;
+            if (value === '') {
+                value = null;
+            } else if (spec === 'boolean') {
+                value = value === 'true';
+            } else if (spec === 'non-empty list of names') {
+                value = value.split(',').map(item => item.trim()).filter(Boolean);
+            }
+            control.disabled = true;
+            _setPreferencesStatus('Saving…');
+            try {
+                const body = { changes: { [section]: { [key]: value } } };
+                if (_preferencesServerInstanceId) body.server_instance_id = _preferencesServerInstanceId;
+                const response = await proxyFetch(`/preferences/${encodeURIComponent(sid)}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-ArrayView-Preferences': '1',
+                    },
+                    body: JSON.stringify(body),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+                _preferencesServerInstanceId = data.server_instance_id || _preferencesServerInstanceId;
+                _preferencesData = data;
+                _renderPreferences(data);
+                if (section === 'viewer') _applyViewerPreference(key, value);
+                const nextLaunch = section !== 'viewer' || key === 'colormaps';
+                _setPreferencesStatus(nextLaunch ? 'Saved · applies on next launch' : 'Saved');
+            } catch (error) {
+                control.disabled = false;
+                _setPreferencesStatus(`Could not save: ${error.message}`, true);
+            }
+        }
+
+        async function setPreferencesVisible(visible) {
+            _preferencesOpen = !!visible;
+            if (_preferencesOpen) {
+                setHelpVisible(false);
+                closeCommandPalette();
+                if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
+                closeToolPanel();
+                closeToolLauncher();
+                _setPreferencesStatus('Loading…');
+            }
+            _reconcilePreferencesVisibility();
+            if (_preferencesOpen) {
+                try {
+                    const data = await _fetchPreferences();
+                    if (!_preferencesOpen) return;
+                    _renderPreferences(data);
+                    _applyViewerPreferences(data);
+                    _setPreferencesStatus('');
+                } catch (error) {
+                    if (!_preferencesOpen) return;
+                    preferencesBody.replaceChildren();
+                    _setPreferencesStatus(`Could not load preferences: ${error.message}`, true);
+                }
+            }
+            sink.focus();
+        }
 
         function setHelpTab(index) {
             const tabs = Array.from(document.querySelectorAll('#help-tabs .help-tab'));
@@ -19688,6 +19958,7 @@
                 try { buildHelpOverlay(); _helpBuilt = true; } catch (err) { console.warn('help build failed', err); }
             }
             if (visible) {
+                if (_preferencesOpen) setPreferencesVisible(false);
                 closeCommandPalette();
                 if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
                 closeToolPanel();
@@ -31570,6 +31841,21 @@
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
         });
+        preferencesOverlay.addEventListener('click', (e) => {
+            if (e.target === preferencesOverlay) setPreferencesVisible(false);
+        });
+        document.getElementById('preferences-close').addEventListener('click', () => {
+            setPreferencesVisible(false);
+        });
+        document.getElementById('preferences-hint').addEventListener('click', () => {
+            setPreferencesVisible(!_preferencesOpen);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || !_preferencesOpen) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            setPreferencesVisible(false);
+        }, true);
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
@@ -34282,7 +34568,7 @@
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#tool-hint',
+                        '#help-hint', '#tool-hint', '#preferences-hint',
                         '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
