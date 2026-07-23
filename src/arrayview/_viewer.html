@@ -19992,6 +19992,12 @@
                 try { buildHelpOverlay(); _helpBuilt = true; } catch (err) { console.warn('help build failed', err); }
             }
             if (visible) {
+                if (_startupAnimTl) {
+                    _startupAnimTl.kill();
+                    _startupAnimTl = null;
+                    _clearStartupChromeReveal();
+                    try { drawSlimColorbar(cbMarkerFrac); } catch (_) {}
+                }
                 if (_preferencesOpen) setPreferencesVisible(false);
                 closeCommandPalette();
                 if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();

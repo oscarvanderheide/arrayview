@@ -6144,6 +6144,36 @@ class TestPreferences:
         assert response.status_code == 422
         assert not config_path.exists()
 
+    def test_rejects_unknown_colormap(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"colormaps": ["gray", "not-a-colormap"]}},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Unknown colormap: not-a-colormap"
+        assert not config_path.exists()
+
+    def test_invalid_saved_colormap_falls_back_in_viewer_html(
+        self, client, sid_3d, tmp_path, monkeypatch
+    ):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[viewer]\ncolormaps = ["g"]\n')
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get("/", params={"sid": sid_3d})
+
+        assert response.status_code == 200
+        assert "const COLORMAPS = ['gray'" in response.text
+
     def test_refuses_malformed_config(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._config as config
 

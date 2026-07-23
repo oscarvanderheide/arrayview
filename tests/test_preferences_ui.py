@@ -60,6 +60,7 @@ def test_preferences_popup_saves_and_applies_viewer_defaults(
         )
 
     page.route("**/preferences/*", handle_preferences)
+    assert page.locator("#slim-cb-wrap").is_visible()
     assert not page.locator("#preferences-hint").is_visible()
     page.locator("#help-hint").click()
     page.locator("#help-preferences-tab").click()
@@ -77,6 +78,16 @@ def test_preferences_popup_saves_and_applies_viewer_defaults(
     )
     page.locator('[data-preference="viewer.rounded_panes"]').select_option("false")
     page.wait_for_function("() => !document.body.classList.contains('rounded-panes')")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    assert page.locator("#slim-cb-wrap").is_visible()
+    assert float(
+        page.locator("#slim-cb-wrap").evaluate(
+            "el => getComputedStyle(el).opacity"
+        )
+    ) > 0.9
+    assert page.locator("#slim-cb-vmin").text_content()
+    assert page.locator("#slim-cb-vmax").text_content()
 
     assert patches == [
         {

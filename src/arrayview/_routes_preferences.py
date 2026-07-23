@@ -84,6 +84,17 @@ def register_preferences_routes(app) -> None:
             return JSONResponse({"error": "stale_server_instance"}, status_code=409)
         changes = body.get("changes")
         try:
+            viewer_changes = changes.get("viewer", {}) if isinstance(changes, dict) else {}
+            colormaps = viewer_changes.get("colormaps")
+            if colormaps is not None:
+                from arrayview._render import _ensure_lut
+
+                invalid = [
+                    name for name in colormaps
+                    if not isinstance(name, str) or not _ensure_lut(name)
+                ]
+                if invalid:
+                    raise InvalidPreferenceError(f"Unknown colormap: {invalid[0]}")
             update_preferences(changes)
         except InvalidPreferenceError as exc:
             return JSONResponse(

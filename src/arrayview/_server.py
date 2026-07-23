@@ -295,7 +295,12 @@ def get_ui(sid: str = None):
         query_val = "null"
     _init_luts()
     _cfg_colormaps = get_viewer_colormaps()
-    _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
+    _valid_cfg_colormaps = (
+        [name for name in _cfg_colormaps if _ensure_lut(name)]
+        if _cfg_colormaps is not None
+        else []
+    )
+    _active_colormaps = _valid_cfg_colormaps or COLORMAPS
     _theme_names = ["dark", "light"]
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
