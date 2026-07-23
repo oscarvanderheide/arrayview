@@ -1606,7 +1606,8 @@ async function waitForBackendViewerReady(
     token,
     timeoutMs,
     ensureActive = () => {},
-    retryPreScriptNavigation = null
+    retryPreScriptNavigation = null,
+    preScriptTimeoutMs = 10000
 ) {
     let statusUrl;
     try {
@@ -1617,16 +1618,31 @@ async function waitForBackendViewerReady(
     const required = ['script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered'];
     const logged = new Set();
     const deadline = Date.now() + timeoutMs;
+    const preScriptDeadline = Date.now() + Math.min(
+        timeoutMs,
+        Math.max(1, preScriptTimeoutMs)
+    );
     let activeToken = token;
     let scriptLoaded = false;
     let navigationAttempt = 0;
-    let nextNavigationRetryAt = Date.now() + 1500;
+    const firstNavigationRetryDelayMs = Math.min(
+        1500,
+        Math.max(50, Math.floor(preScriptTimeoutMs * 0.25))
+    );
+    const laterNavigationRetryDelayMs = Math.min(
+        3000,
+        Math.max(50, Math.floor(preScriptTimeoutMs * 0.35))
+    );
+    let nextNavigationRetryAt = Date.now() + firstNavigationRetryDelayMs;
     const maxNavigationRetries = 2;
     while (Date.now() < deadline) {
         ensureActive();
+        const activeDeadline = scriptLoaded
+            ? deadline
+            : Math.min(deadline, preScriptDeadline);
         const payload = await httpJson(
             `${statusUrl}?token=${encodeURIComponent(activeToken)}`,
-            Math.max(1, Math.min(1500, deadline - Date.now()))
+            Math.max(1, Math.min(1500, activeDeadline - Date.now()))
         );
         if (
             payload
@@ -1664,6 +1680,11 @@ async function waitForBackendViewerReady(
                 return null;
             }
         }
+        if (!scriptLoaded && Date.now() >= preScriptDeadline) {
+            return new Error(
+                'Integrated browser did not start the viewer script before recovery timeout'
+            );
+        }
         if (
             !scriptLoaded
             && retryPreScriptNavigation
@@ -1684,12 +1705,11 @@ async function waitForBackendViewerReady(
             }
             ensureActive();
             if (replacementToken) activeToken = replacementToken;
-            nextNavigationRetryAt = Date.now() + Math.min(
-                6000,
-                1500 * (2 ** navigationAttempt)
-            );
+            nextNavigationRetryAt = Date.now() + laterNavigationRetryDelayMs;
         }
-        const remaining = deadline - Date.now();
+        const remaining = (
+            scriptLoaded ? deadline : Math.min(deadline, preScriptDeadline)
+        ) - Date.now();
         if (remaining > 0) {
             await new Promise(resolve => setTimeout(resolve, Math.min(100, remaining)));
         }
@@ -1704,7 +1724,8 @@ async function openInIntegratedBrowser(
     serverId,
     windowId,
     viewerTimeoutMs,
-    ensureActive = () => {}
+    ensureActive = () => {},
+    preScriptTimeoutMs = 10000
 ) {
     const viewerDeadline = Date.now() + viewerTimeoutMs;
     ensureActive();
@@ -1798,7 +1819,7 @@ async function openInIntegratedBrowser(
         if (commandAttempted) releaseUrlSession(url, backendUrl, serverId);
         throw error;
     }
-    log(`PANEL: panel-phase wrapper-started transport=integrated-browser`);
+    log(`PANEL: browser-command-completed transport=integrated-browser`);
     log(`PANEL: integrated browser opened ${browserUrl}`);
     return {
         viewerReady: waitForBackendViewerReady(
@@ -1811,11 +1832,29 @@ async function openInIntegratedBrowser(
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
             async (navigationAttempt, deadline) => {
-                log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) return null;
-                return prepareNavigation(navigationAttempt, deadline);
-            }
+                if (navigationAttempt === 1) {
+                    log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
+                    return prepareNavigation(navigationAttempt, deadline);
+                }
+                log(`PANEL: hard-reloading exact request tab after pre-script stall`);
+                await _withTimeout(
+                    vscode.commands.executeCommand('workbench.action.browser.open', {
+                        reuseUrlFilter,
+                    }),
+                    Math.max(1, Math.min(3000, remaining)),
+                    'integrated browser exact-tab reveal'
+                );
+                ensureActive();
+                await _withTimeout(
+                    vscode.commands.executeCommand('workbench.action.browser.hardReload'),
+                    Math.max(1, Math.min(3000, deadline - Date.now())),
+                    'integrated browser hard reload'
+                );
+                return null;
+            },
+            preScriptTimeoutMs
         ),
     };
 }

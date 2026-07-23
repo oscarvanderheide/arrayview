@@ -296,3 +296,12 @@ snapshot and may serve unrelated viewers.
 **Fix:** Treat port changes as revalidation. Reuse only through the planned
 registration contract, otherwise select a free port or return a typed failure.
 Never derive kill authority from a port or service name alone.
+
+## Integrated Browser Pre-Script Recovery
+
+**Problem:** A VS Code integrated-browser command can complete while the exact
+request tab remains on a stale document and never starts the viewer script.
+**Fix:** Give pre-script readiness its own short deadline, retry one fenced
+navigation, then reveal the tab by its exact request filter and hard-reload it.
+Once `script-loaded` arrives, stop navigation recovery and retain the full frame
+render deadline.

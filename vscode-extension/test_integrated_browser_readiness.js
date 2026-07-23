@@ -11,6 +11,7 @@ process.env.HOME = tempHome;
 
 let commandArgs = null;
 const commandArgsHistory = [];
+const commandHistory = [];
 let remoteProxyEnabled = false;
 let commandFailure = null;
 let commandObserver = null;
@@ -22,11 +23,20 @@ const vscodeMock = {
             return new Promise(() => {});
         },
         async executeCommand(command, args) {
-            assert.strictEqual(command, 'workbench.action.browser.open');
-            commandArgs = args;
-            commandArgsHistory.push(args);
-            if (commandFailure) throw commandFailure;
-            if (commandObserver) commandObserver(args);
+            assert(
+                [
+                    'workbench.action.browser.open',
+                    'workbench.action.browser.hardReload',
+                ].includes(command),
+                `unexpected command: ${command}`
+            );
+            commandHistory.push({ command, args });
+            if (command === 'workbench.action.browser.open') {
+                commandArgs = args;
+                commandArgsHistory.push(args);
+                if (commandFailure) throw commandFailure;
+            }
+            if (commandObserver) commandObserver(args, command);
         },
     },
     workspace: {
@@ -237,14 +247,63 @@ Module._load = originalLoad;
         );
         assert.strictEqual(await proxied.viewerReady, null);
 
-        const recoveryStart = commandArgsHistory.length;
+        const slowRenderStart = commandArgsHistory.length;
         journal = null;
         deferReady = true;
-        commandObserver = args => {
+        let framePublishedAt = null;
+        commandObserver = (args, command) => {
+            if (command !== 'workbench.action.browser.open' || !args.url) return;
             const parsed = new URL(args.url);
             if (
-                parsed.searchParams.get('_av_launch_request_id') === 'request-recovery'
-                && parsed.searchParams.get('_av_navigation_attempt') === '1'
+                parsed.searchParams.get('_av_launch_request_id') !== 'request-slow-render'
+            ) return;
+            journal.phases = ['script-loaded'];
+            journal.viewer_instance_ids = ['viewer-one'];
+            setTimeout(() => {
+                journal.phases = [
+                    'script-loaded',
+                    'ws-open',
+                    'metadata-loaded',
+                    'frame-rendered',
+                ];
+                framePublishedAt = Date.now();
+            }, 800);
+        };
+        const slowRenderStartedAt = Date.now();
+        const slowRender = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-slow-render',
+            'server-one',
+            'window-one',
+            3000,
+            () => {},
+            500
+        );
+        assert.strictEqual(
+            await slowRender.viewerReady,
+            null,
+            'script-loaded must switch readiness to the full render deadline'
+        );
+        assert(
+            framePublishedAt - slowRenderStartedAt >= 700,
+            'the first frame must arrive after the deliberately shorter pre-script budget'
+        );
+        assert.strictEqual(
+            commandArgsHistory.length,
+            slowRenderStart + 1,
+            'a slow post-script render must not trigger navigation recovery'
+        );
+        commandObserver = null;
+
+        const recoveryStart = commandArgsHistory.length;
+        const recoveryCommandStart = commandHistory.length;
+        journal = null;
+        deferReady = true;
+        commandObserver = (_args, command) => {
+            if (
+                command === 'workbench.action.browser.hardReload'
+                && journal.request_id === 'request-recovery'
             ) {
                 journal.phases = [
                     'script-loaded',
@@ -261,14 +320,16 @@ Module._load = originalLoad;
             'request-recovery',
             'server-one',
             'window-one',
-            6000
+            6000,
+            () => {},
+            1000
         );
         assert.strictEqual(await recovered.viewerReady, null);
         const recoveryCommands = commandArgsHistory.slice(recoveryStart);
         assert.strictEqual(
             recoveryCommands.length,
-            2,
-            'a pre-script transport failure must retry exactly once in the same tab'
+            3,
+            'pre-script recovery must navigate once, then target the same tab for hard reload'
         );
         assert.strictEqual(recoveryCommands[0].openToSide, false);
         assert.strictEqual(recoveryCommands[1].openToSide, false);
@@ -290,39 +351,68 @@ Module._load = originalLoad;
             '1',
             'the retry must bypass a failed navigation cache'
         );
+        assert.deepStrictEqual(
+            recoveryCommands[2],
+            { reuseUrlFilter: '?_av_launch_request_id=request-recovery' },
+            'hard-reload recovery must first select the exact request tab without navigating it'
+        );
         assert.notStrictEqual(
             new URL(recoveryCommands[1].url).searchParams.get('_av_launch_token'),
             new URL(recoveryCommands[0].url).searchParams.get('_av_launch_token'),
             'each navigation attempt must fence stale documents with a fresh token'
         );
-        await new Promise(resolve => setTimeout(resolve, 3200));
+        const recoverySequence = commandHistory.slice(recoveryCommandStart);
+        assert.deepStrictEqual(
+            recoverySequence.map(entry => entry.command),
+            [
+                'workbench.action.browser.open',
+                'workbench.action.browser.open',
+                'workbench.action.browser.open',
+                'workbench.action.browser.hardReload',
+            ],
+            'the final recovery must reveal the exact request tab immediately before hard reload'
+        );
         assert.strictEqual(
-            commandArgsHistory.length,
-            recoveryStart + 2,
+            recoverySequence[3].args,
+            undefined,
+            'hard reload must not carry navigation arguments that could create another tab'
+        );
+        await new Promise(resolve => setTimeout(resolve, 700));
+        assert.strictEqual(
+            commandHistory.length,
+            recoveryCommandStart + 4,
             'navigation retries must stop permanently after script-loaded'
         );
         commandObserver = null;
 
         const cappedStart = commandArgsHistory.length;
+        const cappedCommandStart = commandHistory.length;
         journal = null;
+        const cappedStartedAt = Date.now();
         const capped = await __test.openInIntegratedBrowser(
             'http://localhost:9000/?sid=sid-one',
             backendUrl,
             'request-capped',
             'server-one',
             'window-one',
-            5200
+            5000,
+            () => {},
+            1000
         );
         assert.match(
             (await capped.viewerReady).message,
-            /did not render a frame/,
-            'a permanently blank tab must still fail at the original deadline'
+            /Integrated browser did not start the viewer script before recovery timeout/,
+            'a permanently blank tab must fail on the short pre-script recovery budget'
+        );
+        assert(
+            Date.now() - cappedStartedAt < 2000,
+            'a permanently blank tab must not consume the full render deadline'
         );
         const cappedCommands = commandArgsHistory.slice(cappedStart);
         assert.strictEqual(
             cappedCommands.length,
             3,
-            'pre-script recovery must stop after two same-tab retries'
+            'pre-script recovery must stop after navigation and hard-reload recovery'
         );
         assert.deepStrictEqual(
             cappedCommands.map(args => args.reuseUrlFilter),
@@ -330,8 +420,24 @@ Module._load = originalLoad;
             'all bounded recovery attempts must target one request tab'
         );
         assert.deepStrictEqual(
-            cappedCommands.map(args => new URL(args.url).searchParams.get('_av_navigation_attempt')),
-            [null, '1', '2']
+            cappedCommands.slice(0, 2).map(
+                args => new URL(args.url).searchParams.get('_av_navigation_attempt')
+            ),
+            [null, '1']
+        );
+        assert.deepStrictEqual(
+            cappedCommands[2],
+            { reuseUrlFilter: '?_av_launch_request_id=request-capped' }
+        );
+        assert.deepStrictEqual(
+            commandHistory.slice(cappedCommandStart).map(entry => entry.command),
+            [
+                'workbench.action.browser.open',
+                'workbench.action.browser.open',
+                'workbench.action.browser.open',
+                'workbench.action.browser.hardReload',
+            ],
+            'a permanently blank request gets one hard reload of its exact tab'
         );
         deferReady = false;
 
