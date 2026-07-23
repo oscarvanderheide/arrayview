@@ -6208,7 +6208,7 @@
         // Ortho-view grid layout. null/'horizontal' keep the legacy flex-row
         // path; other values switch #mv-panes to absolute positioning driven
         // by the matching ORTHO_PRESETS entry.
-        let orthoLayoutMode = null; // null=auto, explicit values use ORTHO_PRESETS ids
+        let orthoLayoutMode = __DEFAULT_ORTHO_LAYOUT__; // null=auto, explicit values use ORTHO_PRESETS ids
         let _orthoAutoLayoutMode = null; // resolved once per ortho entry when orthoLayoutMode === null
         let _orthoLayoutPicker = null;   // populated by _initOrthoLayoutPicker()
         let compareOverflowNotified = false;
@@ -17571,7 +17571,7 @@
         // In oblique mode the x/y labels no longer name axis-aligned directions,
         // so the gnomon is suppressed.
         let _dimBarHovering = false;
-        let _dimbarExtentPinned = false;
+        let _dimbarExtentPinned = __DEFAULT_DIMBAR_MODE__ === 'extended';
         let _dimUnderlineTimer = 0;
         let _dimbarDblClickWired = false;
         let _dimbarLastToggleAt = 0;
@@ -19928,7 +19928,6 @@
                     const data = await _fetchPreferences();
                     if (!_preferencesOpen) return;
                     _renderPreferences(data);
-                    _applyViewerPreferences(data);
                     _setPreferencesStatus('');
                 } catch (error) {
                     if (!_preferencesOpen) return;
@@ -33367,6 +33366,7 @@
             _reconcileLayout();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            _reconcileDimbarExtent();
             _reconcileRoiColorbarControls();
             _reconcileMainLoupeState();
             const patientLoadingOverlay = document.getElementById('patient-loading-overlay');

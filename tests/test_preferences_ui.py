@@ -104,6 +104,25 @@ def test_preferences_popup_dismisses_and_labels_launch_settings(
         "() => !document.getElementById('preferences-overlay').classList.contains('visible')"
     )
 
+
+def test_preferences_initialize_ortho_and_dimbar_defaults(
+    loaded_viewer, sid_3d, tmp_path, monkeypatch
+):
+    import arrayview._config as config
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[viewer]\northo_layout = "big-left"\ndimbar_mode = "extended"\n'
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+    page = loaded_viewer(sid_3d)
+
+    assert page.evaluate("() => orthoLayoutMode") == "big-left"
+    page.wait_for_function(
+        "() => document.getElementById('info').classList.contains('dimbar-expanded')"
+    )
+
     page.locator("#preferences-hint").click()
     page.locator("#preferences-overlay.visible").wait_for()
     page.locator("#preferences-overlay").click(position={"x": 2, "y": 2})

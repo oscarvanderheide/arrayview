@@ -6102,6 +6102,25 @@ class TestPreferences:
         assert saved["plugin"]["keep"] == "yes"
         assert saved["viewer"]["rounded_panes"] is False
 
+    def test_viewer_html_injects_initial_layout_defaults(
+        self, client, sid_3d, tmp_path, monkeypatch
+    ):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            '[viewer]\northo_layout = "big-left"\ndimbar_mode = "extended"\n'
+        )
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get("/", params={"sid": sid_3d})
+
+        assert response.status_code == 200
+        assert 'let orthoLayoutMode = "big-left";' in response.text
+        assert "let _dimbarExtentPinned = \"extended\" === 'extended';" in response.text
+        assert "__DEFAULT_ORTHO_LAYOUT__" not in response.text
+        assert "__DEFAULT_DIMBAR_MODE__" not in response.text
+
     def test_rejects_invalid_preference(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._config as config
 
