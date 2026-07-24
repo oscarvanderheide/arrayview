@@ -2498,6 +2498,20 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     let handedOff = false;
     let viewerReady;
     let integratedBrowserOpened = false;
+    let integratedBrowserPlaceholder = null;
+    if (useIntegratedBrowser) {
+        for (const [filePath, placeholder] of _pendingPlaceholders) {
+            const exactHandoff = data.handoffPath
+                && path.resolve(data.handoffPath) === placeholder.filePath;
+            const legacyTitleMatch = !data.handoffPath
+                && data.title
+                && data.title.includes(placeholder.basename);
+            if (exactHandoff || legacyTitleMatch) {
+                integratedBrowserPlaceholder = { filePath, placeholder };
+                break;
+            }
+        }
+    }
     for (const [filePath, placeholder] of useIntegratedBrowser ? [] : _pendingPlaceholders) {
         const exactHandoff = data.handoffPath
             && path.resolve(data.handoffPath) === placeholder.filePath;
@@ -2565,6 +2579,18 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
+            if (integratedBrowserPlaceholder) {
+                const { filePath, placeholder } = integratedBrowserPlaceholder;
+                if (_pendingPlaceholders.get(filePath) === placeholder) {
+                    _pendingPlaceholders.delete(filePath);
+                }
+                try {
+                    placeholder.panel.dispose();
+                    log(`CUSTOM-EDITOR: closed placeholder after integrated-browser handoff for ${placeholder.basename}`);
+                } catch (error) {
+                    log(`CUSTOM-EDITOR: placeholder already closed after integrated-browser handoff for ${placeholder.basename}: ${error.message}`);
+                }
+            }
         } else {
             log(`openInWebviewPanel(${openUrl})`);
             viewerReady = openInWebviewPanel(
