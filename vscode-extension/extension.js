@@ -513,7 +513,7 @@ function _arrayviewLaunchCandidates(filePath) {
             break;
         }
     }
-    candidates.push({ command: 'uv', argsPrefix: ['run', '--python', '3.12', '--with', 'arrayview', 'python', '-m', 'arrayview'] });
+    candidates.push({ command: 'uv', argsPrefix: ['run', '--no-project', '--python', '3.12', '--with', 'arrayview', 'python', '-m', 'arrayview'] });
     candidates.push({ command: 'python3', argsPrefix: ['-m', 'arrayview'] });
     return candidates;
 }
