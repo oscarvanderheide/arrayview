@@ -1624,6 +1624,8 @@ async function waitForBackendViewerReady(
     );
     let activeToken = token;
     let scriptLoaded = false;
+    let unreachableCount = 0;
+    const maxUnreachableAfterScript = 15;
     let navigationAttempt = 0;
     const firstNavigationRetryDelayMs = Math.min(
         1500,
@@ -1678,6 +1680,14 @@ async function waitForBackendViewerReady(
                     previous = index;
                 }
                 return null;
+            }
+            unreachableCount = 0;
+        } else if (scriptLoaded) {
+            unreachableCount += 1;
+            if (unreachableCount >= maxUnreachableAfterScript) {
+                return new Error(
+                    'Backend became unreachable after viewer script loaded'
+                );
             }
         }
         if (!scriptLoaded && Date.now() >= preScriptDeadline) {
