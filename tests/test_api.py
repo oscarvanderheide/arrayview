@@ -6054,6 +6054,180 @@ class TestLoadUpload:
         assert r.status_code == 400
 
 
+class TestPreferences:
+    @staticmethod
+    def _patch(client, sid, changes, **kwargs):
+        import arrayview._session as session
+
+        headers = {"X-ArrayView-Preferences": "1"}
+        headers.update(kwargs.pop("headers", {}))
+        return client.patch(
+            f"/preferences/{sid}",
+            json={
+                "server_instance_id": session.SERVER_RUNTIME.instance_id,
+                "changes": changes,
+            },
+            headers=headers,
+            **kwargs,
+        )
+
+    def test_get_and_patch_preferences(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[plugin]\nkeep = "yes"\n')
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get(f"/preferences/{sid_3d}")
+        assert response.status_code == 200
+        assert response.json()["preferences"] == {}
+        assert "ortho_layout" in response.json()["schema"]["viewer"]
+        window_defaults = response.json()["defaults"]["window"]
+        assert window_defaults["terminal"] in {"native", "browser"}
+        terminal_options = response.json()["schema"]["window"]["terminal"]
+        assert terminal_options[-1] == "browser"
+        assert ("native" in terminal_options) == (window_defaults["terminal"] == "native")
+        assert response.json()["schema"]["window"]["ssh"] == ["browser"]
+        assert all(
+            "none" not in options
+            for options in response.json()["schema"]["window"].values()
+        )
+        assert response.json()["server_instance_id"]
+
+        response = self._patch(
+            client,
+            sid_3d,
+            {
+                "viewer": {
+                    "theme": "light",
+                    "rounded_panes": False,
+                    "ortho_layout": "big-left",
+                    "dimbar_mode": "extended",
+                }
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["preferences"]["viewer"]["dimbar_mode"] == "extended"
+        saved = config.load_config()
+        assert saved["plugin"]["keep"] == "yes"
+        assert saved["viewer"]["rounded_panes"] is False
+
+    def test_viewer_html_injects_initial_layout_defaults(
+        self, client, sid_3d, tmp_path, monkeypatch
+    ):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            '[viewer]\northo_layout = "big-left"\ndimbar_mode = "extended"\n'
+        )
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get("/", params={"sid": sid_3d})
+
+        assert response.status_code == 200
+        assert 'let orthoLayoutMode = "big-left";' in response.text
+        assert "let _dimbarExtentPinned = \"extended\" === 'extended';" in response.text
+        assert "__DEFAULT_ORTHO_LAYOUT__" not in response.text
+        assert "__DEFAULT_DIMBAR_MODE__" not in response.text
+
+    def test_rejects_invalid_preference(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"ortho_layout": "diagonal"}},
+        )
+        assert response.status_code == 422
+        assert not config_path.exists()
+
+    def test_rejects_unknown_colormap(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"colormaps": ["gray", "not-a-colormap"]}},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Unknown colormap: not-a-colormap"
+        assert not config_path.exists()
+
+    def test_invalid_saved_colormap_falls_back_in_viewer_html(
+        self, client, sid_3d, tmp_path, monkeypatch
+    ):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[viewer]\ncolormaps = ["g"]\n')
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+
+        response = client.get("/", params={"sid": sid_3d})
+
+        assert response.status_code == 200
+        assert "const COLORMAPS = ['gray'" in response.text
+
+    def test_refuses_malformed_config(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._config as config
+
+        config_path = tmp_path / "config.toml"
+        original = "invalid [[[ toml"
+        config_path.write_text(original)
+        monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
+        response = self._patch(
+            client,
+            sid_3d,
+            {"viewer": {"theme": "light"}},
+        )
+        assert response.status_code == 409
+        assert config_path.read_text() == original
+
+    def test_requires_active_session(self, client):
+        assert client.get("/preferences/not-a-session").status_code == 404
+        assert client.patch(
+            "/preferences/not-a-session",
+            json={"changes": {"viewer": {"theme": "light"}}},
+        ).status_code == 404
+
+    def test_patch_requires_json_content_type_and_intent_header(self, client, sid_3d):
+        import arrayview._session as session
+
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            content='{"server_instance_id":"x","changes":{}}',
+            headers={"X-ArrayView-Preferences": "1", "Content-Type": "text/plain"},
+        )
+        assert response.status_code == 415
+
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={
+                "server_instance_id": session.SERVER_RUNTIME.instance_id,
+                "changes": {"viewer": {"theme": "light"}},
+            },
+        )
+        assert response.status_code == 403
+
+    def test_patch_rejects_stale_server_instance(self, client, sid_3d):
+        response = client.patch(
+            f"/preferences/{sid_3d}",
+            json={
+                "server_instance_id": "stale-instance",
+                "changes": {"viewer": {"theme": "light"}},
+            },
+            headers={"X-ArrayView-Preferences": "1"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "stale_server_instance"
+
+
 class TestObliquePersistence:
     def test_oblique_save_and_load_recent_roundtrip(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._routes_persistence as routes_persistence

@@ -1,5 +1,13 @@
 # Configuration
 
+## Preferences menu
+
+Open the gear menu in the lower-right corner. Viewer changes apply immediately
+and are saved on the machine running ArrayView.
+
+Window defaults apply to the next launch. Remote SSH, VS Code Tunnel, and remote
+Jupyter sessions save to the remote backend user's `~/.arrayview/config.toml`.
+
 ## Per-environment defaults
 
 Set a window backend for each detected environment:
@@ -21,11 +29,15 @@ Stored in `~/.arrayview/config.toml`.
 
 ## Viewer defaults
 
-Rounded panes are on by default. Disable them with:
-
 ```bash
 arrayview config set viewer.rounded_panes false
+arrayview config set viewer.ortho_layout big-left
+arrayview config set viewer.dimbar_mode extended
 ```
+
+Ortho layouts: `horizontal`, `big-left`.
+
+Dimbar modes: `compact`, `extended`.
 
 ## Environment variable
 
