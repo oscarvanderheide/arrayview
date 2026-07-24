@@ -9,6 +9,7 @@ BUMP="minor"
 DRY_RUN=true
 NO_AI=false
 AI_TOOL="codex"
+OPENCODE_MODEL="deepseek/deepseek-v4-flash"
 
 usage() {
     cat <<EOF
@@ -16,7 +17,8 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --bump {major,minor,patch}   Version bump type (default: minor)
-  --ai {claude,codex}          AI tool for release notes (default: codex)
+  --ai {claude,codex,opencode} AI tool for release notes (default: codex)
+  --opencode-model MODEL       Model for opencode (default: deepseek/deepseek-v4-flash)
   --execute                    Actually run (default is dry-run)
   --no-ai                      Skip AI release notes, use GitHub's --generate-notes
   -h, --help                   Show this help
@@ -26,7 +28,8 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bump)   BUMP="$2"; shift 2 ;;
-        --ai)     AI_TOOL="$2"; shift 2 ;;
+        --ai)              AI_TOOL="$2"; shift 2 ;;
+        --opencode-model)  OPENCODE_MODEL="$2"; shift 2 ;;
         --execute) DRY_RUN=false; shift ;;
         --no-ai)  NO_AI=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -39,8 +42,8 @@ if [[ ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
     exit 1
 fi
 
-if [[ ! "$AI_TOOL" =~ ^(claude|codex)$ ]]; then
-    echo "Error: --ai must be claude or codex (got '$AI_TOOL')"
+if [[ ! "$AI_TOOL" =~ ^(claude|codex|opencode)$ ]]; then
+    echo "Error: --ai must be claude, codex, or opencode (got '$AI_TOOL')"
     exit 1
 fi
 
@@ -76,6 +79,7 @@ run() {
 # --- Generate release notes ---
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || echo claude)}"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || echo codex)}"
+OPENCODE_BIN="${OPENCODE_BIN:-$(command -v opencode 2>/dev/null || echo opencode)}"
 PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
 NOTES=""
 
@@ -124,6 +128,12 @@ Rules:
                     echo "Codex release notes failed:"
                     sed 's/^/  /' "$errfile"
                 fi
+            fi
+            ;;
+        opencode)
+            if command -v "$OPENCODE_BIN" &>/dev/null; then
+                echo "Generating release notes with opencode (model: $OPENCODE_MODEL)..."
+                NOTES=$(printf '%s\n' "$PROMPT" | "$OPENCODE_BIN" run --model "$OPENCODE_MODEL" - 2>/dev/null) || true
             fi
             ;;
     esac
