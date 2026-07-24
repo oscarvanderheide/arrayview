@@ -35402,17 +35402,47 @@
 
         function _collapseHistogramImmediately() {
             if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
-            if (!primaryCb || !primaryCb._expanded) return;
+            _histAutoDismissTimer = null;
             lebesgueMode = false;
-            primaryCb._expanded = false;
-            primaryCb._manualExpand = false;
-            renderInfo();
             _clearLebesgueOverlay();
-            const tz = document.getElementById('slim-cb-tri-zone');
-            if (tz) tz.classList.remove('expanded');
-            primaryCb.startAnim(false);
-            if (multiViewActive || compareMvActive) drawMvColorbar();
-            else drawSlimColorbar(cbMarkerFrac);
+            renderInfo();
+
+            if (primaryCb && primaryCb._expanded) {
+                primaryCb._expanded = false;
+                primaryCb._manualExpand = false;
+                const tz = document.getElementById('slim-cb-tri-zone');
+                if (tz) tz.classList.remove('expanded');
+                primaryCb.startAnim(false);
+                if (multiViewActive || compareMvActive) drawMvColorbar();
+                else drawSlimColorbar(cbMarkerFrac);
+            }
+
+            if (typeof qmriViews !== 'undefined' && qmriViews) {
+                for (const view of qmriViews) {
+                    if (view._colorBar && view._colorBar._expanded) {
+                        view._colorBar._expanded = false;
+                        view._colorBar._manualExpand = false;
+                        if (view._colorBar.triZone) view._colorBar.triZone.classList.remove('expanded');
+                        view._colorBar.startAnim(false);
+                        view._colorBar.draw();
+                    }
+                    if (view._mosaicColorBar && view._mosaicColorBar._expanded) {
+                        view._mosaicColorBar._expanded = false;
+                        view._mosaicColorBar._manualExpand = false;
+                        if (view._mosaicColorBar.triZone) view._mosaicColorBar.triZone.classList.remove('expanded');
+                        view._mosaicColorBar.startAnim(false);
+                        view._mosaicColorBar.draw();
+                    }
+                }
+            }
+
+            if (_diffCenterCb && _diffCenterCb._expanded) {
+                _diffCenterCb._expanded = false;
+                _diffCenterCb._manualExpand = false;
+                if (_diffCenterCb.triZone) _diffCenterCb.triZone.classList.remove('expanded');
+                _diffCenterCb.startAnim(false);
+                _diffCenterCb.draw();
+            }
         }
 
         /** Cycle the state of dim `d` and re-apply the histogram + preset.
