@@ -673,7 +673,7 @@ def test_existing_server_is_reused_through_http():
 
 @pytest.mark.parametrize(
     "server_uid",
-    [None, os.geteuid() + 1],
+    [None, os.geteuid() + 1 if hasattr(os, "geteuid") else -1],
     ids=["missing-uid", "different-uid"],
 )
 def test_unowned_existing_server_uses_new_port(server_uid):
