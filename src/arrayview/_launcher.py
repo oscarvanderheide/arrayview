@@ -5032,6 +5032,11 @@ def arrayview():
         help="Enable verbose output (internal status messages)",
     )
     parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Show full tracebacks instead of user-friendly errors",
+    )
+    parser.add_argument(
         "--diagnose",
         action="store_true",
         help="Print environment detection results and exit (useful for debugging VS Code/tunnel issues)",
@@ -5695,24 +5700,55 @@ def arrayview():
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
 
-    if execution_registration is Registration.HTTP_LOAD:
-        _handle_cli_existing_server(
+    try:
+        if execution_registration is Registration.HTTP_LOAD:
+            _handle_cli_existing_server(
+                port=args.port,
+                base_file=base_file,
+                name=name,
+                compare_files=compare_files,
+                overlay_files=[] if args.stack_mode else file_overlay_paths,
+                overlay_names=[] if args.stack_mode else file_overlay_names,
+                rgb=args.rgb,
+                vectorfield=args.vectorfield,
+                vfield_components_dim=vfield_components_dim,
+                use_native_shell=use_native_shell,
+                dims_override=dims_override,
+                watch=getattr(args, "watch", False),
+                window_mode=window_mode,
+                floating=args.floating,
+                is_remote=is_remote,
+                launch_context=launch_context,
+                dir_patterns=dir_patterns,
+                dir_overlay_specs=dir_overlay_specs,
+                dir_case_regex=args.case_regex,
+                dir_exclude_cases=sorted(excluded_cases),
+                collection_load=args.load,
+                collection_stack=args.stack_policy or "auto",
+            )
+            return
+
+        demo_name = getattr(args, "_demo_name", None)
+        demo_cleanup = getattr(args, "_demo_cleanup", False)
+        _handle_cli_spawned_daemon(
             port=args.port,
             base_file=base_file,
             name=name,
             compare_files=compare_files,
             overlay_files=[] if args.stack_mode else file_overlay_paths,
             overlay_names=[] if args.stack_mode else file_overlay_names,
-            rgb=args.rgb,
-            vectorfield=args.vectorfield,
-            vfield_components_dim=vfield_components_dim,
-            use_native_shell=use_native_shell,
             dims_override=dims_override,
+            use_native_shell=use_native_shell,
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
             floating=args.floating,
             is_remote=is_remote,
             launch_context=launch_context,
+            vectorfield=args.vectorfield,
+            vfield_components_dim=vfield_components_dim,
+            rgb=args.rgb,
+            demo_name=demo_name,
+            demo_cleanup=demo_cleanup,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
@@ -5720,33 +5756,9 @@ def arrayview():
             collection_load=args.load,
             collection_stack=args.stack_policy or "auto",
         )
-        return
-
-    demo_name = getattr(args, "_demo_name", None)
-    demo_cleanup = getattr(args, "_demo_cleanup", False)
-    _handle_cli_spawned_daemon(
-        port=args.port,
-        base_file=base_file,
-        name=name,
-        compare_files=compare_files,
-        overlay_files=[] if args.stack_mode else file_overlay_paths,
-        overlay_names=[] if args.stack_mode else file_overlay_names,
-        dims_override=dims_override,
-        use_native_shell=use_native_shell,
-        watch=getattr(args, "watch", False),
-        window_mode=window_mode,
-        floating=args.floating,
-        is_remote=is_remote,
-        launch_context=launch_context,
-        vectorfield=args.vectorfield,
-        vfield_components_dim=vfield_components_dim,
-        rgb=args.rgb,
-        demo_name=demo_name,
-        demo_cleanup=demo_cleanup,
-        dir_patterns=dir_patterns,
-        dir_overlay_specs=dir_overlay_specs,
-        dir_case_regex=args.case_regex,
-        dir_exclude_cases=sorted(excluded_cases),
-        collection_load=args.load,
-        collection_stack=args.stack_policy or "auto",
-    )
+    except Exception as e:
+        if args.trace or os.environ.get("ARRAYVIEW_TRACE"):
+            raise
+        msg = str(e).removeprefix("[ArrayView] ").rstrip()
+        print(f"\033[1;31m[ArrayView] {msg}\033[0m", file=sys.stderr)
+        sys.exit(1)
