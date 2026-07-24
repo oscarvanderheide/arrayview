@@ -24285,7 +24285,7 @@
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Open colormap picker / cycle', hint: 'opens the swatch island · repeated taps cycle browse selection · Enter accepts · Esc cancels' },
-                            { key: 'd', action: 'Open histogram / range menu', hint: 'repeat d to cycle presets · arrows select · Enter commits and closes · click dims to cycle scope' },
+                            { key: 'd', action: 'Open histogram / range menu', hint: 'repeat d to cycle presets · j/k to select · arrows/Enter to close · click dims to cycle scope' },
                             { key: 'Histogram open', action: 'Dim participation underlines', hint: 'Click a dim to cycle in scope → recompute → frozen. Hover a dim for the explanation.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'Shift+4', action: 'Toggle automatic display crop', hint: 'nonzero bounds plus a 12 mm margin · view-only, per collection item' },
@@ -35475,13 +35475,18 @@
                 _dmenuCyclePresetFromKey();
                 return true;
             }
-            if (e.key === 'ArrowDown' || e.key === 'j') {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                _histPickerClose();
+                return false;
+            }
+            if (e.key === 'j') {
                 e.preventDefault();
                 e.stopPropagation();
                 _dmenuMoveSelection(1);
                 return true;
             }
-            if (e.key === 'ArrowUp' || e.key === 'k') {
+            if (e.key === 'k') {
                 e.preventDefault();
                 e.stopPropagation();
                 _dmenuMoveSelection(-1);
