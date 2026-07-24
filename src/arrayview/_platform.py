@@ -479,13 +479,16 @@ def _exact_vscode_window_registration(
             return None
         return window_id, registration
 
+    registration = None
     if ipc:
         window_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
-        if registration := _read(window_id):
-            return registration
-    elif window_id := os.environ.get("ARRAYVIEW_WINDOW_ID"):
-        if registration := _read(window_id):
-            return registration
+        if reg := _read(window_id):
+            return reg
+        registration = reg
+    if registration is None:
+        window_id = os.environ.get("ARRAYVIEW_WINDOW_ID")
+        if window_id and (reg := _read(window_id)):
+            return reg
 
     exact_cli = _current_vscode_remote_cli()
     if exact_cli is None:
