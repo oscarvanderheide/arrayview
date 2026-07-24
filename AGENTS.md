@@ -12,6 +12,7 @@ Load the relevant skill before touching the corresponding area.
 | `invocation-consistency` | Server startup, display-opening, env detection |
 | `ui-consistency-audit` | Explicit full visual audit or pre-release validation |
 | `viewer-ui-checklist` | Release prep — syncing smoke/help/docs |
+| `diagnostic-bugfix` | Any change — find root cause, check all modes, propose abstraction fix |
 | `docs-style` | README, help overlay, docstrings |
 
 ## Non-Negotiables
@@ -54,6 +55,8 @@ Read `CONTRIBUTING.md` before any user-facing change or PR.
   temporary VS Code profile/window without explicit permission.
 - Follow `.mex/patterns/validate-launch-path.md`; for VS Code delivery also use
   `.mex/patterns/debug-vscode-extension-python.md`.
+- Errors during display opening are shown as clean user messages by default.
+  Run with `--trace` or set `ARRAYVIEW_TRACE=1` to see full Python tracebacks.
 
 For validation inside the Codex app in-app browser, open a served ArrayView
 session on `http://localhost:<port>/`.
