@@ -518,7 +518,83 @@ function _arrayviewLaunchCandidates(filePath) {
     return candidates;
 }
 
+async function _fastLoadViaDaemon(filePath, title) {
+    const port = 8000;
+    const pingUrl = `http://127.0.0.1:${port}/ping`;
+    let serverId = null;
+    try {
+        const pingPayload = await httpJson(pingUrl, 1000);
+        if (!pingPayload || pingPayload.service !== 'arrayview' || !pingPayload.instance_id) {
+            log(`FASTLOAD: no daemon on port ${port}`);
+            return false;
+        }
+        serverId = pingPayload.instance_id;
+    } catch (_) {
+        return false;
+    }
+    const sid = crypto.randomBytes(12).toString('hex');
+    const loadPayload = { filepath: filePath, name: title || path.basename(filePath), requested_sid: sid, background: true, release_on_disconnect: true };
+    if (serverId) loadPayload.expected_server_id = serverId;
+    let loadResult = null;
+    try {
+        loadResult = await httpPostJson(`http://127.0.0.1:${port}/load`, loadPayload, 5000);
+    } catch (_) { /* fall through */ }
+    if (!loadResult || !loadResult.sid) {
+        log(`FASTLOAD: load failed for ${filePath}`);
+        return false;
+    }
+    const resolvedSid = loadResult.sid;
+    const url = `http://localhost:${port}/?sid=${encodeURIComponent(resolvedSid)}`;
+    const requestId = crypto.randomBytes(16).toString('hex');
+    const ackPath = path.join(SIGNAL_DIR, `open-ack-v0100-${requestId}.json`);
+    const signalPayload = {
+        action: 'open-preview',
+        url, title: title || `ArrayView: ${path.basename(filePath)}`,
+        maxAgeMs: 240000, protocolVersion: 1, requestId, ackPath,
+        requiredExtensionVersion: version,
+        remoteOnly: true,
+        windowId: logWindowId,
+        serverId,
+        sentAtMs: Date.now(),
+    };
+    if (filePath) signalPayload.handoffPath = filePath;
+    const signalWritten = _writeSignalFile(signalPayload, logWindowId);
+    if (signalWritten) {
+        log(`FASTLOAD: loaded ${filePath} -> ${url}`);
+        return true;
+    }
+    return false;
+}
+
+function _writeSignalFile(payload, windowId) {
+    try { fs.mkdirSync(SIGNAL_DIR, { recursive: true }); } catch (_) {}
+    const requestId = payload.requestId;
+    if (!requestId) return false;
+    const prefix = `open-request-ipc-${windowId}`;
+    const filename = `${prefix}.request-${requestId}.json`;
+    const signalFile = path.join(SIGNAL_DIR, filename);
+    const tmpFile = signalFile + '.tmp';
+    try {
+        fs.writeFileSync(tmpFile, JSON.stringify(payload));
+        fs.renameSync(tmpFile, signalFile);
+        return true;
+    } catch (e) {
+        log(`FASTLOAD: signal write error: ${e.message}`);
+        try { fs.unlinkSync(tmpFile); } catch (_) {}
+        return false;
+    }
+}
+
 function launchArrayViewFile(filePath, title) {
+    if (title === undefined) title = path.basename(filePath);
+    return (async () => {
+        const fast = await _fastLoadViaDaemon(filePath, title);
+        if (fast) return;
+        await _spawnPythonForFile(filePath, title);
+    })();
+}
+
+function _spawnPythonForFile(filePath, title) {
     const argsSuffix = [filePath, '--window', 'vscode'];
     if (title) argsSuffix.push('--name', title);
 
