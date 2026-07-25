@@ -520,7 +520,7 @@ function _arrayviewLaunchCandidates(filePath) {
 
 async function _fastLoadViaDaemon(filePath, title) {
     const port = 8000;
-    const pingUrl = `http://127.0.0.1:${port}/ping`;
+    const pingUrl = `http://localhost:${port}/ping`;
     let serverId = null;
     try {
         const pingPayload = await httpJson(pingUrl, 1000);
@@ -532,12 +532,12 @@ async function _fastLoadViaDaemon(filePath, title) {
     } catch (_) {
         return false;
     }
-    const sid = crypto.randomBytes(12).toString('hex');
+    const sid = crypto.randomBytes(16).toString('hex');
     const loadPayload = { filepath: filePath, name: title || path.basename(filePath), requested_sid: sid, background: true, release_on_disconnect: true };
     if (serverId) loadPayload.expected_server_id = serverId;
     let loadResult = null;
     try {
-        loadResult = await httpPostJson(`http://127.0.0.1:${port}/load`, loadPayload, 5000);
+        loadResult = await httpPostJson(`http://localhost:${port}/load`, loadPayload, 5000);
     } catch (_) { /* fall through */ }
     if (!loadResult || !loadResult.sid) {
         log(`FASTLOAD: load failed for ${filePath}`);
@@ -555,9 +555,9 @@ async function _fastLoadViaDaemon(filePath, title) {
         remoteOnly: true,
         windowId: logWindowId,
         serverId,
+        handoffPath: filePath || undefined,
         sentAtMs: Date.now(),
     };
-    if (filePath) signalPayload.handoffPath = filePath;
     const signalWritten = _writeSignalFile(signalPayload, logWindowId);
     if (signalWritten) {
         log(`FASTLOAD: loaded ${filePath} -> ${url}`);
