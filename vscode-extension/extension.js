@@ -1658,7 +1658,8 @@ function _integratedBrowserLaunchUrl(
     requestId,
     serverId,
     windowId,
-    token
+    token,
+    forceNew = false
 ) {
     try {
         const parsed = new URL(url);
@@ -1667,6 +1668,9 @@ function _integratedBrowserLaunchUrl(
         parsed.searchParams.set('_av_launch_server_id', serverId);
         parsed.searchParams.set('_av_launch_window_id', windowId);
         parsed.searchParams.set('_av_launch_token', token);
+        if (forceNew) {
+            parsed.hash = `#av-${requestId.slice(0, 8)}`;
+        }
         return parsed.toString();
     } catch (_) {
         return null;
@@ -1840,7 +1844,8 @@ async function openInIntegratedBrowser(
             requestId,
             serverId,
             windowId,
-            token
+            token,
+            navigationAttempt === 0
         );
         if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
         if (navigationAttempt > 0) {
