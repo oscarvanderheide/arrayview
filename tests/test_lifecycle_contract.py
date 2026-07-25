@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 from threading import Thread as RealThread
 
 import numpy as np
@@ -388,6 +389,7 @@ def test_vscode_tunnel_open_request_is_remote_only(monkeypatch, tmp_path):
     assert captured[0]["remoteOnly"] is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
 
@@ -405,6 +407,7 @@ def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_p
     assert extension._extension_on_disk("1.2.3", remote=True) is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 @pytest.mark.parametrize("remote", [False, True])
 def test_vscode_extension_missing_hash_verifies_content_without_reinstall(
     monkeypatch, tmp_path, remote
@@ -503,6 +506,7 @@ def test_vscode_port_settings_preserve_unreadable_jsonc(monkeypatch, tmp_path):
     assert settings_path.read_text() == original
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_vscode_port_settings_are_idempotent_and_preserve_extra_keys(
     monkeypatch, tmp_path
 ):
@@ -535,6 +539,7 @@ def test_vscode_port_settings_are_idempotent_and_preserve_extra_keys(
     assert settings_path.read_text() == first
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_vscode_extension_cleanup_never_removes_newer_version(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
 
@@ -554,14 +559,14 @@ def test_vscode_extension_cleanup_never_removes_newer_version(monkeypatch, tmp_p
 def test_vscode_extension_keeps_newer_install_without_downgrading(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
 
-    home = tmp_path / "home"
     newer_version = "99.0.0"
-    (home / ".vscode" / "extensions" / f"arrayview.arrayview-opener-{newer_version}").mkdir(
-        parents=True
-    )
-    monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(extension, "_active_extension_version", lambda: newer_version)
+    monkeypatch.setattr(extension, "_active_extension_registration", lambda: None)
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        extension, "_newer_extension_on_disk", lambda *args, **kwargs: newer_version
+    )
     monkeypatch.setattr(
         extension.subprocess,
         "run",
@@ -600,6 +605,7 @@ def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatc
     assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_remote_vscode_launch_automatically_runs_exact_installer(monkeypatch, tmp_path):
     import subprocess
     import arrayview._vscode_extension as extension
@@ -634,6 +640,7 @@ def test_remote_vscode_launch_automatically_runs_exact_installer(monkeypatch, tm
     assert extension._VSCODE_EXT_RELOAD_REQUIRED is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_active_extension_version_prefers_live_ipc_over_stale_terminal_env(
     monkeypatch, tmp_path
 ):
@@ -660,6 +667,7 @@ def test_active_extension_version_prefers_live_ipc_over_stale_terminal_env(
     assert extension._active_extension_version() == "0.14.70"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_active_extension_version_recovers_revived_terminal_from_exact_server(
     monkeypatch, tmp_path
 ):
@@ -772,6 +780,7 @@ def test_extension_activation_wait_requires_fresh_exact_registration(monkeypatch
     )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_remote_vscode_setup_touches_only_active_extension_base(
     monkeypatch, tmp_path
 ):
@@ -811,6 +820,7 @@ def test_remote_vscode_setup_touches_only_active_extension_base(
     assert (remote_base / f"arrayview.arrayview-opener-{old_version}").is_dir()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_remote_vscode_install_requires_exact_activation_before_launch(
     monkeypatch, tmp_path
 ):

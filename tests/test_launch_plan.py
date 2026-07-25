@@ -673,6 +673,7 @@ def test_existing_server_is_reused_through_http():
     assert plan.registration.value == "http_load"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="UID checks are Unix-only")
 @pytest.mark.parametrize(
     "server_uid",
     [None, os.geteuid() + 1 if hasattr(os, "geteuid") else -1],

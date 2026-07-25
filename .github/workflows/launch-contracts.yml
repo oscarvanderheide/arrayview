@@ -39,6 +39,8 @@ jobs:
         with:
           node-version: "22"
       - run: uv sync --frozen --group dev --group test
+      - name: Install Playwright browser
+        run: uv run playwright install chromium
       - name: Python launch contracts
         run: >-
           uv run pytest

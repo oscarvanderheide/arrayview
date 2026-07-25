@@ -264,6 +264,7 @@ def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, 
     assert calls[0]["dir_patterns"] == [os.path.abspath(base_pattern)]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="VSCode terminal readiness test is Unix-specific")
 def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
     arr_path = tmp_path / "base.npy"
     np.save(arr_path, np.zeros((8, 8), dtype=np.float32))

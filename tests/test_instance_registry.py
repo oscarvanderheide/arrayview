@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import sys
 import time
 
 import pytest
@@ -164,6 +165,7 @@ def test_runtime_directory_override(monkeypatch, tmp_path):
     assert runtime_directory() == tmp_path / "custom"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="UID-based directory resolution is Unix-only")
 def test_runtime_directory_is_per_uid_without_override(monkeypatch, tmp_path):
     monkeypatch.delenv("ARRAYVIEW_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
