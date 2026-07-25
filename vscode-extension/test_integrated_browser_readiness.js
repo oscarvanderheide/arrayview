@@ -176,7 +176,7 @@ Module._load = originalLoad;
         );
         assert.strictEqual(
             commandArgs.url,
-            `http://localhost:9000/?sid=sid-one&_av_integrated_browser=1&_av_launch_request_id=request-one&_av_launch_server_id=server-one&_av_launch_window_id=window-one&_av_launch_token=${openedUrl.searchParams.get('_av_launch_token')}`,
+            `http://localhost:9000/?sid=sid-one&_av_integrated_browser=1&_av_launch_request_id=request-one&_av_launch_server_id=server-one&_av_launch_window_id=window-one&_av_launch_token=${openedUrl.searchParams.get('_av_launch_token')}#av-request-`,
             'the integrated browser command must receive the exact correlated launch URL'
         );
         assert.strictEqual(await opened.viewerReady, null);
