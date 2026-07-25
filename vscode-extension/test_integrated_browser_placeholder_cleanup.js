@@ -113,9 +113,20 @@ const { __test } = extension;
 
 function placeholderPanel(filePath) {
     const disposeHandlers = [];
-    return {
+    const messageHandlers = [];
+    const panel = {
         disposed: false,
-        webview: { options: {}, html: '' },
+        webview: {
+            options: {},
+            html: '',
+            onDidReceiveMessage(handler) {
+                messageHandlers.push(handler);
+                setTimeout(() => {
+                    handler({ type: 'viewer-ready', phase: 'frame-rendered' });
+                }, 100);
+                return { dispose() {} };
+            },
+        },
         onDidDispose(handler) {
             disposeHandlers.push(handler);
             return { dispose() {} };
@@ -127,6 +138,7 @@ function placeholderPanel(filePath) {
         },
         uri: uriFor(filePath),
     };
+    return panel;
 }
 
 function requestData(port, requestId, filePath) {
@@ -264,19 +276,16 @@ function requestData(port, requestId, filePath) {
         assert.strictEqual(launches.length, 2);
         for (const launch of launches) {
             assert.strictEqual(launch.command, 'uv');
-            assert.deepStrictEqual(
-                launch.args.slice(0, 7),
-                [
-                    'run',
-                    '--python',
-                    '3.12',
-                    '--with',
-                    'arrayview',
-                    'python',
-                    '-m',
-                ],
-                'folders without an ArrayView venv must retain the uv --with arrayview fallback'
-            );
+            const prefix = launch.args.slice(0, 10);
+            assert.strictEqual(prefix[0], 'run');
+            assert.strictEqual(prefix[1], '--directory');
+            assert.strictEqual(prefix[3], '--no-project');
+            assert.strictEqual(prefix[4], '--python');
+            assert.strictEqual(prefix[5], '3.12');
+            assert.strictEqual(prefix[6], '--with');
+            assert.strictEqual(prefix[7], 'arrayview');
+            assert.strictEqual(prefix[8], 'python');
+            assert.strictEqual(prefix[9], '-m');
         }
 
         const first = requestData(port, 'request-first', firstPath);
