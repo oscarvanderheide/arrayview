@@ -586,7 +586,8 @@ def test_remote_python_reuses_healthy_cli_default_server():
             "remote-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
-            server_uid=os.geteuid(),
+            server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
+
         ),
     )
     plan = plan_launch(LaunchIntent(Invocation.PYTHON, 8123), facts)
@@ -662,7 +663,8 @@ def test_existing_server_is_reused_through_http():
             "process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
-            server_uid=os.geteuid(),
+            server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
+
         )
     )
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123), facts)

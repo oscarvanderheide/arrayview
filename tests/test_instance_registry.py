@@ -168,7 +168,7 @@ def test_runtime_directory_is_per_uid_without_override(monkeypatch, tmp_path):
     monkeypatch.delenv("ARRAYVIEW_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
     monkeypatch.setattr("arrayview._instance_registry.tempfile.gettempdir", lambda: str(tmp_path))
-    current_uid = os.getuid()
+    current_uid = os.getuid() if hasattr(os, "getuid") else 1000
     first = runtime_directory()
     monkeypatch.setattr("arrayview._instance_registry.os.getuid", lambda: current_uid + 1)
     second = runtime_directory()

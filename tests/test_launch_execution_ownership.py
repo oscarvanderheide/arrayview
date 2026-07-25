@@ -168,7 +168,8 @@ def test_http_load_plan_fails_closed_when_selected_server_changes(
             "planned-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
-            server_uid=os.geteuid(),
+            server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
+
         ),
     )
     monkeypatch.setattr(
@@ -224,7 +225,8 @@ def test_display_error_after_http_registration_is_not_relabelled(monkeypatch):
             "planned-process-start",
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
-            server_uid=os.geteuid(),
+            server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
+
         ),
     )
     monkeypatch.setattr(

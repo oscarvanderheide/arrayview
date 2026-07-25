@@ -6754,7 +6754,7 @@ def _isolate_view_planner(
             if port in alive_ports
             else (),
             "1" if port in alive_ports else None,
-            server_uid=os.geteuid() if port in alive_ports else None,
+            server_uid=os.geteuid() if hasattr(os, "geteuid") and port in alive_ports else None,
         ),
     )
     if alive_ports:
