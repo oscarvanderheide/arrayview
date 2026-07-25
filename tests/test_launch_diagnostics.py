@@ -3,6 +3,7 @@ import socket
 import sys
 
 import arrayview._launcher as launcher
+import arrayview._platform as _platform_mod
 
 
 def _free_port() -> int:
@@ -18,6 +19,8 @@ def test_diagnose_serializes_shared_snapshot_and_plan(monkeypatch, capsys):
         "argv",
         ["arrayview", "--diagnose", "--port", str(port), "--window", "browser"],
     )
+    monkeypatch.setattr(_platform_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_in_vscode_terminal", lambda: False)
 
     launcher.arrayview()
 

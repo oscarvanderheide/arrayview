@@ -91,6 +91,7 @@ def test_public_cli_explicit_native_in_local_vscode_never_signals_extension(
             None,
             ("identity-fenced-load", "identity-fenced-mutations"),
             "1",
+            server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
         ),
     )
     monkeypatch.setattr(

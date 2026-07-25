@@ -13,6 +13,7 @@ import pytest
 import arrayview._app as appmod
 import arrayview._launch_plan as _launch_plan_mod
 import arrayview._launcher as _launcher_mod
+import arrayview._platform as _platform_mod
 
 
 class _DummyResponse:
@@ -690,6 +691,8 @@ def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_pat
     _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(_launch_plan_mod, "_native_window_gui", lambda: "webview")
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_in_vscode_terminal", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
@@ -737,6 +740,8 @@ def test_cli_existing_server_native_shell_connection_skips_browser(
     _mock_launch_server_snapshot(monkeypatch, alive=True)
     monkeypatch.setattr(_launch_plan_mod, "_native_window_gui", lambda: "webview")
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_in_vscode_terminal", lambda: False)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_webview_cli_tracked",
@@ -805,6 +810,8 @@ def test_cli_spawn_daemon_opens_viewer_url(monkeypatch, tmp_path):
         lambda port: ("spawned-server", "process-start", 43210),
     )
     monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(_platform_mod, "_in_vscode_terminal", lambda: False)
     monkeypatch.setattr(
         _launcher_mod.subprocess,
         "Popen",

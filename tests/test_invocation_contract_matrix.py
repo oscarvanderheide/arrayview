@@ -7,6 +7,7 @@ remote extension host and therefore belong in the tunnel handoff, not mocks.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import pytest
@@ -147,6 +148,7 @@ def test_compatible_server_reuse_is_identical_for_every_adapter(case, platform):
         "contract-process-start",
         ("identity-fenced-load", "identity-fenced-mutations"),
         "1",
+        server_uid=os.geteuid() if hasattr(os, "geteuid") else None,
     )
 
     plan = plan_launch(
