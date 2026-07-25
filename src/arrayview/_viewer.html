@@ -14242,6 +14242,41 @@
 
         /* ── JS: Initialization and Metadata Fetch ────────────────── */
 
+        // The backend serves this page as soon as its port is up, which can be
+        // seconds before a large array has finished loading. While the session
+        // is still loading /metadata answers 404 with a Retry-After header; an
+        // unknown or released sid answers 404 without one, and a load that
+        // failed answers 422 with the reason. Keep waiting only for the first.
+        async function fetchMetadataWithRetry(sid, timeoutMs = 180000) {
+            const deadline = Date.now() + timeoutMs;
+            for (;;) {
+                const res = await proxyFetch(`/metadata/${sid}`);
+                if (res.ok) return { data: await res.json() };
+                if (res.status === 422) {
+                    let reason = '';
+                    try { reason = (await res.text()).trim(); } catch (_e) {}
+                    return { error: reason || 'This file could not be loaded.', status: 422 };
+                }
+                const pending = res.status === 404 && res.headers.get('Retry-After');
+                if (!pending || Date.now() >= deadline) {
+                    return { error: null, status: res.status };
+                }
+                await new Promise(r => setTimeout(r, 300));
+            }
+        }
+
+        function showMetadataError(result) {
+            const msg = result.error
+                ? result.error
+                : (result.status === 404
+                    ? 'Session not found or expired.'
+                    : `Server error ${result.status} — check Python console for details.`);
+            document.getElementById('loading-overlay').innerHTML =
+                `<div style="color:#c55;font-size:16px;font-family:monospace;max-width:60ch;text-align:center;line-height:1.5;padding:0 2em">${
+                    msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                }</div>`;
+        }
+
         async function init() {
             // Loading spinner is in static HTML — body.av-loading set by server template.
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
@@ -14260,26 +14295,24 @@
                 );
                 data = await Promise.race([_metadataFromWs, httpFallback]);
                 if (!data) {
-                    // Both failed — try direct HTTP without timeout
-                    const res = await proxyFetch(`/metadata/${sid}`);
-                    if (!res.ok) {
-                        reportParent('metadata-http-error', { status: res.status, sid });
-                        const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
-                        document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                    // Both failed — wait out a still-loading session.
+                    const result = await fetchMetadataWithRetry(sid);
+                    if (!result.data) {
+                        reportParent('metadata-http-error', { status: result.status, sid });
+                        showMetadataError(result);
                         return;
                     }
-                    data = await res.json();
+                    data = result.data;
                 }
             } else {
                 // HTTP transport mode (VS Code) — use traditional fetch
-                const res = await proxyFetch(`/metadata/${sid}`);
-                if (!res.ok) {
-                    reportParent('metadata-http-error', { status: res.status, sid });
-                    const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
-                    document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                const result = await fetchMetadataWithRetry(sid);
+                if (!result.data) {
+                    reportParent('metadata-http-error', { status: result.status, sid });
+                    showMetadataError(result);
                     return;
                 }
-                data = await res.json();
+                data = result.data;
             }
 
             await _loadOverlayLabelValues();

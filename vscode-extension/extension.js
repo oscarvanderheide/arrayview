@@ -110,6 +110,9 @@ let isProcessingSignal = false;
 // Upper bound on waiting for a viewer's first frame once the backend has
 // published its URL. Keeps a failed launch from holding the request queue.
 const VIEWER_READY_TIMEOUT_MS = 45000;
+// Minimum remaining signal lifetime worth opening a panel for. Real requests
+// carry 190–240s, so this only rejects ones already at their deadline.
+const PANEL_MIN_REMAINING_MS = 1000;
 let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
@@ -1875,7 +1878,11 @@ async function waitForBackendViewerReady(
     }
     const required = ['script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered'];
     const logged = new Set();
-    const deadline = Date.now() + timeoutMs;
+    // Treated as an inactivity budget rather than a total one: every newly
+    // observed phase extends it. The panel now opens before the array has
+    // finished loading, so a legitimately slow launch would otherwise be
+    // killed for being slow rather than for being stuck.
+    let deadline = Date.now() + timeoutMs;
     const preScriptDeadline = Date.now() + Math.min(
         timeoutMs,
         Math.max(1, preScriptTimeoutMs)
@@ -1919,6 +1926,7 @@ async function waitForBackendViewerReady(
                 if (!logged.has(phase)) {
                     logged.add(phase);
                     log(`PANEL: viewer-phase ${phase} (backend journal)`);
+                    deadline = Date.now() + timeoutMs;  // progress, not stuck
                 }
             }
             if (payload.phases.includes('frame-rendered')) {
@@ -2669,26 +2677,15 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         return;
     }
 
-    const localMetadataUrl = sessionMetadataUrlFromViewerUrl(url);
-    // A newly spawned daemon creates the session asynchronously.  During
-    // loading /metadata/<sid> is temporarily 404; treating that as expired
-    // races large remote-file loads and loses the viewer before its panel can
-    // open.
+    // The backend serves its port before a large array has finished loading, so
+    // waiting for the session here left the tab blank for the whole load. The
+    // panel is opened first and the viewer shows its own loading state while
+    // /metadata/<sid> is still pending; readiness is awaited after the panel
+    // exists. See the post-panel wait below.
     const remainingMs = _remainingSignalMs(data);
     const metadataWaitMs = remainingMs === null
         ? 150000
         : Math.max(1, Math.min(150000, remainingMs));
-    if (localMetadataUrl) {
-        const sessionState = await waitForSessionReady(localMetadataUrl, metadataWaitMs);
-        if (sessionState.loadError) {
-            ensureActive();
-            throw new Error(`ArrayView could not open this file: ${sessionState.loadError}`);
-        }
-        if (!sessionState.ready) {
-            ensureActive();
-            throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
-        }
-    }
     ensureActive();
 
     const requestId = data.requestId || null;
@@ -2753,6 +2750,27 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     const viewerTimeoutMs = remainingViewerMs === null
         ? 25000
         : Math.max(1, Math.min(VIEWER_READY_TIMEOUT_MS, remainingViewerMs));
+
+    // Opening a panel is a visible side effect, so refuse one for a request
+    // with no usable life left — it would be abandoned before it could render.
+    // The pre-panel session wait used to consume the remaining lifetime and
+    // enforce this implicitly; with the panel now opening first, it has to be
+    // an explicit check.
+    if (
+        remainingViewerMs !== null
+        && remainingViewerMs < PANEL_MIN_REMAINING_MS
+    ) {
+        operation.cancelled = true;
+        // Fence it properly if the deadline has actually passed; otherwise
+        // record the terminal state directly, since this is a decision not to
+        // display rather than an expiry the recovery path would notice.
+        if (!_expireProtocolRequest(data, _ackForProtocolRequest(data))) {
+            writeProtocolAck(
+                data, 'failed', 'Signal expired before a panel could be opened'
+            );
+        }
+        throw new Error('Signal expired before a panel could be opened');
+    }
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
@@ -2885,20 +2903,25 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         if (!pingUrl) throw new Error('Unable to derive backend ping URL');
         const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
         if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
-        for (let attempt = 0; attempt < 10; attempt++) {
-            const serverReady = await arrayViewStatusOk(pingUrl, data.serverId || null);
-            const sessionReady = serverReady && await httpStatus2xx(metadataUrl);
-            if (sessionReady) {
-                const viewerError = await viewerReady;
-                if (viewerError) throw viewerError;
-                ensureActive();
-                advanceAck('visibility_verified');
-                advanceAck('backend_ready');
-                return;
-            }
-            await new Promise(resolve => setTimeout(resolve, 250));
+        if (!await arrayViewStatusOk(pingUrl, data.serverId || null)) {
+            throw new Error('Backend stopped answering before the viewer was ready');
         }
-        throw new Error('Viewer session did not become ready after panel opened');
+        // The array may still be loading; the panel is already up showing the
+        // viewer's loading state. A load that failed answers 422 here with its
+        // reason instead of never becoming ready.
+        const sessionState = await waitForSessionReady(metadataUrl, metadataWaitMs);
+        if (sessionState.loadError) {
+            throw new Error(`ArrayView could not open this file: ${sessionState.loadError}`);
+        }
+        if (!sessionState.ready) {
+            throw new Error('Viewer session did not become ready after panel opened');
+        }
+        const viewerError = await viewerReady;
+        if (viewerError) throw viewerError;
+        ensureActive();
+        advanceAck('visibility_verified');
+        advanceAck('backend_ready');
+        return;
     } catch (error) {
         if (integratedBrowserOpened) {
             releaseUrlSession(openUrl, data.url, data.serverId || null);
