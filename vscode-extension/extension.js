@@ -2580,7 +2580,7 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         && vscode.env.appHost === 'desktop'
     );
     let useIntegratedBrowser = false;
-    if (desktopTunnel) {
+    if (false) {  // disabled: Simple Browser reuses one tab, breaks multi-viewer
         useIntegratedBrowser = await integratedBrowserCommandAvailable();
         if (!useIntegratedBrowser) {
             log('PANEL: integrated browser unavailable; retaining tunnel webview fallback');
