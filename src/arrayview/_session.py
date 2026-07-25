@@ -41,6 +41,10 @@ _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
 CANCELLED_PENDING_SESSIONS: set[str] = set()
+# sid -> why its background load failed. A load that raises must be reportable:
+# without this the opener cannot tell "still loading" from "will never load" and
+# waits out its whole deadline on a file that failed in the first second.
+FAILED_PENDING_SESSIONS: dict[str, str] = {}
 
 
 def file_signature(filepath: str):
@@ -575,6 +579,7 @@ __all__ = [
     "_window_process",
     "PENDING_SESSIONS",
     "PENDING_SESSION_EVENTS",
+    "FAILED_PENDING_SESSIONS",
     "wait_for_session_ready",
     # Render thread pool
     "_RENDER_QUEUE",

@@ -211,6 +211,14 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         # request; the opener retries until the pending Session is published.
         if sid in _session_mod.PENDING_SESSIONS:
             return Response(status_code=404, headers={"Retry-After": "1"})
+        # A load that raised is terminal. Say so with a distinct status and the
+        # real reason, so the caller stops polling and can show the user why
+        # this file will never open instead of waiting out its deadline.
+        load_error = _session_mod.FAILED_PENDING_SESSIONS.get(sid)
+        if load_error is not None:
+            return Response(
+                status_code=422, content=load_error.encode(), media_type="text/plain"
+            )
         session = await wait_for_session_ready(sid)
         if not session:
             return Response(status_code=404)

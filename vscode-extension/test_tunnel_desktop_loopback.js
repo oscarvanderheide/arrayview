@@ -149,33 +149,19 @@ https.get = http.get;
             }, 8001),
             'https://public-8001.devtunnels.ms'
         );
-        const resolved = await __test.resolveRemoteViewerUrl(
-            'http://localhost:8000/?sid=desktop-tunnel',
-            'desktop-server'
-        );
-        assert.strictEqual(
-            resolved,
-            'http://localhost:8000/?sid=desktop-tunnel'
-        );
-        assert.strictEqual(
-            resolverCalls,
-            0,
-            'remote proxy must bypass asExternalUri and public promotion'
-        );
-        assert.strictEqual(
-            promotionCalls,
-            0,
-            'desktop tunnel remote proxy must not require public promotion'
-        );
-
-        proxyEnabled = false;
+        // `workbench.browser.enableRemoteProxy` must not influence tunnel
+        // resolution. It proxies VS Code's integrated browser, which the viewer
+        // no longer uses; a webview panel's iframe runs on the desktop, so a
+        // loopback URL reaches nothing there whatever that setting says.
+        proxyEnabled = true;
         const publicResolved = await __test.resolveRemoteViewerUrl(
             'http://localhost:8001/?sid=desktop-public',
             'desktop-server'
         );
         assert.strictEqual(
             publicResolved,
-            'https://public-8001.devtunnels.ms/?sid=desktop-public'
+            'https://public-8001.devtunnels.ms/?sid=desktop-public',
+            'a desktop tunnel must promote to a public URL even with the remote proxy enabled'
         );
         assert.strictEqual(
             resolverCalls,

@@ -18,6 +18,7 @@ from arrayview._lifecycle import (
 )
 from arrayview._session import (
     CANCELLED_PENDING_SESSIONS,
+    FAILED_PENDING_SESSIONS,
     PENDING_SESSION_EVENTS,
     PENDING_SESSIONS,
     SESSIONS,
@@ -263,6 +264,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             # the real Session instead of seeing a transient 404.
             sid = requested_sid or uuid.uuid4().hex
             pending_event = threading.Event()
+            FAILED_PENDING_SESSIONS.pop(sid, None)
             PENDING_SESSIONS.add(sid)
             PENDING_SESSION_EVENTS[sid] = pending_event
             signature_before_load = file_signature(abs_path)
@@ -293,12 +295,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     ]
                     commit_pending_session(sid, session)
                 except Exception as exc:
-                    # Keep the server alive and make the failure visible in its
-                    # log. The opener will fail closed when metadata never
-                    # becomes ready, while a retry creates a fresh request.
+                    # Keep the server alive, and record why this sid will never
+                    # become ready. Without the record the opener cannot tell a
+                    # failed load from a slow one and burns its whole deadline
+                    # on a file that raised immediately.
                     import traceback
 
                     traceback.print_exc()
+                    FAILED_PENDING_SESSIONS[sid] = str(exc) or exc.__class__.__name__
                 finally:
                     PENDING_SESSIONS.discard(sid)
                     CANCELLED_PENDING_SESSIONS.discard(sid)

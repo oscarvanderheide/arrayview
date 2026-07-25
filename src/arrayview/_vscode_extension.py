@@ -54,7 +54,7 @@ _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
-_VSCODE_EXT_VERSION = "0.14.80"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.86"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -633,6 +633,47 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _port_has_listener(port: int) -> bool:
+    """Return True when something is listening on ``port`` on loopback."""
+    import socket
+
+    for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(0.15)
+            if sock.connect_ex((addr, port)) == 0:
+                return True
+        except OSError:
+            continue
+        finally:
+            sock.close()
+    return False
+
+
+def _stale_arrayview_port_keys(attrs: dict, keep_port: int) -> list[str]:
+    """Return ArrayView port entries that no longer have a live server.
+
+    Every launch on a fresh port used to leave its entry behind for good. On a
+    tunnel those entries keep telling VS Code to forward ports nothing serves,
+    which competes for a limited per-tunnel forwarding budget. Only entries
+    ArrayView wrote are considered, and only when their port is dead, so a
+    second concurrent ArrayView server is never disturbed.
+    """
+    stale: list[str] = []
+    for key, value in list(attrs.items()):
+        if not isinstance(value, dict) or value.get("label") != "ArrayView":
+            continue
+        if key == str(keep_port):
+            continue
+        try:
+            candidate = int(key)
+        except (TypeError, ValueError):
+            continue
+        if not _port_has_listener(candidate):
+            stale.append(key)
+    return stale
+
+
 def _configure_vscode_port_preview(
     port: int,
     *,
@@ -686,8 +727,11 @@ def _configure_vscode_port_preview(
         }
         current = attrs.get(str(port))
         updated = {**current, **desired} if isinstance(current, dict) else desired
-        if current == updated:
+        stale = _stale_arrayview_port_keys(attrs, port)
+        if current == updated and not stale:
             return
+        for key in stale:
+            attrs.pop(key, None)
         attrs[str(port)] = updated
         with open(path, "w") as f:
             json.dump(settings, f, indent=2)

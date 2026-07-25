@@ -107,6 +107,9 @@ const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 
 let version = 'unknown';
 let isProcessingSignal = false;
+// Upper bound on waiting for a viewer's first frame once the backend has
+// published its URL. Keeps a failed launch from holding the request queue.
+const VIEWER_READY_TIMEOUT_MS = 45000;
 let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
@@ -499,6 +502,50 @@ function _shellCommand(command, args) {
     }).join(' ');
 }
 
+function _reportExtensionVersionSkew(ownWindowId, ownVersion) {
+    // A window keeps running whatever extension build it loaded at activation,
+    // so an upgrade leaves older hosts live until each window reloads. Those
+    // hosts share this signal directory and race over the same claims, which
+    // reads as intermittent failure rather than as a stale build.
+    const peers = [];
+    try {
+        for (const f of fs.readdirSync(SIGNAL_DIR)) {
+            if (!f.startsWith('window-') || !f.endsWith('.json')) continue;
+            if (f === `window-${ownWindowId}.json`) continue;
+            let data;
+            try {
+                data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
+            } catch (_) { continue; }
+            if (!data || !data.extensionVersion || data.extensionVersion === ownVersion) continue;
+            if (!data.pid || !isProcessAlive(data.pid)) continue;
+            peers.push(`${data.extensionVersion} (window ${data.windowId || '?'}, pid ${data.pid})`);
+        }
+    } catch (_) { return; }
+    if (!peers.length) return;
+
+    log(`SKEW: this window runs v${ownVersion}; live peers on ${peers.join(', ')}`);
+    const detail = `This window runs ArrayView opener v${ownVersion}, but other open windows still run ${peers.join(', ')}. Mixed versions share one signal directory and can drop each other's requests. Reload the other windows.`;
+    vscode.window.showWarningMessage(detail, 'Reload Other Windows').then(choice => {
+        if (choice) vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }, () => {});
+}
+
+function _arrayviewPackageArgs() {
+    let spec = 'arrayview';
+    try {
+        const configured = vscode.workspace.getConfiguration('arrayview').get('packageSpec');
+        if (typeof configured === 'string' && configured.trim()) spec = configured.trim();
+    } catch (_) {}
+    if (spec !== 'arrayview' && path.isAbsolute(spec)) {
+        // A local checkout runs live, so edits apply without a reinstall. The
+        // surrounding uv invocation is unchanged, which keeps resolve timing
+        // comparable to the released path.
+        log(`PYTHON: using local checkout ${spec}`);
+        return ['--with-editable', spec];
+    }
+    return ['--with', spec];
+}
+
 function _arrayviewLaunchCandidates(filePath) {
     const candidates = [];
     const owningFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
@@ -513,7 +560,7 @@ function _arrayviewLaunchCandidates(filePath) {
             break;
         }
     }
-    candidates.push({ command: 'uv', argsPrefix: ['run', '--directory', os.tmpdir(), '--no-project', '--python', '3.12', '--with', 'arrayview', 'python', '-m', 'arrayview'] });
+    candidates.push({ command: 'uv', argsPrefix: ['run', '--directory', os.tmpdir(), '--no-project', '--python', '3.12', ..._arrayviewPackageArgs(), 'python', '-m', 'arrayview'] });
     candidates.push({ command: 'python3', argsPrefix: ['-m', 'arrayview'] });
     return candidates;
 }
@@ -562,12 +609,14 @@ async function _fastLoadViaDaemon(filePath, title) {
     if (!signalWritten) return false;
 
     let ackOk = false;
+    let sawClaimed = false;
     const ackDeadline = Date.now() + 12000;
     while (Date.now() < ackDeadline) {
         await new Promise(r => setTimeout(r, 150));
         let ack = null;
         try { ack = JSON.parse(fs.readFileSync(ackPath, 'utf8')); } catch (_) {}
         if (!ack || ack.requestId !== requestId) continue;
+        if (ack.state === 'claimed') sawClaimed = true;
         if (ack.state === 'panel_opened' || ack.state === 'backend_ready' || ack.state === 'visibility_verified') {
             log(`FASTLOAD: signal ${ack.state} for ${path.basename(filePath)}`);
             ackOk = true;
@@ -577,6 +626,13 @@ async function _fastLoadViaDaemon(filePath, title) {
             log(`FASTLOAD: signal failed (${ack.message || 'unknown'}), falling back to Python`);
             break;
         }
+    }
+    // A claim means a window owns this request and is still working on it —
+    // typically waiting on a slow load. Spawning Python anyway would load the
+    // same file a second time and queue a duplicate request behind the first.
+    if (!ackOk && sawClaimed) {
+        log(`FASTLOAD: request still claimed after ${12000}ms, leaving it with the owning window`);
+        return true;
     }
     if (!ackOk) {
         try { httpPostJson(`http://localhost:${port}/release/${resolvedSid}`, { server_id: serverId }, 2000); } catch (_) {}
@@ -735,6 +791,56 @@ async function closeActiveArrayViewCustomEditor(uri, reason) {
     } catch (e) {
         log(`CUSTOM-EDITOR: close placeholder failed (${reason}): ${e.message}`);
         return false;
+    }
+}
+
+// Set while resolving a tunnel URL when VS Code reports a specific, actionable
+// reason for refusing to forward the port. A bare "failed to resolve" tells the
+// user nothing they can act on.
+let _lastForwardingDiagnostic = null;
+
+function _forwardingDiagnostic(result, port) {
+    const text = typeof result === 'string' ? result : (() => {
+        try { return JSON.stringify(result); } catch (_) { return ''; }
+    })();
+    if (!text) return null;
+    if (/PortsPerTunnel|Resource limit exceeded|\b429\b|Too Many Requests/i.test(text)) {
+        return `VS Code could not forward port ${port}: this tunnel has reached its limit on forwarded ports, so the port cannot be made public and the viewer cannot connect. Close forwarded ports you no longer need in the Ports view, or set "remote.autoForwardPorts": false so VS Code stops forwarding every listening port it detects.`;
+    }
+    if (/Could not forward port/i.test(text)) {
+        const trimmed = text.replace(/\s+/g, ' ').slice(0, 300);
+        return `VS Code could not forward port ${port}: ${trimmed}`;
+    }
+    return null;
+}
+
+function _escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// A request can fail long after launchArrayViewFile resolved — the load runs in
+// the backend and the signal is processed asynchronously. Without this the
+// placeholder tab keeps saying "Opening …" and the reason is only ever written
+// to the log, which is the failure mode R10 exists to prevent.
+function _reportFailureToPlaceholder(data, message) {
+    const handoff = data && data.handoffPath;
+    if (!handoff) return false;
+    let key;
+    try { key = path.resolve(handoff); } catch (_) { return false; }
+    const placeholder = _pendingPlaceholders.get(key);
+    if (!placeholder) return false;
+    _pendingPlaceholders.delete(key);
+    try {
+        placeholder.panel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;padding:2em;font-family:ui-monospace,monospace;line-height:1.5">
+            <h2 style="color:#f14c4c;margin-top:0">ArrayView could not open ${_escapeHtml(placeholder.basename)}</h2>
+            <pre style="white-space:pre-wrap;color:#e8e8e8;background:#252526;padding:1em;border-radius:4px">${_escapeHtml(message)}</pre>
+            <p style="color:#888">Full details: <code>~/.arrayview/extension.log</code></p></body></html>`;
+        log(`CUSTOM-EDITOR: reported failure in placeholder for ${placeholder.basename}`);
+        return true;
+    } catch (_) {
+        return false;  // panel already disposed
     }
 }
 
@@ -959,6 +1065,59 @@ async function waitForHttpStatus2xx(url, timeoutMs = 150000, pollMs = 500) {
         }
     }
     return false;
+}
+
+// 422 from /metadata/<sid> means the backend tried to load the file and failed.
+// That is terminal: polling it again cannot change the answer, and the body
+// carries the reason worth showing the user.
+function httpSessionProbe(url, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (_) {
+            resolve({ ready: false, loadError: null });
+            return;
+        }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
+            const status = res.statusCode || 0;
+            if (status === 422) {
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', chunk => { if (body.length < 2000) body += chunk; });
+                res.on('end', () => done({
+                    ready: false,
+                    loadError: body.trim() || 'the backend could not load this file',
+                }));
+                return;
+            }
+            res.resume();
+            done({ ready: status >= 200 && status < 300, loadError: null });
+        });
+        req.on('timeout', () => { req.destroy(); done({ ready: false, loadError: null }); });
+        req.on('error', () => done({ ready: false, loadError: null }));
+    });
+}
+
+async function waitForSessionReady(url, timeoutMs = 150000, pollMs = 500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const probe = await httpSessionProbe(url);
+        if (probe.ready) return { ready: true, loadError: null };
+        if (probe.loadError) return { ready: false, loadError: probe.loadError };
+        const remaining = deadline - Date.now();
+        if (remaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(pollMs, remaining)));
+        }
+    }
+    return { ready: false, loadError: null };
 }
 
 function httpPostOk(url, timeoutMs = 1500, headers = {}) {
@@ -2198,6 +2357,8 @@ async function ensurePortPublic(
                 ? JSON.stringify(result.slice(0, 500))
                 : (result === null ? 'null' : typeof result);
             log(`PORT: privacy command returned ${detail}`);
+            _lastForwardingDiagnostic =
+                _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
             promotedExternalBase = _publicBaseFromTunnelResult(result, port);
         }
         if (promotedExternalBase) {
@@ -2252,6 +2413,8 @@ async function ensurePortPublic(
                         ? JSON.stringify(result.slice(0, 500))
                         : (result === null ? 'null' : typeof result);
                     log(`PORT: privacy retry returned ${detail}`);
+                    _lastForwardingDiagnostic =
+                        _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
                     promotedExternalBase = _publicBaseFromTunnelResult(result, port);
                 }
                 if (promotedExternalBase) {
@@ -2314,30 +2477,18 @@ async function resolveRemoteViewerUrl(
     ensureActive = () => {}
 ) {
     ensureActive();
+    _lastForwardingDiagnostic = null;
     let port = 8000;
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
     try { origQuery = new URL(url).search; } catch (_) {}
-    const desktopTunnelRemoteProxy = (
-        vscode.env.remoteName === 'tunnel'
-        && vscode.env.appHost === 'desktop'
-        && vscode.workspace
-            .getConfiguration('workbench.browser')
-            .get('enableRemoteProxy', false)
-    );
-    if (desktopTunnelRemoteProxy) {
-        const backendPingUrl = pingUrlFromViewerUrl(url);
-        if (
-            backendPingUrl
-            && await arrayViewStatusOk(backendPingUrl, expectedServerId)
-        ) {
-            ensureActive();
-            log(`REMOTE: desktop integrated-browser proxy uses backend URL directly`);
-            return url;
-        }
-        log(`REMOTE: desktop integrated-browser proxy cannot reach expected backend`);
-        return null;
-    }
+    // No shortcut for `workbench.browser.enableRemoteProxy` here. That setting
+    // proxies VS Code's own integrated browser through the remote, and the
+    // viewer stopped using the integrated browser when tunnel delivery moved to
+    // webview panels. A webview panel's iframe runs on the desktop, so a
+    // loopback backend URL resolves against the desktop's own port and reaches
+    // nothing. Reachability must be established the same way for every tunnel
+    // viewer: a cached route, otherwise an external URI promotion.
     const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
     const cachedBase = vscode.env.remoteName === 'tunnel'
         ? await _verifiedCachedTunnelBase(port, expectedServerId, ensureActive)
@@ -2373,20 +2524,10 @@ async function resolveRemoteViewerUrl(
             log(`REMOTE: → ${externalBase}`);
 
             if (vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)) {
-                if (vscode.env.appHost === 'desktop' && desktopTunnelRemoteProxy) {
-                    ensureActive();
-                    if (!await arrayViewStatusOk(
-                        `${externalBase}/ping`, expectedServerId
-                    )) {
-                        throw new Error(
-                            'desktop tunnel loopback does not reach the expected backend'
-                        );
-                    }
-                    ensureActive();
-                    const finalUrl = externalBase + '/' + origQuery;
-                    log(`REMOTE: desktop tunnel remote-proxy URL = ${finalUrl}`);
-                    return finalUrl;
-                }
+                // A loopback answer is not usable by a webview panel: its
+                // iframe runs on the desktop. Always promote instead of
+                // accepting it, whatever the integrated browser is configured
+                // to do.
                 if (!tunnelPromotionAttempted) {
                     tunnelPromotionAttempted = true;
                     // Let auto-forwarders in all connected windows finish
@@ -2483,6 +2624,14 @@ async function processSignalData(data) {
     } catch (error) {
         log(`ERROR: ${error.message}`);
         writeProtocolAck(data, 'failed', error.message);
+        const shown = _reportFailureToPlaceholder(data, error.message);
+        if (!shown) {
+            // No placeholder tab was waiting (terminal launch, or the user
+            // closed it). Say it out loud rather than only in the log.
+            try {
+                vscode.window.showErrorMessage(`ArrayView: ${error.message}`);
+            } catch (_) {}
+        }
     } finally {
         if (hardTimer) clearTimeout(hardTimer);
         isProcessingSignal = false;
@@ -2529,12 +2678,16 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     const metadataWaitMs = remainingMs === null
         ? 150000
         : Math.max(1, Math.min(150000, remainingMs));
-    if (
-        localMetadataUrl
-        && !await waitForHttpStatus2xx(localMetadataUrl, metadataWaitMs)
-    ) {
-        ensureActive();
-        throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
+    if (localMetadataUrl) {
+        const sessionState = await waitForSessionReady(localMetadataUrl, metadataWaitMs);
+        if (sessionState.loadError) {
+            ensureActive();
+            throw new Error(`ArrayView could not open this file: ${sessionState.loadError}`);
+        }
+        if (!sessionState.ready) {
+            ensureActive();
+            throw new Error('Viewer session expired before a panel could be opened; retrying the command will create a fresh session');
+        }
     }
     ensureActive();
 
@@ -2579,7 +2732,12 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         ensureActive();
         if (!remoteUrl) {
             log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
-            writeProtocolAck(data, 'failed', 'Failed to resolve remote viewer URL');
+            const reason = _lastForwardingDiagnostic
+                || 'Failed to resolve remote viewer URL';
+            writeProtocolAck(data, 'failed', reason);
+            if (!_reportFailureToPlaceholder(data, reason)) {
+                try { vscode.window.showErrorMessage(`ArrayView: ${reason}`); } catch (_) {}
+            }
             return;
         }
         openUrl = remoteUrl;
@@ -2587,9 +2745,14 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     ensureActive();
     advanceAck('port_resolved');
     const remainingViewerMs = _remainingSignalMs(data);
+    // Bound this independently of the signal budget. Everything slow — reading
+    // the array off its storage tier — already happened before the backend
+    // published this URL, so first frame is a matter of seconds. Spending the
+    // whole remaining signal lifetime here means one doomed launch holds the
+    // queue lock for minutes and starves every request behind it.
     const viewerTimeoutMs = remainingViewerMs === null
         ? 25000
-        : Math.max(1, remainingViewerMs);
+        : Math.max(1, Math.min(VIEWER_READY_TIMEOUT_MS, remainingViewerMs));
 
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
@@ -2847,6 +3010,8 @@ function activate(context) {
     } catch (e) {
         log(`REGISTER: failed to write: ${e.message}`);
     }
+
+    _reportExtensionVersionSkew(windowId, version);
 
     cleanupStaleFiles();
 

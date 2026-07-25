@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.14.80",
+  "version": "0.14.86",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -33,6 +33,12 @@
           "type": "boolean",
           "default": false,
           "description": "Open ArrayView tabs in a floating window."
+        },
+        "arrayview.packageSpec": {
+          "type": "string",
+          "default": "arrayview",
+          "description": "Package spec used when launching ArrayView through uv. Set to an absolute path to a local checkout to run that working tree instead of the released package.",
+          "scope": "machine-overridable"
         }
       }
     },

@@ -2590,6 +2590,11 @@ _PERSIST_DAEMON_CONNECT_TIMEOUT_SECONDS = float(
 _PERSIST_DAEMON_IDLE_SECONDS = float(
     os.environ.get("ARRAYVIEW_PERSIST_IDLE_SECONDS", "1800")
 )
+# How long a daemon whose initial load failed keeps serving so the opener can
+# read the reason from /metadata/<sid> before the port is released.
+_FAILED_LOAD_EXIT_GRACE_SECONDS = float(
+    os.environ.get("ARRAYVIEW_FAILED_LOAD_EXIT_GRACE_SECONDS", "30")
+)
 
 
 def _join_query_values(values: _CSVValues) -> str:
@@ -4169,6 +4174,7 @@ def _serve_daemon(
         owner="persistent" if persist else "transient",
     )
     # Register sid as pending so /metadata can poll while data loads.
+    _initial_load_failed = threading.Event()
     _session_mod.PENDING_SESSIONS.add(sid)
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
@@ -4349,6 +4355,18 @@ def _serve_daemon(
                 sid_tag=sid_tag,
                 error_type=type(exc).__name__,
             )
+            # This runs on a daemon thread, so re-raising only kills the thread
+            # and writes to a stderr nobody reads. Record why the sid will never
+            # become ready so /metadata can report it instead of returning 404
+            # until the opener gives up.
+            _session_mod.FAILED_PENDING_SESSIONS[sid] = (
+                str(exc) or type(exc).__name__
+            )
+            _vprint(
+                f"[ArrayView] Failed to load {filepath}: {exc}",
+                flush=True,
+            )
+            _initial_load_failed.set()
             raise
         finally:
             _session_mod.PENDING_SESSIONS.discard(sid)
@@ -4356,6 +4374,32 @@ def _serve_daemon(
             _session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
 
     threading.Thread(target=_load, daemon=True).start()
+
+    def _exit_if_initial_load_failed() -> None:
+        """Release the port when the file this daemon exists to serve won't load.
+
+        uvicorn starts before the load finishes, so a failed load otherwise
+        leaves a server with no session holding the port until the connect
+        timeout expires minutes later — and answering /ping the whole time. The
+        grace period is only so the opener can read the failure from
+        /metadata/<sid> before the port goes away.
+        """
+        _initial_load_failed.wait()
+        time.sleep(_FAILED_LOAD_EXIT_GRACE_SECONDS)
+        if _session_mod.SESSIONS or _session_mod.VIEWER_SOCKETS:
+            return  # something else is using this server; leave it alone
+        _trace_launch_event(
+            "daemon.exiting",
+            reason="initial_load_failed",
+            instance_tag=_launch_trace_tag(record.instance_id),
+        )
+        try:
+            registry.remove(record.instance_id)
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Thread(target=_exit_if_initial_load_failed, daemon=True).start()
 
     if persist:
         _wait_for_viewer_close(
