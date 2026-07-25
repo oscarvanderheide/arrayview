@@ -559,11 +559,30 @@ async function _fastLoadViaDaemon(filePath, title) {
         sentAtMs: Date.now(),
     };
     const signalWritten = _writeSignalFile(signalPayload, logWindowId);
-    if (signalWritten) {
-        log(`FASTLOAD: loaded ${filePath} -> ${url}`);
-        return true;
+    if (!signalWritten) return false;
+
+    let ackOk = false;
+    const ackDeadline = Date.now() + 12000;
+    while (Date.now() < ackDeadline) {
+        await new Promise(r => setTimeout(r, 150));
+        let ack = null;
+        try { ack = JSON.parse(fs.readFileSync(ackPath, 'utf8')); } catch (_) {}
+        if (!ack || ack.requestId !== requestId) continue;
+        if (ack.state === 'panel_opened' || ack.state === 'backend_ready' || ack.state === 'visibility_verified') {
+            log(`FASTLOAD: signal ${ack.state} for ${path.basename(filePath)}`);
+            ackOk = true;
+            break;
+        }
+        if (ack.state === 'failed') {
+            log(`FASTLOAD: signal failed (${ack.message || 'unknown'}), falling back to Python`);
+            break;
+        }
     }
-    return false;
+    if (!ackOk) {
+        try { httpPostJson(`http://localhost:${port}/release/${resolvedSid}`, { server_id: serverId }, 2000); } catch (_) {}
+        return false;
+    }
+    return true;
 }
 
 function _writeSignalFile(payload, windowId) {
