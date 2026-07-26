@@ -157,6 +157,33 @@ function _cachedTunnelBases(port) {
     return candidates;
 }
 
+// A cached route is abandoned only on proof it is wrong — a foreign server ID,
+// or a refusal. When the probe merely fails to answer, widen the budget and ask
+// again: a devtunnel relay's median response is well under a second but its tail
+// runs to tens of seconds, so a single short probe mistakes an ordinary stall
+// for a dead route. That verdict is expensive and asymmetric — it discards a
+// URL known to work and hands the request to asExternalUri, the slowest and
+// least reliable path in a tunnel window.
+let CACHED_ROUTE_PROBE_TIMEOUTS_MS = [1500, 4000, 8000];
+
+// Backoff for VS Code's own resolver. Kept beside the probe budget above so a
+// test can shrink both without waiting out the real schedule.
+let EXTERNAL_URI_ATTEMPTS = [
+    { timeoutMs: 6000, pauseMs: 0 },
+    { timeoutMs: 10000, pauseMs: 500 },
+    { timeoutMs: 10000, pauseMs: 1500 },
+    { timeoutMs: 10000, pauseMs: 3000 },
+    { timeoutMs: 10000, pauseMs: 5000 },
+    { timeoutMs: 10000, pauseMs: 8000 },
+];
+
+function _setRetryTiming({ cachedRouteProbeTimeoutsMs, externalUriAttempts } = {}) {
+    if (cachedRouteProbeTimeoutsMs) {
+        CACHED_ROUTE_PROBE_TIMEOUTS_MS = cachedRouteProbeTimeoutsMs;
+    }
+    if (externalUriAttempts) EXTERNAL_URI_ATTEMPTS = externalUriAttempts;
+}
+
 async function _verifiedCachedTunnelBase(
     port,
     expectedServerId,
@@ -164,14 +191,30 @@ async function _verifiedCachedTunnelBase(
 ) {
     for (const candidate of _cachedTunnelBases(port)) {
         ensureActive();
-        log(`REMOTE: checking cached route ${candidate}`);
-        if (await arrayViewStatusOk(`${candidate}/ping`, expectedServerId)) {
+        let outcome = PROBE_UNKNOWN;
+        for (let i = 0; i < CACHED_ROUTE_PROBE_TIMEOUTS_MS.length; i++) {
+            ensureActive();
+            const timeoutMs = CACHED_ROUTE_PROBE_TIMEOUTS_MS[i];
+            log(`REMOTE: checking cached route ${candidate} `
+                + `(attempt=${i + 1} timeout=${timeoutMs}ms)`);
+            outcome = await probeArrayViewStatus(
+                `${candidate}/ping`, expectedServerId, timeoutMs
+            );
+            // Only a no-answer is worth asking again; a wrong answer is final.
+            if (outcome !== PROBE_UNKNOWN) break;
+            log(`REMOTE: cached route gave no verdict `
+                + `(attempt=${i + 1} budget=${timeoutMs}ms)`);
+        }
+        if (outcome === PROBE_OK) {
             ensureActive();
             _rememberTunnelBase(port, candidate);
             log(`REMOTE: cached route ready for localhost:${port}`);
             return candidate;
         }
-        log(`REMOTE: cached route stale for localhost:${port}`);
+        log(outcome === PROBE_DEAD
+            ? `REMOTE: cached route stale for localhost:${port}`
+            : `REMOTE: cached route unverified for localhost:${port} `
+                + `after ${CACHED_ROUTE_PROBE_TIMEOUTS_MS.length} attempts`);
     }
     return null;
 }
@@ -936,26 +979,46 @@ class ArrayViewEditorProvider {
     }
 }
 
-function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
+// Probe outcomes. A route that answers wrongly proves it is not our backend; a
+// route that does not answer in time proves nothing at all. Collapsing those two
+// into one boolean makes a slow network indistinguishable from a dead tunnel,
+// which is how a healthy devtunnel route gets discarded mid-session.
+const PROBE_OK = 'ok';
+const PROBE_DEAD = 'dead';
+const PROBE_UNKNOWN = 'unknown';
+
+// Socket failures that say nothing about whether the backend is still there.
+// The relay behind a devtunnel URL stalls and resets under load, so these are
+// evidence about the network, not about the route.
+const TRANSIENT_PROBE_ERRORS = new Set([
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'EPIPE',
+    'EAI_AGAIN',
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+]);
+
+function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
     return new Promise((resolve) => {
         let parsed;
         try {
             parsed = new URL(url);
         } catch (_) {
-            resolve(false);
+            resolve(PROBE_DEAD);
             return;
         }
         const lib = parsed.protocol === 'https:' ? https : http;
         let settled = false;
-        const done = (ok) => {
+        const done = (outcome) => {
             if (settled) return;
             settled = true;
-            resolve(ok);
+            resolve(outcome);
         };
         const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
             if (res.statusCode !== 200) {
                 res.resume();
-                done(false);
+                done(PROBE_DEAD);
                 return;
             }
             let body = '';
@@ -966,18 +1029,31 @@ function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
             res.on('end', () => {
                 try {
                     const payload = JSON.parse(body);
-                    done(isArrayViewStatus(payload, expectedServerId));
+                    done(isArrayViewStatus(payload, expectedServerId)
+                        ? PROBE_OK
+                        : PROBE_DEAD);
                 } catch (_) {
-                    done(false);
+                    done(PROBE_DEAD);
                 }
             });
+            // A reset partway through the body leaves the verdict unknown.
+            res.on('error', () => done(PROBE_UNKNOWN));
         });
         req.on('timeout', () => {
             req.destroy();
-            done(false);
+            done(PROBE_UNKNOWN);
         });
-        req.on('error', () => done(false));
+        req.on('error', (error) => done(
+            TRANSIENT_PROBE_ERRORS.has(error && error.code)
+                ? PROBE_UNKNOWN
+                : PROBE_DEAD
+        ));
     });
+}
+
+async function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
+    const outcome = await probeArrayViewStatus(url, expectedServerId, timeoutMs);
+    return outcome === PROBE_OK;
 }
 
 function httpStatus2xx(url, timeoutMs = 3000) {
@@ -2542,14 +2618,7 @@ async function resolveRemoteViewerUrl(
         return cachedBase + '/' + origQuery;
     }
     let tunnelPromotionAttempted = false;
-    const attempts = [
-        { timeoutMs: 6000, pauseMs: 0 },
-        { timeoutMs: 10000, pauseMs: 500 },
-        { timeoutMs: 10000, pauseMs: 1500 },
-        { timeoutMs: 10000, pauseMs: 3000 },
-        { timeoutMs: 10000, pauseMs: 5000 },
-        { timeoutMs: 10000, pauseMs: 8000 },
-    ];
+    const attempts = EXTERNAL_URI_ATTEMPTS;
     for (let i = 0; i < attempts.length; i++) {
         ensureActive();
         const attempt = attempts[i];
@@ -2632,8 +2701,24 @@ async function resolveRemoteViewerUrl(
         }
     }
 
-    if (vscode.env.remoteName === 'tunnel' && tunnelPromotionAttempted) {
-        log(`REMOTE: tunnel route did not converge within bounded retry window`);
+    // Last resort: asExternalUri never produced a usable answer. In a wedged
+    // tunnel window every attempt times out without ever returning, so the
+    // loopback branch above — and the cache recovery inside it — is never
+    // reached, and a route this window already verified would go unused while
+    // the request fails. Re-probe it before giving up. No asExternalUri call
+    // happens here, so this cannot re-create the forward as private.
+    if (vscode.env.remoteName === 'tunnel') {
+        if (tunnelPromotionAttempted) {
+            log(`REMOTE: tunnel route did not converge within bounded retry window`);
+        }
+        const lastResortBase = await _verifiedCachedTunnelBase(
+            port, expectedServerId, ensureActive
+        );
+        if (lastResortBase) {
+            const finalUrl = lastResortBase + '/' + origQuery;
+            log(`REMOTE: recovered verified cached URL after resolver failure = ${finalUrl}`);
+            return finalUrl;
+        }
     }
     return null;
 }
@@ -3230,6 +3315,9 @@ module.exports = {
     __test: {
         _withTimeout,
         _asExternalUriAttempt,
+        probeArrayViewStatus,
+        _verifiedCachedTunnelBase,
+        _setRetryTiming,
         resolveRemoteViewerUrl,
         claimProtocolRequest,
         writeProtocolAck,
