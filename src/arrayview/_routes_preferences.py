@@ -42,7 +42,10 @@ def _response_payload() -> dict:
                 value for value in schema["window"][key] if value != "native"
             ]
     if vscode_remote:
-        schema["window"]["vscode"] = ["vscode", "none"]
+        # Native and browser don't make sense from a headless remote host;
+        # "none" is an internal fallback only, hidden from every row above —
+        # this hardcoded replacement must keep hiding it too.
+        schema["window"]["vscode"] = ["vscode"]
 
     overrides = {}
     if os.environ.get("ARRAYVIEW_WINDOW", "").strip():

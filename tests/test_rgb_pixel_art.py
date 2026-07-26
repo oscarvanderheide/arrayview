@@ -1,6 +1,16 @@
+"""Animate a real photo into a 5D (day/night x wind x H x W x RGB) array and
+view it. Exploratory/manual — needs a real image dropped in next to this file,
+which we don't commit (large binary), so it skips cleanly everywhere else.
+"""
+from pathlib import Path
+
 import numpy as np
+import pytest
 from PIL import Image
+
 import arrayview as av
+
+IMAGE_PATH = Path(__file__).parent / "vangogh.jpg"
 
 
 def generate_animated_landscape_array(
@@ -56,11 +66,17 @@ def generate_animated_landscape_array(
     return animated_array
 
 
-# Example usage:
-animated_grid = generate_animated_landscape_array(
-    "vangogh.jpg",
-    target_size=(768, 512),
-)
-print(animated_grid.shape)  # Output will be: (20, 20, Height, Width, 3)
+@pytest.fixture
+def animated_landscape():
+    if not IMAGE_PATH.exists():
+        pytest.skip(f"{IMAGE_PATH.name} not present (not committed to the repo)")
+    return generate_animated_landscape_array(str(IMAGE_PATH), target_size=(768, 512))
 
-av.view(animated_grid, rgb=True)
+
+def test_animated_landscape_array_shape(animated_landscape):
+    assert animated_landscape.shape == (20, 20, 512, 768, 3)
+    assert animated_landscape.dtype == np.uint8
+
+
+def test_animated_landscape_viewable(animated_landscape):
+    av.view(animated_landscape, rgb=True)

@@ -1304,6 +1304,8 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
     Returns ``(series, spatial_meta)``.
     """
     # ── collect files by parent directory ──────────────────────────
+    from ._dicom import is_dicom_source
+
     patients: dict[str, list[str]] = {}
     all_nifti = True
 
@@ -1312,6 +1314,14 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
             os.path.join(root, f)
             for f in files
             if _get_ext(f) in _SUPPORTED_EXTS
+            # ".dcm" is necessary but not sufficient — every other .dcm
+            # consumer (load_data, load_data_with_meta, _peek_file_shape's
+            # directory branch) validates via is_dicom_source before
+            # treating a file as real DICOM. Do the same here, otherwise a
+            # stray file that merely has a .dcm extension gets counted as a
+            # patient's series member and blows up load_data() downstream
+            # instead of being silently ignored like any other unsupported file.
+            if _get_ext(f) != ".dcm" or is_dicom_source(os.path.join(root, f))
         )
         if supported:
             patients[root] = supported
@@ -1476,9 +1486,16 @@ def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select
     """
     from ._dicom import is_dicom_source, load_dicom_series
 
-    if (os.path.isdir(filepath) or filepath.lower().endswith(".dcm")) and is_dicom_source(filepath):
+    # A ".zarr" store is itself a directory on disk. It must be excluded from
+    # the generic "directory of files to stack" path below, or the walk finds
+    # nothing matching a supported single-file extension inside it (zarr's own
+    # chunk/metadata files don't) and raises instead of opening the store.
+    is_zarr_dir = os.path.isdir(filepath) and _get_ext(filepath) == ".zarr"
+    if (
+        (os.path.isdir(filepath) and not is_zarr_dir) or filepath.lower().endswith(".dcm")
+    ) and is_dicom_source(filepath):
         return load_dicom_series(filepath, select=select)
-    if os.path.isdir(filepath):
+    if os.path.isdir(filepath) and not is_zarr_dir:
         return _load_file_series(filepath, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
@@ -1491,7 +1508,7 @@ def load_data(filepath, key=None):
 
         data, _meta = load_dicom_series(filepath)
         return data
-    if os.path.isdir(filepath):
+    if os.path.isdir(filepath) and _get_ext(filepath) != ".zarr":
         from ._dicom import is_dicom_source, load_dicom_series
 
         if is_dicom_source(filepath):
@@ -1646,6 +1663,13 @@ FULL_LOAD_EXTS = frozenset([".pt", ".pth", ".tif", ".tiff", ".mat"])
 def _peek_file_shape(fpath: str, ext: str):
     """Try to return shape quickly without loading the full array. Returns None on failure."""
     try:
+        # ".zarr" stores are directories, but they're a single array, not a
+        # collection to walk and stack — read metadata via zarr, not the
+        # directory-of-files branch below.
+        if ext in (".zarr", ".zarr.zip"):
+            import zarr
+
+            return list(zarr.open(fpath, mode="r").shape)
         if os.path.isdir(fpath):
             from ._dicom import is_dicom_source, load_dicom_series
 
