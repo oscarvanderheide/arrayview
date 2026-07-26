@@ -275,6 +275,12 @@ def _open_browser(
                         "ArrayView could not safely install its VS Code opener in "
                         "this exact remote window; no viewer request was sent."
                     )
+                elif _extension_state._VSCODE_EXT_NO_LIVE_WINDOW:
+                    detail = (
+                        "This terminal was opened before its VS Code window reloaded, "
+                        "so it still points at a window that no longer exists. Open a "
+                        "new terminal in the target window and retry."
+                    )
                 elif _extension_state._VSCODE_EXT_RELOAD_REQUIRED:
                     detail = (
                         "ArrayView's VS Code opener was installed; reload this exact "

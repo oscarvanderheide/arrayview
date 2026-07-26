@@ -5667,6 +5667,136 @@ class TestPortAndTunnelHelpers:
             is None
         )
 
+    def _write_reload_survivor_home(self, monkeypatch, tmp_path):
+        """Home whose only live window replaced the one this terminal remembers."""
+        import hashlib
+
+        home = tmp_path / "home"
+        signal_dir = home / ".arrayview"
+        signal_dir.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("ARRAYVIEW_WINDOW_ID", raising=False)
+        stale_ipc = "/run/user/1/vscode-ipc-before-reload.sock"
+        return signal_dir, stale_ipc, hashlib.sha256(stale_ipc.encode()).hexdigest()[:16]
+
+    def test_terminal_stranded_by_window_reload_resolves_via_supersedes(
+        self, monkeypatch, tmp_path
+    ):
+        import os
+        import arrayview._platform as platform
+
+        signal_dir, stale_ipc, stale_id = self._write_reload_survivor_home(
+            monkeypatch, tmp_path
+        )
+        (signal_dir / "window-after-reload.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "hookTag": "after-reload",
+                    "remoteName": "tunnel",
+                    "extensionVersion": "0.14.89",
+                    "supersedes": [stale_id],
+                }
+            )
+        )
+
+        resolved = platform._exact_vscode_window_registration(stale_ipc)
+
+        assert resolved is not None
+        assert resolved[0] == "after-reload"
+        assert resolved[1]["extensionVersion"] == "0.14.89"
+
+    def test_stranded_terminal_resolves_stale_injected_window_id(
+        self, monkeypatch, tmp_path
+    ):
+        import os
+        import arrayview._platform as platform
+
+        home = tmp_path / "home"
+        signal_dir = home / ".arrayview"
+        signal_dir.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("ARRAYVIEW_WINDOW_ID", "pre-reload-id")
+        (signal_dir / "window-after-reload.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "remoteName": "tunnel",
+                    "supersedes": ["older-still", "pre-reload-id"],
+                }
+            )
+        )
+
+        resolved = platform._exact_vscode_window_registration(None)
+
+        assert resolved is not None and resolved[0] == "after-reload"
+
+    def test_stranded_terminal_never_borrows_an_unrelated_window(
+        self, monkeypatch, tmp_path
+    ):
+        """A sibling window that never owned this terminal must not claim it."""
+        import os
+        import arrayview._platform as platform
+
+        signal_dir, stale_ipc, _stale_id = self._write_reload_survivor_home(
+            monkeypatch, tmp_path
+        )
+        (signal_dir / "window-unrelated.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "remoteName": "tunnel",
+                    "supersedes": ["some-other-window"],
+                }
+            )
+        )
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
+
+        assert platform._exact_vscode_window_registration(stale_ipc) is None
+
+    def test_contested_superseded_id_is_refused_rather_than_guessed(
+        self, monkeypatch, tmp_path
+    ):
+        import os
+        import arrayview._platform as platform
+
+        signal_dir, stale_ipc, stale_id = self._write_reload_survivor_home(
+            monkeypatch, tmp_path
+        )
+        for name in ("window-first.json", "window-second.json"):
+            (signal_dir / name).write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "remoteName": "tunnel",
+                        "supersedes": [stale_id],
+                    }
+                )
+            )
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
+
+        assert platform._exact_vscode_window_registration(stale_ipc) is None
+
+    def test_dead_superseding_window_does_not_resolve(self, monkeypatch, tmp_path):
+        """Lineage is not enough — the claiming host must still be running."""
+        import arrayview._platform as platform
+
+        signal_dir, stale_ipc, stale_id = self._write_reload_survivor_home(
+            monkeypatch, tmp_path
+        )
+        (signal_dir / "window-dead.json").write_text(
+            json.dumps(
+                {
+                    "pid": 2**31 - 1,
+                    "remoteName": "tunnel",
+                    "supersedes": [stale_id],
+                }
+            )
+        )
+        monkeypatch.setattr(platform, "_current_vscode_remote_cli", lambda: None)
+
+        assert platform._exact_vscode_window_registration(stale_ipc) is None
+
     def test_code_cli_selection_uses_captured_placement(self, monkeypatch):
         import glob
         import shutil

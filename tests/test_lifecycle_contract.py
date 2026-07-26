@@ -1701,6 +1701,20 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     assert "Viewer session did not become ready" in source
 
 
+def test_vscode_registration_publishes_superseded_window_ids():
+    """Terminals older than the last reload are only reachable via this chain."""
+    source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
+
+    # The previous id must be read before replace() overwrites the collection.
+    assert source.index("_readEnvCollection('ARRAYVIEW_WINDOW_ID')") < source.index(
+        "envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId)"
+    )
+    assert "_readEnvCollection('ARRAYVIEW_WINDOW_CHAIN')" in source
+    assert "envCollection.replace('ARRAYVIEW_WINDOW_CHAIN', supersededIds.join(','))" in source
+    assert "supersedes: supersededIds," in source
+    assert "supersedes.slice(0, MAX_SUPERSEDED_WINDOW_IDS)" in source
+
+
 def test_vscode_tunnel_resolution_reuses_verified_routes_and_retries_fresh():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 

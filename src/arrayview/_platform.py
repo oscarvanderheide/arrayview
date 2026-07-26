@@ -6,6 +6,7 @@ import importlib.util
 import hashlib
 import json
 import os
+from collections.abc import Callable
 import subprocess
 import sys
 
@@ -450,6 +451,42 @@ def _process_is_alive(pid: object) -> bool:
         return False
 
 
+def _superseding_window_registration(
+    claimed_ids: list[str],
+    signal_dir: str,
+    read: Callable[[str], tuple[str, dict] | None],
+) -> tuple[str, dict] | None:
+    """Return the live window that replaced one of ``claimed_ids``, if unique.
+
+    Each registration lists the window ids it took over from, so a terminal left
+    holding a pre-reload id resolves to its own window rather than to a sibling
+    that merely shares a server root.  Two live windows claiming one id would be a
+    contradiction, so an ambiguous answer is refused instead of guessed.
+    """
+    if not claimed_ids:
+        return None
+    wanted = set(claimed_ids)
+    try:
+        filenames = os.listdir(signal_dir)
+    except OSError:
+        return None
+
+    matches: list[tuple[str, dict]] = []
+    for filename in filenames:
+        if not filename.startswith("window-") or not filename.endswith(".json"):
+            continue
+        candidate = read(filename[len("window-") : -len(".json")])
+        if candidate is None:
+            continue
+        superseded = candidate[1].get("supersedes")
+        if not isinstance(superseded, list):
+            continue
+        if wanted.intersection(item for item in superseded if isinstance(item, str)):
+            matches.append(candidate)
+
+    return matches[0] if len(matches) == 1 else None
+
+
 def _exact_vscode_window_registration(
     ipc: str | None = None,
 ) -> tuple[str, dict] | None:
@@ -461,6 +498,11 @@ def _exact_vscode_window_registration(
     remote registration is unsafe.  When direct window evidence is unavailable,
     match the live extension-host executable to the exact server root named by
     the terminal's NLS configuration, and only accept a unique match.
+
+    Reloading a window rotates its IPC socket and re-injects ``ARRAYVIEW_WINDOW_ID``
+    into new terminals only, so a terminal that predates the reload keeps naming a
+    window id that no longer registers.  The extension records the ids it replaced,
+    which turns that stale name back into an exact match on the window that owns it.
     """
     signal_dir = os.path.expanduser("~/.arrayview")
 
@@ -479,16 +521,23 @@ def _exact_vscode_window_registration(
             return None
         return window_id, registration
 
+    claimed_ids: list[str] = []
     registration = None
     if ipc:
         window_id = hashlib.sha256(ipc.encode()).hexdigest()[:16]
         if reg := _read(window_id):
             return reg
+        claimed_ids.append(window_id)
         registration = reg
     if registration is None:
         window_id = os.environ.get("ARRAYVIEW_WINDOW_ID")
-        if window_id and (reg := _read(window_id)):
-            return reg
+        if window_id:
+            if reg := _read(window_id):
+                return reg
+            claimed_ids.append(window_id)
+
+    if reg := _superseding_window_registration(claimed_ids, signal_dir, _read):
+        return reg
 
     exact_cli = _current_vscode_remote_cli()
     if exact_cli is None:

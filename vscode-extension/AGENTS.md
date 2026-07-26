@@ -20,6 +20,13 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
 - IPC hook recovery when env vars stripped by `uv run` or subprocess wrappers
 - tmux: `VSCODE_IPC_HOOK_CLI` not inherited; must walk client PIDs
 - Signal routing: local → per-window targeted file; remote/tunnel → shared fallback
+- Window identity survives reloads only via the supersedes chain: a reload rotates
+  the IPC socket and `ARRAYVIEW_WINDOW_ID` reaches NEW terminals only, so terminals
+  older than the reload name a window id nobody registers. Activation publishes the
+  ids it replaced (`supersedes`, sourced from `ARRAYVIEW_WINDOW_CHAIN` in the
+  per-window env collection); `_superseding_window_registration` in `_platform.py`
+  maps a stale id back to its window, and refuses ambiguous claims rather than
+  guessing. Read the collection *before* `replace()` overwrites it.
 - Remote ports: configure preview, promote tunnel privacy when available, resolve URL via `asExternalUri`
 - Which backend version a click runs is *not* obvious: `arrayview.packageSpec`
   (machine-scoped, so it leaks across windows) can redirect `--with arrayview`

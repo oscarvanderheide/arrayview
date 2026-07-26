@@ -63,6 +63,11 @@ function _findVscodeIpcHook() {
     return '';
 }
 
+// How many previous window ids a registration advertises.  Only terminals still
+// alive from those incarnations can use them, so a handful covers every real
+// case and keeps one long-lived window from accumulating ids indefinitely.
+const MAX_SUPERSEDED_WINDOW_IDS = 8;
+
 const OWN_IPC_HOOK = _findVscodeIpcHook();
 const OWN_HOOK_TAG = OWN_IPC_HOOK
     ? crypto.createHash('sha256').update(OWN_IPC_HOOK).digest('hex').slice(0, 16)
@@ -2985,6 +2990,23 @@ function activate(context) {
     // persists EnvironmentVariableCollection per-window), 3) current PID (fallback).
     let windowId;
     const envCollection = context.environmentVariableCollection;
+
+    // Read what this window last injected, BEFORE the replace() below overwrites
+    // it.  The collection is the only per-window store that survives a reload,
+    // and after a reload it still holds the id the surviving terminals carry.
+    const _readEnvCollection = (name) => {
+        try {
+            const entry = envCollection.get(name);
+            return entry && entry.value ? entry.value : null;
+        } catch (_) {
+            return null;
+        }
+    };
+    const previousId = _readEnvCollection('ARRAYVIEW_WINDOW_ID');
+    const previousChain = (_readEnvCollection('ARRAYVIEW_WINDOW_CHAIN') || '')
+        .split(',')
+        .filter(Boolean);
+
     if (OWN_HOOK_TAG) {
         // hookTag is already stable (same IPC socket path → same SHA256 hash)
         windowId = OWN_HOOK_TAG;
@@ -2992,12 +3014,6 @@ function activate(context) {
         // macOS local: reuse the previous window ID stored in the persistent env
         // collection so terminals that already have ARRAYVIEW_WINDOW_ID set
         // continue to target the correct registration after an extension restart.
-        let previousId = null;
-        try {
-            const entry = envCollection.get('ARRAYVIEW_WINDOW_ID');
-            if (entry && entry.value) previousId = entry.value;
-        } catch (_) {}
-
         if (previousId && previousId !== String(process.pid)) {
             // Make sure no OTHER currently-alive window already owns this ID.
             const regPath = path.join(SIGNAL_DIR, `window-${previousId}.json`);
@@ -3033,9 +3049,25 @@ function activate(context) {
         log(`targetedFile updated to ${path.basename(TARGETED_SIGNAL_FILE)}`);
     }
 
+    // Terminals opened before a reload still carry the id this window used then:
+    // reloading rotates the IPC socket, and VS Code applies an environment
+    // collection to NEW terminals only.  Publishing the ids we replaced lets
+    // Python resolve those terminals to this window instead of failing the
+    // exact-window check.  The chain is kept so a terminal that has survived
+    // several reloads stays reachable, and bounded so it cannot grow forever.
+    const supersedes = [];
+    for (const candidate of [previousId, ...previousChain]) {
+        if (candidate && candidate !== windowId && !supersedes.includes(candidate)) {
+            supersedes.push(candidate);
+        }
+    }
+    const supersededIds = supersedes.slice(0, MAX_SUPERSEDED_WINDOW_IDS);
+
     try {
         envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
+        envCollection.replace('ARRAYVIEW_WINDOW_CHAIN', supersededIds.join(','));
         log(`ENV: set ARRAYVIEW_WINDOW_ID=${windowId}`);
+        if (supersededIds.length) log(`ENV: supersedes ${supersededIds.join(',')}`);
     } catch (e) {
         log(`ENV: failed to set ARRAYVIEW_WINDOW_ID: ${e.message}`);
     }
@@ -3051,6 +3083,7 @@ function activate(context) {
             remoteName: vscode.env.remoteName || null,
             extensionVersion: version,
             extensionInstanceId: EXTENSION_INSTANCE_ID,
+            supersedes: supersededIds,  // window ids whose terminals still point here
             signalQueueVersion: 1
         });
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);

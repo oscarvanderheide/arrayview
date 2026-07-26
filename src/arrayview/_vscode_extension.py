@@ -54,7 +54,8 @@ _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
-_VSCODE_EXT_VERSION = "0.14.88"  # current bundled extension version
+_VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
+_VSCODE_EXT_VERSION = "0.14.89"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -471,9 +472,11 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     global _VSCODE_EXT_RELOAD_REQUIRED, _VSCODE_EXT_INSTALL_FAILED
+    global _VSCODE_EXT_NO_LIVE_WINDOW
     _VSCODE_EXT_FRESH_INSTALL = False
     _VSCODE_EXT_RELOAD_REQUIRED = False
     _VSCODE_EXT_INSTALL_FAILED = False
+    _VSCODE_EXT_NO_LIVE_WINDOW = False
 
     vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
     if not os.path.isfile(vsix_path):
@@ -496,6 +499,31 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         and active_registration.get("extensionVersion") == active_version
         else None
     )
+    def _reject_unmatched_host(installed_version: str) -> bool:
+        """Record why the live host was rejected, so callers can advise correctly.
+
+        A version disagreement is fixed by reloading; an unidentifiable window is
+        not.  Conflating them tells the user to reload when the reload is what
+        stranded their terminal in the first place.
+        """
+        global _VSCODE_EXT_RELOAD_REQUIRED, _VSCODE_EXT_NO_LIVE_WINDOW
+        if active_version is None:
+            _VSCODE_EXT_NO_LIVE_WINDOW = True
+            _vprint(
+                f"[ArrayView] opener v{installed_version} is installed, but no live "
+                "VS Code window claims this terminal; open a new terminal in the "
+                "target window",
+                flush=True,
+            )
+            return False
+        _VSCODE_EXT_RELOAD_REQUIRED = True
+        _vprint(
+            f"[ArrayView] opener v{installed_version} is installed, but this VS Code "
+            "window is still running an older extension host; reload this window",
+            flush=True,
+        )
+        return False
+
     if _extension_on_disk(ext_version, vsix_path, remote=is_remote):
         active_matches = (
             active_version == ext_version
@@ -503,13 +531,7 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
             else active_version in (None, ext_version)
         )
         if not active_matches:
-            _VSCODE_EXT_RELOAD_REQUIRED = True
-            _vprint(
-                f"[ArrayView] opener v{ext_version} is installed, but this VS Code "
-                "window is still running an older extension host; reload this window",
-                flush=True,
-            )
-            return False
+            return _reject_unmatched_host(ext_version)
         if not is_remote:
             _remove_old_extension_versions(ext_version, remote=False)
         _VSCODE_EXT_INSTALLED = True
@@ -527,13 +549,7 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
             else active_version in (None, newer_version)
         )
         if not active_matches:
-            _VSCODE_EXT_RELOAD_REQUIRED = True
-            _vprint(
-                f"[ArrayView] newer opener v{newer_version} is installed, but this "
-                "VS Code window is still running an older extension host; reload this window",
-                flush=True,
-            )
-            return False
+            return _reject_unmatched_host(newer_version)
         _VSCODE_EXT_INSTALLED = True
         _vprint(
             f"[ArrayView] newer extension v{newer_version} is installed — keeping it",
