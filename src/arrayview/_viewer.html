@@ -20118,6 +20118,8 @@
 
         // ── Brightness/Contrast drag (Cmd+Shift+drag) and scroll ─────────
         let _bcDrag = null; // { startX, startY, initCenter, initWidth }
+        let _bcPendingDrag = null; // { startX, startY } — armed plain-left press, not yet a drag
+        const _BC_DRAG_DEADZONE = 5; // CSS px a press must travel before it counts as windowing
         let _bcScrollTimer = null; // debounce timer for scroll-based BC
         let _bcScrollAnchor = null; // { center, width, accumX, accumY } for scroll accumulation
         let _bcUpdateTimer = null; // throttle timer for server updates during drag
@@ -20183,6 +20185,10 @@
                 startX: e.clientX, startY: e.clientY,
                 initCenter: (vmin + vmax) / 2,
                 initWidth: vmax - vmin,
+                // A locked vmin removes a degree of freedom, so the drag has
+                // to collapse to one axis — see _bcUpdateDrag.
+                vminLocked: _dmenuEffectiveVminLocked(),
+                lockedLo: vmin,
             };
             canvas.style.cursor = 'crosshair';
             _bcExpandHist();
@@ -20193,12 +20199,40 @@
             const dy = e.clientY - _bcDrag.startY;
             // Sensitivity: scale by initial width so drag feels proportional
             const sens = _bcDrag.initWidth / 300;
-            const newCenter = _bcDrag.initCenter - dx * sens;
-            const newWidth = _bcDrag.initWidth - dy * sens * 2;
+            let newWidth = _bcDrag.initWidth - dy * sens * 2;
+            let newCenter;
+            if (_bcDrag.vminLocked) {
+                // vmin is pinned (manual lock, qMRI role, or zero floor), so
+                // vmax is the only free bound and centre/width are no longer
+                // independent. The horizontal axis has nothing to move: the
+                // drag collapses to vertical-only, growing the window upward
+                // from the pinned vmin. Clamped so vmax can never cross it.
+                newWidth = Math.max(newWidth, Math.abs(_bcDrag.initWidth) * 1e-3 || 1e-9);
+                newCenter = _bcDrag.lockedLo + newWidth / 2;
+            } else {
+                newCenter = _bcDrag.initCenter - dx * sens;
+            }
             _bcApplyWindow(newCenter, newWidth);
             _bcThrottledUpdate();
         }
+        // A plain left press arms a pending drag rather than starting one, so a
+        // press that never travels stays a click-to-copy / pixel-info hold.
+        // Past the deadzone it becomes window/level — the PACS convention for a
+        // single 2D view. Ortho and the other multi-view panes have their own
+        // canvases and keep left-drag for crosshair navigation.
+        function _bcMaybePromotePending(e) {
+            if (!_bcPendingDrag || _bcDrag) return;
+            if (!(e.buttons & 1)) { _bcPendingDrag = null; return; }
+            const origin = _bcPendingDrag;
+            if (Math.hypot(e.clientX - origin.startX, e.clientY - origin.startY) < _BC_DRAG_DEADZONE) return;
+            _bcPendingDrag = null;
+            if (_pixelInfoHeld) { _pixelInfoHeld = false; hideAllPixelInfo(); }
+            // Anchor to the press origin, not to here, so the window doesn't
+            // jump by the deadzone distance on the first frame.
+            _bcStartDrag({ clientX: origin.startX, clientY: origin.startY });
+        }
         function _bcEndDrag() {
+            _bcPendingDrag = null;
             if (!_bcDrag) return;
             _bcDrag = null;
             canvas.style.cursor = '';
@@ -20321,6 +20355,7 @@
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
                 _pixelInfoHeld = true;
+                if (_bcCanDrag()) _bcPendingDrag = { startX: e.clientX, startY: e.clientY };
                 canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
                 setTimeout(() => {
                     if (!_pixelInfoHeld) return;
@@ -21437,7 +21472,7 @@
         }
         // Old export-btn and roi-content listeners removed — now handled by island actions
         // Brightness/contrast: mousemove updates vmin/vmax
-        canvas.addEventListener('mousemove', e => { _bcUpdateDrag(e); });
+        canvas.addEventListener('mousemove', e => { _bcMaybePromotePending(e); _bcUpdateDrag(e); });
         // Crop drag-handle: while dragging, update the matching edge; otherwise
         // provide hover-cursor feedback when near an edge. Runs even when
         // Alt is held so we still update during an accidental Alt hover,
