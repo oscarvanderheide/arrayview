@@ -12,6 +12,29 @@ from arrayview._app import app
 
 
 # ---------------------------------------------------------------------------
+# Isolation
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_directory(tmp_path_factory, monkeypatch):
+    """Give every test its own instance registry.
+
+    An in-process ``view()`` registers the *running interpreter* as an ArrayView
+    instance.  Sharing one registry therefore lets a later test that shells out
+    to ``arrayview stop`` discover the test runner, verify it as a legitimately
+    owned instance, and SIGTERM it — pytest dies mid-file with exit 143 and no
+    failing test to point at.  Subprocesses inherit the variable, so the whole
+    tree stays inside the sandbox.
+
+    It also keeps a local test run from reaching the developer's real registry
+    and stopping viewers they have open.
+    """
+    monkeypatch.setenv(
+        "ARRAYVIEW_RUNTIME_DIR", str(tmp_path_factory.mktemp("runtime"))
+    )
+
+
+# ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
 

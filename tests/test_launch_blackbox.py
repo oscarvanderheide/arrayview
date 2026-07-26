@@ -505,8 +505,10 @@ def test_cli_vscode_protocol_process_session_display_and_cleanup(browser, tmp_pa
         )
         assert httpx.get(f"http://localhost:{port}/ping", timeout=1).status_code == 200
 
+        # `stop` takes no target: it stops every instance in the registry, and
+        # this run owns a private ARRAYVIEW_RUNTIME_DIR holding just this daemon.
         stop = subprocess.run(
-            [str(console), "stop", status["instance_id"]],
+            [str(console), "stop"],
             cwd=tmp_path,
             env=env,
             capture_output=True,

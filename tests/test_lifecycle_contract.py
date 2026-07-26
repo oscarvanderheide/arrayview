@@ -1692,9 +1692,16 @@ def test_vscode_open_ack_requires_requested_session_metadata():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
     assert "sessionMetadataUrlFromViewerUrl(openUrl)" in source
-    assert "sessionMetadataUrlFromViewerUrl(url)" in source
     assert "expired before a panel could be opened" in source
-    assert "serverReady && await httpStatus2xx(metadataUrl)" in source
+    # The session wait deliberately moved after panel creation, so the viewer can
+    # show its own loading state while a large array is still being read. What
+    # must not move: the ACK may not claim readiness until the requested session
+    # actually answers, and a failed load surfaces its reason instead of hanging.
+    assert "await waitForSessionReady(metadataUrl, metadataWaitMs)" in source
+    assert "sessionState.loadError" in source
+    assert source.index("waitForSessionReady(metadataUrl") < source.index(
+        "advanceAck('backend_ready')"
+    )
     assert "waitForViewerReady(panel, viewerTimeoutMs)" in source
     assert "message.phase === 'frame-rendered'" in source
     assert "await viewerReady" in source

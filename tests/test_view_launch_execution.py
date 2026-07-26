@@ -233,6 +233,7 @@ def test_existing_server_executes_python_plan(
 )
 def test_in_process_server_executes_python_plan(
     monkeypatch,
+    request,
     display,
     requested_window,
     expected_force_vscode,
@@ -256,6 +257,10 @@ def test_in_process_server_executes_python_plan(
     monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
 
     handle = launcher.view(np.zeros((2, 2)), window=requested_window)
+    # An in-process server registers this interpreter as a live ArrayView
+    # instance. Left open, it stays in the registry for the rest of the session
+    # and any later `arrayview stop` would act on the test runner itself.
+    request.addfinalizer(handle.close)
 
     assert isinstance(handle, launcher.ViewHandle)
     assert len(opened) == expected_opens
