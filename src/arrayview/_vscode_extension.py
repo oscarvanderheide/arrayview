@@ -358,7 +358,12 @@ def _run_extension_installer(command: list[str], env: dict[str, str]) -> subproc
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        # Same intent on both platforms: the installer gets its own group, so
+        # neither its shutdown nor a console Ctrl-C crosses between us and it.
         start_new_session=os.name != "nt",
+        creationflags=(
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        ),
     )
     try:
         stdout, stderr = process.communicate(timeout=30)

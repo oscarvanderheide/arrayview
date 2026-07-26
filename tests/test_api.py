@@ -3447,9 +3447,14 @@ class TestCliOpenHelpers:
             assert "kw = {'gui': gui} if gui else {}" in command[2]
             assert kwargs["stdin"] is subprocess.DEVNULL
             assert kwargs["close_fds"] is True
-            assert kwargs["start_new_session"] is (
-                launcher.sys.platform != "win32"
-            )
+            # The child must land in its own group on every platform; the option
+            # that achieves it differs, and Windows has no start_new_session.
+            if launcher.sys.platform == "win32":
+                assert (
+                    kwargs["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            else:
+                assert kwargs["start_new_session"] is True
 
     def test_build_inline_shell_html_preserves_init_query(self):
         import arrayview._launcher as launcher

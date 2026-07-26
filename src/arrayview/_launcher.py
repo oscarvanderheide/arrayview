@@ -44,6 +44,21 @@ import arrayview._platform as _platform_mod  # for mutable globals
 _vscode_mod_cache = None
 
 
+def _detached_child_kwargs() -> dict[str, object]:
+    """Popen options placing a spawned child outside our own signal reach.
+
+    ``start_new_session`` is POSIX-only, so passing ``sys.platform != "win32"``
+    left every Windows spawn in the parent's console process group.  A console
+    control event raised for that group reaches *every* process attached to it,
+    so a child being shut down can deliver a KeyboardInterrupt to the process
+    that spawned it — under pytest, to the test runner itself.  Both branches
+    state the same intent: the child gets its own group.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def _trace_launch_event(event: str, **attrs: object) -> None:
     """Emit an opt-in launch event without loading tracing on normal paths."""
     if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
@@ -495,7 +510,7 @@ def _open_webview(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
             close_fds=True,
-            start_new_session=sys.platform != "win32",
+            **_detached_child_kwargs(),
         )
 
     # URL mode — direct load (used when shell_port not provided)
@@ -545,7 +560,7 @@ def _open_webview(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
         close_fds=True,
-        start_new_session=sys.platform != "win32",
+        **_detached_child_kwargs(),
     )
 
 
@@ -2062,7 +2077,7 @@ def _handle_cli_spawned_daemon(
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
             "close_fds": True,
-            "start_new_session": sys.platform != "win32",
+            **_detached_child_kwargs(),
         }
         if os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
             from arrayview._launch_trace import trace_child_environment
@@ -3998,7 +4013,7 @@ def _view_subprocess(
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     close_fds=True,
-                    start_new_session=sys.platform != "win32",
+                    **_detached_child_kwargs(),
                 )
                 if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
                     raise RuntimeError(
@@ -5439,7 +5454,7 @@ def arrayview():
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
-                start_new_session=sys.platform != "win32",
+                **_detached_child_kwargs(),
             )
             if not _wait_for_spawned_server(proc, args.port, timeout=15.0):
                 _terminate_owned_process(proc)
