@@ -6159,6 +6159,8 @@
         let rangeLocked = true; // when true, d-set limits never auto-recompute on navigation
         let vminLocked = false;  // lock lower bound independently
         let vmaxLocked = false;  // lock upper bound independently
+        let symmetricLocked = false;  // tie vmin = -vmax so zero stays centred
+        let _dmenuSymmetricMirroring = false;  // re-entrancy guard for the mirror write
         let excludeZeros = false; // exclude zero-valued voxels from histogram computation
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
         let rasResampleActive = false;
@@ -20185,9 +20187,11 @@
                 startX: e.clientX, startY: e.clientY,
                 initCenter: (vmin + vmax) / 2,
                 initWidth: vmax - vmin,
-                // A locked vmin removes a degree of freedom, so the drag has
-                // to collapse to one axis — see _bcUpdateDrag.
+                // A locked vmin or a symmetric lock removes a degree of
+                // freedom, so the drag has to collapse to one axis — see
+                // _bcUpdateDrag.
                 vminLocked: _dmenuEffectiveVminLocked(),
+                symmetric: _dmenuEffectiveSymmetricLocked(),
                 lockedLo: vmin,
             };
             canvas.style.cursor = 'crosshair';
@@ -20201,7 +20205,13 @@
             const sens = _bcDrag.initWidth / 300;
             let newWidth = _bcDrag.initWidth - dy * sens * 2;
             let newCenter;
-            if (_bcDrag.vminLocked) {
+            if (_bcDrag.symmetric) {
+                // Bounds are tied to ±half-width, so the centre is fixed at
+                // zero and only the width is free — vertical-only, same shape
+                // as the pinned-vmin case below but anchored differently.
+                newWidth = Math.max(newWidth, Math.abs(_bcDrag.initWidth) * 1e-3 || 1e-9);
+                newCenter = 0;
+            } else if (_bcDrag.vminLocked) {
                 // vmin is pinned (manual lock, qMRI role, or zero floor), so
                 // vmax is the only free bound and centre/width are no longer
                 // independent. The horizontal axis has nothing to move: the
@@ -34801,6 +34811,17 @@
             return vminLocked || _dmenuPolicyLocksVmin();
         }
 
+        // Signed data whose zero is a reference point — difference images,
+        // phase, field maps, statistical maps — only reads correctly when zero
+        // sits at the centre of the colormap; window it asymmetrically and the
+        // neutral colour drifts off zero, so sign can no longer be judged by
+        // eye. This lock ties the bounds together to prevent that. It stays
+        // opt-in rather than auto-engaging on any signed data, because plenty
+        // of signed data (CT in Hounsfield units) has no symmetry about zero.
+        function _dmenuEffectiveSymmetricLocked() {
+            return symmetricLocked;
+        }
+
         function _dmenuRows() {
             const qmriPolicyLocksVmin = _dmenuQmriPolicyLocksVmin();
             const zeroFloorLocksVmin = _dmenuZeroFloorLocksVmin();
@@ -34808,6 +34829,8 @@
             return [
                 { kind: 'lock', action: 'vmin', label: 'vmin', policyLocked: policyLocksVmin, zeroFloorLocked: zeroFloorLocksVmin, qmriPolicyLocked: qmriPolicyLocksVmin, note: _dmenuEffectiveVminLocked() ? 'locked' : '' },
                 { kind: 'lock', action: 'vmax', label: 'vmax', note: vmaxLocked ? 'locked' : '' },
+                { kind: 'lock', action: 'symmetric', label: '±', note: _dmenuEffectiveSymmetricLocked() ? 'locked' : '',
+                  lockTitle: _dmenuEffectiveSymmetricLocked() ? 'symmetric: zero centred' : 'symmetric: unlocked' },
             ];
         }
 
@@ -34834,11 +34857,13 @@
                 btn.setAttribute('aria-checked', locked ? 'true' : 'false');
                 if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
                 if (locked) btn.classList.add('is-locked');
-                const lockLabel = row.qmriPolicyLocked
-                    ? `${row.label}: locked at 0 by qMRI role`
-                    : row.zeroFloorLocked
-                        ? `${row.label}: locked at 0`
-                        : (locked ? `${row.label}: locked` : `${row.label}: unlocked`);
+                const lockLabel = row.lockTitle
+                    ? row.lockTitle
+                    : row.qmriPolicyLocked
+                        ? `${row.label}: locked at 0 by qMRI role`
+                        : row.zeroFloorLocked
+                            ? `${row.label}: locked at 0`
+                            : (locked ? `${row.label}: locked` : `${row.label}: unlocked`);
                 btn.title = lockLabel;
                 btn.setAttribute('aria-label', lockLabel);
                 btn.innerHTML = locked
@@ -34860,7 +34885,11 @@
                 });
                 return btn;
             };
-            return [makeLock(rows[0], 0, _dmenuEffectiveVminLocked()), makeLock(rows[1], 1, vmaxLocked)];
+            return [
+                makeLock(rows[0], 0, _dmenuEffectiveVminLocked()),
+                makeLock(rows[1], 1, vmaxLocked),
+                makeLock(rows[2], 2, _dmenuEffectiveSymmetricLocked()),
+            ];
         }
 
         function _dmenuSetBoundManual(action, value) {
@@ -34899,6 +34928,14 @@
                 });
                 if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmax = manualVmax; });
                 if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmax = manualVmax; });
+            }
+            // Under a symmetric lock the bounds move together, so mirror the
+            // write through the same per-mode fan-out above rather than
+            // duplicating it. The guard stops the mirror from recursing.
+            if (!_dmenuSymmetricMirroring && _dmenuEffectiveSymmetricLocked()) {
+                _dmenuSymmetricMirroring = true;
+                try { _dmenuSetBoundManual(action === 'vmin' ? 'vmax' : 'vmin', -value); }
+                finally { _dmenuSymmetricMirroring = false; }
             }
         }
 
@@ -35384,6 +35421,26 @@
             if (!row) return;
             if (row.kind === 'boundPreset') {
                 if (_dmenuApplyBoundPreset(row.action, row.index)) _dmenuCloseAfterSelection();
+                return;
+            }
+            if (row.action === 'symmetric') {
+                symmetricLocked = !symmetricLocked;
+                if (symmetricLocked) {
+                    // Snap the current window symmetric straight away so the
+                    // toggle has a visible effect rather than only shaping
+                    // later adjustments. The widest bound sets the half-width
+                    // so nothing currently visible gets clipped away.
+                    const half = Math.max(
+                        Math.abs(Number(manualVmin ?? currentVmin)),
+                        Math.abs(Number(manualVmax ?? currentVmax)),
+                    );
+                    if (Number.isFinite(half) && half > 0) _dmenuSetBoundManual('vmax', half);
+                }
+                _dmenuRefreshAfterRangeChange();
+                _dmenuPickerRender();
+                _restartHistAutoDismiss();
+                saveState();
+                if (closeAfterSelection) _dmenuCloseAfterSelection();
                 return;
             }
             if (row.action === 'vmin') {
