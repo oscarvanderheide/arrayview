@@ -60,7 +60,6 @@ jobs:
           tests/test_public_invocation_regressions.py
           tests/test_launch_execution_ownership.py
           tests/test_spawn_ownership.py
-          tests/test_codex_open.py
           tests/test_launch_trace.py
           tests/test_session_spec.py
           tests/test_launch_blackbox.py

@@ -41,7 +41,6 @@ class Invocation(_StrEnum):
     JULIA = "julia"
     MATLAB = "matlab"
     VSCODE_EXPLORER = "vscode_explorer"
-    CODEX = "codex"
 
 
 class Environment(_StrEnum):

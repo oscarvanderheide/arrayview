@@ -73,10 +73,6 @@ CONTRACT_CASES = (
         "python_plain_ssh", Invocation.PYTHON, Environment.SSH,
         ServerOwner.IN_PROCESS, Registration.IN_PROCESS_SESSION, Display.BROWSER,
     ),
-    ContractCase(
-        "codex_local", Invocation.CODEX, Environment.TERMINAL,
-        ServerOwner.IN_PROCESS, Registration.IN_PROCESS_SESSION, Display.BROWSER,
-    ),
 )
 
 

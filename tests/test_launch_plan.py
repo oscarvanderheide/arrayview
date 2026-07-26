@@ -95,7 +95,6 @@ def test_launch_data_enums_match_refactor_contract():
         "julia",
         "matlab",
         "vscode_explorer",
-        "codex",
     }
     assert {item.value for item in Environment} == {
         "terminal",
