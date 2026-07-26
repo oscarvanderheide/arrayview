@@ -21,3 +21,8 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
 - tmux: `VSCODE_IPC_HOOK_CLI` not inherited; must walk client PIDs
 - Signal routing: local → per-window targeted file; remote/tunnel → shared fallback
 - Remote ports: configure preview, promote tunnel privacy when available, resolve URL via `asExternalUri`
+- Which backend version a click runs is *not* obvious: `arrayview.packageSpec`
+  (machine-scoped, so it leaks across windows) can redirect `--with arrayview`
+  to a local checkout, and an already-running daemon on port 8000 overrides
+  both. Confirm with `curl -s localhost:8000/ping` → `package_version`.
+  See "Testing backend changes without cutting a release" in `CONTRIBUTING.md`.

@@ -85,6 +85,43 @@ uv sync
 uv run arrayview tests/  # launch with test data
 ```
 
+### Testing backend changes without cutting a release
+
+Clicking an array in the VS Code Explorer launches ArrayView through
+`uv run … --with arrayview`, which resolves the **released** package from PyPI.
+That makes iterating on `src/` painful: every change would need a release.
+
+The `arrayview.packageSpec` setting overrides that. Point it at an absolute
+path and the extension switches to `--with-editable <path>`, so the launch runs
+your working tree live — edits apply on the next launch, no reinstall, no
+release:
+
+```jsonc
+// ~/.vscode-server/data/Machine/settings.json   (remote/tunnel)
+// ~/.config/Code/User/settings.json             (local)
+"arrayview.packageSpec": "/path/to/your/arrayview"
+```
+
+Set it back to `"arrayview"` to test the real released package again.
+
+Three things to know, all of which have cost debugging time:
+
+- **The setting is `machine-overridable` and Machine settings are per-host, not
+  per-window.** Setting it while developing silently applies to *every* window
+  on that host — including unrelated workspaces you thought were testing the
+  release. If a "clean" window behaves like your checkout, check this first.
+- **A running daemon outranks the setting.** If port 8000 already has a daemon,
+  a click takes the fast-load path and hands the file to that existing process,
+  whatever version it is. Changing `packageSpec` has no effect until the daemon
+  is gone. `curl -s localhost:8000/ping` reports `package_version` — check it
+  before concluding anything about which code just ran.
+- **No window reload is needed.** The setting is read per launch. The daemon,
+  however, must actually be killed.
+
+This only affects the Python package. The extension itself is a separate
+artifact: rebuild and reinstall the VSIX to change extension behaviour (see
+`vscode-extension/AGENTS.md`).
+
 ## Style notes
 
 - The frontend lives in a single file: `src/arrayview/_viewer.html`.
