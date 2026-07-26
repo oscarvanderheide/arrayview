@@ -9,11 +9,17 @@ Load the relevant skill before touching the corresponding area.
 | Skill | When |
 |-------|------|
 | `frontend-designer` | Styling/layout changes to `_viewer.html` |
+| `visual-bug-fixing` | A real visual bug, layout glitch, or rendering artifact |
+| `modes-consistency` | Canvas, zoom, colorbars, shortcuts, or layout across modes |
 | `invocation-consistency` | Server startup, display-opening, env detection |
 | `ui-consistency-audit` | Explicit full visual audit or pre-release validation |
 | `viewer-ui-checklist` | Release prep — syncing smoke/help/docs |
 | `diagnostic-bugfix` | Any change — find root cause, check all modes, propose abstraction fix |
-| `docs-style` | README, help overlay, docstrings |
+| `todo-workflow` | Batches of items — enforces commit-per-item and collateral updates |
+| `playwright-cli` | Driving a real browser to verify behaviour |
+
+Claude Code additionally loads `.claude/skills/vscode-extension` for opener/IPC
+work and `.claude/skills/iterative-debug`.
 
 ## Non-Negotiables
 
@@ -58,11 +64,9 @@ Read `CONTRIBUTING.md` before any user-facing change or PR.
 - Errors during display opening are shown as clean user messages by default.
   Run with `--trace` or set `ARRAYVIEW_TRACE=1` to see full Python tracebacks.
 
-For validation inside the Codex app in-app browser, open a served ArrayView
-session on `http://localhost:<port>/`.
-Do not use raw file links to `src/arrayview/_viewer.html` in the Codex app;
-they open `file://.../_viewer.html` without a backend session and the viewer
-will not work.
+Validate against a served session on `http://localhost:<port>/`. Never open
+`src/arrayview/_viewer.html` as a file link: `file://.../_viewer.html` has no
+backend session behind it, so the viewer cannot work and proves nothing.
 
 If `uv run arrayview --serve --port <port>` reports success but `localhost:<port>`
 refuses connections, start the empty server directly in one terminal, leave it
