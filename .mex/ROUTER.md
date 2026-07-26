@@ -57,7 +57,8 @@ Load only the file(s) matching the task. One is usually enough.
 - Working-tree CLI: `uv run arrayview <file>`
 - Installed-release CLI only: `uvx arrayview <file>` (never working-tree evidence)
 - Build: `uv build`
-- Drift check: `mex check --quiet`
+- Drift check: `.mex/check.sh` — never bare `mex`, which on many Linux boxes is
+  TeX's pdftex under the same name (see `.mex/mex-bin.sh`)
 
 ## After Completing a Task
 

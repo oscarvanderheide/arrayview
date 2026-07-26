@@ -20,7 +20,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-06-11
+last_updated: 2026-07-26
 ---
 
 # Architecture
@@ -61,7 +61,7 @@ pywebview, or system browser).
 - **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii` and `.nii.gz`, `.zarr`, `.zarr.zip`, `.pt` and `.pth`, `.h5` and `.hdf5`, `.tif` and `.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
 - **`_vscode.py`** — VS Code integration facade. Submodules: `_vscode_extension.py` (install), `_vscode_signal.py` (signal-file IPC), `_vscode_browser.py` (browser/SSH guidance).
-- **`_viewer.html`** — The entire frontend (~24 100 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
+- **`_viewer.html`** — The entire frontend (~36 500 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 
 ## Frontend Tool Lifecycle
 
@@ -110,7 +110,9 @@ For multi-array formats or formats with non-displayable members, keep key filter
 
 ## What Does NOT Exist Here
 
-- No persistent storage — sessions are in-memory only; nothing is written to disk by the server.
+- No persistent session storage — sessions and array data are in-memory only. The
+  server does write small JSON presets on explicit user action (`/oblique/save`,
+  the `/crop/*` routes in `_routes_persistence.py`); nothing else touches disk.
 - No authentication or multi-user access control — server binds to localhost.
 - No build step for the frontend — `_viewer.html` is a single static file served from package resources.
 - No background job queue — heavy ops run in the render thread or prefetch pool, both owned by `_session.py`.

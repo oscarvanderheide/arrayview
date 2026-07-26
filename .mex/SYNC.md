@@ -19,11 +19,13 @@ In this repo, `.mex/sync.sh` is a wrapper around `mex sync --warnings`, so warni
 ## Quick Check
 
 ```bash
-mex check              # full drift report
-mex check --quiet      # one-liner: "drift score 85/100 (1 error)"
-mex sync --dry-run     # preview targeted fix prompts
-./.mex/sync.sh         # wrapper that includes warning-only files
+./.mex/check.sh          # one-liner: "drift score 85/100 (1 error)"
+./.mex/check.sh --report # full drift report
+./.mex/sync.sh           # wrapper that includes warning-only files
 ```
+
+Use the wrappers, not a bare `mex`: on Debian-family systems `texlive-lang-polish`
+owns `/usr/bin/mex` (pdftex), and a presence-only guard cannot tell them apart.
 
 ## Manual Resync
 

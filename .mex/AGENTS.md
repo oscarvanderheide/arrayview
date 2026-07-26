@@ -8,5 +8,6 @@ last_updated: 2026-06-19
 
 Use `.mex/ROUTER.md` at the start of a new task or when the task family changes.
 Do not reload it for routine follow-up work in the same area unless blocked.
-After finishing work, update any stale `.mex` files you touched and run `mex check --quiet`.
+After finishing work, update any stale `.mex` files you touched and run `.mex/check.sh`.
 If drift remains, use `.mex/sync.sh` for the repo-local sync path.
+Always go through those wrappers: a bare `mex` may resolve to TeX's pdftex.

@@ -52,9 +52,14 @@ No `.env` file is needed. All env vars are optional overrides; the server runs w
 - Run `uv run python` on `tests/visual_smoke.py` — browser smoke tests (requires playwright)
 - `uv run pytest -m "not browser"` — all non-browser tests
 - `uv build` — build wheel + sdist in the default build output directory
-- `mex check --quiet` — fast drift score for the `.mex` scaffold
+- `.mex/check.sh` — fast drift score for the `.mex` scaffold
 - `.mex/sync.sh` — repo-local wrapper around `mex sync --warnings`
 - `.mex/setup.sh` — install the post-commit drift hook for this clone
+
+The scaffold CLI must be reached through those wrappers. TeX Live's
+`texlive-lang-polish` installs `/usr/bin/mex` (a symlink to `pdftex`), so a bare
+`mex check` silently starts a TeX run instead. `.mex/mex-bin.sh` probes the
+binary's identity and fails loudly; set `MEX_BIN` to point at the real one.
 
 ## Common Issues
 
