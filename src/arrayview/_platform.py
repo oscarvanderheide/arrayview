@@ -581,9 +581,25 @@ def _exact_vscode_registration_remote(ipc: str) -> bool | None:
     both can exist in a local desktop window.
     """
     exact = _exact_vscode_window_registration(ipc)
-    if exact is not None and "remoteName" in exact[1]:
-        return exact[1].get("remoteName") is not None
-    return None
+    if exact is None or "remoteName" not in exact[1]:
+        return None
+    # _exact_vscode_window_registration's ARRAYVIEW_WINDOW_ID fallback trusts
+    # that id's own file directly and unconditionally — other callers (signal
+    # targeting, extension-version checks) need it to still resolve a window
+    # when ipc is unavailable or has legitimately drifted (e.g. a tunnel
+    # re-sockets without the window itself changing). Answering "is this
+    # remote" is riskier: a wrong placement picks the wrong display path
+    # outright. So here specifically, a raw env-var match with nothing to
+    # corroborate it against a live, unmatched ipc is refused rather than
+    # trusted — fall through to the caller's other signals instead.
+    env_window_id = os.environ.get("ARRAYVIEW_WINDOW_ID")
+    if (
+        ipc
+        and exact[0] == env_window_id
+        and exact[0] != hashlib.sha256(ipc.encode()).hexdigest()[:16]
+    ):
+        return None
+    return exact[1].get("remoteName") is not None
 
 
 def _has_live_vscode_remote_registration() -> bool:
