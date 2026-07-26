@@ -63,7 +63,7 @@ jobs:
           tests/test_launch_trace.py
           tests/test_session_spec.py
           tests/test_launch_blackbox.py
-          -v
+          -v --full-trace -o faulthandler_timeout=25
       - name: VS Code extension contracts
         run: |
           node vscode-extension/test_lifecycle_helpers.js
