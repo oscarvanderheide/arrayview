@@ -4093,7 +4093,7 @@ class TestCliOpenHelpers:
 
         message = str(excinfo.value)
         assert "older ArrayView process" in message
-        assert "arrayview --kill --port 8000" in message
+        assert "arrayview stop" in message
 
     def test_handle_cli_existing_server_opens_registered_session(self, monkeypatch):
         import arrayview._launcher as launcher
@@ -4190,7 +4190,7 @@ class TestCliOpenHelpers:
         out = capsys.readouterr().out
         assert "existing ArrayView server on port 8000" in out
         assert "directory stacking" in out
-        assert "arrayview --kill --port 8000" in out
+        assert "arrayview stop" in out
 
     def test_handle_cli_existing_server_reports_load_error_without_port_conflict(
         self, monkeypatch, tmp_path, capsys

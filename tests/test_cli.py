@@ -304,7 +304,7 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
         assert not _wait_for_ping(port, timeout=1.0)
     finally:
         subprocess.run(
-            [sys.executable, "-m", "arrayview", "--kill", "--port", str(port)],
+            [sys.executable, "-m", "arrayview", "stop"],
             env=env,
             capture_output=True,
             text=True,

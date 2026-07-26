@@ -327,9 +327,11 @@ Add:
 arrayview doctor
 arrayview doctor --json
 arrayview instances
-arrayview stop <instance-id>
-arrayview stop --all
+arrayview stop
 ```
+
+`stop` (alias `kill`, plus the legacy `--kill` flag) takes no arguments and
+stops every running instance.
 
 `doctor` calls the same snapshot and planner as launch, then performs optional
 non-destructive probes. It should show:

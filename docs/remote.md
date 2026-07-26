@@ -51,7 +51,7 @@ arrayview --serve
 ```
 
 Set port 8000 to Public in the VS Code Ports tab, then load arrays normally.
-The server persists across invocations. Kill it with `arrayview --kill`.
+The server persists across invocations. Stop it with `arrayview stop`.
 
 ## Multi-hop
 

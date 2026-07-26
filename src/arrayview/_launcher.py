@@ -1672,7 +1672,7 @@ def _register_cli_session_with_existing_server_impl(
             error += (
                 "\nThe server on this port is an older ArrayView process that "
                 "does not support automatic --overlay-dir case inference yet. "
-                f"Restart it with: arrayview --kill --port {port}"
+                "Restart it with: arrayview stop"
             )
         raise RuntimeError(f"Error from server: {error}")
     _loaded_sids.append(str(result["sid"]))
@@ -1860,7 +1860,7 @@ def _handle_cli_existing_server(
             print(
                 f"Error: existing ArrayView server on port {port} does not support "
                 "directory stacking. Restart it with "
-                f"`arrayview --kill --port {port}` or choose a free port with "
+                "`arrayview stop` or choose a free port with "
                 f"`--port`. ({e})"
             )
             sys.exit(1)
@@ -4815,9 +4815,29 @@ def _instance_public_dict(record) -> dict[str, object]:
     return value
 
 
+def _run_stop_command() -> None:
+    """Stop every running ArrayView instance and clean up stale state."""
+    from arrayview._instance_registry import InstanceRegistry  # noqa: PLC0415
+
+    records = InstanceRegistry().discover(clean_stale=True)
+    if not records:
+        print("[ArrayView] No running ArrayView instances.")
+    for record in records:
+        message, _pid = _stop_verified_server(record.port)
+        print(f"[ArrayView] {record.instance_id}: {message}")
+
+    from arrayview._vscode_signal import (  # noqa: PLC0415
+        _cleanup_zombie_registrations,
+    )
+
+    cleaned = _cleanup_zombie_registrations(verbose=True)
+    if cleaned:
+        print(f"[ArrayView] Cleaned {cleaned} zombie window registration(s)")
+
+
 def _handle_management_command(argv: list[str]) -> bool:
     """Handle dependency-light management subcommands before the file CLI."""
-    if not argv or argv[0] not in {"doctor", "instances", "stop"}:
+    if not argv or argv[0] not in {"doctor", "instances", "stop", "kill"}:
         return False
     command = argv[0]
     parser = argparse.ArgumentParser(prog=f"arrayview {command}")
@@ -4843,22 +4863,10 @@ def _handle_management_command(argv: list[str]) -> bool:
                 )
         return True
 
-    if command == "stop":
-        group = parser.add_mutually_exclusive_group(required=True)
-        group.add_argument("instance_id", nargs="?")
-        group.add_argument("--all", action="store_true")
-        args = parser.parse_args(argv[1:])
-        records = InstanceRegistry().discover(clean_stale=True)
-        selected = (
-            records
-            if args.all
-            else [record for record in records if record.instance_id == args.instance_id]
-        )
-        if not selected:
-            parser.error("no matching running ArrayView instance")
-        for record in selected:
-            message, _pid = _stop_verified_server(record.port)
-            print(f"[ArrayView] {record.instance_id}: {message}")
+    if command in {"stop", "kill"}:
+        parser.description = "Stop every running ArrayView server."
+        parser.parse_args(argv[1:])
+        _run_stop_command()
         return True
 
     parser.add_argument("--json", action="store_true")
@@ -5002,7 +5010,7 @@ def arrayview():
     parser.add_argument(
         "--kill",
         action="store_true",
-        help="Kill the ArrayView server running on --port (default 8000) and exit",
+        help="Deprecated: use `arrayview stop`",
     )
     parser.add_argument(
         "--overlay",
@@ -5350,15 +5358,9 @@ def arrayview():
             sys.exit(1)
         return
 
-    # -- --kill: stop the server on the given port --
+    # -- --kill: deprecated alias for `arrayview stop` --
     if args.kill:
-        message, _pid = _stop_verified_server(args.port)
-        print(f"[ArrayView] {message}")
-
-        from arrayview._vscode_signal import _cleanup_zombie_registrations
-        cleaned = _cleanup_zombie_registrations(verbose=True)
-        if cleaned:
-            print(f"[ArrayView] Cleaned {cleaned} zombie window registration(s)")
+        _run_stop_command()
         return
 
     # -- --serve: start a persistent empty server and exit --
@@ -5403,7 +5405,7 @@ def arrayview():
                 if serve_context.evidence.is_vscode_remote:
                     print(
                         f"[ArrayView] Port {args.port} was claimed while starting.\n"
-                        f"  Run 'arrayview --kill --port {args.port}' to free it, "
+                        "  Run 'arrayview stop' to free it, "
                         "or use --port to specify a different port.",
                         flush=True,
                     )
@@ -5675,7 +5677,7 @@ def arrayview():
     if launch_plan.failure is LaunchFailure.REMOTE_PORT_CONFLICT:
         print(
             f"[ArrayView] Port {args.port} is in use by another process.\n"
-            f"  Run 'arrayview --kill --port {args.port}' to free it, "
+            "  Run 'arrayview stop' to free it, "
             f"or use --port to specify a different port.",
             flush=True,
         )

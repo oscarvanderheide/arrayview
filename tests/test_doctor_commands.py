@@ -59,8 +59,9 @@ def test_instances_json_lists_public_identity(monkeypatch, capsys):
     assert "control_token" not in result["instances"][0]
 
 
-def test_stop_resolves_instance_to_recorded_port(monkeypatch, capsys):
-    _Registry.records = [_record("known", 9001)]
+@pytest.mark.parametrize("command", ["stop", "kill"])
+def test_stop_kills_every_recorded_instance(monkeypatch, capsys, command):
+    _Registry.records = [_record("first", 9001), _record("second", 9002)]
     monkeypatch.setattr("arrayview._instance_registry.InstanceRegistry", _Registry)
     calls = []
     monkeypatch.setattr(
@@ -68,20 +69,36 @@ def test_stop_resolves_instance_to_recorded_port(monkeypatch, capsys):
         "_stop_verified_server",
         lambda port: (calls.append(port) or "stopped", 123),
     )
-    output = _run(monkeypatch, capsys, "stop", "known")
-    assert calls == [9001]
-    assert "known: stopped" in output
+    output = _run(monkeypatch, capsys, command)
+    assert calls == [9001, 9002]
+    assert "first: stopped" in output
+    assert "second: stopped" in output
 
 
-def test_stop_unknown_identity_never_invokes_port_stop(monkeypatch, capsys):
-    _Registry.records = [_record("known", 9001)]
+def test_stop_without_instances_is_not_an_error(monkeypatch, capsys):
+    _Registry.records = []
     monkeypatch.setattr("arrayview._instance_registry.InstanceRegistry", _Registry)
-    monkeypatch.setattr(_launcher, "_stop_verified_server", lambda _port: pytest.fail("must not stop"))
-    monkeypatch.setattr(sys, "argv", ["arrayview", "stop", "unknown"])
-    with pytest.raises(SystemExit):
-        _launcher.arrayview()
+    monkeypatch.setattr(
+        _launcher, "_stop_verified_server", lambda _port: pytest.fail("must not stop")
+    )
+    assert "No running ArrayView instances" in _run(monkeypatch, capsys, "stop")
 
 
-def test_legacy_diagnose_and_kill_still_bypass_subcommands(monkeypatch):
-    assert not _launcher._handle_management_command(["--diagnose"])
+def test_legacy_kill_flag_stops_every_instance(monkeypatch, capsys):
+    _Registry.records = [_record("first", 9001)]
+    monkeypatch.setattr("arrayview._instance_registry.InstanceRegistry", _Registry)
+    calls = []
+    monkeypatch.setattr(
+        _launcher,
+        "_stop_verified_server",
+        lambda port: (calls.append(port) or "stopped", 123),
+    )
+    # --kill is a flag on the file CLI, not a subcommand, so it bypasses
+    # _handle_management_command and lands in the launch parser.
     assert not _launcher._handle_management_command(["--kill"])
+    _run(monkeypatch, capsys, "--kill")
+    assert calls == [9001]
+
+
+def test_legacy_diagnose_still_bypasses_subcommands(monkeypatch):
+    assert not _launcher._handle_management_command(["--diagnose"])
