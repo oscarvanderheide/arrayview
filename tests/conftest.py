@@ -3,6 +3,22 @@ import socket
 import threading
 import time
 
+# --- TEMPORARY WINDOWS DEBUG ---
+import faulthandler as _fh
+import signal as _sig
+import sys as _sys
+
+if _sys.platform == "win32":
+    _T0 = time.monotonic()
+
+    def _dbg_sigint(signum, frame):
+        print(f"\n### SIGINT delivered at {time.monotonic() - _T0:.2f}s", flush=True)
+        _fh.dump_traceback(file=_sys.stdout, all_threads=True)
+        _sys.stdout.flush()
+
+    _sig.signal(_sig.SIGINT, _dbg_sigint)
+# --- END TEMPORARY DEBUG ---
+
 import httpx
 import numpy as np
 import pytest
