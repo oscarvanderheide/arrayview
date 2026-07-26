@@ -565,6 +565,83 @@ later instead of staying occupied.
 
 **Result**: (pending — awaiting user test)
 
+---
+
+## Attempt 8: show the viewer while the array is still loading
+
+**Date**: 2026-07-26
+**Trigger**: maintainer reported ~10 s of a blank tab on a cold start, and
+several seconds on a terminal launch, before the animating logo appears.
+Committed `ae7b19c` first at their request so there was a known-good fallback.
+
+**Measurement before changing anything** (cold start, `parameter_maps.nii`):
+
+| Phase | Time |
+|---|---|
+| spawn `uv` → process running | 1.25 s |
+| Python boot → server listening | 1.02 s |
+| wait for session (array loading off `/smb`) | 4.13 s |
+| panel created → viewer booted | 0.55 s |
+| first frame rendered | 4.72 s |
+| **total** | **~11.7 s** |
+
+The terminal launch showed the same shape: a constant 4.16 s between `LOCK` and
+the first route check, entirely inside the session wait. That is genuine work —
+`sense_images_denoised_SEC.npy` is 419 MB of complex64 and `np.load` alone takes
+3.89 s. About 9 of the 11.7 s is real loading and rendering.
+
+**The actual defect**: none of it was visible. `_serve_daemon` starts uvicorn
+before loading on purpose — *"Start uvicorn immediately — the window can open
+before data is ready"* — and the viewer has a cold-start loading spinner for
+exactly this. The opener discarded that by waiting for `/metadata/<sid>` to
+return 200 *before* creating the panel.
+
+**Change**:
+- `extension.js`: removed the pre-panel session wait. Order is now resolve URL →
+  open panel → await session readiness (still 422-aware) → await first frame.
+- `_viewer.html`: added `fetchMetadataWithRetry` / `showMetadataError`. The
+  viewer previously treated any non-2xx metadata reply as fatal and printed
+  "Session not found or expired" — precisely the race the pre-panel wait
+  existed to prevent, so the reorder was impossible without this. It now uses
+  the three states the backend already distinguishes: `404` + `Retry-After` =
+  still loading, retry; bare `404` = unknown or released, stop; `422` = load
+  failed, show the reason.
+- `extension.js`: `waitForViewerReady`'s timeout became an **inactivity**
+  budget, reset on each newly observed phase. With the panel opening before the
+  load completes, a flat cap would fail a launch for being slow rather than
+  stuck. A stalled launch still fails after 45 s of silence — strictly better
+  than Attempt 2's flat cap.
+- `extension.js`: added `PANEL_MIN_REMAINING_MS`. Opening a panel is a visible
+  side effect and is now refused for a request with under a second of life left;
+  the removed wait used to consume the remaining lifetime and enforce this
+  implicitly.
+
+**Regression caught by the tests, twice.** `test_request_deadline` asserts an
+expired request must not create a panel. Removing the wait broke that — first
+the panel opened anyway, then the terminal ACK was not recorded because the old
+path reached expiry through `ensureActive`/`_expireProtocolRequest`. Both fixed;
+the guard now fences a genuinely expired request and otherwise writes the failed
+ACK directly.
+
+**Verification**: against a real daemon with the 419 MB file — the page serves
+200 within 0.5 s of start, `/metadata` returns `404 + Retry-After: 1` for ~4 s,
+then 200. Unknown sid returns a bare 404 (viewer stops), failed load returns
+422. All 10 Node tests pass.
+
+**On the browser suite**: a combined four-suite run showed 40 failures against a
+35 baseline, which looked like five regressions. It was not. Run alone the suite
+gives 35 vs a 34 baseline, and the single differing test
+(`TestKeyboard::test_R_registration_overlay_and_n_cycles_compare_target`) fails
+3/3 both with and without the changes. `tests/test_browser.py` is flaky and
+order-dependent with ~34 pre-existing failures, including a missing
+`tests/snapshots/` directory. **Never compare raw counts on this suite — diff
+failure sets by test name.**
+
+**Expected effect**: logo/spinner at ~2.5 s instead of ~10 s. Total time to
+first frame unchanged; this is feedback, not throughput.
+
+**Result**: (pending — awaiting user test; needs a window reload to 0.14.87)
+
 Acceptance rows now passing: T1–T6, T10. R7, R9, R10 hold on the Explorer path.
 
 ### Session summary — what was actually wrong
