@@ -9278,7 +9278,20 @@
         function formatValueGroup(values, options = {}) {
             const finite = (Array.isArray(values) ? values : [values]).filter(Number.isFinite);
             const cap = Math.max(0, Math.min(8, Math.trunc(options.maxDecimals ?? 7)));
-            const minDecimals = Math.max(0, Math.min(cap, Math.trunc(options.minDecimals ?? 2)));
+            // Decimals worth showing depend on magnitude. Two was applied at
+            // every scale, so a range topping out near 1890 read as "1890.04"
+            // when the hundredths carry no information. The floor is only ever
+            // lowered for large values, never raised, so small ranges keep the
+            // precision they had. The search below can still add decimals when
+            // values would otherwise collide.
+            const _defaultMinDecimals = (vals) => {
+                const m = Math.max(...vals.filter(Number.isFinite).map(v => Math.abs(v)));
+                if (!(m > 0) || !Number.isFinite(m)) return 2;
+                return Math.max(0, Math.min(2, 3 - Math.floor(Math.log10(m))));
+            };
+            const minDecimals = Math.max(0, Math.min(cap, Math.trunc(
+                options.minDecimals ?? _defaultMinDecimals(finite)
+            )));
             const ordinaryLo = options.ordinaryLo ?? 1e-4;
             const ordinaryHi = options.ordinaryHi ?? 1e6;
             const fallback = {
@@ -35952,9 +35965,12 @@
                 return `${x.toFixed(1)},${y.toFixed(1)}`;
             }).join(' ');
             const distLabel = distance.toFixed(1) + ' px';
+            // Share the colorbar's formatter so the same value does not read
+            // differently here than it does on the colorbar.
+            const _lpFmt = formatValueGroup([vMin, vMax]);
             const fmtVal = v => {
                 if (v === null || !isFinite(v)) return '?';
-                return Math.abs(v) < 0.01 || Math.abs(v) >= 1e4 ? v.toExponential(2) : v.toFixed(2);
+                return _lpFmt.format(v);
             };
             _lineProfileOverlay.innerHTML = `
                 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
