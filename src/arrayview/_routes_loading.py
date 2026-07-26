@@ -24,6 +24,7 @@ from arrayview._session import (
     SESSIONS,
     Session,
     file_signature,
+    upgrade_memmap_in_background,
     wait_for_session_ready,
 )
 
@@ -293,6 +294,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     session.related_release_sids = [
                         str(value) for value in body.get("related_sids", [])
                     ]
+                    upgrade_memmap_in_background(session)
                     commit_pending_session(sid, session)
                 except Exception as exc:
                     # Keep the server alive, and record why this sid will never

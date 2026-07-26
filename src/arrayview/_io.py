@@ -1397,6 +1397,76 @@ def _load_nifti_series(path, *, load="lazy", stack="auto"):
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 
 
+_MMAP_PAGE_BYTES = 4096
+
+
+def npy_eager_limit() -> int:
+    """Largest .npy that may be read fully into RAM."""
+    return int(os.environ.get("AV_NPY_EAGER_BYTES", 2 * 1024**3))
+
+
+def first_frame_fault_cost(shape, itemsize, strides, dims, total_bytes):
+    """Estimate what a memmap must fetch to render one 2D slice.
+
+    Returns ``(runs, bytes)``.  Both matter, and on network storage the run
+    count matters more: a frame of 210 single-page runs measured 1.34 s off an
+    SMB share while transferring under a megabyte, because the cost was 210
+    round-trips rather than the bytes.
+
+    Only the layout is consulted, so this touches no data.  The displayed axes
+    are ordered by stride; the inner one decides whether the frame arrives as a
+    few long runs or as one page per element.
+    """
+    dx, dy = dims
+    inner, outer = sorted(
+        ((abs(int(strides[d])), int(shape[d])) for d in (dx, dy)),
+        key=lambda pair: pair[0],
+    )
+    inner_stride, inner_len = inner
+    outer_stride, outer_len = outer
+
+    row_span = inner_len * inner_stride
+    if inner_stride == itemsize and outer_stride == row_span:
+        # The displayed pair is itself one contiguous block (e.g. axes (0, 1) of
+        # a Fortran-order array, or the trailing pair of a C-order one).
+        return 1, min(row_span * outer_len, int(total_bytes))
+    if inner_stride >= _MMAP_PAGE_BYTES:
+        # Nothing shares a page: one fetch per element, the pathological case.
+        runs = inner_len * outer_len
+        return runs, min(runs * _MMAP_PAGE_BYTES, int(total_bytes))
+    # Each row is one near-contiguous span; rows are scattered across the file.
+    row_bytes = max(row_span, _MMAP_PAGE_BYTES)
+    return outer_len, min(outer_len * row_bytes, int(total_bytes))
+
+
+def mmap_first_frame_is_cheap(arr, total_bytes) -> bool:
+    """Whether serving the viewer's first frame off *arr* beats reading it whole.
+
+    A memmap wins when the axes the viewer starts on are the fastest-varying
+    ones in the file layout, and loses badly when they are the slowest: the same
+    4D array costs a single contiguous block in Fortran order and roughly one
+    page per element in C order.  Both regimes are common, so decide per array
+    rather than assuming either.
+    """
+    if os.environ.get("AV_MMAP_FIRST_FRAME", "1") == "0":
+        return False
+    from ._session import _viewer_start_dims_for_shape
+
+    shape = tuple(int(s) for s in getattr(arr, "shape", ()))
+    strides = tuple(int(s) for s in getattr(arr, "strides", ()))
+    if len(shape) < 2 or len(strides) != len(shape) or not total_bytes:
+        return False
+    dims = _viewer_start_dims_for_shape(shape)
+    if dims is None:
+        return False
+    runs, faulted = first_frame_fault_cost(
+        shape, arr.dtype.itemsize, strides, dims, total_bytes
+    )
+    max_runs = int(os.environ.get("AV_MMAP_FIRST_FRAME_MAX_RUNS", "1024"))
+    fraction = float(os.environ.get("AV_MMAP_FIRST_FRAME_FRACTION", "0.25"))
+    return runs <= max_runs and faulted <= fraction * total_bytes
+
+
 def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select=None):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
@@ -1430,15 +1500,20 @@ def load_data(filepath, key=None):
         series, _meta = _load_file_series(filepath)
         return series
     if filepath.endswith(".npy"):
-        # Eager-load small-to-medium files into RAM.  mmap_mode="r" on a C-order
-        # 4D+ array forces scattered page faults for every orthogonal slice
-        # (elements are thousands of bytes apart), making first renders very slow.
-        # Sequential read is much faster and the PENDING_SESSIONS background thread
-        # hides the upfront cost.  Keep mmap only for files that don't fit in RAM.
-        _NPY_EAGER_LIMIT = int(os.environ.get("AV_NPY_EAGER_BYTES", 2 * 1024**3))
-        if os.path.getsize(filepath) < _NPY_EAGER_LIMIT:
-            return np.load(filepath)
-        return np.load(filepath, mmap_mode="r")
+        # Files that do not fit in RAM must be mapped whatever the access cost.
+        # Below that limit the array ends up in RAM either way; the only question
+        # is whether the first frame is served from the map while the sequential
+        # read runs behind it (see mmap_first_frame_is_cheap) or the viewer shows
+        # a spinner until the read completes.
+        size = os.path.getsize(filepath)
+        if size >= npy_eager_limit():
+            return np.load(filepath, mmap_mode="r")
+        mapped = np.load(filepath, mmap_mode="r")
+        if mmap_first_frame_is_cheap(mapped, size):
+            # Session creation upgrades this to an in-RAM array in the background.
+            return mapped
+        del mapped
+        return np.load(filepath)
     elif filepath.endswith(".npz"):
         npz = np.load(filepath)
         try:

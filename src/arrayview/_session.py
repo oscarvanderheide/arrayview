@@ -458,6 +458,49 @@ def _startup_dims_for_data(data, shape=None) -> tuple[int, int] | None:
     return _viewer_start_dims_for_shape(target_shape)
 
 
+def upgrade_memmap_in_background(session) -> bool:
+    """Read a memmap-backed session into RAM behind the viewer.
+
+    ``load_data`` hands back a memmap only when the first frame is cheap to
+    fault in, which buys an immediate picture but leaves later orientations
+    paying scattered reads.  The sequential read still has to happen, so run it
+    off the hot path and swap the array in when it lands.
+
+    Rebinding ``session.data`` is atomic under the GIL and the values are
+    identical, so a render already holding the memmap stays correct and the
+    slice caches stay valid.
+    """
+    data = getattr(session, "data", None)
+    filepath = getattr(session, "filepath", None)
+    if not isinstance(data, np.memmap) or not filepath:
+        return False
+    if not str(filepath).endswith(".npy"):
+        return False
+    try:
+        from ._io import npy_eager_limit
+
+        if os.path.getsize(filepath) >= npy_eager_limit():
+            return False  # does not fit in RAM — the map is the only option
+    except OSError:
+        return False
+
+    expected = data
+    version = getattr(session, "data_version", 0)
+
+    def _upgrade():
+        try:
+            loaded = np.load(filepath)
+        except Exception:
+            return  # keep serving from the map
+        # A /reload or a released session must not be clobbered by a read that
+        # started against the previous array.
+        if session.data is expected and getattr(session, "data_version", 0) == version:
+            session.data = loaded
+
+    threading.Thread(target=_upgrade, daemon=True).start()
+    return True
+
+
 SESSIONS = {}
 
 COLORMAPS = [

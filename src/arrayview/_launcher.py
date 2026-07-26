@@ -4307,6 +4307,7 @@ def _serve_daemon(
                         f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
                         flush=True,
                     )
+            _session_mod.upgrade_memmap_in_background(session)
             _session_mod.SESSIONS[session.sid] = session
             if dir_overlay_items is not None:
                 for item, ov_sid in zip(dir_overlay_items, overlay_sids or []):
