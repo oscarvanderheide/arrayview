@@ -533,12 +533,38 @@ function _reportExtensionVersionSkew(ownWindowId, ownVersion) {
     }, () => {});
 }
 
-function _arrayviewPackageArgs() {
-    let spec = 'arrayview';
+function _arrayviewPackageSpec() {
     try {
         const configured = vscode.workspace.getConfiguration('arrayview').get('packageSpec');
-        if (typeof configured === 'string' && configured.trim()) spec = configured.trim();
+        if (typeof configured === 'string' && configured.trim()) return configured.trim();
     } catch (_) {}
+    return 'arrayview';
+}
+
+// `uv tool install arrayview` leaves a stable, already-built venv with its
+// bytecode compiled. Launching from it skips the work `uv run --with` redoes
+// whenever a new arrayview is published: a measured 10.4 s to resolve and
+// install 110 packages, then ~6 s more compiling .pyc on first import.
+function _uvToolArrayviewBin() {
+    const exe = process.platform === 'win32' ? 'arrayview.exe' : 'arrayview';
+    const dirs = [];
+    if (process.env.UV_TOOL_BIN_DIR) dirs.push(process.env.UV_TOOL_BIN_DIR);
+    if (process.env.XDG_BIN_HOME) dirs.push(process.env.XDG_BIN_HOME);
+    dirs.push(path.join(os.homedir(), '.local', 'bin'));
+    if (process.platform === 'win32' && process.env.APPDATA) {
+        dirs.push(path.join(process.env.APPDATA, 'uv', 'tools', 'bin'));
+    }
+    for (const dir of dirs) {
+        const candidate = path.join(dir, exe);
+        try {
+            if (fs.existsSync(candidate)) return candidate;
+        } catch (_) {}
+    }
+    return null;
+}
+
+function _arrayviewPackageArgs() {
+    const spec = _arrayviewPackageSpec();
     if (spec !== 'arrayview' && path.isAbsolute(spec)) {
         // A local checkout runs live, so edits apply without a reinstall. The
         // surrounding uv invocation is unchanged, which keeps resolve timing
@@ -562,6 +588,12 @@ function _arrayviewLaunchCandidates(filePath) {
             candidates.push({ command: venvPy, argsPrefix: ['-m', 'arrayview'] });
             break;
         }
+    }
+    // Skipped when packageSpec points at a checkout: the tool environment holds
+    // the released code and would silently shadow the working tree under test.
+    if (_arrayviewPackageSpec() === 'arrayview') {
+        const toolBin = _uvToolArrayviewBin();
+        if (toolBin) candidates.push({ command: toolBin, argsPrefix: [] });
     }
     candidates.push({ command: 'uv', argsPrefix: ['run', '--directory', os.tmpdir(), '--no-project', '--python', '3.12', ..._arrayviewPackageArgs(), 'python', '-m', 'arrayview'] });
     candidates.push({ command: 'python3', argsPrefix: ['-m', 'arrayview'] });

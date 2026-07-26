@@ -26,3 +26,8 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
   to a local checkout, and an already-running daemon on port 8000 overrides
   both. Confirm with `curl -s localhost:8000/ping` → `package_version`.
   See "Testing backend changes without cutting a release" in `CONTRIBUTING.md`.
+- Launch candidate order: workspace `.venv` → `uv tool` install (only when
+  `packageSpec` is the default, so it cannot shadow a checkout) → `uv run
+  --with` → `python3 -m`. The tool entry exists because `uv run --with` rebuilds
+  its ephemeral env on every new release; a tool install trades that for an
+  explicit `uv tool upgrade arrayview`.

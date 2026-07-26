@@ -85,6 +85,39 @@ uv sync
 uv run arrayview tests/  # launch with test data
 ```
 
+### Making Explorer clicks start fast
+
+In a workspace with no `.venv`, a click falls through to `uv run --with
+arrayview`, which builds an ephemeral environment. That environment is cached,
+but **publishing a new arrayview invalidates it**, so the next click pays a full
+rebuild — measured at 10.4 s to resolve and install 110 packages, plus ~6 s more
+compiling bytecode on first import. Roughly 19 of a 21 s cold launch.
+
+Install arrayview as a uv tool once and the extension prefers it (a stable venv,
+bytecode already cached — 1.6 s from spawn to serving URL):
+
+```bash
+uv tool install arrayview
+# one-time: uv does not compile bytecode on install, and the first launch
+# otherwise pays for it
+"$(uv tool dir)/arrayview/bin/python" -m compileall -q -j 8 \
+    "$(uv tool dir)/arrayview/lib/python3.12/site-packages"
+```
+
+**Updating is now explicit** — this is the tradeoff. `uv run --with arrayview`
+picked up new releases on its own (at the cost above); a tool install stays on
+the version you installed until you say otherwise:
+
+```bash
+uv tool upgrade arrayview   # after publishing a release
+```
+
+Re-run `compileall` after upgrading. `curl -s localhost:8000/ping` reports
+`package_version` if you need to confirm what a click actually ran.
+
+The extension skips the tool environment whenever `arrayview.packageSpec` points
+at a checkout, so it cannot shadow the working tree you are testing.
+
 ### Testing backend changes without cutting a release
 
 Clicking an array in the VS Code Explorer launches ArrayView through
