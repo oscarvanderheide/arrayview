@@ -771,3 +771,46 @@ the user, not by the suite — the relay is not drivable from this host.
 **Still open**: the signal loop serialises on `isProcessingSignal` for the whole
 request including the viewer wait, so any slow load blocks every later click.
 The watchdog shrinks that window from 45 s to ~8 s but does not remove it.
+
+### 2026-07-27 later — four clicks, four different causes
+
+The user's summary was "still really really bad": one slow, one slower, one
+that would not load, one that hung. The log separates them into four unrelated
+things, which is the point worth recording — a single bad session is not a
+single bug, and treating it as one is how earlier rounds went wrong.
+
+| file | shape | outcome |
+|---|---|---|
+| `coil_sensitivities.npy` | (224,240,210,64), 5.8 GB | rendered, 11.6 s |
+| `initial_pd_UI.npy` | (224,240,1,204), 87 MB | rendered, 4.8 s |
+| `sampling_mask.npy` | — | **0 bytes on disk**; "No data left in file" was correct |
+| `sense_image.npy` | (11289600,), 90 MB | hung to timeout |
+
+**Not bugs**: the empty file (the user guessed this himself), and 5.8 GB
+resolving in 11.6 s.
+
+**The slowness is the relay, not the code.** For the first click the 1.9 MB
+viewer page took 6.8 s to cross (~280 KB/s) and the /ping warmup 1.85 s; the
+second took 3.0 s. That fixed cost is paid on every viewer open and is the
+single biggest lever on perceived speed. Caching the page is untried.
+
+**The hang was two defects stacked.** A 1-D array yields a 1-D slice, so the
+colormapped result is `(N, 4)` and `h, w = rgba.shape[:2]` reads the 4 RGBA
+channels as the image width — the header then advertises a 4-pixel-wide frame
+and PIL raises `buffer is not large enough` on every frame. **Size was never
+the variable**: a 10,000-element array fails identically, so the 90 MB and the
+tunnel were both red herrings. `sense_image.npy` is 224·240·210 flattened.
+
+The second defect is the one that generalises: the websocket handler logged the
+exception to the server's stdout and closed the socket without telling the
+viewer, so a hard backend failure presented as a silent hang and the only
+artifact was in a console nobody was reading. Any render failure now sends
+`render_error` and the viewer shows it.
+
+**Evidence**: `real process` — reproduced in Chromium via
+`tests/test_1d_arrays.py` before the fix (1-D never rendered, 2-D fine) and
+passing after, including the reported 11,289,600 shape.
+
+**Method note**: the first hypothesis was that the *large* 1-D array was too
+big. Parametrising over size killed it in one run — 10,000 elements failed the
+same way. Vary the suspected dimension before building on the theory.
