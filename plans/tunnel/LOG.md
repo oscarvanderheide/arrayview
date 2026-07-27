@@ -814,3 +814,34 @@ passing after, including the reported 11,289,600 shape.
 **Method note**: the first hypothesis was that the *large* 1-D array was too
 big. Parametrising over size killed it in one run — 10,000 elements failed the
 same way. Vary the suspected dimension before building on the theory.
+
+### 0.14.93 — an undrawable array must not take the queue with it
+
+Direct request: a wrong click should give a decent message and must not break
+subsequent loads.
+
+Sending `render_error` to the viewer (previous entry) fixed the message and not
+the collateral damage. The opener holds `isProcessingSignal` for the whole
+request, so a panel that never gets a frame still waited out its full timeout —
+45 s in the observed incident — with every later click dead behind it. That is
+the mechanism behind "it broke the next few too", and it is the same
+head-of-line blocking that produced the original 68.7 s queue wait.
+
+Chain now: viewer `reportParent('render-error')` → wrapper cancels its pending
+reload and posts `viewer-failed` → `waitForViewerReady` finishes with the
+backend's own message. Milliseconds instead of 45 s.
+
+**The asymmetry is the design.** A stalled transfer (0.14.92) is worth
+retrying because it may succeed; an undrawable array is not, because the retry
+reproduces the failure exactly. Same-looking symptom, opposite correct
+response — worth checking which one applies before adding any future retry.
+
+**Still open**: the queue is still strictly serial. Both fixes shorten how long
+a bad request holds it; neither removes the coupling, so one genuinely slow
+load still blocks later clicks. Fixing that means letting the viewer wait
+happen outside the lock, which changes request interleaving and deserves its
+own change.
+
+**Note**: 1-D arrays now render as a single row. The user does not need that
+capability, but it is correct, tested, and strictly better than the error it
+replaced, so it stays.
