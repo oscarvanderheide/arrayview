@@ -14228,8 +14228,31 @@
             }
         }
 
+        // The diff is computed server-side on a single render thread, so each
+        // request costs real time on a large array. Every keypress that lands
+        // while one is running used to queue another, which is why holding X
+        // felt frozen and then replayed every press at once. Coalesce to
+        // "latest wins": at most one request in flight, at most one queued —
+        // the same isRendering/pendingRequest shape the main path uses.
+        let _diffFetchActive = false;
+        let _diffFetchPending = false;
+
         async function fetchAndDrawDiff() {
             if (!diffMode || !compareActive || compareDisplaySids.length < 2) return;
+            if (_diffFetchActive) { _diffFetchPending = true; return; }
+            _diffFetchActive = true;
+            try {
+                await _fetchAndDrawDiffOnce();
+            } finally {
+                _diffFetchActive = false;
+                if (_diffFetchPending) {
+                    _diffFetchPending = false;
+                    fetchAndDrawDiff();
+                }
+            }
+        }
+
+        async function _fetchAndDrawDiffOnce() {
             const [sid_a, sid_b] = compareDisplaySids;
             const params = new URLSearchParams({
                 dim_x: String(dim_x),
@@ -14263,7 +14286,21 @@
                 const diffCanvas = document.getElementById('compare-diff-canvas');
                 diffCanvas.width = bmp.width;
                 diffCanvas.height = bmp.height;
-                diffCanvas.getContext('2d').drawImage(bmp, 0, 0);
+                const diffCtx = diffCanvas.getContext('2d', { willReadFrequently: true });
+                diffCtx.drawImage(bmp, 0, 0);
+                // r/flips are applied client-side on every other pane. Run the
+                // diff through the same function rather than a canvas
+                // transform, so mosaic (per-tile) flipping cannot drift from
+                // what the source panes do and leave the centre pane inverted.
+                if (flip_x || flip_y) {
+                    diffCtx.putImageData(
+                        applyFlips(
+                            diffCtx.getImageData(0, 0, bmp.width, bmp.height),
+                            bmp.width, bmp.height,
+                        ),
+                        0, 0,
+                    );
+                }
                 // In the default compare-center layouts the diff pane mirrors the
                 // first source pane footprint. The custom big-left layout owns its
                 // own scaling and must not be collapsed back to source-pane size.
@@ -32668,6 +32705,14 @@
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
         compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
+        // The centre pane is not in `compareCanvases`, so scrolling over it did
+        // nothing while the source panes either side changed slice. It shows
+        // the same slice as they do, so it takes the same wheel handler — both
+        // forms of it: diff, and the wipe/flicker/checker canvas.
+        ['compare-diff-canvas', 'compare-wipe-canvas'].forEach(id => {
+            const cv = document.getElementById(id);
+            if (cv) cv.addEventListener('wheel', onSliceWheel, { passive: false });
+        });
         // Crop drag-handle on primary-sid compare panes: registered first so
         // it can pre-empt the compare-pan / click-to-copy handlers when the
         // cursor is on a crop edge. Skips non-primary sids (overlay is only
