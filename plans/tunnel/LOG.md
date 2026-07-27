@@ -921,3 +921,35 @@ not the working tree:
 All three of today's Python-side fixes confirmed present in the tool env after
 `--reinstall`: the 1-D reshape, the `render_error` send, and the viewer's
 `reportParent('render-error')`.
+
+### 2026-07-27 — "why so slow": 31 s to first frame on a 5-D file
+
+`arrayview recons/parameter_maps_all.npy`, shape (224,240,204,6,9) float32,
+2.37 GB on the `/smb` mount. Log timings for request 81d80328:
+
+    signal → mode-change      1.1 s     (the whole opener path)
+    mode-change → frame-rendered  31.2 s
+
+So nothing in the opener, the tunnel, or the queue is implicated — the gap is
+entirely the backend producing the first frame.
+
+**Measuring it warm is a trap.** Repeating the extraction after the daemon had
+already read the file gives 0.22 s for all 204 slices and 0.16 s for both
+percentiles — 0.38 s against an observed 31.2 s. That number is meaningless:
+the page cache was warm from the very run being investigated. The same pattern
+against a file nothing had touched (`sec_001_to_009_excl_007_tight_ras_maps.npy`,
+1.05 GB) takes **13.8 s for 43.9 MB — an effective 3.18 MB/s**.
+
+**Cause**: the default view of this array is a mosaic over dim 2, so the first
+frame needs all 204 slices — 43.9 MB — not one 210 KB slice. Worse, the display
+dims are the *outermost* axes, so each slice is a strided gather (strides
+10575360, 44064 bytes) scattered across the whole 2.37 GB. At ~3 MB/s over SMB
+that is ~15 s of pure transfer for a 1 GB file and ~31 s for this one.
+
+The percentile pass over 11 M elements is 0.12–0.16 s and is not worth touching.
+
+**Not a bug, and not fixable by making the code faster** — the bytes have to
+cross the mount. What is fixable is the *wait*: render the middle slice first
+(0.1 s once its pages are in) and fill the mosaic in behind it, so first paint
+is ~1 s instead of 31 s. Untried, and it changes what the user sees first, so
+it needs agreement before implementing.
