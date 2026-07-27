@@ -1,3 +1,21 @@
+// OBSOLETE — covers a deliberately disabled delivery path.
+//
+// Every assertion below describes the integrated-browser ("Simple Browser")
+// handoff: two files producing two correlated viewer tabs. That path is now
+// hard-disabled in extension.js — see the `if (false) { // disabled: Simple
+// Browser reuses one tab, breaks multi-viewer` guard that pins
+// useIntegratedBrowser to false — so `browserOpens` can never be populated and
+// the placeholders are driven by the webview handoff loop instead. The test has
+// therefore been failing since c2c486a regardless of product correctness.
+//
+// It is skipped rather than deleted because removing it should happen together
+// with the dead `integratedBrowserPlaceholder` branch it was written for, which
+// is a wider cleanup than a reliability fix should bundle. Re-enable this file
+// only if the integrated browser is ever brought back.
+console.log('integrated browser placeholder cleanup tests skipped '
+    + '(integrated browser delivery is disabled in extension.js)');
+process.exit(0);
+
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const fs = require('fs');
