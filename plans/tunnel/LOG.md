@@ -878,3 +878,46 @@ request's lock. Not yet exercised on a real host.
 **Now genuinely open**: nothing bounds how many requests can be in their
 readiness wait at once. User clicks are self-limiting, so this is untested
 rather than known-bad.
+
+### 0.14.94 follow-up — two install traps, both self-inflicted
+
+The queue change was fine. The stuck "Opening … in ArrayView…" was a launch
+failure that never wrote a signal at all, and both causes were mine.
+
+**Trap 1: the bundled VSIX.** The Python package ships its own copy of the
+opener at `src/arrayview/arrayview-opener.vsix`, and `_ensure_vscode_extension`
+compares what is installed on disk against *that* copy — not against whatever
+was most recently built. Four version bumps (0.14.91 → 0.14.94) were each
+packaged into a scratch directory and installed with `code
+--install-extension`, so the extension host ran the new build while Python kept
+comparing against a bundled 0.14.90. Result: `_VSCODE_EXT_RELOAD_REQUIRED`, and
+the message "reload this exact window once, then retry" — advice no reload
+could satisfy, because the stale half was on disk.
+
+`vscode-extension/AGENTS.md` states the rebuild target
+(`vsce package -o ../src/arrayview/arrayview-opener.vsix`),
+`.mex/context/lifecycle.md` repeats it, and
+`tests/test_lifecycle_contract.py::test_bundled_vscode_vsix_matches_release_lifecycle_source`
+already asserts `package["version"] == _VSCODE_EXT_VERSION`. **The guard
+existed and was never run.** Any version bump must run that file.
+
+**Trap 2: `uv tool install --force .` is not enough.** uv keys its build cache
+on the project version. `pyproject.toml` stayed at 0.39.0 all day, so three
+consecutive `--force` installs silently reused the first wheel: the tool env
+still held `_VSCODE_EXT_VERSION = "0.14.92"` and a 0.14.90 VSIX long after the
+source said 0.14.94. `--force` reinstalls the *package*; it does not rebuild it.
+Use `uv tool install --force --reinstall .`, and verify by grepping the
+installed copy in the tool env rather than trusting the command's output.
+
+This is the second time in this log that version skew between the Python half
+and the extension half produced a failure that looked like something else. It
+is the single most reliable way to waste an afternoon here.
+
+**Verification that actually means something** — grep the installed tool env,
+not the working tree:
+
+    grep _VSCODE_EXT_VERSION ~/…/uv-tools/arrayview/lib/python*/site-packages/arrayview/_vscode_extension.py
+
+All three of today's Python-side fixes confirmed present in the tool env after
+`--reinstall`: the 1-D reshape, the `render_error` send, and the viewer's
+`reportParent('render-error')`.
