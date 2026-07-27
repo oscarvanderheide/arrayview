@@ -112,6 +112,13 @@ const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 
 let version = 'unknown';
 let isProcessingSignal = false;
+// Identifies which request currently holds the queue. The lock is released as
+// soon as a request's panel is up, while its readiness wait continues, so a
+// later request can be holding the queue by the time an earlier one finishes.
+// Without an owner check that earlier request's `finally` would release a lock
+// belonging to someone else, letting two requests into the critical section at
+// once.
+let signalQueueOwner = null;
 // Upper bound on waiting for a viewer's first frame once the backend has
 // published its URL. Keeps a failed launch from holding the request queue.
 const VIEWER_READY_TIMEOUT_MS = 45000;
@@ -927,6 +934,59 @@ function _reportFailureToPlaceholder(data, message) {
     }
 }
 
+// Registers *webviewPanel* as the tab that the eventual signal-file URL should
+// navigate, keyed by the resolved source path. Both entry points need this:
+// resolveCustomEditor for a single array file, and the folder command, which
+// has no custom editor because VS Code never opens a directory in an editor.
+// Without a placeholder the folder command would show nothing at all while the
+// backend walks the tree — the exact case that hurts most, since enumerating a
+// DICOM folder on a network mount is the slowest thing ArrayView does.
+function _registerHandoffPlaceholder(webviewPanel, sourcePath, title, logTag) {
+    webviewPanel.webview.options = { enableScripts: true };
+    webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
+            <div>Opening ${_escapeHtml(title)} in ArrayView...</div></body></html>`;
+    const placeholderKey = path.resolve(sourcePath);
+    const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
+    _pendingPlaceholders.set(placeholderKey, placeholder);
+    webviewPanel.onDidDispose(() => {
+        if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+            _pendingPlaceholders.delete(placeholderKey);
+        }
+        log(`${logTag}: placeholder disposed for ${title}`);
+    });
+    // Large inputs may legitimately spend minutes loading before the URL is
+    // ready. Keep the placeholder correlated for the whole launch budget.
+    const timer = setTimeout(() => {
+        if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+            _pendingPlaceholders.delete(placeholderKey);
+            try {
+                webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                        <h2>ArrayView failed to start</h2>
+                        <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            } catch (_) { /* panel already disposed */ }
+        }
+    }, 190000);
+    return {
+        placeholderKey,
+        placeholder,
+        forget() {
+            clearTimeout(timer);
+            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+                _pendingPlaceholders.delete(placeholderKey);
+            }
+        },
+        reportError(error) {
+            this.forget();
+            log(`${logTag}: error: ${error.message}\n${error.stack || ''}`);
+            try {
+                webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                <h2>ArrayView failed to open</h2><pre>${_escapeHtml(error.message)}</pre>
+                <p>Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            } catch (_) { /* panel already disposed */ }
+        },
+    };
+}
+
 class ArrayViewEditorProvider {
     static viewType = 'arrayview.arrayEditor';
 
@@ -940,42 +1000,41 @@ class ArrayViewEditorProvider {
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
         // This custom editor is a handoff placeholder.  We keep it open and
         // navigate its webview when the signal-file URL arrives — no flicker.
-        webviewPanel.webview.options = { enableScripts: true };
-        webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
-            <div>Opening ${title} in ArrayView...</div></body></html>`;
-        const placeholderKey = path.resolve(filePath);
-        const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
-        _pendingPlaceholders.set(placeholderKey, placeholder);
-        webviewPanel.onDidDispose(() => {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-            }
-            log(`CUSTOM-EDITOR: placeholder disposed for ${title}`);
-        });
-        // Large files may legitimately spend minutes loading before the URL is
-        // ready. Keep the placeholder correlated for the whole launch budget.
-        setTimeout(() => {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-                try {
-                    webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
-                        <h2>ArrayView failed to start</h2>
-                        <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
-                } catch (_) { /* panel already disposed */ }
-            }
-        }, 190000);
+        const handoff = _registerHandoffPlaceholder(
+            webviewPanel, filePath, title, 'CUSTOM-EDITOR'
+        );
         try {
             await launchArrayViewFile(filePath, title);
             log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
         } catch (e) {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-            }
-            log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
-            webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
-                <h2>ArrayView failed to open</h2><pre>${e.message}</pre>
-                <p>Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            handoff.reportError(e);
         }
+    }
+}
+
+// Opens a directory the same way the custom editor opens a file. VS Code has no
+// custom editor for folders — `explorer/context` + `explorerResourceIsFolder` is
+// the only way to reach a folder from the Explorer — so this command creates the
+// placeholder tab itself and then uses the identical launch path. The Python
+// side decides what the folder means (DICOM series, per-case folders, or a flat
+// collection); the extension deliberately does not guess and does not pass
+// --stack, because --stack is wrong for a DICOM folder.
+async function openFolderInArrayView(folderPath) {
+    const title = path.basename(folderPath.replace(/[\\/]+$/, '')) || folderPath;
+    log(`FOLDER: opening ${folderPath}`);
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.folderPlaceholder',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true }
+    );
+    const handoff = _registerHandoffPlaceholder(panel, folderPath, title, 'FOLDER');
+    try {
+        await launchArrayViewFile(folderPath, title);
+        log(`FOLDER: launched network viewer for ${folderPath}`);
+    } catch (e) {
+        handoff.reportError(e);
+        throw e;
     }
 }
 
@@ -1054,6 +1113,64 @@ function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
 async function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
     const outcome = await probeArrayViewStatus(url, expectedServerId, timeoutMs);
     return outcome === PROBE_OK;
+}
+
+// Strict loopback identity verdict, deliberately narrower than
+// probeArrayViewStatus. Abandoning a request is irreversible from the user's
+// side, so it may only happen on positive proof that the port is owned by a
+// *different* ArrayView backend: an HTTP 200 whose payload is a well-formed
+// ArrayView status carrying someone else's instance_id. A refused connection,
+// a timeout, a non-200 or an unparseable body all mean "not up yet" — most
+// often a large array still loading before it binds the port — and must stay
+// indistinguishable from success here. Note ECONNREFUSED is not in
+// TRANSIENT_PROBE_ERRORS, so probeArrayViewStatus reports a still-starting
+// backend as PROBE_DEAD; that verdict is safe for cache invalidation but must
+// never be used to abandon a request.
+const LOCAL_MINE = 'local-mine';
+const LOCAL_FOREIGN = 'local-foreign';
+const LOCAL_UNKNOWN = 'local-unknown';
+
+function localBackendIdentity(port, expectedServerId, timeoutMs = 1500) {
+    if (!expectedServerId) return Promise.resolve(LOCAL_UNKNOWN);
+    return new Promise((resolve) => {
+        let settled = false;
+        const done = (verdict) => {
+            if (settled) return;
+            settled = true;
+            resolve(verdict);
+        };
+        const req = http.get(
+            `http://localhost:${port}/ping`,
+            { timeout: timeoutMs },
+            (res) => {
+                if (res.statusCode !== 200) {
+                    res.resume();
+                    done(LOCAL_UNKNOWN);
+                    return;
+                }
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => {
+                    if (body.length < 65536) body += chunk;
+                });
+                res.on('end', () => {
+                    let payload = null;
+                    try { payload = JSON.parse(body); } catch (_) {}
+                    if (!payload || payload.service !== 'arrayview'
+                        || !payload.instance_id) {
+                        done(LOCAL_UNKNOWN);
+                        return;
+                    }
+                    done(payload.instance_id === expectedServerId
+                        ? LOCAL_MINE
+                        : LOCAL_FOREIGN);
+                });
+                res.on('error', () => done(LOCAL_UNKNOWN));
+            }
+        );
+        req.on('timeout', () => { req.destroy(); done(LOCAL_UNKNOWN); });
+        req.on('error', () => done(LOCAL_UNKNOWN));
+    });
 }
 
 function httpStatus2xx(url, timeoutMs = 3000) {
@@ -1835,6 +1952,15 @@ let reloadTimer = null;
 let reloadCount = 0;
 const MAX_RELOADS = 12;
 const RELOAD_DELAY_MS = 1500;
+// A navigation that never completes fires neither 'load' nor 'error', so it is
+// invisible to every handler below. Observed through a saturated tunnel with
+// three viewers already open: warmup succeeded, the page request stalled, and
+// the panel sat blank until the outer request timeout killed it. Re-assigning
+// frame.src cancels the stuck request rather than adding another, so this
+// watchdog frees the connection instead of competing for one. It is longer than
+// RELOAD_DELAY_MS because it budgets for a real transfer (the viewer page is
+// ~1.9 MB) rather than for a script that failed to boot after arriving.
+const NAVIGATE_TIMEOUT_MS = 8000;
 function showBackendError() {
     if (viewerReady) return;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
@@ -1842,7 +1968,7 @@ function showBackendError() {
     document.getElementById('backend-error').classList.add('visible');
     frame.style.display = 'none';
 }
-function scheduleReload() {
+function scheduleReload(delayMs) {
     if (viewerReady || viewerLoaded) return;
     if (reloadTimer) { clearTimeout(reloadTimer); }
     reloadTimer = setTimeout(() => {
@@ -1853,7 +1979,9 @@ function scheduleReload() {
         console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
         const sep = arrayviewUrl.includes('?') ? '&' : '?';
         frame.src = arrayviewUrl + sep + '_avretry=' + reloadCount;
-    }, RELOAD_DELAY_MS);
+        // The retry can stall exactly like the navigation it replaces.
+        scheduleReload(NAVIGATE_TIMEOUT_MS);
+    }, typeof delayMs === 'number' ? delayMs : RELOAD_DELAY_MS);
 }
 window.addEventListener('message', (event) => {
     const msg = event && event.data;
@@ -1868,6 +1996,21 @@ window.addEventListener('message', (event) => {
         viewerLoaded = true;
         if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
         console.log('[arrayview-opener] viewer script loaded; waiting for first frame');
+        return;
+    }
+    if (msg.phase === 'render-error') {
+        // The backend cannot draw this array, so no reload will help and the
+        // frame this panel is waiting for will never arrive. Retrying would
+        // just repeat the failure until the request times out, holding the
+        // signal queue and stalling every later click.
+        viewerLoaded = true;
+        if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+        console.log('[arrayview-opener] viewer reported render-error');
+        vscodeApi.postMessage({
+            type: 'viewer-failed',
+            phase: 'render-error',
+            message: msg.detail || 'This array could not be rendered',
+        });
         return;
     }
     if (msg.phase === 'frame-rendered') {
@@ -1909,6 +2052,9 @@ async function warmTransportAndOpen() {
         }
     }
     frame.src = arrayviewUrl;
+    // Arm before the first load can stall; 'load' below re-arms the shorter
+    // post-arrival watchdog, so the two never run at the same time.
+    scheduleReload(NAVIGATE_TIMEOUT_MS);
 }
 void warmTransportAndOpen();
 </script>
@@ -1936,6 +2082,13 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
             }
             if (message?.type === 'viewer-ready' && message.phase === 'frame-rendered') {
                 finish();
+            }
+            // A verdict of "this cannot be drawn" is as terminal as a rendered
+            // frame. Waiting out the full timeout instead would report a hang
+            // and keep the queue locked while the answer is already known.
+            if (message?.type === 'viewer-failed') {
+                log(`PANEL: viewer failed — ${message.message}`);
+                finish(new Error(message.message || 'The viewer could not render this array'));
             }
         });
         disposeSubscription = panel.onDidDispose(() => {
@@ -2603,6 +2756,20 @@ async function resolveRemoteViewerUrl(
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
     try { origQuery = new URL(url).search; } catch (_) {}
+    // Ask loopback who owns the port before touching any remote machinery.
+    // The extension host and the backend share a machine even in a tunnel
+    // window, so this answers in single-digit milliseconds, whereas a stale
+    // request otherwise stays undetected until the entire asExternalUri
+    // backoff has expired — roughly 90s of dead waiting that ends in failure
+    // anyway, during which the signal queue lock starves newer live requests.
+    // Only LOCAL_FOREIGN is actionable: it proves a different backend now owns
+    // the port, so no cached route, external URI or privacy promotion could
+    // ever reach the requested session.
+    if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
+        log(`REMOTE: localhost:${port} is owned by a different backend; `
+            + `abandoning stale request for ${expectedServerId}`);
+        return null;
+    }
     // No shortcut for `workbench.browser.enableRemoteProxy` here. That setting
     // proxies VS Code's own integrated browser through the remote, and the
     // viewer stopped using the integrated browser when tunnel delivery moved to
@@ -2624,6 +2791,15 @@ async function resolveRemoteViewerUrl(
         const attempt = attempts[i];
         if (attempt.pauseMs) {
             await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
+        }
+        // Re-check ownership between attempts. A backend that was merely slow
+        // to bind when we started can exit and be replaced part-way through
+        // this chain; without this the remaining attempts run to exhaustion on
+        // a session that already cannot be served.
+        if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
+            log(`REMOTE: localhost:${port} changed owner during retry; `
+                + `abandoning stale request for ${expectedServerId}`);
+            return null;
         }
         try {
             ensureActive();
@@ -2724,8 +2900,23 @@ async function resolveRemoteViewerUrl(
 }
 
 async function processSignalData(data) {
+    const queueTicket = Symbol('signal-queue');
     isProcessingSignal = true;
+    signalQueueOwner = queueTicket;
     log(`LOCK: isProcessingSignal=true`);
+    // The queue exists to serialise the parts that touch shared state:
+    // resolving the route, claiming a pending placeholder, creating a panel.
+    // Waiting for the viewer's first frame touches none of that — it is a
+    // network wait that can legitimately run for tens of seconds while a large
+    // array loads. Holding the queue across it made every later click wait for
+    // an unrelated file, which is what "one bad array broke the next few"
+    // actually was. Released once the panel is up; see the call site.
+    const releaseQueue = (reason) => {
+        if (signalQueueOwner !== queueTicket) return;
+        signalQueueOwner = null;
+        isProcessingSignal = false;
+        log(`UNLOCK: isProcessingSignal=false (${reason})`);
+    };
     // Hard safety net: if any await inside the body hangs (e.g. VS Code's
     // createWebviewPanel / openInWebviewPanel never resolves when the
     // extension host is degraded), the finally below would never run and
@@ -2743,7 +2934,7 @@ async function processSignalData(data) {
     let hardTimer = null;
     try {
         await Promise.race([
-            _processSignalDataBody(data, operation),
+            _processSignalDataBody(data, operation, releaseQueue),
             new Promise((_, reject) =>
                 hardTimer = setTimeout(() => {
                     operation.cancelled = true;
@@ -2764,14 +2955,19 @@ async function processSignalData(data) {
         }
     } finally {
         if (hardTimer) clearTimeout(hardTimer);
-        isProcessingSignal = false;
-        log(`UNLOCK: isProcessingSignal=false`);
+        // Normally already released at panel_opened; this covers the paths that
+        // fail before a panel ever opens. No-op if a later request now owns it.
+        releaseQueue('request settled');
         // Signal files for subsequent arrays remain on disk; the 1-second poll
         // will pick them up now that isProcessingSignal is false again.
     }
 }
 
-async function _processSignalDataBody(data, operation = { cancelled: false }) {
+async function _processSignalDataBody(
+    data,
+    operation = { cancelled: false },
+    releaseQueue = () => {}
+) {
     const ensureActive = () => {
         if (operation.cancelled) {
             throw new Error('Signal processing was cancelled before panel open');
@@ -2912,6 +3108,11 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     let viewerReady;
     let integratedBrowserOpened = false;
     let integratedBrowserPlaceholder = null;
+    // Set when this request has reached a terminal state, so a panel disposal
+    // arriving while the request is still running does not release the session
+    // out from under it. See the handoff disposal handler below.
+    const requestSettled = { done: false };
+    let handoffPanelDisposed = false;
     if (useIntegratedBrowser) {
         for (const [filePath, placeholder] of _pendingPlaceholders) {
             const exactHandoff = data.handoffPath
@@ -2961,6 +3162,20 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
                         || _openPanels.get(panelKey) === placeholder.panel
                     ) {
                         if (panelKey) _openPanels.delete(panelKey);
+                        // VS Code reuses a single preview tab in the explorer,
+                        // so clicking a second array disposes this placeholder
+                        // while our own request is still driving it. Releasing
+                        // the session here would kill the backend session that
+                        // the in-flight readiness check is waiting on, which
+                        // then surfaces as the misleading "Backend stopped
+                        // answering before the viewer was ready". Record the
+                        // disposal and let the terminal path do the release.
+                        if (!requestSettled.done) {
+                            handoffPanelDisposed = true;
+                            log(`HANDOFF: panel disposed while request in flight; `
+                                + `deferring session release to terminal path`);
+                            return;
+                        }
                         releaseUrlSession(openUrl, data.url, data.serverId || null);
                     } else {
                         log(`HANDOFF: ignored disposal from superseded panel ${panelKey}`);
@@ -3020,11 +3235,23 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         advanceAck('panel_opened');
     }
 
+    // Everything above claimed shared state: the route cache, a pending
+    // placeholder, an entry in _openPanels. Everything below is this request
+    // waiting on its own backend and its own panel. Hand the queue on here so
+    // the next click gets a panel while this array is still loading.
+    releaseQueue('panel open; readiness continues off-queue');
+
     try {
         const pingUrl = pingUrlFromViewerUrl(openUrl);
         if (!pingUrl) throw new Error('Unable to derive backend ping URL');
         const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
         if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
+        // A disposal that already happened is the true cause of everything that
+        // would fail below, so report it before probing the backend. Otherwise
+        // a preview-tab replacement is diagnosed as a backend outage.
+        if (handoffPanelDisposed) {
+            throw new Error('Viewer panel closed before its first frame rendered');
+        }
         if (!await arrayViewStatusOk(pingUrl, data.serverId || null)) {
             throw new Error('Backend stopped answering before the viewer was ready');
         }
@@ -3041,11 +3268,18 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         const viewerError = await viewerReady;
         if (viewerError) throw viewerError;
         ensureActive();
+        requestSettled.done = true;
         advanceAck('visibility_verified');
         advanceAck('backend_ready');
         return;
     } catch (error) {
+        requestSettled.done = true;
         if (integratedBrowserOpened) {
+            releaseUrlSession(openUrl, data.url, data.serverId || null);
+        } else if (handedOff && handoffPanelDisposed) {
+            // The disposal handler deferred this so it would not race the
+            // readiness check above. The request is terminal now, so the
+            // session that no longer has a panel must still be reclaimed.
             releaseUrlSession(openUrl, data.url, data.serverId || null);
         }
         throw error;
@@ -3275,6 +3509,30 @@ function activate(context) {
     });
     context.subscriptions.push(openFileCmd);
 
+    const openFolderCmd = vscode.commands.registerCommand('arrayview.openFolder', async (uri) => {
+        let folderPath;
+        if (uri && uri.fsPath) {
+            folderPath = uri.fsPath;
+        } else {
+            const selected = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Open in ArrayView',
+            });
+            if (!selected || !selected.length) return;
+            folderPath = selected[0].fsPath;
+        }
+
+        try {
+            await openFolderInArrayView(folderPath);
+        } catch (e) {
+            log(`COMMAND: openFolder failed: ${e.message}`);
+            vscode.window.showErrorMessage(`ArrayView: ${e.message}`);
+        }
+    });
+    context.subscriptions.push(openFolderCmd);
+
     const editorProvider = vscode.window.registerCustomEditorProvider(
         ArrayViewEditorProvider.viewType,
         new ArrayViewEditorProvider(),
@@ -3316,6 +3574,10 @@ module.exports = {
         _withTimeout,
         _asExternalUriAttempt,
         probeArrayViewStatus,
+        localBackendIdentity,
+        LOCAL_MINE,
+        LOCAL_FOREIGN,
+        LOCAL_UNKNOWN,
         _verifiedCachedTunnelBase,
         _setRetryTiming,
         resolveRemoteViewerUrl,
@@ -3331,13 +3593,19 @@ module.exports = {
         _removeRegistrationIfOwned,
         _targetedSignalPath,
         _processSignalDataBody,
+        processSignalData,
+        isSignalQueueBusy: () => isProcessingSignal,
         _remainingSignalMs,
         tryOpenSignalFile,
+        _registerHandoffPlaceholder,
+        openFolderInArrayView,
+        pendingPlaceholders: _pendingPlaceholders,
         _viewerPanelHtml,
         _publicBaseFromTunnelResult,
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,
         waitForBackendViewerReady,
+        waitForViewerReady,
         openInIntegratedBrowser,
         openInWebviewPanel,
         _openPanels,

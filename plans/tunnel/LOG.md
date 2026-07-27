@@ -668,3 +668,327 @@ Five independent defects, each masking the next:
 
 Only #2, #3 and #5 were ArrayView defects. #1 and #4 were environmental, and are
 now either detected (skew warning) or explained (quota diagnostic).
+
+---
+
+## 2026-07-27 — 0.14.91: stale-request starvation and self-inflicted session kill
+
+**Input**: "it still hangs — inspect the logs, zoom out, fix". Not a single-bug
+report, so the starting point was the whole log corpus rather than one incident:
+`~/.arrayview/extension.log` plus 7 archives, 34,167 lines.
+
+**Method note on statistics.** The naive aggregate reads 491 claimed / 300 ready
+/ 181 failed (37%), and surfaces bugs like `pingUrl is not defined` that were
+fixed on 2026-07-08. The archive reaches back far enough to pollute any total.
+Scoped to the current architecture (2026-07-26 onward, v0.14.87–90) the real
+numbers are **31 claimed / 22 ready / 8 failed (26%)**. Always scope first.
+
+Per-request timing (queue wait = WATCH rename → ACK claimed) is the measurement
+that made the failure class visible: healthy requests spend 0.4–6 s, while two
+requests burned 87.9 s and 75.6 s and *then* failed, and one live request waited
+**68.7 s in queue and rendered in 1.3 s** once it finally ran.
+
+**RC1 — stale detection deferred behind the slowest path.** 22:13:49→22:14:03:
+cached-route probe returns no verdict three times (1.5 s / 4 s / 8 s), then all
+six `asExternalUri` attempts time out through 22:15:17, then at 22:15:17.695 a
+probe answers **in 111 ms** with `REMOTE: cached route stale`. The information
+was available in milliseconds and was consulted 88 s late. Because the signal
+loop serialises on `isProcessingSignal`, that dead wait is charged to every
+later click — this is the mechanism behind "works once, then hangs".
+
+Fix: `localBackendIdentity()`, a strict three-way loopback verdict consulted
+before any remote work and again between retries. The asymmetry is the whole
+design: abandoning is irreversible, so only positive proof of a foreign
+`instance_id` may do it. **A not-yet-listening port must be indistinguishable
+from success** — that is exactly the state the 22:13:49 request was in. This is
+deliberately stricter than `probeArrayViewStatus`, which reports `ECONNREFUSED`
+as `PROBE_DEAD` because that code is absent from `TRANSIENT_PROBE_ERRORS`;
+reusing that verdict here would have broken every slow-loading large array.
+
+**RC2 — the extension killed the session it was waiting on.** 12:28 cluster:
+`placeholder disposed for sense_images.npy` (27.804) → `PANEL: release
+sid=e48419c1 ok=true` (27.820) → `ERROR: Backend stopped answering before the
+viewer was ready` (28.838). VS Code preview-tab reuse disposes the placeholder
+when the next single-click replaces the tab; the dispose handler released the
+session `waitForViewerReady` was still waiting on, and the resulting error
+blamed the backend for the extension's own act. Release is now deferred to the
+terminal path, and the truthful panel-closed error is checked before the ping.
+
+**Regression I caused and fixed.** The loopback pre-check broke three passing
+tunnel tests: they stub `https.get` only, so the new probe reached the real
+arrayview on port 8000 (instance `b8ea8af9`), read LOCAL_FOREIGN, and correctly
+abandoned. Test outcomes depending on what occupies a dev-machine port is a
+defect in the test seam, not bad luck — all three now stub `http.get`.
+
+**Evidence**: `component` only. All 13 extension tests pass, including new
+`test_local_identity_shortcircuit.js`. The tunnel display boundary was **not**
+validated on a real host — the user was asleep and CLAUDE.md forbids installing
+into their profile or reloading their window without permission. RC2 has **no
+automated coverage**: the only test that drove `_processSignalDataBody` for
+placeholders is the integrated-browser test, now obsolete (extension.js pins
+`useIntegratedBrowser` to false at the `if (false)` guard).
+
+**Result**: (pending — needs install of 0.14.91 and a window reload)
+
+### 0.14.92 — blank panel when the relay is saturated
+
+**Report**: three Explorer clicks rendered fine, then `arrayview
+initial_pd_UI.npy` from a terminal opened a tab with nothing in it.
+
+**First hypothesis was wrong and worth recording.** The terminal path calls
+`openInWebviewPanel` (new panel) while Explorer navigates an existing custom-
+editor placeholder, so "the terminal path is broken" was the obvious read. It
+does not survive the log: both paths build identical HTML from the same
+`_viewerPanelHtml`, `_backendPortMapping` returns null for a devtunnels host so
+neither gets a port mapping, and `openInWebviewPanel` succeeded twice on
+2026-07-26 (iframe-loaded in ~400 ms). The path is not the variable.
+
+**What the log actually shows**: `transport-warmup-complete` at 09:25:21.616,
+then silence — no `iframe-loaded`, no error — until `ERROR: Viewer did not
+render a frame before timeout` 45 s later. Meanwhile the backend served that
+exact sid in **30 ms over loopback** (1.9 MB, HTTP 200). So `/ping` crossed the
+relay fine and the page request did not.
+
+The variable that *does* track the failure is how many viewers were already
+streaming: the backend reported `active_viewer_sockets: 3` when the fourth load
+stalled, and closing the tabs made the identical command succeed. Treat the
+saturation mechanism as unconfirmed (n=1) — what is confirmed is that a request
+through the relay can stall indefinitely while the backend stays healthy.
+
+**Defect**: a stalled navigation fires neither `load` nor `error`, so the
+wrapper's retry loop never saw it. `scheduleReload()` was armed only inside the
+`load` handler — it covered "page arrived, viewer never booted" and structurally
+could not cover "page never arrived". Fixed by arming at `frame.src` assignment
+and re-arming on each retry, with a longer budget (8 s) than the boot watchdog
+(1.5 s) because it must cover a real 1.9 MB transfer. Re-assigning `frame.src`
+cancels the stuck request rather than adding another, so the retry frees the
+connection instead of competing for one.
+
+**Evidence**: `component` (new `test_panel_navigation_watchdog.js`, 14/14 green)
+plus `real process` for the backend timing. The stall itself was reproduced by
+the user, not by the suite — the relay is not drivable from this host.
+
+**Still open**: the signal loop serialises on `isProcessingSignal` for the whole
+request including the viewer wait, so any slow load blocks every later click.
+The watchdog shrinks that window from 45 s to ~8 s but does not remove it.
+
+### 2026-07-27 later — four clicks, four different causes
+
+The user's summary was "still really really bad": one slow, one slower, one
+that would not load, one that hung. The log separates them into four unrelated
+things, which is the point worth recording — a single bad session is not a
+single bug, and treating it as one is how earlier rounds went wrong.
+
+| file | shape | outcome |
+|---|---|---|
+| `coil_sensitivities.npy` | (224,240,210,64), 5.8 GB | rendered, 11.6 s |
+| `initial_pd_UI.npy` | (224,240,1,204), 87 MB | rendered, 4.8 s |
+| `sampling_mask.npy` | — | **0 bytes on disk**; "No data left in file" was correct |
+| `sense_image.npy` | (11289600,), 90 MB | hung to timeout |
+
+**Not bugs**: the empty file (the user guessed this himself), and 5.8 GB
+resolving in 11.6 s.
+
+**The slowness is the relay, not the code.** For the first click the 1.9 MB
+viewer page took 6.8 s to cross (~280 KB/s) and the /ping warmup 1.85 s; the
+second took 3.0 s. That fixed cost is paid on every viewer open and is the
+single biggest lever on perceived speed. Caching the page is untried.
+
+**The hang was two defects stacked.** A 1-D array yields a 1-D slice, so the
+colormapped result is `(N, 4)` and `h, w = rgba.shape[:2]` reads the 4 RGBA
+channels as the image width — the header then advertises a 4-pixel-wide frame
+and PIL raises `buffer is not large enough` on every frame. **Size was never
+the variable**: a 10,000-element array fails identically, so the 90 MB and the
+tunnel were both red herrings. `sense_image.npy` is 224·240·210 flattened.
+
+The second defect is the one that generalises: the websocket handler logged the
+exception to the server's stdout and closed the socket without telling the
+viewer, so a hard backend failure presented as a silent hang and the only
+artifact was in a console nobody was reading. Any render failure now sends
+`render_error` and the viewer shows it.
+
+**Evidence**: `real process` — reproduced in Chromium via
+`tests/test_1d_arrays.py` before the fix (1-D never rendered, 2-D fine) and
+passing after, including the reported 11,289,600 shape.
+
+**Method note**: the first hypothesis was that the *large* 1-D array was too
+big. Parametrising over size killed it in one run — 10,000 elements failed the
+same way. Vary the suspected dimension before building on the theory.
+
+### 0.14.93 — an undrawable array must not take the queue with it
+
+Direct request: a wrong click should give a decent message and must not break
+subsequent loads.
+
+Sending `render_error` to the viewer (previous entry) fixed the message and not
+the collateral damage. The opener holds `isProcessingSignal` for the whole
+request, so a panel that never gets a frame still waited out its full timeout —
+45 s in the observed incident — with every later click dead behind it. That is
+the mechanism behind "it broke the next few too", and it is the same
+head-of-line blocking that produced the original 68.7 s queue wait.
+
+Chain now: viewer `reportParent('render-error')` → wrapper cancels its pending
+reload and posts `viewer-failed` → `waitForViewerReady` finishes with the
+backend's own message. Milliseconds instead of 45 s.
+
+**The asymmetry is the design.** A stalled transfer (0.14.92) is worth
+retrying because it may succeed; an undrawable array is not, because the retry
+reproduces the failure exactly. Same-looking symptom, opposite correct
+response — worth checking which one applies before adding any future retry.
+
+**Still open**: the queue is still strictly serial. Both fixes shorten how long
+a bad request holds it; neither removes the coupling, so one genuinely slow
+load still blocks later clicks. Fixing that means letting the viewer wait
+happen outside the lock, which changes request interleaving and deserves its
+own change.
+
+**Note**: 1-D arrays now render as a single row. The user does not need that
+capability, but it is correct, tested, and strictly better than the error it
+replaced, so it stays.
+
+### 0.14.94 — the queue coupling itself
+
+Three rounds of fixes each shortened how long a bad request held the signal
+queue — 88 s of stale-route backoff, 45 s of stalled navigation, 45 s of an
+undrawable array. None touched the reason any of that mattered: the lock
+spanned the whole request, including the wait for the viewer's first frame.
+
+That wait is a network wait. It is *supposed* to take tens of seconds on a
+large array. Holding the queue across it means a perfectly healthy slow load
+blocks every later click, and there is no bug to fix in that case — only a
+design to change.
+
+Split at `panel_opened`. Above it a request claims shared state: the route
+cache, a pending placeholder, an entry in `_openPanels`. Below it a request
+waits on its own panel and its own backend and shares nothing. The queue is
+handed on at that line.
+
+**The part worth remembering**: releasing early means a request can finish
+while a *later* one holds the queue, so a plain `isProcessingSignal = false` in
+a `finally` would release someone else's lock and put two requests in the
+critical section at once — strictly worse than the original problem. The lock
+now carries an owner ticket and releasing is a no-op unless the caller still
+owns it. Any future early-release needs the same care.
+
+**Evidence**: `component`. `test_signal_queue_handoff.js` asserts the queue is
+free while a request awaits its first frame, that a second request opens its
+own panel meanwhile, and that out-of-order settling never releases another
+request's lock. Not yet exercised on a real host.
+
+**Now genuinely open**: nothing bounds how many requests can be in their
+readiness wait at once. User clicks are self-limiting, so this is untested
+rather than known-bad.
+
+### 0.14.94 follow-up — two install traps, both self-inflicted
+
+The queue change was fine. The stuck "Opening … in ArrayView…" was a launch
+failure that never wrote a signal at all, and both causes were mine.
+
+**Trap 1: the bundled VSIX.** The Python package ships its own copy of the
+opener at `src/arrayview/arrayview-opener.vsix`, and `_ensure_vscode_extension`
+compares what is installed on disk against *that* copy — not against whatever
+was most recently built. Four version bumps (0.14.91 → 0.14.94) were each
+packaged into a scratch directory and installed with `code
+--install-extension`, so the extension host ran the new build while Python kept
+comparing against a bundled 0.14.90. Result: `_VSCODE_EXT_RELOAD_REQUIRED`, and
+the message "reload this exact window once, then retry" — advice no reload
+could satisfy, because the stale half was on disk.
+
+`vscode-extension/AGENTS.md` states the rebuild target
+(`vsce package -o ../src/arrayview/arrayview-opener.vsix`),
+`.mex/context/lifecycle.md` repeats it, and
+`tests/test_lifecycle_contract.py::test_bundled_vscode_vsix_matches_release_lifecycle_source`
+already asserts `package["version"] == _VSCODE_EXT_VERSION`. **The guard
+existed and was never run.** Any version bump must run that file.
+
+**Trap 2: `uv tool install --force .` is not enough.** uv keys its build cache
+on the project version. `pyproject.toml` stayed at 0.39.0 all day, so three
+consecutive `--force` installs silently reused the first wheel: the tool env
+still held `_VSCODE_EXT_VERSION = "0.14.92"` and a 0.14.90 VSIX long after the
+source said 0.14.94. `--force` reinstalls the *package*; it does not rebuild it.
+Use `uv tool install --force --reinstall .`, and verify by grepping the
+installed copy in the tool env rather than trusting the command's output.
+
+This is the second time in this log that version skew between the Python half
+and the extension half produced a failure that looked like something else. It
+is the single most reliable way to waste an afternoon here.
+
+**Verification that actually means something** — grep the installed tool env,
+not the working tree:
+
+    grep _VSCODE_EXT_VERSION ~/…/uv-tools/arrayview/lib/python*/site-packages/arrayview/_vscode_extension.py
+
+All three of today's Python-side fixes confirmed present in the tool env after
+`--reinstall`: the 1-D reshape, the `render_error` send, and the viewer's
+`reportParent('render-error')`.
+
+### 2026-07-27 — "why so slow": 31 s to first frame on a 5-D file
+
+`arrayview recons/parameter_maps_all.npy`, shape (224,240,204,6,9) float32,
+2.37 GB on the `/smb` mount. Log timings for request 81d80328:
+
+    signal → mode-change      1.1 s     (the whole opener path)
+    mode-change → frame-rendered  31.2 s
+
+So nothing in the opener, the tunnel, or the queue is implicated — the gap is
+entirely the backend producing the first frame.
+
+**Measuring it warm is a trap.** Repeating the extraction after the daemon had
+already read the file gives 0.22 s for all 204 slices and 0.16 s for both
+percentiles — 0.38 s against an observed 31.2 s. That number is meaningless:
+the page cache was warm from the very run being investigated. The same pattern
+against a file nothing had touched (`sec_001_to_009_excl_007_tight_ras_maps.npy`,
+1.05 GB) takes **13.8 s for 43.9 MB — an effective 3.18 MB/s**.
+
+**Cause**: the default view of this array is a mosaic over dim 2, so the first
+frame needs all 204 slices — 43.9 MB — not one 210 KB slice. Worse, the display
+dims are the *outermost* axes, so each slice is a strided gather (strides
+10575360, 44064 bytes) scattered across the whole 2.37 GB. At ~3 MB/s over SMB
+that is ~15 s of pure transfer for a 1 GB file and ~31 s for this one.
+
+The percentile pass over 11 M elements is 0.12–0.16 s and is not worth touching.
+
+**Not a bug, and not fixable by making the code faster** — the bytes have to
+cross the mount. What is fixable is the *wait*: render the middle slice first
+(0.1 s once its pages are in) and fill the mosaic in behind it, so first paint
+is ~1 s instead of 31 s. Untried, and it changes what the user sees first, so
+it needs agreement before implementing.
+
+### Progress reporting for slow mosaic builds
+
+Correction to the previous entry first: the "3.18 MB/s" figure there was
+measuring *useful* bytes, not transferred bytes, and led to the wrong
+conclusion. The right model is page-granularity. Exact arithmetic over the
+strides (10575360, 44064, 216, 36, 4):
+
+    full mosaic (204 slices)   useful 43.9 MB   pages touched 2368.9 MB   31.2 s
+    one middle slice           useful  0.2 MB   pages touched  220.2 MB    2.9 s
+    file size                                                 2368.9 MB
+
+Pages touched equals the file size exactly, and 2368.9 MB at 76 MB/s is 31.2 s
+— the observed time to the digit. Two unrelated files both landed on 76 MB/s
+when computed as size/time, which was the clue: the mount is fine, the access
+pattern reads everything. mmap is working as intended; it just cannot help when
+4 wanted bytes sit in every 216-byte block and the blocks span the whole file.
+
+Consequence for the earlier proposal: showing one slice first is worth ~3 s, not
+~1 s. Still a 10× improvement, but do not oversell it.
+
+**What was built instead**: honest progress. `render_mosaic` takes a progress
+callback invoked per slice; the reporter hands each update to the event loop
+(it is called from the render thread) and the viewer draws a bar plus an ETA
+derived from measured elapsed time. Throttled to 200 ms, and silent below 24
+slices so quick loads never flash a bar.
+
+**Test note worth keeping**: mosaic mode needs a 4-D array. A 3-D array leaves
+`dim_z` at -1 after pressing `z`, so a mosaic test built on `(24,24,60)` passes
+through the non-mosaic path and silently proves nothing. Assert `dim_z >= 0`
+before measuring anything about a mosaic.
+
+**Second test note**: passing `--browser chromium` to a non-browser suite like
+`test_api.py` produces ~49 failures and ~68 errors that have nothing to do with
+the code under test. Run browser and non-browser suites separately.
+
+**Still open**: first paint still waits for the whole mosaic. Rendering the
+middle slice first and filling in behind it is the real latency fix and is
+untried.

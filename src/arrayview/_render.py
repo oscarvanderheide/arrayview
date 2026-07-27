@@ -147,7 +147,43 @@ def _compute_vmin_vmax(session, data, dr=0, complex_mode=0):
     return float(np.percentile(data, 1)), float(np.percentile(data, 99))
 
 
-def extract_slice(session, dim_x, dim_y, idx_list):
+def _extract_with_progress(data, slicer, progress, target_updates=32):
+    """Materialize ``data[slicer]``, reporting progress along the outer axis.
+
+    A single displayed image can be enormously expensive to read even though it
+    is tiny once materialized. For a (224,240,204,6,9) memmap on a network
+    mount, one 215 KB slice takes ~29 s and faults in 2.2 GB: the wanted values
+    are 4 bytes out of every 216-byte block, so the pages between them — the
+    whole file — come along too. Measured, not estimated; see plans/tunnel/LOG.md.
+
+    There is no loop in ``np.array(data[slicer])`` to report from, so slice the
+    outer display axis into blocks and report between them. The blocks touch
+    exactly the same pages in the same order as the single read, so this reports
+    the wait rather than adding to it. MADV_RANDOM was tried as a way to make
+    the read itself cheaper and is far worse — it defeats readahead, turning
+    each page into its own round trip (110 s versus 13 s on a 1 GB file).
+    """
+    if progress is None:
+        return np.array(data[tuple(slicer)])
+
+    axes = [i for i, s in enumerate(slicer) if isinstance(s, slice)]
+    if not axes:
+        return np.array(data[tuple(slicer)])
+
+    axis = axes[0]
+    n = int(data.shape[axis])
+    step = max(1, n // target_updates)
+    blocks = []
+    for start in range(0, n, step):
+        stop = min(start + step, n)
+        sub = list(slicer)
+        sub[axis] = slice(start, stop)
+        blocks.append(np.array(data[tuple(sub)]))
+        progress(stop, n)
+    return np.concatenate(blocks, axis=0)
+
+
+def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
     if hasattr(session.data, "clamp_indices"):
         idx_list = session.data.clamp_indices(idx_list)
     # Mask out indices along the displayed dims — they're slice(None) in the
@@ -163,7 +199,15 @@ def extract_slice(session, dim_x, dim_y, idx_list):
         slice(None) if i in (dim_x, dim_y) else idx_list[i]
         for i in range(len(session.shape))
     ]
-    extracted = np.array(session.data[tuple(slicer)])
+    # Fall back to the session's sink so the read reports no matter which
+    # caller got there first. Threading a callback through every caller
+    # does not work: at startup the first read of a slice comes from a
+    # different path than the websocket render that is being waited on,
+    # so the expensive read was silent and the render that reported was
+    # already served from cache.
+    if progress is None:
+        progress = getattr(session, 'progress_sink', None)
+    extracted = _extract_with_progress(session.data, slicer, progress)
     if dim_x < dim_y:
         extracted = extracted.T
     # scipy.io.loadmat returns complex arrays as structured dtypes; convert here.
@@ -173,6 +217,16 @@ def extract_slice(session, dim_x, dim_y, idx_list):
         result = np.nan_to_num(extracted).astype(np.complex64)
     else:
         result = np.nan_to_num(extracted).astype(np.float32)
+
+    if result.ndim == 1:
+        # A 1-D array has only one display axis, so the slice comes back 1-D.
+        # Every consumer downstream treats the colormapped result as
+        # (height, width, 4) and reads `h, w = rgba.shape[:2]`, which on a 1-D
+        # slice silently reads the 4 RGBA channels as the image width: the
+        # frame header then advertises a 4-pixel-wide image and PIL rejects the
+        # buffer as too small. Present the single axis as one row so that
+        # invariant holds everywhere instead of at each call site.
+        result = result.reshape(1, -1)
 
     with session._raw_lock:
         if key not in session.raw_cache:  # double-check: another worker may have populated it
@@ -449,6 +503,7 @@ def render_rgba(
     log_scale=False,
     vmin_override=None,
     vmax_override=None,
+    progress=None,
 ):
     has_override = vmin_override is not None and vmax_override is not None
     if not has_override:
@@ -466,7 +521,7 @@ def render_rgba(
             if key in session.rgba_cache:
                 session.rgba_cache.move_to_end(key)
                 return session.rgba_cache[key]
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple), progress=progress)
     rgba = apply_colormap_rgba(
         session,
         raw,
@@ -749,6 +804,7 @@ def render_mosaic(
     mosaic_cols=None,
     vmin_override=None,
     vmax_override=None,
+    progress=None,
 ):
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
@@ -759,15 +815,24 @@ def render_mosaic(
             return session.mosaic_cache[key]
 
     n = session.shape[dim_z]
-    frames_raw = [
-        extract_slice(
-            session,
-            dim_x,
-            dim_y,
-            [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+    # Reported per slice rather than estimated: each slice faults in roughly the
+    # same number of pages, so slice i of n is an honest fraction of the wait.
+    # On an array whose display axes are the outer ones this loop is the whole
+    # cost — a (224,240,204,6,9) file on a network mount spends 31s here, because
+    # every 4 bytes wanted costs a 4096-byte page and the slices between them
+    # cover the entire file.
+    frames_raw = []
+    for i in range(n):
+        frames_raw.append(
+            extract_slice(
+                session,
+                dim_x,
+                dim_y,
+                [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+            )
         )
-        for i in range(n)
-    ]
+        if progress is not None:
+            progress(i + 1, n)
     frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
     if log_scale:
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]

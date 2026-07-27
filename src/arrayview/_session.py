@@ -307,6 +307,14 @@ class Session:
         self.rgb_axis = None  # set by _setup_rgb(); axis index in actual shape
         self.spatial_shape = data.shape  # shape without rgb_axis (set by _setup_rgb)
 
+        # Directory collections carry their per-case image shape on the series
+        # object. The trailing axes select a case and must never drive the
+        # startup plane, so derive this here rather than in each loader — the
+        # /load route, the in-process launcher and the background loader all
+        # build collections and previously disagreed about setting it.
+        _vol_shape = getattr(data, "_vol_shape", None)
+        self.collection_spatial_ndim = len(_vol_shape) if _vol_shape else None
+
         self.raw_cache = OrderedDict()
         self.rgba_cache = OrderedDict()
         self.mosaic_cache = OrderedDict()

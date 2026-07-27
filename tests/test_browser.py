@@ -4016,9 +4016,10 @@ class TestNormalInspectInteractions:
         assert not plain_held["dimmed"], "plain mouse hold should not dim the viewed pane"
         assert not plain_held["loupeVisible"], "plain mouse hold should not show the loupe"
         assert not plain_held["loupeInfoVisible"], "plain mouse hold should not use the loupe value label"
-        assert plain_held["pixelInfoVisible"], "plain mouse hold should show the regular pixel info label"
-        assert "x=" in plain_held["pixelInfoText"] and "y=" in plain_held["pixelInfoText"], (
-            "plain mouse hold label should include coordinates"
+        # A plain hold in the single 2D view opens a window/level gesture, so the
+        # pixel-info readout is suppressed; only Ctrl+hold inspects.
+        assert not plain_held["pixelInfoVisible"], (
+            "plain mouse hold arms window/level, so it should not show the pixel info label"
         )
         assert not released, "the pane dimming should end immediately on mouse release"
 
@@ -4057,6 +4058,68 @@ class TestNormalInspectInteractions:
         assert ctrl_held["infoVisible"], "Control mouse hold should show the loupe value label"
         assert "x=" in ctrl_held["infoText"] and "y=" in ctrl_held["infoText"], (
             "Control mouse hold label should include coordinates"
+        )
+
+    def test_plain_press_hides_pixel_info_before_any_move(self, loaded_viewer, sid_2d):
+        """A plain left press opens the window/level gesture, so the pixel-info
+        hover must be gone on mousedown -- not only once the pointer has
+        travelled past the 5px drag deadzone. Regression for a press that is
+        held perfectly still leaving the readout on screen."""
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        read_state = """() => {
+            const el = document.getElementById('main-pixel-info');
+            const anyShown = Array.from(document.querySelectorAll('.cv-pixel-info'))
+                .some(n => getComputedStyle(n).display !== 'none' && n.textContent.trim());
+            return {
+                visible: getComputedStyle(el).display !== 'none',
+                text: el.textContent.trim(),
+                anyShown,
+            };
+        }"""
+
+        page.mouse.move(cx, cy)
+        page.wait_for_timeout(120)
+
+        # Press and never move: no mouse.move() call until after the reads.
+        page.mouse.down()
+        immediately = page.evaluate(read_state)
+        # Outlast the 70ms delayed re-dispatch that the hold path schedules.
+        page.wait_for_timeout(300)
+        still_pressed = page.evaluate(read_state)
+
+        assert not immediately["visible"], (
+            f"pixel info should be hidden the moment the button goes down, "
+            f"got text {immediately['text']!r}"
+        )
+        assert not immediately["anyShown"], "no pixel-info readout should survive the press"
+        assert not still_pressed["visible"], (
+            f"pixel info must not reappear while the press is held still, "
+            f"got text {still_pressed['text']!r}"
+        )
+        assert not still_pressed["anyShown"], (
+            "the delayed hold re-dispatch must not resurrect the readout"
+        )
+
+        # The press must still arm window/level: crossing the deadzone adjusts
+        # the window, and the readout stays hidden throughout.
+        before_vmin = page.evaluate(
+            "() => (document.querySelector('#slim-cb-vmin') || {}).textContent || ''"
+        )
+        page.mouse.move(cx + 60, cy + 40, steps=6)
+        page.wait_for_timeout(200)
+        dragging = page.evaluate(read_state)
+        after_vmin = page.evaluate(
+            "() => (document.querySelector('#slim-cb-vmin') || {}).textContent || ''"
+        )
+        page.mouse.up()
+
+        assert not dragging["visible"], "pixel info should stay hidden during the window/level drag"
+        assert after_vmin != before_vmin, (
+            f"dragging past the deadzone should still adjust the window "
+            f"(vmin {before_vmin!r} -> {after_vmin!r})"
         )
 
     def test_ctrl_hover_shows_and_hides_loupe(self, loaded_viewer, sid_2d):

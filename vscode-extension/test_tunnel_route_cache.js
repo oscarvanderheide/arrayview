@@ -1,5 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 const Module = require('module');
 const os = require('os');
@@ -75,6 +76,38 @@ https.get = (url, options, callback) => {
                         handlers.data(JSON.stringify({
                             service: 'arrayview',
                             instance_id: instanceId,
+                        }));
+                        handler();
+                    });
+                }
+            },
+        });
+    });
+    return request;
+};
+
+// The resolver now asks loopback which backend owns the port before doing any
+// remote work. Stub it so the answer is hermetic: unstubbed, the probe reaches
+// whatever real service happens to occupy that port on the dev machine, and a
+// foreign answer would make the resolver correctly abandon the request.
+const originalHttpGet = http.get;
+http.get = (url, options, callback) => {
+    const request = {
+        on() { return request; },
+        destroy() {},
+    };
+    queueMicrotask(() => {
+        const handlers = {};
+        callback({
+            statusCode: 200,
+            setEncoding() {},
+            on(event, handler) {
+                handlers[event] = handler;
+                if (event === 'end') {
+                    queueMicrotask(() => {
+                        handlers.data(JSON.stringify({
+                            service: 'arrayview',
+                            instance_id: 'current-server',
                         }));
                         handler();
                     });

@@ -208,6 +208,27 @@ def get_colormap(name: str):
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
 
 
+@app.get("/colormap_lut/{name}")
+def get_colormap_lut(name: str):
+    """Return the exact 256-entry RGBA uint8 LUT for a colormap as raw bytes.
+
+    The 32-stop gradient the viewer already carries is an approximation —
+    fine for colorbars, wrong for pixels. The window/level drag preview
+    remaps the raw slice locally and has to land on the same bytes the
+    server would have sent, so it needs the real LUT. 1 KiB, immutable per
+    colormap name: fetched once and cached client-side.
+    """
+    if not _ensure_lut(name):
+        return Response(status_code=404)
+    from arrayview._render import LUTS
+
+    return Response(
+        content=LUTS[name].tobytes(),
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "max-age=86400"},
+    )
+
+
 @app.get("/colormaps")
 def list_colormaps():
     """Return all available matplotlib colormap names and cached gradient stops."""

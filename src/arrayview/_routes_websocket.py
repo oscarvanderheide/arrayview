@@ -66,6 +66,58 @@ def _trace_viewer_event(event: str, sid: str) -> None:
 
     emit_launch_event(event, sid_tag=trace_tag(sid))
 
+def _render_progress_reporter(
+    loop, ws, label="Loading", quiet_for_s=0.6, min_interval_s=0.2
+):
+    """Report progress to the viewer while a frame is still being produced.
+
+    Called from the render thread, so nothing here may touch the socket
+    directly — each update is handed to the event loop instead.
+
+    Gated on elapsed time rather than on how much work there is, because "how
+    much work" does not predict duration here. One 215 KB slice of a
+    (224,240,204,6,9) memmap on a network mount takes ~29 s while a 60-slice
+    mosaic of an in-memory array takes milliseconds; the honest question is
+    only ever "has this already taken long enough to be worth explaining".
+    Anything finishing inside `quiet_for_s` therefore shows nothing at all,
+    which is what keeps a fast load from flashing a bar on its way past.
+    """
+    state = {"started": time.perf_counter(), "last": 0.0}
+
+    def report(done, total):
+        now = time.perf_counter()
+        if now - state["started"] < quiet_for_s:
+            return
+        # Once past the quiet period the first update goes straight through:
+        # it is what replaces the bare spinner.
+        if state["last"] and now - state["last"] < min_interval_s and done < total:
+            return
+        state["last"] = now
+        payload = {
+            "type": "render_progress",
+            "done": int(done),
+            "total": int(total),
+            "label": label,
+        }
+        try:
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(_send_json_quietly(ws, payload))
+            )
+        except RuntimeError:
+            # Loop already closed (viewer went away mid-render); progress is
+            # never worth raising over.
+            pass
+
+    return report
+
+
+async def _send_json_quietly(ws, payload):
+    try:
+        await ws.send_json(payload)
+    except Exception:
+        pass
+
+
 def _render_rgba_from_data(data, colormap, vmin, vmax):
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
@@ -244,6 +296,17 @@ def register_websocket_routes(app) -> None:
                 perf = bool(msg.get("perf", False))
                 total_t0 = time.perf_counter()
                 render_t0 = total_t0
+                # Any slice read that happens while this frame is outstanding
+                # belongs to the wait the user is watching, whichever function
+                # issues it. Passing a callback down one call chain missed the
+                # startup case entirely: the first read of a slice is not
+                # always made by the render being awaited, and by the time that
+                # render ran the data was already cached and it reported
+                # nothing. Cleared in the finally below so a sink never
+                # outlives its frame.
+                session.progress_sink = _render_progress_reporter(
+                    loop, ws, label="Reading"
+                )
 
                 if synthetic_mri:
                     te = msg.get("te")
@@ -309,6 +372,7 @@ def register_websocket_routes(app) -> None:
                                 mosaic_cols=mosaic_cols,
                                 vmin_override=vmin_override,
                                 vmax_override=vmax_override,
+                                progress=_render_progress_reporter(loop, ws, label='Building mosaic'),
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
@@ -390,6 +454,9 @@ def register_websocket_routes(app) -> None:
                                 log_scale,
                                 vmin_override,
                                 vmax_override,
+                                progress=_render_progress_reporter(
+                                    loop, ws, label='Reading'
+                                ),
                             ),
                         )
                     h, w = rgba.shape[:2]
@@ -437,6 +504,9 @@ def register_websocket_routes(app) -> None:
                         idx_tuple, session.shape, mosaic_cols,
                     )
 
+                # The pixels exist; nothing after this point reads the array,
+                # and the viewer clears its indicator when the frame lands.
+                session.progress_sink = None
                 render_ms = (time.perf_counter() - render_t0) * 1000.0
                 post_t0 = time.perf_counter()
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
@@ -521,10 +591,26 @@ def register_websocket_routes(app) -> None:
                     )
                 previous_indices = idx_tuple
         except Exception as _ws_exc:
+            # A sink left set would report into a socket that is going away.
+            try:
+                session.progress_sink = None
+            except Exception:
+                pass
             import traceback
 
             _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
             traceback.print_exc()
+            # Without this the viewer never learns the frame it is waiting for
+            # will not arrive: the socket just closes and the panel sits on the
+            # loading spinner until the opener's timeout fails the request
+            # minutes later, reported as a hang with no cause. Send the reason
+            # first so a render failure looks like a render failure.
+            try:
+                await ws.send_json(
+                    {"type": "render_error", "message": str(_ws_exc) or type(_ws_exc).__name__}
+                )
+            except Exception:
+                pass
         finally:
             recv_task.cancel()
             try:
