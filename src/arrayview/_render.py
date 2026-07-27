@@ -174,6 +174,16 @@ def extract_slice(session, dim_x, dim_y, idx_list):
     else:
         result = np.nan_to_num(extracted).astype(np.float32)
 
+    if result.ndim == 1:
+        # A 1-D array has only one display axis, so the slice comes back 1-D.
+        # Every consumer downstream treats the colormapped result as
+        # (height, width, 4) and reads `h, w = rgba.shape[:2]`, which on a 1-D
+        # slice silently reads the 4 RGBA channels as the image width: the
+        # frame header then advertises a 4-pixel-wide image and PIL rejects the
+        # buffer as too small. Present the single axis as one row so that
+        # invariant holds everywhere instead of at each call site.
+        result = result.reshape(1, -1)
+
     with session._raw_lock:
         if key not in session.raw_cache:  # double-check: another worker may have populated it
             session.raw_cache[key] = result

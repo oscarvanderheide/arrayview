@@ -13651,6 +13651,14 @@
                             _metadataResolve = null;
                         } else if (msg.type === 'render_timing' && _PERF_ENABLED) {
                             _perfHandleTimingMessage(event.data, 'main');
+                        } else if (msg.type === 'render_error') {
+                            // The server hit an exception producing this frame,
+                            // so no frame is coming. Say so instead of leaving
+                            // the spinner up until the opener times out.
+                            showMetadataError({
+                                error: 'Could not render this array: '
+                                    + msg.message,
+                            });
                         }
                     } catch (_) {}
                     return;

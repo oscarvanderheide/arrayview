@@ -525,6 +525,17 @@ def register_websocket_routes(app) -> None:
 
             _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
             traceback.print_exc()
+            # Without this the viewer never learns the frame it is waiting for
+            # will not arrive: the socket just closes and the panel sits on the
+            # loading spinner until the opener's timeout fails the request
+            # minutes later, reported as a hang with no cause. Send the reason
+            # first so a render failure looks like a render failure.
+            try:
+                await ws.send_json(
+                    {"type": "render_error", "message": str(_ws_exc) or type(_ws_exc).__name__}
+                )
+            except Exception:
+                pass
         finally:
             recv_task.cancel()
             try:
