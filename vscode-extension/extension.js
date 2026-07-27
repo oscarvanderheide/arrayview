@@ -1056,6 +1056,64 @@ async function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500)
     return outcome === PROBE_OK;
 }
 
+// Strict loopback identity verdict, deliberately narrower than
+// probeArrayViewStatus. Abandoning a request is irreversible from the user's
+// side, so it may only happen on positive proof that the port is owned by a
+// *different* ArrayView backend: an HTTP 200 whose payload is a well-formed
+// ArrayView status carrying someone else's instance_id. A refused connection,
+// a timeout, a non-200 or an unparseable body all mean "not up yet" — most
+// often a large array still loading before it binds the port — and must stay
+// indistinguishable from success here. Note ECONNREFUSED is not in
+// TRANSIENT_PROBE_ERRORS, so probeArrayViewStatus reports a still-starting
+// backend as PROBE_DEAD; that verdict is safe for cache invalidation but must
+// never be used to abandon a request.
+const LOCAL_MINE = 'local-mine';
+const LOCAL_FOREIGN = 'local-foreign';
+const LOCAL_UNKNOWN = 'local-unknown';
+
+function localBackendIdentity(port, expectedServerId, timeoutMs = 1500) {
+    if (!expectedServerId) return Promise.resolve(LOCAL_UNKNOWN);
+    return new Promise((resolve) => {
+        let settled = false;
+        const done = (verdict) => {
+            if (settled) return;
+            settled = true;
+            resolve(verdict);
+        };
+        const req = http.get(
+            `http://localhost:${port}/ping`,
+            { timeout: timeoutMs },
+            (res) => {
+                if (res.statusCode !== 200) {
+                    res.resume();
+                    done(LOCAL_UNKNOWN);
+                    return;
+                }
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => {
+                    if (body.length < 65536) body += chunk;
+                });
+                res.on('end', () => {
+                    let payload = null;
+                    try { payload = JSON.parse(body); } catch (_) {}
+                    if (!payload || payload.service !== 'arrayview'
+                        || !payload.instance_id) {
+                        done(LOCAL_UNKNOWN);
+                        return;
+                    }
+                    done(payload.instance_id === expectedServerId
+                        ? LOCAL_MINE
+                        : LOCAL_FOREIGN);
+                });
+                res.on('error', () => done(LOCAL_UNKNOWN));
+            }
+        );
+        req.on('timeout', () => { req.destroy(); done(LOCAL_UNKNOWN); });
+        req.on('error', () => done(LOCAL_UNKNOWN));
+    });
+}
+
 function httpStatus2xx(url, timeoutMs = 3000) {
     return new Promise((resolve) => {
         let parsed;
@@ -2603,6 +2661,20 @@ async function resolveRemoteViewerUrl(
     try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
     let origQuery = '';
     try { origQuery = new URL(url).search; } catch (_) {}
+    // Ask loopback who owns the port before touching any remote machinery.
+    // The extension host and the backend share a machine even in a tunnel
+    // window, so this answers in single-digit milliseconds, whereas a stale
+    // request otherwise stays undetected until the entire asExternalUri
+    // backoff has expired — roughly 90s of dead waiting that ends in failure
+    // anyway, during which the signal queue lock starves newer live requests.
+    // Only LOCAL_FOREIGN is actionable: it proves a different backend now owns
+    // the port, so no cached route, external URI or privacy promotion could
+    // ever reach the requested session.
+    if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
+        log(`REMOTE: localhost:${port} is owned by a different backend; `
+            + `abandoning stale request for ${expectedServerId}`);
+        return null;
+    }
     // No shortcut for `workbench.browser.enableRemoteProxy` here. That setting
     // proxies VS Code's own integrated browser through the remote, and the
     // viewer stopped using the integrated browser when tunnel delivery moved to
@@ -2624,6 +2696,15 @@ async function resolveRemoteViewerUrl(
         const attempt = attempts[i];
         if (attempt.pauseMs) {
             await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
+        }
+        // Re-check ownership between attempts. A backend that was merely slow
+        // to bind when we started can exit and be replaced part-way through
+        // this chain; without this the remaining attempts run to exhaustion on
+        // a session that already cannot be served.
+        if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
+            log(`REMOTE: localhost:${port} changed owner during retry; `
+                + `abandoning stale request for ${expectedServerId}`);
+            return null;
         }
         try {
             ensureActive();
@@ -2912,6 +2993,11 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
     let viewerReady;
     let integratedBrowserOpened = false;
     let integratedBrowserPlaceholder = null;
+    // Set when this request has reached a terminal state, so a panel disposal
+    // arriving while the request is still running does not release the session
+    // out from under it. See the handoff disposal handler below.
+    const requestSettled = { done: false };
+    let handoffPanelDisposed = false;
     if (useIntegratedBrowser) {
         for (const [filePath, placeholder] of _pendingPlaceholders) {
             const exactHandoff = data.handoffPath
@@ -2961,6 +3047,20 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
                         || _openPanels.get(panelKey) === placeholder.panel
                     ) {
                         if (panelKey) _openPanels.delete(panelKey);
+                        // VS Code reuses a single preview tab in the explorer,
+                        // so clicking a second array disposes this placeholder
+                        // while our own request is still driving it. Releasing
+                        // the session here would kill the backend session that
+                        // the in-flight readiness check is waiting on, which
+                        // then surfaces as the misleading "Backend stopped
+                        // answering before the viewer was ready". Record the
+                        // disposal and let the terminal path do the release.
+                        if (!requestSettled.done) {
+                            handoffPanelDisposed = true;
+                            log(`HANDOFF: panel disposed while request in flight; `
+                                + `deferring session release to terminal path`);
+                            return;
+                        }
                         releaseUrlSession(openUrl, data.url, data.serverId || null);
                     } else {
                         log(`HANDOFF: ignored disposal from superseded panel ${panelKey}`);
@@ -3025,6 +3125,12 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         if (!pingUrl) throw new Error('Unable to derive backend ping URL');
         const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
         if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
+        // A disposal that already happened is the true cause of everything that
+        // would fail below, so report it before probing the backend. Otherwise
+        // a preview-tab replacement is diagnosed as a backend outage.
+        if (handoffPanelDisposed) {
+            throw new Error('Viewer panel closed before its first frame rendered');
+        }
         if (!await arrayViewStatusOk(pingUrl, data.serverId || null)) {
             throw new Error('Backend stopped answering before the viewer was ready');
         }
@@ -3041,11 +3147,18 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         const viewerError = await viewerReady;
         if (viewerError) throw viewerError;
         ensureActive();
+        requestSettled.done = true;
         advanceAck('visibility_verified');
         advanceAck('backend_ready');
         return;
     } catch (error) {
+        requestSettled.done = true;
         if (integratedBrowserOpened) {
+            releaseUrlSession(openUrl, data.url, data.serverId || null);
+        } else if (handedOff && handoffPanelDisposed) {
+            // The disposal handler deferred this so it would not race the
+            // readiness check above. The request is terminal now, so the
+            // session that no longer has a panel must still be reclaimed.
             releaseUrlSession(openUrl, data.url, data.serverId || null);
         }
         throw error;
@@ -3316,6 +3429,10 @@ module.exports = {
         _withTimeout,
         _asExternalUriAttempt,
         probeArrayViewStatus,
+        localBackendIdentity,
+        LOCAL_MINE,
+        LOCAL_FOREIGN,
+        LOCAL_UNKNOWN,
         _verifiedCachedTunnelBase,
         _setRetryTiming,
         resolveRemoteViewerUrl,
