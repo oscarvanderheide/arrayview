@@ -7,13 +7,18 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-23
+last_updated: 2026-07-28
 ---
 
 # Project State
 
 ## Working
 
+- No-argument CLI startup now opens a generated, action-gated interactive
+  tutorial on `feat/interactive-tutorial`. Its real scalar, comparison, and
+  overlay sessions cover navigation, playback, colormaps, histograms, ortho,
+  split and multi-array comparison, stack notation, overlays, ROI analysis,
+  preferences, help, and launch surfaces.
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
 - Local server reuse is Unix-user-fenced: `/ping` publishes the server UID,
   callers only reuse a compatible server owned by their effective UID, and a

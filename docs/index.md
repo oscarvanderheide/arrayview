@@ -12,8 +12,14 @@ A viewer for multi-dimensional arrays.
 ```bash
 uvx arrayview scan.nii.gz
 uvx arrayview volume.npy
-uvx arrayview                    # demo
+uvx arrayview                    # interactive tutorial
 ```
+
+Starting without a file opens a generated 4-D lesson. It teaches navigation,
+colormaps, histograms, orthogonal view, playback, comparisons, stacks,
+overlays, ROI analysis, preferences, and the main ways to launch ArrayView.
+The lesson advances only after you perform each action; sections can be
+skipped, restarted, or resumed after a reload.
 
 ## Python
 

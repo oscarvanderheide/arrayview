@@ -20,6 +20,7 @@ Multi-array formats (`.npz`, `.mat`) show an in-viewer picker when they contain 
 ## CLI
 
 ```bash
+uvx arrayview                                  # interactive tutorial
 uvx arrayview volume.nii.gz
 uvx arrayview volume.npy --window browser
 uvx arrayview image.npy --rgb
@@ -98,6 +99,10 @@ opening separately uses a browser tab.
 The first rendered frame is shown immediately. There is no client-side intro animation.
 Native windows also show a static preview while the live viewer warms up.
 
+With no file argument, ArrayView opens its generated interactive tutorial. The
+tutorial uses the normal viewer and real commands rather than a simulated
+walkthrough, and includes prepared comparison and overlay data.
+
 ## Multiple Arrays
 
 ```bash
@@ -146,7 +151,9 @@ Directory loading is lazy by default. Same-shaped files form a dense virtual
 stack; mixed-shaped files automatically use a ragged collection. `--stack-policy
 dense` requires matching shapes, while `--stack-policy ragged` forces collection
 semantics. `--load eager` is intended for small datasets that should be loaded
-up front.
+up front. In the dimbar, `·` separates ordinary array dimensions while `│`
+marks the boundary before collection dimensions created by a folder or
+`--stack`.
 
 Pattern collections, named overlays, multiple overlays, and `--overlay-dir`:
 [Stack and Overlay Collections](stack-overlays.md).
