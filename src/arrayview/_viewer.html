@@ -14337,6 +14337,9 @@
                 const remaining = Math.round(elapsed / fraction - elapsed);
                 if (remaining >= 1) eta = ` — about ${remaining}s left`;
             }
+            // The units differ per source — mosaic counts slices, a single
+            // large slice counts row blocks — so report a percentage and let
+            // the server's label say what is being worked on.
             const percent = Math.round(fraction * 100);
             text.textContent = `${label || 'Loading'} ${percent}%${eta}`;
         }
@@ -20425,13 +20428,24 @@
             // Hold left mouse button to activate pixel info readout
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
-                _pixelInfoHeld = true;
                 if (_bcCanDrag()) _bcPendingDrag = { startX: e.clientX, startY: e.clientY };
-                canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
-                setTimeout(() => {
-                    if (!_pixelInfoHeld) return;
+                // A plain (unmodified) left press is the opening of a
+                // window/level gesture, so the press itself has to clear the
+                // pixel-info hover — waiting until the pointer crosses the
+                // deadzone leaves the readout sitting there for a press that is
+                // held still. Ctrl+press is the loupe inspect gesture, whose
+                // whole purpose is the readout, so it keeps the hold.
+                if (_bcPendingDrag && !e.ctrlKey) {
+                    _pixelInfoHeld = false;
+                    hideAllPixelInfo();
+                } else {
+                    _pixelInfoHeld = true;
                     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
-                }, 70);
+                    setTimeout(() => {
+                        if (!_pixelInfoHeld) return;
+                        canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
+                    }, 70);
+                }
             }
         });
         canvas.addEventListener('dblclick', e => {
