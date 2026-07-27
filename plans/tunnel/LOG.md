@@ -953,3 +953,42 @@ cross the mount. What is fixable is the *wait*: render the middle slice first
 (0.1 s once its pages are in) and fill the mosaic in behind it, so first paint
 is ~1 s instead of 31 s. Untried, and it changes what the user sees first, so
 it needs agreement before implementing.
+
+### Progress reporting for slow mosaic builds
+
+Correction to the previous entry first: the "3.18 MB/s" figure there was
+measuring *useful* bytes, not transferred bytes, and led to the wrong
+conclusion. The right model is page-granularity. Exact arithmetic over the
+strides (10575360, 44064, 216, 36, 4):
+
+    full mosaic (204 slices)   useful 43.9 MB   pages touched 2368.9 MB   31.2 s
+    one middle slice           useful  0.2 MB   pages touched  220.2 MB    2.9 s
+    file size                                                 2368.9 MB
+
+Pages touched equals the file size exactly, and 2368.9 MB at 76 MB/s is 31.2 s
+— the observed time to the digit. Two unrelated files both landed on 76 MB/s
+when computed as size/time, which was the clue: the mount is fine, the access
+pattern reads everything. mmap is working as intended; it just cannot help when
+4 wanted bytes sit in every 216-byte block and the blocks span the whole file.
+
+Consequence for the earlier proposal: showing one slice first is worth ~3 s, not
+~1 s. Still a 10× improvement, but do not oversell it.
+
+**What was built instead**: honest progress. `render_mosaic` takes a progress
+callback invoked per slice; the reporter hands each update to the event loop
+(it is called from the render thread) and the viewer draws a bar plus an ETA
+derived from measured elapsed time. Throttled to 200 ms, and silent below 24
+slices so quick loads never flash a bar.
+
+**Test note worth keeping**: mosaic mode needs a 4-D array. A 3-D array leaves
+`dim_z` at -1 after pressing `z`, so a mosaic test built on `(24,24,60)` passes
+through the non-mosaic path and silently proves nothing. Assert `dim_z >= 0`
+before measuring anything about a mosaic.
+
+**Second test note**: passing `--browser chromium` to a non-browser suite like
+`test_api.py` produces ~49 failures and ~68 errors that have nothing to do with
+the code under test. Run browser and non-browser suites separately.
+
+**Still open**: first paint still waits for the whole mosaic. Rendering the
+middle slice first and filling in behind it is the real latency fix and is
+untried.
