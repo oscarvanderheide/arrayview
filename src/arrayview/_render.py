@@ -147,7 +147,43 @@ def _compute_vmin_vmax(session, data, dr=0, complex_mode=0):
     return float(np.percentile(data, 1)), float(np.percentile(data, 99))
 
 
-def extract_slice(session, dim_x, dim_y, idx_list):
+def _extract_with_progress(data, slicer, progress, target_updates=32):
+    """Materialize ``data[slicer]``, reporting progress along the outer axis.
+
+    A single displayed image can be enormously expensive to read even though it
+    is tiny once materialized. For a (224,240,204,6,9) memmap on a network
+    mount, one 215 KB slice takes ~29 s and faults in 2.2 GB: the wanted values
+    are 4 bytes out of every 216-byte block, so the pages between them — the
+    whole file — come along too. Measured, not estimated; see plans/tunnel/LOG.md.
+
+    There is no loop in ``np.array(data[slicer])`` to report from, so slice the
+    outer display axis into blocks and report between them. The blocks touch
+    exactly the same pages in the same order as the single read, so this reports
+    the wait rather than adding to it. MADV_RANDOM was tried as a way to make
+    the read itself cheaper and is far worse — it defeats readahead, turning
+    each page into its own round trip (110 s versus 13 s on a 1 GB file).
+    """
+    if progress is None:
+        return np.array(data[tuple(slicer)])
+
+    axes = [i for i, s in enumerate(slicer) if isinstance(s, slice)]
+    if not axes:
+        return np.array(data[tuple(slicer)])
+
+    axis = axes[0]
+    n = int(data.shape[axis])
+    step = max(1, n // target_updates)
+    blocks = []
+    for start in range(0, n, step):
+        stop = min(start + step, n)
+        sub = list(slicer)
+        sub[axis] = slice(start, stop)
+        blocks.append(np.array(data[tuple(sub)]))
+        progress(stop, n)
+    return np.concatenate(blocks, axis=0)
+
+
+def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
     if hasattr(session.data, "clamp_indices"):
         idx_list = session.data.clamp_indices(idx_list)
     # Mask out indices along the displayed dims — they're slice(None) in the
@@ -163,7 +199,7 @@ def extract_slice(session, dim_x, dim_y, idx_list):
         slice(None) if i in (dim_x, dim_y) else idx_list[i]
         for i in range(len(session.shape))
     ]
-    extracted = np.array(session.data[tuple(slicer)])
+    extracted = _extract_with_progress(session.data, slicer, progress)
     if dim_x < dim_y:
         extracted = extracted.T
     # scipy.io.loadmat returns complex arrays as structured dtypes; convert here.
@@ -459,6 +495,7 @@ def render_rgba(
     log_scale=False,
     vmin_override=None,
     vmax_override=None,
+    progress=None,
 ):
     has_override = vmin_override is not None and vmax_override is not None
     if not has_override:
@@ -476,7 +513,7 @@ def render_rgba(
             if key in session.rgba_cache:
                 session.rgba_cache.move_to_end(key)
                 return session.rgba_cache[key]
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple), progress=progress)
     rgba = apply_colormap_rgba(
         session,
         raw,

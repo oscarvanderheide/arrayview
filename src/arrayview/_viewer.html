@@ -13669,7 +13669,7 @@
                         } else if (msg.type === 'render_timing' && _PERF_ENABLED) {
                             _perfHandleTimingMessage(event.data, 'main');
                         } else if (msg.type === 'render_progress') {
-                            _showRenderProgress(msg.done, msg.total);
+                            _showRenderProgress(msg.done, msg.total, msg.label);
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
@@ -14315,7 +14315,7 @@
         // this when the build is big enough to be worth reporting, so the bar
         // appearing at all is the signal that this will take a moment.
         let _renderProgressStartedAt = 0;
-        function _showRenderProgress(done, total) {
+        function _showRenderProgress(done, total, label) {
             const ol = document.getElementById('loading-overlay');
             if (!ol || ol.style.display === 'none') return;
             if (!total || done > total) return;
@@ -14337,7 +14337,8 @@
                 const remaining = Math.round(elapsed / fraction - elapsed);
                 if (remaining >= 1) eta = ` — about ${remaining}s left`;
             }
-            text.textContent = `Loading slice ${done} of ${total}${eta}`;
+            const percent = Math.round(fraction * 100);
+            text.textContent = `${label || 'Loading'} ${percent}%${eta}`;
         }
 
         function showMetadataError(result) {

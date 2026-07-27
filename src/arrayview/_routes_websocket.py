@@ -66,29 +66,30 @@ def _trace_viewer_event(event: str, sid: str) -> None:
 
     emit_launch_event(event, sid_tag=trace_tag(sid))
 
-def _mosaic_progress_reporter(loop, ws, min_interval_s=0.2, floor_slices=24):
-    """Report mosaic build progress to the viewer while it is still building.
+def _render_progress_reporter(
+    loop, ws, label="Loading", quiet_for_s=0.6, min_interval_s=0.2
+):
+    """Report progress to the viewer while a frame is still being produced.
 
     Called from the render thread, so nothing here may touch the socket
     directly — each update is handed to the event loop instead.
 
-    A mosaic over an array whose display axes are the outer ones can take tens
-    of seconds, all of it before the first frame exists, and until now the
-    viewer had nothing to show but a spinner. Progress per slice is honest:
-    every slice faults in roughly the same number of pages.
-
-    Two guards keep this from becoming its own performance problem: updates are
-    throttled to `min_interval_s`, and a mosaic small enough to finish quickly
-    (`floor_slices`) reports nothing at all rather than flashing a bar.
+    Gated on elapsed time rather than on how much work there is, because "how
+    much work" does not predict duration here. One 215 KB slice of a
+    (224,240,204,6,9) memmap on a network mount takes ~29 s while a 60-slice
+    mosaic of an in-memory array takes milliseconds; the honest question is
+    only ever "has this already taken long enough to be worth explaining".
+    Anything finishing inside `quiet_for_s` therefore shows nothing at all,
+    which is what keeps a fast load from flashing a bar on its way past.
     """
-    state = {"last": 0.0}
+    state = {"started": time.perf_counter(), "last": 0.0}
 
     def report(done, total):
-        if total < floor_slices:
-            return
         now = time.perf_counter()
-        # Always let the first update through: it is what replaces the bare
-        # spinner, and waiting one interval for it defeats the purpose.
+        if now - state["started"] < quiet_for_s:
+            return
+        # Once past the quiet period the first update goes straight through:
+        # it is what replaces the bare spinner.
         if state["last"] and now - state["last"] < min_interval_s and done < total:
             return
         state["last"] = now
@@ -96,6 +97,7 @@ def _mosaic_progress_reporter(loop, ws, min_interval_s=0.2, floor_slices=24):
             "type": "render_progress",
             "done": int(done),
             "total": int(total),
+            "label": label,
         }
         try:
             loop.call_soon_threadsafe(
@@ -359,7 +361,7 @@ def register_websocket_routes(app) -> None:
                                 mosaic_cols=mosaic_cols,
                                 vmin_override=vmin_override,
                                 vmax_override=vmax_override,
-                                progress=_mosaic_progress_reporter(loop, ws),
+                                progress=_render_progress_reporter(loop, ws, label='Building mosaic'),
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
@@ -441,6 +443,9 @@ def register_websocket_routes(app) -> None:
                                 log_scale,
                                 vmin_override,
                                 vmax_override,
+                                progress=_render_progress_reporter(
+                                    loop, ws, label='Reading'
+                                ),
                             ),
                         )
                     h, w = rgba.shape[:2]
