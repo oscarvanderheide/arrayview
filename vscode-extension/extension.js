@@ -184,11 +184,22 @@ let EXTERNAL_URI_ATTEMPTS = [
     { timeoutMs: 10000, pauseMs: 8000 },
 ];
 
-function _setRetryTiming({ cachedRouteProbeTimeoutsMs, externalUriAttempts } = {}) {
+function _setRetryTiming({
+    cachedRouteProbeTimeoutsMs,
+    externalUriAttempts,
+    readinessProbeTimeoutsMs,
+    relayReadinessProbeTimeoutsMs,
+} = {}) {
     if (cachedRouteProbeTimeoutsMs) {
         CACHED_ROUTE_PROBE_TIMEOUTS_MS = cachedRouteProbeTimeoutsMs;
     }
     if (externalUriAttempts) EXTERNAL_URI_ATTEMPTS = externalUriAttempts;
+    if (readinessProbeTimeoutsMs) {
+        READINESS_PROBE_TIMEOUTS_MS = readinessProbeTimeoutsMs;
+    }
+    if (relayReadinessProbeTimeoutsMs) {
+        RELAY_READINESS_PROBE_TIMEOUTS_MS = relayReadinessProbeTimeoutsMs;
+    }
 }
 
 async function _verifiedCachedTunnelBase(
@@ -1058,6 +1069,14 @@ const TRANSIENT_PROBE_ERRORS = new Set([
     'EHOSTUNREACH',
 ]);
 
+// Statuses a relay generates about *itself*. A devtunnel answers 502 within a
+// few hundred ms whenever its local connector is not attached yet — the relay
+// is reachable, the backend simply has not been reached through it. Read as a
+// verdict on the backend this is a lie, and a fast one: it fails a launch
+// sooner than a stall would. Only meaningful off loopback; a non-200 from
+// localhost really is our own backend answering wrongly.
+const RELAY_STATUS_CODES = new Set([502, 503, 504, 521, 522, 523, 524]);
+
 function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
     return new Promise((resolve) => {
         let parsed;
@@ -1074,10 +1093,13 @@ function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
             settled = true;
             resolve(outcome);
         };
+        const viaRelay = !isLoopbackUrl(url);
         const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
             if (res.statusCode !== 200) {
                 res.resume();
-                done(PROBE_DEAD);
+                done(viaRelay && RELAY_STATUS_CODES.has(res.statusCode)
+                    ? PROBE_UNKNOWN
+                    : PROBE_DEAD);
                 return;
             }
             let body = '';
@@ -1113,6 +1135,33 @@ function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
 async function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
     const outcome = await probeArrayViewStatus(url, expectedServerId, timeoutMs);
     return outcome === PROBE_OK;
+}
+
+// Budgets for the one probe whose negative answer abandons a user's launch.
+// Loopback answers in microseconds or not at all; a relay that has just been
+// resolved routinely needs seconds for its first byte, so it gets both longer
+// timeouts and more of them.
+let READINESS_PROBE_TIMEOUTS_MS = [1500, 2500];
+let RELAY_READINESS_PROBE_TIMEOUTS_MS = [3000, 5000, 8000];
+
+/**
+ * Probe until the answer means something. Retrying a stall is the whole point:
+ * PROBE_UNKNOWN is a fact about the path, and only PROBE_DEAD — a well-formed
+ * reply from a different backend, or a refused loopback port — is evidence
+ * about the backend itself.
+ */
+async function probeUntilVerdict(
+    url, expectedServerId, timeoutsMs, ensureActive = () => {}
+) {
+    let outcome = PROBE_UNKNOWN;
+    for (let i = 0; i < timeoutsMs.length; i++) {
+        ensureActive();
+        outcome = await probeArrayViewStatus(url, expectedServerId, timeoutsMs[i]);
+        if (outcome !== PROBE_UNKNOWN) return outcome;
+        log(`READY: ping gave no verdict (attempt=${i + 1} `
+            + `timeout=${timeoutsMs[i]}ms url=${url})`);
+    }
+    return outcome;
 }
 
 // Strict loopback identity verdict, deliberately narrower than
@@ -3252,8 +3301,31 @@ async function _processSignalDataBody(
         if (handoffPanelDisposed) {
             throw new Error('Viewer panel closed before its first frame rendered');
         }
-        if (!await arrayViewStatusOk(pingUrl, data.serverId || null)) {
-            throw new Error('Backend stopped answering before the viewer was ready');
+        // This gate exists to fail fast when the backend is genuinely gone. It
+        // must not fail at all on a path that simply has not answered yet: the
+        // panel is already up, and both gates below (session readiness, then
+        // the viewer's own first frame) have their own budgets and produce far
+        // more accurate messages. Abandoning here on a no-verdict reported a
+        // cold devtunnel as a backend outage.
+        const viaRelay = !isLoopbackUrl(pingUrl);
+        const readiness = await probeUntilVerdict(
+            pingUrl,
+            data.serverId || null,
+            viaRelay ? RELAY_READINESS_PROBE_TIMEOUTS_MS : READINESS_PROBE_TIMEOUTS_MS,
+            ensureActive
+        );
+        if (readiness === PROBE_DEAD) {
+            // Proof: a well-formed answer from someone else, or a refused
+            // loopback port. Name which one, so a port taken over by a newer
+            // launch is not diagnosed as a crash.
+            throw new Error(data.serverId
+                ? 'Another ArrayView backend now owns this port — '
+                    + 'the session this tab was opened for is gone'
+                : 'Backend stopped answering before the viewer was ready');
+        }
+        if (readiness === PROBE_UNKNOWN) {
+            log('READY: ping never returned a verdict; continuing to session '
+                + `readiness (relay=${viaRelay})`);
         }
         // The array may still be loading; the panel is already up showing the
         // viewer's loading state. A load that failed answers 422 here with its
@@ -3574,6 +3646,10 @@ module.exports = {
         _withTimeout,
         _asExternalUriAttempt,
         probeArrayViewStatus,
+        probeUntilVerdict,
+        PROBE_OK,
+        PROBE_DEAD,
+        PROBE_UNKNOWN,
         localBackendIdentity,
         LOCAL_MINE,
         LOCAL_FOREIGN,
