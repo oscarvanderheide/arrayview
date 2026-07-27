@@ -1893,6 +1893,15 @@ let reloadTimer = null;
 let reloadCount = 0;
 const MAX_RELOADS = 12;
 const RELOAD_DELAY_MS = 1500;
+// A navigation that never completes fires neither 'load' nor 'error', so it is
+// invisible to every handler below. Observed through a saturated tunnel with
+// three viewers already open: warmup succeeded, the page request stalled, and
+// the panel sat blank until the outer request timeout killed it. Re-assigning
+// frame.src cancels the stuck request rather than adding another, so this
+// watchdog frees the connection instead of competing for one. It is longer than
+// RELOAD_DELAY_MS because it budgets for a real transfer (the viewer page is
+// ~1.9 MB) rather than for a script that failed to boot after arriving.
+const NAVIGATE_TIMEOUT_MS = 8000;
 function showBackendError() {
     if (viewerReady) return;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
@@ -1900,7 +1909,7 @@ function showBackendError() {
     document.getElementById('backend-error').classList.add('visible');
     frame.style.display = 'none';
 }
-function scheduleReload() {
+function scheduleReload(delayMs) {
     if (viewerReady || viewerLoaded) return;
     if (reloadTimer) { clearTimeout(reloadTimer); }
     reloadTimer = setTimeout(() => {
@@ -1911,7 +1920,9 @@ function scheduleReload() {
         console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
         const sep = arrayviewUrl.includes('?') ? '&' : '?';
         frame.src = arrayviewUrl + sep + '_avretry=' + reloadCount;
-    }, RELOAD_DELAY_MS);
+        // The retry can stall exactly like the navigation it replaces.
+        scheduleReload(NAVIGATE_TIMEOUT_MS);
+    }, typeof delayMs === 'number' ? delayMs : RELOAD_DELAY_MS);
 }
 window.addEventListener('message', (event) => {
     const msg = event && event.data;
@@ -1967,6 +1978,9 @@ async function warmTransportAndOpen() {
         }
     }
     frame.src = arrayviewUrl;
+    // Arm before the first load can stall; 'load' below re-arms the shorter
+    // post-arrival watchdog, so the two never run at the same time.
+    scheduleReload(NAVIGATE_TIMEOUT_MS);
 }
 void warmTransportAndOpen();
 </script>
