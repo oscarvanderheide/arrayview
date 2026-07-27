@@ -112,6 +112,13 @@ const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 
 let version = 'unknown';
 let isProcessingSignal = false;
+// Identifies which request currently holds the queue. The lock is released as
+// soon as a request's panel is up, while its readiness wait continues, so a
+// later request can be holding the queue by the time an earlier one finishes.
+// Without an owner check that earlier request's `finally` would release a lock
+// belonging to someone else, letting two requests into the critical section at
+// once.
+let signalQueueOwner = null;
 // Upper bound on waiting for a viewer's first frame once the backend has
 // published its URL. Keeps a failed launch from holding the request queue.
 const VIEWER_READY_TIMEOUT_MS = 45000;
@@ -2841,8 +2848,23 @@ async function resolveRemoteViewerUrl(
 }
 
 async function processSignalData(data) {
+    const queueTicket = Symbol('signal-queue');
     isProcessingSignal = true;
+    signalQueueOwner = queueTicket;
     log(`LOCK: isProcessingSignal=true`);
+    // The queue exists to serialise the parts that touch shared state:
+    // resolving the route, claiming a pending placeholder, creating a panel.
+    // Waiting for the viewer's first frame touches none of that — it is a
+    // network wait that can legitimately run for tens of seconds while a large
+    // array loads. Holding the queue across it made every later click wait for
+    // an unrelated file, which is what "one bad array broke the next few"
+    // actually was. Released once the panel is up; see the call site.
+    const releaseQueue = (reason) => {
+        if (signalQueueOwner !== queueTicket) return;
+        signalQueueOwner = null;
+        isProcessingSignal = false;
+        log(`UNLOCK: isProcessingSignal=false (${reason})`);
+    };
     // Hard safety net: if any await inside the body hangs (e.g. VS Code's
     // createWebviewPanel / openInWebviewPanel never resolves when the
     // extension host is degraded), the finally below would never run and
@@ -2860,7 +2882,7 @@ async function processSignalData(data) {
     let hardTimer = null;
     try {
         await Promise.race([
-            _processSignalDataBody(data, operation),
+            _processSignalDataBody(data, operation, releaseQueue),
             new Promise((_, reject) =>
                 hardTimer = setTimeout(() => {
                     operation.cancelled = true;
@@ -2881,14 +2903,19 @@ async function processSignalData(data) {
         }
     } finally {
         if (hardTimer) clearTimeout(hardTimer);
-        isProcessingSignal = false;
-        log(`UNLOCK: isProcessingSignal=false`);
+        // Normally already released at panel_opened; this covers the paths that
+        // fail before a panel ever opens. No-op if a later request now owns it.
+        releaseQueue('request settled');
         // Signal files for subsequent arrays remain on disk; the 1-second poll
         // will pick them up now that isProcessingSignal is false again.
     }
 }
 
-async function _processSignalDataBody(data, operation = { cancelled: false }) {
+async function _processSignalDataBody(
+    data,
+    operation = { cancelled: false },
+    releaseQueue = () => {}
+) {
     const ensureActive = () => {
         if (operation.cancelled) {
             throw new Error('Signal processing was cancelled before panel open');
@@ -3155,6 +3182,12 @@ async function _processSignalDataBody(data, operation = { cancelled: false }) {
         }
         advanceAck('panel_opened');
     }
+
+    // Everything above claimed shared state: the route cache, a pending
+    // placeholder, an entry in _openPanels. Everything below is this request
+    // waiting on its own backend and its own panel. Hand the queue on here so
+    // the next click gets a panel while this array is still loading.
+    releaseQueue('panel open; readiness continues off-queue');
 
     try {
         const pingUrl = pingUrlFromViewerUrl(openUrl);
@@ -3484,6 +3517,8 @@ module.exports = {
         _removeRegistrationIfOwned,
         _targetedSignalPath,
         _processSignalDataBody,
+        processSignalData,
+        isSignalQueueBusy: () => isProcessingSignal,
         _remainingSignalMs,
         tryOpenSignalFile,
         _viewerPanelHtml,
