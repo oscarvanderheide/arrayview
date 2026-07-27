@@ -845,3 +845,36 @@ own change.
 **Note**: 1-D arrays now render as a single row. The user does not need that
 capability, but it is correct, tested, and strictly better than the error it
 replaced, so it stays.
+
+### 0.14.94 — the queue coupling itself
+
+Three rounds of fixes each shortened how long a bad request held the signal
+queue — 88 s of stale-route backoff, 45 s of stalled navigation, 45 s of an
+undrawable array. None touched the reason any of that mattered: the lock
+spanned the whole request, including the wait for the viewer's first frame.
+
+That wait is a network wait. It is *supposed* to take tens of seconds on a
+large array. Holding the queue across it means a perfectly healthy slow load
+blocks every later click, and there is no bug to fix in that case — only a
+design to change.
+
+Split at `panel_opened`. Above it a request claims shared state: the route
+cache, a pending placeholder, an entry in `_openPanels`. Below it a request
+waits on its own panel and its own backend and shares nothing. The queue is
+handed on at that line.
+
+**The part worth remembering**: releasing early means a request can finish
+while a *later* one holds the queue, so a plain `isProcessingSignal = false` in
+a `finally` would release someone else's lock and put two requests in the
+critical section at once — strictly worse than the original problem. The lock
+now carries an owner ticket and releasing is a no-op unless the caller still
+owns it. Any future early-release needs the same care.
+
+**Evidence**: `component`. `test_signal_queue_handoff.js` asserts the queue is
+free while a request awaits its first frame, that a second request opens its
+own panel meanwhile, and that out-of-order settling never releases another
+request's lock. Not yet exercised on a real host.
+
+**Now genuinely open**: nothing bounds how many requests can be in their
+readiness wait at once. User clicks are self-limiting, so this is untested
+rather than known-bad.
