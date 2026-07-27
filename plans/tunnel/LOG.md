@@ -668,3 +668,64 @@ Five independent defects, each masking the next:
 
 Only #2, #3 and #5 were ArrayView defects. #1 and #4 were environmental, and are
 now either detected (skew warning) or explained (quota diagnostic).
+
+---
+
+## 2026-07-27 — 0.14.91: stale-request starvation and self-inflicted session kill
+
+**Input**: "it still hangs — inspect the logs, zoom out, fix". Not a single-bug
+report, so the starting point was the whole log corpus rather than one incident:
+`~/.arrayview/extension.log` plus 7 archives, 34,167 lines.
+
+**Method note on statistics.** The naive aggregate reads 491 claimed / 300 ready
+/ 181 failed (37%), and surfaces bugs like `pingUrl is not defined` that were
+fixed on 2026-07-08. The archive reaches back far enough to pollute any total.
+Scoped to the current architecture (2026-07-26 onward, v0.14.87–90) the real
+numbers are **31 claimed / 22 ready / 8 failed (26%)**. Always scope first.
+
+Per-request timing (queue wait = WATCH rename → ACK claimed) is the measurement
+that made the failure class visible: healthy requests spend 0.4–6 s, while two
+requests burned 87.9 s and 75.6 s and *then* failed, and one live request waited
+**68.7 s in queue and rendered in 1.3 s** once it finally ran.
+
+**RC1 — stale detection deferred behind the slowest path.** 22:13:49→22:14:03:
+cached-route probe returns no verdict three times (1.5 s / 4 s / 8 s), then all
+six `asExternalUri` attempts time out through 22:15:17, then at 22:15:17.695 a
+probe answers **in 111 ms** with `REMOTE: cached route stale`. The information
+was available in milliseconds and was consulted 88 s late. Because the signal
+loop serialises on `isProcessingSignal`, that dead wait is charged to every
+later click — this is the mechanism behind "works once, then hangs".
+
+Fix: `localBackendIdentity()`, a strict three-way loopback verdict consulted
+before any remote work and again between retries. The asymmetry is the whole
+design: abandoning is irreversible, so only positive proof of a foreign
+`instance_id` may do it. **A not-yet-listening port must be indistinguishable
+from success** — that is exactly the state the 22:13:49 request was in. This is
+deliberately stricter than `probeArrayViewStatus`, which reports `ECONNREFUSED`
+as `PROBE_DEAD` because that code is absent from `TRANSIENT_PROBE_ERRORS`;
+reusing that verdict here would have broken every slow-loading large array.
+
+**RC2 — the extension killed the session it was waiting on.** 12:28 cluster:
+`placeholder disposed for sense_images.npy` (27.804) → `PANEL: release
+sid=e48419c1 ok=true` (27.820) → `ERROR: Backend stopped answering before the
+viewer was ready` (28.838). VS Code preview-tab reuse disposes the placeholder
+when the next single-click replaces the tab; the dispose handler released the
+session `waitForViewerReady` was still waiting on, and the resulting error
+blamed the backend for the extension's own act. Release is now deferred to the
+terminal path, and the truthful panel-closed error is checked before the ping.
+
+**Regression I caused and fixed.** The loopback pre-check broke three passing
+tunnel tests: they stub `https.get` only, so the new probe reached the real
+arrayview on port 8000 (instance `b8ea8af9`), read LOCAL_FOREIGN, and correctly
+abandoned. Test outcomes depending on what occupies a dev-machine port is a
+defect in the test seam, not bad luck — all three now stub `http.get`.
+
+**Evidence**: `component` only. All 13 extension tests pass, including new
+`test_local_identity_shortcircuit.js`. The tunnel display boundary was **not**
+validated on a real host — the user was asleep and CLAUDE.md forbids installing
+into their profile or reloading their window without permission. RC2 has **no
+automated coverage**: the only test that drove `_processSignalDataBody` for
+placeholders is the integrated-browser test, now obsolete (extension.js pins
+`useIntegratedBrowser` to false at the `if (false)` guard).
+
+**Result**: (pending — needs install of 0.14.91 and a window reload)
