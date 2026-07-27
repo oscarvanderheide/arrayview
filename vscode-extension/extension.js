@@ -1939,6 +1939,21 @@ window.addEventListener('message', (event) => {
         console.log('[arrayview-opener] viewer script loaded; waiting for first frame');
         return;
     }
+    if (msg.phase === 'render-error') {
+        // The backend cannot draw this array, so no reload will help and the
+        // frame this panel is waiting for will never arrive. Retrying would
+        // just repeat the failure until the request times out, holding the
+        // signal queue and stalling every later click.
+        viewerLoaded = true;
+        if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+        console.log('[arrayview-opener] viewer reported render-error');
+        vscodeApi.postMessage({
+            type: 'viewer-failed',
+            phase: 'render-error',
+            message: msg.detail || 'This array could not be rendered',
+        });
+        return;
+    }
     if (msg.phase === 'frame-rendered') {
         if (!viewerReady) {
             viewerLoaded = true;
@@ -2008,6 +2023,13 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
             }
             if (message?.type === 'viewer-ready' && message.phase === 'frame-rendered') {
                 finish();
+            }
+            // A verdict of "this cannot be drawn" is as terminal as a rendered
+            // frame. Waiting out the full timeout instead would report a hang
+            // and keep the queue locked while the answer is already known.
+            if (message?.type === 'viewer-failed') {
+                log(`PANEL: viewer failed — ${message.message}`);
+                finish(new Error(message.message || 'The viewer could not render this array'));
             }
         });
         disposeSubscription = panel.onDidDispose(() => {
@@ -3469,6 +3491,7 @@ module.exports = {
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,
         waitForBackendViewerReady,
+        waitForViewerReady,
         openInIntegratedBrowser,
         openInWebviewPanel,
         _openPanels,

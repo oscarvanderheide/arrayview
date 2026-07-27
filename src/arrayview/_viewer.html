@@ -13654,11 +13654,15 @@
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
-                            // the spinner up until the opener times out.
+                            // the spinner up until the opener times out, and
+                            // tell the opener too: it is holding the signal
+                            // queue until this request reaches a verdict, so
+                            // staying quiet here stalls every later click.
                             showMetadataError({
                                 error: 'Could not render this array: '
                                     + msg.message,
                             });
+                            reportParent('render-error', msg.message);
                         }
                     } catch (_) {}
                     return;
