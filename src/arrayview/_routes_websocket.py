@@ -296,6 +296,17 @@ def register_websocket_routes(app) -> None:
                 perf = bool(msg.get("perf", False))
                 total_t0 = time.perf_counter()
                 render_t0 = total_t0
+                # Any slice read that happens while this frame is outstanding
+                # belongs to the wait the user is watching, whichever function
+                # issues it. Passing a callback down one call chain missed the
+                # startup case entirely: the first read of a slice is not
+                # always made by the render being awaited, and by the time that
+                # render ran the data was already cached and it reported
+                # nothing. Cleared in the finally below so a sink never
+                # outlives its frame.
+                session.progress_sink = _render_progress_reporter(
+                    loop, ws, label="Reading"
+                )
 
                 if synthetic_mri:
                     te = msg.get("te")
@@ -493,6 +504,9 @@ def register_websocket_routes(app) -> None:
                         idx_tuple, session.shape, mosaic_cols,
                     )
 
+                # The pixels exist; nothing after this point reads the array,
+                # and the viewer clears its indicator when the frame lands.
+                session.progress_sink = None
                 render_ms = (time.perf_counter() - render_t0) * 1000.0
                 post_t0 = time.perf_counter()
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
@@ -577,6 +591,11 @@ def register_websocket_routes(app) -> None:
                     )
                 previous_indices = idx_tuple
         except Exception as _ws_exc:
+            # A sink left set would report into a socket that is going away.
+            try:
+                session.progress_sink = None
+            except Exception:
+                pass
             import traceback
 
             _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)

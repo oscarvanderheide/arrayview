@@ -199,6 +199,14 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
         slice(None) if i in (dim_x, dim_y) else idx_list[i]
         for i in range(len(session.shape))
     ]
+    # Fall back to the session's sink so the read reports no matter which
+    # caller got there first. Threading a callback through every caller
+    # does not work: at startup the first read of a slice comes from a
+    # different path than the websocket render that is being waited on,
+    # so the expensive read was silent and the render that reported was
+    # already served from cache.
+    if progress is None:
+        progress = getattr(session, 'progress_sink', None)
     extracted = _extract_with_progress(session.data, slicer, progress)
     if dim_x < dim_y:
         extracted = extracted.T

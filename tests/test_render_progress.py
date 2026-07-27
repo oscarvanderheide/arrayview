@@ -166,3 +166,110 @@ def test_chunked_extract_matches_a_plain_read():
     np.testing.assert_array_equal(chunked, plain)
     assert calls, "a chunked read must report"
     assert calls[-1] == (9, 9), f"the final update must be complete, got {calls[-1]}"
+
+
+@pytest.fixture
+def slow_render(monkeypatch):
+    """Make every slice read take ~1s so progress is observable in a test."""
+    import arrayview._render as render_mod
+
+    original = render_mod._extract_with_progress
+
+    def slow(data, slicer, progress, target_updates=32):
+        if progress is not None:
+            for i in range(8):
+                time.sleep(0.12)
+                progress(i + 1, 8)
+        return original(data, slicer, None, target_updates)
+
+    monkeypatch.setattr(render_mod, "_extract_with_progress", slow)
+
+
+def _progress_state(page):
+    return page.evaluate(
+        """() => {
+            const bar = document.getElementById('render-progress');
+            const text = document.getElementById('render-progress-text');
+            const wrap = document.getElementById('canvas-wrap');
+            const ol = document.getElementById('loading-overlay');
+            const r = bar ? bar.getBoundingClientRect() : null;
+            const c = wrap ? wrap.getBoundingClientRect() : null;
+            return {
+                visible: bar ? bar.classList.contains('visible') : null,
+                insideOverlay: ol ? ol.contains(bar) : null,
+                overlapsCanvas: (r && c)
+                    ? !(r.bottom <= c.top || r.top >= c.bottom)
+                    : null,
+                text: text ? text.textContent : null,
+            };
+        }"""
+    )
+
+
+def test_progress_never_covers_the_slice(page, client, server_url, tmp_path, slow_render, ungated):
+    """It must not be drawn inside the overlay that sits over the canvas."""
+    sid = register_array(
+        client, np.random.rand(30, 30, 8).astype(np.float32), tmp_path, "not_over"
+    )
+    page.goto(f"{server_url}/?sid={sid}")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=45_000)
+    state = _progress_state(page)
+    assert state["insideOverlay"] is False, (
+        "progress must live outside #loading-overlay, which covers the canvas"
+    )
+    assert state["overlapsCanvas"] is False, (
+        f"progress must not overlap the displayed slice: {state}"
+    )
+
+
+def test_progress_hides_when_a_frame_arrives(page, client, server_url, tmp_path):
+    """The reported bug: the bar stayed on screen after the image appeared."""
+    sid = register_array(
+        client, np.random.rand(24, 24, 40, 3).astype(np.float32), tmp_path, "hides"
+    )
+    page.goto(f"{server_url}/?sid={sid}")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=45_000)
+
+    page.evaluate("() => _showRenderProgress(3, 10, 'Reading')")
+    state = _progress_state(page)
+    assert state["visible"] is True, f"progress should be showing: {state}"
+    assert "Reading" in (state["text"] or ""), f"the label must be shown: {state}"
+
+    # Mosaic is a server-side render, so this definitely produces a new frame;
+    # arrow navigation does not, because it is served from the client cache.
+    page.focus("#keyboard-sink")
+    page.keyboard.press("z")
+    page.wait_for_timeout(2500)
+    assert page.evaluate("() => dim_z") >= 0, "the test must produce a real frame"
+    assert _progress_state(page)["visible"] is False, (
+        "progress must disappear once the frame has arrived"
+    )
+
+
+def test_session_sink_reports_when_no_callback_was_passed(client, tmp_path):
+    """Any read during a pending frame reports, whichever caller issues it.
+
+    This is the abstraction the startup case needs: the first read of a slice
+    is not always made by the render being awaited, so a callback threaded
+    through one call chain reports nothing while the expensive read happens
+    somewhere else.
+    """
+    from arrayview import _session as session_mod
+    from arrayview._render import extract_slice
+
+    path = tmp_path / "sink.npy"
+    np.save(path, np.random.rand(40, 40, 4).astype(np.float32))
+    resp = client.post("/load", json={"filepath": str(path), "name": "sink"})
+    resp.raise_for_status()
+    session = session_mod.SESSIONS[resp.json()["sid"]]
+
+    seen = []
+    session.progress_sink = lambda done, total: seen.append((done, total))
+    extract_slice(session, 0, 1, [0, 0, 3])
+    assert seen, "a read with no explicit callback must use the session sink"
+    assert seen[-1][0] == seen[-1][1], "the final update must be complete"
+
+    seen.clear()
+    session.progress_sink = None
+    extract_slice(session, 0, 1, [0, 0, 2])
+    assert seen == [], "with no sink set a read must report nothing"
