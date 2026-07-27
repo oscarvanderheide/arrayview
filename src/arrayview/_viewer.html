@@ -4098,6 +4098,23 @@
             opacity: 0; transition: opacity 0.4s ease;
         }
         #loading-overlay .av-load-name.visible { opacity: 1; }
+        /* Shown only once the server reports mosaic build progress, so a fast
+           load never flashes a bar on its way past. */
+        #loading-overlay .av-load-progress {
+            margin-top: 12px; width: 168px; height: 3px;
+            background: var(--border, #2a2a2a); border-radius: 2px;
+            overflow: hidden; opacity: 0; transition: opacity 0.3s ease;
+        }
+        #loading-overlay .av-load-progress.visible { opacity: 1; }
+        #loading-overlay .av-load-progress .bar {
+            height: 100%; width: 0%; background: var(--accent, #4cc9f0);
+            transition: width 0.2s linear;
+        }
+        #loading-overlay .av-load-progress-text {
+            margin-top: 8px; font-size: 10px; color: var(--muted);
+            letter-spacing: 0.08em; opacity: 0; transition: opacity 0.3s ease;
+        }
+        #loading-overlay .av-load-progress-text.visible { opacity: 1; }
         #fft-spinner-overlay {
             display: none; position: fixed; inset: 0; z-index: 50;
             align-items: center; justify-content: center;
@@ -5109,7 +5126,7 @@
         <div id="cutaway-unavailable" role="status">3D cutaway unavailable for this data</div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
-        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
+        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div><div class="av-load-progress"><div class="bar"></div></div><div class="av-load-progress-text"></div></div>
         <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
         <div id="patient-loading-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="patient-loading-card"><span class="patient-loading-spinner" aria-hidden="true"></span><span>Loading patient…</span></div></div>
         <div id="empty-hint">
@@ -13651,6 +13668,8 @@
                             _metadataResolve = null;
                         } else if (msg.type === 'render_timing' && _PERF_ENABLED) {
                             _perfHandleTimingMessage(event.data, 'main');
+                        } else if (msg.type === 'render_progress') {
+                            _showRenderProgress(msg.done, msg.total);
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
@@ -14290,6 +14309,35 @@
                 }
                 await new Promise(r => setTimeout(r, 300));
             }
+        }
+
+        // Progress for the first frame of a large mosaic. The server only sends
+        // this when the build is big enough to be worth reporting, so the bar
+        // appearing at all is the signal that this will take a moment.
+        let _renderProgressStartedAt = 0;
+        function _showRenderProgress(done, total) {
+            const ol = document.getElementById('loading-overlay');
+            if (!ol || ol.style.display === 'none') return;
+            if (!total || done > total) return;
+            const wrap = ol.querySelector('.av-load-progress');
+            const bar = ol.querySelector('.av-load-progress .bar');
+            const text = ol.querySelector('.av-load-progress-text');
+            if (!wrap || !bar || !text) return;
+            if (!_renderProgressStartedAt) _renderProgressStartedAt = Date.now();
+            wrap.classList.add('visible');
+            text.classList.add('visible');
+            const fraction = done / total;
+            bar.style.width = (fraction * 100).toFixed(1) + '%';
+            // Estimate from measured elapsed time rather than a guessed rate;
+            // slices cost roughly the same, so this converges quickly and is
+            // only shown once there is enough signal to be worth trusting.
+            let eta = '';
+            const elapsed = (Date.now() - _renderProgressStartedAt) / 1000;
+            if (fraction > 0.05 && elapsed > 1) {
+                const remaining = Math.round(elapsed / fraction - elapsed);
+                if (remaining >= 1) eta = ` — about ${remaining}s left`;
+            }
+            text.textContent = `Loading slice ${done} of ${total}${eta}`;
         }
 
         function showMetadataError(result) {

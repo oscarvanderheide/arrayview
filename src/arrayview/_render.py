@@ -759,6 +759,7 @@ def render_mosaic(
     mosaic_cols=None,
     vmin_override=None,
     vmax_override=None,
+    progress=None,
 ):
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
@@ -769,15 +770,24 @@ def render_mosaic(
             return session.mosaic_cache[key]
 
     n = session.shape[dim_z]
-    frames_raw = [
-        extract_slice(
-            session,
-            dim_x,
-            dim_y,
-            [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+    # Reported per slice rather than estimated: each slice faults in roughly the
+    # same number of pages, so slice i of n is an honest fraction of the wait.
+    # On an array whose display axes are the outer ones this loop is the whole
+    # cost — a (224,240,204,6,9) file on a network mount spends 31s here, because
+    # every 4 bytes wanted costs a 4096-byte page and the slices between them
+    # cover the entire file.
+    frames_raw = []
+    for i in range(n):
+        frames_raw.append(
+            extract_slice(
+                session,
+                dim_x,
+                dim_y,
+                [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+            )
         )
-        for i in range(n)
-    ]
+        if progress is not None:
+            progress(i + 1, n)
     frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
     if log_scale:
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]

@@ -66,6 +66,56 @@ def _trace_viewer_event(event: str, sid: str) -> None:
 
     emit_launch_event(event, sid_tag=trace_tag(sid))
 
+def _mosaic_progress_reporter(loop, ws, min_interval_s=0.2, floor_slices=24):
+    """Report mosaic build progress to the viewer while it is still building.
+
+    Called from the render thread, so nothing here may touch the socket
+    directly — each update is handed to the event loop instead.
+
+    A mosaic over an array whose display axes are the outer ones can take tens
+    of seconds, all of it before the first frame exists, and until now the
+    viewer had nothing to show but a spinner. Progress per slice is honest:
+    every slice faults in roughly the same number of pages.
+
+    Two guards keep this from becoming its own performance problem: updates are
+    throttled to `min_interval_s`, and a mosaic small enough to finish quickly
+    (`floor_slices`) reports nothing at all rather than flashing a bar.
+    """
+    state = {"last": 0.0}
+
+    def report(done, total):
+        if total < floor_slices:
+            return
+        now = time.perf_counter()
+        # Always let the first update through: it is what replaces the bare
+        # spinner, and waiting one interval for it defeats the purpose.
+        if state["last"] and now - state["last"] < min_interval_s and done < total:
+            return
+        state["last"] = now
+        payload = {
+            "type": "render_progress",
+            "done": int(done),
+            "total": int(total),
+        }
+        try:
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(_send_json_quietly(ws, payload))
+            )
+        except RuntimeError:
+            # Loop already closed (viewer went away mid-render); progress is
+            # never worth raising over.
+            pass
+
+    return report
+
+
+async def _send_json_quietly(ws, payload):
+    try:
+        await ws.send_json(payload)
+    except Exception:
+        pass
+
+
 def _render_rgba_from_data(data, colormap, vmin, vmax):
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
@@ -309,6 +359,7 @@ def register_websocket_routes(app) -> None:
                                 mosaic_cols=mosaic_cols,
                                 vmin_override=vmin_override,
                                 vmax_override=vmax_override,
+                                progress=_mosaic_progress_reporter(loop, ws),
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
