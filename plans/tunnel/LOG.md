@@ -992,3 +992,80 @@ the code under test. Run browser and non-browser suites separately.
 **Still open**: first paint still waits for the whole mosaic. Rendering the
 middle slice first and filling in behind it is the real latency fix and is
 untried.
+
+---
+
+### 2026-07-27 — "backend stopped answering" was the relay, and a scoping lesson
+
+**Input**: a launch failed with `Backend stopped answering before the viewer was
+ready` while `/ping` on loopback answered `ok:true` with two live sessions, and
+the next identical launch 57 s later reached `frame-rendered`.
+
+**Cause, two parts, both about reading a probe result.**
+
+`probeArrayViewStatus` treated any non-200 as `PROBE_DEAD`. A devtunnel answers
+**502 in ~250 ms** whenever its connector is not attached — an error about the
+relay, not the backend, and one that fails a launch *faster* than a stall does.
+Measured directly against the live tunnel URL.
+
+The readiness gate in `handleOpenRequest` was a single 1500 ms probe whose
+negative answer abandoned the request. Timing confirms a timeout, not a
+rejection: `panel_opened` 20:34:22.351 → `ERROR` 20:34:23.900 = 1.549 s.
+`arrayViewStatusOk` collapses OK/UNKNOWN/DEAD into a boolean, which deletes the
+distinction `_verifiedCachedTunnelBase` was already built around — so of the
+five probe call sites, the one that abandons a user's launch was the only one
+without the protection. The other four survive by sitting in retry loops.
+
+Fixed in `b4f0cfc`: relay statuses (502/503/504/52x) off loopback are
+`PROBE_UNKNOWN`; loopback non-200 stays fatal. The gate retries while the answer
+means nothing (relay 3/5/8 s, loopback 1.5/2.5 s), abandons only on
+`PROBE_DEAD`, and otherwise falls through to `waitForSessionReady`, which polls
+to its own deadline. A port taken over by a newer backend now says so.
+
+**Scoping lesson — this log's own 0.14.91 method note, ignored and re-learned.**
+An unscoped sweep of all 37k log lines produced: 33 "did not render a frame",
+24 integrated-browser, 17 "did not become ready", 7 "backend stopped answering"
+— which reads as "the fix targeted 5% of failures". Scoped to >= 2026-07-26
+(85 requests, 66 rendered, 16 failed) the real distribution is **7 backend-stopped,
+4 panel-closed, 3 no-frame, 2 genuine bad files**. It was the plurality at 44%.
+The archive is dominated by architecture fixed weeks ago. *Scope before ranking.*
+
+**Second trap in the same analysis**: most failing requests lack a `ws-open`
+phase, which looks causal. For anything abandoned at the readiness gate it is
+reverse causation — the request dies before the viewer connects. 6 of the 7
+were that. Exclude earlier-gate failures before treating a missing phase as a
+cause.
+
+### The one real gap that survived scoping: no WebSocket open timeout
+
+`initWebSocket` retried forever on `onclose`/`onerror`, but a socket stuck in
+CONNECTING fires neither. The viewer then walked through layout, emitted
+`mode-change`, and waited silently for a frame that could never arrive; the
+opener saw only its own deadline expire and reported "did not render a frame".
+Worth ~2-5 requests in 85 — small, but the failure is a 30 s silent hang ending
+in a misleading message.
+
+Bounded the open: 6 s x 3 attempts, then a real message
+("The viewer could not connect to the ArrayView backend.") plus a `render-error`
+report, which the wrapper already turns into a terminal `viewer-failed` instead
+of a timeout.
+
+Two things that had to stay intact, and shaped the design:
+
+- **Only the first connection is bounded.** After `_wsEverConnected`, a drop is
+  a reconnect (server restarting) and must keep retrying forever.
+- **An attempt is consumed by a hang, not by a fast close.** A socket refused
+  immediately is the backend still binding its port; that retry is load-bearing
+  during startup and stays unbounded. The counter increments inside the timeout
+  callback, never at socket creation. Getting this backwards would have turned a
+  ~1.5 s startup race into a hard failure.
+
+Verified against a real served viewer with three real sockets: normal (renders,
+no error); a listener that accepts TCP and never upgrades (gives up at 18.9 s
+with the message, exactly 3 main-socket attempts, no retries after); and a port
+that refuses fast 8 times then works (9+ attempts, no give-up, renders).
+
+**Test note**: `reportParent` no-ops when `window.parent === window`, so a
+top-level page emits no phases at all — phase-based assertions on a directly
+loaded viewer prove nothing. Assert user-visible outcomes, or load it in an
+iframe. Also `/ws/shell` is a second socket; count `/ws/<sid>` only.

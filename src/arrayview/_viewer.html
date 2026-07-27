@@ -13695,6 +13695,21 @@
 
         let _wsRetryTimer = null;
         let _wsEverConnected = false;
+        // A socket stuck in CONNECTING fires neither onclose nor onerror, so
+        // the retry below never runs and the viewer waits for a frame that can
+        // never arrive — the opener sees only its own deadline expire and
+        // reports "did not render a frame". Bound the open itself. Attempts
+        // stay well inside the opener's viewer deadline so the give-up message
+        // reaches the user instead of being overtaken by it.
+        const WS_OPEN_TIMEOUT_MS = 6000;
+        const WS_OPEN_ATTEMPTS = 3;
+        let _wsOpenTimer = null;
+        let _wsOpenAttempts = 0;
+        let _wsGaveUp = false;
+
+        function _clearWsOpenTimer() {
+            if (_wsOpenTimer) { clearTimeout(_wsOpenTimer); _wsOpenTimer = null; }
+        }
 
         /* ── JS: WebSocket and Data Transport ────────────────────── */
 
@@ -13708,9 +13723,42 @@
                 return;
             }
             if (_wsRetryTimer) { clearTimeout(_wsRetryTimer); _wsRetryTimer = null; }
+            if (_wsGaveUp) return;
             ws = createTransport(sid, null, null, null, null);
 
+            // Only the first connection is bounded. Once a socket has opened,
+            // a later drop is a reconnect — the server may be restarting, and
+            // giving up on it would break a path that recovers on its own.
+            _clearWsOpenTimer();
+            if (!_wsEverConnected) {
+                const opening = ws;
+                _wsOpenTimer = setTimeout(() => {
+                    _wsOpenTimer = null;
+                    if (opening !== ws || wsReady) return;
+                    // Counted here, not at creation: a socket that closes fast
+                    // is the backend still binding its port, and that retry
+                    // must stay unbounded. Only a hang consumes an attempt.
+                    const attempt = ++_wsOpenAttempts;
+                    reportParent('ws-open-timeout', { attempt });
+                    if (attempt < WS_OPEN_ATTEMPTS) {
+                        // Drop the hung socket and start a fresh handshake.
+                        // Detach onclose first: a transport that does deliver
+                        // one would otherwise schedule a second retry.
+                        try { opening.onclose = null; opening.close(); } catch (_) {}
+                        _wsRetryTimer = setTimeout(initWebSocket, 300);
+                        return;
+                    }
+                    _wsGaveUp = true;
+                    try { opening.onclose = null; opening.close(); } catch (_) {}
+                    const detail = 'The viewer could not connect to the '
+                        + 'ArrayView backend.';
+                    showMetadataError({ error: detail });
+                    reportParent('render-error', detail);
+                }, WS_OPEN_TIMEOUT_MS);
+            }
+
             ws.onopen = () => {
+                _clearWsOpenTimer();
                 reportParent('ws-open', { host: location.host });
                 _wsEverConnected = true;
                 wsReady = true;
@@ -13845,6 +13893,7 @@
             };
 
             ws.onclose = () => {
+                _clearWsOpenTimer();
                 reportParent('ws-close', { sid });
                 _cancelPatientLoading(_mainRenderPatientIndex);
                 wsReady = false;
@@ -13853,6 +13902,7 @@
                 // otherwise stay true and block all future requests).
                 isRendering = false;
                 pendingRequest = false;
+                if (_wsGaveUp) return;
                 // Silently retry: server may be restarting or the connection dropped.
                 // Back off: 300 ms if we connected before, 500 ms on first-time failure.
                 const delay = _wsEverConnected ? 300 : 500;
