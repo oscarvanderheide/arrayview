@@ -4121,48 +4121,52 @@
             opacity: 0; transition: opacity 0.25s ease;
         }
         #render-progress-text.visible { opacity: 1; }
+        /* One loading panel, used by every loading state. There were three
+           distinct treatments before — the startup logo, a ring-wrapped copy of
+           the same logo for FFT, and a bordered card with a rotating circle for
+           patient switching — so the app appeared to have three unrelated
+           loading screens. Same mark, same card, same caption slot everywhere;
+           only the caption text differs. Progress, when the server reports it,
+           is the hairline at the top edge and is shared by all of them. */
+        .av-loading-panel {
+            display: flex; align-items: center; gap: 10px;
+            box-sizing: border-box; padding: 9px 12px;
+            color: var(--text);
+            background: color-mix(in srgb, var(--surface) 88%, transparent);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 12px; white-space: nowrap;
+        }
+        .av-loading-panel svg { width: 26px; height: 26px; flex: 0 0 auto; }
+        /* Keyed on position rather than per-element rect ids so one rule drives
+           the mark in all three panels. */
+        .av-loading-panel svg rect:nth-child(2) { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(3) { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(4) { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(7) { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(10) { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(9) { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(8) { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .av-loading-panel svg rect:nth-child(5) { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+            .av-loading-panel svg rect { animation: none; }
+        }
         #fft-spinner-overlay {
             display: none; position: fixed; inset: 0; z-index: 50;
             align-items: center; justify-content: center;
             background: rgba(0,0,0,0.35);
         }
         #fft-spinner-overlay.visible { display: flex; }
-        .fft-spinner-ring {
-            width: 72px; height: 72px; border-radius: 14px;
-            background: rgba(0,0,0,0.6);
-            display: flex; align-items: center; justify-content: center;
-        }
-        .fft-spinner-ring svg { width: 40px; height: 40px; }
-        .fft-spinner-ring #fft-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b1 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b2 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b5 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b7 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         #patient-loading-overlay {
-            display: none; position: fixed; z-index: 49; width: 190px;
-            top: calc(50% - 18px); left: calc(50% - 95px); pointer-events: none;
+            /* Centred by transform rather than by subtracting half of a
+               hard-coded size: the shared panel sizes to its caption, so the
+               old fixed 190x36 assumption put it off-centre. */
+            display: none; position: fixed; z-index: 49;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            pointer-events: none;
         }
         #patient-loading-overlay.visible { display: block; }
-        .patient-loading-card {
-            display: flex; align-items: center; gap: 10px;
-            box-sizing: border-box; width: 100%; padding: 9px 12px;
-            color: var(--text); background: color-mix(in srgb, var(--surface) 88%, transparent);
-            border: 1px solid var(--border); border-radius: var(--radius-lg);
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 12px;
-        }
-        .patient-loading-spinner {
-            width: 13px; height: 13px; flex: 0 0 auto; border-radius: 50%;
-            border: 2px solid var(--muted); border-top-color: var(--active-dim);
-            animation: av-patient-spin 0.75s linear infinite;
-        }
         @keyframes av-patient-spin { to { transform: rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) {
-            .patient-loading-spinner { animation: none; border-color: var(--active-dim); }
-        }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
             align-items: center; justify-content: center; pointer-events: none;
@@ -5135,8 +5139,8 @@
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
         <div id="render-progress"><div class="bar"></div></div>
         <div id="render-progress-text"></div>
-        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
-        <div id="patient-loading-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="patient-loading-card"><span class="patient-loading-spinner" aria-hidden="true"></span><span>Loading patient…</span></div></div>
+        <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
+        <div id="patient-loading-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading patient…</span></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
