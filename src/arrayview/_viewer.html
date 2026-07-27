@@ -14149,7 +14149,18 @@
                     params.set('projection_mode', String(projectionMode));
                     params.set('projection_dim', String(projectionDim));
                 }
-                const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
+                // Registration overlays pane 0 on pane 1, so it needs the two
+                // sids the panes are actually showing. The legacy
+                // [sid, compareSid] pair is not maintained by the picker path
+                // — compareSid can still equal sid, which made the overlay
+                // composite the base against itself. That is grey by
+                // construction, so the green/purple vanished on the first
+                // re-render after entering the mode (any scroll or slice
+                // change); it survived until then only because the initial
+                // composite was built from frames cached before the switch.
+                const renderSids = registrationMode
+                    ? getCompareRenderSids().slice(0, 2)
+                    : getCompareRenderSids();
                 const compareTimeoutMs = (!_reportedFirstFrame || isInlineEmbed) ? 5000 : 0;
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
