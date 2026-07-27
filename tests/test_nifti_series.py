@@ -131,10 +131,27 @@ class TestNiftiSeriesErrors:
         with pytest.raises(ValueError, match="No supported array files"):
             load_data_with_meta(str(tmp_path))
 
-    def test_multiple_files_recommend_stack_patterns(self, tmp_path):
+    def test_multiple_files_in_one_folder_load_as_a_flat_collection(self, tmp_path):
+        """A folder of arrays opens directly instead of demanding --stack.
+
+        This used to raise "Use --stack with explicit file patterns", which is
+        unreachable advice for any caller that can only hand over a path: the
+        VS Code Explorer's "Open Folder in ArrayView", the /load route, a drop.
+        The result must equal what --stack builds for the same directory.
+        """
+        from arrayview._io import load_dir_collection
+
         _make_patient_dir(tmp_path, "p001", n_files=2)
-        with pytest.raises(ValueError, match="--stack"):
-            load_data_with_meta(str(tmp_path))
+
+        series, _meta = load_data_with_meta(str(tmp_path))
+        stacked, _stacked_meta, _overlays, summary = load_dir_collection(
+            [str(tmp_path / "**" / "*")]
+        )
+
+        assert series.shape == (4, 5, 6, 2)
+        assert series.shape == stacked.shape
+        assert summary["cases"] == ["vol_0", "vol_1"]
+        assert np.array_equal(np.asarray(series), np.asarray(stacked))
 
     def test_shape_mismatch_falls_back_to_ragged(self, tmp_path):
         _make_patient_dir(tmp_path, "p001", shape=(4, 5, 6))

@@ -1796,6 +1796,7 @@ def test_vscode_tunnel_resolution_with_node(script):
         "test_request_journal.js",
         "test_request_deadline.js",
         "test_panel_replay.js",
+        "test_folder_open_command.js",
     ],
 )
 def test_vscode_transaction_contracts_with_node(script):
@@ -1828,6 +1829,39 @@ def test_vscode_extension_defaults_integrated_browser_to_remote_proxy():
         assert package["contributes"]["configurationDefaults"][
             "workbench.browser.enableRemoteProxy"
         ] is True
+
+
+def test_vscode_extension_contributes_explorer_folder_entry():
+    """A folder can only be reached through `explorer/context`.
+
+    VS Code matches `customEditors` selectors against filenames, so no selector
+    can ever cover a directory, and it never opens a directory in an editor. A
+    command gated on `explorerResourceIsFolder` is the whole mechanism, and it
+    has to be in the *bundled* VSIX too — a menu that only exists in the source
+    tree contributes nothing to an installed extension.
+    """
+    import json
+    import zipfile
+
+    repo_root = Path(__file__).resolve().parents[1]
+    source_package = json.loads(
+        (repo_root / "vscode-extension" / "package.json").read_text()
+    )
+    with zipfile.ZipFile(repo_root / "src/arrayview/arrayview-opener.vsix") as zf:
+        bundled_package = json.loads(zf.read("extension/package.json"))
+
+    for package in (source_package, bundled_package):
+        commands = {
+            entry["command"] for entry in package["contributes"]["commands"]
+        }
+        assert "arrayview.openFolder" in commands
+        folder_entries = [
+            entry
+            for entry in package["contributes"]["menus"]["explorer/context"]
+            if entry["command"] == "arrayview.openFolder"
+        ]
+        assert folder_entries, "no explorer/context entry for arrayview.openFolder"
+        assert folder_entries[0]["when"] == "explorerResourceIsFolder"
 
 
 def test_bundled_vscode_vsix_matches_release_lifecycle_source():

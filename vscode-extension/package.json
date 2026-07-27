@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.14.94",
+  "version": "0.14.95",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -46,8 +46,29 @@
       {
         "command": "arrayview.openFile",
         "title": "Open in ArrayView"
+      },
+      {
+        "command": "arrayview.openFolder",
+        "title": "Open Folder in ArrayView"
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "arrayview.openFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "arrayview.openFolder"
+        },
+        {
+          "command": "arrayview.openFile"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "arrayview.arrayEditor",
