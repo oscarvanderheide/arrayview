@@ -21,6 +21,19 @@ import uuid
 from collections.abc import Mapping
 from importlib.resources import files as _pkg_files
 
+
+def _print_failure(message: str, stream=None) -> None:
+    """Print a failure as a cause plus a suggested action, colour-coded.
+
+    Defaults to stdout because the argument-validation sites this replaced
+    printed there; the top-level handler passes stderr explicitly. Imported
+    lazily to keep the CLI fast path free of what a successful launch never
+    needs.
+    """
+    from ._diagnostics import print_failure
+
+    print_failure(message, stream if stream is not None else sys.stdout)
+
 # ---------------------------------------------------------------------------
 # Imports from sibling modules
 # ---------------------------------------------------------------------------
@@ -5307,7 +5320,7 @@ def arrayview():
             )
         _stack_dir = os.path.abspath(args.files[0])
         if not os.path.isdir(_stack_dir):
-            print(f"Error: not a directory: {_stack_dir}")
+            _print_failure(f"not a directory: {_stack_dir}")
             sys.exit(1)
         if dims_override is None:
             dims_override = (0, 1)
@@ -5348,7 +5361,7 @@ def arrayview():
             parser.error(f"--relay port must be an integer, got: {relay_port_str!r}")
         relay_file = os.path.abspath(args.files[0])
         if not os.path.isfile(relay_file):
-            print(f"Error: file not found: {relay_file}")
+            _print_failure(f"file not found: {relay_file}")
             sys.exit(1)
         relay_name = os.path.basename(relay_file)
         relay_identity = _server_runtime_identity(relay_port, host=relay_host)
@@ -5431,7 +5444,7 @@ def arrayview():
                         args.port = candidate
                         break
                 else:
-                    print("Error: no free ArrayView server port was found.")
+                    _print_failure("no free ArrayView server port was found.")
                     sys.exit(1)
                 print(
                     f"[ArrayView] Default port busy, using port {args.port}",
@@ -5483,7 +5496,7 @@ def arrayview():
                 _overlay_specs_from_dirs(args.overlay_dir, case_regex=args.case_regex)
             )
         except Exception as e:
-            print(f"Error: --overlay-dir could not discover masks: {e}")
+            _print_failure(f"--overlay-dir could not discover masks: {e}")
             sys.exit(1)
         base_file = dir_patterns[0]
         compare_files = []
@@ -5509,11 +5522,11 @@ def arrayview():
                 break
             except MissingOverlayCasesError as e:
                 if not _confirm_partial_overlay_match(e):
-                    print(f"Error: --stack could not match collection: {e}")
+                    _print_failure(f"--stack could not match collection: {e}")
                     sys.exit(1)
                 excluded_cases.update(e.missing_cases)
             except Exception as e:
-                print(f"Error: --stack could not match collection: {e}")
+                _print_failure(f"--stack could not match collection: {e}")
                 sys.exit(1)
         _print_dir_collection_summary(summary)
         if args.dry_run:
@@ -5557,7 +5570,7 @@ def arrayview():
             parser.error(str(e))
 
     if not args.stack_policy and not args.stack_mode and not os.path.exists(base_file):
-        print(f"Error: file not found: {base_file}")
+        _print_failure(f"file not found: {base_file}")
         sys.exit(1)
 
     if args.vectorfield:
@@ -5584,7 +5597,7 @@ def arrayview():
             )
             vfield_components_dim = int(layout["components_dim"])
         except Exception as e:
-            print(f"Error: invalid vector field {args.vectorfield}: {e}")
+            _print_failure(f"invalid vector field {args.vectorfield}: {e}")
             sys.exit(1)
 
     # Detect SSH early — needed by the reverse-tunnel relay check below.
@@ -5664,7 +5677,7 @@ def arrayview():
         not launch_plan.ok
         and launch_plan.failure is not LaunchFailure.REMOTE_PORT_CONFLICT
     ):
-        print(f"Error: invalid launch request ({launch_plan.failure.value}).")
+        _print_failure(f"invalid launch request ({launch_plan.failure.value}).")
         sys.exit(1)
 
     is_arrayview_server = launch_snapshot.server.arrayview_server_alive
@@ -5707,7 +5720,7 @@ def arrayview():
                 args.port = candidate
                 break
         else:
-            print("Error: no free ArrayView server port was found.")
+            _print_failure("no free ArrayView server port was found.")
             sys.exit(1)
         print(
             f"[ArrayView] Default port busy, using port {args.port}",
@@ -5821,6 +5834,5 @@ def arrayview():
     except Exception as e:
         if args.trace or os.environ.get("ARRAYVIEW_TRACE"):
             raise
-        msg = str(e).removeprefix("[ArrayView] ").rstrip()
-        print(f"\033[1;31m[ArrayView] {msg}\033[0m", file=sys.stderr)
+        _print_failure(str(e), sys.stderr)
         sys.exit(1)

@@ -559,7 +559,9 @@ def test_cli_stack_declining_partial_overlay_match_keeps_error(
 
     text = stdout.getvalue()
     assert "Continue with the 1 image cases that have masks?" in text
-    assert "Error: --stack could not match collection" in text
+    # The failure is now rendered as a cause + suggested action; the
+    # original reason is kept verbatim in the detail line.
+    assert "--stack could not match collection" in text
 
 
 def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
@@ -597,7 +599,9 @@ def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
 
     text = stdout.getvalue()
     assert "Continue with" not in text
-    assert "Error: --stack could not match collection" in text
+    # The failure is now rendered as a cause + suggested action; the
+    # original reason is kept verbatim in the detail line.
+    assert "--stack could not match collection" in text
 
 
 def test_cli_stack_partial_overlays_keep_case_intersection(monkeypatch, tmp_path):
