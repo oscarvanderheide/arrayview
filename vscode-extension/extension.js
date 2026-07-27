@@ -934,6 +934,59 @@ function _reportFailureToPlaceholder(data, message) {
     }
 }
 
+// Registers *webviewPanel* as the tab that the eventual signal-file URL should
+// navigate, keyed by the resolved source path. Both entry points need this:
+// resolveCustomEditor for a single array file, and the folder command, which
+// has no custom editor because VS Code never opens a directory in an editor.
+// Without a placeholder the folder command would show nothing at all while the
+// backend walks the tree — the exact case that hurts most, since enumerating a
+// DICOM folder on a network mount is the slowest thing ArrayView does.
+function _registerHandoffPlaceholder(webviewPanel, sourcePath, title, logTag) {
+    webviewPanel.webview.options = { enableScripts: true };
+    webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
+            <div>Opening ${_escapeHtml(title)} in ArrayView...</div></body></html>`;
+    const placeholderKey = path.resolve(sourcePath);
+    const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
+    _pendingPlaceholders.set(placeholderKey, placeholder);
+    webviewPanel.onDidDispose(() => {
+        if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+            _pendingPlaceholders.delete(placeholderKey);
+        }
+        log(`${logTag}: placeholder disposed for ${title}`);
+    });
+    // Large inputs may legitimately spend minutes loading before the URL is
+    // ready. Keep the placeholder correlated for the whole launch budget.
+    const timer = setTimeout(() => {
+        if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+            _pendingPlaceholders.delete(placeholderKey);
+            try {
+                webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                        <h2>ArrayView failed to start</h2>
+                        <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            } catch (_) { /* panel already disposed */ }
+        }
+    }, 190000);
+    return {
+        placeholderKey,
+        placeholder,
+        forget() {
+            clearTimeout(timer);
+            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
+                _pendingPlaceholders.delete(placeholderKey);
+            }
+        },
+        reportError(error) {
+            this.forget();
+            log(`${logTag}: error: ${error.message}\n${error.stack || ''}`);
+            try {
+                webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
+                <h2>ArrayView failed to open</h2><pre>${_escapeHtml(error.message)}</pre>
+                <p>Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            } catch (_) { /* panel already disposed */ }
+        },
+    };
+}
+
 class ArrayViewEditorProvider {
     static viewType = 'arrayview.arrayEditor';
 
@@ -947,42 +1000,41 @@ class ArrayViewEditorProvider {
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
         // This custom editor is a handoff placeholder.  We keep it open and
         // navigate its webview when the signal-file URL arrives — no flicker.
-        webviewPanel.webview.options = { enableScripts: true };
-        webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
-            <div>Opening ${title} in ArrayView...</div></body></html>`;
-        const placeholderKey = path.resolve(filePath);
-        const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
-        _pendingPlaceholders.set(placeholderKey, placeholder);
-        webviewPanel.onDidDispose(() => {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-            }
-            log(`CUSTOM-EDITOR: placeholder disposed for ${title}`);
-        });
-        // Large files may legitimately spend minutes loading before the URL is
-        // ready. Keep the placeholder correlated for the whole launch budget.
-        setTimeout(() => {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-                try {
-                    webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace;background:#1e1e1e">
-                        <h2>ArrayView failed to start</h2>
-                        <p>The Python server did not respond. Check ~/.arrayview/extension.log for details.</p></body></html>`;
-                } catch (_) { /* panel already disposed */ }
-            }
-        }, 190000);
+        const handoff = _registerHandoffPlaceholder(
+            webviewPanel, filePath, title, 'CUSTOM-EDITOR'
+        );
         try {
             await launchArrayViewFile(filePath, title);
             log(`CUSTOM-EDITOR: launched network viewer for ${filePath}`);
         } catch (e) {
-            if (_pendingPlaceholders.get(placeholderKey) === placeholder) {
-                _pendingPlaceholders.delete(placeholderKey);
-            }
-            log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack || ''}`);
-            webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
-                <h2>ArrayView failed to open</h2><pre>${e.message}</pre>
-                <p>Check ~/.arrayview/extension.log for details.</p></body></html>`;
+            handoff.reportError(e);
         }
+    }
+}
+
+// Opens a directory the same way the custom editor opens a file. VS Code has no
+// custom editor for folders — `explorer/context` + `explorerResourceIsFolder` is
+// the only way to reach a folder from the Explorer — so this command creates the
+// placeholder tab itself and then uses the identical launch path. The Python
+// side decides what the folder means (DICOM series, per-case folders, or a flat
+// collection); the extension deliberately does not guess and does not pass
+// --stack, because --stack is wrong for a DICOM folder.
+async function openFolderInArrayView(folderPath) {
+    const title = path.basename(folderPath.replace(/[\\/]+$/, '')) || folderPath;
+    log(`FOLDER: opening ${folderPath}`);
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.folderPlaceholder',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true }
+    );
+    const handoff = _registerHandoffPlaceholder(panel, folderPath, title, 'FOLDER');
+    try {
+        await launchArrayViewFile(folderPath, title);
+        log(`FOLDER: launched network viewer for ${folderPath}`);
+    } catch (e) {
+        handoff.reportError(e);
+        throw e;
     }
 }
 
@@ -3457,6 +3509,30 @@ function activate(context) {
     });
     context.subscriptions.push(openFileCmd);
 
+    const openFolderCmd = vscode.commands.registerCommand('arrayview.openFolder', async (uri) => {
+        let folderPath;
+        if (uri && uri.fsPath) {
+            folderPath = uri.fsPath;
+        } else {
+            const selected = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Open in ArrayView',
+            });
+            if (!selected || !selected.length) return;
+            folderPath = selected[0].fsPath;
+        }
+
+        try {
+            await openFolderInArrayView(folderPath);
+        } catch (e) {
+            log(`COMMAND: openFolder failed: ${e.message}`);
+            vscode.window.showErrorMessage(`ArrayView: ${e.message}`);
+        }
+    });
+    context.subscriptions.push(openFolderCmd);
+
     const editorProvider = vscode.window.registerCustomEditorProvider(
         ArrayViewEditorProvider.viewType,
         new ArrayViewEditorProvider(),
@@ -3521,6 +3597,9 @@ module.exports = {
         isSignalQueueBusy: () => isProcessingSignal,
         _remainingSignalMs,
         tryOpenSignalFile,
+        _registerHandoffPlaceholder,
+        openFolderInArrayView,
+        pendingPlaceholders: _pendingPlaceholders,
         _viewerPanelHtml,
         _publicBaseFromTunnelResult,
         _integratedBrowserLaunchUrl,

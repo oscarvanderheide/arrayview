@@ -471,6 +471,88 @@ class TestLoad:
         r = client.post("/load", json={"filepath": str(tmp_path / "coolarray.npy")})
         assert r.json()["name"] == "coolarray.npy"
 
+    def test_load_plain_folder_path_matches_stack_patterns(self, client, tmp_path):
+        """The VS Code folder entry point can only send a path, never patterns.
+
+        `_fastLoadViaDaemon` posts `{filepath: <folder>, background: true}` —
+        there is no place in that payload for --stack, and the extension must not
+        invent one because --stack is wrong for DICOM. So the plain path has to
+        produce the same session the explicit dir_patterns form does, including
+        the collection axis that keeps the case index out of the startup plane.
+        """
+        import time
+
+        import arrayview._session as session_mod
+
+        folder = tmp_path / "cases"
+        folder.mkdir()
+        for index in range(3):
+            np.save(folder / f"case_{index}.npy", np.full((4, 5, 6), index, dtype=np.float32))
+
+        body = client.post(
+            "/load", json={"filepath": str(folder), "background": True}
+        ).json()
+        assert "error" not in body
+
+        deadline = time.monotonic() + 5.0
+        while body["sid"] not in session_mod.SESSIONS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session = session_mod.SESSIONS[body["sid"]]
+        assert tuple(session.shape) == (4, 5, 6, 3)
+
+        meta = client.get(f"/metadata/{body['sid']}").json()
+        assert meta["shape"] == [4, 5, 6, 3]
+        assert meta["collection_spatial_ndim"] == 3
+
+        patterned = client.post(
+            "/load",
+            json={"dir_patterns": [str(folder / "**" / "*")], "name": "stacked"},
+        ).json()
+        assert "error" not in patterned
+        patterned_meta = client.get(f"/metadata/{patterned['sid']}").json()
+        assert patterned_meta["shape"] == meta["shape"]
+        assert patterned_meta["default_dims"] == meta["default_dims"]
+        assert (
+            patterned_meta["collection_spatial_ndim"]
+            == meta["collection_spatial_ndim"]
+        )
+
+    def test_load_dicom_folder_is_one_series_not_one_case_per_slice(
+        self, client, tmp_path
+    ):
+        """A DICOM folder must not be stacked slice-by-slice.
+
+        Globbing the folder the way --stack does makes every .dcm its own case,
+        and each of those loads the *whole* surrounding series — an N-slice study
+        becomes N identical 3D volumes. The folder entry point therefore leaves
+        classification to the loader, and this pins the loader's answer.
+        """
+        pytest.importorskip("pydicom")
+        from pydicom.uid import generate_uid
+
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from test_dicom import _write_slice
+
+        folder = tmp_path / "series"
+        folder.mkdir()
+        uid = generate_uid()
+        for index in range(4):
+            _write_slice(
+                folder / f"slice_{index}.dcm",
+                series_uid=uid,
+                z=index * 4.0,
+                value=index + 1,
+                instance=index + 1,
+                rows=8,
+                cols=10,
+            )
+
+        body = client.post("/load", json={"filepath": str(folder)}).json()
+        assert "error" not in body
+        meta = client.get(f"/metadata/{body['sid']}").json()
+        assert meta["shape"] == [10, 8, 4]
+        assert "collection_spatial_ndim" not in meta
+
     def test_load_directory_collection_into_existing_server(self, client, tmp_path):
         images = tmp_path / "images"
         overlays = tmp_path / "overlays"

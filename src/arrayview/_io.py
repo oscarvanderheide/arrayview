@@ -1293,9 +1293,13 @@ def load_dir_collection(
 def _load_file_series(path, *, load="lazy", stack="auto"):
     """Build a lazy series from a directory of supported array files.
 
-    Walks *path* recursively, groups files of any supported format by
-    immediate parent folder (= patient).  Requires exactly one file per
-    patient → 4D ``(*vol, P)``.
+    Walks *path* recursively and groups files of any supported format by
+    immediate parent folder (= patient).
+
+    One file per patient folder → 4D ``(*vol, P)``.  When a folder holds
+    several arrays side by side there is no per-folder case to key on, so every
+    file becomes its own case — the same collection ``--stack`` builds for that
+    directory.
 
     If every file is NIfTI (.nii/.nii.gz), delegates to
     ``_load_nifti_series`` for canonical reorientation.  Otherwise builds
@@ -1337,24 +1341,24 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
             f"Supported: {', '.join(sorted(_SUPPORTED_EXTS))}"
         )
 
+    # A folder holding several arrays side by side is a flat collection: one
+    # case per file. This used to raise and tell the user to retype the command
+    # with --stack, which made "open this folder" unreachable from any caller
+    # that can only hand over a path (VS Code Explorer, drag-and-drop, the
+    # /load route). Route it through the same builder --stack uses so both
+    # spellings produce the same session instead of one of them failing.
+    if any(len(files) != 1 for files in patients.values()):
+        flat = sorted(fpath for files in patients.values() for fpath in files)
+        return _series_from_file_matrix(
+            [[fpath] for fpath in flat], load=load, stack=stack
+        )
+
     # NIfTI-only → preserve canonical reorientation + lazy dataobj slicing
     if all_nifti:
         return _load_nifti_series(path, load=load, stack=stack)
 
     # ── build file matrix ──────────────────────────────────────────
-    patient_dirs = sorted(patients.keys())
-    file_matrix: list[list[str]] = []
-
-    for pdir in patient_dirs:
-        files = patients[pdir]
-        if len(files) == 1:
-            file_matrix.append([files[0]])
-        else:
-            raise ValueError(
-                f"Folder {pdir!r} contains {len(files)} files: "
-                f"{[os.path.basename(f) for f in files]}. "
-                "Use --stack with explicit file patterns for multi-file folders."
-            )
+    file_matrix = [[patients[pdir][0]] for pdir in sorted(patients)]
 
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)
 

@@ -115,9 +115,25 @@ visible masks are dimmed until the pointer leaves the list. Use the HUD
 filled regions and contour-only outlines. The eye in the HUD header hides or
 shows all overlays at once.
 
+## Folders
+
+Pass a folder anywhere a file is accepted, and arrayview classifies it:
+
+```bash
+uvx arrayview scans/            # folder of arrays  → one case per file
+uvx arrayview patients/         # one array per subfolder → one case per patient
+uvx arrayview dicom-series/     # DICOM             → one 3D series
+```
+
+In VS Code, right-click the folder in the Explorer and choose **Open Folder in
+ArrayView** for the same result. The collection axis becomes a case slider and
+never takes over the startup plane.
+
 ## Directory Pattern Collections
 
-Use `--stack` when reviewing many arrays.
+Use `--stack` when you need explicit patterns — several channels per case, named
+overlays, or a case id regex. For a plain folder it is equivalent to passing the
+folder directly.
 
 ```bash
 uvx arrayview --stack scans/
@@ -172,8 +188,12 @@ uvx arrayview path/to/study/ --series 2
 
 A slice path discovers sibling images from the same series. A directory with
 multiple series requires `--series INDEX`; SeriesNumber and exact
-SeriesInstanceUID selectors are also accepted. `--stack` keeps its collection
-meaning and does not treat DICOM slices as separate cases.
+SeriesInstanceUID selectors are also accepted.
+
+Pass the DICOM folder on its own — do **not** add `--stack`. `--stack` globs
+every matching file into its own case, so a DICOM folder becomes N duplicate
+copies of the same series, one per slice. Plain `arrayview <folder>` and the
+VS Code **Open Folder in ArrayView** entry detect DICOM and load one series.
 
 Shift+I shows privacy-filtered acquisition and geometry fields. Patient
 identity, dates, institutions, and raw UIDs are not sent to the viewer.

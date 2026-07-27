@@ -6,7 +6,10 @@ Arrayview lets you scroll through multi-dimensional arrays.
 
 Open it from the shell, from Python, Julia, or Matlab, or inside a Jupyter notebook. Use it locally or over SSH. 
 
-If you work in VS Code, you can open arrays directly from the explorer; with Remote SSH, it works the same way.
+If you work in VS Code, you can open arrays directly from the explorer — click an
+array file, or right-click a folder and choose **Open Folder in ArrayView** to
+review a DICOM series or a whole directory of arrays as one stack. With Remote
+SSH or a tunnel, it works the same way.
 
 It is meant to feel simple but there's more to it than meets the eye. 
 
