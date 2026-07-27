@@ -729,3 +729,45 @@ placeholders is the integrated-browser test, now obsolete (extension.js pins
 `useIntegratedBrowser` to false at the `if (false)` guard).
 
 **Result**: (pending — needs install of 0.14.91 and a window reload)
+
+### 0.14.92 — blank panel when the relay is saturated
+
+**Report**: three Explorer clicks rendered fine, then `arrayview
+initial_pd_UI.npy` from a terminal opened a tab with nothing in it.
+
+**First hypothesis was wrong and worth recording.** The terminal path calls
+`openInWebviewPanel` (new panel) while Explorer navigates an existing custom-
+editor placeholder, so "the terminal path is broken" was the obvious read. It
+does not survive the log: both paths build identical HTML from the same
+`_viewerPanelHtml`, `_backendPortMapping` returns null for a devtunnels host so
+neither gets a port mapping, and `openInWebviewPanel` succeeded twice on
+2026-07-26 (iframe-loaded in ~400 ms). The path is not the variable.
+
+**What the log actually shows**: `transport-warmup-complete` at 09:25:21.616,
+then silence — no `iframe-loaded`, no error — until `ERROR: Viewer did not
+render a frame before timeout` 45 s later. Meanwhile the backend served that
+exact sid in **30 ms over loopback** (1.9 MB, HTTP 200). So `/ping` crossed the
+relay fine and the page request did not.
+
+The variable that *does* track the failure is how many viewers were already
+streaming: the backend reported `active_viewer_sockets: 3` when the fourth load
+stalled, and closing the tabs made the identical command succeed. Treat the
+saturation mechanism as unconfirmed (n=1) — what is confirmed is that a request
+through the relay can stall indefinitely while the backend stays healthy.
+
+**Defect**: a stalled navigation fires neither `load` nor `error`, so the
+wrapper's retry loop never saw it. `scheduleReload()` was armed only inside the
+`load` handler — it covered "page arrived, viewer never booted" and structurally
+could not cover "page never arrived". Fixed by arming at `frame.src` assignment
+and re-arming on each retry, with a longer budget (8 s) than the boot watchdog
+(1.5 s) because it must cover a real 1.9 MB transfer. Re-assigning `frame.src`
+cancels the stuck request rather than adding another, so the retry frees the
+connection instead of competing for one.
+
+**Evidence**: `component` (new `test_panel_navigation_watchdog.js`, 14/14 green)
+plus `real process` for the backend timing. The stall itself was reproduced by
+the user, not by the suite — the relay is not drivable from this host.
+
+**Still open**: the signal loop serialises on `isProcessingSignal` for the whole
+request including the viewer wait, so any slow load blocks every later click.
+The watchdog shrinks that window from 45 s to ~8 s but does not remove it.
