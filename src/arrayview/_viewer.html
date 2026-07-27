@@ -3671,7 +3671,11 @@
         .compare-diff { order: 1; }
         .compare-pane.compare-secondary { order: 2; }
         .compare-pane.compare-tertiary { order: 3; }
-        .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        /* line-height/min-height are fixed so every pane title occupies the
+           same row height and the canvases below them stay aligned — the
+           centre title is emptied in centre mode and would otherwise
+           collapse to 0, lifting the centre canvas above its neighbours. */
+        .compare-title { font-size: 11px; line-height: 15px; min-height: 15px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-title.compare-center-title { cursor: default; max-width: 100%; overflow: visible; text-overflow: clip; }
         .compare-title.compare-side-title { gap: 0; }
@@ -4958,6 +4962,7 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
                                 <div class="compare-source-pane-badge compare-center-mode-badge" id="compare-diff-mode-badge"></div>
+                                <div class="cv-pixel-info" id="compare-diff-pi"></div>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmin"></span>
@@ -8701,6 +8706,7 @@
                     getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
                     setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } } },
                     fetchHistogram: () => _fetchDiffHistogram(),
+                    getHistogramVersion: () => _diffHistogramVersion(),
                     onWindowChange: () => { fetchAndDrawDiff(); },
                 });
             }
@@ -9201,8 +9207,24 @@
                     if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW + 'px'; }
                     if (diffPaneCb) diffPaneCb.style.display = '';
                 }
-                // Update range for the diff center ColorBar and delegate
-                _diffCenterCb._histData = { vmin, vmax, counts: [], edges: [] };
+                // Update range for the diff center ColorBar and delegate.
+                // The placeholder carries the range only — install it when
+                // there are no real counts for the current view, but never
+                // over a fetched histogram, or `d` would draw a flat bar.
+                const hd = _diffCenterCb._histData;
+                const fresh = hd && hd.counts && hd.counts.length
+                    && _diffCenterCb._histVersion === _diffHistogramVersion();
+                if (!fresh) {
+                    _diffCenterCb._histData = { vmin, vmax, counts: [], edges: [] };
+                    _diffCenterCb._kdeSmooth = null;
+                    _diffCenterCb._histVersion = null;
+                    if (_diffCenterCb._expanded) {
+                        _diffCenterCb.ensureHistogramData().then(() => {
+                            _diffCenterCb.draw();
+                            _diffCenterCb.updateLabels();
+                        }).catch(() => {});
+                    }
+                }
                 _diffCenterCb.draw();
                 _diffCenterCb.updateLabels();
                 return;
@@ -12513,6 +12535,20 @@
             return _histData;
         }
 
+        /**
+         * Identity of the diff histogram currently on screen — every input
+         * `_fetchDiffHistogram` sends. Without it the ColorBar treats its
+         * range-only placeholder as valid data and `d` never fetches counts.
+         */
+        function _diffHistogramVersion() {
+            const detached = (detachedDimMode && detachedDim >= 0)
+                ? `${detachedDim}:${detachedDimIndexA}:${detachedDimIndexB}` : '';
+            return [
+                compareDisplaySids.join('/'), indices.join(','),
+                dim_x, dim_y, dim_z, complexMode, logScale, diffMode, detached,
+            ].join('|');
+        }
+
         async function _fetchDiffHistogram() {
             if (!diffMode || !compareActive || compareDisplaySids.length < 2) return null;
             const [sid_a, sid_b] = compareDisplaySids;
@@ -12582,6 +12618,19 @@
             return _hoverSliceCache[_hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices, qmriRole)] || null;
         }
 
+        /**
+         * Indices a compare pane is actually showing. Split-dim (`S`) mode
+         * puts the same session in panes 0/1 at two different indices of the
+         * detached dim, so hover lookups must follow the same convention the
+         * frame requests use.
+         */
+        function _comparePaneHoverIndices(i) {
+            if (!detachedDimMode || detachedDim < 0 || i > 1) return indices;
+            const paneIndices = [...indices];
+            paneIndices[detachedDim] = i === 0 ? detachedDimIndexA : detachedDimIndexB;
+            return paneIndices;
+        }
+
         function _prefetchHoverSlices() {
             if (qmriActive) {
                 qmriViews.forEach(v => {
@@ -12598,7 +12647,7 @@
             } else if (compareMvActive) {
                 compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
             } else if (compareActive) {
-                compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
+                compareDisplaySids.forEach((s, i) => { if (s) _fetchHoverSlice(s, dim_x, dim_y, _comparePaneHoverIndices(i)); });
             } else if (dim_z >= 0) {
                 // Mosaic: pre-fetch each z-tile slice
                 const n = shape[dim_z];
@@ -23483,7 +23532,21 @@
                                     _diffCenterCb.ensureHistogramData().then(() => {
                                         _diffCenterCb._snapWindowFractionsOnNextDraw();
                                         _diffCenterCb.draw();
+                                        _diffCenterCb.updateLabels();
                                     }).catch(() => {});
+                                } else {
+                                    // Already open — repeat `d` cycles the
+                                    // percentile presets, as it does elsewhere.
+                                    await _diffCenterCb.ensureHistogramData();
+                                    const q = _diffCenterCb.cycleQuantile();
+                                    if (q) {
+                                        _diffCenterCb.opts.setWindow(q.vmin, q.vmax);
+                                        _diffCenterCb._snapWindowFractionsOnNextDraw();
+                                        _diffCenterCb.draw();
+                                        _diffCenterCb.updateLabels();
+                                        if (_diffCenterCb.opts.onWindowChange) _diffCenterCb.opts.onWindowChange();
+                                        showStatus(`diff range: ${q.label}`);
+                                    }
                                 }
                                 return;
                             }
@@ -32654,6 +32717,101 @@
         });
         // Collect per-pane pixel-info elements for cross-pane hover lookup
         const _comparePiEls = [];
+        const _compareDiffPiEl = document.getElementById('compare-diff-pi');
+
+        function _hideComparePaneInfo() {
+            _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
+            if (_compareDiffPiEl) _compareDiffPiEl.style.display = 'none';
+        }
+
+        /**
+         * Cursor position over `cv` as a fraction of the canvas, or null when
+         * outside. Fractions (not pixels) so a readout can be mirrored onto a
+         * pane whose canvas is a different size.
+         */
+        function _compareHoverFraction(cv, e) {
+            const rect = cv.getBoundingClientRect();
+            if (!rect.width || !rect.height) return null;
+            const fx = (e.clientX - rect.left) / rect.width;
+            const fy = (e.clientY - rect.top) / rect.height;
+            if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return null;
+            return { fx, fy };
+        }
+
+        /** Sample a cached hover slice at a canvas fraction, or null. */
+        function _compareSliceSample(cached, fx, fy) {
+            if (!cached || !cached.w || !cached.h) return null;
+            const cx = Math.min(cached.w - 1, Math.floor(fx * cached.w));
+            const cy = Math.min(cached.h - 1, Math.floor(fy * cached.h));
+            const rawX = flip_x ? cached.w - 1 - cx : cx;
+            const rawY = flip_y ? cached.h - 1 - cy : cy;
+            const value = cached.slice[rawY * cached.w + rawX];
+            return Number.isFinite(value) ? { value, rawX, rawY } : null;
+        }
+
+        /** Value the centre pane renders at a hover fraction (diff modes only). */
+        function _compareCenterSample(fx, fy) {
+            if (diffMode <= 0 || compareDisplaySids.length < 2) return null;
+            const [sidA, sidB] = compareDisplaySids;
+            if (!sidA || !sidB) return null;
+            const a = _compareSliceSample(_getCachedHoverSlice(sidA, dim_x, dim_y, _comparePaneHoverIndices(0)), fx, fy);
+            const b = _compareSliceSample(_getCachedHoverSlice(sidB, dim_x, dim_y, _comparePaneHoverIndices(1)), fx, fy);
+            if (!a || !b) return null;
+            const d = a.value - b.value;
+            const value = diffMode === 1 ? d
+                : diffMode === 2 ? Math.abs(d)
+                : Math.abs(d) / Math.abs(a.value);
+            return Number.isFinite(value) ? { value, rawX: a.rawX, rawY: a.rawY } : null;
+        }
+
+        /** Draw a readout on `cv` at the hovered fraction of that canvas. */
+        function _showComparePaneInfo(piEl, cv, fx, fy, sample, contextValues) {
+            const rect = cv.getBoundingClientRect();
+            showPixelInfo(
+                piEl,
+                { valueText: _pixelFmt(sample.value, contextValues), rawX: sample.rawX, rawY: sample.rawY },
+                rect.left + fx * rect.width,
+                rect.top + fy * rect.height,
+            );
+        }
+
+        function _compareCenterContext() {
+            return [_diffManualVmin ?? _lastDiffVmin, _diffManualVmax ?? _lastDiffVmax].filter(Number.isFinite);
+        }
+
+        /**
+         * Mirror a hover readout onto every compare pane except `skipIdx`,
+         * including the centre diff pane, at the same image fraction.
+         */
+        function _mirrorCompareHover(fx, fy, skipIdx) {
+            if (!_pixelInfoActive()) return;
+            let missing = false;
+            compareCanvases.forEach((ocv, j) => {
+                if (j === skipIdx || !ocv) return;
+                const oSid = compareDisplaySids[j];
+                const oPi = _comparePiEls[j];
+                if (!oSid || !oPi) return;
+                const cached = _getCachedHoverSlice(oSid, dim_x, dim_y, _comparePaneHoverIndices(j));
+                if (!cached) { missing = true; return; }
+                const sample = _compareSliceSample(cached, fx, fy);
+                if (!sample) return;
+                _showComparePaneInfo(oPi, ocv, fx, fy, sample,
+                    [cmpManualVmin[j] ?? compareFrames[j]?.vmin, cmpManualVmax[j] ?? compareFrames[j]?.vmax].filter(Number.isFinite));
+            });
+            const diffCv = document.getElementById('compare-diff-canvas');
+            if (_compareDiffPiEl && diffCv && skipIdx !== -1) {
+                const centerSample = _compareCenterSample(fx, fy);
+                if (centerSample) {
+                    _showComparePaneInfo(_compareDiffPiEl, diffCv, fx, fy, centerSample, _compareCenterContext());
+                } else if (diffMode > 0) {
+                    missing = true;
+                }
+            }
+            // A miss means this slice isn't cached yet — the source pane has a
+            // network fallback, the mirrored panes only have the cache.
+            if (missing) _debouncedHoverPrefetch();
+        }
+
         compareCanvases.forEach((cv, i) => {
             const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
             _comparePiEls.push(piEl);
@@ -32668,40 +32826,21 @@
                     sid: cvSid,
                     dimX: dim_x,
                     dimY: dim_y,
-                    indices: indices,
+                    indices: _comparePaneHoverIndices(i),
                     imgW: cv.width,
                     imgH: cv.height,
                     contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
                     displayEl: piEl,
-                    onResult: (d, px, py) => {
-                        if (!_pixelInfoActive()) return;
-                        // Show value on other compare panes at the same pixel
-                        const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
-                        compareCanvases.forEach((ocv, j) => {
-                            if (j === i) return;
-                            const oSid = compareDisplaySids[j];
-                            if (!oSid) return;
-                            const oPi = _comparePiEls[j];
-                            if (!oPi) return;
-                            const hkey = oSid + ':' + ver;
-                            const cached = _hoverSliceCache[hkey];
-                            if (!cached || !cached.w || !cached.h) return;
-                            const rawX = flip_x ? (cached.w - 1 - Math.floor(px * cached.w / cv.width)) : Math.floor(px * cached.w / cv.width);
-                            const rawY = flip_y ? (cached.h - 1 - Math.floor(py * cached.h / cv.height)) : Math.floor(py * cached.h / cv.height);
-                            if (rawX < 0 || rawX >= cached.w || rawY < 0 || rawY >= cached.h) return;
-                            const val = cached.slice[rawY * cached.w + rawX];
-                            if (!Number.isFinite(val)) return;
-                            // Position tooltip at corresponding spot on the other canvas
-                            const oRect = ocv.getBoundingClientRect();
-                            const sx = oRect.left + (px + 0.5) * oRect.width / ocv.width;
-                            const sy = oRect.top + (py + 0.5) * oRect.height / ocv.height;
-                            showPixelInfo(oPi, _pixelFmt(val, [cmpManualVmin[j] ?? compareFrames[j]?.vmin, cmpManualVmax[j] ?? compareFrames[j]?.vmax].filter(Number.isFinite)), sx, sy);
-                        });
+                    onResult: () => {
+                        // Show the value on every other pane — including the
+                        // centre diff pane — at the same image fraction.
+                        const at = _compareHoverFraction(cv, e);
+                        if (at) _mirrorCompareHover(at.fx, at.fy, i);
                     },
                 });
             });
             cv.addEventListener('mouseleave', () => {
-                _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
+                _hideComparePaneInfo();
                 hideCompareCrosshairs();
             });
          });
@@ -32722,18 +32861,31 @@
                 const rect = cv.getBoundingClientRect();
                 const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
                 const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
-                _copyPixelValue(cvSid, dim_x, dim_y, indices, ipx, ipy);
+                _copyPixelValue(cvSid, dim_x, dim_y, _comparePaneHoverIndices(i), ipx, ipy);
             });
         });
 
-        // Diff canvas crosshair sync (hover → sync to all panes)
+        // Diff canvas crosshair + pixel-info sync (hover → sync to all panes)
         const _diffCvForXhair = document.getElementById('compare-diff-canvas');
         if (_diffCvForXhair) {
             _diffCvForXhair.addEventListener('mousemove', (e) => {
                 if (!compareActive || comparePan.dragging) return;
                 _syncCrosshairsFromCv(_diffCvForXhair, e);
+                if (!_pixelInfoActive()) return;
+                const at = _compareHoverFraction(_diffCvForXhair, e);
+                if (!at) return;
+                const sample = _compareCenterSample(at.fx, at.fy);
+                if (sample && _compareDiffPiEl) {
+                    _showComparePaneInfo(_compareDiffPiEl, _diffCvForXhair, at.fx, at.fy, sample, _compareCenterContext());
+                } else if (diffMode > 0) {
+                    _debouncedHoverPrefetch();
+                }
+                _mirrorCompareHover(at.fx, at.fy, -1);
             });
-            _diffCvForXhair.addEventListener('mouseleave', () => { hideCompareCrosshairs(); });
+            _diffCvForXhair.addEventListener('mouseleave', () => {
+                hideCompareCrosshairs();
+                _hideComparePaneInfo();
+            });
         }
 
         function closeSocket() {
