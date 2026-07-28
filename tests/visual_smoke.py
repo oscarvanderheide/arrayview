@@ -80,8 +80,8 @@ LOADING OVERLAY
     native preload shell (pywebview)          ✓ 68 (_LOADING_HTML + loading_port param checks)
         native shell preview handoff             ✓ 68 (_SHELL_HTML contains tab-preview + frame-rendered handoff)
 
-WELCOME SCREEN / DEMO
-  empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
+INTERACTIVE TUTORIAL
+  no-arg lesson panel + action progress     ✓ 48 (generated bundle, Begin, slice gate)
   dim-label active no hover highlight       ✓ 52 (hover bg transparent for all labels)
   dim-label drag scrubs index               ✓ 53 (mousedown+move on label)
   colorbar width clamped [120, 600]px       ✓ 65 (bounding_box check on slim-cb-wrap)
@@ -876,41 +876,45 @@ def run_smoke(page, base, client, tmp):
         )
     _shot(page, "47_loading_overlay_after_load")
 
-    # ── 48: demo array — RGB plasma ───────────────────────────────────────────
-    # Verify the welcome demo renders as an RGB plasma animation (128×128×32×3).
-    # The demo is loaded with rgb=True so the colorbar should be hidden and
-    # the RGB egg badge should appear in #mode-eggs.
-    from arrayview._app import _make_demo_array
+    # ── 48: no-argument interactive tutorial ─────────────────────────────────
+    from arrayview._tutorial import make_tutorial_arrays
 
-    demo_arr = _make_demo_array()
-    demo_path = Path(tmp) / "demo_plasma.npy"
-    np.save(demo_path, demo_arr)
-    r = client.post(
-        "/load", json={"filepath": str(demo_path), "name": "welcome", "rgb": True}
+    tutorial_base, tutorial_compare, tutorial_overlay = make_tutorial_arrays()
+    tutorial_sid = _load(client, tutorial_base, "tutorial", tmp)
+    tutorial_compare_sid = _load(client, tutorial_compare, "comparison-volume", tmp)
+    tutorial_overlay_sid = _load(client, tutorial_overlay, "Regions", tmp)
+    page.goto(
+        f"{base}/?sid={tutorial_sid}"
+        f"&overlay_sid={tutorial_overlay_sid}&overlay_names=Regions"
+        f"&compare_sid={tutorial_compare_sid}&compare_sids={tutorial_compare_sid}"
     )
-    r.raise_for_status()
-    demo_sid = r.json()["sid"]
-    _goto(page, base, demo_sid, wait=1200)
+    page.wait_for_function(
+        "() => document.body.classList.contains('tutorial-active')",
+        timeout=15_000,
+    )
+    page.wait_for_timeout(500)
+    tutorial_state = page.evaluate(
+        """() => ({
+            title: document.getElementById('tutorial-title').textContent,
+            compare: compareActive,
+            panelVisible: document.getElementById('tutorial-panel').getAttribute('aria-hidden') === 'false',
+        })"""
+    )
+    if tutorial_state["title"] != "Start with the array":
+        print(f"  WARNING: tutorial did not start on intro card: {tutorial_state}")
+    if tutorial_state["compare"]:
+        print("  WARNING: tutorial comparison pair opened before the learner requested it")
+    if not tutorial_state["panelVisible"]:
+        print("  WARNING: tutorial panel is not visible after first frame")
+    _shot(page, "48_tutorial_start")
+    page.get_by_role("button", name="Begin").click()
+    page.wait_for_timeout(650)
     _focus(page)
-    _shot(page, "48_demo_plasma_rgb")
-    # RGB egg should be visible; colorbar should be absent/hidden
-    eggs_text = page.locator("#mode-eggs").inner_text()
-    if "RGB" not in eggs_text:
-        print("  WARNING: RGB egg not visible in demo plasma scenario")
-    # welcome-hint ("{cmd,ctrl,shift}+o · drop to open array") must be visible on welcome screen
-    hint_visible = page.evaluate(
-        "() => document.getElementById('welcome-hint').classList.contains('visible')"
-    )
-    if not hint_visible:
-        print(
-            "  WARNING: #welcome-hint not visible on welcome demo screen — fix _isWelcomeScreen logic"
-        )
-    # body should have welcome-mode class (caps canvas to 50% height)
-    welcome_mode = page.evaluate(
-        "() => document.body.classList.contains('welcome-mode')"
-    )
-    if not welcome_mode:
-        print("  WARNING: body.welcome-mode class not set on welcome demo screen")
+    _press(page, "ArrowUp", wait=700)
+    progressed_title = page.locator("#tutorial-title").inner_text()
+    if progressed_title != "Choose another dimension":
+        print(f"  WARNING: tutorial slice action did not progress: {progressed_title!r}")
+    _shot(page, "48_tutorial_after_slice")
 
     # ── 49: array identity moves to window title; toast uses bottom-left slot ─
     _goto(page, base, sid2d)

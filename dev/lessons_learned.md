@@ -313,3 +313,12 @@ request tab remains on a stale document and never starts the viewer script.
 navigation, then reveal the tab by its exact request filter and hard-reload it.
 Once `script-loaded` arrives, stop navigation recovery and retain the full frame
 render deadline.
+
+## Guided UI Progress
+
+**Problem:** A tutorial that advances on raw key presses rewards unavailable or
+no-op actions and drifts as shortcuts gain button equivalents.
+**Fix:** Emit semantic command events after dispatch, then gate each lesson on
+the resulting viewer state. Keep generated lesson data on the normal
+base/compare/overlay registration path so onboarding exercises the real product
+instead of a parallel simulation.

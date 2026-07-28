@@ -1776,6 +1776,7 @@ def _handle_cli_existing_server(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
+    cleanup_dir: str | None = None,
 ) -> None:
     _trace_launch_event("server.decision", decision="reuse", port=port)
     expected_server_id = (
@@ -1807,6 +1808,7 @@ def _handle_cli_existing_server(
                 and not vectorfield
                 and not dir_patterns
                 and not base_file.endswith((".npz", ".mat"))
+                and cleanup_dir is None
             ),
             expected_server_id=expected_server_id,
             native_request_id=native_request_id,
@@ -1900,6 +1902,11 @@ def _handle_cli_existing_server(
             f"Use --port to pick another. ({e})"
         )
         sys.exit(1)
+    finally:
+        if cleanup_dir is not None:
+            from arrayview._tutorial import cleanup_tutorial_bundle
+
+            cleanup_tutorial_bundle(cleanup_dir)
 
     _trace_launch_event(
         "session.registered",
@@ -1984,9 +1991,15 @@ def _handle_cli_spawned_daemon(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
+    cleanup_dir: str | None = None,
     launch_context=None,
 ) -> None:
     sid = uuid.uuid4().hex
+    bundled_compare_sid = (
+        uuid.uuid4().hex
+        if cleanup_dir is not None and len(compare_files) == 1
+        else None
+    )
     overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
     overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
@@ -2039,6 +2052,7 @@ def _handle_cli_spawned_daemon(
                 collection_load=collection_load,
                 collection_stack=collection_stack,
                 overlay_names=resolved_overlay_names,
+                cleanup_dir=cleanup_dir,
             )
             return
 
@@ -2071,6 +2085,8 @@ def _handle_cli_spawned_daemon(
             f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
             f" overlay_sids={repr(overlay_sids)},"
             f" overlay_names={repr(resolved_overlay_names)},"
+            f" compare_filepath={repr(compare_files[0] if bundled_compare_sid else None)},"
+            f" compare_sid={repr(bundled_compare_sid)},"
             f" vfield_filepath={repr(vfield_abs)},"
             f" vfield_components_dim={repr(vfield_components_dim)},"
             f" persist={is_remote},"
@@ -2082,6 +2098,7 @@ def _handle_cli_spawned_daemon(
             f" dir_exclude_cases={repr(dir_exclude_cases)},"
             f" collection_load={repr(collection_load)},"
             f" collection_stack={repr(collection_stack)},"
+            f" cleanup_dir={repr(cleanup_dir)},"
             f")"
         )
 
@@ -2104,10 +2121,17 @@ def _handle_cli_spawned_daemon(
             owner="persistent" if is_remote else "transient",
             sid_tag=_launch_trace_tag(sid),
         )
-        daemon_proc = subprocess.Popen(
-            [sys.executable, "-c", script],
-            **popen_kwargs,
-        )
+        try:
+            daemon_proc = subprocess.Popen(
+                [sys.executable, "-c", script],
+                **popen_kwargs,
+            )
+        except Exception:
+            if cleanup_dir is not None:
+                from arrayview._tutorial import cleanup_tutorial_bundle
+
+                cleanup_tutorial_bundle(cleanup_dir)
+            raise
         _trace_launch_event(
             "daemon.spawned",
             child_pid=getattr(daemon_proc, "pid", None),
@@ -2116,6 +2140,10 @@ def _handle_cli_spawned_daemon(
 
         if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
             _terminate_owned_process(daemon_proc)
+            if cleanup_dir is not None:
+                from arrayview._tutorial import cleanup_tutorial_bundle
+
+                cleanup_tutorial_bundle(cleanup_dir)
             _trace_launch_event("backend.tcp_failed", port=port)
             print(
                 f"Error: the spawned ArrayView server did not claim port {port}. "
@@ -2125,6 +2153,10 @@ def _handle_cli_spawned_daemon(
         daemon_identity = _server_runtime_identity(port)
         if daemon_identity is None or daemon_identity[0] is None:
             _terminate_owned_process(daemon_proc)
+            if cleanup_dir is not None:
+                from arrayview._tutorial import cleanup_tutorial_bundle
+
+                cleanup_tutorial_bundle(cleanup_dir)
             print(
                 "Error: the spawned ArrayView server did not publish a stable "
                 "generation identity."
@@ -2137,14 +2169,35 @@ def _handle_cli_spawned_daemon(
             child_pid=getattr(daemon_proc, "pid", None),
         )
 
+    if bundled_compare_sid is not None and not _wait_for_registered_session(
+        daemon_proc,
+        port,
+        bundled_compare_sid,
+    ):
+        _terminate_owned_process(daemon_proc)
+        if cleanup_dir is not None:
+            from arrayview._tutorial import cleanup_tutorial_bundle
+
+            cleanup_tutorial_bundle(cleanup_dir)
+        print("Error while loading bundled comparison array")
+        sys.exit(1)
+
     try:
-        compare_sids = _load_compare_sids(
-            port,
-            compare_files,
-            expected_server_id=daemon_server_id,
+        compare_sids = (
+            [bundled_compare_sid]
+            if bundled_compare_sid is not None
+            else _load_compare_sids(
+                port,
+                compare_files,
+                expected_server_id=daemon_server_id,
+            )
         )
     except Exception as e:
         _terminate_owned_process(daemon_proc)
+        if cleanup_dir is not None:
+            from arrayview._tutorial import cleanup_tutorial_bundle
+
+            cleanup_tutorial_bundle(cleanup_dir)
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
 
@@ -2172,6 +2225,10 @@ def _handle_cli_spawned_daemon(
         )
     except Exception:
         _terminate_owned_process(daemon_proc)
+        if cleanup_dir is not None:
+            from arrayview._tutorial import cleanup_tutorial_bundle
+
+            cleanup_tutorial_bundle(cleanup_dir)
         raise
 
 
@@ -2415,6 +2472,33 @@ def _wait_for_spawned_server(
             return False
         if _server_pid(port) == expected_pid:
             return True
+        time.sleep(0.02)
+    return False
+
+
+def _wait_for_registered_session(
+    proc: subprocess.Popen,
+    port: int,
+    sid: str,
+    *,
+    timeout: float = 30.0,
+) -> bool:
+    """Wait until a session loaded inside a spawned daemon is queryable."""
+    deadline = time.monotonic() + timeout
+    url = f"http://{_LOOPBACK_HOST}:{port}/metadata/{sid}"
+    while time.monotonic() < deadline:
+        try:
+            if proc.poll() is not None:
+                return False
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                if response.status == 200:
+                    response.read()
+                    return True
+        except urllib.error.HTTPError as exc:
+            if exc.code == 422:
+                return False
+        except (OSError, urllib.error.URLError):
+            pass
         time.sleep(0.02)
     return False
 
@@ -4189,6 +4273,7 @@ def _serve_daemon(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    cleanup_dir: str | None = None,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -4204,6 +4289,8 @@ def _serve_daemon(
     # Register sid as pending so /metadata can poll while data loads.
     _initial_load_failed = threading.Event()
     _session_mod.PENDING_SESSIONS.add(sid)
+    if compare_sid:
+        _session_mod.PENDING_SESSIONS.add(compare_sid)
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
@@ -4373,6 +4460,9 @@ def _serve_daemon(
                     cmp_session.sid = compare_sid
                     _session_mod.SESSIONS[compare_sid] = cmp_session
                 except Exception as e:
+                    _session_mod.FAILED_PENDING_SESSIONS[compare_sid] = (
+                        str(e) or type(e).__name__
+                    )
                     _vprint(
                         f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                         flush=True,
@@ -4399,8 +4489,14 @@ def _serve_daemon(
             raise
         finally:
             _session_mod.PENDING_SESSIONS.discard(sid)
+            if compare_sid:
+                _session_mod.PENDING_SESSIONS.discard(compare_sid)
             _pending_event.set()
             _session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
+            if cleanup_dir is not None:
+                from arrayview._tutorial import cleanup_tutorial_bundle
+
+                cleanup_tutorial_bundle(cleanup_dir)
 
     threading.Thread(target=_load, daemon=True).start()
 
@@ -4833,6 +4929,20 @@ def _confirm_partial_overlay_match(error):
         print()
         return False
     return answer.strip().lower() in {"y", "yes"}
+
+
+def _configure_tutorial_args(args):
+    """Turn a file-less CLI request into the generated tutorial bundle."""
+    from arrayview._tutorial import create_tutorial_bundle
+
+    tutorial = create_tutorial_bundle()
+    args.files = [tutorial.base_file, tutorial.compare_file]
+    args.overlay = [f"Regions={tutorial.overlay_file}"]
+    args._demo_name = "tutorial"
+    args._demo_cleanup = False
+    args._tutorial_cleanup_dir = tutorial.directory
+    args.rgb = False
+    return tutorial
 
 
 # ── CLI Entry Point (arrayview command) ───────────────────────────
@@ -5325,20 +5435,7 @@ def arrayview():
         if dims_override is None:
             dims_override = (0, 1)
     if not args.serve and not args.kill and not args.files:
-        # No files given: launch the animated pixel-art demo
-        import tempfile as _tempfile
-        import numpy as _np_demo
-
-        _demo_arr = _make_demo_array()
-        _fd, _tmp_path = _tempfile.mkstemp(suffix=".npy")
-        import os as _os_demo
-
-        _os_demo.close(_fd)
-        _np_demo.save(_tmp_path, _demo_arr)
-        args.files = [_tmp_path]
-        args._demo_name = "welcome"
-        args._demo_cleanup = True
-        args.rgb = True
+        _configure_tutorial_args(args)
     if args.files and len(args.files) > 6 and not args.stack_mode:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
@@ -5770,10 +5867,27 @@ def arrayview():
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
                 flush=True,
             )
-    if "remote_native_redirected_to_vscode" in launch_plan.reasons:
-        _vprint(
-            "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
-        )
+    # Not honouring an explicit --window is always worth a plain print: the user
+    # asked for one display and is getting another, and _vprint hid that.
+    _redirect_notices = {
+        "remote_native_redirected_to_vscode": (
+            "--window native is not available over a VS Code remote/tunnel "
+            "session; opening a VS Code tab instead."
+        ),
+        "remote_browser_redirected_to_vscode": (
+            "--window browser cannot reach a browser on the remote host; "
+            "opening a VS Code tab instead."
+        ),
+        "native_unavailable": (
+            "--window native found no usable GUI backend (no display server "
+            "or no Qt/GTK for pywebview); opening a browser instead."
+        ),
+    }
+    for _reason, _notice in _redirect_notices.items():
+        if _reason in launch_plan.reasons:
+            from ._diagnostics import print_notice
+
+            print_notice(_notice)
 
     try:
         if execution_registration is Registration.HTTP_LOAD:
@@ -5800,11 +5914,13 @@ def arrayview():
                 dir_exclude_cases=sorted(excluded_cases),
                 collection_load=args.load,
                 collection_stack=args.stack_policy or "auto",
+                cleanup_dir=getattr(args, "_tutorial_cleanup_dir", None),
             )
             return
 
         demo_name = getattr(args, "_demo_name", None)
         demo_cleanup = getattr(args, "_demo_cleanup", False)
+        cleanup_dir = getattr(args, "_tutorial_cleanup_dir", None)
         _handle_cli_spawned_daemon(
             port=args.port,
             base_file=base_file,
@@ -5824,6 +5940,7 @@ def arrayview():
             rgb=args.rgb,
             demo_name=demo_name,
             demo_cleanup=demo_cleanup,
+            cleanup_dir=cleanup_dir,
             dir_patterns=dir_patterns,
             dir_overlay_specs=dir_overlay_specs,
             dir_case_regex=args.case_regex,
