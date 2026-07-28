@@ -100,9 +100,3 @@ uv run pytest tests/test_mode_roundtrip.py -v
 uv run pytest tests/test_command_reachability.py -v
 uv run python tests/visual_smoke.py
 ```
-
-## Commands
-
-- `uv run pytest tests/<target>`
-- `uv run arrayview <file>`
-- `uv build`
