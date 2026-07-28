@@ -2,22 +2,16 @@
 
 Run with:
     pytest tests/test_browser.py
-
-First run creates baseline snapshots in tests/snapshots/.
-Subsequent runs compare against them (1% pixel-change threshold).
 """
 
-import io
 import time
 from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageChops
 
 pytestmark = pytest.mark.browser
 
-SNAPSHOTS = Path(__file__).parent / "snapshots"
 DEBUG_DIR = Path(__file__).resolve().parents[1] / "debug"
 
 # ---------------------------------------------------------------------------
@@ -356,37 +350,6 @@ def _center_of(locator):
     box = locator.bounding_box()
     return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
 
-
-def _compare_snapshot(page, name: str, threshold: float = 0.01):
-    """
-    Screenshot the page and compare against a saved baseline.
-    Creates the baseline on first run, then skips with a message.
-    Subsequent runs fail if more than `threshold` fraction of pixels differ.
-    """
-    path = SNAPSHOTS / f"{name}.png"
-    raw = page.screenshot()
-
-    if not path.exists():
-        path.write_bytes(raw)
-        pytest.skip(f"Baseline created: snapshots/{name}.png — re-run to compare")
-
-    baseline = Image.open(path).convert("RGB")
-    current = Image.open(io.BytesIO(raw)).convert("RGB")
-
-    if baseline.size != current.size:
-        current = current.resize(baseline.size, Image.LANCZOS)
-
-    diff = ImageChops.difference(baseline, current)
-    total = baseline.width * baseline.height
-    # Count pixels with any channel delta > 10 (ignores tiny rendering differences)
-    different = sum(1 for px in np.array(diff).reshape(-1, 3) if px.max() > 10)
-    frac = different / total
-
-    assert frac <= threshold, (
-        f"Visual regression in '{name}': {frac:.1%} of pixels differ "
-        f"(threshold {threshold:.0%}). "
-        f"Delete snapshots/{name}.png to accept the new look."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -5231,35 +5194,6 @@ class TestNormalInspectInteractions:
         assert compare_pin_hidden, "pinned readout should stay disabled in compare mode"
 
 
-class TestVisualRegression:
-    """
-    On first run: saves screenshots to tests/snapshots/ as baselines.
-    On subsequent runs: fails if >1% of pixels differ from baseline.
-    To reset a baseline, delete the corresponding .png from tests/snapshots/.
-    """
-
-    def test_2d_gradient_gray(self, loaded_viewer, sid_2d):
-        page = loaded_viewer(sid_2d)
-        _compare_snapshot(page, "2d_gradient_gray")
-
-    def test_3d_midslice_gray(self, loaded_viewer, sid_3d):
-        page = loaded_viewer(sid_3d)
-        _compare_snapshot(page, "3d_midslice_gray")
-
-    def test_2d_gradient_viridis(self, loaded_viewer, sid_2d):
-        page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        # Open then cycle to viridis (gray → lipari → navia → viridis).
-        for _ in range(4):
-            page.keyboard.press("c")
-            page.wait_for_timeout(600)
-        page.keyboard.press("Enter")
-        _compare_snapshot(page, "2d_gradient_viridis")
-
-    def test_3d_multiview(self, loaded_viewer, sid_3d):
-        page = loaded_viewer(sid_3d)
-        _focus_kb(page)
-        page.keyboard.press("v")
-        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-        page.wait_for_timeout(500)
-        _compare_snapshot(page, "3d_multiview")
+# Pixel-diff visual regression was removed: tests/snapshots/ is gitignored, so
+# the baseline never survives a fresh clone and every run took the
+# "create baseline, then skip" path. It never once compared anything.

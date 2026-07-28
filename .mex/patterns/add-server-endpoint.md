@@ -72,7 +72,6 @@ Heavy render work must go to the render thread via `_render()` from `_session.py
 - [ ] CPU/render work dispatched via `await _render(loop, ...)`, not called directly
 - [ ] WebSocket binary frame layout matches `_viewer.html` expectations (if applicable)
 - [ ] No new logic added to `_app.py`
-- [ ] `uv run pytest` on `tests/test_view_component_integration.py` passes
 - [ ] Manual test: run `uv run arrayview` on `debug/test_array.npy` and confirm the new route is reachable
 
 ## Update Scaffold

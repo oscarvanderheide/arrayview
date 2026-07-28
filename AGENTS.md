@@ -97,6 +97,5 @@ defined above; automated tests alone are not sufficient.
 uv run pytest tests/test_api.py -v
 uv run pytest tests/test_browser.py -v
 uv run pytest tests/test_mode_roundtrip.py -v
-uv run pytest tests/test_command_reachability.py -v
 uv run python tests/visual_smoke.py
 ```
