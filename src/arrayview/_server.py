@@ -163,11 +163,55 @@ _GSAP_JS: str = (
     _pkg_files("arrayview").joinpath("gsap.min.js").read_text(encoding="utf-8")
 )
 
+# The viewer page is ~2 MB of single-file HTML. On loopback that is free, but a
+# VS Code tunnel relays every byte through a cloud endpoint, where the same
+# payload has been observed taking 8-18 s. gzip cuts it to ~380 KB (5x), so the
+# compressed bytes are cached per unique page body and reused across opens.
+# Only text routes go through this — frame PNGs are already compressed and must
+# not pay the CPU cost, which is why there is no app-wide GZipMiddleware.
+_GZIP_CACHE: dict[str, bytes] = {}
+_GZIP_CACHE_LIMIT = 4
+
+
+def _accepts_gzip(request: Request | None) -> bool:
+    if request is None:
+        return False
+    return "gzip" in request.headers.get("accept-encoding", "").lower()
+
+
+def _text_response(
+    body: str,
+    *,
+    request: Request | None,
+    media_type: str,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """Return ``body``, gzip-encoded when the client advertised support."""
+    out = dict(headers or {})
+    if not _accepts_gzip(request):
+        return Response(content=body, media_type=media_type, headers=out)
+
+    import gzip
+    import hashlib
+
+    key = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    packed = _GZIP_CACHE.get(key)
+    if packed is None:
+        packed = gzip.compress(body.encode("utf-8"), 6)
+        if len(_GZIP_CACHE) >= _GZIP_CACHE_LIMIT:
+            _GZIP_CACHE.pop(next(iter(_GZIP_CACHE)))
+        _GZIP_CACHE[key] = packed
+    out["Content-Encoding"] = "gzip"
+    out["Vary"] = "Accept-Encoding"
+    return Response(content=packed, media_type=media_type, headers=out)
+
 
 @app.get("/gsap.min.js")
-def serve_gsap():
+def serve_gsap(request: Request):
     """Serve vendored GSAP library (browser caches via ETag)."""
-    return Response(content=_GSAP_JS, media_type="application/javascript")
+    return _text_response(
+        _GSAP_JS, request=request, media_type="application/javascript"
+    )
 
 
 def get_session_or_404(sid: str) -> "Session":
@@ -296,7 +340,7 @@ def status():
 
 
 @app.get("/")
-def get_ui(sid: str = None):
+def get_ui(request: Request, sid: str = None):
     """Viewer page."""
     # VS Code's asExternalUri() strips query parameters, so ?sid= is often lost
     # before the page loads.  Embed the SID directly in the HTML so the viewer
@@ -343,5 +387,11 @@ def get_ui(sid: str = None):
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )
-    headers = {"Cache-Control": "no-store"}
-    return HTMLResponse(content=html, headers=headers)
+    return _text_response(
+        html,
+        request=request,
+        media_type="text/html; charset=utf-8",
+        # no-store stays: when the URL carries no ?sid=, the body embeds the
+        # latest session id, so a cached copy would resurrect a dead session.
+        headers={"Cache-Control": "no-store"},
+    )
