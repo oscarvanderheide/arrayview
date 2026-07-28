@@ -3930,6 +3930,87 @@ class TestCompareCenterPicker:
         assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
 
 
+class TestCompareBigLeftZoomGeometry:
+    """Zoom magnifies inside the panes; it must not resize the layout."""
+
+    GEOMETRY = """
+        () => {
+            const rect = el => {
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return {
+                    w: Math.round(r.width), h: Math.round(r.height),
+                    x: Math.round(r.left), y: Math.round(r.top),
+                };
+            };
+            return {
+                zoom: userZoom,
+                centre: rect(document.querySelector('#compare-diff-pane .compare-canvas-clip')),
+                topSource: rect(document.querySelector('.compare-primary .compare-canvas-clip')),
+                bottomSource: rect(document.querySelector('.compare-secondary .compare-canvas-clip')),
+                centreCb: rect(document.querySelector('#compare-diff-pane .compare-pane-cb-island')),
+                canvas: rect(document.querySelector('#compare-diff-canvas')),
+            };
+        }
+    """
+
+    def test_pinch_zoom_keeps_the_panes_and_colorbar_put(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        partner = tmp_path / "bigleft_zoom.npy"
+        np.save(partner, arr_2d * 0.4 + 0.3)
+        other = client.post(
+            "/load", json={"filepath": str(partner), "name": "bigleft_zoom"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, other)
+        page.evaluate("() => _setCompareCenterMode(1)")
+        page.wait_for_timeout(400)
+        page.keyboard.press("G")  # big-left layout
+        page.wait_for_timeout(600)
+
+        assert page.evaluate("() => _isCompareBigLeftLayout()"), (
+            "this test needs the big-left compare layout"
+        )
+        before = page.evaluate(self.GEOMETRY)
+        assert before["centre"], "big-left should have a centre clip"
+
+        page.evaluate(
+            """() => {
+                userZoom = 1.47;
+                _zoomAdjustedByUser = true;
+                compareScaleCanvases();
+            }"""
+        )
+        page.wait_for_timeout(500)
+        after = page.evaluate(self.GEOMETRY)
+
+        for name in ("centre", "topSource", "bottomSource"):
+            if not before[name]:
+                continue
+            assert before[name]["w"] == after[name]["w"], (
+                f"{name} clip should keep its width under zoom, "
+                f"got {before[name]} then {after[name]}"
+            )
+            assert before[name]["h"] == after[name]["h"], (
+                f"{name} clip should keep its height under zoom, "
+                f"got {before[name]} then {after[name]}"
+            )
+
+        if before["centreCb"] and after["centreCb"]:
+            assert abs(before["centreCb"]["x"] - after["centreCb"]["x"]) <= 1, (
+                "the centre colorbar should not slide sideways on zoom, "
+                f"got {before['centreCb']} then {after['centreCb']}"
+            )
+
+        assert after["canvas"]["w"] > before["canvas"]["w"], (
+            "zoom must still magnify the image inside the clip, "
+            f"got {before['canvas']} then {after['canvas']}"
+        )
+
+
 class TestDiffPaneRangeMenu:
     """`d` over the compare centre pane gets the same range menu as anywhere else."""
 

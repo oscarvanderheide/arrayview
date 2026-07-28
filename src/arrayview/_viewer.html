@@ -7985,6 +7985,35 @@
          * }
          * returns: { finalScale, cssW, cssH, vpW, vpH, capScale }
          */
+        /**
+         * The viewport `_scalePane` would hand back at userZoom = 1.
+         *
+         * `_scalePane` derives the clip box from the *zoomed* canvas size, so
+         * whenever a pane is smaller than its slot the clip grows as you zoom
+         * in. In a single-pane mode that only makes the border hug the image;
+         * in a multi-pane layout whose slot widths are measured back off those
+         * clips, it moves everything else on screen. Panes that must hold
+         * their box under zoom precompute it here and pass it as
+         * `forceViewport`, which makes the zoom overflow the clip and pan
+         * inside it instead — the behaviour zoom is supposed to have.
+         *
+         * Mirrors the viewport arithmetic in `_scalePane` with userZoom
+         * pinned to 1; keep the two in step.
+         */
+        function _paneViewportAtBaseZoom(w, h, baseScale, maxW, maxH, sqStretch) {
+            let cssW = Math.round(w * baseScale);
+            let cssH = Math.round(h * baseScale);
+            if (sqStretch) {
+                const sq = Math.max(cssW, cssH);
+                cssW = sq; cssH = sq;
+            }
+            let vpW = Math.min(cssW, Math.round(maxW));
+            let vpH = Math.min(cssH, Math.round(maxH));
+            if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
+            if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
+            return { w: vpW, h: vpH };
+        }
+
         function _scalePane(pane, viewport, opts) {
             const { canvas: cvs, w, h, pan } = pane;
             const { maxW, maxH, baseScale, squareStretch: sqStretch,
@@ -8275,12 +8304,20 @@
                 rightOuterW = Math.min(rightOuterW, Math.max(220, totalW - bigLeftGap - 180));
                 const rightOuterH = Math.max(20, (totalH - sharedCbReserve - rowGap) / 2);
 
+                // Big-left measures its own slot widths back off these clips —
+                // the centre pane's width comes from what the two source clips
+                // leave over — so a clip that grows under zoom re-lays out the
+                // whole row: the centre pane shrank and the colorbar under it
+                // moved. Every pane here holds the box it has at userZoom = 1
+                // and lets the zoom overflow inside it.
                 const scaleComparePane = (cv, frame, maxW, maxH, opts = {}) => {
                     if (!cv || !frame) return null;
-                    const forceViewport = opts.forceViewport || null;
                     const forceHeightFit = !!opts.forceHeightFit;
                     const fitSlackFactor = Number.isFinite(opts.fitSlackFactor) ? opts.fitSlackFactor : fitSlack;
                     const base = (forceHeightFit ? (maxH / frame.height) : Math.min(maxW / frame.width, maxH / frame.height)) * fitSlackFactor;
+                    const forceViewport = opts.forceViewport || _paneViewportAtBaseZoom(
+                        frame.width, frame.height, Math.max(0.0001, base), maxW, maxH, squareStretch,
+                    );
                     const r = _scalePane(
                         { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
                         null,
