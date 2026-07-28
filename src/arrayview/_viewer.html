@@ -20857,6 +20857,15 @@
                     _bcAutoDismiss();
                     return;
                 }
+                // A gesture that is still running owns the histogram. The
+                // cursor is over the image, not the bar, so `_mouseOver` is
+                // false and a timer armed by an *earlier* interaction used to
+                // fire straight through and fold the histogram back into a
+                // colorbar while the button was still held. Wait it out.
+                if (_bcDrag || _bcScrollAnchor || (primaryCb && primaryCb._dragActive)) {
+                    _bcAutoDismiss();
+                    return;
+                }
                 if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
                     lebesgueMode = false;
                     primaryCb._expanded = false;
@@ -20890,6 +20899,10 @@
                 lockedLo: vmin,
             };
             canvas.style.cursor = 'crosshair';
+            // Drop any dismissal armed by whatever happened before this drag —
+            // a `d` press, or a previous window/level gesture. The countdown
+            // was started for a histogram nobody was using; this one is in use.
+            _restartHistAutoDismiss();
             _bcExpandHist();
             _bcPreviewInit();
         }

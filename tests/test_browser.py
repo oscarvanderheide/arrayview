@@ -3930,6 +3930,66 @@ class TestCompareCenterPicker:
         assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
 
 
+class TestWindowLevelHistogramHold:
+    """The histogram belongs to the gesture for as long as the gesture lasts."""
+
+    EXPANDED = "() => !!(primaryCb && primaryCb._expanded)"
+
+    def _window_level_drag(self, page, cx, cy):
+        """Press and travel past the 5px deadzone, leaving the button down."""
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 60, cy + 40, steps=6)
+
+    def test_histogram_survives_a_long_hold_after_an_earlier_drag(
+        self, loaded_viewer, sid_2d
+    ):
+        """The dismissal armed when the first drag ended used to fire straight
+        through the second one: the cursor is over the image rather than the
+        bar, so the `_mouseOver` guard never caught it and the histogram folded
+        back into a colorbar with the button still held."""
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        # First drag: short, released — this is what arms the 3s countdown.
+        self._window_level_drag(page, cx, cy)
+        page.wait_for_timeout(200)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+
+        # Second drag, held well past the countdown.
+        self._window_level_drag(page, cx, cy)
+        page.wait_for_timeout(600)
+        assert page.evaluate(self.EXPANDED), (
+            "window/level drag should show the histogram"
+        )
+        page.wait_for_timeout(3600)
+        held = page.evaluate(self.EXPANDED)
+        page.mouse.up()
+        assert held, (
+            "the histogram must stay open for as long as the button is held"
+        )
+
+    def test_histogram_still_dismisses_once_the_drag_ends(
+        self, loaded_viewer, sid_2d
+    ):
+        """The hold guard must not turn into a histogram that never closes."""
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        self._window_level_drag(page, cx, cy)
+        page.wait_for_timeout(200)
+        page.mouse.up()
+        # Park the cursor away from the colorbar so hover cannot hold it open.
+        page.mouse.move(cx, cy - 200)
+        page.wait_for_timeout(4200)
+        assert not page.evaluate(self.EXPANDED), (
+            "the histogram should still fold away a few seconds after release"
+        )
+
+
 class TestSplitViewIndexLabel:
     """Stepping the split index must not resize the title above the pane."""
 
