@@ -1114,6 +1114,45 @@ class TestKeyboard:
         assert state["minHeight"] == "26px", f"compare-center pill should stay compact outside fullscreen, got: {state}"
         assert state["minWidth"] == "52px", f"compare-center pill should keep a compact pill width outside fullscreen, got: {state}"
 
+    def test_shift_d_in_split_toggles_dimbar_not_compare_center(
+        self, loaded_viewer, sid_4d
+    ):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.evaluate(
+            """() => {
+                const dim = [...Array(shape.length).keys()].find(d => _canDetachDim(d));
+                activeDim = dim;
+                indices[dim] = Math.min(1, shape[dim] - 1);
+                renderInfo();
+            }"""
+        )
+        page.keyboard.press("Shift+S")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        before = page.evaluate(
+            "() => ({ pinned: _dimbarExtentPinned, center: compareCenterMode,"
+            " detached: detachedDimMode })"
+        )
+        assert before["detached"] is True
+        assert before["center"] == 0
+
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        after = page.evaluate(
+            "() => ({ pinned: _dimbarExtentPinned, center: compareCenterMode })"
+        )
+
+        assert after["pinned"] is not before["pinned"], (
+            "Shift+D in split view should toggle the dimbar extents, "
+            f"got {before} -> {after}"
+        )
+        assert after["center"] == 0, (
+            "Shift+D in split view must not enter compare centre — that is X's "
+            f"job, got {after}"
+        )
+
     def test_shift_x_enters_split_for_single_array(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         _focus_kb(page)

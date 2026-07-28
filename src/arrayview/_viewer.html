@@ -24641,7 +24641,10 @@
                 },
             },
             'compare.toggleDiffMode': {
-                when: ['compareActive'],
+                // Split view runs on the compare machinery, so compareActive is
+                // true there too and this binding would shadow the earlier
+                // Shift+D → dimbar.toggleExtents. Compare centre is X's job.
+                when: ['compareActive', '!detachedDimMode'],
                 run: (ctx, e) => {
                     if (!_compareCenterSupported()) return;
                     if (compareCenterMode > 0) {
