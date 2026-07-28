@@ -8614,6 +8614,9 @@
         let _compareCenterPickerVisible = false;
         let _compareCenterPickerTimer = null;
         const COMPARE_CENTER_PICKER_FADE_MS = 180;
+        // Matches ColorBar.startAutoDismiss — the two transient strips that take
+        // over a slot should linger for the same beat.
+        const COMPARE_CENTER_PICKER_AUTO_MS = 3000;
 
         function _compareCenterPaneCount() {
             if (Array.isArray(_compareExplicitSids) && _compareExplicitSids.length) return _compareExplicitSids.length;
@@ -8955,7 +8958,18 @@
             _compareCenterPickerVisible = true;
             _reconcileCompareCenterPicker();
             if (_compareCenterPickerTimer) clearTimeout(_compareCenterPickerTimer);
-            _compareCenterPickerTimer = null;
+            // Enter commits the picker and hands the strip back to the dimbar.
+            // Settle on its own if the user never presses it: the strip has done
+            // its job once the mode is chosen, and leaving it up permanently
+            // costs the dimbar its slot. Every X press and every mode-button
+            // click comes back through here, so the wait restarts while the user
+            // is still choosing.
+            _compareCenterPickerTimer = setTimeout(() => {
+                _compareCenterPickerTimer = null;
+                if (!_compareCenterPickerVisible) return;
+                _compareCenterPickerVisible = false;
+                _reconcileCompareCenterPicker();
+            }, COMPARE_CENTER_PICKER_AUTO_MS);
         }
 
         function _reconcileCompareCenterModeBadge() {

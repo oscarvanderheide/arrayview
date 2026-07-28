@@ -3857,6 +3857,79 @@ class TestROIDrag:
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
+class TestCompareCenterPicker:
+    """The mode strip borrows the dimbar's slot, so it has to give it back."""
+
+    PICKER_STATE = (
+        "() => ({ picker: _compareCenterPickerVisible,"
+        " mode: compareCenterMode,"
+        " islandClass: (document.getElementById('compare-center-island') || {}).className })"
+    )
+
+    def _open_picker(self, loaded_viewer, sid_3d, arr_3d, client, tmp_path, name):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, arr_3d * 0.5)
+        other = client.post(
+            "/load", json={"filepath": str(path), "name": name}
+        ).json()["sid"]
+        page = loaded_viewer(sid_3d)
+        page.evaluate(f"async () => {{ await enterCompareModeBySid({other!r}); }}")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+X")
+        page.wait_for_timeout(400)
+        opened = page.evaluate(self.PICKER_STATE)
+        assert opened["picker"] is True, f"X should open the mode picker, got {opened}"
+        return page
+
+    def test_picker_settles_on_its_own_without_enter(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        page = self._open_picker(
+            loaded_viewer, sid_3d, arr_3d, client, tmp_path, "picker_auto"
+        )
+        chosen = page.evaluate("() => compareCenterMode")
+        page.wait_for_timeout(3400)
+        state = page.evaluate(self.PICKER_STATE)
+        assert state["picker"] is False, (
+            f"picker should dismiss itself a few seconds after the last X, got {state}"
+        )
+        assert state["mode"] == chosen, (
+            f"auto-dismiss must keep the chosen mode, got {state}"
+        )
+        assert "mode-picker" not in state["islandClass"], (
+            f"island should hand its slot back to the dimbar, got {state}"
+        )
+
+    def test_pressing_x_again_restarts_the_wait(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        page = self._open_picker(
+            loaded_viewer, sid_3d, arr_3d, client, tmp_path, "picker_restart"
+        )
+        page.wait_for_timeout(2000)
+        page.keyboard.press("Shift+X")
+        page.wait_for_timeout(2000)
+        state = page.evaluate(self.PICKER_STATE)
+        assert state["picker"] is True, (
+            "the wait should restart on each X, so 2s + X + 2s must still show "
+            f"the picker, got {state}"
+        )
+
+    def test_enter_still_dismisses_immediately(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        page = self._open_picker(
+            loaded_viewer, sid_3d, arr_3d, client, tmp_path, "picker_enter"
+        )
+        chosen = page.evaluate("() => compareCenterMode")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        state = page.evaluate(self.PICKER_STATE)
+        assert state["picker"] is False, f"Enter should dismiss the picker, got {state}"
+        assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
+
+
 class TestWheelSensitivity:
     """Scroll travel per index scales with dimension length (short dims are calmer)."""
 
