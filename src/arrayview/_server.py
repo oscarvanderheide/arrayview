@@ -7,7 +7,6 @@ This module was extracted from _app.py during the modular refactor.
 
 import json
 import os
-import re
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -339,22 +338,9 @@ def status():
 
 # ── Root UI Route ─────────────────────────────────────────────────
 
-# scheme://host[:port] and nothing else — no path, no quotes, no angle
-# brackets. Anything else is rejected outright rather than sanitised.
-_VALID_DATA_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.\-]+(?::\d{1,5})?/?$")
-
-
 @app.get("/")
-def get_ui(request: Request, sid: str = None, data_origin: str = None):
-    """Viewer page.
-
-    ``data_origin`` lets the page be *delivered* over one path while its data
-    travels over another. A VS Code tunnel webview can load this page through
-    VS Code's own remote channel (fast, reliable, already established) while
-    its WebSocket still has to reach the backend through the devtunnel relay,
-    because VS Code does not remap WebSocket ports. Setting it makes the viewer
-    address the backend absolutely instead of using the document origin.
-    """
+def get_ui(request: Request, sid: str = None):
+    """Viewer page."""
     # VS Code's asExternalUri() strips query parameters, so ?sid= is often lost
     # before the page loads.  Embed the SID directly in the HTML so the viewer
     # JS can find it regardless of the URL.
@@ -400,17 +386,6 @@ def get_ui(request: Request, sid: str = None, data_origin: str = None):
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )
-    # Injected before any viewer script runs, so resolveServerPath() and
-    # createTransport() see it. Strictly validated rather than escaped: this
-    # value lands inside a <script> block, and the only thing that ever needs
-    # to go here is an origin.
-    if data_origin and _VALID_DATA_ORIGIN.match(data_origin):
-        html = html.replace(
-            "<head>",
-            "<head>\n<script>window.__ARRAYVIEW_SERVER_ORIGIN__ = "
-            f"{json.dumps(data_origin.rstrip('/'))};</script>",
-            1,
-        )
     return _text_response(
         html,
         request=request,

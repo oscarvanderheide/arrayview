@@ -135,6 +135,11 @@ const _activeClaimedFiles = new Set();
 // tunnel URL may change while one request is being recovered.
 const _openPanels = new Map(); // request key (or URL for legacy calls) -> panel
 const _readyPanels = new WeakSet();
+// The integrated browser has no disposal event. Reserve it while a direct
+// launch is starting, then re-check the backend's real viewer count before a
+// later launch. Sequential close/reopen can reuse the direct loopback proxy;
+// a concurrent viewer retains its dedicated webview panel.
+let _integratedBrowserState = 'idle'; // idle | pending | active
 const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
 const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
 
@@ -166,7 +171,7 @@ function _cachedTunnelBases(port) {
 
 // Hedging, not escalation. Measured against the live devtunnel relay (30 fresh
 // connections, `/ping`, backend healthy on loopback throughout): answers arrive
-// in 64-240 ms, or they never arrive at all. There is no slow tail to wait for
+// within 640 ms, or they never arrive at all. There is no slow tail to wait for
 // — roughly one connection in five is accepted by the relay and then
 // black-holed, returning no response, no reset and no error.
 //
@@ -177,7 +182,7 @@ function _cachedTunnelBases(port) {
 // while the first is still hanging: in the observed failures a hedge opened
 // 1.5 s later answered in ~200 ms. Attempts therefore overlap, and the first
 // real verdict wins.
-let RELAY_PROBE_HEDGE = { attempts: 3, staggerMs: 700, attemptTimeoutMs: 2000 };
+let RELAY_PROBE_HEDGE = { attempts: 3, staggerMs: 200, attemptTimeoutMs: 1000 };
 
 // Backoff for VS Code's own resolver. Kept beside the probe budget above so a
 // test can shrink both without waiting out the real schedule.
@@ -2043,14 +2048,10 @@ async function tryOpenSignalFile() {
 // Open or reveal a VS Code WebviewPanel for the given server URL.
 // The panel is only a URL wrapper: ArrayView data and controls still flow
 // through the FastAPI/WebSocket backend, never direct Python/webview IPC.
-function _viewerPanelHtml(
-    url, warmupUrl = null, warmupTimeoutMs = 2000, fallbackUrl = null
-) {
+function _viewerPanelHtml(url, hedgeNavigation = false) {
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url);
-    const jsonWarmupUrl = JSON.stringify(warmupUrl);
-    const jsonWarmupTimeoutMs = JSON.stringify(warmupTimeoutMs);
-    const jsonFallbackUrl = JSON.stringify(fallbackUrl);
+    const jsonHedgeNavigation = JSON.stringify(Boolean(hedgeNavigation));
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -2078,7 +2079,7 @@ function _viewerPanelHtml(
 </style>
 </head>
 <body>
-<iframe id="f" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+<div id="frames"></div>
 <div id="backend-error">
   <div class="box">
     <h2>ArrayView backend is not responding</h2>
@@ -2089,69 +2090,138 @@ function _viewerPanelHtml(
 </div>
 <script nonce="${nonce}">
 const vscodeApi = acquireVsCodeApi();
-let arrayviewUrl = ${jsonUrl};
-const warmupUrl = ${jsonWarmupUrl};
-const warmupTimeoutMs = ${jsonWarmupTimeoutMs};
-// Set only when the page is being delivered through VS Code's port mapping.
-// The first retry switches to it rather than re-trying the mapped URL: if the
-// mapping is not carrying the page, asking it again will not change that,
-// whereas the relay is a genuinely different route and is what this panel
-// would have used before.
-const fallbackUrl = ${jsonFallbackUrl};
-let fallbackUsed = false;
-const frame = document.getElementById('f');
+const arrayviewUrl = ${jsonUrl};
+const hedgeNavigation = ${jsonHedgeNavigation};
+const framesRoot = document.getElementById('frames');
 vscodeApi.postMessage({ type: 'panel-phase', phase: 'wrapper-started' });
 let viewerReady = false;
 let viewerLoaded = false;
 let reloadTimer = null;
-let reloadCount = 0;
-const MAX_RELOADS = 12;
-const RELOAD_DELAY_MS = 1500;
-// A navigation that never completes fires neither 'load' nor 'error', so it is
-// invisible to every handler below. Observed through a saturated tunnel with
-// three viewers already open: warmup succeeded, the page request stalled, and
-// the panel sat blank until the outer request timeout killed it. Re-assigning
-// frame.src cancels the stuck request rather than adding another, so this
-// watchdog frees the connection instead of competing for one. It is longer than
-// RELOAD_DELAY_MS because it budgets for a real transfer (the viewer page is
-// ~1.9 MB) rather than for a script that failed to boot after arriving.
-const NAVIGATE_TIMEOUT_MS = 8000;
-// When the warmup was itself black-holed we already know the relay is in a bad
-// window, and a navigation issued into one is far more likely to be swallowed
-// than to be transferring. Retry sooner in that case only. This cannot abort a
-// healthy transfer: a healthy relay answers the warmup in ~200 ms, which takes
-// this branch out of play entirely.
-const NAVIGATE_TIMEOUT_STALLED_MS = 3000;
+let wave = 0;
+let candidateSerial = 0;
+let winner = null;
+let candidates = [];
+let hedgeTimers = [];
+const MAX_WAVES = 3;
+const NAVIGATE_TIMEOUT_MS = hedgeNavigation ? 10000 : 8000;
+const HEDGE_DELAYS_MS = hedgeNavigation ? [0, 700, 1400] : [0];
+function cancelTimer(id) {
+    if (id) clearTimeout(id);
+}
+function clearNavigationTimers() {
+    hedgeTimers.forEach(cancelTimer);
+    hedgeTimers = [];
+    cancelTimer(reloadTimer);
+    reloadTimer = null;
+}
+function retire(candidate) {
+    if (!candidate || candidate === winner) return;
+    try { candidate.frame.remove(); } catch (_) {}
+}
+function candidateForSource(source) {
+    return candidates.find(candidate => candidate.frame.contentWindow === source) || null;
+}
 function showBackendError() {
     if (viewerReady) return;
-    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+    clearNavigationTimers();
     document.getElementById('backend-url').textContent = arrayviewUrl;
     document.getElementById('backend-error').classList.add('visible');
-    frame.style.display = 'none';
+    candidates.forEach(retire);
 }
-function scheduleReload(delayMs) {
-    if (viewerReady || viewerLoaded) return;
-    if (reloadTimer) { clearTimeout(reloadTimer); }
+function chooseWinner(candidate) {
+    if (winner || !candidate) return winner === candidate;
+    winner = candidate;
+    viewerLoaded = true;
+    clearNavigationTimers();
+    candidate.frame.style.visibility = 'visible';
+    candidates.forEach(retire);
+    vscodeApi.postMessage({
+        type: 'panel-phase',
+        phase: 'navigation-winner',
+        attempt: candidate.serial,
+        wave,
+    });
+    return true;
+}
+function candidateUrl(serial) {
+    if (!hedgeNavigation && serial === 1) return arrayviewUrl;
+    try {
+        const parsed = new URL(arrayviewUrl);
+        if (hedgeNavigation) {
+            parsed.searchParams.set('_av_relay_hedge', '1');
+        }
+        if (serial > 1) {
+            parsed.searchParams.set('_av_nav_hedge', String(serial));
+        }
+        return parsed.toString();
+    } catch (_) {
+        const separator = arrayviewUrl.includes('?') ? '&' : '?';
+        return arrayviewUrl + separator + '_av_nav_hedge=' + serial;
+    }
+}
+function retryNavigation(phase) {
+    if (winner || viewerReady) return;
+    clearNavigationTimers();
+    if (wave >= MAX_WAVES) {
+        showBackendError();
+        return;
+    }
+    vscodeApi.postMessage({ type: 'panel-phase', phase, wave });
+    startWave();
+}
+function launchCandidate() {
+    if (winner || viewerReady) return;
+    const serial = ++candidateSerial;
+    const frame = document.createElement('iframe');
+    const candidate = { frame, serial };
+    candidates.push(candidate);
+    frame.allow = 'clipboard-read; clipboard-write; fullscreen';
+    frame.style.visibility = serial === 1 ? 'visible' : 'hidden';
+    frame.addEventListener('load', () => {
+        vscodeApi.postMessage({
+            type: 'panel-phase',
+            phase: 'iframe-loaded',
+            attempt: serial,
+            wave,
+        });
+    });
+    frame.addEventListener('error', () => {
+        vscodeApi.postMessage({
+            type: 'panel-phase',
+            phase: 'iframe-error',
+            attempt: serial,
+            wave,
+        });
+    });
+    // Set src while detached. Appending a src-less iframe first creates an
+    // initial about:blank document whose load event can be mistaken for the
+    // relay navigation completing.
+    frame.src = candidateUrl(serial);
+    vscodeApi.postMessage({
+        type: 'panel-phase',
+        phase: 'navigation-attempt',
+        attempt: serial,
+        wave,
+    });
+    framesRoot.appendChild(frame);
+}
+function startWave() {
+    if (winner || viewerReady) return;
+    wave++;
+    candidates.forEach(retire);
+    candidates = [];
+    for (const delay of HEDGE_DELAYS_MS) {
+        if (delay === 0) {
+            launchCandidate();
+        } else {
+            hedgeTimers.push(setTimeout(launchCandidate, delay));
+        }
+    }
     reloadTimer = setTimeout(() => {
         reloadTimer = null;
-        if (viewerReady || viewerLoaded) return;
-        if (reloadCount >= MAX_RELOADS) { showBackendError(); return; }
-        reloadCount++;
-        if (fallbackUrl && !fallbackUsed) {
-            fallbackUsed = true;
-            arrayviewUrl = fallbackUrl;
-            console.log('[arrayview-opener] mapped delivery did not arrive; falling back to ' + fallbackUrl);
-            vscodeApi.postMessage({ type: 'panel-phase', phase: 'delivery-fallback' });
-            frame.src = fallbackUrl;
-            scheduleReload(NAVIGATE_TIMEOUT_MS);
-            return;
-        }
-        console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
-        const sep = arrayviewUrl.includes('?') ? '&' : '?';
-        frame.src = arrayviewUrl + sep + '_avretry=' + reloadCount;
-        // The retry can stall exactly like the navigation it replaces.
-        scheduleReload(NAVIGATE_TIMEOUT_MS);
-    }, typeof delayMs === 'number' ? delayMs : RELOAD_DELAY_MS);
+        if (winner || viewerReady) return;
+        retryNavigation('navigation-wave-timeout');
+    }, NAVIGATE_TIMEOUT_MS);
 }
 window.addEventListener('message', (event) => {
     const msg = event && event.data;
@@ -2161,10 +2231,15 @@ window.addEventListener('message', (event) => {
         return;
     }
     if (!msg || msg.source !== 'arrayview-viewer') return;
+    const candidate = candidateForSource(event.source);
+    if (!candidate) return;
+    if (!winner && msg.phase === 'script-loaded') {
+        chooseWinner(candidate);
+    }
+    if (winner !== candidate) return;
     vscodeApi.postMessage({ type: 'viewer-phase', phase: msg.phase || 'unknown' });
     if (msg.phase === 'script-loaded') {
         viewerLoaded = true;
-        if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
         console.log('[arrayview-opener] viewer script loaded; waiting for first frame');
         return;
     }
@@ -2174,7 +2249,6 @@ window.addEventListener('message', (event) => {
         // just repeat the failure until the request times out, holding the
         // signal queue and stalling every later click.
         viewerLoaded = true;
-        if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
         console.log('[arrayview-opener] viewer reported render-error');
         vscodeApi.postMessage({
             type: 'viewer-failed',
@@ -2187,54 +2261,13 @@ window.addEventListener('message', (event) => {
         if (!viewerReady) {
             viewerLoaded = true;
             viewerReady = true;
-            if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+            clearNavigationTimers();
             console.log('[arrayview-opener] viewer phase ' + msg.phase);
             vscodeApi.postMessage({ type: 'viewer-ready', phase: msg.phase });
         }
     }
 });
-frame.addEventListener('load', () => {
-    console.log('[arrayview-opener] iframe loaded ' + arrayviewUrl);
-    vscodeApi.postMessage({ type: 'panel-phase', phase: 'iframe-loaded' });
-    scheduleReload();
-});
-frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
-async function warmTransportAndOpen() {
-    // The warmup is advisory: it is a /ping, the navigation is a separate
-    // connection, and a failed warmup has never prevented the page from
-    // arriving. So it gets a budget sized to what a healthy relay actually
-    // does — measured median 185 ms, worst observed 639 ms — and never more.
-    // It used to be allowed 12 s, which is 12 s of nothing in exactly the
-    // windows where the launch is already going badly.
-    let warmupStalled = false;
-    if (warmupUrl) {
-        vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-started' });
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), warmupTimeoutMs);
-        try {
-            await fetch(warmupUrl, {
-                mode: 'no-cors',
-                cache: 'no-store',
-                signal: controller.signal,
-            });
-            vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-complete' });
-        } catch (error) {
-            warmupStalled = true;
-            vscodeApi.postMessage({
-                type: 'panel-phase',
-                phase: 'transport-warmup-failed',
-                message: String(error && error.message ? error.message : error),
-            });
-        } finally {
-            clearTimeout(timeout);
-        }
-    }
-    frame.src = arrayviewUrl;
-    // Arm before the first load can stall; 'load' below re-arms the shorter
-    // post-arrival watchdog, so the two never run at the same time.
-    scheduleReload(warmupStalled ? NAVIGATE_TIMEOUT_STALLED_MS : NAVIGATE_TIMEOUT_MS);
-}
-void warmTransportAndOpen();
+startWave();
 </script>
 </body>
 </html>`;
@@ -2597,6 +2630,59 @@ async function integratedBrowserCommandAvailable(timeoutMs = 1500) {
     }
 }
 
+async function reserveDirectIntegratedBrowser(backendUrl, expectedServerId = null) {
+    const remoteProxyEnabled = vscode.workspace
+        .getConfiguration('workbench.browser')
+        .get('enableRemoteProxy', false);
+    if (!remoteProxyEnabled) {
+        log('PANEL: integrated browser direct proxy disabled; retaining webview');
+        return false;
+    }
+    if (_integratedBrowserState === 'pending') {
+        log('PANEL: integrated browser launch pending; retaining concurrent webview');
+        return false;
+    }
+    if (
+        typeof expectedServerId !== 'string'
+        || expectedServerId.length === 0
+    ) {
+        log('PANEL: direct-browser request has no backend identity; retaining webview');
+        return false;
+    }
+    const pingUrl = pingUrlFromViewerUrl(backendUrl);
+    const status = pingUrl ? await httpJson(pingUrl, 750) : null;
+    if (
+        !status
+        || status.service !== 'arrayview'
+        || status.instance_id !== expectedServerId
+    ) {
+        log('PANEL: unable to verify direct-browser ownership; retaining webview');
+        return false;
+    }
+    const activeViewerValue = (
+        status.active_viewer_sockets ?? status.viewer_sockets
+    );
+    const activeViewers = Number(activeViewerValue);
+    if (
+        activeViewerValue === undefined
+        || !Number.isFinite(activeViewers)
+        || activeViewers < 0
+    ) {
+        log('PANEL: backend did not report a valid viewer count; retaining webview');
+        return false;
+    }
+    if (activeViewers > 0) {
+        _integratedBrowserState = 'active';
+        log(`PANEL: ${activeViewers} viewer socket(s) active; retaining concurrent webview`);
+        return false;
+    }
+    if (!await integratedBrowserCommandAvailable()) {
+        log('PANEL: integrated browser unavailable; retaining webview');
+        return false;
+    }
+    return true;
+}
+
 function _backendPortMapping(displayUrl, backendUrl) {
     try {
         const display = new URL(displayUrl);
@@ -2635,48 +2721,6 @@ function _backendPortMapping(displayUrl, backendUrl) {
     }
 }
 
-/**
- * Page-over-VS-Code, data-over-relay delivery for a tunnel window.
- *
- * Returns null unless this is a tunnel window whose display URL is a remote
- * relay and whose backend is a loopback port — i.e. exactly the case where the
- * page currently crosses the devtunnel. Every other display path (local VS
- * Code, Remote SSH with a loopback display URL, browser, Jupyter) is left
- * untouched, because those already deliver the page over something reliable.
- */
-function _tunnelPageDelivery(displayUrl, backendUrl) {
-    if (vscode.env.remoteName !== 'tunnel') return null;
-    if (!displayUrl || !backendUrl) return null;
-    try {
-        const display = new URL(displayUrl);
-        const backend = new URL(backendUrl);
-        // Only worth doing when the display really is remote and the backend
-        // really is local to the extension host.
-        if (isLoopbackUrl(displayUrl)) return null;
-        if (!['localhost', '127.0.0.1'].includes(backend.hostname.toLowerCase())) {
-            return null;
-        }
-        const backendPort = Number(backend.port);
-        if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
-            return null;
-        }
-        const dataOrigin = display.origin;
-        // Carry the original query through unchanged — sid, compare_sid,
-        // overlay_names and the launch token all live in it — and add the
-        // origin the viewer must use for its socket.
-        const delivery = new URL(backend.toString());
-        delivery.search = display.search || backend.search;
-        delivery.searchParams.set('data_origin', dataOrigin);
-        return {
-            deliveryUrl: delivery.toString(),
-            dataOrigin,
-            portMapping: [{ webviewPort: backendPort, extensionHostPort: backendPort }],
-        };
-    } catch (_) {
-        return null;
-    }
-}
-
 function _replaceWebviewPortMapping(webview, portMapping) {
     const options = { ...(webview.options || {}) };
     delete options.portMapping;
@@ -2695,41 +2739,9 @@ async function openInWebviewPanel(
 ) {
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
-    let portMapping = _backendPortMapping(url, backendUrl);
-    // Deliver the page over VS Code's own remote channel, keep the data on the
-    // relay. The viewer page is ~1.9 MB and identical on every launch, and
-    // measured against this relay it is the single largest remaining cost —
-    // 8.4 s when the relay is healthy and 27 s when it is not. VS Code's
-    // portMapping routes an http://localhost:PORT request from the webview
-    // through the connection it already holds to this machine, which does not
-    // black-hole. It cannot carry the WebSocket (VS Code does not remap those),
-    // so the page is told to address the backend absolutely via data_origin,
-    // leaving the socket exactly where it is today.
-    const relayDelivery = { fallbackUrl: null };
-    let deliveryUrl = url;
-    const tunnelDelivery = _tunnelPageDelivery(url, backendUrl);
-    if (tunnelDelivery) {
-        deliveryUrl = tunnelDelivery.deliveryUrl;
-        portMapping = tunnelDelivery.portMapping;
-        // If the mapped delivery never arrives, the panel re-navigates to the
-        // relay URL, which is exactly today's behaviour. Nothing about this is
-        // one-way.
-        relayDelivery.fallbackUrl = url;
-        log(`PANEL: delivering page via portMapping ${deliveryUrl} `
-            + `(data stays on ${tunnelDelivery.dataOrigin})`);
-    }
-    // 2 s, not 12 s: see the warmup comment in the panel wrapper. Every healthy
-    // /ping through this relay has answered inside 640 ms, and the slowest
-    // warmup ever recorded in plans/tunnel/LOG.md was 1.85 s, so this keeps all
-    // of the benefit and caps a black-holed warmup at 2 s of delay.
-    const warmupTimeoutMs = Math.max(0, Math.min(2000, viewerTimeoutMs - 1000));
-    // No warmup when the page comes through the port mapping: the warmup
-    // exists to touch the path the page is about to take, and that path is no
-    // longer the relay. The socket still needs the relay, but it has its own
-    // bounded retry and must not gate the page.
-    const warmupUrl = (warmupTimeoutMs > 0 && !tunnelDelivery)
-        ? pingUrlFromViewerUrl(url)
-        : null;
+    const portMapping = _backendPortMapping(url, backendUrl);
+    const hedgeNavigation = vscode.env.remoteName === 'tunnel'
+        && !isLoopbackUrl(url);
 
     // Reveal/reconcile the existing logical panel for this request. A replay
     // may resolve the same backend SID through a new external tunnel URL.
@@ -2744,11 +2756,7 @@ async function openInWebviewPanel(
                 });
                 existing.__arrayviewUrl = url;
                 _replaceWebviewPortMapping(existing.webview, portMapping);
-                existing.webview.html = _viewerPanelHtml(
-                    url,
-                    warmupUrl,
-                    warmupTimeoutMs
-                );
+                existing.webview.html = _viewerPanelHtml(url, hedgeNavigation);
                 existing.title = label;
                 existing.reveal(undefined, false);
                 log(`PANEL: reconciled existing request panel to ${url}`);
@@ -2786,9 +2794,7 @@ async function openInWebviewPanel(
         if (!error) _readyPanels.add(panel);
         return error;
     });
-    panel.webview.html = _viewerPanelHtml(
-        deliveryUrl, warmupUrl, warmupTimeoutMs, relayDelivery.fallbackUrl
-    );
+    panel.webview.html = _viewerPanelHtml(url, hedgeNavigation);
     panel.__arrayviewUrl = url;
 
     _openPanels.set(panelKey, panel);
@@ -3101,7 +3107,7 @@ async function resolveRemoteViewerUrl(
                     // learned by prior incarnations of this window, accepting
                     // one only when /ping identifies this exact backend.
                     const recoveredBase = await _usableCachedTunnelBase(
-                        port, expectedServerId, ensureActive
+                        port, expectedServerId, ensureActive, deadBases
                     );
                     if (recoveredBase) {
                         const finalUrl = recoveredBase + '/' + origQuery;
@@ -3147,7 +3153,7 @@ async function resolveRemoteViewerUrl(
             log(`REMOTE: tunnel route did not converge within bounded retry window`);
         }
         const lastResortBase = await _usableCachedTunnelBase(
-            port, expectedServerId, ensureActive
+            port, expectedServerId, ensureActive, deadBases
         );
         if (lastResortBase) {
             const finalUrl = lastResortBase + '/' + origQuery;
@@ -3283,7 +3289,21 @@ async function _processSignalDataBody(
     lastHandledAt = now;
 
     let openUrl = url;
-    if (vscode.env.remoteName) {
+    const desktopTunnel = (
+        vscode.env.remoteName === 'tunnel'
+        && vscode.env.appHost === 'desktop'
+    );
+    let useIntegratedBrowser = false;
+    if (desktopTunnel) {
+        useIntegratedBrowser = await reserveDirectIntegratedBrowser(
+            url,
+            data.serverId || null
+        );
+        if (useIntegratedBrowser) {
+            log('REMOTE: desktop integrated-browser proxy uses backend URL directly');
+        }
+    }
+    if (vscode.env.remoteName && !useIntegratedBrowser) {
         // Remote / tunnel: asExternalUri forwards the port and returns the
         // devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
         // VS Code strips query strings during this conversion, so we extract
@@ -3352,17 +3372,6 @@ async function _processSignalDataBody(
     // Check for a pending placeholder (resolveCustomEditor handoff).
     // If one matches this signal, navigate the existing placeholder tab
     // instead of creating a second panel — eliminates the flicker.
-    const desktopTunnel = (
-        vscode.env.remoteName === 'tunnel'
-        && vscode.env.appHost === 'desktop'
-    );
-    let useIntegratedBrowser = false;
-    if (false) {  // disabled: Simple Browser reuses one tab, breaks multi-viewer
-        useIntegratedBrowser = await integratedBrowserCommandAvailable();
-        if (!useIntegratedBrowser) {
-            log('PANEL: integrated browser unavailable; retaining tunnel webview fallback');
-        }
-    }
     let handedOff = false;
     let viewerReady;
     let integratedBrowserOpened = false;
@@ -3401,16 +3410,10 @@ async function _processSignalDataBody(
                     placeholder.panel.webview,
                     handoffPortMapping
                 );
-                const handoffWarmupTimeoutMs = Math.max(
-                    0,
-                    Math.min(12000, viewerTimeoutMs - 1000)
-                );
                 placeholder.panel.webview.html = _viewerPanelHtml(
                     openUrl,
-                    handoffWarmupTimeoutMs > 0
-                        ? pingUrlFromViewerUrl(openUrl)
-                        : null,
-                    handoffWarmupTimeoutMs
+                    vscode.env.remoteName === 'tunnel'
+                        && !isLoopbackUrl(openUrl)
                 );
                 placeholder.panel.__arrayviewUrl = openUrl;
                 placeholder.panel.title = data.title || placeholder.title;
@@ -3454,15 +3457,22 @@ async function _processSignalDataBody(
         ensureActive();
         if (useIntegratedBrowser) {
             log(`openInIntegratedBrowser(${openUrl})`);
-            const opened = await openInIntegratedBrowser(
-                openUrl,
-                data.url,
-                requestId,
-                data.serverId || null,
-                data.windowId || logWindowId,
-                viewerTimeoutMs,
-                ensureActive
-            );
+            _integratedBrowserState = 'pending';
+            let opened;
+            try {
+                opened = await openInIntegratedBrowser(
+                    openUrl,
+                    data.url,
+                    requestId,
+                    data.serverId || null,
+                    data.windowId || logWindowId,
+                    viewerTimeoutMs,
+                    ensureActive
+                );
+            } catch (error) {
+                _integratedBrowserState = 'idle';
+                throw error;
+            }
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
@@ -3491,7 +3501,19 @@ async function _processSignalDataBody(
             );
             log('openInWebviewPanel done');
         }
-        advanceAck('panel_opened');
+        try {
+            advanceAck('panel_opened');
+        } catch (error) {
+            // The browser command is already a visible side effect. If the
+            // exact request loses its claim before panel_opened is persisted,
+            // do not leave the process-wide reservation stuck at `pending`
+            // and do not leave an unowned backend session behind.
+            if (integratedBrowserOpened) {
+                _integratedBrowserState = 'idle';
+                releaseUrlSession(openUrl, data.url, data.serverId || null);
+            }
+            throw error;
+        }
     }
 
     // Everything above claimed shared state: the route cache, a pending
@@ -3561,6 +3583,9 @@ async function _processSignalDataBody(
         const viewerError = await viewerReady;
         if (viewerError) throw viewerError;
         ensureActive();
+        if (integratedBrowserOpened) {
+            _integratedBrowserState = 'active';
+        }
         requestSettled.done = true;
         advanceAck('visibility_verified');
         advanceAck('backend_ready');
@@ -3568,6 +3593,7 @@ async function _processSignalDataBody(
     } catch (error) {
         requestSettled.done = true;
         if (integratedBrowserOpened) {
+            _integratedBrowserState = 'idle';
             releaseUrlSession(openUrl, data.url, data.serverId || null);
         } else if (handedOff && handoffPanelDisposed) {
             // The disposal handler deferred this so it would not race the
@@ -3900,10 +3926,12 @@ module.exports = {
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
         _viewerPanelHtml,
-        _tunnelPageDelivery,
         _publicBaseFromTunnelResult,
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,
+        reserveDirectIntegratedBrowser,
+        integratedBrowserState: () => _integratedBrowserState,
+        setIntegratedBrowserState(state) { _integratedBrowserState = state; },
         waitForBackendViewerReady,
         waitForViewerReady,
         openInIntegratedBrowser,

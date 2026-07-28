@@ -1,18 +1,9 @@
-// Regression coverage for a navigation that never completes.
+// Regression coverage for relay document navigation black holes.
 //
-// Observed 2026-07-27T09:25:21Z (~/.arrayview/extension.log): a viewer panel
-// opened while three viewers were already streaming through the same tunnel.
-// The warmup fetch to /ping succeeded, the panel posted transport-warmup-
-// complete, and then the iframe's request for the viewer page simply never
-// came back. A stalled request fires neither 'load' nor 'error', so every
-// handler in the wrapper stayed silent and the tab sat blank for 45s until the
-// outer request timeout failed it. The backend was healthy throughout — it
-// served that exact sid in 30ms over loopback.
-//
-// The wrapper already had a retry loop, but it was armed only inside the
-// 'load' handler, so it covered "page arrived, viewer never booted" and could
-// not cover "page never arrived". These cases assert the watchdog is armed at
-// navigation time instead.
+// A devtunnel connection either answers promptly or can remain silent forever.
+// The viewer document is large enough that cancelling one request on a short
+// timeout is unsafe, so tunnel panels start staggered fresh navigations and
+// keep the first iframe whose own viewer script reports readiness.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -21,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const vm = require('vm');
 
-const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'arrayview-nav-watchdog-'));
+const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'arrayview-nav-hedge-'));
 const originalHome = process.env.HOME;
 process.env.HOME = tempHome;
 
@@ -39,20 +30,16 @@ Module._load = function (request, parent, isMain) {
 const { __test } = require('./extension');
 Module._load = originalLoad;
 
-// Same shape as test_panel_readiness.js, plus the scheduled delay: the whole
-// point of the fix is that a stalled transfer gets a longer budget than a
-// script that failed to boot after arriving, so the delay is load-bearing.
-function createPanelRuntime(url, warmupUrl = null, fetchImpl = null) {
-    const html = __test._viewerPanelHtml(url, warmupUrl);
+function createPanelRuntime(url, hedgeNavigation) {
+    const html = __test._viewerPanelHtml(url, hedgeNavigation);
     const scriptMatch = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/);
     assert(scriptMatch, 'panel wrapper script must be present');
 
     const messages = [];
-    const srcWrites = [];
     const timers = new Map();
     const scheduled = [];
     const windowHandlers = {};
-    const frameHandlers = {};
+    const frames = [];
     let nextTimer = 1;
 
     function schedule(handler, delay) {
@@ -62,206 +49,168 @@ function createPanelRuntime(url, warmupUrl = null, fetchImpl = null) {
         return id;
     }
 
-    const frame = {
-        style: {},
-        addEventListener(type, handler) { frameHandlers[type] = handler; },
-        set src(value) { srcWrites.push(value); },
+    const framesRoot = {
+        appendChild(frame) {
+            frames.push(frame);
+            frame.parentNode = this;
+        },
     };
+    function createFrame() {
+        const handlers = {};
+        const contentWindow = {};
+        return {
+            allow: '',
+            contentWindow,
+            handlers,
+            removed: false,
+            style: {},
+            addEventListener(type, handler) { handlers[type] = handler; },
+            remove() { this.removed = true; },
+            set src(value) { this.srcValue = value; },
+        };
+    }
     const elements = {
-        f: frame,
+        frames: framesRoot,
         'backend-url': { textContent: '' },
         'backend-error': { classList: { add() {} } },
     };
     const context = {
-        AbortController: class {
-            constructor() { this.signal = {}; }
-            abort() { this.signal.aborted = true; }
-        },
-        acquireVsCodeApi: () => ({ postMessage(message) { messages.push(message); } }),
+        URL,
+        acquireVsCodeApi: () => ({
+            postMessage(message) { messages.push(message); },
+        }),
         clearTimeout(id) { timers.delete(id); },
         console: { log() {} },
-        document: { getElementById(id) { return elements[id]; } },
-        fetch: fetchImpl || (() => Promise.resolve({})),
+        document: {
+            createElement(tag) {
+                assert.strictEqual(tag, 'iframe');
+                return createFrame();
+            },
+            getElementById(id) { return elements[id]; },
+        },
         setTimeout: schedule,
         window: {
             addEventListener(type, handler) { windowHandlers[type] = handler; },
-            clearTimeout(id) { timers.delete(id); },
-            setTimeout: schedule,
         },
     };
     vm.runInNewContext(scriptMatch[1], context);
-    return { frameHandlers, messages, scheduled, srcWrites, timers, windowHandlers };
+    return { frames, messages, scheduled, timers, windowHandlers };
 }
 
-function liveTimer(runtime) {
-    const live = [...runtime.timers.entries()];
-    assert.strictEqual(live.length, 1, 'exactly one watchdog may be armed');
-    return live[0];
-}
-
-// Real timers do not survive firing, so drop the entry before invoking it;
-// otherwise a spent watchdog would masquerade as a second armed one.
-function fireWatchdog(runtime) {
-    const [id, handler] = liveTimer(runtime);
-    runtime.timers.delete(id);
+function fireDelay(runtime, delay) {
+    const entry = runtime.scheduled.find(
+        item => item.delay === delay && runtime.timers.has(item.id)
+    );
+    assert(entry, `expected a live ${delay}ms timer`);
+    const handler = runtime.timers.get(entry.id);
+    runtime.timers.delete(entry.id);
     handler();
 }
 
-function delayOf(runtime, id) {
-    return runtime.scheduled.find(entry => entry.id === id).delay;
+function viewerMessage(runtime, frame, phase) {
+    runtime.windowHandlers.message({
+        source: frame.contentWindow,
+        data: { source: 'arrayview-viewer', phase },
+    });
 }
 
-// The wrapper awaits the warmup fetch, so its continuation — including the
-// frame.src assignment — lands on the microtask queue rather than running
-// during vm.runInNewContext.
-function flushMicrotasks() {
-    return new Promise(resolve => setImmediate(resolve));
-}
+try {
+    // Ordinary local/SSH panels keep one navigation and the existing bounded
+    // retry. Hedging is tunnel-only because only the relay has the measured
+    // silent-drop mode.
+    const local = createPanelRuntime(
+        'http://localhost:8123/?sid=local',
+        false
+    );
+    assert.strictEqual(local.frames.length, 1);
+    assert.deepStrictEqual(
+        local.scheduled.map(entry => entry.delay),
+        [8000]
+    );
+    fireDelay(local, 8000);
+    assert.strictEqual(local.frames.length, 2, 'a stalled local navigation retries');
+    assert.strictEqual(local.frames[0].removed, true);
 
-(async () => {
-    try {
-        // --- a navigation that never loads is retried -------------------------
-        const stalled = createPanelRuntime('http://localhost:8123/?sid=stalled');
-        assert.strictEqual(stalled.srcWrites.length, 1, 'the iframe must navigate');
-        assert.strictEqual(
-            delayOf(stalled, liveTimer(stalled)[0]),
-            8000,
-            'a stalled transfer must get the navigation budget, not the boot budget'
-        );
+    // Tunnel panels overlap three fresh document connections per bounded wave.
+    // Query markers force distinct requests while preserving launch parameters.
+    const tunnel = createPanelRuntime(
+        'https://relay.example/?sid=abc&compare_sid=def',
+        true
+    );
+    assert.strictEqual(tunnel.frames.length, 1);
+    assert.strictEqual(
+        new URL(tunnel.frames[0].srcValue).searchParams.get('_av_relay_hedge'),
+        '1'
+    );
+    fireDelay(tunnel, 700);
+    fireDelay(tunnel, 1400);
+    assert.strictEqual(tunnel.frames.length, 3);
+    assert.match(tunnel.frames[1].srcValue, /_av_nav_hedge=2/);
+    assert.match(tunnel.frames[2].srcValue, /_av_nav_hedge=3/);
+    assert.match(tunnel.frames[2].srcValue, /compare_sid=def/);
 
-        // No 'load' and no 'error' ever arrive — exactly the observed failure.
-        fireWatchdog(stalled);
-        assert.strictEqual(
-            stalled.srcWrites.length,
-            2,
-            'a navigation that never completes must be retried'
-        );
-        assert.match(
-            stalled.srcWrites[1],
-            /_avretry=1$/,
-            'the retry must be distinguishable from the stalled navigation'
-        );
+    // The first viewer-owned marker, not iframe load, chooses the winner.
+    // Error/interstitial documents can emit load and must not win.
+    tunnel.frames[0].handlers.load();
+    assert.strictEqual(
+        tunnel.messages.some(message => message.phase === 'navigation-winner'),
+        false
+    );
+    viewerMessage(tunnel, tunnel.frames[1], 'script-loaded');
+    assert.strictEqual(tunnel.frames[0].removed, true);
+    assert.strictEqual(tunnel.frames[1].removed, false);
+    assert.strictEqual(tunnel.frames[1].style.visibility, 'visible');
+    assert.strictEqual(tunnel.frames[2].removed, true);
+    assert.strictEqual(tunnel.timers.size, 0, 'a winner cancels every hedge/watchdog');
+    assert.ok(tunnel.messages.some(message =>
+        message.phase === 'navigation-winner' && message.attempt === 2
+    ));
 
-        // The replacement can stall in exactly the same way.
-        assert.strictEqual(
-            delayOf(stalled, liveTimer(stalled)[0]),
-            8000,
-            'a retry must re-arm the navigation watchdog'
-        );
-        fireWatchdog(stalled);
-        assert.strictEqual(
-            stalled.srcWrites.length,
-            3,
-            'retries must continue while the page never arrives'
-        );
+    // A loser that finishes later cannot report readiness for this panel.
+    const beforeLoser = tunnel.messages.length;
+    viewerMessage(tunnel, tunnel.frames[2], 'frame-rendered');
+    assert.strictEqual(tunnel.messages.length, beforeLoser);
+    viewerMessage(tunnel, tunnel.frames[1], 'frame-rendered');
+    assert.ok(tunnel.messages.some(message =>
+        message.type === 'viewer-ready' && message.phase === 'frame-rendered'
+    ));
 
-        // --- a black-holed warmup must not hold the navigation ----------------
-        // Observed 2026-07-28T14:00:41Z: the warmup /ping was swallowed by the
-        // relay, and because the navigation waited for it the panel sat doing
-        // nothing for the full 12 s warmup budget before it even asked for the
-        // page. The warmup is advisory — the navigation is a separate
-        // connection — so a failed warmup must cost its budget and no more,
-        // and must still navigate.
-        const coldWarmup = createPanelRuntime(
-            'http://localhost:8126/?sid=cold',
-            'http://localhost:8126/ping',
-            () => Promise.reject(new Error('aborted')),
-        );
-        await flushMicrotasks();
-        assert.strictEqual(
-            coldWarmup.srcWrites.length,
-            1,
-            'a failed warmup must still navigate'
-        );
-        assert.ok(
-            coldWarmup.messages.some(m => m.phase === 'transport-warmup-failed'),
-            'the failed warmup must still be reported'
-        );
-        // And having just been told the relay is swallowing connections, the
-        // watchdog must not sit on the full transfer budget before retrying.
-        assert.strictEqual(
-            delayOf(coldWarmup, liveTimer(coldWarmup)[0]),
-            3000,
-            'a navigation issued into a known-bad relay window must be retried '
-            + 'sooner than one issued after a healthy warmup'
-        );
+    // Iframe load is diagnostic only. In a real webview, appending a src-less
+    // frame first emitted an initial about:blank load before navigation-attempt.
+    // It must neither win nor alter the continuous hedge schedule.
+    const blankLoad = createPanelRuntime(
+        'https://relay.example/?sid=blank-load',
+        true
+    );
+    blankLoad.frames[0].handlers.load();
+    assert.strictEqual(blankLoad.timers.size, 3);
+    fireDelay(blankLoad, 700);
+    assert.strictEqual(blankLoad.frames.length, 2);
+    viewerMessage(blankLoad, blankLoad.frames[1], 'script-loaded');
+    assert.strictEqual(
+        blankLoad.timers.size,
+        0,
+        'a viewer-owned marker cancels the remaining stream and watchdog'
+    );
 
-        // A healthy warmup means the relay is answering, so a slow navigation
-        // is a real 1.9 MB transfer and must be given the full budget.
-        const warmWarmup = createPanelRuntime(
-            'http://localhost:8127/?sid=warm',
-            'http://localhost:8127/ping',
-        );
-        await flushMicrotasks();
-        assert.strictEqual(warmWarmup.srcWrites.length, 1);
-        assert.strictEqual(
-            delayOf(warmWarmup, liveTimer(warmWarmup)[0]),
-            8000,
-            'a healthy warmup must not shorten the transfer budget'
-        );
-
-        // --- arriving swaps to the shorter boot watchdog ----------------------
-        const arrived = createPanelRuntime('http://localhost:8124/?sid=arrived');
-        assert.strictEqual(arrived.srcWrites.length, 1);
-        arrived.frameHandlers.load();
-        assert.strictEqual(
-            delayOf(arrived, liveTimer(arrived)[0]),
-            1500,
-            'once the page has arrived the shorter boot watchdog applies'
-        );
-
-        // --- a healthy viewer disarms everything ------------------------------
-        const healthy = createPanelRuntime('http://localhost:8125/?sid=healthy');
-        healthy.frameHandlers.load();
-        healthy.windowHandlers.message({
-            data: { source: 'arrayview-viewer', phase: 'script-loaded' },
-        });
-        assert.strictEqual(
-            healthy.timers.size,
-            0,
-            'script-loaded must cancel the watchdog that would interrupt rendering'
-        );
-        assert.strictEqual(
-            healthy.srcWrites.length,
-            1,
-            'a healthy viewer must never be renavigated'
-        );
-
-        // --- warmup still gates the first navigation --------------------------
-        const warmed = createPanelRuntime(
-            'http://localhost:8126/?sid=warmed',
-            'http://localhost:8126/ping'
-        );
-        assert.strictEqual(
-            warmed.srcWrites.length,
-            0,
-            'the iframe must not navigate before transport warmup completes'
-        );
-        // The warmup abort timer is live at this point, so count watchdogs by
-        // their distinctive delay rather than by how many timers exist.
-        const watchdogs = runtime => runtime.scheduled
-            .filter(entry => entry.delay === 8000).length;
-        assert.strictEqual(
-            watchdogs(warmed),
-            0,
-            'the navigation watchdog must not run before navigation starts'
-        );
-        await new Promise(resolve => setImmediate(resolve));
-        await new Promise(resolve => setImmediate(resolve));
-        assert.strictEqual(warmed.srcWrites.length, 1);
-        assert.strictEqual(
-            watchdogs(warmed),
-            1,
-            'the watchdog must arm once the warmed navigation begins'
-        );
-
-        console.log('panel navigation watchdog tests passed');
-    } finally {
-        if (originalHome === undefined) delete process.env.HOME;
-        else process.env.HOME = originalHome;
-        fs.rmSync(tempHome, { recursive: true, force: true });
+    // Three fully silent waves terminate and retire every iframe; swallowed
+    // navigations cannot leave hidden documents or network work behind forever.
+    const exhausted = createPanelRuntime(
+        'https://relay.example/?sid=exhausted',
+        true
+    );
+    for (let wave = 0; wave < 3; wave++) {
+        fireDelay(exhausted, 700);
+        fireDelay(exhausted, 1400);
+        fireDelay(exhausted, 10000);
     }
-})().catch(error => {
-    console.error(error);
-    process.exitCode = 1;
-});
+    assert.strictEqual(exhausted.frames.length, 9);
+    assert.ok(exhausted.frames.every(frame => frame.removed));
+    assert.strictEqual(exhausted.timers.size, 0);
+
+    console.log('panel navigation hedge tests passed');
+} finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    fs.rmSync(tempHome, { recursive: true, force: true });
+}

@@ -1,19 +1,16 @@
-// OBSOLETE — covers a deliberately disabled delivery path.
+// MANUAL HOST-BOUNDARY TEST — not part of the sandbox component gate.
 //
 // Every assertion below describes the integrated-browser ("Simple Browser")
 // handoff: two files producing two correlated viewer tabs. That path is now
-// hard-disabled in extension.js — see the `if (false) { // disabled: Simple
-// Browser reuses one tab, breaks multi-viewer` guard that pins
-// useIntegratedBrowser to false — so `browserOpens` can never be populated and
-// the placeholders are driven by the webview handoff loop instead. The test has
-// therefore been failing since c2c486a regardless of product correctness.
-//
-// It is skipped rather than deleted because removing it should happen together
-// with the dead `integratedBrowserPlaceholder` branch it was written for, which
-// is a wider cleanup than a reliability fix should bundle. Re-enable this file
-// only if the integrated browser is ever brought back.
+// handoff. The direct path is enabled again only for a verified idle tunnel
+// backend; concurrent viewers deliberately retain dedicated webviews. This old
+// fixture binds a real listener and models two simultaneous integrated-browser
+// opens, so its transport and expected policy are both unsuitable for the
+// restricted component environment. Selection is covered without a listener
+// by test_integrated_browser_selection.js; correlated readiness remains covered
+// by test_integrated_browser_readiness.js on a host that permits TCP listeners.
 console.log('integrated browser placeholder cleanup tests skipped '
-    + '(integrated browser delivery is disabled in extension.js)');
+    + '(legacy two-browser fixture; see selection/readiness tests)');
 process.exit(0);
 
 const assert = require('assert');

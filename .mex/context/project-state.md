@@ -40,7 +40,24 @@ last_updated: 2026-07-28
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- The working tree bundles VS Code opener v0.15.3. Its component contracts include exact-window recovery, atomic request claims, tunnel URL checks, readiness ACKs, session release, request-wide dead-route proof, and tunnel-only document/WebSocket hedging. The latest observed live tunnel host still ran v0.14.99; source, bundled VSIX, installed extension, and the extension host actually running in each VS Code window must be checked separately. Real tunnel first-frame, repeat, reconnect, and cleanup behavior remains open until v0.15.3 is installed and exercised in that host.
+- The working tree targets VS Code opener v0.15.7. Its component contracts include exact-window recovery, atomic request claims, tunnel URL checks, readiness ACKs, session release, request-wide dead-route proof, and tunnel-only document/WebSocket hedging. Post-reload v0.15.5 real-host evidence invalidated request-amplification as a solution: after a fast first launch, all ten fresh relay document requests on the second launch were swallowed and the outer readiness gate failed after 45 s. v0.15.7 removes that amplification and selects the existing integrated-browser direct-loopback path only when VS Code's remote browser proxy is enabled and the backend proves no viewer is active. A pending or concurrent viewer retains a dedicated webview, preserving multi-viewer behavior.
+- The direct-loopback selection is fail-closed: it requires the protocol's exact
+  backend instance ID and a valid zero viewer-socket count. Selection itself
+  does not reserve global state; command, claim, and acknowledgement failures
+  reset the pending reservation and release the URL session. The final v0.15.6
+  VSIX is byte-identical to the audited extension source. Real-host install,
+  reload, five sequential close/reopens, and concurrent-viewer fallback remain
+  open evidence. The version was advanced from the already-installed unaudited
+  0.15.6 draft so install discovery cannot mistake stale files for this build.
+- The first v0.15.7 real-host sequence produced four direct-loopback frames in
+  about 0.6–0.9 s and a successful concurrent-webview fallback. One
+  `large_array.npy` request failed before browser open because
+  `launch-prepared` incorrectly waited for the data Session and exhausted its
+  1.5 s bookkeeping budget. Viewer journals now live in SID-keyed
+  control-plane state: pending registration is sufficient for preparation,
+  later phases still require the loaded Session, and final release owns journal
+  cleanup. The focused pending-preparation and cleanup component gates pass;
+  the post-fix large-array real-host row remains open.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
@@ -113,7 +130,7 @@ last_updated: 2026-07-28
 
 ## In Progress
 
-- VS Code tunnel launch behavior is being repaired and validated in a real tunnel window. The working tree and packaged VSIX are v0.15.3, while the latest real-host trace is v0.14.99; repository, packaged VSIX, installed extension, and live extension-host versions are distinct facts. Completion requires a visible first frame, five-launch stress with a middle close, reconnect behavior, and clean final release in the same real environment.
+- VS Code tunnel launch behavior is being repaired and validated in a real tunnel window. All three live extension hosts currently run v0.15.5; the working tree targets v0.15.6 after v0.15.5 broke the second launch by issuing ten document requests into one correlated relay failure window. The execution sandbox cannot create the default startup lock, bind a server port, or connect to the active VS Code IPC socket, so it cannot originate the public launch or install the VSIX. After v0.15.6 is packaged, installed, and reloaded, the immediate gate is two sequential close/reopen launches through the direct proxy; completion still requires five-launch stress with a middle close, concurrent-viewer fallback, reconnect behavior, and clean final release.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 

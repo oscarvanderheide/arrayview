@@ -1320,3 +1320,295 @@ passes 3/3 in isolation with the change applied, so it is order-flaky in the
 full suite. The 34 are pre-existing and unrelated. Independently, the served
 page hashes identically with and without the change when `data_origin` is
 absent, so no browser test can be affected by it.
+
+### 0.15.3 — stop serialising independent relay losses
+
+Independent audit of the 0.14.99 real-host trace overturned the port-mapping
+experiment and found two correctness gaps in the preceding fixes.
+
+The second launch's 20.136 s was:
+
+    3.514 s  all three cached-route probes black-holed
+    1.502 s  portMapping loaded an opaque document, never the viewer
+    8.394 s  fallback viewer document over the relay
+    2.033 s  metadata over the relay
+    6.004 s  first WebSocket upgrade black-holed
+    0.440 s  replacement WebSocket opened
+    0.014 s  socket open -> first frame
+
+The backend and renderer were not the slow boundary. The same silent-drop
+behavior occurred independently for a small probe, a large document, metadata,
+and a WebSocket upgrade. Shortening one timeout merely exposed the next serial
+wait.
+
+**Removed:** tunnel `portMapping` delivery and public `data_origin`. It failed
+2/2 real launches, added ~1.5 s to both, was not applied consistently to
+reconciled/placeholder panels, and would have made viewer HTTP cross-origin
+without a corresponding CORS policy. The unrelated pre-install status message
+is retained.
+
+**Correctness repairs:**
+
+- `deadBases` now reaches every cache consultation in one resolver request.
+  A route proven foreign or refused cannot be re-probed later and resurrected
+  when that fresh probe happens to stall.
+- Relay probes now use 3 x 1 s attempts at 200 ms stagger. All observed real
+  verdicts arrived within 640 ms; the all-stall bound is therefore ~1.4 s
+  instead of ~3.4 s without excluding an observed answer.
+- The advisory transport warmup is removed. Its result was independent of the
+  document connection, yet it blocked navigation and selected an unsafe 3 s
+  watchdog that could cancel a healthy measured 8.4 s transfer. The Explorer
+  placeholder path's forgotten 12 s copy is removed with it.
+
+**Document transaction:** tunnel panels start fresh iframe navigations at
+0/700/1400 ms and choose a winner only when that iframe's ArrayView script
+reports `script-loaded`. An iframe `load` is not a verdict because the failed
+port-mapping experiment proved an opaque error/interstitial can load in 57 ms.
+Losers are removed; local and Remote SSH panels keep one navigation. A bounded
+10 s wave retry remains for a window in which every connection is swallowed.
+
+**WebSocket transaction:** the primary tunnel viewer races fresh socket
+upgrades at 0/300/600 ms. The first open atomically becomes the transport and
+the losers close before any render request is sent. A wave has a 2 s bound;
+initial failure retains the existing three-wave terminal error, while a socket
+that has connected before still retries indefinitely. Compare, overlay,
+multiview, qMRI, local, Remote SSH, browser, and inline related sockets do not
+enter the hedge: the extension adds an explicit `_av_relay_hedge=1` only to the
+tunnel panel's primary document.
+
+**Evidence:** `real host` for the failure decomposition (0.14.99 extension log,
+two exact request IDs, both through `frame-rendered`, `visibility_verified`,
+and `backend_ready`). `component` for 0.15.3: route proof/stall tests, document
+winner/loser tests, panel readiness/render-failure/replay tests, WebSocket
+winner/exhaustion tests, packaged-source parity, and Node syntax checks pass.
+The actual tunnel host is deliberately still open: installing 0.15.3 and
+reloading the active window was not authorised. Listener-based browser/API
+validation is unavailable in the current sandbox (`listen EPERM`).
+
+**Packaging note:** `vsce`, `npm`, and `npx` were unavailable. The existing
+VSIX was used as a template; only declared extension payload files and the
+manifest version were replaced. Archive membership, manifest/package version,
+and the `extension.js` SHA-256 were verified after packaging.
+
+**Worktree/history note:** `.git` is read-only in this execution environment,
+so the required per-item commits could not be created here. While this work was
+in progress, another process committed `_viewer.html` as
+`3ce6b47 feat(compare): give the diff pane the real range menu`. That commit
+also swept in this task's `_createHedgedWebSocket` and relay flag because both
+processes shared the same worktree. The code is intact and tested, but the
+history is contaminated: the WebSocket hedge should be moved out of `3ce6b47`
+into the eventual tunnel fix commit when git metadata is writable. The
+extension half and its tests remain uncommitted in the worktree.
+
+**Post-reload host state:** the installed extension registry selects v0.15.3,
+the installed `extension.js` hash matches the bundled VSIX, and all three live
+tunnel registrations report v0.15.3. The terminal's stale window id resolves
+through the new registration's `supersedes` chain as intended.
+
+The execution sandbox could not originate the real launch. The unchanged public
+command first failed before ArrayView startup because `/run/user/1885` is
+read-only to the sandbox. Redirecting only `XDG_RUNTIME_DIR` passed that
+boundary, then the child could not claim port 8000 because listener creation is
+also denied here. No server, session, signal, panel, or orphan process was
+created. The remaining real-host gate must therefore be launched from an
+ordinary integrated terminal; the reloaded extension log can be inspected from
+here immediately afterwards.
+
+### 0.15.4 — do not give settled non-viewer documents a transfer timeout
+
+The v0.15.3 post-reload real-host sequence answers the idle-time question and
+isolates the remaining deterministic tail:
+
+    close -> next signal   signal -> first frame
+    2.986 s                11.426 s
+    5.458 s                11.579 s
+    4.347 s                12.512 s
+    34.272 s                1.927 s
+
+The short waits were slow and the longest wait was fast, consistent with the
+earlier 81-episode finding that idle duration is uncorrelated with relay
+success. The three slow launches shared the same sequence: all three first-wave
+iframes emitted `load` within about 1.4 s, none emitted the viewer-owned
+`script-loaded`, the wrapper waited the remainder of its 10 s
+silent-navigation watchdog, and wave two then won in 0.238–0.533 s. WebSocket
+open, metadata, and render were fast after that boundary.
+
+v0.15.4 marks each candidate settled on iframe `load` or `error`. When every
+candidate in a wave is settled without a viewer script marker, it preserves the
+established 1.5 s post-load boot grace and then begins the next fresh wave. The
+10 s watchdog remains unchanged while any candidate may still be transferring,
+so a large valid document is not cancelled merely for downloading slowly.
+
+**Evidence:** `real host` for the v0.15.3 timing decomposition above.
+`component` for the v0.15.4 settled-wave transition, winner/loser cleanup,
+silent-wave exhaustion, panel readiness, WebSocket hedging, and extension
+syntax. Listener-dependent extension tests remain unavailable in this sandbox
+(`listen EPERM`). Packaging, install, reload, and the repeated v0.15.4
+real-host launch gate remain open. The v0.15.4 VSIX was packaged and its source,
+manifest, package version, archive membership, and SHA-256 parity were verified.
+Installation through the exact 1.130.0 remote CLI was attempted after the
+user's existing authorization, but this execution sandbox cannot connect to
+the active `/run/user/1885/vscode-ipc-*.sock` (`connect EPERM`). No profile
+change occurred; installation and reload remain user-host actions.
+
+### 0.15.5 — continuous document hedging, no iframe-load inference
+
+The user installed and reloaded v0.15.4, then reproduced the pattern immediately:
+first launch fast, second launch visibly slow. Both ran in the exact registered
+v0.15.4 tunnel host.
+
+The second launch was 8.178 s from signal to first frame:
+
+    1.521 s  three cached-route probes all stalled
+    0.142 s  panel wrapper startup
+    2.916 s  first three-request wave + inferred post-load grace
+    2.904 s  second three-request wave + inferred post-load grace
+    0.386 s  seventh document connection -> script-loaded
+    0.214 s  script-loaded -> first frame
+
+v0.15.4 did remove the 10 s per-wave watchdog, but it still serialized two
+1.5 s grace periods. More importantly, every `iframe-loaded` phase preceded
+its corresponding `navigation-attempt`. The wrapper appended each src-less
+iframe before assigning `src`, so Chromium could load its initial `about:blank`
+document. The state v0.15.4 treated as "relay document settled" was not evidence
+about the relay request at all.
+
+v0.15.5 sets `src` while the iframe is detached and posts
+`navigation-attempt` before attachment. Iframe `load` and `error` remain
+diagnostic only; `script-loaded` remains the sole document-success verdict.
+Tunnel delivery is now one bounded stream of ten fresh candidates at 0–4500 ms
+in 500 ms increments, not three batches separated by grace/watchdog waits. A
+healthy first document usually prevents all but zero or one hedge; the observed
+seventh connection starts at 3 s rather than after two serial batch delays.
+All candidates are retired on the first owned winner or at the unchanged 10 s
+terminal bound. Local and Remote SSH retain their single-navigation, bounded
+retry behavior.
+
+**Evidence:** `real host` for the v0.15.4 decomposition above. `component` for
+continuous candidate scheduling through the observed seventh-attempt success,
+owned-winner selection, loser/timer cleanup, terminal exhaustion, local retry,
+panel readiness, render failure, replay, route probing, WebSocket hedging, and
+syntax. Packaging, install/reload, and v0.15.5 real-host validation remain open.
+
+### 0.15.6–0.15.7 — bypass the relay for sequential desktop-tunnel launches
+
+The v0.15.5 real-host retest was a regression. The first launch reached its
+frame in 1.087 s, but the second launch's cached-route probes all stalled and
+all ten document candidates then remained completely silent. No iframe load,
+viewer marker, metadata request, or socket attempt occurred. The request failed
+the outer readiness gate after 46.540 s. Increasing document concurrency did
+not pierce the correlated bad window and was removed.
+
+The codebase already contains a correlated, first-frame-verified integrated
+browser path. It was disabled globally because `workbench.action.browser.open`
+reuses one tab, breaking a second *concurrent* viewer. That does not require
+every tunnel launch to use the unreliable public relay.
+
+v0.15.7 reserves the integrated browser only when all of these are true:
+
+- the host is a desktop VS Code tunnel;
+- `workbench.browser.enableRemoteProxy` is enabled, so the browser loads the
+  loopback backend directly rather than the devtunnel URL;
+- a loopback `/ping` proves the expected ArrayView backend is reachable;
+- the backend reports zero active viewer sockets;
+- no integrated-browser launch is already pending; and
+- the built-in browser command is available.
+
+While that viewer is pending or active, another launch retains its dedicated
+webview panel, preserving simultaneous viewers. After the browser tab closes,
+the backend's socket count returns to zero and the next sequential launch may
+use the direct path again. The integrated path already fences each request with
+server/window/request/token identity and does not report success before the
+backend journal records one ordered `script-loaded`, `ws-open`,
+`metadata-loaded`, and `frame-rendered` chain.
+
+The webview fallback is restored to the pre-v0.15.5 three-candidate schedule;
+iframe `load` remains diagnostic only and `src` is still assigned before
+attachment.
+
+The direct-path selection now happens before external-route resolution, so a
+bad public relay cannot delay or prevent the bypass. Archived `real host` logs
+from 0.14.76 independently confirm this exact tunnel has
+`remoteProxy=true` and repeatedly reached ordered first frames over loopback in
+roughly 0.5–0.8 s. The archived failure that caused the path to be disabled was
+a later launch while the preceding integrated-browser viewer was still active;
+the new backend socket-count gate sends that concurrent case to a dedicated
+webview instead of reusing its tab.
+
+**Evidence:** `real host` for the v0.15.5 regression decomposition and the
+historical direct-loopback capability/readiness chain.
+`component` for webview rollback, direct-browser URL/readiness fencing,
+desktop-tunnel/Remote-SSH routing, panel readiness/failure/replay, route
+probing, WebSocket hedging, and syntax. The listener-dependent integrated
+browser test cannot execute in this sandbox (`listen EPERM`).
+
+Before packaging, a hostile state/ownership audit found and corrected three
+unsafe assumptions:
+
+1. A generic `service=arrayview` loopback answer was insufficient. Direct
+   delivery now requires the exact non-empty `serverId` from the protocol
+   request to match `/ping.instance_id`; missing or mismatched identity fails
+   closed to the dedicated webview.
+2. A missing or malformed viewer count was previously coerced to zero. It now
+   fails closed instead of treating unknown concurrency as an idle browser.
+3. Selection originally wrote `pending` before the browser command boundary,
+   and a lost `panel_opened` ACK after a successful command could strand that
+   state. Selection is now side-effect free; `pending` begins immediately
+   before the visible browser command, and every command/claim/ACK failure
+   resets the reservation and releases the unowned URL session.
+
+The final v0.15.7 component decision table covers proxy disabled, missing
+identity, exact identity with zero viewers, a pending launch, an active viewer,
+tab-close/zero-viewer recovery, wrong instance, malformed count, unreachable
+backend, and unavailable browser command. All runnable no-listener extension
+transport tests pass, including tunnel/Remote-SSH routing, route-cache
+resilience, panel navigation/readiness/replay/failure, WebSocket hedging, local
+identity, lifecycle helpers, and folder launch. The isolated request-journal
+subprocess-output assertion is unavailable here because this sandbox discards
+captured stdout from grandchild processes; the listener-bound readiness tests
+remain unavailable for the separate `listen EPERM` reason.
+
+The host audit found an earlier unaudited 0.15.6 draft already installed with a
+different `extension.js`. The audited build was therefore bumped to 0.15.7;
+reusing 0.15.6 would let version-only installation discovery retain the stale
+draft. The VSIX was rebuilt after that bump. Its `extension.js` and
+`package.json` compare byte-for-byte with the reviewed source, and archive
+membership and syntax were checked. Its SHA-256 is
+`6b897262e75bc973b9c2d8d23f0b34c8edc393b5f6fe3364b0d4add649889d64`.
+Install/reload and the five-launch sequential real-host gate remain open.
+
+### 0.15.7 real-host sequence — direct path works; large-load journal gate fixed
+
+The user installed/reloaded the audited 0.15.7 opener and exercised repeated
+launches. Five launches reached terminal outcomes:
+
+- four direct-loopback integrated-browser launches reached first frame in
+  roughly 0.6–0.9 s;
+- one `large_array.npy` launch failed in 1.6 s, before the browser command,
+  with `Unable to prepare correlated viewer readiness journal`; and
+- a later launch while one viewer socket was genuinely active correctly used
+  the concurrent webview fallback and reached first frame in about 1.1 s.
+
+The failed request selected the direct path and verified the exact backend at
+19:49:57.079Z. Its `launch-prepared` POST then exhausted the fixed 1.5 s
+control-plane budget. The following request prepared and rendered normally.
+This was not a devtunnel regression.
+
+Root cause: `POST /viewer-phase/{sid}/{request_id}` called
+`wait_for_session_ready()` even for `launch-prepared`. Large background loads
+publish a pending SID before creating the data `Session`, specifically so the
+display can open and show loading progress. The journal endpoint therefore
+blocked its small bookkeeping request on the large array load, contradicting
+the launch contract and racing the extension's 1.5 s timeout.
+
+Fix: viewer-phase journals are now server control-plane state keyed by SID,
+independent of the eventual data `Session`. `launch-prepared` accepts an exact
+registered pending SID immediately; later viewer phases still wait for the real
+session. Final or cancelled session release retires the SID's journals and
+cancels their reconnect timers on the owning event loop.
+
+**Evidence:** `real host` for four fast sequential direct launches, the exact
+large-load failure boundary, the immediate next-launch recovery, and successful
+concurrent-viewer fallback. `component` for preparation while the SID is
+pending and final journal cleanup (2 focused tests pass). A post-fix real-host
+large-array launch remains open.

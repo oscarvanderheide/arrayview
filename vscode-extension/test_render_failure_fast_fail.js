@@ -39,32 +39,39 @@ function panelRuntime(url) {
     const html = __test._viewerPanelHtml(url);
     const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)[1];
     const messages = [];
-    const srcWrites = [];
     const timers = new Map();
     const windowHandlers = {};
-    const frameHandlers = {};
+    const frames = [];
     let next = 1;
     const schedule = (handler) => { const id = next++; timers.set(id, handler); return id; };
     const context = {
-        AbortController: class { constructor() { this.signal = {}; } abort() {} },
+        URL,
         acquireVsCodeApi: () => ({ postMessage: m => messages.push(m) }),
         clearTimeout: id => timers.delete(id),
         console: { log() {} },
         document: {
+            createElement() {
+                const handlers = {};
+                return {
+                    contentWindow: {},
+                    handlers,
+                    style: {},
+                    addEventListener: (t, h) => { handlers[t] = h; },
+                    remove() {},
+                    set src(v) { this.srcValue = v; },
+                };
+            },
             getElementById: id => ({
-                f: { style: {}, addEventListener: (t, h) => { frameHandlers[t] = h; }, set src(v) { srcWrites.push(v); } },
+                frames: { appendChild(frame) { frames.push(frame); } },
             }[id] || { textContent: '', classList: { add() {} }, style: {} }),
         },
-        fetch: () => Promise.resolve({}),
         setTimeout: schedule,
         window: {
             addEventListener: (t, h) => { windowHandlers[t] = h; },
-            clearTimeout: id => timers.delete(id),
-            setTimeout: schedule,
         },
     };
     vm.runInNewContext(script, context);
-    return { messages, srcWrites, timers, windowHandlers, frameHandlers };
+    return { frames, messages, timers, windowHandlers };
 }
 
 // Minimal stand-in for a VS Code webview panel.
@@ -91,10 +98,17 @@ function fakePanel() {
     try {
         // --- the wrapper turns a render error into a terminal verdict --------
         const runtime = panelRuntime('http://localhost:8123/?sid=unrenderable');
-        runtime.frameHandlers.load();
         assert.strictEqual(runtime.timers.size, 1, 'a retry is pending before the verdict');
 
         runtime.windowHandlers.message({
+            source: runtime.frames[0].contentWindow,
+            data: {
+                source: 'arrayview-viewer',
+                phase: 'script-loaded',
+            },
+        });
+        runtime.windowHandlers.message({
+            source: runtime.frames[0].contentWindow,
             data: {
                 source: 'arrayview-viewer',
                 phase: 'render-error',
@@ -110,13 +124,9 @@ function fakePanel() {
             0,
             'no reload may remain armed once the array is known to be undrawable'
         );
-        const srcWritesAtVerdict = runtime.srcWrites.length;
         for (const handler of [...runtime.timers.values()]) handler();
-        assert.strictEqual(
-            runtime.srcWrites.length,
-            srcWritesAtVerdict,
-            'a failure that will repeat must not be retried'
-        );
+        assert.strictEqual(runtime.frames.length, 1,
+            'a failure that will repeat must not be retried');
 
         // --- the opener settles at once rather than on the timeout ----------
         const panel = fakePanel();

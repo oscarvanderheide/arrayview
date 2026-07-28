@@ -322,3 +322,63 @@ no-op actions and drifts as shortcuts gain button equivalents.
 the resulting viewer state. Keep generated lesson data on the normal
 base/compare/overlay registration path so onboarding exercises the real product
 instead of a parallel simulation.
+
+## Relay Transactions Need Fresh Connections
+
+**Problem:** A tunnel relay can accept HTTP and WebSocket connections and then
+silently drop them. Serial timeout/retry ladders make every affected boundary
+pay its full wait, and a successful fix at one layer only exposes the same
+failure at the next.
+**Fix:** Decompose signal-to-first-frame time across route resolution, document,
+metadata, WebSocket, and render. For idempotent startup boundaries with measured
+all-or-never response timing, overlap bounded fresh connections and take the
+first viewer-owned verdict. Never infer that an independent request is dead
+from a stalled warmup, and carry positive proof of a dead route through the
+entire resolver transaction.
+
+## Iframe Load Is Not a Navigation Verdict
+
+**Problem:** Appending a src-less iframe creates an initial `about:blank`
+document whose `load` event can precede the intended navigation. Error or
+interstitial documents can also load without ever emitting the viewer-owned
+`script-loaded` marker. Treating any of these events as a relay verdict creates
+false state transitions that mocked iframe tests do not naturally reproduce.
+**Fix:** Set `src` before attaching the iframe, keep `load` diagnostic only, and
+base success exclusively on an owned viewer marker. When relay losses are
+correlated, replenish fresh candidates continuously within one bounded
+transaction instead of serial batches separated by inferred load-state grace.
+
+## Do Not Amplify Correlated Relay Failure
+
+**Problem:** Hedging assumes attempts have enough independence that another
+connection can escape a loss. In a correlated devtunnel failure window, ten
+fresh document navigations can all be swallowed; increasing concurrency then
+adds load without creating a route to success.
+**Fix:** Stop escalating requests when real-host evidence shows correlated
+failure. Prefer a transport that bypasses the faulty boundary. For desktop
+tunnels, use VS Code's direct-loopback integrated-browser proxy only when the
+backend proves no viewer is active; retain dedicated webviews for concurrent
+viewers because the integrated browser reuses one tab.
+
+## Visible Delivery Reservations Must End at Every Failure Boundary
+
+**Problem:** A transport-selection helper can appear fail-closed while still
+poisoning later calls if it mutates process-wide state before the visible open,
+or if a claim/ACK failure occurs just after that open.
+**Fix:** Keep selection side-effect free. Start the reservation immediately
+before the display command, require exact backend identity and a valid
+concurrency counter, and reset the reservation plus release the URL session on
+command, ownership, or acknowledgement failure. Audit the transition after
+each `await`; second-call reliability is a state-machine property, not merely a
+successful first open.
+
+## Launch Bookkeeping Must Not Wait for Array Data
+
+**Problem:** A small readiness-journal reservation can inherit the large
+array's load time when both are represented by the same “wait for Session”
+helper. The browser then fails before opening even though the pending SID is
+valid and the viewer is designed to show loading progress.
+**Fix:** Keep launch journals in server control-plane state keyed by SID.
+Allow `launch-prepared` as soon as that SID is registered pending, require the
+real Session only for viewer-originated phases, and retire the journal through
+the same final session-release authority.

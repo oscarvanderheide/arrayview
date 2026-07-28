@@ -308,7 +308,7 @@ function reset(cache, behaviors) {
         //    not be resurrected by the last-resort path either.
         reset(
             { 'prior-window:8003': 'https://foreign-8003.devtunnels.ms' },
-            { 'foreign-8003.devtunnels.ms': ['foreign'] }
+            { 'foreign-8003.devtunnels.ms': ['foreign', 'stall'] }
         );
         resolverBehavior = () => { throw new Error('asExternalUri timeout'); };
         assert.strictEqual(
@@ -320,14 +320,15 @@ function reset(cache, behaviors) {
         );
         assert.strictEqual(
             probeLog.filter(h => h === 'foreign-8003.devtunnels.ms').length,
-            2,
-            'a wrong-server verdict is final per check: one probe, not a retry'
+            1,
+            'a wrong-server verdict is final for the whole request: a later '
+            + 'cache consultation must not re-probe and resurrect it on a stall'
         );
 
         // 5. A refused route is equally final.
         reset(
             { 'prior-window:8004': 'https://gone-8004.devtunnels.ms' },
-            { 'gone-8004.devtunnels.ms': ['refused'] }
+            { 'gone-8004.devtunnels.ms': ['refused', 'stall'] }
         );
         resolverBehavior = () => { throw new Error('asExternalUri timeout'); };
         assert.strictEqual(
@@ -335,6 +336,12 @@ function reset(cache, behaviors) {
                 'http://localhost:8004/?sid=gone', 'current-server'
             ),
             null
+        );
+        assert.strictEqual(
+            probeLog.filter(h => h === 'gone-8004.devtunnels.ms').length,
+            1,
+            'a refused route must stay dead even if a later fresh connection '
+            + 'would have stalled'
         );
 
         // 6. When the resolver does work, its answer is preferred and the

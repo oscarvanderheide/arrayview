@@ -167,7 +167,7 @@ Module._load = originalLoad;
         );
         assert.match(
             panels[3].webview.html,
-            /http:\/\/localhost:49123\/ping/
+            /const hedgeNavigation = false/
         );
         const mappedReplayReady = __test.openInWebviewPanel(
             'http://localhost:49124/?sid=mapped&compare_sid=other',
@@ -228,7 +228,10 @@ Module._load = originalLoad;
             false,
             'a non-loopback public authority must not be port-remapped'
         );
-        assert.match(panels[4].webview.html, /public-9127\.devtunnels\.ms\/ping/);
+        assert.match(
+            panels[4].webview.html,
+            /https:\/\/public-9127\.devtunnels\.ms\/\?sid=public/
+        );
         panels[4].triggerReady();
         assert.strictEqual(await publicReady, null);
 
