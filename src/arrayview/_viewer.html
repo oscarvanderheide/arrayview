@@ -8453,8 +8453,13 @@
         }
 
         function comparePaneLabelForSid(sidVal) {
+            // The live name map wins for every pane, including the base. Its
+            // label used to come from the compareBaseName snapshot, which is
+            // taken once on entering compare — so a name that arrived later
+            // left that one pane showing a bare sid next to named neighbours.
+            if (compareNameBySid[sidVal]) return compareNameBySid[sidVal];
             if (sidVal === sid) return compareBaseName || 'base';
-            return compareNameBySid[sidVal] || sidVal.slice(0, 8);
+            return sidVal.slice(0, 8);
         }
 
         function _resetDetachedDimState() {
@@ -8575,10 +8580,11 @@
                 })
                 : effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length >= 2) {
-                if (!detachedDimMode) {
-                    labels[0] = compareBaseName || 'base';
-                    labels[1] = compareName || 'other';
-                }
+                // `labels` is already resolved per displayed sid above. The
+                // override that used to sit here replaced both entries with
+                // compareBaseName/compareName — the same legacy globals the
+                // picker path leaves stale, so in overlay mode both panes
+                // showed the base name and A could not be told from B.
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
