@@ -8,6 +8,11 @@ severity colour is the signal that matters:
     red     something that needs a real change — the file, the arrays, or a
             bug worth a traceback
 
+`SETUP` is the exception to all of that: the run before it *worked*, and the
+only thing left is a step the user has to take by hand. Nothing went wrong, so
+it is not written as though something did — no "failed to open" headline, no
+traceback hint, and none of the raw internal text.
+
 The patterns below are matched against the message text the opener and the
 backend actually produce; they are taken from observed failures rather than
 invented, so a new failure string falls through to the red catch-all with a
@@ -22,6 +27,7 @@ import sys
 
 ACTION = "action"   # orange — user can clear it
 FATAL = "fatal"     # red — needs a real fix
+SETUP = "setup"     # orange — nothing failed; one manual step is outstanding
 
 _RESET = "\033[0m"
 _RED = "\033[1;31m"
@@ -33,6 +39,16 @@ _RETRY = "Run the same command again."
 
 # (pattern, severity, what happened, what to do)
 _DIAGNOSES: list[tuple[str, str, str, str]] = [
+    # ── First run after the opener is installed — not a failure ───────────
+    # Must stay ahead of the stale-opener pattern below: the local wording
+    # ("reload this VS Code window once, then retry") matches both, and a
+    # just-installed opener is not a stale one.
+    (r"opener was installed|installed its vs ?code opener|"
+     r"updated its vs ?code opener", SETUP,
+     "The VS Code opener is installed.",
+     'Reload this VS Code window once (Ctrl/Cmd+Shift+P → "Developer: Reload '
+     'Window"), then run the same command again.'),
+
     # ── Opener/extension state — all clearable ────────────────────────────
     (r"stale arrayview opener|reload this vs ?code window", ACTION,
      "This VS Code window is running an older ArrayView opener than the one "
@@ -151,13 +167,18 @@ def format_failure(message: str, *, colour: bool = True) -> str:
     """Render the diagnosis as the block printed to stderr."""
     severity, what, fix = diagnose(message)
     detail = (message or "").strip().removeprefix("[ArrayView] ").rstrip()
-    head = (_ORANGE if severity == ACTION else _RED) if colour else ""
+    head = (_RED if severity == FATAL else _ORANGE) if colour else ""
     dim = _DIM if colour else ""
     end = _RESET if colour else ""
     lines = [
         f"{head}[ArrayView] {what}{end}",
         f"{head}  → {fix}{end}",
     ]
+    # A pending setup step is not a failure report: the instruction is the
+    # whole message. Echoing the internal wording underneath it is what made
+    # "the opener is installed, reload once" read like something broke.
+    if severity == SETUP:
+        return "\n".join(lines)
     # Keep the raw text when it says more than the headline does.
     if detail and detail.lower() not in what.lower():
         lines.append(f"{dim}  ({detail}){end}")
