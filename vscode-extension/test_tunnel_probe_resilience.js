@@ -56,10 +56,12 @@ Module._load = function(request, parent, isMain) {
 const { __test } = require('./extension');
 Module._load = originalLoad;
 
-// Shrink both backoff schedules so the suite exercises the real control flow
-// without waiting out the production timings.
+// Shrink both schedules so the suite exercises the real control flow without
+// waiting out the production timings. The hedge keeps its production shape —
+// three overlapping attempts — because the attempt count is what the assertions
+// below are about.
 __test._setRetryTiming({
-    cachedRouteProbeTimeoutsMs: [20, 40, 60],
+    relayProbeHedge: { attempts: 3, staggerMs: 10, attemptTimeoutMs: 40 },
     externalUriAttempts: [
         { timeoutMs: 20, pauseMs: 0 },
         { timeoutMs: 20, pauseMs: 0 },
@@ -140,6 +142,17 @@ https.get = (url, options, callback) => {
             error.code = 'ECONNRESET';
             if (handlers.error) handlers.error(error);
         }, 1);
+    } else if (behavior === 'relay-down') {
+        // The relay itself answers, fast, saying it is not carrying the port.
+        setTimeout(() => {
+            if (destroyed) return;
+            callback({
+                statusCode: 502,
+                setEncoding() {},
+                resume() {},
+                on() {},
+            });
+        }, 1);
     } else {
         setTimeout(() => {
             if (destroyed) return;
@@ -211,20 +224,18 @@ function reset(cache, behaviors) {
         );
         assert.strictEqual(resolverCalls, 0);
 
-        // 3. The production failure end to end: the cached route never answers
-        //    on the initial check, and VS Code's resolver is wedged so every
-        //    attempt throws without returning. The loopback branch that used to
-        //    hold the only cache recovery is therefore never entered. Once the
-        //    relay recovers, the verified route must still be used instead of
-        //    failing the request.
+        // 3. The reported production failure: every hedged connection to a
+        //    perfectly good relay is black-holed, so the route cannot be
+        //    verified at all. A no-answer is not evidence, so the cached route
+        //    must be used as-is — immediately, without paying for asExternalUri
+        //    and port promotion to re-derive the identical URL.
+        //
+        //    This is the assertion that would have caught the 2026-07-28
+        //    incident: the old code discarded the route here and spent 20 s
+        //    arriving back at the same string.
         reset(
             { 'prior-window:8002': 'https://wedged-8002.devtunnels.ms' },
-            {
-                'wedged-8002.devtunnels.ms': [
-                    'stall', 'stall', 'stall',  // initial check gives up
-                    'ok',                       // relay recovers by last resort
-                ],
-            }
+            { 'wedged-8002.devtunnels.ms': ['stall'] }
         );
         resolverBehavior = () => { throw new Error('asExternalUri timeout'); };
         assert.strictEqual(
@@ -232,11 +243,65 @@ function reset(cache, behaviors) {
                 'http://localhost:8002/?sid=wedged', 'current-server'
             ),
             'https://wedged-8002.devtunnels.ms/?sid=wedged',
-            'a wedged resolver must fall back to the verified cached route'
+            'a route that only ever stalls must still be used, not discarded'
         );
         assert.strictEqual(
-            resolverCalls, 2,
-            'the resolver should still have been given its full chance first'
+            resolverCalls, 0,
+            'an unverifiable route must never reach asExternalUri: a stall is '
+            + 'an absence of evidence, and re-deriving returns the same URL'
+        );
+        assert.strictEqual(
+            probeLog.filter(h => h === 'wedged-8002.devtunnels.ms').length,
+            3,
+            'all three hedged attempts should have been spent before giving up '
+            + 'on a verdict'
+        );
+
+        // 3b. Hedging is the reason 3 is cheap: the attempts overlap, so one
+        //     black-holed connection does not delay the next. With a 40 ms
+        //     attempt budget and a 10 ms stagger, a verdict that only the
+        //     second connection can supply must arrive in well under the two
+        //     attempt budgets a sequential ladder would have cost.
+        reset(
+            { 'prior-window:8006': 'https://hedge-8006.devtunnels.ms' },
+            { 'hedge-8006.devtunnels.ms': ['stall', 'ok'] }
+        );
+        const hedgeStart = Date.now();
+        assert.strictEqual(
+            await __test.resolveRemoteViewerUrl(
+                'http://localhost:8006/?sid=hedged', 'current-server'
+            ),
+            'https://hedge-8006.devtunnels.ms/?sid=hedged'
+        );
+        const hedgeMs = Date.now() - hedgeStart;
+        assert.ok(
+            hedgeMs < 40,
+            `a hedged verdict must not wait out the stalled attempt `
+            + `(took ${hedgeMs}ms, stalled attempt budget is 40ms)`
+        );
+
+        // 3c. A 502 is not a stall, and must not be treated like one. The relay
+        //     is answering — it just is not carrying the port — so handing the
+        //     panel this route would hand it a URL known to 502. Port promotion
+        //     is what reattaches the connector, so the request must fall
+        //     through to it rather than short-circuit on the cache.
+        reset(
+            { 'prior-window:8007': 'https://detached-8007.devtunnels.ms' },
+            { 'detached-8007.devtunnels.ms': ['relay-down'] }
+        );
+        resolverBehavior = () => ({
+            toString: () => 'https://detached-8007.devtunnels.ms/',
+        });
+        assert.strictEqual(
+            await __test.resolveRemoteViewerUrl(
+                'http://localhost:8007/?sid=detached', 'current-server'
+            ),
+            null,
+            'a detached relay must not be served straight from the cache'
+        );
+        assert.ok(
+            resolverCalls > 0,
+            'a detached connector must reach the promotion path that fixes it'
         );
 
         // 4. A foreign server ID is proof. It must not be retried, and it must

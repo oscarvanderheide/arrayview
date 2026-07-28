@@ -164,14 +164,20 @@ function _cachedTunnelBases(port) {
     return candidates;
 }
 
-// A cached route is abandoned only on proof it is wrong — a foreign server ID,
-// or a refusal. When the probe merely fails to answer, widen the budget and ask
-// again: a devtunnel relay's median response is well under a second but its tail
-// runs to tens of seconds, so a single short probe mistakes an ordinary stall
-// for a dead route. That verdict is expensive and asymmetric — it discards a
-// URL known to work and hands the request to asExternalUri, the slowest and
-// least reliable path in a tunnel window.
-let CACHED_ROUTE_PROBE_TIMEOUTS_MS = [1500, 4000, 8000];
+// Hedging, not escalation. Measured against the live devtunnel relay (30 fresh
+// connections, `/ping`, backend healthy on loopback throughout): answers arrive
+// in 64-240 ms, or they never arrive at all. There is no slow tail to wait for
+// — roughly one connection in five is accepted by the relay and then
+// black-holed, returning no response, no reset and no error.
+//
+// That distribution is what the old escalating ladder (1.5 s / 4 s / 8 s) got
+// wrong. Widening the budget cannot help a request that is already lost, so a
+// stalled probe cost a flat 13.6 s and taught us nothing. Stalls are largely
+// independent per connection, so the effective move is a *second connection*
+// while the first is still hanging: in the observed failures a hedge opened
+// 1.5 s later answered in ~200 ms. Attempts therefore overlap, and the first
+// real verdict wins.
+let RELAY_PROBE_HEDGE = { attempts: 3, staggerMs: 700, attemptTimeoutMs: 2000 };
 
 // Backoff for VS Code's own resolver. Kept beside the probe budget above so a
 // test can shrink both without waiting out the real schedule.
@@ -185,54 +191,84 @@ let EXTERNAL_URI_ATTEMPTS = [
 ];
 
 function _setRetryTiming({
-    cachedRouteProbeTimeoutsMs,
+    relayProbeHedge,
     externalUriAttempts,
     readinessProbeTimeoutsMs,
-    relayReadinessProbeTimeoutsMs,
 } = {}) {
-    if (cachedRouteProbeTimeoutsMs) {
-        CACHED_ROUTE_PROBE_TIMEOUTS_MS = cachedRouteProbeTimeoutsMs;
+    if (relayProbeHedge) {
+        RELAY_PROBE_HEDGE = { ...RELAY_PROBE_HEDGE, ...relayProbeHedge };
     }
     if (externalUriAttempts) EXTERNAL_URI_ATTEMPTS = externalUriAttempts;
     if (readinessProbeTimeoutsMs) {
         READINESS_PROBE_TIMEOUTS_MS = readinessProbeTimeoutsMs;
     }
-    if (relayReadinessProbeTimeoutsMs) {
-        RELAY_READINESS_PROBE_TIMEOUTS_MS = relayReadinessProbeTimeoutsMs;
-    }
 }
 
-async function _verifiedCachedTunnelBase(
+/**
+ * The best cached route we have no evidence against.
+ *
+ * Only PROBE_DEAD — a well-formed reply carrying a different backend's
+ * instance_id, or a refusal — may discard a cached route. A no-answer must not,
+ * and that asymmetry is the whole point of this function. Across every observed
+ * occurrence in ~/.arrayview/extension.log (6 of 6), a route discarded on a
+ * no-answer was then re-derived through asExternalUri and port promotion, which
+ * returned the byte-identical URL 6.5-90 s later. The probe has never once
+ * caught a genuinely unusable route by stalling; it has only ever delayed a
+ * launch, and in one case (20:34:08 on 2026-07-27) delayed it past a downstream
+ * deadline into an outright failure.
+ *
+ * So a no-answer returns the route and lets the panel decide. That is not a
+ * guess: the panel navigates on its own connection, which fails independently
+ * of this one, and the navigation watchdog re-arms and re-assigns `frame.src`
+ * if the page never arrives. It is a better probe than this one because it does
+ * the real work while it waits.
+ *
+ * `deadBases` carries proof across the two or three times one request consults
+ * the cache. Without it, accepting a no-answer would let a later call resurrect
+ * a candidate an earlier call had already proven foreign — the stall rate is
+ * high enough that re-probing a known-dead route can plausibly return no
+ * answer. Proof, once obtained, outranks a later absence of evidence.
+ */
+async function _usableCachedTunnelBase(
     port,
     expectedServerId,
-    ensureActive = () => {}
+    ensureActive = () => {},
+    deadBases = new Set()
 ) {
     for (const candidate of _cachedTunnelBases(port)) {
         ensureActive();
-        let outcome = PROBE_UNKNOWN;
-        for (let i = 0; i < CACHED_ROUTE_PROBE_TIMEOUTS_MS.length; i++) {
-            ensureActive();
-            const timeoutMs = CACHED_ROUTE_PROBE_TIMEOUTS_MS[i];
-            log(`REMOTE: checking cached route ${candidate} `
-                + `(attempt=${i + 1} timeout=${timeoutMs}ms)`);
-            outcome = await probeArrayViewStatus(
-                `${candidate}/ping`, expectedServerId, timeoutMs
-            );
-            // Only a no-answer is worth asking again; a wrong answer is final.
-            if (outcome !== PROBE_UNKNOWN) break;
-            log(`REMOTE: cached route gave no verdict `
-                + `(attempt=${i + 1} budget=${timeoutMs}ms)`);
+        if (deadBases.has(candidate)) continue;
+        log(`REMOTE: checking cached route ${candidate} `
+            + `(hedged x${RELAY_PROBE_HEDGE.attempts})`);
+        const outcome = await hedgedProbeStatus(
+            `${candidate}/ping`, expectedServerId
+        );
+        ensureActive();
+        if (outcome === PROBE_DEAD) {
+            deadBases.add(candidate);
+            log(`REMOTE: cached route stale for localhost:${port}`);
+            continue;
+        }
+        if (outcome === PROBE_RELAY_DOWN) {
+            // Not proof the route is wrong, so it does not join deadBases and
+            // may be re-probed after promotion. But it is proof the route
+            // cannot carry traffic now, so returning it would hand the panel a
+            // URL known to 502. Fall through to port promotion, which reattaches
+            // the connector.
+            log(`REMOTE: cached route reachable but its connector is detached `
+                + `for localhost:${port}; falling through to promotion`);
+            continue;
         }
         if (outcome === PROBE_OK) {
-            ensureActive();
             _rememberTunnelBase(port, candidate);
             log(`REMOTE: cached route ready for localhost:${port}`);
-            return candidate;
+        } else {
+            // Deliberately not cached: this is an absence of evidence, not a
+            // verification, and it must not promote an unproven route.
+            log(`REMOTE: cached route unverified for localhost:${port}; `
+                + `using it anyway (no evidence it is wrong)`);
         }
-        log(outcome === PROBE_DEAD
-            ? `REMOTE: cached route stale for localhost:${port}`
-            : `REMOTE: cached route unverified for localhost:${port} `
-                + `after ${CACHED_ROUTE_PROBE_TIMEOUTS_MS.length} attempts`);
+        return candidate;
     }
     return null;
 }
@@ -1056,6 +1092,13 @@ async function openFolderInArrayView(folderPath) {
 const PROBE_OK = 'ok';
 const PROBE_DEAD = 'dead';
 const PROBE_UNKNOWN = 'unknown';
+// The relay answered about itself: reachable, but not currently carrying our
+// port. Deliberately distinct from PROBE_UNKNOWN — a stall is an absence of
+// information, whereas this is information, and the two want opposite
+// responses. A stall means "use the route, nothing says it is wrong"; a
+// detached connector means "the route cannot carry traffic right now", and
+// re-forwarding the port is the thing that fixes it.
+const PROBE_RELAY_DOWN = 'relay-down';
 
 // Socket failures that say nothing about whether the backend is still there.
 // The relay behind a devtunnel URL stalls and resets under load, so these are
@@ -1094,11 +1137,15 @@ function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
             resolve(outcome);
         };
         const viaRelay = !isLoopbackUrl(url);
-        const req = lib.get(parsed, { timeout: timeoutMs }, (res) => {
+        // `agent: false` gives every probe its own connection. Node 22's global
+        // agent keeps sockets alive, and hedged attempts are only independent
+        // if they are separate connections — pooling would let a second attempt
+        // inherit the same wedged socket the first one is stuck on.
+        const req = lib.get(parsed, { timeout: timeoutMs, agent: false }, (res) => {
             if (res.statusCode !== 200) {
                 res.resume();
                 done(viaRelay && RELAY_STATUS_CODES.has(res.statusCode)
-                    ? PROBE_UNKNOWN
+                    ? PROBE_RELAY_DOWN
                     : PROBE_DEAD);
                 return;
             }
@@ -1132,17 +1179,66 @@ function probeArrayViewStatus(url, expectedServerId = null, timeoutMs = 1500) {
     });
 }
 
+/**
+ * Probe a relay URL with overlapping attempts and take the first real verdict.
+ *
+ * See RELAY_PROBE_HEDGE for the measurement this is built on. A stalled attempt
+ * is not waited out: the next connection opens `staggerMs` later while the
+ * previous one is still hanging, so a black-holed request costs the stagger
+ * rather than its whole budget. PROBE_UNKNOWN is returned only when every
+ * attempt has stalled, which needs all of them to be lost independently.
+ */
+function hedgedProbeStatus(url, expectedServerId = null, hedge = null) {
+    const { attempts, staggerMs, attemptTimeoutMs } = hedge || RELAY_PROBE_HEDGE;
+    return new Promise((resolve) => {
+        let settled = false;
+        let started = 0;
+        let outstanding = 0;
+        let timer = null;
+        const finish = (outcome) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            resolve(outcome);
+        };
+        const launch = () => {
+            timer = null;
+            started += 1;
+            outstanding += 1;
+            const attempt = started;
+            probeArrayViewStatus(url, expectedServerId, attemptTimeoutMs)
+                .then((outcome) => {
+                    outstanding -= 1;
+                    if (outcome !== PROBE_UNKNOWN) {
+                        finish(outcome);
+                        return;
+                    }
+                    log(`PROBE: attempt ${attempt} gave no verdict `
+                        + `(budget=${attemptTimeoutMs}ms url=${url})`);
+                    // Nothing left running and nothing left to start: every
+                    // connection was lost, which is still not proof of death.
+                    if (started >= attempts && outstanding === 0) {
+                        finish(PROBE_UNKNOWN);
+                    }
+                });
+            if (started < attempts) {
+                timer = setTimeout(() => { if (!settled) launch(); }, staggerMs);
+            }
+        };
+        launch();
+    });
+}
+
 async function arrayViewStatusOk(url, expectedServerId = null, timeoutMs = 1500) {
     const outcome = await probeArrayViewStatus(url, expectedServerId, timeoutMs);
     return outcome === PROBE_OK;
 }
 
-// Budgets for the one probe whose negative answer abandons a user's launch.
-// Loopback answers in microseconds or not at all; a relay that has just been
-// resolved routinely needs seconds for its first byte, so it gets both longer
-// timeouts and more of them.
+// Loopback only. A loopback port has no black-hole mode — it answers, it
+// refuses, or the backend has not bound it yet — so waiting longer is the
+// right response there and sequential retry stays. Relay readiness goes
+// through RELAY_PROBE_HEDGE instead, for the reason recorded above it.
 let READINESS_PROBE_TIMEOUTS_MS = [1500, 2500];
-let RELAY_READINESS_PROBE_TIMEOUTS_MS = [3000, 5000, 8000];
 
 /**
  * Probe until the answer means something. Retrying a stall is the whole point:
@@ -2827,8 +2923,13 @@ async function resolveRemoteViewerUrl(
     // nothing. Reachability must be established the same way for every tunnel
     // viewer: a cached route, otherwise an external URI promotion.
     const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+    // Shared across every cache consultation in this request; see
+    // _usableCachedTunnelBase.
+    const deadBases = new Set();
     const cachedBase = vscode.env.remoteName === 'tunnel'
-        ? await _verifiedCachedTunnelBase(port, expectedServerId, ensureActive)
+        ? await _usableCachedTunnelBase(
+            port, expectedServerId, ensureActive, deadBases
+        )
         : null;
     if (cachedBase) {
         return cachedBase + '/' + origQuery;
@@ -2890,7 +2991,7 @@ async function resolveRemoteViewerUrl(
                     // its address through the command API.  Re-check routes
                     // learned by prior incarnations of this window, accepting
                     // one only when /ping identifies this exact backend.
-                    const recoveredBase = await _verifiedCachedTunnelBase(
+                    const recoveredBase = await _usableCachedTunnelBase(
                         port, expectedServerId, ensureActive
                     );
                     if (recoveredBase) {
@@ -2936,7 +3037,7 @@ async function resolveRemoteViewerUrl(
         if (tunnelPromotionAttempted) {
             log(`REMOTE: tunnel route did not converge within bounded retry window`);
         }
-        const lastResortBase = await _verifiedCachedTunnelBase(
+        const lastResortBase = await _usableCachedTunnelBase(
             port, expectedServerId, ensureActive
         );
         if (lastResortBase) {
@@ -3308,12 +3409,15 @@ async function _processSignalDataBody(
         // more accurate messages. Abandoning here on a no-verdict reported a
         // cold devtunnel as a backend outage.
         const viaRelay = !isLoopbackUrl(pingUrl);
-        const readiness = await probeUntilVerdict(
-            pingUrl,
-            data.serverId || null,
-            viaRelay ? RELAY_READINESS_PROBE_TIMEOUTS_MS : READINESS_PROBE_TIMEOUTS_MS,
-            ensureActive
-        );
+        const readiness = viaRelay
+            ? await hedgedProbeStatus(pingUrl, data.serverId || null)
+            : await probeUntilVerdict(
+                pingUrl,
+                data.serverId || null,
+                READINESS_PROBE_TIMEOUTS_MS,
+                ensureActive
+            );
+        ensureActive();
         if (readiness === PROBE_DEAD) {
             // Proof: a well-formed answer from someone else, or a refused
             // loopback port. Name which one, so a port taken over by a newer
@@ -3326,6 +3430,14 @@ async function _processSignalDataBody(
         if (readiness === PROBE_UNKNOWN) {
             log('READY: ping never returned a verdict; continuing to session '
                 + `readiness (relay=${viaRelay})`);
+        }
+        if (readiness === PROBE_RELAY_DOWN) {
+            // Still not fatal — the panel is up and the gates below have their
+            // own budgets — but name it, because "the relay is not carrying
+            // the port" and "the probe was black-holed" look identical in a
+            // log that records both as no-verdict.
+            log('READY: relay answered but its connector is detached; '
+                + 'continuing to session readiness');
         }
         // The array may still be loading; the panel is already up showing the
         // viewer's loading state. A load that failed answers 422 here with its
@@ -3647,14 +3759,16 @@ module.exports = {
         _asExternalUriAttempt,
         probeArrayViewStatus,
         probeUntilVerdict,
+        hedgedProbeStatus,
         PROBE_OK,
         PROBE_DEAD,
         PROBE_UNKNOWN,
+        PROBE_RELAY_DOWN,
         localBackendIdentity,
         LOCAL_MINE,
         LOCAL_FOREIGN,
         LOCAL_UNKNOWN,
-        _verifiedCachedTunnelBase,
+        _usableCachedTunnelBase,
         _setRetryTiming,
         resolveRemoteViewerUrl,
         claimProtocolRequest,

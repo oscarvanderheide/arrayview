@@ -55,7 +55,7 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.14.96"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.97"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:

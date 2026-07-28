@@ -1069,3 +1069,96 @@ that refuses fast 8 times then works (9+ attempts, no give-up, renders).
 top-level page emits no phases at all — phase-based assertions on a directly
 loaded viewer prove nothing. Assert user-visible outcomes, or load it in an
 iframe. Also `/ws/shell` is a second socket; count `/ws/<sid>` only.
+
+---
+
+### 2026-07-28 — 0.14.97: the relay has no slow tail, and the ladder was built for one
+
+**Input**: "loaded decently fast, closed the tab, ran it again ten seconds
+later, took a minute". Two launches of the same 5.8 GB `coil_sensitivities.npy`
+five minutes apart, request `2af364bc` then `b4b14217`.
+
+    2af364bc  signal -> frame-rendered   1.4 s
+    b4b14217  signal -> frame-rendered  29.0 s
+
+The 29 s decomposes into three parts, and the first two were pure waste:
+
+    13.6 s  cached-route probe: no verdict x3 (1.5 / 4 / 8 s budgets)
+     6.5 s  asExternalUri + privacy promotion, re-deriving the route
+     8.3 s  the 1.9 MB viewer page crossing the relay (known fixed cost)
+
+**The re-derivation returned the byte-identical URL** the probe had just
+discarded — `https://v54z0psh-8000.euw.devtunnels.ms`, already sitting in
+`tunnel-routes.json` when the request started.
+
+**Measured cause.** Probing the live relay directly (30 fresh connections,
+`/ping`, backend healthy on loopback throughout, no VS Code involved):
+
+    answered  25/30    median 185 ms   p90 233 ms   max 639 ms
+    stalled    5/30    no response, no reset, no error, to a 15 s budget
+
+**There is nothing between 639 ms and never.** Roughly one connection in five
+is accepted by the relay and then black-holed; every connection that answers
+answers inside 640 ms. So the escalating ladder was waiting in a region where
+no answer has ever arrived. Widening a budget cannot recover a request that is
+already lost — only a *new connection* can, and stalls are largely independent
+per connection: in a staggered test a hedge opened 1.5 s after a stalled probe
+answered in 205 ms.
+
+This also kills two plausible-looking theories. It is **not** a cold relay:
+correlating all 81 probe episodes since 2026-07-26 against idle time, OK after
+35,636 s idle takes 0.5 s while UNVERIFIED after 10.7 s idle takes 13.7 s —
+median idle is 98.6 s for OK and 84.8 s for UNVERIFIED, i.e. uncorrelated. It is
+**not** Node's keep-alive socket pool either: the reproduction stalls with
+`reusedSocket=false`, on a brand-new connection.
+
+**The probe never once caught a bad route by stalling.** All 6 UNVERIFIED
+episodes in the scoped log ended at the identical URL they had discarded, 6.5-90 s
+later. One of them (20:34:08 on 2026-07-27) was pushed past a downstream
+deadline into `Backend stopped answering before the viewer was ready` — the
+delay did not merely cost time, it manufactured a failure.
+
+**Fix, three parts.**
+
+1. *Hedge, don't escalate.* `hedgedProbeStatus` opens overlapping attempts
+   (3 x 2000 ms, 700 ms stagger) and takes the first real verdict. A stall now
+   costs the stagger, not the budget. `agent: false` keeps attempts on
+   independent connections — pooling would let a hedge inherit the wedged
+   socket. Applied to the cached-route check and to relay readiness; loopback
+   keeps sequential retry, because a loopback port has no black-hole mode.
+2. *A no-answer may not discard a route.* `_verifiedCachedTunnelBase` became
+   `_usableCachedTunnelBase`: only PROBE_DEAD discards. This completes the
+   asymmetry argument the old comment already made but stopped halfway through.
+   The panel is the better probe — it navigates on its own connection and its
+   watchdog re-arms `frame.src` — so an unverifiable route goes to the panel
+   rather than to 90 s of resolver backoff.
+3. *A 502 is information; a stall is not.* New `PROBE_RELAY_DOWN`, split out of
+   PROBE_UNKNOWN. A detached connector answers in ~200 ms saying the relay is up
+   but not carrying the port; port promotion is what **fixes** that, so it must
+   keep falling through to promotion instead of short-circuiting on the cache.
+   Collapsing it into "no answer" would have regressed that path — the relay was
+   in exactly this state while this entry was being written.
+
+`deadBases` threads proof through the two or three cache consultations in one
+request, so a candidate proven foreign cannot be resurrected by a later probe
+that happens to stall.
+
+**Expected effect on the reported incident**: 13.6 s + 6.5 s -> under 1 s, so
+~29 s becomes ~9.5 s. The remaining 8.3 s is the 1.9 MB page transfer, which
+this change does not touch. Caching that page is still untried and is now the
+dominant term.
+
+**Evidence**: `real process` for the measurements (live relay, 30+12 probes,
+plus the new hedge run against it end to end through the real `extension.js`)
+and `component` for the logic (17/17 extension tests, 77 Python lifecycle/ack
+tests). The stall path itself was **not** observed live during the fix run — the
+relay was uniformly 502 by then — so it is covered by the 17% measurement plus
+deterministic unit tests, not by a live stall. Real-host launch evidence needs
+0.14.97 installed and the windows reloaded.
+
+**Method note worth keeping**: three theories (cold relay, stale socket pool,
+relay saturation) were all killed by cheap measurements — an idle-time
+correlation over the existing log, `reusedSocket` instrumentation, and a
+staggered two-connection test. None needed VS Code. When a launch symptom points
+at the relay, probe the relay directly first; it is a two-minute experiment and
+it has now overturned the obvious explanation twice.
