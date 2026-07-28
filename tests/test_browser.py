@@ -3858,6 +3858,50 @@ class TestROIDrag:
         assert page.evaluate("() => _rois.length") == 0
 
 class TestColorbarWindowLevel:
+    def test_dblclick_vmin_label_opens_value_popup_and_commits(
+        self, loaded_viewer, sid_2d
+    ):
+        page = loaded_viewer(sid_2d)
+        page.wait_for_timeout(400)
+
+        page.dblclick("#slim-cb-vmin")
+        page.wait_for_selector(".cb-val-popup-wrap", timeout=2_000)
+        popup_input = page.locator(".cb-val-popup .slim-cb-val-input")
+        assert popup_input.count() == 1, "double-click on vmin should open the entry popup"
+
+        popup_input.fill("0.25")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+
+        state = page.evaluate("() => ({ manualVmin, popup: !!document.querySelector('.cb-val-popup-wrap') })")
+        assert state["manualVmin"] == pytest.approx(0.25), (
+            f"committing the popup should set manualVmin, got {state}"
+        )
+        assert not state["popup"], "popup should close after Enter"
+
+    def test_dimbar_still_swallows_its_own_dblclick(self, loaded_viewer, sid_3d):
+        """The guard added for the vmin popup must not un-suppress the dimbar."""
+        page = loaded_viewer(sid_3d)
+        page.wait_for_timeout(400)
+        swallowed = page.evaluate(
+            """() => {
+                const el = document.getElementById('info');
+                const r = el.getBoundingClientRect();
+                let defaultPrevented = false;
+                const probe = (e) => { defaultPrevented = e.defaultPrevented; };
+                document.addEventListener('dblclick', probe);
+                const ev = new MouseEvent('dblclick', {
+                    bubbles: true, cancelable: true,
+                    clientX: r.left + r.width / 2,
+                    clientY: r.top + r.height / 2,
+                });
+                el.dispatchEvent(ev);
+                document.removeEventListener('dblclick', probe);
+                return ev.defaultPrevented;
+            }"""
+        )
+        assert swallowed, "dblclick over the dimbar should still be suppressed"
+
     def test_colorbar_rendered_with_gradient(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         cb = page.locator("canvas#slim-cb")

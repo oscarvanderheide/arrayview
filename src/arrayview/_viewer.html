@@ -18031,6 +18031,12 @@
         }
 
         function _handleDimbarDblClick(e) {
+            // The dimbar synthesises its own double-click from click timing, so
+            // the native dblclick is suppressed over it. Scope that to the
+            // dimbar: this runs on document in the capture phase, so without the
+            // guard it swallowed every dblclick in the viewer before the target
+            // ever saw it — including the vmin/vmax labels' value popup.
+            if (!_eventWithinDimbar(e)) return;
             e.preventDefault();
             e.stopPropagation();
         }
