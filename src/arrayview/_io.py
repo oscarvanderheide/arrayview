@@ -1290,6 +1290,37 @@ def load_dir_collection(
     return data, spatial_meta, overlay_items, summary
 
 
+def _dicom_series_collection(path, *, load="lazy", stack="auto"):
+    """Stack a directory holding several DICOM series, one case per series.
+
+    Right-clicking a study folder in the VS Code Explorer hands over the parent
+    of a set of per-case DICOM folders. There is no single series to show, and
+    ``--series`` is unreachable from that gesture, so the load failed with
+    "Multiple DICOM series found ... Select one with --series INDEX". Build the
+    collection instead: one stack element per series, which is what "open this
+    folder" means for that layout.
+
+    Grouping by series rather than by subfolder is what the DICOM headers
+    actually say. It gives the same answer for the usual one-series-per-folder
+    layout and a better one when a folder holds two series or a series is split
+    across folders.
+
+    Returns ``None`` when the directory holds a single series: the ordinary
+    one-series load handles that and keeps its spatial metadata, which a
+    stacked collection cannot carry.
+    """
+    from ._dicom import discover_dicom_series
+
+    series = discover_dicom_series(path)
+    if len(series) < 2:
+        return None
+    # One member per series is enough to name it: loading any slice of a DICOM
+    # series loads the whole series it belongs to.
+    return _series_from_file_matrix(
+        [[item["headers"][0].path] for item in series], load=load, stack=stack
+    )
+
+
 def _load_file_series(path, *, load="lazy", stack="auto"):
     """Build a lazy series from a directory of supported array files.
 
@@ -1498,6 +1529,10 @@ def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select
     if (
         (os.path.isdir(filepath) and not is_zarr_dir) or filepath.lower().endswith(".dcm")
     ) and is_dicom_source(filepath):
+        if os.path.isdir(filepath) and select is None:
+            collection = _dicom_series_collection(filepath, load=load, stack=stack)
+            if collection is not None:
+                return collection
         return load_dicom_series(filepath, select=select)
     if os.path.isdir(filepath) and not is_zarr_dir:
         return _load_file_series(filepath, load=load, stack=stack)
@@ -1613,6 +1648,16 @@ def load_data(filepath, key=None):
                 "Select one in the viewer or pass a key."
             )
     else:
+        # DICOM files routinely carry no extension at all. Every path that
+        # reaches here by extension has already been ruled out, so a header
+        # read is cheap and is the only thing that can still recognise one —
+        # this is how a per-series representative path from
+        # `_dicom_series_collection` resolves back to its series.
+        from ._dicom import is_dicom_source, load_dicom_series
+
+        if os.path.isfile(filepath) and is_dicom_source(filepath):
+            data, _meta = load_dicom_series(filepath)
+            return data
         raise ValueError(
             "Unsupported format. Supported: .npy, .npz, .nii/.nii.gz, .zarr, "
             ".pt/.pth, .h5/.hdf5, .tif/.tiff, .mat"

@@ -182,3 +182,77 @@ def test_shift_i_has_array_and_dicom_tabs(client, loaded_viewer, tmp_path):
     expect(page.locator("#info-dicom-pane")).to_contain_text("Acquisition")
     expect(page.locator("#info-dicom-pane")).to_contain_text("Geometry")
     expect(page.locator("#info-dicom-pane")).not_to_contain_text("PRIVATE")
+
+
+# ---------------------------------------------------------------------------
+# Opening a folder: what "arrayview <dir>" means for each layout
+# ---------------------------------------------------------------------------
+
+
+def _write_case(folder, *, value, slices=3, ext=".dcm"):
+    """Write one DICOM series of `slices` slices into `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    uid = generate_uid()
+    for i in range(slices):
+        _write_slice(
+            folder / f"s{i}{ext}",
+            series_uid=uid,
+            z=i * 4,
+            value=value + i,
+            instance=i + 1,
+        )
+    return uid
+
+
+def test_folder_of_dcm_files_opens_as_one_series(tmp_path):
+    """The flat case: every .dcm in the folder is one acquisition."""
+    _write_case(tmp_path, value=10, slices=3)
+
+    data, meta = load_data_with_meta(str(tmp_path))
+
+    assert data.shape == (3, 2, 3), f"expected one 3-slice volume, got {data.shape}"
+    assert meta is not None, "a single DICOM series should keep its spatial metadata"
+
+
+def test_folder_of_dicom_subfolders_stacks_one_case_per_series(tmp_path):
+    """The study case: each subfolder is a case, so each becomes a stack entry.
+
+    This used to fail outright — the folder holds several series and the
+    ``--series`` selector is unreachable from a right-click in the Explorer.
+    """
+    _write_case(tmp_path / "caseA", value=10, slices=3)
+    _write_case(tmp_path / "caseB", value=50, slices=3)
+    _write_case(tmp_path / "caseC", value=90, slices=3)
+
+    data, _meta = load_data_with_meta(str(tmp_path))
+
+    assert data.shape[-1] == 3, (
+        f"expected one stack entry per case folder, got shape {data.shape}"
+    )
+    assert data.shape[:-1] == (3, 2, 3), f"each entry should be a volume, got {data.shape}"
+    means = sorted(float(np.asarray(data[..., i]).mean()) for i in range(3))
+    assert means[0] < means[1] < means[2], (
+        f"the three cases should stay distinct volumes, got means {means}"
+    )
+
+
+def test_extensionless_dicom_still_resolves_to_its_series(tmp_path):
+    """Real DICOM often has no extension; the per-series representative path
+    that stacking hands back must still load."""
+    _write_case(tmp_path / "caseA", value=10, slices=2, ext="")
+    _write_case(tmp_path / "caseB", value=60, slices=2, ext="")
+
+    data, _meta = load_data_with_meta(str(tmp_path))
+
+    assert data.shape[-1] == 2, f"both extensionless cases should stack, got {data.shape}"
+
+
+def test_folder_of_array_files_stacks_them(tmp_path):
+    """The plain case: a folder of .npy volumes is a collection."""
+    for i in range(3):
+        np.save(tmp_path / f"vol{i}.npy", np.full((4, 5, 6), i, dtype=np.float32))
+
+    data, _meta = load_data_with_meta(str(tmp_path))
+
+    assert data.shape[-1] == 3, f"expected one entry per array file, got {data.shape}"
+    assert data.shape[:-1] == (4, 5, 6), f"each entry should keep its shape, got {data.shape}"
