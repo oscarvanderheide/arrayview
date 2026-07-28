@@ -895,25 +895,27 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(500)
     tutorial_state = page.evaluate(
         """() => ({
-            title: document.getElementById('tutorial-title').textContent,
+            key: document.getElementById('tutorial-whisper-key').textContent,
+            text: document.getElementById('tutorial-whisper-text').textContent,
             compare: compareActive,
-            panelVisible: document.getElementById('tutorial-panel').getAttribute('aria-hidden') === 'false',
+            whisperVisible: document.getElementById('tutorial-whisper')
+                .classList.contains('is-visible'),
         })"""
     )
-    if tutorial_state["title"] != "Start with the array":
-        print(f"  WARNING: tutorial did not start on intro card: {tutorial_state}")
+    if tutorial_state["key"] != "K":
+        print(f"  WARNING: tutorial did not open on its first whisper: {tutorial_state}")
     if tutorial_state["compare"]:
         print("  WARNING: tutorial comparison pair opened before the learner requested it")
-    if not tutorial_state["panelVisible"]:
-        print("  WARNING: tutorial panel is not visible after first frame")
+    if not tutorial_state["whisperVisible"]:
+        print("  WARNING: tutorial whisper is not visible after first frame")
     _shot(page, "48_tutorial_start")
-    page.get_by_role("button", name="Begin").click()
-    page.wait_for_timeout(650)
     _focus(page)
-    _press(page, "ArrowUp", wait=700)
-    progressed_title = page.locator("#tutorial-title").inner_text()
-    if progressed_title != "Choose another dimension":
-        print(f"  WARNING: tutorial slice action did not progress: {progressed_title!r}")
+    _press(page, "ArrowUp", wait=400)
+    echoed = page.evaluate(
+        "() => document.getElementById('tutorial-whisper-text').textContent"
+    )
+    if "slice" not in echoed:
+        print(f"  WARNING: tutorial did not echo the slice action: {echoed!r}")
     _shot(page, "48_tutorial_after_slice")
 
     # ── 49: array identity moves to window title; toast uses bottom-left slot ─

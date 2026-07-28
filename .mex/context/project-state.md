@@ -14,11 +14,13 @@ last_updated: 2026-07-28
 
 ## Working
 
-- No-argument CLI startup now opens a generated, action-gated interactive
-  tutorial on `feat/interactive-tutorial`. Its real scalar, comparison, and
-  overlay sessions cover navigation, playback, colormaps, histograms, ortho,
-  split and multi-array comparison, stack notation, overlays, ROI analysis,
-  preferences, help, and launch surfaces.
+- No-argument CLI startup opens a generated, action-gated interactive tutorial.
+  It presents as a single whisper line — one key named at a time, with no panel,
+  counter, progress bar, or buttons — and never says what a key does before it
+  is pressed; the explanation replaces the invitation only once the viewer state
+  changed. Its real scalar, comparison, and overlay sessions cover navigation,
+  playback, colormaps, histograms, ortho, split and multi-array comparison,
+  overlays, ROI analysis, and the help map. `Esc` ends it.
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
 - Local server reuse is Unix-user-fenced: `/ping` publishes the server UID,
   callers only reuse a compatible server owned by their effective UID, and a
@@ -38,7 +40,7 @@ last_updated: 2026-07-28
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- The bundled VS Code opener is v0.14.51. Its component contracts include exact-window recovery, atomic request claims, tunnel URL checks, readiness ACKs, and session release. The installed extension and the extension host actually running in each VS Code window must be checked separately. Real tunnel first-frame, repeat, reconnect, and cleanup behavior is under active repair and is not considered proven by component tests alone.
+- The working tree bundles VS Code opener v0.15.3. Its component contracts include exact-window recovery, atomic request claims, tunnel URL checks, readiness ACKs, session release, request-wide dead-route proof, and tunnel-only document/WebSocket hedging. The latest observed live tunnel host still ran v0.14.99; source, bundled VSIX, installed extension, and the extension host actually running in each VS Code window must be checked separately. Real tunnel first-frame, repeat, reconnect, and cleanup behavior remains open until v0.15.3 is installed and exercised in that host.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
@@ -111,7 +113,7 @@ last_updated: 2026-07-28
 
 ## In Progress
 
-- VS Code tunnel launch behavior is being repaired and validated in a real tunnel window. The repository bundles opener v0.14.51, but repository, packaged VSIX, installed extension, and live extension-host versions are distinct facts. Completion requires a visible first frame, a successful repeat launch, reconnect behavior, and clean release in the same real environment.
+- VS Code tunnel launch behavior is being repaired and validated in a real tunnel window. The working tree and packaged VSIX are v0.15.3, while the latest real-host trace is v0.14.99; repository, packaged VSIX, installed extension, and live extension-host versions are distinct facts. Completion requires a visible first frame, five-launch stress with a middle close, reconnect behavior, and clean final release in the same real environment.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 

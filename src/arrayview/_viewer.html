@@ -4200,116 +4200,46 @@
         body.welcome-mode #slim-cb-wrap { display: none !important; }
 
         /* ── Interactive tutorial ─────────────────────────────────── */
-        #tutorial-panel {
-            position: fixed; right: 16px; bottom: 16px; z-index: 58;
-            box-sizing: border-box; width: min(300px, calc(100vw - 32px));
-            color: var(--text); background: var(--surface);
-            border: 1px solid var(--border); border-radius: var(--radius-lg);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            opacity: 0; transform: translateY(8px) scale(0.985);
+        /* ── Tutorial whisper ─────────────────────────────────────
+           No panel, no counter, no buttons. One line, low in the frame,
+           that asks for a key and then names what the key did. It never
+           says what a key will do: the whole point is that you find out
+           by pressing it. Pointer-transparent, so it can sit over the
+           array without ever being in the way. */
+        #tutorial-whisper {
+            position: fixed; left: 50%; bottom: 78px; z-index: 58;
+            display: flex; align-items: baseline; gap: 10px;
+            max-width: min(560px, calc(100vw - 48px));
+            padding: 0 8px;
+            color: var(--muted);
+            font-size: 13px; line-height: 1.5; letter-spacing: 0.02em;
+            text-align: center; justify-content: center;
+            text-shadow: 0 1px 12px var(--bg, rgba(0,0,0,0.6));
             pointer-events: none; visibility: hidden;
-            transition: opacity 160ms ease, transform 160ms ease, visibility 160ms;
+            opacity: 0; transform: translate(-50%, 10px);
+            /* Slower than the rest of the UI on purpose — it should arrive
+               and leave the way a thought does, not the way a toast does. */
+            transition: opacity 460ms ease, transform 460ms ease, visibility 460ms;
         }
-        body.tutorial-active #tutorial-panel {
-            opacity: 1; transform: none; pointer-events: auto; visibility: visible;
+        body.tutorial-active #tutorial-whisper.is-visible {
+            opacity: 1; transform: translate(-50%, 0); visibility: visible;
         }
+        /* The echo — what just happened — reads as the viewer's own voice
+           rather than an instruction, so it loses the key chip and dims. */
+        #tutorial-whisper.is-echo { color: var(--text); opacity: 0.82; }
+        #tutorial-whisper-key {
+            flex: 0 0 auto; padding: 2px 8px;
+            color: var(--active-dim);
+            border: 1px solid var(--active-dim); border-radius: 5px;
+            font-size: 12px; letter-spacing: 0.04em;
+            opacity: 0.9;
+        }
+        #tutorial-whisper.is-echo #tutorial-whisper-key { display: none; }
         body.tutorial-before-overlay #overlay-palette {
             opacity: 0; pointer-events: none;
         }
-        #tutorial-panel.is-celebrating { border-color: var(--active-dim); }
-        .tutorial-top {
-            display: flex; align-items: center; gap: 8px;
-            padding: 11px 12px 9px;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-        #tutorial-section {
-            flex: 1; color: var(--muted); font-size: 10px;
-            letter-spacing: 0.11em; text-transform: uppercase;
-        }
-        #tutorial-count { color: var(--muted); font-size: 10px; }
-        .tutorial-icon-btn {
-            appearance: none; border: 0; background: transparent;
-            color: var(--muted); font: inherit; font-size: 14px;
-            line-height: 1; padding: 2px 3px; cursor: pointer;
-        }
-        .tutorial-icon-btn:hover, .tutorial-icon-btn:focus-visible { color: var(--text); }
-        #tutorial-progress {
-            height: 2px; overflow: hidden; background: var(--surface-2);
-        }
-        #tutorial-progress-fill {
-            width: 0; height: 100%; background: var(--active-dim);
-            transition: width 240ms ease;
-        }
-        .tutorial-body { padding: 14px 14px 11px; }
-        #tutorial-title {
-            margin: 0 0 7px; color: var(--text);
-            font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
-        }
-        #tutorial-copy {
-            margin: 0; color: var(--muted); font-size: 12px;
-            line-height: 1.55;
-        }
-        #tutorial-copy strong { color: var(--text); font-weight: 500; }
-        #tutorial-copy code {
-            color: var(--text); background: var(--surface-2);
-            border: 1px solid var(--border-subtle); border-radius: 4px;
-            padding: 1px 4px; font: inherit;
-        }
-        #tutorial-visual {
-            display: none; margin-top: 11px; padding: 9px 10px;
-            color: var(--muted); background: var(--surface-2);
-            border: 1px solid var(--border-subtle); border-radius: var(--radius);
-            font-size: 11px; line-height: 1.55;
-        }
-        #tutorial-visual.visible { display: block; }
-        #tutorial-visual .tutorial-dims {
-            color: var(--text); font-size: 13px; margin-bottom: 3px;
-        }
-        #tutorial-visual .tutorial-stack-sep { color: var(--active-dim); }
-        #tutorial-visual .tutorial-route-grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px;
-        }
-        #tutorial-prompt {
-            display: flex; align-items: center; gap: 9px;
-            margin-top: 12px; color: var(--text); font-size: 11px;
-        }
-        #tutorial-key {
-            flex: 0 0 auto; min-width: 24px; padding: 3px 7px;
-            color: var(--active-dim); background: var(--surface-2);
-            border: 1px solid var(--border); border-radius: 5px;
-            text-align: center; font-size: 12px;
-        }
-        #tutorial-prompt-text { color: var(--muted); line-height: 1.35; }
-        .tutorial-footer {
-            display: flex; align-items: center; gap: 7px;
-            padding: 9px 12px 11px;
-        }
-        .tutorial-btn {
-            appearance: none; padding: 5px 8px; cursor: pointer;
-            color: var(--muted); background: transparent;
-            border: 1px solid transparent; border-radius: var(--radius);
-            font: inherit; font-size: 10px;
-        }
-        .tutorial-btn:hover, .tutorial-btn:focus-visible {
-            color: var(--text); border-color: var(--border);
-        }
-        #tutorial-action {
-            display: none; margin-left: auto; color: var(--text);
-            background: var(--surface-2); border-color: var(--border);
-        }
-        #tutorial-action.visible { display: inline-block; }
-        #tutorial-action:hover, #tutorial-action:focus-visible {
-            color: var(--active-dim); border-color: var(--active-dim);
-        }
-        @media (max-width: 1100px) and (min-width: 850px) {
-            #tutorial-panel { width: 220px; }
-            #tutorial-copy { font-size: 11px; line-height: 1.42; }
-            .tutorial-footer { flex-wrap: wrap; }
-        }
         @media (max-width: 560px) {
-            #tutorial-panel { right: 8px; bottom: 8px; width: min(300px, calc(100vw - 16px)); }
-            .tutorial-body { padding: 11px 12px 8px; }
-            #tutorial-copy { line-height: 1.42; }
+            #tutorial-whisper { bottom: 62px; font-size: 12px; }
         }
 
         /* ── Cross-fade overlay ──────────────────────────────────── */
@@ -5020,29 +4950,10 @@
             </div><!-- #canvas-viewport -->
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
-        <aside id="tutorial-panel" aria-live="polite" aria-hidden="true">
-            <div class="tutorial-top">
-                <span id="tutorial-section">Explore</span>
-                <span id="tutorial-count">1 / 1</span>
-                <button id="tutorial-close" class="tutorial-icon-btn" type="button" aria-label="Close tutorial" title="Close tutorial">×</button>
-            </div>
-            <div id="tutorial-progress"><div id="tutorial-progress-fill"></div></div>
-            <div class="tutorial-body">
-                <h2 id="tutorial-title">Welcome to ArrayView</h2>
-                <p id="tutorial-copy"></p>
-                <div id="tutorial-visual"></div>
-                <div id="tutorial-prompt">
-                    <span id="tutorial-key"></span>
-                    <span id="tutorial-prompt-text"></span>
-                </div>
-            </div>
-            <div class="tutorial-footer">
-                <button id="tutorial-back" class="tutorial-btn" type="button">Back</button>
-                <button id="tutorial-skip" class="tutorial-btn" type="button">Skip section</button>
-                <button id="tutorial-restart" class="tutorial-btn" type="button">Restart</button>
-                <button id="tutorial-action" class="tutorial-btn" type="button"></button>
-            </div>
-        </aside>
+        <div id="tutorial-whisper" aria-live="polite" aria-hidden="true">
+            <span id="tutorial-whisper-key"></span>
+            <span id="tutorial-whisper-text"></span>
+        </div>
         <div id="slim-cb-wrap" style="display:none">
             <div id="roi-cb-flip-inner">
                 <div id="roi-cb-front" class="roi-cb-front">
@@ -27580,166 +27491,143 @@
         });
 
         // ── Learn by doing tutorial ─────────────────────────────────
-        const _TUTORIAL_STORAGE_KEY = 'arrayview:tutorial:v1';
+        const _TUTORIAL_STORAGE_KEY = 'arrayview:tutorial:v2';
         let _tutorialStarted = false;
         let _tutorialVisible = false;
         let _tutorialIndex = 0;
         let _tutorialCompleting = false;
         let _tutorialRoiCount = 0;
-        let _tutorialActionPhase = 0;
-        let _tutorialStackVariant = 'dense';
 
+        /**
+         * The tutorial, as a sequence of whispers.
+         *
+         * Each step asks for one key and says nothing about what the key
+         * does. `echo` is the line that replaces it once the viewer state
+         * actually changed — so the explanation always arrives after the
+         * discovery, never before it. Steps with `auto` are stage-hands
+         * rather than lessons: they set something up, say what appeared,
+         * and move on without asking for anything.
+         *
+         * Keep every line short enough to read without stopping, and keep
+         * every `echo` about what is now on screen. Anything that is pure
+         * exposition — a feature list, a diagram of stacking — belongs in
+         * the help map, not here.
+         */
         const _TUTORIAL_STEPS = [
             {
-                section: 'Explore', title: 'Start with the array',
-                copy: 'This is a generated 4-D volume: three spatial dimensions and one time dimension. Each card waits for a <strong>real viewer action</strong> before moving on.',
-                key: '→', prompt: 'Nothing is on rails. Begin when you are ready.',
-                action: 'begin', actionLabel: 'Begin',
-            },
-            {
-                section: 'Explore', title: 'Move through slices',
-                copy: 'The highlighted dimension is the one you are navigating. Mouse-wheel over the array also works.',
-                key: 'K / ↑', prompt: 'Advance one slice',
+                key: 'K', whisper: 'press it',
+                echo: 'you moved through a slice',
                 expect: ['slice.next', 'slice.prev'],
             },
             {
-                section: 'Explore', title: 'Choose another dimension',
-                copy: 'ArrayView treats dimensions symmetrically. Pick the next non-display dimension, then slice through that instead.',
-                key: 'L / →', prompt: 'Select the next dimension',
+                key: 'L', whisper: 'now this one',
+                echo: 'a different dimension is listening now',
                 expect: ['dim.next', 'dim.prev'],
             },
             {
-                section: 'Explore', title: 'Let time run',
-                copy: 'Playback runs along the selected dimension. Use <code>&lt;</code> and <code>&gt;</code> to change speed while it is moving.',
-                key: 'Space', prompt: 'Start the movie',
+                key: 'K', whisper: 'again',
+                echo: 'same key, different axis — nothing here is special-cased',
+                expect: ['slice.next', 'slice.prev'],
+            },
+            {
+                key: 'space', whisper: 'try it',
+                echo: 'it runs along whichever dimension you left selected',
                 expect: ['playback.toggle'], test: () => isPlaying,
             },
             {
-                section: 'Explore', title: 'Stop on a frame',
-                copy: 'Navigation, colormaps, zoom, and most display controls remain live during playback.',
-                key: 'Space', prompt: 'Pause the movie',
+                key: 'space', whisper: 'and again',
+                echo: 'stopped — everything stayed live while it moved',
                 expect: ['playback.toggle'], test: () => !isPlaying,
             },
             {
-                section: 'Read the data', title: 'Change the colour language',
-                copy: 'A tap cycles colormaps. Hold the key for the searchable picker; custom maps live behind <code>Shift+C</code>.',
-                key: 'C', prompt: 'Choose a different colormap',
+                key: 'C', whisper: 'press it a few times',
+                echo: 'hold it instead, and you can search them',
                 expect: ['colormap.openOrCycle'],
             },
             {
-                section: 'Read the data', title: 'Open the distribution',
-                copy: 'The colorbar expands into histogram mode. Drag its handles to set the range, drag the bar to shift it, or double-click a label to type an exact value.',
-                key: 'D', prompt: 'Open the histogram',
-                expect: ['histogram.openOrCycle'], test: () => !!(primaryCb && primaryCb._expanded),
+                key: 'D', whisper: 'now this',
+                echo: 'the distribution behind the picture · drag its handles',
+                expect: ['histogram.openOrCycle'],
+                test: () => !!(primaryCb && primaryCb._expanded),
             },
             {
-                section: 'Read the data', title: 'Cycle the range',
-                copy: 'Repeated taps cycle useful range presets. <code>Shift+D</code> chooses which dimensions participate: in-scope, recompute, or frozen. Scroll the histogram to zoom its range.',
-                key: 'D', prompt: 'Try the next range preset',
+                key: 'D', whisper: 'keep pressing',
+                echo: 'range presets · Shift+D chooses which dims count',
                 expect: ['histogram.openOrCycle'], rawKeys: ['d'],
                 test: () => !!(primaryCb && primaryCb._expanded),
             },
             {
-                section: 'Change the view', title: 'See all three planes',
-                copy: 'Orthogonal view links three slices through one point. Drag a crosshair to move through the volume; hold <code>G</code> for layouts and press <code>P</code> for projection.',
-                key: 'V', prompt: 'Enter orthogonal view',
+                key: 'V', whisper: 'press it',
+                echo: 'three planes through one point · drag a crosshair',
                 expect: ['multiview.toggle'], test: () => multiViewActive,
             },
             {
-                section: 'Change the view', title: 'Return without losing your place',
-                copy: 'Modes are lenses, not separate apps. Toggling a mode off restores the normal view at the same location.',
-                key: 'V', prompt: 'Return to the single view',
+                key: 'V', whisper: 'and back',
+                echo: 'you kept your place — modes are lenses, not rooms',
                 expect: ['multiview.toggle'], test: () => !multiViewActive,
             },
             {
-                section: 'Compare', title: 'Split one dimension',
-                copy: 'You can compare two positions from the current non-spatial dimension without loading another file.',
-                key: 'Shift+S', prompt: 'Split the active dimension into two panes',
+                key: 'Shift+S', whisper: 'try this one',
+                echo: 'one dimension, two positions, no second file',
                 expect: ['compare.toggleDetachedSplit'], test: () => detachedDimMode,
             },
             {
-                section: 'Compare', title: 'Move one side independently',
-                copy: '<code>[</code> and <code>]</code> move the first pane; <code>{</code> and <code>}</code> move the second. Navigation outside those keys stays linked.',
-                key: ']', prompt: 'Move the first split pane',
+                key: ']', whisper: 'now this',
+                echo: 'that side moves alone · { and } move the other',
                 expect: ['detachedDim.adjustIndexA'],
             },
             {
-                section: 'Compare', title: 'Close the split',
-                copy: 'The same shortcut reverses the operation and restores the single view.',
-                key: 'Shift+S', prompt: 'Return to one pane',
+                key: 'Shift+S', whisper: 'once more',
+                echo: 'back to one',
                 expect: ['compare.toggleDetachedSplit'], test: () => !detachedDimMode,
             },
             {
-                section: 'Compare', title: 'Load two arrays at once',
-                copy: 'The tutorial already prepared a matched reference volume. In normal use, pass two to six files to the CLI or several arrays to <code>view(a, b, ...)</code>.',
-                key: '2×', prompt: 'Load the prepared comparison pair',
-                action: 'pair', actionLabel: 'Load pair',
+                auto: 'pair',
+                echo: 'a second array was waiting all along',
             },
             {
-                section: 'Compare', title: 'Put the operation in the centre',
-                copy: 'The centre cycles through signed, absolute, and relative difference, then overlay, wipe, flicker, and checkerboard. <code>G</code> changes pane layout.',
-                key: 'Shift+X', prompt: 'Add the first centre comparison',
+                key: 'Shift+X', whisper: 'press it, more than once',
+                echo: 'signed, absolute, relative · then overlay, wipe, flicker, checker',
                 expect: ['compare.cycleCenterMode'], test: () => compareCenterMode > 0,
             },
             {
-                section: 'Compare', title: 'Collections are another dimension',
-                copy: '<code>--stack</code> aligns matching files into a collection. Equal shapes become dense; mixed shapes stay ragged. The dimbar uses a vertical separator—not a dot—for collection dimensions.',
-                key: '│', prompt: 'Switch the example from dense to ragged',
-                action: 'stack', actionLabel: 'Show ragged',
-                visual: 'stack',
+                auto: 'single',
+                echo: 'back to the one array — nothing you did was lost',
             },
             {
-                section: 'Analyze', title: 'Return to the source',
-                copy: 'Comparison state is reversible. We will keep the generated mask and continue with the original volume.',
-                key: '1×', prompt: 'Return to the single array',
-                action: 'single', actionLabel: 'Single view',
-            },
-            {
-                section: 'Analyze', title: 'Reveal a named overlay',
-                copy: 'Overlays can be filled or outlined, recoloured, faded, and cycled independently. Stack patterns can pair sparse masks with cases automatically.',
-                key: 'Shift+O', prompt: 'Show the prepared “focus regions” mask',
+                key: 'Shift+O', whisper: 'try it',
+                echo: 'someone had already marked these regions',
                 expect: ['overlay.cycleVisibility'], test: () => _overlayVisibility !== 'none',
             },
             {
-                section: 'Analyze', title: 'Enter ROI analysis',
-                copy: 'ROI mode supports circle, rectangle, freehand, and tolerance-based flood fill. The colorbar becomes its compact tool shelf.',
-                key: 'Shift+R', prompt: 'Activate ROI mode',
+                key: 'Shift+R', whisper: 'and this',
+                echo: 'the colorbar became a tool shelf',
                 expect: ['roi.cycleMode'], test: () => rectRoiMode,
             },
             {
-                section: 'Analyze', title: 'Measure something real',
-                copy: 'Draw on the array. Stats include count, mean, standard deviation, and range. The manager can rename, select, delete, export CSV, or save masks; flood fill also controls tolerance and dimensional extent.',
-                key: 'Drag', prompt: 'Draw one ROI on the image',
+                key: 'drag', whisper: 'draw on the array',
+                echo: 'it measured what you drew',
                 test: () => _rois.length > _tutorialRoiCount,
                 onEnter: () => { _tutorialRoiCount = _rois.length; },
             },
             {
-                section: 'Keep going', title: 'Make the viewer yours',
-                copy: 'Preferences covers theme, dimbar style, pane shape, default window, histograms, zoom, hover info, and more. Changes preview live and persist when you apply them.',
-                key: 'Prefs', prompt: 'Open Preferences, look around, then continue',
-                action: 'preferences', actionLabel: 'Open Preferences',
+                key: '?', whisper: 'last one',
+                echo: 'everything else is in here, whenever you want it',
+                rawKeys: ['?'],
+                test: () => helpOverlay.classList.contains('visible'),
             },
             {
-                section: 'Keep going', title: 'The complete map is always nearby',
-                copy: 'The help overlay is generated from the same command registry that drives the viewer, organized into Basics, Display, Ortho, Compare, Tools, Overlays, and qMRI.',
-                key: '?', prompt: 'Open the shortcut map, then continue',
-                action: 'help', actionLabel: 'Open shortcut map',
-            },
-            {
-                section: 'Keep going', title: 'A few doors remain',
-                copy: 'The focused tour stops here, but the viewer does not: qMRI and synthetic contrasts, segmentation, crop and ruler tools, projections, mosaic, FFT and complex views, pixel pins, vector fields, save, GIF, and reusable links are all already there.',
-                key: '/', prompt: 'The tool menu and help map are your index.',
-                action: 'continue', actionLabel: 'Keep exploring',
-                visual: 'features',
-            },
-            {
-                section: 'Keep going', title: 'Open it where you work',
-                copy: 'ArrayView can open from a file or folder, Python and Jupyter, VS Code Explorer, a native window or browser, MATLAB and Julia, and across SSH or a VS Code tunnel.',
-                key: '✓', prompt: 'That is the map. The rest is yours.',
-                action: 'finish', actionLabel: 'Finish',
-                visual: 'routes',
+                auto: 'finish',
+                echo: 'go on then',
             },
         ];
+
+        // How long an echo stays up before the next whisper arrives. Long
+        // enough to read one short line, short enough that it never feels
+        // like a dialog waiting to be dismissed.
+        const _TUTORIAL_ECHO_MS = 1900;
+        const _TUTORIAL_GAP_MS = 520;
+        let _tutorialWhisperTimer = null;
 
         function _tutorialMaybeStart() {
             if (!_isTutorialSession || _tutorialStarted || !_metadataProcessed) return;
@@ -27753,9 +27641,8 @@
                 updateView();
             }
             _tutorialVisible = true;
-            _tutorialPrepareStep();
-            _tutorialRender();
             _reconcileTutorial();
+            _tutorialPrepareStep();
         }
 
         function _reconcileTutorial() {
@@ -27766,96 +27653,95 @@
                 'tutorial-before-overlay',
                 visible && overlayStep >= 0 && _tutorialIndex < overlayStep
             );
-            const panel = document.getElementById('tutorial-panel');
-            if (panel) panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
+            const whisper = document.getElementById('tutorial-whisper');
+            if (whisper) {
+                whisper.setAttribute('aria-hidden', visible ? 'false' : 'true');
+                if (!visible) whisper.classList.remove('is-visible', 'is-echo');
+            }
         }
 
-        function _tutorialVisualHtml(step) {
-            if (step.visual === 'stack') {
-                if (_tutorialStackVariant === 'ragged') {
-                    return '<div class="tutorial-dims">64 · 72 · 28–40 <span class="tutorial-stack-sep">│</span> 12</div>'
-                        + 'ragged · each case keeps its native spatial shape';
-                }
-                return '<div class="tutorial-dims">64 · 72 · 32 <span class="tutorial-stack-sep">│</span> 12</div>'
-                    + 'dense · matching cases share one spatial shape';
+        /** Put one line up, or take the line away when `text` is empty. */
+        function _tutorialSay(keyLabel, text, isEcho) {
+            const whisper = document.getElementById('tutorial-whisper');
+            if (!whisper) return;
+            const keyEl = document.getElementById('tutorial-whisper-key');
+            const textEl = document.getElementById('tutorial-whisper-text');
+            if (!text) {
+                whisper.classList.remove('is-visible');
+                return;
             }
-            if (step.visual === 'routes') {
-                return '<div class="tutorial-route-grid">'
-                    + '<span>CLI · files · folders</span><span>Python · Jupyter</span>'
-                    + '<span>VS Code Explorer</span><span>native · browser</span>'
-                    + '<span>MATLAB · Julia</span><span>SSH · tunnels</span>'
-                    + '</div>';
-            }
-            if (step.visual === 'features') {
-                return '<div class="tutorial-route-grid">'
-                    + '<span>qMRI · synth</span><span>segment · crop</span>'
-                    + '<span>ruler · pixel pins</span><span>MIP · mosaic</span>'
-                    + '<span>FFT · complex</span><span>save · GIF · share</span>'
-                    + '</div>';
-            }
-            return '';
+            keyEl.textContent = keyLabel || '';
+            keyEl.style.display = keyLabel && !isEcho ? '' : 'none';
+            textEl.textContent = text;
+            whisper.classList.toggle('is-echo', !!isEcho);
+            whisper.classList.add('is-visible');
         }
 
-        function _tutorialRender() {
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!step) return;
-            const sectionSteps = _TUTORIAL_STEPS.filter(item => item.section === step.section);
-            const sectionIndex = sectionSteps.indexOf(step) + 1;
-            document.getElementById('tutorial-section').textContent = step.section;
-            document.getElementById('tutorial-count').textContent = `${sectionIndex} / ${sectionSteps.length}`;
-            document.getElementById('tutorial-title').textContent = step.title;
-            document.getElementById('tutorial-copy').innerHTML = step.copy;
-            document.getElementById('tutorial-key').textContent = step.key || '';
-            document.getElementById('tutorial-prompt-text').textContent = step.prompt || '';
-            document.getElementById('tutorial-progress-fill').style.width =
-                `${Math.round((_tutorialIndex / (_TUTORIAL_STEPS.length - 1)) * 100)}%`;
-            const visual = document.getElementById('tutorial-visual');
-            visual.innerHTML = _tutorialVisualHtml(step);
-            visual.classList.toggle('visible', !!step.visual);
-            const action = document.getElementById('tutorial-action');
-            action.textContent = step.actionLabel || '';
-            action.classList.toggle('visible', !!step.action);
-            document.getElementById('tutorial-back').disabled = _tutorialIndex === 0;
-            document.getElementById('tutorial-skip').disabled =
-                _tutorialIndex === _TUTORIAL_STEPS.length - 1;
+        function _tutorialClearTimer() {
+            if (_tutorialWhisperTimer) {
+                clearTimeout(_tutorialWhisperTimer);
+                _tutorialWhisperTimer = null;
+            }
         }
 
         function _tutorialPrepareStep() {
-            _tutorialActionPhase = 0;
             const step = _TUTORIAL_STEPS[_tutorialIndex];
             if (!step) return;
-            if (step.action === 'stack') _tutorialStackVariant = 'dense';
-            if (helpOverlay.classList.contains('visible')) {
-                setHelpVisible(false);
-            }
+            if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
             if (typeof step.onEnter === 'function') step.onEnter();
+            if (step.auto) {
+                // Stage-hands run themselves and report what changed; there is
+                // nothing for the reader to press.
+                _tutorialRunAuto(step);
+                return;
+            }
+            _tutorialSay(step.key, step.whisper, false);
         }
 
         function _tutorialGo(index) {
+            _tutorialClearTimer();
             _tutorialIndex = Math.max(0, Math.min(_TUTORIAL_STEPS.length - 1, index));
             sessionStorage.setItem(_TUTORIAL_STORAGE_KEY, String(_tutorialIndex));
             _tutorialCompleting = false;
-            document.getElementById('tutorial-panel').classList.remove('is-celebrating');
+            _reconcileTutorial();
             _tutorialPrepareStep();
-            _tutorialRender();
         }
 
+        /** Replace the invitation with what just happened, then move on. */
         function _tutorialComplete() {
             if (_tutorialCompleting || !_tutorialVisible) return;
             _tutorialCompleting = true;
-            const panel = document.getElementById('tutorial-panel');
-            panel.classList.add('is-celebrating');
-            document.getElementById('tutorial-prompt-text').textContent = 'Done — the viewer state changed.';
-            window.setTimeout(() => _tutorialGo(_tutorialIndex + 1), 520);
+            const step = _TUTORIAL_STEPS[_tutorialIndex];
+            const last = _tutorialIndex >= _TUTORIAL_STEPS.length - 1;
+            _tutorialSay('', (step && step.echo) || '', true);
+            _tutorialClearTimer();
+            _tutorialWhisperTimer = window.setTimeout(() => {
+                _tutorialSay('', '', true);
+                _tutorialWhisperTimer = window.setTimeout(() => {
+                    if (last) {
+                        _tutorialFinish();
+                    } else {
+                        _tutorialGo(_tutorialIndex + 1);
+                    }
+                }, _TUTORIAL_GAP_MS);
+            }, _TUTORIAL_ECHO_MS);
+        }
+
+        function _tutorialFinish() {
+            _tutorialClearTimer();
+            sessionStorage.removeItem(_TUTORIAL_STORAGE_KEY);
+            _tutorialVisible = false;
+            _reconcileTutorial();
         }
 
         function _tutorialEvaluate(actionId) {
             if (!_tutorialVisible || _tutorialCompleting) return;
             const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!step || step.action) return;
+            if (!step || step.auto) return;
             const rawKey = actionId && actionId.startsWith('key:') ? actionId.slice(4) : '';
             const rawMatch = !!(rawKey && step.rawKeys && step.rawKeys.includes(rawKey));
             if (step.expect && !step.expect.includes(actionId) && !rawMatch) return;
+            if (!step.expect && !rawMatch && actionId !== 'pointer.draw') return;
             const check = () => {
                 if (_TUTORIAL_STEPS[_tutorialIndex] !== step || _tutorialCompleting) return;
                 if (!step.test || step.test()) {
@@ -27867,70 +27753,37 @@
             check();
         }
 
-        async function _tutorialRunAction() {
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!step || !step.action || _tutorialCompleting) return;
-            const actionButton = document.getElementById('tutorial-action');
-            if (step.action === 'begin') {
-                _tutorialComplete();
-            } else if (step.action === 'pair') {
+        async function _tutorialRunAuto(step) {
+            if (step.auto === 'pair') {
                 const pairSids = [sid, ...compareSidList.filter(item => item && item !== sid)].slice(0, 2);
                 if (pairSids.length < 2) {
-                    showStatus('tutorial comparison array is unavailable');
+                    // No second array to show — skip rather than stall the tour.
+                    _tutorialGo(_tutorialIndex + 1);
                     return;
                 }
-                const ok = await enterCompareModeByMultipleSids(pairSids);
-                if (ok !== false) _tutorialComplete();
-            } else if (step.action === 'single') {
+                await enterCompareModeByMultipleSids(pairSids);
+            } else if (step.auto === 'single') {
                 if (compareActive) exitCompareMode();
-                window.setTimeout(_tutorialComplete, 180);
-            } else if (step.action === 'stack') {
-                if (_tutorialActionPhase === 0) {
-                    _tutorialActionPhase = 1;
-                    _tutorialStackVariant = 'ragged';
-                    document.getElementById('tutorial-visual').innerHTML = _tutorialVisualHtml(step);
-                    actionButton.textContent = 'Continue';
-                } else {
-                    _tutorialComplete();
-                }
-            } else if (step.action === 'preferences') {
-                if (_tutorialActionPhase === 0) {
-                    _tutorialActionPhase = 1;
-                    const prefsIndex = GUIDE_TABS.length;
-                    setHelpVisible(true);
-                    setHelpTab(prefsIndex);
-                    _loadPreferencesHelpTab();
-                    actionButton.textContent = 'Done exploring';
-                } else {
-                    setHelpVisible(false);
-                    _tutorialComplete();
-                }
-            } else if (step.action === 'help') {
-                if (_tutorialActionPhase === 0) {
-                    _tutorialActionPhase = 1;
-                    setHelpVisible(true);
-                    setHelpTab(0);
-                    actionButton.textContent = 'Continue';
-                } else {
-                    setHelpVisible(false);
-                    _tutorialComplete();
-                }
-            } else if (step.action === 'continue') {
-                _tutorialComplete();
-            } else if (step.action === 'finish') {
-                sessionStorage.removeItem(_TUTORIAL_STORAGE_KEY);
-                _tutorialVisible = false;
-                _reconcileTutorial();
-                showStatus('tutorial complete · press ? whenever you need the map', 4200);
+                await new Promise(resolve => window.setTimeout(resolve, 180));
             }
+            _tutorialCompleting = false;
+            _tutorialComplete();
         }
 
         window.addEventListener('arrayview:action', event => {
             _tutorialEvaluate(event.detail && event.detail.id);
         });
         window.addEventListener('keydown', event => {
+            if (!_tutorialVisible) return;
+            // Esc wakes you up. Nothing else here is dismissible, because
+            // there is nothing to dismiss.
+            if (event.key === 'Escape' && !helpOverlay.classList.contains('visible')) {
+                _tutorialFinish();
+                showStatus('tutorial closed · reload this tab to resume', 3200);
+                return;
+            }
             const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!_tutorialVisible || !step || !step.rawKeys || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (!step || !step.rawKeys || event.ctrlKey || event.metaKey || event.altKey) return;
             const key = String(event.key || '').toLowerCase();
             if (step.rawKeys.includes(key)) {
                 window.setTimeout(() => _tutorialEvaluate(`key:${key}`), 80);
@@ -27939,31 +27792,6 @@
         window.addEventListener('pointerup', () => {
             if (_tutorialVisible) window.setTimeout(() => _tutorialEvaluate('pointer.draw'), 180);
         }, true);
-
-        document.getElementById('tutorial-action').addEventListener('click', _tutorialRunAction);
-        document.getElementById('tutorial-back').addEventListener('click', () => {
-            if (_tutorialIndex > 0) _tutorialGo(_tutorialIndex - 1);
-        });
-        document.getElementById('tutorial-skip').addEventListener('click', () => {
-            const currentSection = _TUTORIAL_STEPS[_tutorialIndex].section;
-            const nextSection = _TUTORIAL_STEPS.findIndex(
-                (step, index) => index > _tutorialIndex && step.section !== currentSection
-            );
-            _tutorialGo(nextSection < 0 ? _TUTORIAL_STEPS.length - 1 : nextSection);
-        });
-        document.getElementById('tutorial-restart').addEventListener('click', () => {
-            if (isPlaying) togglePlay();
-            if (multiViewActive) exitMultiView();
-            if (compareActive) exitCompareMode();
-            if (rectRoiMode) _deactivateRoiInteraction();
-            setHelpVisible(false);
-            _tutorialGo(0);
-        });
-        document.getElementById('tutorial-close').addEventListener('click', () => {
-            _tutorialVisible = false;
-            _reconcileTutorial();
-            showStatus('tutorial closed · reload this tab to resume', 3200);
-        });
 
 
         // --------------- Side-by-side compare ---------------

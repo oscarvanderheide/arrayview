@@ -99,9 +99,14 @@ opening separately uses a browser tab.
 The first rendered frame is shown immediately. There is no client-side intro animation.
 Native windows also show a static preview while the live viewer warms up.
 
-With no file argument, ArrayView opens its generated interactive tutorial. The
-tutorial uses the normal viewer and real commands rather than a simulated
-walkthrough, and includes prepared comparison and overlay data.
+With no file argument, ArrayView opens its generated interactive tutorial. It
+runs in the normal viewer on real commands rather than a simulated walkthrough,
+and includes prepared comparison and overlay data.
+
+The tutorial has no panel and nothing to click. A single line near the bottom
+of the frame names one key and asks you to press it; it does not say what the
+key does. Once the viewer state actually changes, that line is replaced by what
+just happened, then dissolves into the next one. Press `Esc` to end it.
 
 ## Multiple Arrays
 
