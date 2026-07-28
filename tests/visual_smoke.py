@@ -892,22 +892,34 @@ def run_smoke(page, base, client, tmp):
         "() => document.body.classList.contains('tutorial-active')",
         timeout=15_000,
     )
-    page.wait_for_timeout(500)
-    tutorial_state = page.evaluate(
+    # The tour opens on a section title, not an instruction: it pauses so
+    # the first frame can land, names the chapter, and only then asks.
+    page.wait_for_function(
+        "() => document.getElementById('tutorial-whisper')"
+        ".classList.contains('is-section')",
+        timeout=10_000,
+    )
+    section_state = page.evaluate(
         """() => ({
-            key: document.getElementById('tutorial-whisper-key').textContent,
-            text: document.getElementById('tutorial-whisper-text').textContent,
+            title: document.getElementById('tutorial-whisper-text').textContent,
+            note: document.getElementById('tutorial-whisper-note').textContent,
+            rail: Array.from(document.querySelectorAll('.tutorial-rail-item'))
+                .map(el => el.textContent),
             compare: compareActive,
-            whisperVisible: document.getElementById('tutorial-whisper')
-                .classList.contains('is-visible'),
         })"""
     )
-    if tutorial_state["key"] != "K":
-        print(f"  WARNING: tutorial did not open on its first whisper: {tutorial_state}")
-    if tutorial_state["compare"]:
+    if section_state["title"] != "moving":
+        print(f"  WARNING: tutorial did not open on its first section: {section_state}")
+    if len(section_state["rail"]) < 2:
+        print(f"  WARNING: tutorial section rail is missing: {section_state}")
+    if section_state["compare"]:
         print("  WARNING: tutorial comparison pair opened before the learner requested it")
-    if not tutorial_state["whisperVisible"]:
-        print("  WARNING: tutorial whisper is not visible after first frame")
+    _shot(page, "48_tutorial_section")
+
+    page.wait_for_function(
+        "() => document.getElementById('tutorial-whisper-key').textContent === 'k'",
+        timeout=10_000,
+    )
     _shot(page, "48_tutorial_start")
     _focus(page)
     _press(page, "ArrowUp", wait=400)

@@ -16,11 +16,24 @@ last_updated: 2026-07-28
 
 - No-argument CLI startup opens a generated, action-gated interactive tutorial.
   It presents as a single whisper line — one key named at a time, with no panel,
-  counter, progress bar, or buttons — and never says what a key does before it
-  is pressed; the explanation replaces the invitation only once the viewer state
+  counter, or progress bar — and never says what a key does before it is
+  pressed; the explanation replaces the invitation only once the viewer state
   changed. Its real scalar, comparison, and overlay sessions cover navigation,
   playback, colormaps, histograms, ortho, split and multi-array comparison,
   overlays, ROI analysis, and the help map. `Esc` ends it.
+- The tour is paced to the reader, not to a clock: a new line is only put on
+  screen once input has gone quiet and nothing is covering the frame, so
+  exploring after a step is never cut short and an echo can never play out
+  behind the panel that step just opened.
+- The tour is divided into named sections (`moving`, `looking`, `views`,
+  `two arrays`, `marks`, `the rest`), each announced before it asks for
+  anything. A rail along the bottom is the one piece of tutorial furniture and
+  the one thing clickable; `Tab`/`Shift+Tab` also switch. Every section declares
+  the viewer state it needs and stages it on entry, so sections are real entry
+  points and can be jumped to in any order.
+- Tutorial step key labels are literal keymap characters (`v` and `V` are
+  different commands). `tests/test_tutorial_browser.py` cross-checks every step
+  against `keybinds`; do not hand-edit a label without that check passing.
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
 - Local server reuse is Unix-user-fenced: `/ping` publishes the server UID,
   callers only reuse a compatible server owned by their effective UID, and a

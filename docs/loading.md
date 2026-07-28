@@ -103,10 +103,23 @@ With no file argument, ArrayView opens its generated interactive tutorial. It
 runs in the normal viewer on real commands rather than a simulated walkthrough,
 and includes prepared comparison and overlay data.
 
-The tutorial has no panel and nothing to click. A single line near the bottom
-of the frame names one key and asks you to press it; it does not say what the
-key does. Once the viewer state actually changes, that line is replaced by what
-just happened, then dissolves into the next one. Press `Esc` to end it.
+The tutorial has no panel. A single line near the bottom of the frame names one
+key and asks you to press it; it does not say what the key does. Once the viewer
+state actually changes, that line is replaced by what just happened, then
+dissolves into the next one.
+
+It is in no hurry. Each line holds long enough to read, the frame goes quiet
+between steps, and the next thing is only asked once you have stopped — so you
+can stay and play with whatever you just found for as long as you like. When a
+panel opens over the array, the tutorial fades out and waits rather than talking
+underneath it.
+
+The tour is divided into sections — `moving`, `looking`, `views`, `two arrays`,
+`marks`, `the rest` — listed along the bottom of the frame. Each announces
+itself before it starts asking for anything. Click a section to jump to it, or
+use `Tab` and `Shift+Tab`. Jumping is safe in either direction: every section
+sets up the state it needs, so skipping ahead to `two arrays` loads the pair and
+going back closes it again. Press `Esc` to end the tour.
 
 ## Multiple Arrays
 
