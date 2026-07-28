@@ -3857,6 +3857,74 @@ class TestROIDrag:
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
+class TestWheelSensitivity:
+    """Scroll travel per index scales with dimension length (short dims are calmer)."""
+
+    def test_short_dim_needs_more_trackpad_travel_than_long_dim(
+        self, loaded_viewer, sid_4d, client, tmp_path
+    ):
+        # sid_4d is 5x20x32x32 — dim 0 has 5 indices, the twitchy case.
+        page = loaded_viewer(sid_4d)
+        page.wait_for_timeout(400)
+
+        short = page.evaluate(
+            """() => {
+                let idx = 0;
+                for (let i = 0; i < 10; i++) idx += _wheelIndexDelta(0, { deltaY: -4 });
+                return { size: shape[0], moved: idx };
+            }"""
+        )
+        assert short["size"] == 5
+        assert short["moved"] == 1, (
+            "ten small trackpad events over a 5-index dim should advance about "
+            f"one index, got {short}"
+        )
+
+        long_arr = np.zeros((100, 16, 16), dtype=np.float32)
+        path = tmp_path / "long_dim.npy"
+        np.save(path, long_arr)
+        sid_long = client.post(
+            "/load", json={"filepath": str(path), "name": "long_dim"}
+        ).json()["sid"]
+        page = loaded_viewer(sid_long)
+        page.wait_for_timeout(400)
+
+        long_res = page.evaluate(
+            """() => {
+                let idx = 0;
+                for (let i = 0; i < 10; i++) idx += _wheelIndexDelta(0, { deltaY: -4 });
+                return { size: shape[0], moved: idx };
+            }"""
+        )
+        assert long_res["size"] == 100
+        assert long_res["moved"] == 10, (
+            "a long dim should keep one index per event, got " f"{long_res}"
+        )
+
+    def test_mouse_notch_always_steps_even_on_a_short_dim(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        page.wait_for_timeout(400)
+        moved = page.evaluate("() => _wheelIndexDelta(0, { deltaY: -100 })")
+        assert moved == 1, (
+            f"one mouse notch should step exactly one index on a short dim, got {moved}"
+        )
+
+    def test_direction_reversal_does_not_carry_stale_travel(
+        self, loaded_viewer, sid_4d
+    ):
+        page = loaded_viewer(sid_4d)
+        page.wait_for_timeout(400)
+        result = page.evaluate(
+            """() => {
+                for (let i = 0; i < 5; i++) _wheelIndexDelta(0, { deltaY: -4 });
+                // Reversing should start a fresh budget, not immediately fire
+                // from the travel banked in the other direction.
+                return _wheelIndexDelta(0, { deltaY: 4 });
+            }"""
+        )
+        assert result == 0, f"reversal should reset the accumulator, got {result}"
+
+
 class TestColorbarWindowLevel:
     def test_dblclick_vmin_label_opens_value_popup_and_commits(
         self, loaded_viewer, sid_2d
