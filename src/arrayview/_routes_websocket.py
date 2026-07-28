@@ -197,7 +197,7 @@ def register_websocket_routes(app) -> None:
 
         launch_journal = None
         if launch_request_id or launch_token:
-            journals = getattr(session, "viewer_phase_journals", {})
+            journals = _session_mod.VIEWER_PHASE_JOURNALS.get(sid, {})
             launch_journal = journals.get(launch_request_id)
             if (
                 not launch_request_id
@@ -650,10 +650,8 @@ def register_websocket_routes(app) -> None:
                     ) -> None:
                         try:
                             await asyncio.sleep(grace_seconds)
-                            current_journals = getattr(
-                                expected_session,
-                                "viewer_phase_journals",
-                                {},
+                            current_journals = (
+                                _session_mod.VIEWER_PHASE_JOURNALS.get(sid, {})
                             )
                             if (
                                 SESSIONS.get(sid) is expected_session

@@ -1423,12 +1423,71 @@ def test_viewer_sid_tracking_clears_on_websocket_disconnect(tmp_path):
         assert sid not in session_mod.VIEWER_SID_COUNTS
 
 
+def test_launch_journal_prepares_before_large_session_is_ready():
+    import asyncio
+
+    import httpx
+
+    from arrayview._app import app
+    import arrayview._session as session_mod
+
+    sid = "pending-viewer-journal"
+    request_id = "request-while-loading"
+    path = f"/viewer-phase/{sid}/{request_id}"
+
+    async def prepare():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+        ) as client:
+            return await client.post(
+                path,
+                json={
+                    "phase": "launch-prepared",
+                    "server_id": session_mod.SERVER_RUNTIME.instance_id,
+                    "window_id": "window-pending",
+                    "token": "token-pending",
+                },
+            )
+
+    try:
+        session_mod.PENDING_SESSIONS.add(sid)
+        prepared = asyncio.run(prepare())
+        assert prepared.status_code == 200
+        assert prepared.json()["token"] == "token-pending"
+        assert (
+            session_mod.VIEWER_PHASE_JOURNALS[sid][request_id]["phases"]
+            == []
+        )
+    finally:
+        session_mod.PENDING_SESSIONS.discard(sid)
+        session_mod.VIEWER_PHASE_JOURNALS.pop(sid, None)
+
+
+def test_final_session_release_retires_control_plane_journals():
+    import arrayview._session as session_mod
+    from arrayview._lifecycle import release_session
+
+    session = session_mod.Session(np.ones((2, 2), dtype=np.float32))
+    sid = session.sid
+    session_mod.SESSIONS[sid] = session
+    session_mod.VIEWER_PHASE_JOURNALS[sid] = {
+        "request": {"release_task": None},
+    }
+
+    assert release_session(sid) is True
+    assert sid not in session_mod.SESSIONS
+    assert sid not in session_mod.VIEWER_PHASE_JOURNALS
+
+
 def test_disconnect_owned_session_releases_related_sessions_after_reconnect_grace(
     tmp_path,
 ):
     import time
 
     from arrayview._app import app
+    import arrayview._session as session_mod
 
     path = tmp_path / "disconnect-release.npy"
     np.save(path, np.ones((4, 4), dtype=np.float32))
@@ -1478,7 +1537,7 @@ def test_disconnect_owned_session_releases_related_sessions_after_reconnect_grac
             },
         )
         assert reported.status_code == 200
-        journal = SESSIONS[sid].viewer_phase_journals[
+        journal = session_mod.VIEWER_PHASE_JOURNALS[sid][
             "related-release-request"
         ]
         journal["disconnect_release_grace_seconds"] = 0.05
@@ -1511,6 +1570,7 @@ def test_integrated_launch_cleanup_is_scoped_per_request_token(tmp_path):
     import time
 
     from arrayview._app import app
+    import arrayview._session as session_mod
     from arrayview._session import SESSIONS
 
     paths = []
@@ -1557,7 +1617,7 @@ def test_integrated_launch_cleanup_is_scoped_per_request_token(tmp_path):
                 },
             )
             assert reported.status_code == 200
-            journal = SESSIONS[primary_sid].viewer_phase_journals[request_id]
+            journal = session_mod.VIEWER_PHASE_JOURNALS[primary_sid][request_id]
             journal["disconnect_release_grace_seconds"] = 0.05
             return f"/ws/{primary_sid}?launch_request_id={request_id}&launch_token={token}"
 
@@ -1583,7 +1643,7 @@ def test_integrated_launch_cleanup_is_scoped_per_request_token(tmp_path):
             assert SESSIONS[primary_sid].viewer_leases == 1
             assert (
                 "second-request"
-                not in SESSIONS[primary_sid].viewer_phase_journals
+                not in session_mod.VIEWER_PHASE_JOURNALS[primary_sid]
             )
 
             from starlette.websockets import WebSocketDisconnect
@@ -1680,7 +1740,10 @@ def test_shell_close_uses_release_route_semantics(tmp_path):
 def test_vscode_wrapper_backend_check_uses_extension_host_ping():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
-    assert "pingUrlFromViewerUrl(url)" in source
+    # The advisory transport warmup that used to ping `url` directly is gone;
+    # the panel's own backend check is the surviving extension-host ping, and it
+    # must address the backend rather than the delivery URL when they differ.
+    assert "pingUrlFromViewerUrl(portMapping ? backendUrl : url)" in source
     assert "await arrayViewStatusOk(pingUrl)" in source
     assert "isArrayViewStatus(payload, expectedServerId)" in source
     assert "viewerReady = true" in source

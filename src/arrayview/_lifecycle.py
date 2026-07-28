@@ -12,6 +12,7 @@ from arrayview._session import (
     PENDING_SESSIONS,
     SESSIONS,
     VIEWER_CONNECTION_EPOCHS,
+    VIEWER_PHASE_JOURNALS,
     VIEWER_RELEASE_TASKS,
 )
 
@@ -55,6 +56,7 @@ def acquire_session_leases(sids: list[str]) -> bool:
 
 def release_session(sid: str, *, cancel_if_missing: bool = False) -> bool:
     """Release one viewer lease and drop the session after the final lease."""
+    retire_journals = False
     with _SESSION_LEASE_LOCK:
         was_pending = sid in PENDING_SESSIONS
         if was_pending or (cancel_if_missing and sid not in SESSIONS):
@@ -64,6 +66,7 @@ def release_session(sid: str, *, cancel_if_missing: bool = False) -> bool:
         session = SESSIONS.get(sid)
         if session is None:
             released = was_pending
+            retire_journals = was_pending or cancel_if_missing
         else:
             leases = max(1, int(getattr(session, "viewer_leases", 1)))
             if leases > 1:
@@ -79,7 +82,20 @@ def release_session(sid: str, *, cancel_if_missing: bool = False) -> bool:
                 NATIVE_READY_REQUESTS.difference_update(
                     {item for item in NATIVE_READY_REQUESTS if item[0] == sid}
                 )
+                retire_journals = True
                 released = True
+
+        if retire_journals:
+            journals = VIEWER_PHASE_JOURNALS.pop(sid, {})
+            for journal in journals.values():
+                journal_task = journal.get("release_task")
+                if journal_task is not None and not journal_task.done():
+                    try:
+                        journal_task.get_loop().call_soon_threadsafe(
+                            journal_task.cancel
+                        )
+                    except (RuntimeError, AttributeError):
+                        pass
 
     release_task = VIEWER_RELEASE_TASKS.pop(sid, None)
     VIEWER_CONNECTION_EPOCHS.pop(sid, None)

@@ -58,12 +58,19 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             raise HTTPException(status_code=400, detail="Invalid viewer phase")
         if phase != "launch-prepared" and not viewer_instance_id:
             raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
-        session = await wait_for_session_ready(sid)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
-        journals = getattr(session, "viewer_phase_journals", None)
-        if journals is None:
-            journals = session.viewer_phase_journals = {}
+        # `launch-prepared` is control-plane bookkeeping. The viewer is meant
+        # to open while a large array is still loading, so waiting for the data
+        # Session here deadlocks that design against the opener's short journal
+        # timeout. Pending registration is sufficient; later viewer phases
+        # still wait for the real Session.
+        if phase == "launch-prepared":
+            if sid not in SESSIONS and sid not in _session_mod.PENDING_SESSIONS:
+                raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            session = await wait_for_session_ready(sid)
+            if session is None:
+                raise HTTPException(status_code=404, detail="Session not found")
+        journals = _session_mod.VIEWER_PHASE_JOURNALS.setdefault(sid, {})
         if phase == "launch-prepared":
             previous_journal = journals.get(request_id)
             previous_release_task = (
@@ -134,7 +141,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         session = SESSIONS.get(sid)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        journals = getattr(session, "viewer_phase_journals", {})
+        journals = _session_mod.VIEWER_PHASE_JOURNALS.get(sid, {})
         journal = journals.get(request_id, {})
         if not journal or journal.get("token") != token:
             raise HTTPException(status_code=409, detail="Viewer phase owner changed")

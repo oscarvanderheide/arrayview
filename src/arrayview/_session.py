@@ -37,6 +37,9 @@ SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 SHELL_REQUEST_IDS: set[str] = set()
 VIEWER_REQUEST_COUNTS: dict[tuple[str, str], int] = {}
 NATIVE_READY_REQUESTS: set[tuple[str, str]] = set()
+# Launch readiness is control-plane state and must exist before a large array
+# finishes loading. Keyed by SID, then request ID; release_session owns cleanup.
+VIEWER_PHASE_JOURNALS: dict[str, dict[str, dict]] = {}
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
@@ -626,6 +629,7 @@ __all__ = [
     "VIEWER_SOCKETS",
     "VIEWER_SIDS",
     "VIEWER_CONNECTIONS_SEEN",
+    "VIEWER_PHASE_JOURNALS",
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",
