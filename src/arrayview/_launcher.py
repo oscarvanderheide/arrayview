@@ -5867,10 +5867,27 @@ def arrayview():
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
                 flush=True,
             )
-    if "remote_native_redirected_to_vscode" in launch_plan.reasons:
-        _vprint(
-            "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
-        )
+    # Not honouring an explicit --window is always worth a plain print: the user
+    # asked for one display and is getting another, and _vprint hid that.
+    _redirect_notices = {
+        "remote_native_redirected_to_vscode": (
+            "--window native is not available over a VS Code remote/tunnel "
+            "session; opening a VS Code tab instead."
+        ),
+        "remote_browser_redirected_to_vscode": (
+            "--window browser cannot reach a browser on the remote host; "
+            "opening a VS Code tab instead."
+        ),
+        "native_unavailable": (
+            "--window native found no usable GUI backend (no display server "
+            "or no Qt/GTK for pywebview); opening a browser instead."
+        ),
+    }
+    for _reason, _notice in _redirect_notices.items():
+        if _reason in launch_plan.reasons:
+            from ._diagnostics import print_notice
+
+            print_notice(_notice)
 
     try:
         if execution_registration is Registration.HTTP_LOAD:

@@ -167,3 +167,24 @@ def format_failure(message: str, *, colour: bool = True) -> str:
 def print_failure(message: str, stream=None) -> None:
     stream = stream if stream is not None else sys.stderr
     print(format_failure(message, colour=_colour_enabled(stream)), file=stream)
+
+
+def format_notice(message: str, *, colour: bool = True) -> str:
+    """Render a one-line ACTION notice.
+
+    Same orange as an ACTION failure, because it carries the same meaning —
+    something the user asked for is not happening — but the launch continues,
+    so there is no cause/fix block to print.
+    """
+    head = _ORANGE if colour else ""
+    end = _RESET if colour else ""
+    return f"{head}[ArrayView] {message}{end}"
+
+
+def print_notice(message: str, stream=None) -> None:
+    stream = stream if stream is not None else sys.stdout
+    print(
+        format_notice(message, colour=_colour_enabled(stream)),
+        file=stream,
+        flush=True,
+    )
