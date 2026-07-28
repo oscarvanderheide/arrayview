@@ -364,7 +364,11 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
             content=buf.getvalue(),
             media_type="image/jpeg",
             headers={
-                "Cache-Control": "no-cache",
+                # Same contract as /slice: the URL names every input, so a
+                # revisited index is a browser-cache hit instead of another
+                # round trip. Scrolling back and forth over a compare centre
+                # pane was re-deriving diffs it had just shown.
+                "Cache-Control": "max-age=300",
                 "X-ArrayView-Vmin": str(vmin),
                 "X-ArrayView-Vmax": str(vmax),
                 "X-ArrayView-Colormap": colormap,

@@ -3930,6 +3930,97 @@ class TestCompareCenterPicker:
         assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
 
 
+class TestCompareCenterStaleFrame:
+    """The centre pane must never show another mode's picture under this mode's label."""
+
+    CENTER_PIXEL = """
+        () => {
+            const c = document.querySelector('#compare-diff-canvas');
+            if (!c || !c.width || !c.height) return null;
+            const d = c.getContext('2d').getImageData(
+                Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+            return [d[0], d[1], d[2], d[3]];
+        }
+    """
+
+    def _compare_pair(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path, name):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, arr_2d * 0.5 + 0.25)
+        other = client.post(
+            "/load", json={"filepath": str(path), "name": name}
+        ).json()["sid"]
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, other)
+        return page
+
+    def test_switching_overlay_to_diff_drops_the_overlay_pixels(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        """Overlay paints the centre canvas; wipe/flicker/checker paint a
+        different one. Cycling X therefore used to land on A−B while the green
+        and purple composite from overlay was still on screen, until the diff
+        round trip finally landed."""
+        page = self._compare_pair(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, "stale_overlay"
+        )
+        page.evaluate("() => _setCompareCenterMode(4)")
+        page.wait_for_timeout(400)
+        overlay_px = page.evaluate(self.CENTER_PIXEL)
+        assert overlay_px and overlay_px[3] > 0, (
+            f"overlay mode should paint the centre canvas, got {overlay_px}"
+        )
+
+        # Read back in the same evaluate as the switch: the invalidation is
+        # synchronous, the refetch is not, so this is the exact instant the
+        # stale frame used to be visible.
+        after = page.evaluate(
+            "() => { _setCompareCenterMode(1); return ("
+            + self.CENTER_PIXEL.strip()
+            + ")(); }"
+        )
+        assert after is None or after[3] == 0 or after[:3] != overlay_px[:3], (
+            "selecting A−B must not leave the overlay composite on the centre "
+            f"canvas, got {after} (overlay was {overlay_px})"
+        )
+
+        page.wait_for_timeout(700)
+        settled = page.evaluate(self.CENTER_PIXEL)
+        assert settled and settled[3] > 0, (
+            f"A−B should paint the centre canvas once it arrives, got {settled}"
+        )
+
+    def test_repeat_request_for_the_same_diff_is_not_refetched(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        """compareRender() and _setCompareCenterMode() both ask for the diff;
+        the centre pane should not pay for the same round trip twice."""
+        page = self._compare_pair(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, "diff_dedupe"
+        )
+        page.evaluate(
+            """() => {
+                window.__diffRequests = 0;
+                const realFetch = window.fetch;
+                window.fetch = (url, opts) => {
+                    if (String(url).includes('/diff/')) window.__diffRequests++;
+                    return realFetch(url, opts);
+                };
+                _setCompareCenterMode(1);
+            }"""
+        )
+        page.wait_for_timeout(800)
+        first = page.evaluate("() => window.__diffRequests")
+        assert first >= 1, "entering A−B should fetch the diff once"
+
+        page.evaluate("() => fetchAndDrawDiff()")
+        page.wait_for_timeout(400)
+        assert page.evaluate("() => window.__diffRequests") == first, (
+            "asking again for the diff already on screen should not hit the "
+            "server"
+        )
+
+
 class TestWheelSensitivity:
     """Scroll travel per index scales with dimension length (short dims are calmer)."""
 

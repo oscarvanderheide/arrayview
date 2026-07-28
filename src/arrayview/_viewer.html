@@ -9033,6 +9033,7 @@
                 drawCompareFramesFromCache();
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
+                _invalidateForeignDiffCanvas();
                 compareScaleCanvases();
                 fetchAndDrawDiff();
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
@@ -9242,6 +9243,10 @@
                     diffCv.height = f.height;
                     diffCv.getContext('2d').putImageData(
                         applyFlips(f.imageData, f.width, f.height), 0, 0);
+                    // Claim the centre canvas for the overlay, so switching back
+                    // to a diff mode knows these pixels are not its own.
+                    _diffCanvasKey = null;
+                    _diffCanvasMode = 4;
                 }
             } else {
                 compareRegistrationFrame = null;
@@ -14093,6 +14098,74 @@
             return { options: next, clear: () => clearTimeout(timer) };
         }
 
+        const HEDGE_AFTER_MS = 1500;
+        const HEDGE_MAX_ATTEMPTS = 3;
+        const HEDGE_DEADLINE_MS = 20000;
+
+        /**
+         * GET a URL, sending a duplicate request if the first goes quiet.
+         *
+         * A request that crosses the VS Code tunnel relay is dropped outright
+         * roughly one time in five, with no slow tail behind it: it simply never
+         * answers. An `await` on one of those never settles, so the caller's
+         * in-flight flag stays set and the pane it feeds is wedged forever —
+         * which is what "the diff pane just stops responding, then catches up
+         * much later" was. Hedging, not a longer wait, is the fix: past
+         * HEDGE_AFTER_MS the first request is almost certainly dead, so ask
+         * again and take whichever copy answers. Only for idempotent GETs.
+         */
+        function _hedgedFetch(url, options) {
+            const hedgeAfterMs = options?.hedgeAfterMs ?? HEDGE_AFTER_MS;
+            const maxAttempts = options?.maxAttempts ?? HEDGE_MAX_ATTEMPTS;
+            const deadlineMs = options?.deadlineMs ?? HEDGE_DEADLINE_MS;
+            return new Promise((resolve, reject) => {
+                const controllers = [];
+                let settled = false;
+                let attempts = 0;
+                let failures = 0;
+                let hedgeTimer = null;
+                // `keep` is the controller of the copy that won. Aborting it
+                // would tear down the response body the caller is about to
+                // read, so only the losing copies are cancelled.
+                const finish = (fn, value, keep) => {
+                    if (settled) return;
+                    settled = true;
+                    if (hedgeTimer) clearTimeout(hedgeTimer);
+                    clearTimeout(deadline);
+                    controllers.forEach(c => {
+                        if (c === keep) return;
+                        try { c.abort(); } catch (_) {}
+                    });
+                    fn(value);
+                };
+                const deadline = setTimeout(
+                    () => finish(reject, new Error(`no response after ${deadlineMs}ms`)),
+                    deadlineMs,
+                );
+                const launch = () => {
+                    if (settled) return;
+                    attempts++;
+                    const ctrl = new AbortController();
+                    controllers.push(ctrl);
+                    proxyFetch(url, { signal: ctrl.signal })
+                        .then(res => finish(resolve, res, ctrl))
+                        .catch(err => {
+                            // An abort from a sibling copy winning is not a
+                            // failure; only give up when every copy has failed
+                            // and there are none left to send.
+                            failures++;
+                            if (failures >= attempts && attempts >= maxAttempts) {
+                                finish(reject, err);
+                            }
+                        });
+                    if (attempts < maxAttempts) {
+                        hedgeTimer = setTimeout(launch, hedgeAfterMs);
+                    }
+                };
+                launch();
+            });
+        }
+
         async function fetchSliceFrame(params, targetSid = sid, opts = null) {
             let perfSeq = null;
             let fetchT0 = 0;
@@ -14336,6 +14409,12 @@
                     if (sidVal === sid && overlay_sid) _applyOverlayRenderParams(reqParams);
                     return fetchSliceFrame(reqParams, sidVal, { timeoutMs: compareTimeoutMs });
                 });
+                // The diff is computed from the raw arrays, not from the frames
+                // these requests return, so it has no reason to queue behind
+                // them. Starting it here instead of after the await is what
+                // stops the centre pane trailing the source panes by a whole
+                // extra round trip on every scroll step.
+                if (diffMode > 0) fetchAndDrawDiff();
                 compareFrames = await Promise.all(requests);
                 // Auto-sync to shared range: if no manual range set and frames have
                 // different ranges, re-render with the union range for fair comparison.
@@ -14404,24 +14483,30 @@
         // the same isRendering/pendingRequest shape the main path uses.
         let _diffFetchActive = false;
         let _diffFetchPending = false;
+        // Identity of the pixels currently on `compare-diff-canvas`: the diff
+        // request that produced them, and the centre mode that owns them.
+        // `_diffCanvasMode` is what stops X-cycling from showing the wrong
+        // picture — wipe/flicker/checker paint a different canvas entirely, so
+        // the last overlay composite survived in this one and reappeared under
+        // an "A−B" label until the fetch landed.
+        let _diffCanvasKey = null;
+        let _diffCanvasMode = 0;
 
-        async function fetchAndDrawDiff() {
-            if (!diffMode || !compareActive || compareDisplaySids.length < 2) return;
-            if (_diffFetchActive) { _diffFetchPending = true; return; }
-            _diffFetchActive = true;
-            try {
-                await _fetchAndDrawDiffOnce();
-            } finally {
-                _diffFetchActive = false;
-                if (_diffFetchPending) {
-                    _diffFetchPending = false;
-                    fetchAndDrawDiff();
-                }
-            }
+        function _diffPaneSids() {
+            if (compareDisplaySids.length >= 2) return compareDisplaySids.slice(0, 2);
+            // compareDisplaySids is only assigned once the source panes have
+            // rendered. The diff does not depend on that result, so fall back
+            // to the sids the panes are about to show and start the round trip
+            // in parallel with them instead of after them.
+            const planned = getCompareRenderSids();
+            return planned.length >= 2 ? planned.slice(0, 2) : null;
         }
 
-        async function _fetchAndDrawDiffOnce() {
-            const [sid_a, sid_b] = compareDisplaySids;
+        /** Request for the diff currently being asked for, or null. */
+        function _buildDiffRequest() {
+            const sids = _diffPaneSids();
+            if (!sids) return null;
+            const [sid_a, sid_b] = sids;
             const params = new URLSearchParams({
                 dim_x: String(dim_x),
                 dim_y: String(dim_y),
@@ -14443,8 +14528,55 @@
             if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
             if (_diffManualVmin !== null) params.set('vmin_override', String(_diffManualVmin));
             if (_diffManualVmax !== null) params.set('vmax_override', String(_diffManualVmax));
+            const url = `/diff/${sid_a}/${sid_b}?${params}`;
+            // Flips are applied client-side after the fetch, so two requests
+            // with the same URL can still owe different pixels.
+            return { url, key: `${url}|${flip_x ? 1 : 0}${flip_y ? 1 : 0}` };
+        }
+
+        /**
+         * Drop centre-pane pixels that belong to a different centre mode.
+         *
+         * Keeps a same-mode frame for a neighbouring index — replacing it with
+         * a blank pane on every scroll step flickers worse than trailing by one
+         * frame does — but never lets the previous mode's picture masquerade as
+         * the selected one.
+         */
+        function _invalidateForeignDiffCanvas() {
+            if (_diffCanvasMode === diffMode) return;
+            const cv = document.getElementById('compare-diff-canvas');
+            if (cv && cv.width && cv.height) {
+                cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+            }
+            _diffCanvasKey = null;
+            _diffCanvasMode = diffMode;
+        }
+
+        async function fetchAndDrawDiff() {
+            if (!diffMode || !compareActive) return;
+            if (!_diffPaneSids()) return;
+            if (_diffFetchActive) { _diffFetchPending = true; return; }
+            _diffFetchActive = true;
             try {
-                const resp = await proxyFetch(`/diff/${sid_a}/${sid_b}?${params}`);
+                await _fetchAndDrawDiffOnce();
+            } finally {
+                _diffFetchActive = false;
+                if (_diffFetchPending) {
+                    _diffFetchPending = false;
+                    fetchAndDrawDiff();
+                }
+            }
+        }
+
+        async function _fetchAndDrawDiffOnce() {
+            const req = _buildDiffRequest();
+            if (!req) return;
+            // The centre pane already shows exactly this diff. compareRender()
+            // and _setCompareCenterMode() both ask, so without this every mode
+            // switch paid for two identical round trips.
+            if (req.key === _diffCanvasKey && _diffCanvasMode === diffMode) return;
+            try {
+                const resp = await _hedgedFetch(req.url);
                 if (!resp.ok) return;
                 const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
                 const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
@@ -14493,6 +14625,8 @@
                         }
                     } catch (_) {}
                 }
+                _diffCanvasKey = req.key;
+                _diffCanvasMode = diffMode;
                 drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
                 if (_isCompareBigLeftLayout()) compareScaleCanvases();
             } catch (e) { /* silently ignore transient errors */ }
