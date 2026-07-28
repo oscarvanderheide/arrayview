@@ -2043,7 +2043,7 @@ async function tryOpenSignalFile() {
 // Open or reveal a VS Code WebviewPanel for the given server URL.
 // The panel is only a URL wrapper: ArrayView data and controls still flow
 // through the FastAPI/WebSocket backend, never direct Python/webview IPC.
-function _viewerPanelHtml(url, warmupUrl = null, warmupTimeoutMs = 12000) {
+function _viewerPanelHtml(url, warmupUrl = null, warmupTimeoutMs = 2000) {
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url);
     const jsonWarmupUrl = JSON.stringify(warmupUrl);
@@ -2106,6 +2106,12 @@ const RELOAD_DELAY_MS = 1500;
 // RELOAD_DELAY_MS because it budgets for a real transfer (the viewer page is
 // ~1.9 MB) rather than for a script that failed to boot after arriving.
 const NAVIGATE_TIMEOUT_MS = 8000;
+// When the warmup was itself black-holed we already know the relay is in a bad
+// window, and a navigation issued into one is far more likely to be swallowed
+// than to be transferring. Retry sooner in that case only. This cannot abort a
+// healthy transfer: a healthy relay answers the warmup in ~200 ms, which takes
+// this branch out of play entirely.
+const NAVIGATE_TIMEOUT_STALLED_MS = 3000;
 function showBackendError() {
     if (viewerReady) return;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
@@ -2175,6 +2181,13 @@ frame.addEventListener('load', () => {
 });
 frame.addEventListener('error', () => console.log('[arrayview-opener] iframe error ' + arrayviewUrl));
 async function warmTransportAndOpen() {
+    // The warmup is advisory: it is a /ping, the navigation is a separate
+    // connection, and a failed warmup has never prevented the page from
+    // arriving. So it gets a budget sized to what a healthy relay actually
+    // does — measured median 185 ms, worst observed 639 ms — and never more.
+    // It used to be allowed 12 s, which is 12 s of nothing in exactly the
+    // windows where the launch is already going badly.
+    let warmupStalled = false;
     if (warmupUrl) {
         vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-started' });
         const controller = new AbortController();
@@ -2187,6 +2200,7 @@ async function warmTransportAndOpen() {
             });
             vscodeApi.postMessage({ type: 'panel-phase', phase: 'transport-warmup-complete' });
         } catch (error) {
+            warmupStalled = true;
             vscodeApi.postMessage({
                 type: 'panel-phase',
                 phase: 'transport-warmup-failed',
@@ -2199,7 +2213,7 @@ async function warmTransportAndOpen() {
     frame.src = arrayviewUrl;
     // Arm before the first load can stall; 'load' below re-arms the shorter
     // post-arrival watchdog, so the two never run at the same time.
-    scheduleReload(NAVIGATE_TIMEOUT_MS);
+    scheduleReload(warmupStalled ? NAVIGATE_TIMEOUT_STALLED_MS : NAVIGATE_TIMEOUT_MS);
 }
 void warmTransportAndOpen();
 </script>
@@ -2621,7 +2635,11 @@ async function openInWebviewPanel(
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
     const portMapping = _backendPortMapping(url, backendUrl);
-    const warmupTimeoutMs = Math.max(0, Math.min(12000, viewerTimeoutMs - 1000));
+    // 2 s, not 12 s: see the warmup comment in the panel wrapper. Every healthy
+    // /ping through this relay has answered inside 640 ms, and the slowest
+    // warmup ever recorded in plans/tunnel/LOG.md was 1.85 s, so this keeps all
+    // of the benefit and caps a black-holed warmup at 2 s of delay.
+    const warmupTimeoutMs = Math.max(0, Math.min(2000, viewerTimeoutMs - 1000));
     const warmupUrl = warmupTimeoutMs > 0 ? pingUrlFromViewerUrl(url) : null;
 
     // Reveal/reconcile the existing logical panel for this request. A replay

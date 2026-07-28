@@ -1172,3 +1172,65 @@ when it had in fact succeeded. Always resolve the path with `uv tool dir` rather
 than assuming the default, and check `_VSCODE_EXT_VERSION` *and* a code marker
 from the actual change inside the bundled VSIX — a version string alone cannot
 distinguish a rebuilt wheel from a cached one.
+
+### 0.14.98 — the same mistake, one layer down, and it was the bigger half
+
+**Real-host result of 0.14.97** (three launches after a window reload):
+
+    13:58:46   signal -> frame   1.0 s
+    14:00:29   signal -> frame   1.3 s
+    14:00:37   signal -> frame  32.1 s
+
+So the fix worked and did not matter. In the slow launch the hedged cached-route
+check cost 3.5 s where the old ladder plus promotion would have cost ~20 s — and
+the panel behind it then spent 28.6 s, which swamped the saving. Reporting this
+as a win would have been false; the user's verdict ("so im not sure you fixed
+anything lol") was the correct read of his own experience.
+
+Decomposition of the 28.6 s:
+
+    12.0 s  transport warmup, black-holed, blocking
+     8.0 s  first navigation, black-holed, watchdog waits its full budget
+     8.4 s  the actual 1.9 MB page transfer
+
+**The warmup was the same design error this whole entry is about.** It is a
+`/ping` — precisely the request measured as black-holing ~20% of the time with
+nothing between 640 ms and never — it was allowed 12 s, and `frame.src` was not
+assigned until it settled. A relay that swallows the warmup usually swallows it
+for the full budget, so the navigation was held back by 12 s of nothing in
+exactly the windows where the launch was already in trouble.
+
+It is advisory, not load-bearing: the navigation is a separate connection, and
+the 2026-07-26 20:23:41 trace shows a failed warmup followed by a page that
+arrived normally. Budget cut 12 s -> 2 s, above every healthy observation
+(median 185 ms, worst 639 ms, slowest warmup ever recorded 1.85 s).
+
+**The navigation budget is now informed by the warmup.** A black-holed warmup is
+evidence the relay is in a bad window, so the first navigation retry drops
+8 s -> 3 s; a healthy warmup keeps the full 8 s, because then a slow navigation
+is a real 1.9 MB transfer and cancelling it would be the worse error. This
+cannot abort a healthy transfer: a healthy relay answers the warmup in ~200 ms
+and never takes the short branch.
+
+Expected effect on the 14:00:37 launch: 3.5 + 12.0 + 8.0 -> 3.5 + 2.0 + 3.0,
+i.e. ~32 s -> ~17 s, with 8.4 s of that irreducible page transfer.
+
+**Still the dominant remaining cost, and now clearly the next thing**: 1.9 MB
+crossing the relay on every single viewer open. The extension host runs on the
+same machine as the backend and can fetch that page over loopback in
+milliseconds; the `get-viewer-html` fetch-proxy route already exists for the
+postMessage transport. Serving the page through the extension host instead of
+the desktop iframe would remove the transfer from the relay entirely and leave
+only the WebSocket on it. Untried, and a real architecture change — not to be
+slipped in alongside a latency fix.
+
+**Method note**: two rounds in a row, the measured cause was real and the fix
+was correct and the user still saw no improvement, because the same pattern
+existed at a second layer. Before claiming a latency fix works, decompose the
+*whole* observed wall time and check what is left holding the largest share.
+
+**Test-isolation defect found in passing**:
+`test_lifecycle_contract.py::test_remote_vscode_spawned_daemon_keeps_backend_persistent`
+hard-codes port 8000 and fails whenever a real ArrayView session is running on
+it. Verified environmental by reverting `extension.js` to HEAD and reproducing
+the identical failure. Not fixed here.

@@ -42,7 +42,7 @@ Module._load = originalLoad;
 // Same shape as test_panel_readiness.js, plus the scheduled delay: the whole
 // point of the fix is that a stalled transfer gets a longer budget than a
 // script that failed to boot after arriving, so the delay is load-bearing.
-function createPanelRuntime(url, warmupUrl = null) {
+function createPanelRuntime(url, warmupUrl = null, fetchImpl = null) {
     const html = __test._viewerPanelHtml(url, warmupUrl);
     const scriptMatch = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/);
     assert(scriptMatch, 'panel wrapper script must be present');
@@ -81,7 +81,7 @@ function createPanelRuntime(url, warmupUrl = null) {
         clearTimeout(id) { timers.delete(id); },
         console: { log() {} },
         document: { getElementById(id) { return elements[id]; } },
-        fetch() { return Promise.resolve({}); },
+        fetch: fetchImpl || (() => Promise.resolve({})),
         setTimeout: schedule,
         window: {
             addEventListener(type, handler) { windowHandlers[type] = handler; },
@@ -109,6 +109,13 @@ function fireWatchdog(runtime) {
 
 function delayOf(runtime, id) {
     return runtime.scheduled.find(entry => entry.id === id).delay;
+}
+
+// The wrapper awaits the warmup fetch, so its continuation — including the
+// frame.src assignment — lands on the microtask queue rather than running
+// during vm.runInNewContext.
+function flushMicrotasks() {
+    return new Promise(resolve => setImmediate(resolve));
 }
 
 (async () => {
@@ -146,6 +153,51 @@ function delayOf(runtime, id) {
             stalled.srcWrites.length,
             3,
             'retries must continue while the page never arrives'
+        );
+
+        // --- a black-holed warmup must not hold the navigation ----------------
+        // Observed 2026-07-28T14:00:41Z: the warmup /ping was swallowed by the
+        // relay, and because the navigation waited for it the panel sat doing
+        // nothing for the full 12 s warmup budget before it even asked for the
+        // page. The warmup is advisory — the navigation is a separate
+        // connection — so a failed warmup must cost its budget and no more,
+        // and must still navigate.
+        const coldWarmup = createPanelRuntime(
+            'http://localhost:8126/?sid=cold',
+            'http://localhost:8126/ping',
+            () => Promise.reject(new Error('aborted')),
+        );
+        await flushMicrotasks();
+        assert.strictEqual(
+            coldWarmup.srcWrites.length,
+            1,
+            'a failed warmup must still navigate'
+        );
+        assert.ok(
+            coldWarmup.messages.some(m => m.phase === 'transport-warmup-failed'),
+            'the failed warmup must still be reported'
+        );
+        // And having just been told the relay is swallowing connections, the
+        // watchdog must not sit on the full transfer budget before retrying.
+        assert.strictEqual(
+            delayOf(coldWarmup, liveTimer(coldWarmup)[0]),
+            3000,
+            'a navigation issued into a known-bad relay window must be retried '
+            + 'sooner than one issued after a healthy warmup'
+        );
+
+        // A healthy warmup means the relay is answering, so a slow navigation
+        // is a real 1.9 MB transfer and must be given the full budget.
+        const warmWarmup = createPanelRuntime(
+            'http://localhost:8127/?sid=warm',
+            'http://localhost:8127/ping',
+        );
+        await flushMicrotasks();
+        assert.strictEqual(warmWarmup.srcWrites.length, 1);
+        assert.strictEqual(
+            delayOf(warmWarmup, liveTimer(warmWarmup)[0]),
+            8000,
+            'a healthy warmup must not shorten the transfer budget'
         );
 
         // --- arriving swaps to the shorter boot watchdog ----------------------
