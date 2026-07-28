@@ -1298,3 +1298,25 @@ would have supported it no longer exists in this codebase — an out-of-date
 memory claimed it did, which is a reminder to grep before trusting one. A
 cacheable stable URL depends on webview HTTP-cache persistence across panels,
 which is unverifiable from here. portMapping needs neither assumption.
+
+**Verification trap: `git stash push -- <path>` on an already-committed file is
+a silent no-op.** To baseline `tests/test_browser.py` I stashed the two changed
+Python files — but they were already committed, so nothing was stashed, the
+"baseline" ran with the change still in place, and 35-failed-both-times looked
+like proof when it compared a run against itself. The subsequent `git stash pop`
+then popped an unrelated pre-existing stash from another worktree and
+conflicted. Nothing was lost (the work was committed; the other stash was
+preserved), but the check was worthless.
+
+Do it by reverting the actual file and *proving* the revert landed:
+
+    git checkout <base-rev> -- src/arrayview/_server.py
+    git diff HEAD --stat -- src/arrayview/_server.py   # must be non-empty
+
+True baseline: **34 failed / 102 passed**, against **35 / 101** with the change.
+The single differing test
+(`TestKeyboard::test_initial_scoped_volume_range_stays_fixed_without_opening_histogram`)
+passes 3/3 in isolation with the change applied, so it is order-flaky in the
+full suite. The 34 are pre-existing and unrelated. Independently, the served
+page hashes identically with and without the change when `data_origin` is
+absent, so no browser test can be affected by it.
