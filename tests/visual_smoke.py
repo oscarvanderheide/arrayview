@@ -1659,8 +1659,8 @@ def run_smoke(page, base, client, tmp):
     assert "frame-rendered" in shell_html, "FAIL: _SHELL_HTML missing preview handoff trigger"
     print("  OK: _SHELL_HTML contains preview overlay + frame-rendered handoff")
 
-    # ── 69: G key — compare layout toggle (horizontal / vertical / grid) ────────
-    print("69: G key — compare layout toggle")
+    # ── 69: g key — compare layout toggle (horizontal / vertical / grid) ────────
+    print("69: g key — compare layout toggle")
 
     def _compare_cols(pg):
         return pg.evaluate(
@@ -1673,33 +1673,33 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _shot(page, "69a_compare_2pane_auto")
     cols_auto = _compare_cols(page)  # should be '2' (horizontal auto)
-    _press(page, "G", wait=400)
+    _press(page, "g", wait=400)
     _shot(page, "69b_compare_2pane_vertical")
     cols_v = _compare_cols(page)
-    assert cols_v == "1", f"FAIL: 2-pane G#1 expected 1 col (vertical), got {cols_v!r}"
-    _press(page, "G", wait=400)
+    assert cols_v == "1", f"FAIL: 2-pane g#1 expected 1 col (vertical), got {cols_v!r}"
+    _press(page, "g", wait=400)
     _shot(page, "69c_compare_2pane_horizontal")
     cols_h = _compare_cols(page)
     assert cols_h == cols_auto, (
-        f"FAIL: 2-pane G#2 expected {cols_auto!r} cols (horizontal), got {cols_h!r}"
+        f"FAIL: 2-pane g#2 expected {cols_auto!r} cols (horizontal), got {cols_h!r}"
     )
-    print(f"  OK: 2-pane G cycles {cols_auto!r} → 1 → {cols_h!r}")
+    print(f"  OK: 2-pane g cycles {cols_auto!r} → 1 → {cols_h!r}")
 
     # 3-pane compare: cycles horizontal → vertical → grid → horizontal
     page.goto(f"{base}/?sid={sid2d}&compare_sids={sid2d_b},{sid_reg_a}")
     page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
     _focus(page)
     _shot(page, "69d_compare_3pane_auto")
-    _press(page, "G", wait=400)
+    _press(page, "g", wait=400)
     c1 = _compare_cols(page)
     _shot(page, "69e_compare_3pane_cycle1")
-    _press(page, "G", wait=400)
+    _press(page, "g", wait=400)
     c2 = _compare_cols(page)
     _shot(page, "69f_compare_3pane_cycle2")
-    _press(page, "G", wait=400)
+    _press(page, "g", wait=400)
     c3 = _compare_cols(page)
     _shot(page, "69g_compare_3pane_cycle3")
-    _press(page, "G", wait=400)
+    _press(page, "g", wait=400)
     c4 = _compare_cols(page)
     _shot(page, "69h_compare_3pane_cycle4")
     seen = {c1, c2, c3}
@@ -1709,13 +1709,13 @@ def run_smoke(page, base, client, tmp):
     )
     assert "2" in seen, f"FAIL: expected grid (2 cols) in 3-pane cycle, got {seen}"
     assert c4 == c1, f"FAIL: expected cycle to wrap around (c4={c4!r} != c1={c1!r})"
-    print(f"  OK: 3-pane G cycles through {seen}, wraps: {c4!r}==c1")
+    print(f"  OK: 3-pane g cycles through {seen}, wraps: {c4!r}==c1")
 
-    # Exit compare and confirm G is no-op outside compare mode
+    # Exit compare and confirm g is no-op outside compare mode
     _press(page, "Escape", wait=400)
     _goto(page, base, sid2d, wait=600)
     _focus(page)
-    _press(page, "G", wait=200)
+    _press(page, "g", wait=200)
     _shot(page, "69i_g_noop_outside_compare")
 
     # ── 70: picker-checkboxes — visible checkbox + auto-dim by shape ─────────────

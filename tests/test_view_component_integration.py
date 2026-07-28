@@ -193,6 +193,7 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
             const box = document.getElementById('dmenu-picker-box').getBoundingClientRect();
             const lockVmin = document.querySelector('.dmenu-lock-vmin').getBoundingClientRect();
             const lockVmax = document.querySelector('.dmenu-lock-vmax').getBoundingClientRect();
+            const lockSymmetric = document.querySelector('.dmenu-lock-symmetric');
             const pctVmin = document.querySelector('.dmenu-percent-vmin').getBoundingClientRect();
             const pctVmax = document.querySelector('.dmenu-percent-vmax').getBoundingClientRect();
             const valueVmin = document.getElementById('slim-cb-vmin').getBoundingClientRect();
@@ -211,6 +212,7 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
                     && lockVmax.bottom <= valueVmax.top + 0.5,
                 locksNotAbovePercent: lockVmin.top >= minPercentTop - 0.5
                     && lockVmax.top >= minPercentTop - 0.5,
+                noSymmetricLockForPositiveData: lockSymmetric === null,
                 inside: [lockVmin, lockVmax, pctVmin, pctVmax].every(r =>
                     r.top >= box.top - 0.5
                     && r.bottom <= box.bottom + 0.5
@@ -259,6 +261,7 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
     assert result["third"]["inside"] is True
     assert result["first"]["locksAboveValues"] is True
     assert result["first"]["locksNotAbovePercent"] is True
+    assert result["first"]["noSymmetricLockForPositiveData"] is True
     assert result["closeLabels"]["inside"] is True
     assert result["closeLabels"]["locksAboveValues"] is True
     assert result["closeLabels"]["locksNotAbovePercent"] is True
@@ -266,6 +269,32 @@ def test_normal_repeated_d_keeps_dmenu_histogram_height_stable(loaded_viewer, si
     assert result["closeLabels"]["dividerVisible"] is True
     assert result["vminLocked"] is True
     assert result["menuVisible"] is True
+
+
+def test_signed_data_places_symmetric_lock_between_bound_locks(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""async () => {
+        await commands['histogram.openOrCycle'].run({}, { key: 'd' });
+        await new Promise(r => setTimeout(r, 700));
+        const cb = primaryCb.canvas.getBoundingClientRect();
+        const vmin = document.querySelector('.dmenu-lock-vmin').getBoundingClientRect();
+        const vmax = document.querySelector('.dmenu-lock-vmax').getBoundingClientRect();
+        const symmetric = document.querySelector('.dmenu-lock-symmetric')?.getBoundingClientRect();
+        return {
+            exists: !!symmetric,
+            centered: !!symmetric && Math.abs(
+                (symmetric.left + symmetric.width / 2) - (cb.left + cb.width / 2)
+            ) <= 0.5,
+            onLockRow: !!symmetric && Math.abs(symmetric.top - vmin.top) <= 0.5,
+            betweenBounds: !!symmetric
+                && symmetric.left > vmin.right
+                && symmetric.right < vmax.left,
+        };
+    }""")
+    assert result["exists"] is True
+    assert result["centered"] is True
+    assert result["onLockRow"] is True
+    assert result["betweenBounds"] is True
 
 
 def test_dmenu_colorbar_handles_remain_draggable(loaded_viewer, sid_2d):

@@ -548,7 +548,7 @@
             opacity: 0;
             transition: opacity 0.06s ease;
         }
-        #dmenu-picker-box {
+        .dmenu-picker-box {
             position: fixed;
             width: min(286px, calc(100vw - 28px));
             min-height: 42px;
@@ -566,8 +566,11 @@
             color: var(--text);
             transform: none;
         }
-        #dmenu-picker.visible #dmenu-picker-box {
+        #dmenu-picker.visible .dmenu-picker-box {
             transform: none;
+        }
+        #dmenu-picker-mirror-box {
+            display: none;
         }
         .dmenu-list {
             position: absolute;
@@ -4909,8 +4912,11 @@
     </div>
     <div id="info">Connecting...</div>
     <div id="dmenu-picker" aria-hidden="true">
-        <div id="dmenu-picker-box" role="menu" aria-label="Histogram range controls" tabindex="-1">
+        <div id="dmenu-picker-box" class="dmenu-picker-box" role="menu" aria-label="Histogram range controls" tabindex="-1">
             <div id="dmenu-list" class="dmenu-list"></div>
+        </div>
+        <div id="dmenu-picker-mirror-box" class="dmenu-picker-box" role="menu" aria-label="Synchronized source range controls">
+            <div class="dmenu-list"></div>
         </div>
     </div>
     <div id="viewer-row">
@@ -5927,12 +5933,18 @@
             return Array.isArray(spatial) ? spatial.map(Number) : null;
         }
 
+        /** First spatial dim that is not being displayed. A size-1 dim has
+         *  nothing to scroll through, so singletons are only returned when
+         *  every candidate is one. */
         function _firstNonDisplaySpatialDim() {
             const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
+            let singleton = -1;
             for (let i = 0; i < spatialLimit; i++) {
-                if (i !== dim_x && i !== dim_y) return i;
+                if (i === dim_x || i === dim_y) continue;
+                if (shape[i] > 1) return i;
+                if (singleton < 0) singleton = i;
             }
-            return -1;
+            return singleton;
         }
 
         function _ensureViewingDimsAreSpatial() {
@@ -8843,6 +8855,15 @@
 
         const _COMPARE_PANE_NAMES = ['left', 'right', 'third', 'fourth', 'fifth', 'sixth'];
 
+        function _compareSharedSourceRange() {
+            const frames = compareFrames.slice(0, 2).filter(Boolean);
+            if (!frames.length) return { vmin: currentVmin, vmax: currentVmax };
+            return {
+                vmin: Math.min(...frames.map(frame => frame.vmin)),
+                vmax: Math.max(...frames.map(frame => frame.vmax)),
+            };
+        }
+
         function _createComparePaneColorBars() {
             _destroyComparePaneColorBars();
             const cbs = [];
@@ -8868,16 +8889,43 @@
                     interactive: true,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => {
+                        if (idx < 2 && _compareCenterLayoutEligible()) {
+                            return _compareSharedSourceRange();
+                        }
                         const f = compareFrames[idx];
                         return { vmin: cmpManualVmin[idx] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[idx] ?? (f ? f.vmax : currentVmax) };
                     },
                     getWindow: () => {
+                        if (idx < 2 && _compareCenterLayoutEligible()) {
+                            const range = _compareSharedSourceRange();
+                            return {
+                                vmin: manualVmin ?? cmpManualVmin[0] ?? cmpManualVmin[1] ?? range.vmin,
+                                vmax: manualVmax ?? cmpManualVmax[0] ?? cmpManualVmax[1] ?? range.vmax,
+                            };
+                        }
                         const f = compareFrames[idx];
                         return { vmin: cmpManualVmin[idx] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[idx] ?? (f ? f.vmax : currentVmax) };
                     },
-                    setWindow: (lo, hi) => { cmpManualVmin[idx] = lo; cmpManualVmax[idx] = hi;
+                    setWindow: (lo, hi) => {
+                        if (idx < 2 && _compareCenterLayoutEligible()) {
+                            manualVmin = lo;
+                            manualVmax = hi;
+                            cmpManualVmin[0] = cmpManualVmin[1] = lo;
+                            cmpManualVmax[0] = cmpManualVmax[1] = hi;
+                        } else {
+                            cmpManualVmin[idx] = lo;
+                            cmpManualVmax[idx] = hi;
+                        }
                         // Phase 4 dual-write
-                        const _v = modeManager.currentViews[idx]; if (_v) { _v.displayState.vmin = lo; _v.displayState.vmax = hi; } },
+                        const targets = idx < 2 && _compareCenterLayoutEligible() ? [0, 1] : [idx];
+                        targets.forEach(targetIdx => {
+                            const view = modeManager.currentViews[targetIdx];
+                            if (view) {
+                                view.displayState.vmin = lo;
+                                view.displayState.vmax = hi;
+                            }
+                        });
+                    },
                     fetchHistogram: () => _fetchHistogramCompare(),
                     onWindowChange: () => { compareRender(); },
                 }));
@@ -9080,7 +9128,47 @@
             });
         }
 
+        let _compareCenterTransitionGeneration = 0;
+        let _compareCenterHandoff = null;
+
+        function _compareCenterPaneKind(mode) {
+            if (mode >= 1 && mode <= 4) return 'diff';
+            if (mode >= 5 && mode <= 7) return 'wipe';
+            return null;
+        }
+
+        function _beginCompareCenterHandoff(previousMode, newMode) {
+            const generation = ++_compareCenterTransitionGeneration;
+            const outgoing = _compareCenterPaneKind(previousMode);
+            const incoming = _compareCenterPaneKind(newMode);
+            _compareCenterHandoff = null;
+            if (!compareActive || !_isCompareBigLeftLayout() || !outgoing || !incoming || outgoing === incoming) {
+                return { generation, pending: false };
+            }
+            _compareCenterHandoff = {
+                generation, outgoing, incoming, previousMode, newMode,
+            };
+            return { generation, pending: true };
+        }
+
+        function _commitCompareCenterHandoff(generation) {
+            if (!_compareCenterHandoff || _compareCenterHandoff.generation !== generation) return;
+            requestAnimationFrame(() => {
+                if (!_compareCenterHandoff || _compareCenterHandoff.generation !== generation) return;
+                _compareCenterHandoff = null;
+                _reconcileCompareState();
+                _reconcileCbVisibility();
+                compareScaleCanvases();
+                drawAllComparePaneCbs();
+                drawSlimColorbar(cbMarkerFrac);
+                if (_fullscreenActive) _positionFullscreenChrome();
+                else _positionCompareCenterChrome();
+            });
+        }
+
         function _setCompareCenterMode(newMode) {
+            const previousMode = compareCenterMode;
+            const transition = _beginCompareCenterHandoff(previousMode, newMode);
             compareCenterMode = newMode;
             if (newMode > 0) _lastCompareCenterMode = newMode;
             // Derive legacy state variables from unified mode
@@ -9156,7 +9244,11 @@
             // immediately so X→G doesn't depend on a later scroll or async diff
             // completion to paint the right-column bar.
             drawSlimColorbar(cbMarkerFrac);
-            if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
+            if (transition.pending) {
+                if (!diffMode) _commitCompareCenterHandoff(transition.generation);
+            } else if (_isCompareBigLeftLayout()) {
+                _queueCompareBigLeftSettle();
+            }
             if (_fullscreenActive) _positionFullscreenChrome();
             else _positionCompareCenterChrome();
             renderEggs();
@@ -9441,6 +9533,30 @@
             }
         }
 
+        let _compareCbBaselineRaf = null;
+        function _queueCompareHorizontalCbBaseline() {
+            if (_compareCbBaselineRaf !== null) return;
+            _compareCbBaselineRaf = requestAnimationFrame(() => {
+                _compareCbBaselineRaf = null;
+                const diffIsland = diffPaneCb?.closest('.cb-island');
+                if (!diffIsland) return;
+                diffIsland.style.removeProperty('transform');
+                if (
+                    !_compareCenterLayoutEligible()
+                    || _resolvedCompareLayoutMode() !== 'horizontal'
+                    || diffMode <= 0
+                ) return;
+                const sourceCanvas = comparePaneCbs[0];
+                const sourceRect = sourceCanvas?.getBoundingClientRect();
+                const diffRect = diffPaneCb?.getBoundingClientRect();
+                if (!sourceRect || !diffRect || !sourceRect.height || !diffRect.height) return;
+                const dy = sourceRect.bottom - diffRect.bottom;
+                if (Math.abs(dy) > 0.5) {
+                    diffIsland.style.transform = `translateY(${dy}px)`;
+                }
+            });
+        }
+
         function drawDiffPaneCb(vmin, vmax) {
             if (_diffCenterCb) {
                 const diffCanvas = document.getElementById('compare-diff-canvas');
@@ -9481,6 +9597,7 @@
                 }
                 _diffCenterCb.draw();
                 _diffCenterCb.updateLabels();
+                _queueCompareHorizontalCbBaseline();
                 return;
             }
             // Silent no-op if diff ColorBar somehow wasn't created — restore path
@@ -9496,6 +9613,7 @@
                 // Redraw diff colorbar if visible (using cached values from last fetchAndDrawDiff call)
                 if (typeof _lastDiffVmin !== 'undefined') drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
             }
+            _queueCompareHorizontalCbBaseline();
         }
 
         window.addEventListener('resize', () => {
@@ -9959,6 +10077,7 @@
                     slimVmax.style.minWidth = _slimCbLabelHWM + 'px';
                 }
             }
+            _queueCompareHorizontalCbBaseline();
         }
 
         // ── Histogram-in-colorbar (morph) ────────────────────────────────────
@@ -14668,12 +14787,11 @@
          */
         function _invalidateForeignDiffCanvas() {
             if (_diffCanvasMode === diffMode) return;
-            const cv = document.getElementById('compare-diff-canvas');
-            if (cv && cv.width && cv.height) {
-                cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
-            }
+            // Keep the previous complete frame until the replacement is ready.
+            // The centre-pane handoff keeps this canvas hidden when it belongs
+            // to another pane type, so clearing here only creates a guaranteed
+            // blank frame during checker/wipe -> diff transitions.
             _diffCanvasKey = null;
-            _diffCanvasMode = diffMode;
         }
 
         async function fetchAndDrawDiff() {
@@ -14693,12 +14811,17 @@
         }
 
         async function _fetchAndDrawDiffOnce() {
+            const transitionGeneration = _compareCenterTransitionGeneration;
+            const requestedMode = diffMode;
             const req = _buildDiffRequest();
             if (!req) return;
             // The centre pane already shows exactly this diff. compareRender()
             // and _setCompareCenterMode() both ask, so without this every mode
             // switch paid for two identical round trips.
-            if (req.key === _diffCanvasKey && _diffCanvasMode === diffMode) return;
+            if (req.key === _diffCanvasKey && _diffCanvasMode === requestedMode) {
+                _commitCompareCenterHandoff(transitionGeneration);
+                return;
+            }
             try {
                 const resp = await _hedgedFetch(req.url);
                 if (!resp.ok) return;
@@ -14707,6 +14830,27 @@
                 const usedCmap = resp.headers.get('X-ArrayView-Colormap') || '';
                 const blob = await resp.blob();
                 const bmp = await createImageBitmap(blob);
+                // Cache gradient stops for the colormap used by the server
+                if (usedCmap && COLORMAP_GRADIENT_STOPS[usedCmap]) {
+                    _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[usedCmap];
+                } else if (usedCmap) {
+                    // Fetch stops from server for unknown colormaps
+                    try {
+                        const cmResp = await proxyFetch(`/colormap/${encodeURIComponent(usedCmap)}`);
+                        if (cmResp.ok) {
+                            const cmData = await cmResp.json();
+                            COLORMAP_GRADIENT_STOPS[usedCmap] = cmData.gradient_stops;
+                            _diffCenterColormapStops = cmData.gradient_stops;
+                        }
+                    } catch (_) {}
+                }
+                // A response from a mode we already left must never paint over
+                // the next mode or complete its visibility handoff.
+                if (transitionGeneration !== _compareCenterTransitionGeneration
+                        || requestedMode !== diffMode || !compareActive) {
+                    bmp.close();
+                    return;
+                }
                 const diffCanvas = document.getElementById('compare-diff-canvas');
                 diffCanvas.width = bmp.width;
                 diffCanvas.height = bmp.height;
@@ -14725,6 +14869,7 @@
                         0, 0,
                     );
                 }
+                bmp.close();
                 // In the default compare-center layouts the diff pane mirrors the
                 // first source pane footprint. The custom big-left layout owns its
                 // own scaling and must not be collapsed back to source-pane size.
@@ -14735,24 +14880,14 @@
                 }
                 _lastDiffVmin = isNaN(hdrVmin) ? 0 : hdrVmin;
                 _lastDiffVmax = isNaN(hdrVmax) ? 1 : hdrVmax;
-                // Cache gradient stops for the colormap used by the server
-                if (usedCmap && COLORMAP_GRADIENT_STOPS[usedCmap]) {
-                    _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[usedCmap];
-                } else if (usedCmap) {
-                    // Fetch stops from server for unknown colormaps
-                    try {
-                        const cmResp = await proxyFetch(`/colormap/${encodeURIComponent(usedCmap)}`);
-                        if (cmResp.ok) {
-                            const cmData = await cmResp.json();
-                            COLORMAP_GRADIENT_STOPS[usedCmap] = cmData.gradient_stops;
-                            _diffCenterColormapStops = cmData.gradient_stops;
-                        }
-                    } catch (_) {}
-                }
                 _diffCanvasKey = req.key;
-                _diffCanvasMode = diffMode;
+                _diffCanvasMode = requestedMode;
                 drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
-                if (_isCompareBigLeftLayout()) compareScaleCanvases();
+                if (_compareCenterHandoff?.generation === transitionGeneration) {
+                    _commitCompareCenterHandoff(transitionGeneration);
+                } else if (_isCompareBigLeftLayout()) {
+                    compareScaleCanvases();
+                }
             } catch (e) { /* silently ignore transient errors */ }
         }
 
@@ -15051,11 +15186,16 @@
             // Initial indices: middle slice on spatial dims, first (0) on the rest.
             indices = _initialIndices();
             _syncRaggedShapeForCollection();
-            // Pick current_slice_dim as first dim that is not dim_x or dim_y
-            current_slice_dim = 0;
+            // Pick current_slice_dim as the first dim that is not dim_x or
+            // dim_y. Prefer one that can actually be scrolled: landing on a
+            // size-1 dim leaves the arrow keys doing nothing.
+            let _csd = -1;
             for (let _i = 0; _i < shape.length; _i++) {
-                if (_i !== dim_x && _i !== dim_y && !_isCollectionDim(_i)) { current_slice_dim = _i; break; }
+                if (_i === dim_x || _i === dim_y || _isCollectionDim(_i)) continue;
+                if (shape[_i] > 1) { _csd = _i; break; }
+                if (_csd < 0) _csd = _i;
             }
+            current_slice_dim = _csd < 0 ? 0 : _csd;
             activeDim = current_slice_dim;
             // initialize per-dimension flip flags
             flipDims = {};
@@ -24107,6 +24247,30 @@
                         // Pointer is elsewhere: the primary bar owns `d` again.
                         _dmenuSetRangeTarget('primary');
                     }
+                    const compareSourcePair = _dmenuCompareSourcePair();
+                    if (compareSourcePair) {
+                        if (!compareSourcePair.every(cb => cb._expanded)) {
+                            await _openCompareSourcePairHistogram(compareSourcePair);
+                            setTimeout(saveState, 0);
+                            return;
+                        }
+                        if (!_histPickerActive) {
+                            _histPickerOpen();
+                            _restartHistAutoDismiss();
+                            return;
+                        }
+                        const preset = _cycleQuantilePreset();
+                        if (preset) {
+                            compareRender();
+                            _syncCompareSourcePairHistogram(compareSourcePair, _histData);
+                            _dmenuSelectCurrentPreset();
+                            _dmenuPickerRender();
+                            _restartHistAutoDismiss();
+                            saveState();
+                            showStatus(`source range: ${preset.label}`);
+                        }
+                        return;
+                    }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
                         // Open only — don't cycle presets.  For a volume,
@@ -25115,7 +25279,7 @@
             { key: 'Delete', command: 'roi.deleteSelected' },
             { key: 'Backspace', command: 'roi.deleteSelected' },
             { key: 'g', command: 'grid.holdOrTap' },
-            { key: 'G', command: 'compare.cycleLayout' },
+            { key: 'g', command: 'compare.cycleLayout' },
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'd', command: 'histogram.openOrCycle' },
             { key: 'j', command: 'slice.prev' },
@@ -25326,7 +25490,7 @@
                     {
                         title: 'Layout',
                         entries: [
-                            { key: 'G', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
+                            { key: 'g', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
                             { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
                         ]
                     },
@@ -34977,17 +35141,31 @@
         function _reconcileCompareState() {
             const isCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
             const showWipePane = _wipeActive || _flickerActive || _checkerActive;
+            const handoff = compareActive ? _compareCenterHandoff : null;
 
             // 1. Diff pane visibility and overlay class
             const diffPane = document.getElementById('compare-diff-pane');
             if (diffPane) {
-                diffPane.style.display = (compareActive && (diffMode > 0 || registrationMode)) ? 'flex' : 'none';
-                diffPane.classList.toggle('overlay-center', compareActive && registrationMode);
+                const showDiff = compareActive && (diffMode > 0 || registrationMode
+                    || handoff?.outgoing === 'diff' || handoff?.incoming === 'diff');
+                diffPane.style.display = showDiff ? 'flex' : 'none';
+                diffPane.style.visibility = handoff?.incoming === 'diff' ? 'hidden' : '';
+                const outgoingRegistration = handoff?.outgoing === 'diff'
+                    && handoff.previousMode === 4;
+                diffPane.classList.toggle(
+                    'overlay-center',
+                    compareActive && (registrationMode || outgoingRegistration),
+                );
             }
 
             // 2. Wipe pane visibility
             const wipePaneEl = document.getElementById('compare-wipe-pane');
-            if (wipePaneEl) wipePaneEl.style.display = (compareActive && showWipePane) ? 'flex' : 'none';
+            if (wipePaneEl) {
+                const showWipe = compareActive && (showWipePane
+                    || handoff?.outgoing === 'wipe' || handoff?.incoming === 'wipe');
+                wipePaneEl.style.display = showWipe ? 'flex' : 'none';
+                wipePaneEl.style.visibility = handoff?.incoming === 'wipe' ? 'hidden' : '';
+            }
 
             // 3. Wipe mode class
             compareWrap.classList.toggle('wipe-mode', compareActive && showWipePane);
@@ -36184,20 +36362,35 @@
         // eye. This lock ties the bounds together to prevent that. It stays
         // opt-in rather than auto-engaging on any signed data, because plenty
         // of signed data (CT in Hounsfield units) has no symmetry about zero.
+        function _dmenuSymmetricAvailable() {
+            const hist = _dmenuTargetHist();
+            return !!hist && Number.isFinite(Number(hist.vmin)) && Number(hist.vmin) < 0;
+        }
+
         function _dmenuEffectiveSymmetricLocked() {
-            return symmetricLocked;
+            return _dmenuSymmetricAvailable() && symmetricLocked;
         }
 
         function _dmenuRows() {
             const qmriPolicyLocksVmin = _dmenuQmriPolicyLocksVmin();
             const zeroFloorLocksVmin = _dmenuZeroFloorLocksVmin();
             const policyLocksVmin = qmriPolicyLocksVmin || zeroFloorLocksVmin;
-            return [
+            const rows = [
                 { kind: 'lock', action: 'vmin', label: 'vmin', policyLocked: policyLocksVmin, zeroFloorLocked: zeroFloorLocksVmin, qmriPolicyLocked: qmriPolicyLocksVmin, note: _dmenuEffectiveVminLocked() ? 'locked' : '' },
                 { kind: 'lock', action: 'vmax', label: 'vmax', note: vmaxLocked ? 'locked' : '' },
-                { kind: 'lock', action: 'symmetric', label: '±', note: _dmenuEffectiveSymmetricLocked() ? 'locked' : '',
-                  lockTitle: _dmenuEffectiveSymmetricLocked() ? 'symmetric: zero centred' : 'symmetric: unlocked' },
             ];
+            if (_dmenuSymmetricAvailable()) {
+                rows.push({
+                    kind: 'lock',
+                    action: 'symmetric',
+                    label: '±',
+                    note: _dmenuEffectiveSymmetricLocked() ? 'locked' : '',
+                    lockTitle: _dmenuEffectiveSymmetricLocked()
+                        ? 'symmetric: zero centred'
+                        : 'symmetric: unlocked',
+                });
+            }
+            return rows;
         }
 
         function _dmenuClampSelection() {
@@ -36251,11 +36444,12 @@
                 });
                 return btn;
             };
-            return [
+            const locks = [
                 makeLock(rows[0], 0, _dmenuEffectiveVminLocked()),
                 makeLock(rows[1], 1, vmaxLocked),
-                makeLock(rows[2], 2, _dmenuEffectiveSymmetricLocked()),
             ];
+            if (rows[2]) locks.push(makeLock(rows[2], 2, _dmenuEffectiveSymmetricLocked()));
+            return locks;
         }
 
         function _dmenuSetBoundManual(action, value) {
@@ -36375,22 +36569,32 @@
                 divider.setAttribute('aria-hidden', 'true');
                 box.appendChild(divider);
             }
+            const mirrorBox = document.getElementById('dmenu-picker-mirror-box');
+            const mirrorList = mirrorBox?.querySelector('.dmenu-list');
+            if (mirrorBox && mirrorList) {
+                mirrorList.innerHTML = '';
+                _dmenuRenderRangePanel(rows).forEach(el => mirrorList.appendChild(el));
+                mirrorBox.querySelectorAll('.dmenu-percent-label, .dmenu-percent-divider').forEach(el => el.remove());
+                box.querySelectorAll('.dmenu-percent-label, .dmenu-percent-divider').forEach(el => {
+                    mirrorBox.appendChild(el.cloneNode(true));
+                });
+            }
             _dmenuPositionPercentLabels();
+            if (_dmenuPickerOpen) _dmenuPickerPosition();
         }
 
-        function _dmenuPositionPercentLabels() {
-            const activeCb = _dmenuActiveColorbar();
+        function _dmenuPositionPercentLabels(targetBox, targetCb) {
+            const activeCb = targetCb || _dmenuActiveColorbar();
             if (!_dmenuPickerOpen || !activeCb || !activeCb._histData || !activeCb.canvas) return;
-            const box = document.getElementById('dmenu-picker-box');
+            const box = targetBox || document.getElementById('dmenu-picker-box');
             if (!box) return;
             const boxRect = box.getBoundingClientRect();
             const canvasRect = activeCb.canvas.getBoundingClientRect();
             const outerWrap = _dmenuActiveColorbarWrap();
             const wrapRect = outerWrap ? outerWrap.getBoundingClientRect() : canvasRect;
-            const labelPrefix = outerWrap && outerWrap.id === 'mv-cb-wrap' ? 'mv-cb' : 'slim-cb';
             const valueLabels = {
-                vmin: document.getElementById(`${labelPrefix}-vmin`),
-                vmax: document.getElementById(`${labelPrefix}-vmax`),
+                vmin: activeCb.vminLabel || document.getElementById('slim-cb-vmin'),
+                vmax: activeCb.vmaxLabel || document.getElementById('slim-cb-vmax'),
             };
             const win = activeCb.opts && typeof activeCb.opts.getWindow === 'function'
                 ? activeCb.opts.getWindow()
@@ -36468,6 +36672,21 @@
                     lock.style.top = `${Math.max(percentTop, lockTop)}px`;
                 }
             });
+            // The symmetric ± lock is a third range control, not another
+            // bound. It has no value label to anchor to, so position it
+            // explicitly at the colorbar midpoint on the same row as the
+            // vmin/vmax locks. Without this, its absolute position defaults to
+            // the menu's top-left and looks like a duplicate vmin lock.
+            const symmetricLock = box.querySelector('.dmenu-lock-symmetric');
+            if (symmetricLock) {
+                const vminLock = box.querySelector('.dmenu-lock-vmin');
+                symmetricLock.style.left = `${
+                    canvasRect.left - boxRect.left + canvasRect.width / 2
+                }px`;
+                symmetricLock.style.top = vminLock && vminLock.style.top
+                    ? vminLock.style.top
+                    : `${Math.max(percentTop, canvasRect.bottom - boxRect.top + 2)}px`;
+            }
             const vminLabel = positioned.vmin;
             const vmaxLabel = positioned.vmax;
             if (vminLabel && vmaxLabel) {
@@ -36520,40 +36739,54 @@
             if (!_dmenuPickerOpen) return;
             const box = document.getElementById('dmenu-picker-box');
             if (!box) return;
-            const cbWrap = _dmenuActiveColorbarWrap();
             const activeCb = _dmenuActiveColorbar();
             const viewportW = document.documentElement.clientWidth || window.innerWidth;
             const viewportH = document.documentElement.clientHeight || window.innerHeight;
-            const cbRect = cbWrap && getComputedStyle(cbWrap).display !== 'none'
-                ? cbWrap.getBoundingClientRect()
-                : null;
-            const host = cbRect && cbRect.width > 0 && cbRect.height > 0
-                ? cbWrap
-                : document.getElementById('canvas-viewport')
-                || document.getElementById('viewer-row')
-                || document.body;
-            const rect = cbRect || host.getBoundingClientRect();
-            const targetW = cbRect ? Math.max(286, Math.round(cbRect.width)) : 286;
-            box.style.width = Math.min(targetW, viewportW - 28) + 'px';
-            if (_dmenuCbReservePx == null) {
-                const cbCanvas = activeCb && activeCb.canvas ? activeCb.canvas : document.getElementById('slim-cb');
-                const canvasRect = cbCanvas ? cbCanvas.getBoundingClientRect() : null;
-                const reserveRect = canvasRect && canvasRect.height > 0 ? canvasRect : cbRect;
-                _dmenuCbReservePx = reserveRect ? Math.max(42, Math.ceil(reserveRect.height + 28)) : 42;
+            const positionBox = (target, cb, allowFallback) => {
+                if (!target || !cb) return false;
+                const cbWrap = cb.wrap || null;
+                const cbRect = cbWrap && getComputedStyle(cbWrap).display !== 'none'
+                    ? cbWrap.getBoundingClientRect()
+                    : null;
+                const host = cbRect && cbRect.width > 0 && cbRect.height > 0
+                    ? cbWrap
+                    : allowFallback
+                        ? document.getElementById('canvas-viewport')
+                            || document.getElementById('viewer-row')
+                            || document.body
+                        : null;
+                if (!host) return false;
+                const rect = cbRect || host.getBoundingClientRect();
+                const targetW = cbRect ? Math.max(286, Math.round(cbRect.width)) : 286;
+                target.style.width = Math.min(targetW, viewportW - 28) + 'px';
+                if (_dmenuCbReservePx == null) {
+                    const canvasRect = cb.canvas ? cb.canvas.getBoundingClientRect() : null;
+                    const reserveRect = canvasRect && canvasRect.height > 0 ? canvasRect : cbRect;
+                    _dmenuCbReservePx = reserveRect ? Math.max(42, Math.ceil(reserveRect.height + 28)) : 42;
+                }
+                target.style.setProperty('--dmenu-cb-reserve', _dmenuCbReservePx + 'px');
+                const measured = target.getBoundingClientRect();
+                const boxW = Math.min(measured.width || target.offsetWidth || targetW, viewportW - 28);
+                const boxH = Math.min(measured.height || target.offsetHeight || 260, viewportH - 28);
+                const left = Math.max(14, Math.min(viewportW - boxW - 14, rect.left + rect.width / 2 - boxW / 2));
+                const preferredTop = cbRect ? rect.bottom - boxH : rect.top + 14;
+                const top = cbRect
+                    ? Math.max(14, preferredTop)
+                    : Math.max(14, Math.min(viewportH - boxH - 14, preferredTop));
+                target.style.left = left + 'px';
+                target.style.top = top + 'px';
+                _dmenuPositionPercentLabels(target, cb);
+                return true;
+            };
+            positionBox(box, activeCb, true);
+            const mirrorBox = document.getElementById('dmenu-picker-mirror-box');
+            const sourcePair = _dmenuCompareSourcePair();
+            const mirrorCb = sourcePair && activeCb === sourcePair[0] ? sourcePair[1] : null;
+            if (mirrorBox) {
+                mirrorBox.style.display = mirrorCb && positionBox(mirrorBox, mirrorCb, false)
+                    ? 'block'
+                    : 'none';
             }
-            const cbReserve = _dmenuCbReservePx;
-            box.style.setProperty('--dmenu-cb-reserve', cbReserve + 'px');
-            const measured = box.getBoundingClientRect();
-            const boxW = Math.min(measured.width || box.offsetWidth || targetW, viewportW - 28);
-            const boxH = Math.min(measured.height || box.offsetHeight || 260, viewportH - 28);
-            const left = Math.max(14, Math.min(viewportW - boxW - 14, rect.left + rect.width / 2 - boxW / 2));
-            const preferredTop = cbRect ? rect.bottom - boxH : rect.top + 14;
-            const top = cbRect
-                ? Math.max(14, preferredTop)
-                : Math.max(14, Math.min(viewportH - boxH - 14, preferredTop));
-            box.style.left = left + 'px';
-            box.style.top = top + 'px';
-            _dmenuPositionPercentLabels();
         }
 
         function _dmenuActiveColorbarWrap() {
@@ -36565,6 +36798,8 @@
             if (multiViewActive || compareMvActive) {
                 return document.getElementById('mv-cb-wrap') || document.getElementById('slim-cb-wrap');
             }
+            const sourcePair = _dmenuCompareSourcePair();
+            if (sourcePair) return sourcePair[0].wrap || null;
             return document.getElementById('slim-cb-wrap');
         }
 
@@ -36605,6 +36840,47 @@
             else window._dQuantileIdx = value;
         }
 
+        function _dmenuCompareSourcePair() {
+            if (
+                _dmenuDiffTargetActive()
+                || !_compareCenterLayoutEligible()
+                || _resolvedCompareLayoutMode() !== 'horizontal'
+                || _fullscreenActive
+            ) return null;
+            const cbs = window._comparePaneCbs;
+            return cbs && cbs[0] && cbs[1] ? [cbs[0], cbs[1]] : null;
+        }
+
+        function _syncCompareSourcePairHistogram(sourcePair, hist) {
+            if (!sourcePair) return;
+            sourcePair.forEach(cb => {
+                cb._histData = hist;
+                cb._histVersion = null;
+                cb._kdeSmooth = null;
+                cb._buildKDE();
+                cb._expanded = true;
+                cb._manualExpand = true;
+                cb._animating = false;
+                cb._animT = 1;
+                cb._animTarget = 1;
+                cb._snapWindowFractionsOnNextDraw();
+                if (cb.wrap) cb.wrap.classList.add('cb-expanded');
+                cb.draw();
+                cb.updateLabels();
+            });
+        }
+
+        async function _openCompareSourcePairHistogram(sourcePair) {
+            _syncCompareSourcePairHistogram(sourcePair, _histData);
+            const hist = await _fetchHistogramCompare();
+            if (hist) {
+                primaryCb._histData = hist;
+                _syncCompareSourcePairHistogram(sourcePair, hist);
+            }
+            _histPickerOpen();
+            _restartHistAutoDismiss();
+        }
+
         function _dmenuActiveColorbar() {
             if (_dmenuDiffTargetActive()) return _diffCenterCb;
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
@@ -36613,6 +36889,8 @@
                     : (_hoveredQmriView._colorBar || primaryCb);
             }
             if (multiViewActive || compareMvActive) return window._mvColorBar || primaryCb;
+            const sourcePair = _dmenuCompareSourcePair();
+            if (sourcePair) return sourcePair[0];
             return primaryCb;
         }
 

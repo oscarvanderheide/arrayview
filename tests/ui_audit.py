@@ -576,9 +576,9 @@ K_COMPLEX_PHASE = [("m", 400)]
 K_COMPLEX_REAL = [("m", 400)] * 2
 K_COMPLEX_IMAG = [("m", 400)] * 3
 
-# Compare layout: G cycles horizontal→vertical→grid (3+ panes)
-K_LAYOUT_VERTICAL = [("Shift+G", 400)]
-K_LAYOUT_GRID = [("Shift+G", 400)] * 2
+# Compare layout: g cycles horizontal→vertical→grid (3+ panes)
+K_LAYOUT_VERTICAL = [("g", 400)]
+K_LAYOUT_GRID = [("g", 400)] * 2
 
 
 # ── Tier 1: Core modes (always check) ─────────────────────────────────────

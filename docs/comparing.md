@@ -29,7 +29,8 @@ Or use the file picker (`Cmd/Ctrl+O`) or drag-and-drop.
 
 ## Layouts
 
-`G` cycles: horizontal, vertical, grid. Drag panel titles to reorder panes.
+`g` cycles: horizontal, vertical, grid. With two arrays and a center pane,
+it toggles horizontal and big-left. Drag panel titles to reorder panes.
 
 ## Overlay
 

@@ -554,7 +554,7 @@ class TestBasicRender:
         frame.focus("#keyboard-sink")
         page.keyboard.press("Shift+D")
         frame.wait_for_timeout(450)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         frame.wait_for_timeout(450)
 
         def _state():
@@ -1325,7 +1325,7 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Shift+D")
         page.wait_for_timeout(350)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(350)
 
         def _state():
@@ -1435,10 +1435,10 @@ class TestKeyboard:
         assert resized["wrapHorizontal"], f"auto-picked horizontal layout should stay stable across resize until overridden, got: {resized}"
         assert resized["compareLayoutMode"] is None, f"resize alone should not convert the cached auto-layout into a manual override, got: {resized}"
 
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(350)
         overridden = _state()
-        assert overridden["wrapBigLeft"], f"G should manually switch the wide auto-layout to big-left, got: {overridden}"
+        assert overridden["wrapBigLeft"], f"g should manually switch the wide auto-layout to big-left, got: {overridden}"
         assert overridden["compareLayoutMode"] == "big-left", f"G should persist a manual big-left override, got: {overridden}"
 
         page.set_viewport_size({"width": 1700, "height": 760})
@@ -1514,7 +1514,7 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Shift+D")
         page.wait_for_timeout(450)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(450)
 
         def _state():
@@ -1582,7 +1582,7 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Shift+D")
         page.wait_for_timeout(200)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(120)
 
         def _state():
@@ -1645,7 +1645,7 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Shift+D")
         page.wait_for_timeout(220)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(160)
 
         def _state():
@@ -2118,10 +2118,14 @@ class TestKeyboard:
                 const centerClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
                 const rightClip = document.querySelector('.compare-secondary .compare-canvas-clip');
                 const slimVal = document.querySelector('#slim-cb-vmin');
-                const compareVal = document.querySelector('#compare-left-pane-cb-vmin');
                 const diffVal = document.querySelector('#compare-diff-pane-cb-vmin');
-                const compareIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
+                const sharedIsland = document.querySelector('#slim-cb-wrap');
+                const sourceLeftIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
+                const sourceRightIsland = document.querySelector('.compare-secondary .compare-pane-cb-island');
                 const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
+                const sourceLeftCb = document.querySelector('#compare-left-pane-cb');
+                const sourceRightCb = document.querySelector('#compare-right-pane-cb');
+                const diffCbCanvas = document.querySelector('#compare-diff-pane-cb');
                 const leftRect = leftClip?.getBoundingClientRect() || null;
                 const centerRect = centerClip?.getBoundingClientRect() || null;
                 const rightRect = rightClip?.getBoundingClientRect() || null;
@@ -2133,13 +2137,16 @@ class TestKeyboard:
                     clipShadow: leftClip ? getComputedStyle(leftClip).boxShadow : '',
                     clipRadius: leftClip ? getComputedStyle(leftClip).borderRadius : '',
                     slimValFont: slimVal ? getComputedStyle(slimVal).fontSize : '',
-                    compareValFont: compareVal ? getComputedStyle(compareVal).fontSize : '',
                     diffValFont: diffVal ? getComputedStyle(diffVal).fontSize : '',
-                    slimValFamily: slimVal ? getComputedStyle(slimVal).fontFamily : '',
-                    compareValFamily: compareVal ? getComputedStyle(compareVal).fontFamily : '',
-                    compareIslandGap: compareIsland ? getComputedStyle(compareIsland).gap : '',
-                    compareIslandWidth: compareIsland ? getComputedStyle(compareIsland).width : '',
+                    sharedDisplay: sharedIsland ? getComputedStyle(sharedIsland).display : 'missing',
+                    sourceLeftDisplay: sourceLeftIsland ? getComputedStyle(sourceLeftIsland).display : 'missing',
+                    sourceRightDisplay: sourceRightIsland ? getComputedStyle(sourceRightIsland).display : 'missing',
+                    sourceLeftIslandWidth: sourceLeftIsland ? getComputedStyle(sourceLeftIsland).width : '',
+                    sourceRightIslandWidth: sourceRightIsland ? getComputedStyle(sourceRightIsland).width : '',
                     diffIslandWidth: diffIsland ? getComputedStyle(diffIsland).width : '',
+                    sourceLeftCbRect: sourceLeftCb?.getBoundingClientRect() || null,
+                    sourceRightCbRect: sourceRightCb?.getBoundingClientRect() || null,
+                    diffCbRect: diffCbCanvas?.getBoundingClientRect() || null,
                     leftRect,
                     centerRect,
                     rightRect,
@@ -2153,16 +2160,138 @@ class TestKeyboard:
         assert state["wrapShadow"] == "none", f"compare wrapper should not draw the border around the colorbar island, got: {state}"
         assert state["clipShadow"] != "none", f"compare viewport clip should draw the visible border, got: {state}"
         assert state["clipRadius"] != "0px", f"rounded compare panes should style the clip box, got: {state}"
-        assert state["compareValFont"] == state["slimValFont"], f"compare source-pane labels should match normal colorbar font sizing, got: {state}"
         assert state["diffValFont"] == state["slimValFont"], f"diff-pane labels should match normal colorbar font sizing, got: {state}"
-        assert state["compareValFamily"] == state["slimValFamily"], f"compare source-pane labels should match normal colorbar font family, got: {state}"
-        assert state["compareIslandGap"] == "8px", f"compare source-pane label spacing should match the normal colorbar gap, got: {state}"
-        assert state["diffIslandWidth"] == state["compareIslandWidth"], f"diff-pane colorbar island should match the source-pane width rule, got: {state}"
+        assert state["sharedDisplay"] == "none", f"horizontal center compare should not use the big-left shared bar, got: {state}"
+        assert state["sourceLeftDisplay"] != "none", f"left synchronized source colorbar should be visible, got: {state}"
+        assert state["sourceRightDisplay"] != "none", f"right synchronized source colorbar should be visible, got: {state}"
+        assert state["sourceLeftIslandWidth"] == state["sourceRightIslandWidth"], f"source colorbars should have identical width, got: {state}"
+        assert state["diffIslandWidth"] == state["sourceLeftIslandWidth"], f"diff and source colorbars should use the same width rule, got: {state}"
+        assert state["sourceLeftCbRect"] and state["sourceRightCbRect"] and state["diffCbRect"], f"all three colorbar canvases should be measurable, got: {state}"
+        assert abs(state["sourceLeftCbRect"]["bottom"] - state["sourceRightCbRect"]["bottom"]) <= 1, f"source colorbar strips should share a baseline, got: {state}"
+        assert abs(state["sourceLeftCbRect"]["bottom"] - state["diffCbRect"]["bottom"]) <= 1, f"source and diff colorbar strips should share a baseline, got: {state}"
         assert state["leftRect"] and state["centerRect"] and state["rightRect"], f"compare clips should all exist in X mode, got: {state}"
         assert abs(state["leftRect"]["top"] - state["centerRect"]["top"]) <= 1, f"left and center compare clips should align vertically, got: {state}"
         assert abs(state["rightRect"]["top"] - state["centerRect"]["top"]) <= 1, f"right and center compare clips should align vertically, got: {state}"
         assert abs(state["leftRect"]["height"] - state["centerRect"]["height"]) <= 1, f"left and center compare clips should match height, got: {state}"
         assert abs(state["rightRect"]["height"] - state["centerRect"]["height"]) <= 1, f"right and center compare clips should match height, got: {state}"
+
+        left_box = page.locator("#compare-left-canvas").bounding_box()
+        page.mouse.move(
+            left_box["x"] + left_box["width"] / 2,
+            left_box["y"] + left_box["height"] / 2,
+        )
+        page.keyboard.press("d")
+        page.wait_for_timeout(800)
+        histogram_state = page.evaluate(
+            """() => ({
+                leftExpanded: !!window._comparePaneCbs?.[0]?._expanded,
+                rightExpanded: !!window._comparePaneCbs?.[1]?._expanded,
+                pickerVisible: !!document.querySelector('#dmenu-picker.visible'),
+                mirrorVisible: getComputedStyle(document.querySelector('#dmenu-picker-mirror-box')).display !== 'none',
+                leftPercentVmin: document.querySelector('#dmenu-picker-box .dmenu-percent-vmin')?.textContent || '',
+                leftPercentVmax: document.querySelector('#dmenu-picker-box .dmenu-percent-vmax')?.textContent || '',
+                rightPercentVmin: document.querySelector('#dmenu-picker-mirror-box .dmenu-percent-vmin')?.textContent || '',
+                rightPercentVmax: document.querySelector('#dmenu-picker-mirror-box .dmenu-percent-vmax')?.textContent || '',
+                histogramsMatch: JSON.stringify(window._comparePaneCbs?.[0]?._histData)
+                    === JSON.stringify(window._comparePaneCbs?.[1]?._histData),
+                target: _dmenuRangeTarget,
+            })"""
+        )
+        assert histogram_state["leftExpanded"] and histogram_state["rightExpanded"], f"source d should expand both synchronized histograms, got: {histogram_state}"
+        assert histogram_state["pickerVisible"], f"source d should expose the modern range menu, got: {histogram_state}"
+        assert histogram_state["mirrorVisible"], f"source range controls should be mirrored over the right histogram, got: {histogram_state}"
+        assert histogram_state["leftPercentVmin"].endswith("%") and histogram_state["rightPercentVmin"].endswith("%"), f"both source histograms should show the vmin percentile, got: {histogram_state}"
+        assert histogram_state["leftPercentVmax"].endswith("%") and histogram_state["rightPercentVmax"].endswith("%"), f"both source histograms should show the vmax percentile, got: {histogram_state}"
+        assert histogram_state["histogramsMatch"], f"both source histograms should render identical merged data, got: {histogram_state}"
+        assert histogram_state["target"] == "primary", f"source histogram should own the shared source range, got: {histogram_state}"
+
+    def test_big_left_center_mode_handoffs_never_expose_a_blank_pane(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        partner_path = tmp_path / "arr2d_center_handoff.npy"
+        np.save(partner_path, arr_2d * 0.75 + 0.1)
+        sid_2d_b = client.post(
+            "/load", json={"filepath": str(partner_path), "name": "arr2d_center_handoff"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_2d_b)
+        page.evaluate(
+            """() => {
+                compareLayoutMode = 'big-left';
+                _setCompareCenterMode(4);
+            }"""
+        )
+        page.wait_for_timeout(100)
+
+        overlay_to_wipe = page.evaluate(
+            """() => {
+                _setCompareCenterMode(5);
+                const diff = document.querySelector('#compare-diff-pane');
+                const wipe = document.querySelector('#compare-wipe-pane');
+                const visible = el => getComputedStyle(el).display !== 'none'
+                    && getComputedStyle(el).visibility !== 'hidden';
+                return {
+                    pending: !!_compareCenterHandoff,
+                    diffVisible: visible(diff),
+                    wipeVisible: visible(wipe),
+                    wipePixels: document.querySelector('#compare-wipe-canvas')?.width || 0,
+                };
+            }"""
+        )
+        assert overlay_to_wipe["pending"]
+        assert overlay_to_wipe["diffVisible"] and not overlay_to_wipe["wipeVisible"]
+        assert overlay_to_wipe["wipePixels"] > 0, (
+            f"incoming wipe pixels should be ready before the swap, got: {overlay_to_wipe}"
+        )
+        page.wait_for_function("() => !_compareCenterHandoff")
+        settled_wipe = page.evaluate(
+            """() => ({
+                diff: getComputedStyle(document.querySelector('#compare-diff-pane')).display,
+                wipe: getComputedStyle(document.querySelector('#compare-wipe-pane')).display,
+                wipeVisibility: getComputedStyle(document.querySelector('#compare-wipe-pane')).visibility,
+            })"""
+        )
+        assert settled_wipe["diff"] == "none" and settled_wipe["wipe"] != "none"
+        assert settled_wipe["wipeVisibility"] != "hidden"
+
+        page.evaluate("() => _setCompareCenterMode(7)")
+        page.wait_for_timeout(100)
+        checker_to_diff = page.evaluate(
+            """() => {
+                _setCompareCenterMode(1);
+                const diff = document.querySelector('#compare-diff-pane');
+                const wipe = document.querySelector('#compare-wipe-pane');
+                const visible = el => getComputedStyle(el).display !== 'none'
+                    && getComputedStyle(el).visibility !== 'hidden';
+                return {
+                    pending: !!_compareCenterHandoff,
+                    diffVisible: visible(diff),
+                    wipeVisible: visible(wipe),
+                };
+            }"""
+        )
+        assert checker_to_diff == {
+            "pending": True,
+            "diffVisible": False,
+            "wipeVisible": True,
+        }
+        page.wait_for_function(
+            "() => !_compareCenterHandoff && _diffCanvasMode === 1",
+            timeout=5_000,
+        )
+        settled_diff = page.evaluate(
+            """() => ({
+                diff: getComputedStyle(document.querySelector('#compare-diff-pane')).display,
+                diffVisibility: getComputedStyle(document.querySelector('#compare-diff-pane')).visibility,
+                wipe: getComputedStyle(document.querySelector('#compare-wipe-pane')).display,
+                pixels: document.querySelector('#compare-diff-canvas')?.width || 0,
+            })"""
+        )
+        assert settled_diff["diff"] != "none" and settled_diff["diffVisibility"] != "hidden"
+        assert settled_diff["wipe"] == "none"
+        assert settled_diff["pixels"] > 0
 
     def test_compare_center_big_left_uses_shared_source_bar_and_g_toggles(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
@@ -2184,7 +2313,7 @@ class TestKeyboard:
             }"""
         )
         page.wait_for_timeout(250)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(250)
 
         state = page.evaluate(
@@ -2269,7 +2398,7 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Shift+D")
         page.wait_for_timeout(350)
-        page.keyboard.press("G")
+        page.keyboard.press("g")
         page.wait_for_timeout(350)
 
         def _big_left_state():
@@ -3968,7 +4097,7 @@ class TestCompareBigLeftZoomGeometry:
         _enter_compare(page, other)
         page.evaluate("() => _setCompareCenterMode(1)")
         page.wait_for_timeout(400)
-        page.keyboard.press("G")  # big-left layout
+        page.keyboard.press("g")  # big-left layout
         page.wait_for_timeout(600)
 
         assert page.evaluate("() => _isCompareBigLeftLayout()"), (
@@ -4067,6 +4196,55 @@ class TestDiffPaneRangeMenu:
         assert state["lockRows"] >= 3, (
             f"the range menu should offer the vmin/vmax/± locks, got {state}"
         )
+
+    @pytest.mark.parametrize("layout", ["horizontal", "big-left"])
+    def test_diff_range_locks_anchor_to_the_diff_colorbar(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path, layout
+    ):
+        page = self._diff_compare(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, f"diff_lock_geometry_{layout}"
+        )
+        page.evaluate(
+            """layout => {
+                compareLayoutMode = layout;
+                applyCompareLayout();
+                _reconcileCbVisibility();
+                compareScaleCanvases();
+            }""",
+            layout,
+        )
+        page.wait_for_timeout(350)
+        self._hover_diff_pane(page)
+        page.keyboard.press("d")
+        page.wait_for_timeout(800)
+
+        geometry = page.evaluate(
+            """() => {
+                const rect = selector => document.querySelector(selector)?.getBoundingClientRect() || null;
+                const centerX = r => r ? r.left + r.width / 2 : null;
+                const vminLock = rect('.dmenu-lock-vmin');
+                const vmaxLock = rect('.dmenu-lock-vmax');
+                const symmetricLock = rect('.dmenu-lock-symmetric');
+                const vminLabel = rect('#compare-diff-pane-cb-vmin');
+                const vmaxLabel = rect('#compare-diff-pane-cb-vmax');
+                const diffCb = rect('#compare-diff-pane-cb');
+                const sourceCb = rect('#compare-left-pane-cb');
+                return {
+                    activeIsDiff: _dmenuActiveColorbar() === _diffCenterCb,
+                    vminDx: vminLock && vminLabel ? Math.abs(centerX(vminLock) - centerX(vminLabel)) : null,
+                    vmaxDx: vmaxLock && vmaxLabel ? Math.abs(centerX(vmaxLock) - centerX(vmaxLabel)) : null,
+                    symmetricDx: symmetricLock && diffCb ? Math.abs(centerX(symmetricLock) - centerX(diffCb)) : null,
+                    baselineDy: sourceCb && diffCb ? Math.abs(sourceCb.bottom - diffCb.bottom) : null,
+                    layout: _resolvedCompareLayoutMode(),
+                };
+            }"""
+        )
+        assert geometry["activeIsDiff"], f"range menu should be owned by the diff ColorBar, got: {geometry}"
+        assert geometry["vminDx"] is not None and geometry["vminDx"] <= 1, f"vmin lock should anchor to the diff vmin label, got: {geometry}"
+        assert geometry["vmaxDx"] is not None and geometry["vmaxDx"] <= 1, f"vmax lock should anchor to the diff vmax label, got: {geometry}"
+        assert geometry["symmetricDx"] is not None and geometry["symmetricDx"] <= 1, f"± lock should center on the diff colorbar, got: {geometry}"
+        if layout == "horizontal":
+            assert geometry["baselineDy"] is not None and geometry["baselineDy"] <= 1, f"horizontal source and diff colorbar strips should align, got: {geometry}"
 
     def test_repeat_d_cycles_the_diff_window_only(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path

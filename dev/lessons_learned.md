@@ -382,3 +382,27 @@ valid and the viewer is designed to show loading progress.
 Allow `launch-prepared` as soon as that SID is registered pending, require the
 real Session only for viewer-originated phases, and retire the journal through
 the same final session-release authority.
+
+## Colorbar Controls Must Follow the Owning ColorBar
+
+**Problem:** Compare layouts selected different source-colorbar implementations,
+while the range menu inferred its labels from global element IDs. Horizontal
+compare therefore exposed an older histogram UI, and diff locks were positioned
+against the source labels.
+**Fix:** Give synchronized compare sources one histogram/range state while
+letting each layout choose its presentation: mirrored source bars in horizontal,
+one shared source bar in big-left. Derive range-menu canvas and label geometry
+from the active `ColorBar` instance, and align neighboring bars by their rendered
+strip baseline rather than outer island boxes.
+
+## Async Center-Pane Changes Need an Atomic Visual Handoff
+
+**Problem:** Compare-center mode changes updated mode flags and pane visibility
+before the incoming pane had pixels. Synchronous composites flashed while their
+hidden canvas was resized, and async diff modes exposed a deliberately cleared
+canvas while waiting for the server.
+**Fix:** In layouts where center panes overlap, keep the outgoing pane visible
+while rendering the incoming pane hidden, then swap visibility on one animation
+frame after pixels are ready. Tag async work with a transition generation so a
+late response from a mode the user already left cannot paint into the current
+pane.
