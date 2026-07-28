@@ -3682,6 +3682,9 @@
         .detached-index-hint {
             display: inline-flex;
             align-items: baseline;
+            /* Equal digit count is only half of it — proportional digits still
+               vary in width, so 111/120 and 999/120 would measure differently. */
+            font-variant-numeric: tabular-nums;
             gap: 2px;
             padding: 0 2px;
             border-radius: 4px;
@@ -8471,7 +8474,12 @@
 
         function _detachedDimPaneLabel(indexVal) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isInteger(indexVal)) return '';
-            return `${indexVal + 1}/${shape[detachedDim]}`;
+            // Pad to the width of the last index. The label sits in a centred
+            // flex row above each pane, so 9/120 → 10/120 grew the whole title
+            // by a digit and shunted everything beside it sideways on a plain
+            // index step.
+            const size = shape[detachedDim];
+            return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
         }
 
         function _detachedDimPaneTitleHTML(idx, label) {

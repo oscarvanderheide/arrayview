@@ -3930,6 +3930,60 @@ class TestCompareCenterPicker:
         assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
 
 
+class TestSplitViewIndexLabel:
+    """Stepping the split index must not resize the title above the pane."""
+
+    TITLE_STATE = """
+        () => {
+            const hints = [...document.querySelectorAll('.detached-index-hint')];
+            return hints.map(h => ({
+                text: h.innerText.replace(/\\s+/g, ''),
+                width: Math.round(h.getBoundingClientRect().width * 100) / 100,
+            }));
+        }
+    """
+
+    def test_index_label_is_padded_and_keeps_its_width(
+        self, loaded_viewer, sid_3d
+    ):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        # 20 slices along dim 0, so the label crosses 9 → 10 mid-range.
+        page.evaluate("async () => { await enterDetachedDimMode(0); }")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.evaluate(
+            """() => {
+                detachedDimIndexA = 8;
+                detachedDimIndexB = 8;
+                updateCompareTitles();
+            }"""
+        )
+        page.wait_for_timeout(200)
+        single = page.evaluate(self.TITLE_STATE)
+        assert single, "split view should show an index hint above each pane"
+        assert all("09/20" in h["text"] for h in single), (
+            f"single-digit index should be zero padded to the last index, got {single}"
+        )
+
+        page.evaluate(
+            """() => {
+                detachedDimIndexA = 9;
+                detachedDimIndexB = 9;
+                updateCompareTitles();
+            }"""
+        )
+        page.wait_for_timeout(200)
+        double = page.evaluate(self.TITLE_STATE)
+        assert all("10/20" in h["text"] for h in double), (
+            f"expected the next index, got {double}"
+        )
+        for before, after in zip(single, double):
+            assert before["width"] == after["width"], (
+                "the index hint must keep its width across a digit boundary, "
+                f"got {before} then {after}"
+            )
+
+
 class TestCompareCenterStaleFrame:
     """The centre pane must never show another mode's picture under this mode's label."""
 
