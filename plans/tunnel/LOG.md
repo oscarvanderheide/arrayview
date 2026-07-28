@@ -1162,3 +1162,13 @@ correlation over the existing log, `reusedSocket` instrumentation, and a
 staggered two-connection test. None needed VS Code. When a launch symptom points
 at the relay, probe the relay directly first; it is a two-minute experiment and
 it has now overturned the obvious explanation twice.
+
+**Install-verification trap, third variant.** `uv tool install --force
+--reinstall .` worked first time here, but the verification did not: this box
+sets `UV_TOOL_DIR=/home/oheide/localscratch/.cache/uv-tools`, and a *stale*
+tool env still sits at `~/.local/share/uv/tools/arrayview` pinned at 0.14.89.
+Grepping the default path "confirmed" the install had silently failed twice
+when it had in fact succeeded. Always resolve the path with `uv tool dir` rather
+than assuming the default, and check `_VSCODE_EXT_VERSION` *and* a code marker
+from the actual change inside the bundled VSIX — a version string alone cannot
+distinguish a rebuilt wheel from a cached one.
