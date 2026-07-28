@@ -3930,6 +3930,115 @@ class TestCompareCenterPicker:
         assert state["mode"] == chosen, f"Enter must keep the chosen mode, got {state}"
 
 
+class TestDiffPaneRangeMenu:
+    """`d` over the compare centre pane gets the same range menu as anywhere else."""
+
+    STATE = """
+        () => ({
+            expanded: !!(_diffCenterCb && _diffCenterCb._expanded),
+            pickerVisible: !!document.querySelector('#dmenu-picker.visible'),
+            lockRows: document.querySelectorAll('#dmenu-list .dmenu-bound-label').length,
+            target: _dmenuRangeTarget,
+            diffVmin: _diffManualVmin,
+            diffVmax: _diffManualVmax,
+            manualVmin,
+            manualVmax,
+            vminLocked,
+        })
+    """
+
+    def _diff_compare(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path, name):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, arr_2d * 0.6 + 0.2)
+        other = client.post(
+            "/load", json={"filepath": str(path), "name": name}
+        ).json()["sid"]
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, other)
+        page.evaluate("() => _setCompareCenterMode(1)")
+        page.wait_for_timeout(600)
+        return page
+
+    def _hover_diff_pane(self, page):
+        box = page.locator("#compare-diff-canvas").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(150)
+
+    def test_d_opens_the_real_range_menu_over_the_diff_pane(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        page = self._diff_compare(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, "diff_menu"
+        )
+        self._hover_diff_pane(page)
+        page.keyboard.press("d")
+        page.wait_for_timeout(800)
+
+        state = page.evaluate(self.STATE)
+        assert state["expanded"], f"d should expand the diff histogram, got {state}"
+        assert state["target"] == "diff-center", (
+            f"the range menu should be pointed at the centre pane, got {state}"
+        )
+        assert state["pickerVisible"], (
+            f"d should bring up the range menu, not just the histogram, got {state}"
+        )
+        assert state["lockRows"] >= 3, (
+            f"the range menu should offer the vmin/vmax/± locks, got {state}"
+        )
+
+    def test_repeat_d_cycles_the_diff_window_only(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        """Cycling on the centre pane must not move the window the source
+        panes are re-rendered from."""
+        page = self._diff_compare(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, "diff_cycle"
+        )
+        self._hover_diff_pane(page)
+        page.keyboard.press("d")
+        page.wait_for_timeout(800)
+        before = page.evaluate(self.STATE)
+
+        page.keyboard.press("d")
+        page.wait_for_timeout(600)
+        after = page.evaluate(self.STATE)
+
+        assert (after["diffVmin"], after["diffVmax"]) != (
+            before["diffVmin"],
+            before["diffVmax"],
+        ), f"repeat d should re-window the diff, got {before} then {after}"
+        assert (after["manualVmin"], after["manualVmax"]) == (
+            before["manualVmin"],
+            before["manualVmax"],
+        ), f"the source-pane window must be left alone, got {before} then {after}"
+
+    def test_vmin_lock_is_reachable_and_pins_the_diff_bound(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        page = self._diff_compare(
+            loaded_viewer, sid_2d, arr_2d, client, tmp_path, "diff_lock"
+        )
+        self._hover_diff_pane(page)
+        page.keyboard.press("d")
+        page.wait_for_timeout(800)
+
+        locked = page.evaluate(
+            """() => {
+                const btn = document.querySelector('#dmenu-list .dmenu-lock-vmin');
+                if (!btn) return null;
+                btn.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+                return { vminLocked, pinned: _diffManualVmin };
+            }"""
+        )
+        page.wait_for_timeout(400)
+        assert locked is not None, "the range menu should render a vmin lock row"
+        after = page.evaluate(self.STATE)
+        assert after["vminLocked"] or after["diffVmin"] is not None, (
+            f"activating the vmin lock should pin the diff's lower bound, got {after}"
+        )
+
+
 class TestWindowLevelHistogramHold:
     """The histogram belongs to the gesture for as long as the gesture lasts."""
 

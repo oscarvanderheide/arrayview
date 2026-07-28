@@ -5572,6 +5572,120 @@
         /**
          * Create a WebSocket transport connection.
          */
+        function _createHedgedWebSocket(makeSocket, delays = [0, 300, 600]) {
+            let winner = null;
+            let closed = false;
+            let launched = 0;
+            let finished = 0;
+            let binaryType = 'blob';
+            const candidates = [];
+            const timers = [];
+            const proxy = {
+                onopen: null,
+                onmessage: null,
+                onclose: null,
+                onerror: null,
+                send(data) {
+                    if (!winner) throw new Error('WebSocket is not open');
+                    winner.send(data);
+                },
+                close(code, reason) {
+                    if (closed) return;
+                    closed = true;
+                    timers.forEach(timer => clearTimeout(timer));
+                    for (const socket of candidates) {
+                        socket.onopen = null;
+                        socket.onmessage = null;
+                        socket.onerror = null;
+                        socket.onclose = null;
+                        try { socket.close(code, reason); } catch (_) {}
+                    }
+                    queueMicrotask(() => {
+                        if (proxy.onclose) proxy.onclose({ target: proxy });
+                    });
+                },
+            };
+            Object.defineProperties(proxy, {
+                binaryType: {
+                    get: () => binaryType,
+                    set(value) {
+                        binaryType = value;
+                        candidates.forEach(socket => { socket.binaryType = value; });
+                    },
+                },
+                readyState: {
+                    get: () => winner
+                        ? winner.readyState
+                        : (closed ? WebSocket.CLOSED : WebSocket.CONNECTING),
+                },
+            });
+            const failIfExhausted = () => {
+                if (
+                    !closed
+                    && !winner
+                    && launched === delays.length
+                    && finished === launched
+                    && proxy.onerror
+                ) {
+                    proxy.onerror({ target: proxy });
+                }
+            };
+            const launch = () => {
+                if (closed || winner) return;
+                launched++;
+                const socket = makeSocket();
+                candidates.push(socket);
+                socket.binaryType = binaryType;
+                let candidateFinished = false;
+                const finishCandidate = () => {
+                    if (candidateFinished) return;
+                    candidateFinished = true;
+                    finished++;
+                    failIfExhausted();
+                };
+                socket.onopen = event => {
+                    if (closed || winner) {
+                        socket.onopen = null;
+                        socket.onclose = null;
+                        try { socket.close(); } catch (_) {}
+                        finishCandidate();
+                        return;
+                    }
+                    winner = socket;
+                    timers.forEach(timer => clearTimeout(timer));
+                    for (const other of candidates) {
+                        if (other === socket) continue;
+                        other.onopen = null;
+                        other.onmessage = null;
+                        other.onerror = null;
+                        other.onclose = null;
+                        try { other.close(); } catch (_) {}
+                    }
+                    socket.onmessage = message => {
+                        if (proxy.onmessage) proxy.onmessage(message);
+                    };
+                    socket.onerror = error => {
+                        if (proxy.onerror) proxy.onerror(error);
+                    };
+                    socket.onclose = closeEvent => {
+                        if (closed) return;
+                        closed = true;
+                        if (proxy.onclose) proxy.onclose(closeEvent);
+                    };
+                    if (proxy.onopen) proxy.onopen(event);
+                };
+                socket.onerror = () => {
+                    try { socket.close(); } catch (_) {}
+                };
+                socket.onclose = finishCandidate;
+            };
+            for (const delay of delays) {
+                if (delay === 0) launch();
+                else timers.push(setTimeout(launch, delay));
+            }
+            return proxy;
+        }
+
         function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
             let wsTarget = resolveServerPath(`/ws/${transportSid}`);
             const nativeRequestId = new URLSearchParams(location.search).get('native_request_id');
@@ -5589,15 +5703,23 @@
                 wsTarget += `${separator}launch_request_id=${encodeURIComponent(launchRequestId)}`;
                 wsTarget += `&launch_token=${encodeURIComponent(launchToken)}`;
             }
-            let ws;
-            if (_embeddedServerOrigin) {
-                const wsUrl = new URL(wsTarget);
-                const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`);
-            } else {
+            const makeSocket = () => {
+                if (_embeddedServerOrigin) {
+                    const wsUrl = new URL(wsTarget);
+                    const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+                    return new WebSocket(
+                        `${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`
+                    );
+                }
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${location.host}${wsTarget}`);
-            }
+                return new WebSocket(`${proto}//${location.host}${wsTarget}`);
+            };
+            const ws = (
+                _relayWsHedgeEnabled
+                && transportSid === sid
+            )
+                ? _createHedgedWebSocket(makeSocket)
+                : makeSocket();
             ws.binaryType = 'arraybuffer';
             if (onOpen) ws.onopen = onOpen;
             if (onMessage) ws.onmessage = onMessage;
@@ -5634,6 +5756,7 @@
             'script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered',
         ]);
         let _launchPhaseTail = Promise.resolve();
+        const _relayWsHedgeEnabled = urlParams.get('_av_relay_hedge') === '1';
 
         function reportParent(phase, detail) {
             try {
@@ -5765,6 +5888,17 @@
         let _dmenuCbReservePx = null;
         let _dmenuVminPresetIdx = null;
         let _dmenuVmaxPresetIdx = null;
+        // Which window the range menu reads and writes. The menu was built
+        // against the primary colorbar's globals (`_histData`, `manualVmin`,
+        // `manualVmax`), so the compare centre pane — which owns a separate
+        // histogram and a separate window — had to run a cut-down copy of the
+        // same interaction instead: presets, but no lock row and a snapped
+        // window. Naming the target lets the diff pane use the real menu.
+        // The lock flags stay shared: "keep vmin where I put it" is one intent,
+        // not one per pane. Preset indices are not — cycling on the diff pane
+        // must not move the preset the source panes get re-applied from.
+        let _dmenuRangeTarget = 'primary';   // 'primary' | 'diff-center'
+        const _diffPresetIdx = { q: 0, vmin: null, vmax: null };
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
@@ -8878,6 +9012,8 @@
                 _diffCenterCb._detachEvents();
             }
             _diffCenterCb = null;
+            _dmenuSetRangeTarget('primary');
+            _diffPresetIdx.q = 0; _diffPresetIdx.vmin = null; _diffPresetIdx.vmax = null;
             _diffManualVmin = null; _diffManualVmax = null;
             { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } }
             _updateComparePaneSyncPairing();
@@ -12395,7 +12531,36 @@
          * setting manualVmin/manualVmax (and per-pane/per-view equivalents).
          * Returns the applied preset, or null if no histogram data is available.
          */
+        /**
+         * Cycle the centre pane's own window through the percentile presets.
+         *
+         * Same contract as the primary path below, minus the per-mode fan-out:
+         * the diff window belongs to one canvas, so there is nothing to mirror
+         * into multiview panes or per-pane compare overrides.
+         */
+        function _cycleDiffQuantilePreset() {
+            const hist = _diffCenterCb && _diffCenterCb._histData;
+            if (!hist || !hist.counts || !hist.counts.length) return null;
+            _diffPresetIdx.q = (_diffPresetIdx.q + 1) % _QUANTILE_PRESETS.length;
+            const preset = _QUANTILE_PRESETS[_diffPresetIdx.q];
+            const win = _quantileWindowFromHistogram(hist, preset);
+            if (!win) return null;
+            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
+            if (!vminEffectivelyLocked) { _diffManualVmin = win.vmin; _diffPresetIdx.vmin = _diffPresetIdx.q; }
+            if (!vmaxLocked) { _diffManualVmax = win.vmax; _diffPresetIdx.vmax = _diffPresetIdx.q; }
+            if (_dmenuEffectiveSymmetricLocked()) {
+                const half = Math.max(Math.abs(_diffManualVmin ?? 0), Math.abs(_diffManualVmax ?? 0));
+                _diffManualVmin = -half;
+                _diffManualVmax = half;
+            }
+            const dv = modeManager.getViewById('compare-diff-center');
+            if (dv) { dv.displayState.vmin = _diffManualVmin; dv.displayState.vmax = _diffManualVmax; }
+            _updateDmenuPreset();
+            return preset;
+        }
+
         function _cycleQuantilePreset() {
+            if (_dmenuDiffTargetActive()) return _cycleDiffQuantilePreset();
             if (!_histData || !_histData.counts) return null;
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
@@ -13872,6 +14037,7 @@
         // stay well inside the opener's viewer deadline so the give-up message
         // reaches the user instead of being overtaken by it.
         const WS_OPEN_TIMEOUT_MS = 6000;
+        const RELAY_WS_OPEN_TIMEOUT_MS = 2000;
         const WS_OPEN_ATTEMPTS = 3;
         let _wsOpenTimer = null;
         let _wsOpenAttempts = 0;
@@ -13924,7 +14090,9 @@
                         + 'ArrayView backend.';
                     showMetadataError({ error: detail });
                     reportParent('render-error', detail);
-                }, WS_OPEN_TIMEOUT_MS);
+                }, _relayWsHedgeEnabled
+                    ? RELAY_WS_OPEN_TIMEOUT_MS
+                    : WS_OPEN_TIMEOUT_MS);
             }
 
             ws.onopen = () => {
@@ -23939,8 +24107,17 @@
                         if (pos) {
                             const el = document.elementFromPoint(pos.x, pos.y);
                             if (el && el.closest('#compare-diff-pane')) {
+                                // Point the range menu at the centre pane and
+                                // then take the ordinary path: open, then range
+                                // menu, then cycle presets. This branch used to
+                                // run its own cut-down version — presets only,
+                                // no lock row, and a snapped window instead of
+                                // an animated one — which is why `d` here felt
+                                // like an older build of the same feature.
+                                _dmenuSetRangeTarget('diff-center');
                                 if (!_diffCenterCb._expanded) {
                                     _diffCenterCb._expanded = true;
+                                    _diffCenterCb._manualExpand = true;
                                     _diffCenterCb._animating = false;
                                     _diffCenterCb._animT = 1;
                                     _diffCenterCb._animTarget = 1;
@@ -23952,24 +24129,35 @@
                                         _diffCenterCb._snapWindowFractionsOnNextDraw();
                                         _diffCenterCb.draw();
                                         _diffCenterCb.updateLabels();
+                                        _restartHistAutoDismiss();
+                                        _histPickerOpen();
                                     }).catch(() => {});
-                                } else {
-                                    // Already open — repeat `d` cycles the
-                                    // percentile presets, as it does elsewhere.
-                                    await _diffCenterCb.ensureHistogramData();
-                                    const q = _diffCenterCb.cycleQuantile();
-                                    if (q) {
-                                        _diffCenterCb.opts.setWindow(q.vmin, q.vmax);
-                                        _diffCenterCb._snapWindowFractionsOnNextDraw();
-                                        _diffCenterCb.draw();
-                                        _diffCenterCb.updateLabels();
-                                        if (_diffCenterCb.opts.onWindowChange) _diffCenterCb.opts.onWindowChange();
-                                        showStatus(`diff range: ${q.label}`);
-                                    }
+                                    _restartHistAutoDismiss();
+                                    setTimeout(saveState, 0);
+                                    return;
+                                }
+                                if (!_histPickerActive) {
+                                    _histPickerOpen();
+                                    _restartHistAutoDismiss();
+                                    return;
+                                }
+                                // Menu is showing — cycle the preset. No snap:
+                                // the window fractions animate to the new bounds
+                                // exactly as they do on the primary bar.
+                                await _diffCenterCb.ensureHistogramData();
+                                const preset = _cycleQuantilePreset();
+                                if (preset) {
+                                    _dmenuSelectCurrentPreset();
+                                    _dmenuRefreshAfterRangeChange();
+                                    _restartHistAutoDismiss();
+                                    saveState();
+                                    showStatus(`diff range: ${preset.label}`);
                                 }
                                 return;
                             }
                         }
+                        // Pointer is elsewhere: the primary bar owns `d` again.
+                        _dmenuSetRangeTarget('primary');
                     }
                     const wasOpen = !!(primaryCb && primaryCb._expanded);
                     if (!wasOpen) {
@@ -36082,7 +36270,8 @@
         function _dmenuCurrentPresetIdx() {
             const n = _QUANTILE_PRESETS.length;
             if (!n) return 0;
-            return ((window._dQuantileIdx != null ? window._dQuantileIdx : 0) % n + n) % n;
+            const idx = _dmenuTargetPresetIdx('q');
+            return (((idx != null ? idx : 0) % n) + n) % n;
         }
 
         function _dmenuPolicyLocksVmin() {
@@ -36111,8 +36300,10 @@
         function _dmenuZeroFloorLocksVmin() {
             if (_dmenuZeroFloorVminUnlocked) return false;
             if (qmriActive || compareQmriActive) return false;
-            const hMin = _histData && Number(_histData.vmin);
-            const curMin = Number(currentVmin);
+            const zfHist = _dmenuTargetHist();
+            const hMin = zfHist && Number(zfHist.vmin);
+            const zfWin = _dmenuDiffTargetActive() ? _dmenuTargetWindow() : null;
+            const curMin = Number(zfWin ? zfWin.vmin : currentVmin);
             return (Number.isFinite(hMin) && Math.abs(hMin) < 1e-12)
                 || (Number.isFinite(curMin) && Math.abs(curMin) < 1e-12);
         }
@@ -36204,6 +36395,18 @@
 
         function _dmenuSetBoundManual(action, value) {
             if (!Number.isFinite(value)) return;
+            if (_dmenuDiffTargetActive()) {
+                if (action === 'vmin') _diffManualVmin = value;
+                else if (action === 'vmax') _diffManualVmax = value;
+                const ddv = modeManager.getViewById('compare-diff-center');
+                if (ddv) { ddv.displayState.vmin = _diffManualVmin; ddv.displayState.vmax = _diffManualVmax; }
+                if (!_dmenuSymmetricMirroring && _dmenuEffectiveSymmetricLocked()) {
+                    _dmenuSymmetricMirroring = true;
+                    try { _dmenuSetBoundManual(action === 'vmin' ? 'vmax' : 'vmin', -value); }
+                    finally { _dmenuSymmetricMirroring = false; }
+                }
+                return;
+            }
             if (action === 'vmin') {
                 manualVmin = value;
                 const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
@@ -36250,34 +36453,36 @@
         }
 
         function _dmenuClearPresetForManualRange(target) {
-            if (target === 'vmin') _dmenuVminPresetIdx = null;
-            else if (target === 'vmax') _dmenuVmaxPresetIdx = null;
+            if (target === 'vmin') _dmenuTargetSetPresetIdx('vmin', null);
+            else if (target === 'vmax') _dmenuTargetSetPresetIdx('vmax', null);
             else if (target === 'pan') {
-                _dmenuVminPresetIdx = null;
-                _dmenuVmaxPresetIdx = null;
+                _dmenuTargetSetPresetIdx('vmin', null);
+                _dmenuTargetSetPresetIdx('vmax', null);
             }
             if (_dmenuPickerOpen) _dmenuPickerRender();
         }
 
         function _dmenuApplyBoundPreset(action, index) {
-            if (!_histData || !_histData.counts) {
+            const hist = _dmenuTargetHist();
+            if (!hist || !hist.counts) {
                 return false;
             }
             if ((action === 'vmin' && vminLocked) || (action === 'vmax' && vmaxLocked)) {
                 return false;
             }
             const preset = _QUANTILE_PRESETS[index];
-            const win = _quantileWindowFromHistogram(_histData, preset);
+            const win = _quantileWindowFromHistogram(hist, preset);
             if (!preset || !win) return false;
             if (action === 'vmin') {
                 _dmenuSetBoundManual('vmin', win.vmin);
-                _dmenuVminPresetIdx = index;
+                _dmenuTargetSetPresetIdx('vmin', index);
             } else {
                 _dmenuSetBoundManual('vmax', win.vmax);
-                _dmenuVmaxPresetIdx = index;
+                _dmenuTargetSetPresetIdx('vmax', index);
             }
-            window._dQuantileIdx = index;
-            if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
+            _dmenuTargetSetPresetIdx('q', index);
+            const boundCb = _dmenuActiveColorbar();
+            if (boundCb) boundCb._snapWindowFractionsOnNextDraw();
             _dmenuRefreshAfterRangeChange();
             _restartHistAutoDismiss();
             saveState();
@@ -36333,7 +36538,7 @@
                 {
                     kind: 'vmin',
                     value: win.vmin,
-                    presetIdx: _dmenuVminPresetIdx,
+                    presetIdx: _dmenuTargetPresetIdx('vmin'),
                     frac: (Number.isFinite(activeCb._winVminF)
                         ? activeCb._winVminF
                         : (win.vmin - hd.vmin) / span) * animT,
@@ -36341,7 +36546,7 @@
                 {
                     kind: 'vmax',
                     value: win.vmax,
-                    presetIdx: _dmenuVmaxPresetIdx,
+                    presetIdx: _dmenuTargetPresetIdx('vmax'),
                     frac: 1 - (1 - (Number.isFinite(activeCb._winVmaxF)
                         ? activeCb._winVmaxF
                         : (win.vmax - hd.vmin) / span)) * animT,
@@ -36487,6 +36692,7 @@
         }
 
         function _dmenuActiveColorbarWrap() {
+            if (_dmenuDiffTargetActive()) return _diffCenterCb.wrap || null;
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
                 const cb = _dmenuActiveColorbar();
                 if (cb && cb.wrap) return cb.wrap;
@@ -36497,7 +36703,45 @@
             return document.getElementById('slim-cb-wrap');
         }
 
+        /** True while the range menu is driving the compare centre pane. */
+        function _dmenuDiffTargetActive() {
+            return _dmenuRangeTarget === 'diff-center'
+                && compareActive && diffMode > 0 && !!_diffCenterCb;
+        }
+
+        function _dmenuSetRangeTarget(target) {
+            _dmenuRangeTarget = target === 'diff-center' ? 'diff-center' : 'primary';
+        }
+
+        /** Histogram the range menu is reading. */
+        function _dmenuTargetHist() {
+            return _dmenuDiffTargetActive() ? _diffCenterCb._histData : _histData;
+        }
+
+        /** Window the range menu is editing, straight from the owning colorbar. */
+        function _dmenuTargetWindow() {
+            const cb = _dmenuActiveColorbar();
+            return cb && cb.opts && typeof cb.opts.getWindow === 'function'
+                ? cb.opts.getWindow()
+                : null;
+        }
+
+        function _dmenuTargetPresetIdx(kind) {
+            if (_dmenuDiffTargetActive()) return _diffPresetIdx[kind];
+            if (kind === 'vmin') return _dmenuVminPresetIdx;
+            if (kind === 'vmax') return _dmenuVmaxPresetIdx;
+            return window._dQuantileIdx != null ? window._dQuantileIdx : 0;
+        }
+
+        function _dmenuTargetSetPresetIdx(kind, value) {
+            if (_dmenuDiffTargetActive()) { _diffPresetIdx[kind] = value; return; }
+            if (kind === 'vmin') _dmenuVminPresetIdx = value;
+            else if (kind === 'vmax') _dmenuVmaxPresetIdx = value;
+            else window._dQuantileIdx = value;
+        }
+
         function _dmenuActiveColorbar() {
+            if (_dmenuDiffTargetActive()) return _diffCenterCb;
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
                 return (qmriMosaicActive && _hoveredQmriView._mosaicColorBar)
                     ? _hoveredQmriView._mosaicColorBar
@@ -36523,6 +36767,9 @@
             ['slim-cb-wrap', 'mv-cb-wrap'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.remove('dmenu-attached');
+            });
+            document.querySelectorAll('.cb-island.dmenu-attached').forEach(el => {
+                el.classList.remove('dmenu-attached');
             });
             document.querySelectorAll('.oblique-flip-wrap.dmenu-attached').forEach(el => {
                 el.classList.remove('dmenu-attached');
@@ -36608,6 +36855,15 @@
         }
 
         function _dmenuRefreshAfterRangeChange(skipDmenuRender) {
+            if (_dmenuDiffTargetActive()) {
+                fetchAndDrawDiff();
+                _diffCenterCb.draw();
+                _diffCenterCb.updateLabels();
+                if (typeof _diffCenterCb.ensureAnimating === 'function') _diffCenterCb.ensureAnimating();
+                if (!skipDmenuRender) _dmenuPickerRender();
+                if (_dmenuPickerOpen) _dmenuPickerPosition();
+                return;
+            }
             if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
             else if (compareActive) compareRender();
             else if (qmriActive) qmriViews.forEach(v => qvRender(v));
@@ -36625,12 +36881,13 @@
         }
 
         function _dmenuApplyPresetIndex(index) {
-            if (!_histData || !_histData.counts) {
+            const hist = _dmenuTargetHist();
+            if (!hist || !hist.counts) {
                 return false;
             }
-            window._dQuantileIdx = index;
-            if (!_dmenuEffectiveVminLocked()) _dmenuVminPresetIdx = index;
-            if (!vmaxLocked) _dmenuVmaxPresetIdx = index;
+            _dmenuTargetSetPresetIdx('q', index);
+            if (!_dmenuEffectiveVminLocked()) _dmenuTargetSetPresetIdx('vmin', index);
+            if (!vmaxLocked) _dmenuTargetSetPresetIdx('vmax', index);
             _reapplyCurrentQuantilePreset();
             _dmenuRefreshAfterRangeChange();
             _restartHistAutoDismiss();
@@ -36650,6 +36907,14 @@
         }
 
         function _dmenuRefreshHistogramForZeros() {
+            if (_dmenuDiffTargetActive()) {
+                _diffCenterCb._histVersion = null;
+                _diffCenterCb.ensureHistogramData().then(() => {
+                    _reapplyCurrentQuantilePreset();
+                    _dmenuRefreshAfterRangeChange();
+                }).catch(() => { _dmenuPickerRender(); });
+                return;
+            }
             _invalidateVolHistCache();
             const fetchPromise = compareActive
                 ? _fetchHistogramCompare().then(() => _histData)
@@ -36675,9 +36940,13 @@
         }
 
         function _dmenuCurrentWindow() {
-            const win = primaryCb && primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
-                ? primaryCb.opts.getWindow()
-                : null;
+            const win = _dmenuTargetWindow();
+            if (_dmenuDiffTargetActive()) {
+                return {
+                    vmin: Number.isFinite(win && win.vmin) ? win.vmin : (_diffManualVmin ?? _lastDiffVmin),
+                    vmax: Number.isFinite(win && win.vmax) ? win.vmax : (_diffManualVmax ?? _lastDiffVmax),
+                };
+            }
             return {
                 vmin: Number.isFinite(win && win.vmin) ? win.vmin : (manualVmin ?? currentVmin),
                 vmax: Number.isFinite(win && win.vmax) ? win.vmax : (manualVmax ?? currentVmax),
@@ -36686,6 +36955,14 @@
 
         function _dmenuCaptureBoundLock(action) {
             const win = _dmenuCurrentWindow();
+            if (_dmenuDiffTargetActive()) {
+                // The centre pane has no per-view fan-out to mirror into:
+                // locking a bound just pins the value it already shows.
+                _dmenuSetBoundManual(action, action === 'vmin' ? win.vmin : win.vmax);
+                _dmenuRefreshAfterRangeChange();
+                saveState();
+                return;
+            }
             if (action === 'vmin') {
                 manualVmin = win.vmin;
                 const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
@@ -36740,9 +37017,10 @@
                     // toggle has a visible effect rather than only shaping
                     // later adjustments. The widest bound sets the half-width
                     // so nothing currently visible gets clipped away.
+                    const symWin = _dmenuCurrentWindow();
                     const half = Math.max(
-                        Math.abs(Number(manualVmin ?? currentVmin)),
-                        Math.abs(Number(manualVmax ?? currentVmax)),
+                        Math.abs(Number(symWin.vmin)),
+                        Math.abs(Number(symWin.vmax)),
                     );
                     if (Number.isFinite(half) && half > 0) _dmenuSetBoundManual('vmax', half);
                 }
@@ -36887,10 +37165,12 @@
             if (_diffCenterCb && _diffCenterCb._expanded) {
                 _diffCenterCb._expanded = false;
                 _diffCenterCb._manualExpand = false;
+                if (_diffCenterCb.wrap) _diffCenterCb.wrap.classList.remove('cb-expanded');
                 if (_diffCenterCb.triZone) _diffCenterCb.triZone.classList.remove('expanded');
                 _diffCenterCb.startAnim(false);
                 _diffCenterCb.draw();
             }
+            _dmenuSetRangeTarget('primary');
         }
 
         /** Cycle the state of dim `d` and re-apply the histogram + preset.
@@ -37060,7 +37340,24 @@
         /** Re-apply the most recently used percentile preset to _histData.
          *  A volume adopts full range on first histogram open; a plain 2-D
          *  image still opens without changing its auto range. */
+        function _reapplyDiffQuantilePreset() {
+            const hist = _diffCenterCb && _diffCenterCb._histData;
+            if (!hist || !hist.counts || !hist.counts.length) return;
+            if (_diffPresetIdx.vmin != null && !_dmenuEffectiveVminLocked()) {
+                const win = _quantileWindowFromHistogram(hist, _QUANTILE_PRESETS[_diffPresetIdx.vmin]);
+                if (win) _diffManualVmin = win.vmin;
+            }
+            if (_diffPresetIdx.vmax != null && !vmaxLocked) {
+                const win = _quantileWindowFromHistogram(hist, _QUANTILE_PRESETS[_diffPresetIdx.vmax]);
+                if (win) _diffManualVmax = win.vmax;
+            }
+            const dv = modeManager.getViewById('compare-diff-center');
+            if (dv) { dv.displayState.vmin = _diffManualVmin; dv.displayState.vmax = _diffManualVmax; }
+            if (_diffCenterCb) _diffCenterCb._snapWindowFractionsOnNextDraw();
+        }
+
         function _reapplyCurrentQuantilePreset() {
+            if (_dmenuDiffTargetActive()) { _reapplyDiffQuantilePreset(); return; }
             if (!_histData || !_histData.counts) return;
             if (_dmenuVminPresetIdx != null && !_dmenuEffectiveVminLocked()) {
                 const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVminPresetIdx]);
