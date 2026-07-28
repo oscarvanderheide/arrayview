@@ -2043,11 +2043,14 @@ async function tryOpenSignalFile() {
 // Open or reveal a VS Code WebviewPanel for the given server URL.
 // The panel is only a URL wrapper: ArrayView data and controls still flow
 // through the FastAPI/WebSocket backend, never direct Python/webview IPC.
-function _viewerPanelHtml(url, warmupUrl = null, warmupTimeoutMs = 2000) {
+function _viewerPanelHtml(
+    url, warmupUrl = null, warmupTimeoutMs = 2000, fallbackUrl = null
+) {
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url);
     const jsonWarmupUrl = JSON.stringify(warmupUrl);
     const jsonWarmupTimeoutMs = JSON.stringify(warmupTimeoutMs);
+    const jsonFallbackUrl = JSON.stringify(fallbackUrl);
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -2086,9 +2089,16 @@ function _viewerPanelHtml(url, warmupUrl = null, warmupTimeoutMs = 2000) {
 </div>
 <script nonce="${nonce}">
 const vscodeApi = acquireVsCodeApi();
-const arrayviewUrl = ${jsonUrl};
+let arrayviewUrl = ${jsonUrl};
 const warmupUrl = ${jsonWarmupUrl};
 const warmupTimeoutMs = ${jsonWarmupTimeoutMs};
+// Set only when the page is being delivered through VS Code's port mapping.
+// The first retry switches to it rather than re-trying the mapped URL: if the
+// mapping is not carrying the page, asking it again will not change that,
+// whereas the relay is a genuinely different route and is what this panel
+// would have used before.
+const fallbackUrl = ${jsonFallbackUrl};
+let fallbackUsed = false;
 const frame = document.getElementById('f');
 vscodeApi.postMessage({ type: 'panel-phase', phase: 'wrapper-started' });
 let viewerReady = false;
@@ -2127,6 +2137,15 @@ function scheduleReload(delayMs) {
         if (viewerReady || viewerLoaded) return;
         if (reloadCount >= MAX_RELOADS) { showBackendError(); return; }
         reloadCount++;
+        if (fallbackUrl && !fallbackUsed) {
+            fallbackUsed = true;
+            arrayviewUrl = fallbackUrl;
+            console.log('[arrayview-opener] mapped delivery did not arrive; falling back to ' + fallbackUrl);
+            vscodeApi.postMessage({ type: 'panel-phase', phase: 'delivery-fallback' });
+            frame.src = fallbackUrl;
+            scheduleReload(NAVIGATE_TIMEOUT_MS);
+            return;
+        }
         console.log('[arrayview-opener] iframe reload ' + reloadCount + ' (viewer not ready)');
         const sep = arrayviewUrl.includes('?') ? '&' : '?';
         frame.src = arrayviewUrl + sep + '_avretry=' + reloadCount;
@@ -2616,6 +2635,48 @@ function _backendPortMapping(displayUrl, backendUrl) {
     }
 }
 
+/**
+ * Page-over-VS-Code, data-over-relay delivery for a tunnel window.
+ *
+ * Returns null unless this is a tunnel window whose display URL is a remote
+ * relay and whose backend is a loopback port — i.e. exactly the case where the
+ * page currently crosses the devtunnel. Every other display path (local VS
+ * Code, Remote SSH with a loopback display URL, browser, Jupyter) is left
+ * untouched, because those already deliver the page over something reliable.
+ */
+function _tunnelPageDelivery(displayUrl, backendUrl) {
+    if (vscode.env.remoteName !== 'tunnel') return null;
+    if (!displayUrl || !backendUrl) return null;
+    try {
+        const display = new URL(displayUrl);
+        const backend = new URL(backendUrl);
+        // Only worth doing when the display really is remote and the backend
+        // really is local to the extension host.
+        if (isLoopbackUrl(displayUrl)) return null;
+        if (!['localhost', '127.0.0.1'].includes(backend.hostname.toLowerCase())) {
+            return null;
+        }
+        const backendPort = Number(backend.port);
+        if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
+            return null;
+        }
+        const dataOrigin = display.origin;
+        // Carry the original query through unchanged — sid, compare_sid,
+        // overlay_names and the launch token all live in it — and add the
+        // origin the viewer must use for its socket.
+        const delivery = new URL(backend.toString());
+        delivery.search = display.search || backend.search;
+        delivery.searchParams.set('data_origin', dataOrigin);
+        return {
+            deliveryUrl: delivery.toString(),
+            dataOrigin,
+            portMapping: [{ webviewPort: backendPort, extensionHostPort: backendPort }],
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
 function _replaceWebviewPortMapping(webview, portMapping) {
     const options = { ...(webview.options || {}) };
     delete options.portMapping;
@@ -2634,13 +2695,41 @@ async function openInWebviewPanel(
 ) {
     const label = title || 'ArrayView';
     const panelKey = requestKey || url;
-    const portMapping = _backendPortMapping(url, backendUrl);
+    let portMapping = _backendPortMapping(url, backendUrl);
+    // Deliver the page over VS Code's own remote channel, keep the data on the
+    // relay. The viewer page is ~1.9 MB and identical on every launch, and
+    // measured against this relay it is the single largest remaining cost —
+    // 8.4 s when the relay is healthy and 27 s when it is not. VS Code's
+    // portMapping routes an http://localhost:PORT request from the webview
+    // through the connection it already holds to this machine, which does not
+    // black-hole. It cannot carry the WebSocket (VS Code does not remap those),
+    // so the page is told to address the backend absolutely via data_origin,
+    // leaving the socket exactly where it is today.
+    const relayDelivery = { fallbackUrl: null };
+    let deliveryUrl = url;
+    const tunnelDelivery = _tunnelPageDelivery(url, backendUrl);
+    if (tunnelDelivery) {
+        deliveryUrl = tunnelDelivery.deliveryUrl;
+        portMapping = tunnelDelivery.portMapping;
+        // If the mapped delivery never arrives, the panel re-navigates to the
+        // relay URL, which is exactly today's behaviour. Nothing about this is
+        // one-way.
+        relayDelivery.fallbackUrl = url;
+        log(`PANEL: delivering page via portMapping ${deliveryUrl} `
+            + `(data stays on ${tunnelDelivery.dataOrigin})`);
+    }
     // 2 s, not 12 s: see the warmup comment in the panel wrapper. Every healthy
     // /ping through this relay has answered inside 640 ms, and the slowest
     // warmup ever recorded in plans/tunnel/LOG.md was 1.85 s, so this keeps all
     // of the benefit and caps a black-holed warmup at 2 s of delay.
     const warmupTimeoutMs = Math.max(0, Math.min(2000, viewerTimeoutMs - 1000));
-    const warmupUrl = warmupTimeoutMs > 0 ? pingUrlFromViewerUrl(url) : null;
+    // No warmup when the page comes through the port mapping: the warmup
+    // exists to touch the path the page is about to take, and that path is no
+    // longer the relay. The socket still needs the relay, but it has its own
+    // bounded retry and must not gate the page.
+    const warmupUrl = (warmupTimeoutMs > 0 && !tunnelDelivery)
+        ? pingUrlFromViewerUrl(url)
+        : null;
 
     // Reveal/reconcile the existing logical panel for this request. A replay
     // may resolve the same backend SID through a new external tunnel URL.
@@ -2697,7 +2786,9 @@ async function openInWebviewPanel(
         if (!error) _readyPanels.add(panel);
         return error;
     });
-    panel.webview.html = _viewerPanelHtml(url, warmupUrl, warmupTimeoutMs);
+    panel.webview.html = _viewerPanelHtml(
+        deliveryUrl, warmupUrl, warmupTimeoutMs, relayDelivery.fallbackUrl
+    );
     panel.__arrayviewUrl = url;
 
     _openPanels.set(panelKey, panel);
@@ -3809,6 +3900,7 @@ module.exports = {
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
         _viewerPanelHtml,
+        _tunnelPageDelivery,
         _publicBaseFromTunnelResult,
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,

@@ -1234,3 +1234,67 @@ existed at a second layer. Before claiming a latency fix works, decompose the
 hard-codes port 8000 and fails whenever a real ArrayView session is running on
 it. Verified environmental by reverting `extension.js` to HEAD and reproducing
 the identical failure. Not fixed here.
+
+### 0.14.99 — take the page off the relay entirely
+
+**Measured 0.14.98 result** (two launches after reload): 1.15 s, then 33.1 s.
+Both earlier fixes were visibly working in the slow one — the warmup failed at
+exactly its new 2.0 s cap instead of 12 s, the hedged route check cost 3.5 s
+instead of ~20 s — and the launch was still 33 s, because the page itself took
+**27.3 s** to cross the relay. Everything else is now noise next to that.
+
+**The page is the whole remaining problem, and it never needed to be on the
+relay.** Two facts settle it:
+
+- It is **byte-identical on every launch**. `md5` of `/?sid=A` and `/?sid=B` are
+  the same; only the no-sid variant differs, because that one embeds the latest
+  session id. `get_ui` sets `query_val = "null"` whenever a sid is present, so
+  the body carries no session state at all.
+- It is **1.96 MB**, served `Cache-Control: no-store`, at a URL whose query
+  changes every launch. It is re-fetched in full, every single time, over the
+  one link in the system that black-holes ~20% of connections.
+
+**Fix: deliver the page over VS Code's own remote channel, keep the data on the
+relay.** `portMapping` routes `http://localhost:8000` from the webview through
+the connection VS Code already holds to this machine. That connection is
+established, multiplexed, and does not black-hole.
+
+The socket cannot move — `_backendPortMapping`'s own comment records that VS
+Code does not remap WebSocket ports, which is exactly why tunnels bypassed
+portMapping and put *everything* on the relay. So the split is: page over the
+mapping, socket over the relay, via a new `?data_origin=` on `GET /` that
+injects `window.__ARRAYVIEW_SERVER_ORIGIN__`.
+
+**Both viewer seams already existed** — `__ARRAYVIEW_SERVER_ORIGIN__` (read by
+`resolveServerPath` and `createTransport`) and `__ARRAYVIEW_QUERY__`. So
+`_viewer.html` needed **no change at all**, which is the best possible outcome
+for the file with the largest blast radius. The server edit is 8 lines and
+provably inert without the parameter: the served bytes hash identically
+(`4c523b7afd4126f31e0cee33748084a4`) before and after the change when
+`data_origin` is absent or rejected.
+
+`data_origin` is validated against `^https?://host(:port)?/?$` and rejected
+outright otherwise — it lands inside a `<script>` block, so escaping was not
+the right tool. `javascript:` URIs and `</script>`-style injection are refused.
+
+**The fallback is the safety property.** If the mapping does not carry the page,
+the first watchdog fire re-navigates to the relay URL — today's behaviour
+exactly — and emits a `delivery-fallback` phase so the log says which route
+served the page. Retrying the mapped URL instead would be pointless: if the
+mapping is not working, asking it again will not change that, whereas the relay
+is a genuinely different route.
+
+**Unverified assumption, stated plainly**: that `portMapping` works in a
+*tunnel* window. It is standard remote-webview plumbing and the code to build
+it already existed, but it has never run in this configuration here, and no
+component test can prove it — the mapping is implemented by VS Code. If it does
+not work, the fallback makes the failure cost one watchdog interval rather than
+a broken launch. This needs one real launch to settle.
+
+**Scope discipline note**: two richer designs were considered and dropped. A
+srcdoc/postMessage transport (extension fetches over loopback, injects the HTML)
+needs CSP work and a query-injection seam, and the `get-viewer-html` bridge that
+would have supported it no longer exists in this codebase — an out-of-date
+memory claimed it did, which is a reminder to grep before trusting one. A
+cacheable stable URL depends on webview HTTP-cache persistence across panels,
+which is unverifiable from here. portMapping needs neither assumption.

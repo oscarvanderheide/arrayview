@@ -55,7 +55,7 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.14.98"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.99"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -574,6 +574,15 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         env["VSCODE_IPC_HOOK_CLI"] = ipc
 
     install_snapshot = _extension_base_snapshot() if is_remote else {}
+    # Say so before the slow part, not after it. Installing the opener takes
+    # several seconds and may end in "reload this window once"; announcing that
+    # only in the final error message left the terminal looking hung, with the
+    # explanation arriving after the wait instead of before it.
+    print(
+        f"[ArrayView] installing the VS Code opener extension (v{ext_version})… "
+        "a one-time window reload may be needed afterwards",
+        flush=True,
+    )
     try:
         r = _run_extension_installer(
             [code, "--install-extension", vsix_path, "--force"], env
