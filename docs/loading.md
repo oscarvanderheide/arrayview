@@ -114,8 +114,9 @@ can stay and play with whatever you just found for as long as you like. When a
 panel opens over the array, the tutorial fades out and waits rather than talking
 underneath it.
 
-The tour is divided into sections — `moving`, `looking`, `views`, `two arrays`,
-`marks`, `the rest` — listed along the bottom of the frame. Each announces
+The tour is divided into sections — `moving`, `looking`, `shaping`, `closer`,
+`all at once`, `spectra`, `values`, `views`, `two arrays`, `marks`, `the rest` —
+listed along the bottom of the frame. Each announces
 itself before it starts asking for anything. Click a section to jump to it, or
 use `Tab` and `Shift+Tab`. Jumping is safe in either direction: every section
 sets up the state it needs, so skipping ahead to `two arrays` loads the pair and

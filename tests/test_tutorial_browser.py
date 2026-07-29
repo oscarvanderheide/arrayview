@@ -78,6 +78,21 @@ def _wait_for_ask(page, key, timeout=20_000):
     page.wait_for_function(ASK % key, timeout=timeout)
 
 
+def _section(page, section_id):
+    """Resolve a section by id. Never hard-code the index — sections get
+    inserted, and an index that silently means a different chapter turns a
+    real failure into a confusing one."""
+    index = page.evaluate(
+        f"() => _TUTORIAL_SECTIONS.findIndex(s => s.id === {section_id!r})"
+    )
+    assert index >= 0, f"no tutorial section with id {section_id!r}"
+    return index
+
+
+def _go_to_section(page, section_id):
+    page.evaluate(f"() => _tutorialGoSection({_section(page, section_id)})")
+
+
 def test_the_tour_opens_on_a_chapter_not_an_instruction(tutorial_page):
     """It used to drop you straight into 'press K'. A tour that changes the
     ground under you — a second array, then overlays — has to say where it
@@ -218,7 +233,7 @@ def test_a_step_that_asks_for_several_presses_waits_for_them(tutorial_page):
         "() => _TUTORIAL_STEPS.findIndex(s => s.expect"
         " && s.expect.includes('detachedDim.adjustIndexA'))"
     )
-    page.evaluate("() => _tutorialGoSection(2)")
+    _go_to_section(page, "views")
     for key in ("v", "v", "Shift+S"):
         page.wait_for_function(_ASKING, timeout=20_000)
         page.keyboard.press(key)
@@ -290,7 +305,7 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(tutorial_page):
     """The colormap picker opens centred, right over where the line sits.
     Talking underneath it is how the tour used to lose its own echo."""
     page = tutorial_page
-    page.evaluate("() => _tutorialGoSection(1)")
+    _go_to_section(page, "looking")
     _wait_for_ask(page, "c")
 
     page.keyboard.press("c")
@@ -321,7 +336,7 @@ def test_sections_can_be_switched(tutorial_page):
     page.wait_for_timeout(600)
     assert page.evaluate(WHISPER)["rail"] == "moving", "Shift+Tab should move back"
 
-    page.click(".tutorial-rail-item[data-section='3']")
+    page.click(f".tutorial-rail-item[data-section='{_section(page, 'pair')}']")
     page.wait_for_timeout(600)
     state = page.evaluate(WHISPER)
     assert state["rail"] == "two arrays", f"the rail should be clickable, got {state}"
@@ -334,11 +349,11 @@ def test_jumping_into_a_section_puts_the_viewer_where_it_expects(tutorial_page):
     """Sections are entry points, so each one has to set its own stage —
     otherwise skipping ahead lands you in a mode its first step cannot use."""
     page = tutorial_page
-    page.evaluate("() => _tutorialGoSection(3)")
+    _go_to_section(page, "pair")
     page.wait_for_function("() => compareActive", timeout=20_000)
 
     # Going back to a single-array section must undo it again.
-    page.evaluate("() => _tutorialGoSection(0)")
+    _go_to_section(page, "moving")
     page.wait_for_timeout(1200)
     assert page.evaluate("() => compareActive") is False, (
         "a single-array section should close the comparison behind it"

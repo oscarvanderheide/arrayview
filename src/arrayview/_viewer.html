@@ -4219,7 +4219,9 @@
             position: fixed; left: 50%; bottom: var(--tutorial-lift, 78px);
             z-index: 58;
             transform: translateX(-50%);
-            width: min(620px, calc(100vw - 48px));
+            /* Wide enough that the section rail stays on one line at a
+               normal window size; it wraps rather than clips below that. */
+            width: min(940px, calc(100vw - 48px));
             display: flex; flex-direction: column; align-items: center; gap: 16px;
             pointer-events: none;
             transition: bottom 340ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -4232,6 +4234,8 @@
             display: flex; align-items: baseline; gap: 10px;
             flex-wrap: wrap; justify-content: center;
             min-height: 20px; padding: 0 8px;
+            /* The rail may be wide; a line of prose should not be. */
+            max-width: min(620px, 100%);
             color: var(--muted);
             font-size: 13px; line-height: 1.5; letter-spacing: 0.02em;
             text-align: center;
@@ -27733,6 +27737,7 @@
         let _tutorialIndex = 0;
         let _tutorialCompleting = false;
         let _tutorialRoiCount = 0;
+        let _tutorialZoom = 1;
         // Bumped whenever the tour is steered somewhere new. Every async
         // continuation captures it and gives up if it no longer matches, so
         // a section jump mid-echo cannot resurrect the step you left.
@@ -27809,9 +27814,13 @@
                 note: 'the same numbers, shown differently',
                 steps: [
                     {
-                        key: 'c', whisper: 'press it a few times',
-                        echo: 'hold it instead, and you can search them',
-                        expect: ['colormap.openOrCycle'], count: 3,
+                        // Exactly one press: the first `c` opens the picker,
+                        // and every `c` after that is typed into its search
+                        // box rather than dispatched as a command. Asking for
+                        // more than one here strands the reader.
+                        key: 'c', whisper: 'press it',
+                        echo: 'every colormap, searchable · Enter takes one, Esc leaves',
+                        expect: ['colormap.openOrCycle'],
                     },
                     {
                         key: 'd', whisper: 'now this',
@@ -27824,6 +27833,127 @@
                         echo: 'range presets · click a dim to change what the range is taken over',
                         expect: ['histogram.openOrCycle'], rawKeys: ['d'], count: 2,
                         test: () => !!(primaryCb && primaryCb._expanded),
+                    },
+                ],
+            },
+            {
+                id: 'shaping', title: 'shaping', stage: 'single',
+                note: 'which way round you look at it',
+                steps: [
+                    {
+                        key: 'r', whisper: 'four times',
+                        echo: 'all the way round · rotating is a lens, not an edit',
+                        expect: ['view.rotateOrFlip'], count: 4,
+                    },
+                    {
+                        key: 't', whisper: 'this one twice',
+                        echo: 'x and y swapped, and swapped back — the array never moved',
+                        expect: ['view.transpose'], count: 2,
+                    },
+                ],
+            },
+            {
+                id: 'closer', title: 'closer', stage: 'single',
+                note: 'the array is bigger than the window',
+                steps: [
+                    {
+                        key: '=', whisper: 'a few times',
+                        echo: 'closer · drag to move around in there',
+                        expect: ['zoom.in'], count: 3,
+                        onEnter: () => { _tutorialZoom = userZoom; },
+                        test: () => userZoom > _tutorialZoom,
+                    },
+                    {
+                        key: '0', whisper: 'now this',
+                        echo: 'back to fit, from wherever you were',
+                        expect: ['zoom.reset'],
+                    },
+                ],
+            },
+            {
+                id: 'mosaic', title: 'all at once', stage: 'single',
+                note: 'a whole dimension in one picture',
+                steps: [
+                    {
+                        key: 'z', whisper: 'press it',
+                        echo: 'every slice laid out at once',
+                        expect: ['slice.toggleMosaic'],
+                    },
+                    {
+                        key: 'z', whisper: 'and back',
+                        echo: 'one again',
+                        expect: ['slice.toggleMosaic'],
+                    },
+                    {
+                        key: 'p', whisper: 'try this twice',
+                        echo: 'it collapses a dimension instead of stepping through it',
+                        expect: ['projection.cycle'], count: 2,
+                        test: () => projectionMode > 0,
+                    },
+                    {
+                        key: 'p', whisper: 'keep going until it stops',
+                        echo: 'max, min, mean, std — then off again',
+                        expect: ['projection.cycle'],
+                        test: () => projectionMode === 0,
+                    },
+                ],
+            },
+            {
+                id: 'spectra', title: 'spectra', stage: 'single',
+                note: 'the same array, in another domain',
+                steps: [
+                    {
+                        // On a real-valued array `f` asks which axes to
+                        // transform before it does anything, so the step is
+                        // only done once the transform has actually landed.
+                        key: 'f', whisper: 'press it, then Enter',
+                        echo: 'frequency space · you chose which axes went into it',
+                        expect: ['fft.toggle'], test: () => _fftActive,
+                    },
+                    {
+                        key: 'L', whisper: 'now this',
+                        echo: 'log scale — where the range spans orders of magnitude',
+                        expect: ['logscale.toggle'], test: () => logScale,
+                    },
+                    {
+                        key: 'L', whisper: 'and back',
+                        echo: 'linear again',
+                        expect: ['logscale.toggle'], test: () => !logScale,
+                    },
+                    {
+                        key: 'f', whisper: 'once more',
+                        echo: 'back where you started, nothing consumed',
+                        expect: ['fft.toggle'], test: () => !_fftActive,
+                    },
+                ],
+            },
+            {
+                id: 'values', title: 'values', stage: 'single',
+                note: 'the numbers under the picture',
+                steps: [
+                    {
+                        key: 'i', whisper: 'press it, then move the pointer',
+                        echo: 'the value under the cursor · click to pin one',
+                        expect: ['hoverinfo.toggle'], test: () => _pixelInfoVisible,
+                    },
+                    {
+                        key: 'i', whisper: 'and off',
+                        echo: 'pins go with it',
+                        expect: ['hoverinfo.toggle'], test: () => !_pixelInfoVisible,
+                    },
+                    {
+                        key: 'I', whisper: 'now the capital',
+                        echo: 'shape, dtype, and how it sits in memory',
+                        expect: ['info.toggle'],
+                        test: () => !!document.getElementById('info-overlay')
+                            .classList.contains('visible'),
+                    },
+                    {
+                        key: 'I', whisper: 'close it again',
+                        echo: 'nothing about the array changed while you looked',
+                        expect: ['info.toggle'],
+                        test: () => !document.getElementById('info-overlay')
+                            .classList.contains('visible'),
                     },
                 ],
             },
@@ -28044,7 +28174,8 @@
            it is almost always the very thing the current step asked for,
            and the tutorial has nothing to add over the top of it. */
         const _TUTORIAL_PANELS =
-            '#cmap-picker-box, #tool-drawer-box, #cmd-palette-box, #help-overlay, #tool-launcher';
+            '#cmap-picker-box, #tool-drawer-box, #cmd-palette-box, #help-overlay,'
+            + ' #tool-launcher, #inline-prompt';
 
         /** Is a panel open in front of the array right now? */
         function _tutorialPanelOpen() {
