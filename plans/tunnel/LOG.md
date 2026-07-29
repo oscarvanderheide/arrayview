@@ -1612,3 +1612,227 @@ large-load failure boundary, the immediate next-launch recovery, and successful
 concurrent-viewer fallback. `component` for preparation while the SID is
 pending and final journal cleanup (2 focused tests pass). A post-fix real-host
 large-array launch remains open.
+
+### 0.15.8 — private-only request-scoped tunnel delivery
+
+Yesterday's second-launch relay latency came from a deliberate routing policy:
+once a viewer was active, the opener rejected the fast private integrated
+browser and forced the next request onto the public developer-tunnel webview.
+That should have triggered a transport-policy reconsideration before further
+relay tuning.
+
+The working tree removes public promotion and the `asExternalUri` tunnel
+webview fallback. Every tunnel request gets a unique browser/reuse identity.
+Browser open/reveal/reload commands use a narrow serialized critical section;
+request-specific readiness proceeds concurrently. Failure to verify the private
+proxy, backend, or exact window is terminal and never changes port privacy.
+
+**Evidence:** `component` for routing, command serialization, display intent,
+readiness correlation, and legacy public-setting cleanup. Desktop and
+browser-hosted tunnel `real host` rows remain open, including five launches,
+middle-close isolation, reconnect, cleanup, external browser, and
+proxy-disabled failure.
+
+#### 0.15.8 desktop tunnel real-host sequence — private routing holds
+
+2026-07-29, window `7f29fa9e`, opener 0.15.8, `remoteName=tunnel
+appHost=desktop`. Four sequential launches, signal → `frame-rendered`:
+
+| Time (UTC) | Array | Duration | Outcome |
+|------------|-------|----------|---------|
+| 11:42:38 | `large_array.npy` | 2.53 s | `backend_ready`, one pre-script nav retry |
+| 11:43:11 | `coil_sensitivities.npy` | 0.62 s | `backend_ready` |
+| 11:43:18 | `medium_array.npy` | 0.58 s | `backend_ready` |
+| 11:43:22 | `initial_pd_008.npy` | 0.61 s | `backend_ready` |
+
+Every request logged `REMOTE: desktop integrated-browser proxy uses backend URL
+directly` and `transport=integrated-browser`. Launches 2–4 ran with earlier
+viewers still active — the exact condition that previously forced public
+developer-tunnel promotion — and stayed private at ~0.6 s. The whole day's log
+has no `public`, `asExternalUri`, `devtunnel`, or relay lines, and
+`~/.vscode-server/data/Machine/settings.json` holds `"remote.portsAttributes":
+{}`, so nothing re-added the legacy public entries.
+
+This closes the desktop five-launch row at four launches; the fifth launch,
+middle-close isolation, reconnect, cleanup, external browser, and
+proxy-disabled failure rows remain open, as does every browser-hosted row.
+
+**Open defect:** an earlier 0.15.8 launch of the same `large_array.npy` at
+11:20:14 did not recover — `retrying pre-script navigation attempt=1` at
++1.65 s, `hard-reloading exact request tab after pre-script stall` at +4.8 s,
+then `ERROR: Integrated browser did not start the viewer script before recovery
+timeout` and `ACK state=failed` at +14.0 s. SID release was clean. Only
+`large_array.npy` has ever produced this retry (7 occurrences in the log, all
+on large loads). Private routing is not implicated; the stall is in getting the
+viewer script to start for the large-array load.
+
+**Evidence:** `real host` for the four-launch private sequence, the port-privacy
+state, and the 11:20 large-array failure boundary.
+
+## Attempt: pre-script stall — not array size, not the backend
+
+**Date**: 2026-07-29
+**Hypothesis**: the pre-script stall is a dropped page fetch on the tunnel
+relay, not a slow backend or a slow array load.
+
+Array size is ruled out. All 7 `retrying pre-script navigation` events in the
+log belong to `example_3d_volume.npy` (3.5 MB, ×3), `initial_pd_008.npy` (×2),
+and `large_array.npy` (1.6 GB, ×2). The 3 GB `coil_sensitivities.npy` has never
+stalled and reached first frame in 0.62 s. `initial_pd_008.npy` stalled twice
+yesterday and rendered in 0.61 s today. Every retry fires at ~1.75 s after
+`SIGNAL`, i.e. exactly the fixed 1.5 s `firstNavigationRetryDelayMs` after the
+readiness wait starts — the signature of a binary miss, not a slow tail.
+
+The backend is ruled out. `arrayview large_array.npy --window none --port 8123`
+with `GET /?sid=probe` polled every 0.4 s throughout the 1.6 GB load: first
+response 0.28 s after the socket opened, then 13–31 ms for all 20 subsequent
+requests, full 2,023,024-byte body each time. `get_ui` is a sync endpoint on
+the threadpool and never awaits the session, so the load does not block page
+delivery. `real host` (same machine, loopback).
+
+Rate: 23 integrated-browser opens, 7 pre-script retries (30%), consistent in
+order of magnitude with the measured devtunnel relay black-hole rate.
+
+**Recovery ladder is misconfigured.** The retry at 1.5 s is a genuine hedge —
+`prepareNavigation` mints a new token and adds `_av_navigation_attempt=N`, so
+the URL differs and Simple Browser really re-navigates. It recovered 2 of 7.
+The second step at +3 s is not a hedge but an escalation:
+`workbench.action.browser.open` with only `reuseUrlFilter`, then
+`workbench.action.browser.hardReload`. Its record is **0 for 5** — all 5 hard
+reloads ended in `did not start the viewer script before recovery timeout`, ACK
+`failed` at ~14 s. Only the fresh-navigation hedge has ever recovered a stall.
+
+**Instrumentation added, not yet exercised**: `_trace_page_request` in
+`src/arrayview/_server.py` emits `page.requested` with `request_id` and
+`navigation_attempt` on every `GET /`. Inert unless `ARRAYVIEW_LAUNCH_TRACE`
+names an absolute JSONL path; the env var already propagates to the daemon via
+`trace_child_environment`. This settles the remaining ambiguity: on the next
+stall, absence of `page.requested` proves the relay dropped the fetch, presence
+proves the page arrived and the viewer script stalled after delivery.
+
+**Evidence:** `real host` for the backend page-latency measurement and the log
+statistics. `component` for the trace emitter (verified emitting for attempts 0
+and 1, and inert with the env var unset). The black-hole hypothesis itself is
+**unconfirmed** pending a traced real stall.
+
+### 0.15.9 — pre-script recovery hedges instead of escalating
+
+The recovery ladder now repeats the only step with a recovery record. In
+`waitForBackendViewerReady`, `firstNavigationRetryDelayMs` /
+`laterNavigationRetryDelayMs` collapse into one `navigationRetryDelayMs`
+(`min(1500, max(50, preScriptTimeoutMs * 0.15))` → 1.5 s at the 10 s budget),
+`maxNavigationRetries` goes 2 → 4, and the `retryPreScriptNavigation` callback
+always calls `prepareNavigation`. The `browser.open` + `hardReload` escalation
+is deleted; `workbench.action.browser.hardReload` no longer appears in
+`extension.js`.
+
+A blank tab now gets five independent page fetches inside the unchanged 10 s
+pre-script budget — the initial navigation plus hedges at roughly 1.5, 3.0,
+4.5, and 6.0 s — instead of two fetches plus a reload. Each hedge keeps its
+existing properties: fresh token, `_av_navigation_attempt=N` so the URL differs
+and Simple Browser really re-navigates, and the same `reuseUrlFilter` so all
+attempts drive the one request-specific tab rather than spawning tabs.
+
+The pre-script budget itself is unchanged: this adds attempts, it does not
+escalate waits.
+
+**Evidence:** `component` — all 16 `vscode-extension/test_*.js` pass, including
+the two readiness cases updated to the new ladder (a stall recovering on the
+second hedge, and a permanently blank tab making exactly five bounded
+navigations and never a hard reload), plus `tests/test_vscode_ack_protocol.py`
+(16 passed) after the `0.15.8` → `0.15.9` version bump. VSIX rebuilt and
+verified: manifest reads `0.15.9` and the packaged `extension.js` is
+byte-identical to the working tree
+(`16cf09842190e6d48687fc9b056a2317e902efae96cf63b5177e52075a8a6e26`).
+
+#### 0.15.9 real-host sequence — five clean launches, hedge ladder barely tested
+
+2026-07-29, window `e2a81d95`, opener 0.15.9 active, desktop tunnel. Three CLI
+launches and two Explorer clicks, all reaching `backend_ready`:
+
+| Time (UTC) | Array | Entry | Signal → frame | Retries |
+|------------|-------|-------|----------------|---------|
+| 12:38:58 | `large_array.npy` | CLI | 2.84 s | 1 |
+| 12:39:08 | `coil_sensitivities.npy` | CLI | 0.93 s | 0 |
+| 12:39:16 | `example_3d_volume.npy` | click | 1.26 s | 0 |
+| 12:39:22 | `coil_sensitivities.npy` | click | 0.93 s | 0 |
+| 12:39:38 | `initial_pd_008.npy` | CLI | 1.06 s | 0 |
+
+Every request took the private integrated browser. Both clicks ran the
+custom-editor path cleanly: placeholder opened, handed off to the integrated
+browser, `closed placeholder after integrated-browser handoff`, no leftover tab.
+No failures, no `ACK failed`, no public promotion.
+
+**The change itself is not yet proven.** The one stall recovered on hedge 1,
+which the old 0.15.8 ladder also did (2 of 7). Hedges 2–4 — the part that
+replaced the hard reload — never ran. Closing that needs a stall that survives
+the first hedge, which historically happened 5 times in 23 opens.
+
+**`page.requested` still uncaptured.** `~/.arrayview/launch-trace.jsonl` does
+not exist, so `ARRAYVIEW_LAUNCH_TRACE` was not set for these launches. The relay
+black-hole hypothesis remains unconfirmed. The clicks could not have produced it
+regardless: `uv tool list` shows the installed tool is still PyPI `v0.40.0`
+(bundling opener 0.14.89), so the click path runs released Python without the
+trace. It still delivered privately because routing now lives entirely in the
+0.15.9 opener, not in the launching Python.
+
+**Environment note:** window `0ef481d6` (pid 1560402) was still running opener
+0.15.8 during this run and logged as a live peer in the `SKEW` line. It did not
+claim any of these requests, but a terminal belonging to that window would be
+served by the old ladder.
+
+**Evidence:** `real host` for the five launches, both entry points, and the
+single hedge-1 recovery. The multi-hedge path and the relay hypothesis remain
+`unavailable`.
+
+### 0.15.10 — hedges must fit inside the budget they hedge
+
+A `large_array.npy` launch at 13:28:36 failed after **42 s**, against a 10 s
+pre-script budget. Sequence: panel opened 13:28:37.076; attempt 1 at 40.064
+failed with `Unable to prepare correlated viewer readiness journal`; attempts 2
+and 3 at 43.135 and 44.945; then a 34 s gap; then the pre-script timeout at
+13:29:19.064, clean `ACK failed` and `release sid ok=true`. Attempt 4 never
+fired. Termination and cleanup were correct — the duration was not.
+
+**Root cause: the retry path was bounded by the wrong deadline.** The loop
+passed `deadline` — the long inactivity/viewer deadline — to
+`retryPreScriptNavigation`, and `prepareNavigation` derived both its
+`launch-prepared` POST timeout (`viewerDeadline`) and its browser-command
+timeout (`deadline`) from long budgets. Each attempt could therefore spend
+1.5 s + 3 s *past* the 10 s pre-script deadline. 0.15.8 allowed at most two such
+attempts (~14 s observed); raising `maxNavigationRetries` to 4 in 0.15.9
+multiplied the overshoot rather than packing more attempts into the budget.
+The 0.15.9 hedge change was correct in direction and wrong in bounds.
+
+Fix: `prepareNavigation` computes `attemptDeadline = min(deadline,
+viewerDeadline)` and uses it for both the POST and the command timeout, and the
+loop passes `min(deadline, preScriptDeadline)` into the retry.
+
+**Backend re-cleared, this time on the right route.** The earlier "backend is
+ruled out" measurement covered only `GET /`, which is a *sync* FastAPI endpoint
+served from the threadpool. `POST /viewer-phase` is `async` and runs on the
+server's single event loop — a different path, and the one that failed here.
+Measured directly during a 1.6 GB `large_array.npy` load, alternating both
+routes every 0.3 s for 30 samples: `POST /viewer-phase` 2–5 ms throughout,
+`GET /` 14–92 ms. Neither degrades. `real host`, loopback.
+
+That matters because the extension host runs *on the remote machine* for a
+tunnel session (`remoteName=tunnel appHost=desktop`), so `httpJson` /
+`httpPostJson` from the opener are loopback calls, not relayed ones. A 1.5 s
+timeout on a 3 ms loopback POST therefore points at the extension host's own
+event loop being starved, not at the backend or the relay. Only the webview's
+page fetch crosses the tunnel.
+
+**Evidence:** `real host` for the 42 s failure and for both backend route
+measurements. `component` for the clamp — all 16 `vscode-extension/test_*.js`
+pass. VSIX rebuilt at `0.15.10`, manifest verified, packaged `extension.js`
+byte-identical to the working tree
+(`9b70455b4a889b3f3734a19edc42d5aab1425eb117b0970bb7338fedc3173ade`).
+
+**Still open:** the existing overshoot assertion in
+`test_integrated_browser_readiness.js` (`Date.now() - cappedStartedAt < 2000`
+against a 1000 ms budget) passed throughout, because the test backend and the
+mocked commands are instant — it cannot catch a bound derived from the wrong
+deadline. Nothing yet reproduces a slow command or POST. The 34 s gap after
+attempt 3 is explained in direction but not measured per-await; the relay
+black-hole hypothesis and `page.requested` remain uncaptured.

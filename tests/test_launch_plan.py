@@ -452,7 +452,11 @@ def test_default_display_matrix(environment, invocation, expected_display):
 def test_explicit_native_redirects_to_vscode_in_remote():
     from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
 
-    facts = _facts(environment=Environment.VSCODE_REMOTE, is_vscode_remote=True)
+    facts = _facts(
+        environment=Environment.VSCODE_REMOTE,
+        is_vscode_remote=True,
+        in_vscode_tunnel=True,
+    )
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123, "native"), facts)
 
     assert plan.display.value == "vscode"
@@ -462,13 +466,42 @@ def test_explicit_native_redirects_to_vscode_in_remote():
 
 
 def test_explicit_browser_in_remote_vscode_stays_on_the_client_side():
+    from arrayview._launch_plan import (
+        CompletionTarget,
+        Environment,
+        Invocation,
+        LaunchIntent,
+        create_launch_context,
+    )
+
+    facts = _facts(
+        environment=Environment.VSCODE_REMOTE,
+        is_vscode_remote=True,
+        in_vscode_tunnel=True,
+    )
+    context = create_launch_context(
+        LaunchIntent(Invocation.CLI, 8123, "browser"), facts
+    )
+    plan = context.plan
+
+    assert plan.display.value == "browser"
+    assert plan.fallback_display is None
+    assert "remote_external_browser" in plan.reasons
+    assert context.completion_target is CompletionTarget.FRAME_READY
+
+
+def test_explicit_browser_in_remote_ssh_preserves_vscode_tab_route():
     from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
 
-    facts = _facts(environment=Environment.VSCODE_REMOTE, is_vscode_remote=True)
+    facts = _facts(
+        environment=Environment.VSCODE_REMOTE,
+        is_vscode_remote=True,
+        in_vscode_tunnel=False,
+        ssh_connection=True,
+    )
     plan = plan_launch(LaunchIntent(Invocation.CLI, 8123, "browser"), facts)
 
     assert plan.display.value == "vscode"
-    assert plan.fallback_display is None
     assert "remote_browser_redirected_to_vscode" in plan.reasons
 
 

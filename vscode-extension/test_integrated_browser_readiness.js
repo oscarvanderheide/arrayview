@@ -16,6 +16,7 @@ let remoteProxyEnabled = false;
 let commandFailure = null;
 let commandObserver = null;
 let getCommandsCalls = 0;
+const externalOpens = [];
 const vscodeMock = {
     commands: {
         async getCommands() {
@@ -44,6 +45,17 @@ const vscodeMock = {
             return { get(_name, _fallback) { return remoteProxyEnabled; } };
         },
     },
+    env: {
+        async openExternal(uri) {
+            externalOpens.push(uri.toString());
+            return true;
+        },
+    },
+    Uri: {
+        parse(value) {
+            return { toString() { return value; } };
+        },
+    },
 };
 
 const originalLoad = Module._load;
@@ -58,8 +70,17 @@ Module._load = originalLoad;
     let duplicateViewers = false;
     let deferReady = false;
     let journal = null;
+    const preparedBodies = [];
     const releases = [];
     const server = http.createServer((req, res) => {
+        if (req.method === 'GET' && req.url === '/ping') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                service: 'arrayview',
+                instance_id: 'server-one',
+            }));
+            return;
+        }
         if (req.method === 'POST') {
             if (req.url.startsWith('/release/')) {
                 releases.push(req.url);
@@ -72,6 +93,7 @@ Module._load = originalLoad;
             req.on('data', chunk => { body += chunk; });
             req.on('end', () => {
                 const prepared = JSON.parse(body);
+                preparedBodies.push(prepared);
                 const requestId = decodeURIComponent(
                     req.url.split('?')[0].split('/').pop()
                 );
@@ -81,6 +103,9 @@ Module._load = originalLoad;
                     window_id: prepared.window_id,
                     server_id: prepared.server_id,
                     token: prepared.token,
+                    tab_key: prepared.tab_key,
+                    navigation_key: prepared.navigation_key,
+                    navigation_attempt: prepared.navigation_attempt,
                     phases: deferReady ? [] : [
                         'script-loaded',
                         'ws-open',
@@ -150,34 +175,24 @@ Module._load = originalLoad;
             'distinct ArrayView calls need new tabs, not permanently locked side groups'
         );
         assert.strictEqual(
-            commandArgs.reuseUrlFilter,
-            '?_av_launch_request_id=request-one',
+            commandArgs.reuseUrlFilter.startsWith('/_av/'),
+            true,
             'only retries of the same request may reuse its browser tab'
         );
         const openedUrl = new URL(commandArgs.url);
+        const firstPrepared = preparedBodies.at(-1);
         assert.strictEqual(openedUrl.origin, 'http://localhost:9000');
-        assert.strictEqual(openedUrl.searchParams.get('sid'), 'sid-one');
-        assert.strictEqual(openedUrl.searchParams.get('_av_integrated_browser'), '1');
+        assert.strictEqual(openedUrl.search, '');
+        assert.strictEqual(openedUrl.hash, '');
+        assert.strictEqual(firstPrepared.viewer_query, '?sid=sid-one');
+        assert.match(firstPrepared.tab_key, /^[A-Za-z0-9_-]{16}$/);
+        assert.match(firstPrepared.navigation_key, /^[A-Za-z0-9_-]{16}$/);
+        assert.match(firstPrepared.token, /^[0-9a-f]{32}$/);
+        assert.strictEqual(firstPrepared.navigation_attempt, 0);
         assert.strictEqual(
-            openedUrl.searchParams.get('_av_launch_request_id'),
-            'request-one'
-        );
-        assert.strictEqual(
-            openedUrl.searchParams.get('_av_launch_server_id'),
-            'server-one'
-        );
-        assert.strictEqual(
-            openedUrl.searchParams.get('_av_launch_window_id'),
-            'window-one'
-        );
-        assert.match(
-            openedUrl.searchParams.get('_av_launch_token'),
-            /^[0-9a-f]{32}$/
-        );
-        assert.strictEqual(
-            commandArgs.url,
-            `http://localhost:9000/?sid=sid-one&_av_integrated_browser=1&_av_launch_request_id=request-one&_av_launch_server_id=server-one&_av_launch_window_id=window-one&_av_launch_token=${openedUrl.searchParams.get('_av_launch_token')}#av-request-`,
-            'the integrated browser command must receive the exact correlated launch URL'
+            openedUrl.pathname,
+            `/_av/${firstPrepared.tab_key}/${firstPrepared.navigation_key}`,
+            'the browser command must receive only the short launch route'
         );
         assert.strictEqual(await opened.viewerReady, null);
 
@@ -201,24 +216,16 @@ Module._load = originalLoad;
             firstCommandArgs.url,
             'a distinct request must navigate with a new correlated launch URL'
         );
-        assert.strictEqual(
-            new URL(commandArgs.url).searchParams.get('_av_launch_request_id'),
-            'request-two'
-        );
-        assert.strictEqual(
-            new URL(commandArgs.url).searchParams.get('_av_launch_window_id'),
-            'window-two'
-        );
+        assert.strictEqual(new URL(commandArgs.url).search, '');
         assert.notStrictEqual(
-            new URL(commandArgs.url).searchParams.get('_av_launch_token'),
-            new URL(firstCommandArgs.url).searchParams.get('_av_launch_token'),
+            preparedBodies.at(-1).token,
+            firstPrepared.token,
             'a distinct request must use a fresh readiness token'
         );
         assert.strictEqual(await replayed.viewerReady, null);
 
         duplicateViewers = true;
-        const currentToken = new URL(commandArgs.url)
-            .searchParams.get('_av_launch_token');
+        const currentToken = preparedBodies.at(-1).token;
         const duplicateError = await __test.waitForBackendViewerReady(
             backendUrl,
             'sid-one',
@@ -242,10 +249,30 @@ Module._load = originalLoad;
         );
         assert.strictEqual(new URL(commandArgs.url).origin, new URL(backendUrl).origin);
         assert.strictEqual(
-            commandArgs.reuseUrlFilter,
-            '?_av_launch_request_id=request-proxy'
+            commandArgs.reuseUrlFilter.startsWith('/_av/'),
+            true
         );
         assert.strictEqual(await proxied.viewerReady, null);
+
+        const external = await __test.openInExternalBrowser(
+            backendUrl,
+            'request-external',
+            'server-one',
+            'window-external',
+            2000
+        );
+        assert.strictEqual(externalOpens.length, 1);
+        const externalUrl = new URL(externalOpens[0]);
+        assert.strictEqual(externalUrl.origin, new URL(backendUrl).origin);
+        assert.strictEqual(
+            externalUrl.searchParams.get('_av_launch_request_id'),
+            'request-external'
+        );
+        assert.strictEqual(
+            externalUrl.searchParams.get('_av_launch_window_id'),
+            'window-external'
+        );
+        assert.strictEqual(await external.viewerReady, null);
 
         const slowRenderStart = commandArgsHistory.length;
         journal = null;
@@ -253,10 +280,7 @@ Module._load = originalLoad;
         let framePublishedAt = null;
         commandObserver = (args, command) => {
             if (command !== 'workbench.action.browser.open' || !args.url) return;
-            const parsed = new URL(args.url);
-            if (
-                parsed.searchParams.get('_av_launch_request_id') !== 'request-slow-render'
-            ) return;
+            if (journal.request_id !== 'request-slow-render') return;
             journal.phases = ['script-loaded'];
             journal.viewer_instance_ids = ['viewer-one'];
             setTimeout(() => {
@@ -298,11 +322,14 @@ Module._load = originalLoad;
 
         const recoveryStart = commandArgsHistory.length;
         const recoveryCommandStart = commandHistory.length;
+        const recoveryPreparedStart = preparedBodies.length;
         journal = null;
         deferReady = true;
-        commandObserver = (_args, command) => {
+        commandObserver = (args, command) => {
             if (
-                command === 'workbench.action.browser.hardReload'
+                command === 'workbench.action.browser.open'
+                && args && args.url
+                && preparedBodies.at(-1).navigation_attempt === 2
                 && journal.request_id === 'request-recovery'
             ) {
                 journal.phases = [
@@ -329,64 +356,51 @@ Module._load = originalLoad;
         assert.strictEqual(
             recoveryCommands.length,
             3,
-            'pre-script recovery must navigate once, then target the same tab for hard reload'
-        );
-        assert.strictEqual(recoveryCommands[0].openToSide, false);
-        assert.strictEqual(recoveryCommands[1].openToSide, false);
-        assert.strictEqual(
-            recoveryCommands[0].reuseUrlFilter,
-            '?_av_launch_request_id=request-recovery'
-        );
-        assert.strictEqual(
-            recoveryCommands[1].reuseUrlFilter,
-            recoveryCommands[0].reuseUrlFilter,
-            'pre-script recovery must reuse the one request-specific tab'
-        );
-        assert.strictEqual(
-            new URL(recoveryCommands[0].url).searchParams.get('_av_navigation_attempt'),
-            null
-        );
-        assert.strictEqual(
-            new URL(recoveryCommands[1].url).searchParams.get('_av_navigation_attempt'),
-            '1',
-            'the retry must bypass a failed navigation cache'
+            'pre-script recovery must hedge with repeated fresh navigations'
         );
         assert.deepStrictEqual(
-            recoveryCommands[2],
-            { reuseUrlFilter: '?_av_launch_request_id=request-recovery' },
-            'hard-reload recovery must first select the exact request tab without navigating it'
+            recoveryCommands.map(args => args.openToSide),
+            [false, false, false]
         );
-        assert.notStrictEqual(
-            new URL(recoveryCommands[1].url).searchParams.get('_av_launch_token'),
-            new URL(recoveryCommands[0].url).searchParams.get('_av_launch_token'),
+        assert.deepStrictEqual(
+            recoveryCommands.map(args => args.reuseUrlFilter),
+            Array(3).fill(recoveryCommands[0].reuseUrlFilter),
+            'pre-script recovery must reuse the one request-specific tab'
+        );
+        const recoveryPrepared = preparedBodies.slice(recoveryPreparedStart);
+        assert.deepStrictEqual(
+            recoveryPrepared.map(body => body.navigation_attempt),
+            [0, 1, 2],
+            'each hedge must bypass a failed navigation cache'
+        );
+        const recoveryTokens = recoveryPrepared.map(body => body.token);
+        assert.strictEqual(
+            new Set(recoveryTokens).size,
+            recoveryTokens.length,
             'each navigation attempt must fence stale documents with a fresh token'
+        );
+        assert.strictEqual(
+            new Set(recoveryPrepared.map(body => body.navigation_key)).size,
+            recoveryPrepared.length,
+            'each navigation attempt must have a fresh short route'
         );
         const recoverySequence = commandHistory.slice(recoveryCommandStart);
         assert.deepStrictEqual(
             recoverySequence.map(entry => entry.command),
-            [
-                'workbench.action.browser.open',
-                'workbench.action.browser.open',
-                'workbench.action.browser.open',
-                'workbench.action.browser.hardReload',
-            ],
-            'the final recovery must reveal the exact request tab immediately before hard reload'
-        );
-        assert.strictEqual(
-            recoverySequence[3].args,
-            undefined,
-            'hard reload must not carry navigation arguments that could create another tab'
+            Array(3).fill('workbench.action.browser.open'),
+            'recovery must never escalate to a hard reload of the blank tab'
         );
         await new Promise(resolve => setTimeout(resolve, 700));
         assert.strictEqual(
             commandHistory.length,
-            recoveryCommandStart + 4,
+            recoveryCommandStart + 3,
             'navigation retries must stop permanently after script-loaded'
         );
         commandObserver = null;
 
         const cappedStart = commandArgsHistory.length;
         const cappedCommandStart = commandHistory.length;
+        const cappedPreparedStart = preparedBodies.length;
         journal = null;
         const cappedStartedAt = Date.now();
         const capped = await __test.openInIntegratedBrowser(
@@ -411,33 +425,24 @@ Module._load = originalLoad;
         const cappedCommands = commandArgsHistory.slice(cappedStart);
         assert.strictEqual(
             cappedCommands.length,
-            3,
-            'pre-script recovery must stop after navigation and hard-reload recovery'
+            5,
+            'a blank tab must spend its pre-script budget on bounded fresh navigations'
         );
         assert.deepStrictEqual(
             cappedCommands.map(args => args.reuseUrlFilter),
-            Array(3).fill('?_av_launch_request_id=request-capped'),
+            Array(5).fill(cappedCommands[0].reuseUrlFilter),
             'all bounded recovery attempts must target one request tab'
         );
         assert.deepStrictEqual(
-            cappedCommands.slice(0, 2).map(
-                args => new URL(args.url).searchParams.get('_av_navigation_attempt')
-            ),
-            [null, '1']
-        );
-        assert.deepStrictEqual(
-            cappedCommands[2],
-            { reuseUrlFilter: '?_av_launch_request_id=request-capped' }
+            preparedBodies
+                .slice(cappedPreparedStart)
+                .map(body => body.navigation_attempt),
+            [0, 1, 2, 3, 4]
         );
         assert.deepStrictEqual(
             commandHistory.slice(cappedCommandStart).map(entry => entry.command),
-            [
-                'workbench.action.browser.open',
-                'workbench.action.browser.open',
-                'workbench.action.browser.open',
-                'workbench.action.browser.hardReload',
-            ],
-            'a permanently blank request gets one hard reload of its exact tab'
+            Array(5).fill('workbench.action.browser.open'),
+            'a permanently blank request never escalates to a hard reload'
         );
         deferReady = false;
 

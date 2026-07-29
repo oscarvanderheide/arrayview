@@ -50,6 +50,17 @@ window claimed it nor that the forwarded backend is reachable.
 resolved URL. A blocking VS Code launch fails closed unless `backend_ready`
 arrives; local mocks do not replace a real tunnel handoff.
 
+## VS Code Tunnel Transport Policy
+
+**Problem:** The fast private integrated-browser route was restricted to an
+idle backend, so a second active viewer was deliberately sent through the slow
+and unreliable public developer-tunnel relay.
+**Solution:** Treat private routing as request-scoped rather than singleton.
+Give every launch its own request/window/server/token identity, serialize only
+browser commands that act on the active tab, and let first-frame readiness run
+concurrently. If the private proxy cannot be verified, fail closed; never
+promote the port as a fallback.
+
 ## mex Scaffold Drift
 
 **Problem:** `mex check` can produce noisy `MISSING_PATH` errors when `.mex` docs put a whole shell command or raw URL in one inline code span.

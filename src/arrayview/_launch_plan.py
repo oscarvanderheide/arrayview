@@ -267,6 +267,8 @@ def _completion_target(
     if plan.display is Display.BROWSER:
         if _placement(evidence) is Placement.SSH:
             return CompletionTarget.GUIDANCE_PRINTED
+        if _placement(evidence) is Placement.VSCODE_REMOTE:
+            return CompletionTarget.FRAME_READY
         return CompletionTarget.DISPATCH_ACCEPTED
     if invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}:
         return CompletionTarget.FRAME_READY
@@ -412,7 +414,9 @@ def plan_launch(
         window=None if remote_jupyter else window,
         inline=False if remote_jupyter else intent.inline,
         environment=environment,
-        native_available=facts.native_backend is not None, reasons=reasons,
+        native_available=facts.native_backend is not None,
+        in_vscode_tunnel=facts.in_vscode_tunnel,
+        reasons=reasons,
     )
     if display is Display.VSCODE and environment not in {
         Environment.VSCODE_LOCAL, Environment.VSCODE_REMOTE
@@ -436,6 +440,7 @@ def _display_policy(
     inline: bool | None,
     environment: Environment,
     native_available: bool,
+    in_vscode_tunnel: bool,
     reasons: list[str],
 ) -> tuple[Display, Display | None, bool]:
     if window == "none":
@@ -461,6 +466,9 @@ def _display_policy(
             return Display.VSCODE, None, False
         return Display.VSCODE, Display.BROWSER, True
     if window == "browser":
+        if environment is Environment.VSCODE_REMOTE and in_vscode_tunnel:
+            reasons.append("remote_external_browser")
+            return Display.BROWSER, None, False
         if environment is Environment.VSCODE_REMOTE:
             reasons.append("remote_browser_redirected_to_vscode")
             return Display.VSCODE, None, False

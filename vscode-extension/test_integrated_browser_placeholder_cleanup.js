@@ -331,12 +331,12 @@ function requestData(port, requestId, filePath) {
             2,
             'two file invocations must produce two viewer tabs, not placeholders plus viewers'
         );
-        assert.deepStrictEqual(
-            browserOpens.map(args => args.reuseUrlFilter),
-            [
-                '?_av_launch_request_id=request-first',
-                '?_av_launch_request_id=request-second',
-            ],
+        assert(browserOpens.every(
+            args => args.reuseUrlFilter.startsWith('/_av/')
+        ));
+        assert.notStrictEqual(
+            browserOpens[0].reuseUrlFilter,
+            browserOpens[1].reuseUrlFilter,
             'separate invocations must retain separate correlated viewer tabs'
         );
         assert.strictEqual(

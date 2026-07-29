@@ -13,6 +13,7 @@ from arrayview._session import (
     SESSIONS,
     VIEWER_CONNECTION_EPOCHS,
     VIEWER_PHASE_JOURNALS,
+    VIEWER_LAUNCH_ROUTES,
     VIEWER_RELEASE_TASKS,
 )
 
@@ -88,6 +89,9 @@ def release_session(sid: str, *, cancel_if_missing: bool = False) -> bool:
         if retire_journals:
             journals = VIEWER_PHASE_JOURNALS.pop(sid, {})
             for journal in journals.values():
+                navigation_key = journal.get("navigation_key")
+                if navigation_key:
+                    VIEWER_LAUNCH_ROUTES.pop(navigation_key, None)
                 journal_task = journal.get("release_task")
                 if journal_task is not None and not journal_task.done():
                     try:

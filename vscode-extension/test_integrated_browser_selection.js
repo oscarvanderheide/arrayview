@@ -89,7 +89,6 @@ Module._load = originalLoad;
         // The proxy capability is load-bearing. Without it, localhost would
         // resolve on the user's desktop rather than in the tunnel workspace.
         remoteProxyEnabled = false;
-        __test.setIntegratedBrowserState('idle');
         const beforeDisabled = httpCalls;
         assert.strictEqual(
             await __test.reserveDirectIntegratedBrowser(
@@ -99,9 +98,8 @@ Module._load = originalLoad;
             false
         );
         assert.strictEqual(httpCalls, beforeDisabled);
-        assert.strictEqual(__test.integratedBrowserState(), 'idle');
 
-        // With a verified idle backend, reserve the one reusable browser tab.
+        // A verified backend is eligible for a request-scoped browser tab.
         remoteProxyEnabled = true;
         nextStatus = {
             service: 'arrayview',
@@ -115,48 +113,13 @@ Module._load = originalLoad;
             ),
             true
         );
-        assert.strictEqual(
-            __test.integratedBrowserState(),
-            'idle',
-            'selection alone must not leave a reservation if later setup fails'
-        );
 
-        // A second request arriving while browser navigation is pending must
-        // not reuse and replace that in-flight tab.
-        __test.setIntegratedBrowserState('pending');
-        const beforePending = httpCalls;
-        assert.strictEqual(
-            await __test.reserveDirectIntegratedBrowser(
-                backendUrl,
-                'server-selection'
-            ),
-            false
-        );
-        assert.strictEqual(httpCalls, beforePending);
-
-        // An active viewer likewise keeps its tab. This is the historical
-        // multi-viewer failure that disabled the direct path globally.
-        __test.setIntegratedBrowserState('active');
+        // Existing viewers do not force later requests onto the public
+        // webview route. Distinct request IDs provide distinct browser tabs.
         nextStatus = {
             service: 'arrayview',
             instance_id: 'server-selection',
-            active_viewer_sockets: 1,
-        };
-        assert.strictEqual(
-            await __test.reserveDirectIntegratedBrowser(
-                backendUrl,
-                'server-selection'
-            ),
-            false
-        );
-        assert.strictEqual(__test.integratedBrowserState(), 'active');
-
-        // After tab close the backend count returns to zero, allowing the next
-        // sequential call to reserve the direct path again.
-        nextStatus = {
-            service: 'arrayview',
-            instance_id: 'server-selection',
-            active_viewer_sockets: 0,
+            active_viewer_sockets: 5,
         };
         assert.strictEqual(
             await __test.reserveDirectIntegratedBrowser(
@@ -165,7 +128,20 @@ Module._load = originalLoad;
             ),
             true
         );
-        assert.strictEqual(__test.integratedBrowserState(), 'active');
+
+        // Viewer-count telemetry is not a routing capability and older
+        // backends that omit it remain eligible after identity verification.
+        nextStatus = {
+            service: 'arrayview',
+            instance_id: 'server-selection',
+        };
+        assert.strictEqual(
+            await __test.reserveDirectIntegratedBrowser(
+                backendUrl,
+                'server-selection'
+            ),
+            true
+        );
 
         // A compatible service on a reused port is not the requested backend.
         nextStatus = {
@@ -196,22 +172,7 @@ Module._load = originalLoad;
         );
         assert.strictEqual(httpCalls, beforeMissingIdentity);
 
-        // Older or malformed ping responses without ownership evidence cannot
-        // be interpreted as "zero viewers".
-        nextStatus = {
-            service: 'arrayview',
-            instance_id: 'server-selection',
-        };
-        assert.strictEqual(
-            await __test.reserveDirectIntegratedBrowser(
-                backendUrl,
-                'server-selection'
-            ),
-            false
-        );
-
-        // Unknown ownership fails closed to the dedicated webview.
-        __test.setIntegratedBrowserState('active');
+        // Unknown ownership fails closed rather than exposing a public route.
         nextStatus = null;
         assert.strictEqual(
             await __test.reserveDirectIntegratedBrowser(
@@ -220,10 +181,8 @@ Module._load = originalLoad;
             ),
             false
         );
-        assert.strictEqual(__test.integratedBrowserState(), 'active');
 
         // A missing built-in browser command also leaves the direct path idle.
-        __test.setIntegratedBrowserState('idle');
         nextStatus = {
             service: 'arrayview',
             instance_id: 'server-selection',
@@ -237,7 +196,38 @@ Module._load = originalLoad;
             ),
             false
         );
-        assert.strictEqual(__test.integratedBrowserState(), 'idle');
+
+        let activeCommands = 0;
+        let maxActiveCommands = 0;
+        const commandOrder = [];
+        await Promise.all(
+            Array.from({ length: 5 }, (_, index) =>
+                __test._runIntegratedBrowserCommand(async () => {
+                    activeCommands += 1;
+                    maxActiveCommands = Math.max(maxActiveCommands, activeCommands);
+                    commandOrder.push(index);
+                    await new Promise(resolve => setTimeout(resolve, 2));
+                    activeCommands -= 1;
+                })
+            )
+        );
+        assert.strictEqual(maxActiveCommands, 1);
+        assert.deepStrictEqual(commandOrder, [0, 1, 2, 3, 4]);
+        await assert.rejects(
+            __test._runIntegratedBrowserCommand(async () => {
+                throw new Error('command failed');
+            }),
+            /command failed/
+        );
+        let ranAfterFailure = false;
+        await __test._runIntegratedBrowserCommand(async () => {
+            ranAfterFailure = true;
+        });
+        assert.strictEqual(
+            ranAfterFailure,
+            true,
+            'one failed browser command must not poison later launches'
+        );
 
         console.log('integrated browser selection tests passed');
     } finally {

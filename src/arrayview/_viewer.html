@@ -5434,7 +5434,15 @@
         const COMPLEX_MODES = __COMPLEX_MODES__;
         const REAL_MODES = __REAL_MODES__;
 
-        const urlParams = new URLSearchParams(__ARRAYVIEW_QUERY__ || window.location.search);
+        // Capture the complete launch query once. Private VS Code launches
+        // inject it from a short backend route, so SIDs and readiness tokens
+        // never need to appear in the browser toolbar.
+        const _arrayViewLaunchSearch = __ARRAYVIEW_QUERY__ || window.location.search;
+        const urlParams = new URLSearchParams(_arrayViewLaunchSearch);
+        const _integratedBrowserDisplayHash = (
+            urlParams.get('_av_integrated_browser') === '1'
+            && window.location.hash.startsWith('#av-')
+        ) ? window.location.hash : '';
         // isInlineEmbed: true when explicitly launched as an inline Jupyter/notebook embed
         // (the Python launcher adds &inline=1 to the URL for inline IFrames).
         const isInlineEmbed = urlParams.get('inline') === '1';
@@ -5681,7 +5689,7 @@
 
         function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
             let wsTarget = resolveServerPath(`/ws/${transportSid}`);
-            const nativeRequestId = new URLSearchParams(location.search).get('native_request_id');
+            const nativeRequestId = urlParams.get('native_request_id');
             if (nativeRequestId) {
                 const separator = wsTarget.includes('?') ? '&' : '?';
                 wsTarget += `${separator}native_request_id=${encodeURIComponent(nativeRequestId)}`;
@@ -27741,7 +27749,7 @@
         // survive that round trip.
         const _TUTORIAL_HOME_KEY = 'arrayview:tutorial:home';
 
-        const _tutorialUrlParams = new URLSearchParams(location.search);
+        const _tutorialUrlParams = new URLSearchParams(_arrayViewLaunchSearch);
         const _TUTORIAL_SIDS = {
             flow: _tutorialUrlParams.get('tutorial_flow_sid') || '',
             stack: _tutorialUrlParams.get('tutorial_stack_sid') || '',
@@ -27758,7 +27766,8 @@
         /** The query that shows one of the tour's sessions. */
         function _tutorialSessionQuery(kind) {
             if (kind === 'main') {
-                return sessionStorage.getItem(_TUTORIAL_HOME_KEY) || '';
+                const homeQuery = sessionStorage.getItem(_TUTORIAL_HOME_KEY) || '';
+                return `${homeQuery}${_integratedBrowserDisplayHash}`;
             }
             const target = _TUTORIAL_SIDS[kind];
             if (!target) return '';
@@ -27766,7 +27775,10 @@
             params.set('sid', target);
             if (_TUTORIAL_SIDS.flow) params.set('tutorial_flow_sid', _TUTORIAL_SIDS.flow);
             if (_TUTORIAL_SIDS.stack) params.set('tutorial_stack_sid', _TUTORIAL_SIDS.stack);
-            return `?${params.toString()}`;
+            if (_integratedBrowserDisplayHash) {
+                params.set('_av_integrated_browser', '1');
+            }
+            return `?${params.toString()}${_integratedBrowserDisplayHash}`;
         }
         let _tutorialStarted = false;
         let _tutorialVisible = false;
@@ -28180,8 +28192,8 @@
             _tutorialStarted = true;
             // Remember how to get back to the main session before any section
             // navigates away from it.
-            if (_tutorialSessionKind() === 'main' && location.search) {
-                sessionStorage.setItem(_TUTORIAL_HOME_KEY, location.search);
+            if (_tutorialSessionKind() === 'main' && _arrayViewLaunchSearch) {
+                sessionStorage.setItem(_TUTORIAL_HOME_KEY, _arrayViewLaunchSearch);
             }
             const stored = Number(sessionStorage.getItem(_TUTORIAL_STORAGE_KEY));
             const resume = Number.isInteger(stored)

@@ -68,12 +68,13 @@ an inline iframe by default. Inline display is a side effect; the call may retur
 |------|-----------------|
 | Local desktop | Native window when available, otherwise browser |
 | VS Code terminal | VS Code tab |
-| VS Code remote or tunnel | VS Code tab through a forwarded port |
+| VS Code remote or tunnel | VS Code tab through VS Code's private proxy |
 | Jupyter or IJulia | Inline iframe |
 | Plain SSH | Browser URL through SSH port forwarding |
 
-For plain SSH, follow [Remote](remote.md#ssh). VS Code tunnel forwarding is
-handled by the extension.
+For plain SSH, follow [Remote](remote.md#ssh). VS Code tunnel proxying is
+handled privately by the extension; no Public entry in the Ports view is
+required.
 
 ## Cleanup
 

@@ -12,6 +12,7 @@
 - [ ] Launch reliability Phase 2: owned instance registry and safe recovery complete; automatic lease expiry remains.
 - [x] Launch reliability Phase 3: structured display opener results and fallback execution.
 - [ ] Launch reliability Phase 4: VS Code request/ACK complete locally; real tunnel reconciliation evidence remains.
+- [ ] Migrate VS Code tunnel display to private-only direct/browser routes, including concurrent multi-view readiness, cleanup, and real-host evidence.
 - [ ] Launch reliability Phase 5: shared `SessionSpec` plus MATLAB/Julia/Explorer adapters.
 - [ ] Launch reliability Phase 6: macOS/Linux/Windows CI configured; remote/manual compatibility evidence remains.
 - [x] Write `dev/launch-tunnel-test-handoff.md` for remote-window verification.

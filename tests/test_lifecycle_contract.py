@@ -529,14 +529,72 @@ def test_vscode_port_settings_are_idempotent_and_preserve_extra_keys(
     monkeypatch.setattr(extension, "_is_vscode_remote", lambda: True)
     extension._VSCODE_CONFIGURED_PORTS.clear()
 
-    assert extension._configure_vscode_port_preview(8123) is True
+    assert extension._configure_vscode_port_preview(8123, is_tunnel=False) is True
     first = settings_path.read_text()
-    assert extension._configure_vscode_port_preview(8123) is True
+    assert extension._configure_vscode_port_preview(8123, is_tunnel=False) is True
 
     attrs = json.loads(first)["remote.portsAttributes"]["8123"]
     assert attrs["privacy"] == "public"
     assert attrs["requireLocalPort"] is True
     assert settings_path.read_text() == first
+
+
+def test_vscode_tunnel_does_not_write_port_settings(monkeypatch, tmp_path):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    settings_path = home / ".vscode" / "data" / "Machine" / "settings.json"
+    monkeypatch.setenv("HOME", str(home))
+    extension._VSCODE_CONFIGURED_PORTS.clear()
+
+    assert extension._configure_vscode_port_preview(
+        8123, is_remote=True, is_tunnel=True
+    )
+    assert not settings_path.exists()
+
+
+def test_vscode_tunnel_removes_only_exact_legacy_public_settings(
+    monkeypatch, tmp_path
+):
+    import json
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    settings_path = home / ".vscode" / "data" / "Machine" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "remote.portsAttributes": {
+                    "8000": {
+                        "protocol": "http",
+                        "label": "ArrayView",
+                        "onAutoForward": "silent",
+                        "privacy": "public",
+                    },
+                    "8001": {
+                        "protocol": "http",
+                        "label": "ArrayView",
+                        "onAutoForward": "silent",
+                        "privacy": "public",
+                        "requireLocalPort": True,
+                    },
+                    "9000": {"label": "Other", "privacy": "public"},
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("HOME", str(home))
+    extension._VSCODE_CONFIGURED_PORTS.clear()
+
+    assert extension._configure_vscode_port_preview(
+        8123, is_remote=True, is_tunnel=True
+    )
+
+    attrs = json.loads(settings_path.read_text())["remote.portsAttributes"]
+    assert "8000" not in attrs
+    assert attrs["8001"]["requireLocalPort"] is True
+    assert attrs["9000"]["label"] == "Other"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
@@ -1465,6 +1523,73 @@ def test_launch_journal_prepares_before_large_session_is_ready():
         session_mod.VIEWER_PHASE_JOURNALS.pop(sid, None)
 
 
+def test_short_viewer_route_hides_query_and_invalidates_stale_navigation():
+    from arrayview._app import app
+    from arrayview._lifecycle import release_session
+    import arrayview._session as session_mod
+
+    primary = session_mod.Session(np.ones((2, 2), dtype=np.float32))
+    related = session_mod.Session(np.ones((2, 2), dtype=np.float32))
+    session_mod.SESSIONS[primary.sid] = primary
+    session_mod.SESSIONS[related.sid] = related
+    request_id = "short-route-request"
+    tab_key = "tabkey0123456789"
+    first_navigation_key = "navkey0123456789"
+    second_navigation_key = "navkey9876543210"
+    phase_path = f"/viewer-phase/{primary.sid}/{request_id}"
+    viewer_query = (
+        f"?sid={primary.sid}"
+        f"&compare_sid={related.sid}"
+        f"&overlay_sid={related.sid}"
+        "&overlay_names=Regions"
+    )
+
+    try:
+        with TestClient(app) as client:
+            server_id = client.get("/ping").json()["instance_id"]
+
+            def prepare(navigation_key, attempt, token):
+                return client.post(
+                    phase_path,
+                    json={
+                        "phase": "launch-prepared",
+                        "server_id": server_id,
+                        "window_id": "short-route-window",
+                        "token": token,
+                        "viewer_query": viewer_query,
+                        "tab_key": tab_key,
+                        "navigation_key": navigation_key,
+                        "navigation_attempt": attempt,
+                    },
+                )
+
+            prepared = prepare(first_navigation_key, 0, "first-token")
+            assert prepared.status_code == 200
+            short_path = f"/_av/{tab_key}/{first_navigation_key}"
+            page = client.get(short_path)
+            assert page.status_code == 200
+            assert viewer_query in page.text
+            assert "_av_launch_request_id=short-route-request" in page.text
+            assert "_av_launch_token=first-token" in page.text
+            assert client.get(
+                f"/_av/wrongtab01234567/{first_navigation_key}"
+            ).status_code == 409
+
+            retried = prepare(second_navigation_key, 1, "second-token")
+            assert retried.status_code == 200
+            assert client.get(short_path).status_code == 404
+            retry_page = client.get(
+                f"/_av/{tab_key}/{second_navigation_key}"
+            )
+            assert retry_page.status_code == 200
+            assert "_av_launch_token=second-token" in retry_page.text
+    finally:
+        release_session(primary.sid)
+        release_session(related.sid)
+        assert first_navigation_key not in session_mod.VIEWER_LAUNCH_ROUTES
+        assert second_navigation_key not in session_mod.VIEWER_LAUNCH_ROUTES
+
+
 def test_final_session_release_retires_control_plane_journals():
     import arrayview._session as session_mod
     from arrayview._lifecycle import release_session
@@ -1785,18 +1910,17 @@ def test_vscode_registration_publishes_superseded_window_ids():
     assert "supersedes.slice(0, MAX_SUPERSEDED_WINDOW_IDS)" in source
 
 
-def test_vscode_tunnel_resolution_reuses_verified_routes_and_retries_fresh():
+def test_vscode_tunnel_resolution_is_private_only():
     source = (Path(__file__).resolve().parents[1] / "vscode-extension" / "extension.js").read_text()
 
-    assert "const TUNNEL_ROUTE_CACHE_FILE" in source
-    assert "cache[`${logWindowId}:${port}`]" in source
-    assert "REMOTE: cached route ready" in source
+    assert "remote.tunnel.privacypublic" not in source
+    assert "TUNNEL_ROUTE_CACHE_FILE" not in source
+    assert "ensurePortPublic" not in source
+    assert "public tunnel URL resolution is disabled" in source
+    assert "displaySurface === 'external-browser'" in source
+    assert "openExternal(vscode.Uri.parse(launchUrl))" in source
     assert "function _asExternalUriAttempt(baseUri)" in source
     assert "a hung promise cannot poison all" in source
-    assert "_externalUriInFlight" not in source
-    assert "remote.tunnel.closeInline" not in source
-    assert "asExternalUri timeout after 15000ms" not in source
-    assert "asExternalUri timeout after 20000ms" not in source
 
 
 def test_vscode_url_panel_dispose_releases_primary_sid():
@@ -1833,7 +1957,7 @@ def test_vscode_lifecycle_helpers_with_node():
     [
         "test_tunnel_resolution.js",
         "test_tunnel_desktop_loopback.js",
-        "test_tunnel_loopback_promotion.js",
+        "test_integrated_browser_selection.js",
     ],
 )
 def test_vscode_tunnel_resolution_with_node(script):
@@ -1953,14 +2077,14 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     assert "releaseUrlSession(url, backendUrl, serverId)" in extension_source
     assert "const lockPath = `${ackPath}.lock`" in extension_source
     assert "_atomicWriteJson(ackPath" in extension_source
-    assert (
-        "vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)"
-        in extension_source
-    )
+    assert "const displaySurface = data.displaySurface" in extension_source
+    assert "async function _runIntegratedBrowserCommand" in extension_source
+    assert "public tunnel URL resolution is disabled" in extension_source
+    assert "remote.tunnel.privacypublic" not in extension_source
+    assert "ensurePortPublic" not in extension_source
     assert "const signalHardTimeoutMs = remainingSignalMs === null" in extension_source
     assert "Math.max(1000, remainingSignalMs + 1000)" in extension_source
-    assert "const TUNNEL_ROUTE_CACHE_FILE" in extension_source
     assert "function _asExternalUriAttempt(baseUri)" in extension_source
-    assert "REMOTE: cached route ready" in extension_source
+    assert "REMOTE: final Remote SSH URL" in extension_source
     assert "compare_sids" in helper_source
     assert "overlay_sid" in helper_source

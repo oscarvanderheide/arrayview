@@ -2068,7 +2068,14 @@ def _handle_cli_spawned_daemon(
             and is_remote
         ) or (launch_context is None and not use_native_shell):
             _configure_vscode_port_preview(
-                port, in_vscode=not is_remote, is_remote=is_remote
+                port,
+                in_vscode=not is_remote,
+                is_remote=is_remote,
+                is_tunnel=(
+                    launch_context.evidence.in_vscode_tunnel
+                    if launch_context is not None
+                    else None
+                ),
             )
 
         daemon_connect_timeout = (
@@ -3479,9 +3486,8 @@ def view(
             launch_context=_launch_context,
         )
 
-    # VS Code tunnel/remote: use the server + WebSocket path.
-    # WS works through the devtunnel when the port is public — the extension
-    # calls ensurePortPublic() before asExternalUri.
+    # VS Code tunnel/remote: use the server + WebSocket path. The opener owns
+    # private client-side delivery for tunnel sessions.
     # Fall through to the server-based path below (don't return early).
 
     # With a planned existing server: register arrays via /load. Keep display
@@ -3726,7 +3732,10 @@ def view(
                 and _launch_plan.display is Display.VSCODE
             ):
                 _configure_vscode_port_preview(
-                    port, in_vscode=False, is_remote=True
+                    port,
+                    in_vscode=False,
+                    is_remote=True,
+                    is_tunnel=_launch_context.evidence.in_vscode_tunnel,
                 )
             _platform_mod._jupyter_server_port = port
     except Exception:
@@ -5209,8 +5218,7 @@ def arrayview():
         action="store_true",
         help=(
             "Start a persistent server on the given port without loading any data. "
-            "Useful on VS Code remote tunnel: run this first, set the port to Public "
-            "in the Ports tab, then use 'arrayview FILE' freely."
+            "Useful for reusing one ArrayView server across repeated launches."
         ),
     )
     parser.add_argument(
@@ -5608,8 +5616,7 @@ def arrayview():
                 _revalidate_launch_server(serve_context, args.port)
                 print(
                     f"[ArrayView] Server already running on port {args.port}. "
-                    "Set port to Public in VS Code Ports tab if not done yet, "
-                    "then run: arrayview your_file.npy"
+                    "Run: arrayview your_file.npy"
                 )
                 return
 
@@ -5639,6 +5646,7 @@ def arrayview():
                 args.port,
                 in_vscode=serve_context.evidence.in_vscode_terminal,
                 is_remote=serve_context.evidence.is_vscode_remote,
+                is_tunnel=serve_context.evidence.in_vscode_tunnel,
             )
             script = (
                 "from arrayview._launcher import _serve_empty; "
@@ -5959,10 +5967,6 @@ def arrayview():
         "remote_native_redirected_to_vscode": (
             "--window native is not available over a VS Code remote/tunnel "
             "session; opening a VS Code tab instead."
-        ),
-        "remote_browser_redirected_to_vscode": (
-            "--window browser cannot reach a browser on the remote host; "
-            "opening a VS Code tab instead."
         ),
         "native_unavailable": (
             "--window native found no usable GUI backend (no display server "

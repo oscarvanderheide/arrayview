@@ -6,7 +6,7 @@ triggers:
   - "vscode extension"
   - "remote tunnel"
   - "asExternalUri"
-  - "port public"
+  - "private proxy"
 edges:
   - target: patterns/validate-launch-path.md
     condition: always, to define the real invocation and acceptance evidence
@@ -63,13 +63,11 @@ array rendered.
 
 4. Classify the remote URL route before judging it:
 
-   - Desktop tunnel with VS Code's integrated-browser remote proxy enabled:
-     the integrated browser may open the loopback backend URL directly. A
-     private entry in the Ports view does not make this route invalid.
-   - Tunnel without that proxy: configure forwarding, perform supported public
-     visibility promotion, and require a verified non-loopback `asExternalUri`
-     URL that retains the SID query parameters. Account for the developer-tunnel
-     trust/consent page rather than mistaking it for the viewer.
+   - VS Code tunnel: the integrated browser opens the verified loopback backend
+     URL through VS Code's enabled private remote proxy. A private entry in the
+     Ports view is expected. The route must not resolve through `asExternalUri`,
+     invoke privacy promotion, or fall back to a public webview. Without a
+     verified private route, fail closed.
    - Remote SSH: a local forwarded loopback URL may be correct. Do not run
      tunnel-only public-port commands or policy against it.
 
@@ -82,7 +80,7 @@ array rendered.
    version. Stop at the first missing boundary instead of refactoring later
    layers.
 
-6. Close the panel and confirm release, then repeat the same command. If request
+6. Close the tab and confirm release, then repeat the same command. If request
    multiplexing, shared-server reuse, or cleanup changed, open five displays,
    close a middle one, confirm the others remain live, then close all and verify
    SID, process, registration, and port cleanup. For a persistent remote route,

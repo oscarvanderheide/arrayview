@@ -1,201 +1,81 @@
+// Private-only routing contract for tunnels, with Remote SSH preserved.
 const assert = require('assert');
+const { EventEmitter } = require('events');
 const fs = require('fs');
-const http = require('http');
-const https = require('https');
 const Module = require('module');
 const os = require('os');
 const path = require('path');
 
-const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'arrayview-desktop-tunnel-'));
+const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'arrayview-private-tunnel-'));
 const originalHome = process.env.HOME;
 process.env.HOME = tempHome;
-fs.mkdirSync(path.join(tempHome, '.arrayview'));
-
 let resolverCalls = 0;
 let promotionCalls = 0;
-let proxyEnabled = true;
-let privacyItem = null;
+
 const vscodeMock = {
     env: {
         remoteName: 'tunnel',
         appHost: 'desktop',
-        asExternalUri: async uri => {
+        async asExternalUri(uri) {
             resolverCalls += 1;
-            const value = String(uri);
-            if (value.includes(':8001/')) {
-                return {
-                    toString: () => resolverCalls <= 2
-                        ? 'http://localhost:8001/'
-                        : 'https://public-8001.devtunnels.ms/',
-                };
-            }
-            return { toString: () => 'http://localhost:8002/' };
+            return { toString: () => String(uri) };
         },
     },
-    Uri: { parse: value => value },
-    ConfigurationTarget: { Global: 1 },
-    workspace: {
-        getConfiguration: section => ({
-            get: (key, fallback) => (
-                section === 'workbench.browser' && key === 'enableRemoteProxy'
-                    ? proxyEnabled
-                    : (key === 'portsAttributes' ? {} : fallback)
-            ),
-            update: async () => { promotionCalls += 1; },
-        }),
-    },
+    Uri: { parse: value => ({ toString: () => value }) },
     commands: {
-        executeCommand: async (command, item) => {
-            promotionCalls += 1;
-            if (command === 'remote.tunnel.privacypublic') privacyItem = item;
-            return {
-                localAddress: 'https://public-8001.devtunnels.ms/',
-                tunnelRemotePort: 8001,
-                tunnelRemoteHost: 'localhost',
-                privacy: 'public',
-                protocol: 'http',
-            };
-        },
-        getCommands: async () => [],
+        async executeCommand() { promotionCalls += 1; },
+    },
+};
+
+const httpMock = {
+    get(_url, _options, callback) {
+        const request = new EventEmitter();
+        request.destroy = () => {};
+        process.nextTick(() => {
+            const response = new EventEmitter();
+            response.statusCode = 200;
+            response.setEncoding = () => {};
+            response.resume = () => {};
+            callback(response);
+            response.emit('data', JSON.stringify({
+                service: 'arrayview',
+                instance_id: 'private-server',
+            }));
+            response.emit('end');
+        });
+        return request;
     },
 };
 
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {
     if (request === 'vscode') return vscodeMock;
+    if (request === 'http') return httpMock;
     return originalLoad.call(this, request, parent, isMain);
 };
 const { __test } = require('./extension');
 Module._load = originalLoad;
 
-const originalHttpGet = http.get;
-http.get = (url, options, callback) => {
-    const request = {
-        on() { return request; },
-        destroy() {},
-    };
-    queueMicrotask(() => {
-        const handlers = {};
-        callback({
-            statusCode: 200,
-            setEncoding() {},
-            on(event, handler) {
-                handlers[event] = handler;
-                if (event === 'end') {
-                    queueMicrotask(() => {
-                        handlers.data(JSON.stringify({
-                            service: 'arrayview',
-                            instance_id: 'desktop-server',
-                        }));
-                        handler();
-                    });
-                }
-            },
-        });
-    });
-    return request;
-};
-const originalHttpsGet = https.get;
-https.get = http.get;
-
 (async () => {
     try {
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult(undefined, 8001),
-            null
+        const tunnelResult = await __test.resolveRemoteViewerUrl(
+            'http://localhost:8001/?sid=tunnel-private',
+            'private-server'
         );
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult(
-                'Failed to resolve remote viewer URL',
-                8001
-            ),
-            null,
-            'an arbitrary privacy-command status string is not a public route'
-        );
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult(
-                'https://public-8001.devtunnels.ms/',
-                8001
-            ),
-            'https://public-8001.devtunnels.ms',
-            'a URL-shaped public command result can be considered for verification'
-        );
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult({
-                localAddress: 'https://wrong-port.devtunnels.ms/',
-                tunnelRemotePort: 9000,
-                tunnelRemoteHost: 'localhost',
-                privacy: 'public',
-            }, 8001),
-            null
-        );
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult({
-                localAddress: 'public-8001.devtunnels.ms',
-                tunnelRemotePort: 8001,
-                tunnelRemoteHost: 'localhost',
-                privacy: 'private',
-                protocol: 'https',
-            }, 8001),
-            null
-        );
-        assert.strictEqual(
-            __test._publicBaseFromTunnelResult({
-                localAddress: 'public-8001.devtunnels.ms',
-                tunnelRemotePort: 8001,
-                tunnelRemoteHost: 'localhost',
-                privacy: 'public',
-                protocol: 'https',
-            }, 8001),
-            'https://public-8001.devtunnels.ms'
-        );
-        // `workbench.browser.enableRemoteProxy` must not influence tunnel
-        // resolution. It proxies VS Code's integrated browser, which the viewer
-        // no longer uses; a webview panel's iframe runs on the desktop, so a
-        // loopback URL reaches nothing there whatever that setting says.
-        proxyEnabled = true;
-        const publicResolved = await __test.resolveRemoteViewerUrl(
-            'http://localhost:8001/?sid=desktop-public',
-            'desktop-server'
-        );
-        assert.strictEqual(
-            publicResolved,
-            'https://public-8001.devtunnels.ms/?sid=desktop-public',
-            'a desktop tunnel must promote to a public URL even with the remote proxy enabled'
-        );
-        assert.strictEqual(
-            resolverCalls,
-            1,
-            'the default/private forward must be resolved exactly once before final promotion'
-        );
-        assert.strictEqual(promotionCalls, 1);
-        assert.deepStrictEqual(privacyItem, {
-            tunnelType: 'Forwarded',
-            remoteHost: 'localhost',
-            remotePort: 8001,
-            localPort: 8001,
-            name: 'ArrayView',
-            source: { source: 0, description: 'User Forwarded' },
-        });
+        assert.strictEqual(tunnelResult, null);
+        assert.strictEqual(resolverCalls, 0, 'tunnel requests must not resolve a public URL');
+        assert.strictEqual(promotionCalls, 0, 'tunnel requests must not invoke promotion commands');
 
         vscodeMock.env.remoteName = 'ssh-remote';
-        const sshResolved = await __test.resolveRemoteViewerUrl(
+        const sshResult = await __test.resolveRemoteViewerUrl(
             'http://localhost:8002/?sid=remote-ssh',
-            'desktop-server'
+            'private-server'
         );
-        assert.strictEqual(
-            sshResolved,
-            'http://localhost:8002/?sid=remote-ssh'
-        );
-        assert.strictEqual(
-            promotionCalls,
-            1,
-            'Remote SSH must not mutate tunnel port privacy'
-        );
-        console.log('desktop tunnel and Remote SSH routing tests passed');
+        assert.strictEqual(sshResult, 'http://localhost:8002/?sid=remote-ssh');
+        assert.strictEqual(resolverCalls, 1, 'Remote SSH keeps its existing resolver path');
+        assert.strictEqual(promotionCalls, 0);
+        console.log('private tunnel and Remote SSH routing tests passed');
     } finally {
-        http.get = originalHttpGet;
-        https.get = originalHttpsGet;
         if (originalHome === undefined) delete process.env.HOME;
         else process.env.HOME = originalHome;
         fs.rmSync(tempHome, { recursive: true, force: true });

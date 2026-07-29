@@ -40,6 +40,9 @@ NATIVE_READY_REQUESTS: set[tuple[str, str]] = set()
 # Launch readiness is control-plane state and must exist before a large array
 # finishes loading. Keyed by SID, then request ID; release_session owns cleanup.
 VIEWER_PHASE_JOURNALS: dict[str, dict[str, dict]] = {}
+# Short integrated-browser navigation key -> (primary SID, request ID).
+# The full launch query stays in the fenced journal instead of the visible URL.
+VIEWER_LAUNCH_ROUTES: dict[str, tuple[str, str]] = {}
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
@@ -630,6 +633,7 @@ __all__ = [
     "VIEWER_SIDS",
     "VIEWER_CONNECTIONS_SEEN",
     "VIEWER_PHASE_JOURNALS",
+    "VIEWER_LAUNCH_ROUTES",
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",

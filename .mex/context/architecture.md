@@ -46,7 +46,7 @@ Browser (_viewer.html — single self-contained HTML+JS+CSS file)
 
 A `view()` call creates a `Session`, starts the FastAPI server if not running,
 registers the session via HTTP POST `/load`, then opens a display for the detected
-environment (Jupyter inline, VS Code webview panel, native
+environment (Jupyter inline, VS Code viewer tab, native
 pywebview, or system browser).
 
 ## Key Components
@@ -81,7 +81,7 @@ Tool launch, tool activation, and drawer visibility are separate states.
 |---|---|---|
 | Jupyter | Inline iframe | network |
 | VS Code local | Webview panel | network |
-| VS Code tunnel | Webview panel (forwarded WebSocket) | network |
+| VS Code tunnel | Integrated browser (private remote proxy) | network |
 | Julia | System browser | network |
 | CLI / Python script | Native pywebview | network |
 | SSH terminal | Prints URL — user forwards port with `ssh -L` | network |

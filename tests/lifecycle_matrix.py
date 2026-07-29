@@ -130,7 +130,7 @@ def check_node_extension_helpers() -> CheckResult:
         "test_lifecycle_helpers.js",
         "test_tunnel_resolution.js",
         "test_tunnel_desktop_loopback.js",
-        "test_tunnel_loopback_promotion.js",
+        "test_integrated_browser_selection.js",
         "test_request_journal.js",
         "test_request_deadline.js",
         "test_panel_replay.js",

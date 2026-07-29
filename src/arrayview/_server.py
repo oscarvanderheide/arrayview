@@ -10,6 +10,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, replace
+from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from importlib.resources import files as _pkg_files
@@ -338,25 +339,45 @@ def status():
 
 # ── Root UI Route ─────────────────────────────────────────────────
 
-@app.get("/")
-def get_ui(request: Request, sid: str = None):
-    """Viewer page."""
-    # VS Code's asExternalUri() strips query parameters, so ?sid= is often lost
-    # before the page loads.  Embed the SID directly in the HTML so the viewer
-    # JS can find it regardless of the URL.
-    if not sid:
-        # No sid in URL — VS Code strips the query string before loading the
-        # page, so ?sid= is lost.  Inject the latest valid session
-        # server-side so the viewer JS can find it regardless of the URL.
-        if SESSIONS:
-            latest_sid = list(SESSIONS.keys())[-1]
-            query_val = json.dumps(f"?sid={latest_sid}")
-        else:
-            query_val = "null"  # viewer will show "Session not found or expired"
-    else:
-        # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
-        # and handle errors itself (shows "Session not found or expired" on 404).
-        query_val = "null"
+def _trace_page_request(
+    request: Request,
+    *,
+    request_id: str | None = None,
+    navigation_attempt: str | None = None,
+) -> None:
+    """Record that a viewer page fetch reached this backend.
+
+    A tunnel-delivered launch that never logs ``script-loaded`` is ambiguous
+    from the opener's side alone: the relay may have dropped the page request,
+    or the page may have arrived and the script stalled.  This distinguishes
+    the two.  Inert unless ``ARRAYVIEW_LAUNCH_TRACE`` is set.
+    """
+    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
+        return
+    try:
+        from arrayview._launch_trace import emit_launch_event
+
+        params = request.query_params
+        emit_launch_event(
+            "page.requested",
+            request_id=request_id or params.get("_av_launch_request_id"),
+            navigation_attempt=(
+                navigation_attempt
+                or params.get("_av_navigation_attempt")
+                or "0"
+            ),
+        )
+    except Exception:
+        pass
+
+
+def _viewer_ui_response(
+    request: Request,
+    *,
+    sid: str | None,
+    query_val: str,
+):
+    """Render one viewer page with its launch query already chosen."""
     _init_luts()
     _cfg_colormaps = get_viewer_colormaps()
     _valid_cfg_colormaps = (
@@ -390,7 +411,72 @@ def get_ui(request: Request, sid: str = None):
         html,
         request=request,
         media_type="text/html; charset=utf-8",
-        # no-store stays: when the URL carries no ?sid=, the body embeds the
-        # latest session id, so a cached copy would resurrect a dead session.
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/_av/{tab_key}/{navigation_key}")
+def get_short_viewer_ui(
+    request: Request,
+    tab_key: str,
+    navigation_key: str,
+):
+    """Resolve a private integrated-browser launch without exposing its query."""
+    owner = _session_mod.VIEWER_LAUNCH_ROUTES.get(navigation_key)
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Viewer launch route expired")
+    sid, request_id = owner
+    journal = (
+        _session_mod.VIEWER_PHASE_JOURNALS
+        .get(sid, {})
+        .get(request_id)
+    )
+    if (
+        journal is None
+        or journal.get("tab_key") != tab_key
+        or journal.get("navigation_key") != navigation_key
+    ):
+        raise HTTPException(status_code=409, detail="Viewer launch route changed")
+    bootstrap_query = journal["viewer_query"] + "&" + urlencode(
+        {
+            "_av_integrated_browser": "1",
+            "_av_launch_request_id": request_id,
+            "_av_launch_server_id": _session_mod.SERVER_RUNTIME.instance_id,
+            "_av_launch_window_id": journal["window_id"],
+            "_av_launch_token": journal["token"],
+            "_av_navigation_attempt": journal["navigation_attempt"],
+        }
+    )
+    _trace_page_request(
+        request,
+        request_id=request_id,
+        navigation_attempt=str(journal["navigation_attempt"]),
+    )
+    return _viewer_ui_response(
+        request,
+        sid=sid,
+        query_val=json.dumps(bootstrap_query),
+    )
+
+
+@app.get("/")
+def get_ui(request: Request, sid: str = None):
+    """Viewer page."""
+    _trace_page_request(request)
+    # VS Code's asExternalUri() strips query parameters, so ?sid= is often lost
+    # before the page loads.  Embed the SID directly in the HTML so the viewer
+    # JS can find it regardless of the URL.
+    if not sid:
+        # No sid in URL — VS Code strips the query string before loading the
+        # page, so ?sid= is lost.  Inject the latest valid session
+        # server-side so the viewer JS can find it regardless of the URL.
+        if SESSIONS:
+            latest_sid = list(SESSIONS.keys())[-1]
+            query_val = json.dumps(f"?sid={latest_sid}")
+        else:
+            query_val = "null"  # viewer will show "Session not found or expired"
+    else:
+        # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
+        # and handle errors itself (shows "Session not found or expired" on 404).
+        query_val = "null"
+    return _viewer_ui_response(request, sid=sid, query_val=query_val)

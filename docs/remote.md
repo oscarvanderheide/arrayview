@@ -22,24 +22,26 @@ See [MATLAB and Julia](foreign-hosts.md).
 ## VS Code tunnel
 
 The VS Code extension uses the normal WebSocket viewer through VS Code's
-forwarded-port support. ArrayView starts or reuses the FastAPI server, asks VS
-Code to expose the port, promotes it to public when the tunnel API is
-available, and opens the viewer in a VS Code tab.
+private remote-browser proxy. ArrayView starts or reuses the FastAPI server and
+opens its remote `localhost` URL in VS Code's integrated browser. The port
+remains private and is not exposed through a public developer-tunnel URL.
 
 ```bash
-arrayview volume.nii.gz     # opens in a webview tab automatically
+arrayview volume.nii.gz     # opens in a VS Code integrated-browser tab
 ```
 
 ### How it works
 
 ```
-Viewer (VS Code tab) ←WebSocket/HTTP→ FastAPI server
+Integrated browser ←VS Code private proxy→ remote localhost FastAPI server
 ```
 
-The extension reads ArrayView's signal file, resolves the localhost URL through
-VS Code's tunnel API, and opens that URL in a webview panel. Slice requests,
-metadata, overlays, compare views, and shell tab injection all use the same
-HTTP/WebSocket routes as local browser mode.
+The extension reads ArrayView's signal file, verifies the exact backend and
+target window, and opens a request-specific loopback URL. Each invocation gets
+its own request identity so multiple ArrayView tabs can remain open at once.
+Slice requests, metadata, overlays, and compare views use the same
+HTTP/WebSocket routes as local browser mode. If the private proxy or exact
+target cannot be verified, ArrayView fails instead of making the port public.
 
 ### Persistent server mode
 
@@ -50,8 +52,8 @@ setups or a shared viewer URL, run a persistent server explicitly:
 arrayview --serve
 ```
 
-Set port 8000 to Public in the VS Code Ports tab, then load arrays normally.
-The server persists across invocations. Stop it with `arrayview stop`.
+Leave port 8000 private and load arrays normally. The server persists across
+invocations. Stop it with `arrayview stop`.
 
 ## Multi-hop
 
@@ -61,7 +63,7 @@ When data lives on a server you SSH into from the tunnel-remote machine:
 Local VS Code ──(devtunnel)──▶ remote ──(SSH)──▶ server
 ```
 
-1. Start `arrayview --serve` on the remote machine, set port to Public.
+1. Start `arrayview --serve` on the remote machine and leave the port private.
 2. SSH into the server with a reverse tunnel:
 
 ```bash

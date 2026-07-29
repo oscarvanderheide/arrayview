@@ -84,6 +84,26 @@ def test_open_request_forwards_explorer_handoff_path(monkeypatch, tmp_path):
     assert captured[0]["handoffPath"] == "/data/case/image.npy"
 
 
+def test_open_request_includes_explicit_display_surface(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    captured = []
+    monkeypatch.setattr(
+        signal,
+        "_write_vscode_signal",
+        lambda payload, delay=0.0, **kwargs: captured.append(payload) or True,
+    )
+
+    signal._open_via_signal_file(
+        "http://localhost:8123/?sid=session-1",
+        is_remote=True,
+        display_surface="external-browser",
+    )
+
+    assert captured[0]["displaySurface"] == "external-browser"
+
+
 def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))

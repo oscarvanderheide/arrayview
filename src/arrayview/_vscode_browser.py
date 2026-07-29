@@ -16,7 +16,11 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from arrayview._session import _vprint
-from arrayview._platform import _in_vscode_terminal, _is_vscode_remote
+from arrayview._platform import (
+    _in_vscode_terminal,
+    _is_vscode_remote,
+    _in_vscode_tunnel,
+)
 from arrayview._vscode_extension import _configure_vscode_port_preview, _ensure_vscode_extension
 from arrayview._vscode_signal import (
     AckState,
@@ -27,8 +31,6 @@ from arrayview._vscode_signal import (
 if TYPE_CHECKING:
     from arrayview._launch_plan import LaunchContext
 
-# Whether the "set port to Public" message has been printed this session.
-_remote_message_shown = False
 _ssh_message_shown = False
 
 _LOCAL_VSCODE_REQUEST_MAX_AGE_MS = int(
@@ -133,13 +135,9 @@ def _print_viewer_location(
 ) -> None:
     """Print a viewer location hint.
 
-    In VS Code remote/tunnel sessions the plain ``http://localhost:<port>/``
-    URL is printed to stdout (unconditionally, not gated on verbose) so VS
-    Code's terminal-output port-forward detector picks it up and forwards the
-    port immediately.  Without this, VS Code relies on its slow proactive
-    socket scan, which can take 10+ seconds and sometimes never fires —
-    leaving ``asExternalUri`` returning the localhost URL unchanged and the
-    viewer tab blank on the remote client.
+    In a VS Code tunnel, private display routing is handled by the opener and
+    the URL must not be printed merely to trigger automatic port forwarding.
+    Remote SSH retains the terminal-output forwarding hint.
 
     Only the host needs to be localhost for the forward to trigger; the
     query string is harmless and helps debugging.  We print the URL without
@@ -150,7 +148,12 @@ def _print_viewer_location(
         if launch_context is not None
         else _is_vscode_remote()
     )
-    if is_remote:
+    is_tunnel = (
+        launch_context.evidence.in_vscode_tunnel
+        if launch_context is not None
+        else _in_vscode_tunnel()
+    )
+    if is_remote and not is_tunnel:
         print(url, flush=True)
         return
     _vprint(f"[ArrayView] {url}", flush=True)
@@ -167,17 +170,14 @@ def _open_browser(
     launch_context: "LaunchContext | None" = None,
     use_fallback: bool = False,
 ) -> OpenResult:
-    """Open *url* locally, or configure VS Code remote auto-preview behavior.
+    """Open *url* through the display adapter selected by the launch plan.
 
     *title* is shown as the VS Code tab label (e.g. "ArrayView: sample.npy").
     Passed through to _open_via_signal_file → extension createWebviewPanel.
 
-    Strategy (see log.txt for what was tried and why):
-    1. Remote VS Code terminal:
-       a. Configure the port as ``silent`` and ``public`` in
-          ``remote.portsAttributes``.
-       b. Write the signal file; the workspace extension converts the URL via
-          asExternalUri and opens a viewer tab in the local VS Code client.
+    Strategy:
+    1. Remote VS Code terminal: signal the opener with an explicit private
+       integrated-browser or external-browser surface.
     2. Local VS Code terminal (or force_vscode=True):
        a. Install the helper extension.
        b. Write the signal file so the extension opens a viewer tab locally.
@@ -214,7 +214,11 @@ def _open_browser(
                 selected_adapter = "vscode"
             elif display_value == "browser":
                 selected_adapter = (
-                    "ssh-guidance" if is_plain_ssh else "system-browser"
+                    "ssh-guidance"
+                    if is_plain_ssh
+                    else "vscode-external-browser"
+                    if is_remote
+                    else "system-browser"
                 )
             else:
                 return OpenResult(
@@ -264,7 +268,7 @@ def _open_browser(
         except Exception:
             parsed_port = 8000
 
-        if selected_adapter == "vscode" and is_remote:
+        if selected_adapter in {"vscode", "vscode-external-browser"} and is_remote:
             # Remote/tunnel: install through this exact window's server, then
             # require exact-window activation before writing any signal.
             ext_ok = _ensure_vscode_extension(is_remote=True)
@@ -296,10 +300,16 @@ def _open_browser(
                     "vscode-extension",
                     detail,
                 )
-            # URL-based mode: port is forwarded by VS Code and the viewer
-            # connects via WebSocket through the devtunnel.
+            is_tunnel = (
+                launch_context.evidence.in_vscode_tunnel
+                if launch_context is not None
+                else _in_vscode_tunnel()
+            )
             _configure_vscode_port_preview(
-                parsed_port, in_vscode=False, is_remote=True
+                parsed_port,
+                in_vscode=False,
+                is_remote=True,
+                is_tunnel=is_tunnel,
             )
             request = _open_via_signal_file(
                 url,
@@ -307,6 +317,11 @@ def _open_browser(
                 floating=floating,
                 server_id=_server_id_for_url(url),
                 is_remote=True,
+                display_surface=(
+                    "external-browser"
+                    if selected_adapter == "vscode-external-browser"
+                    else "integrated-browser"
+                ),
                 max_age_ms=_vscode_request_max_age_ms(
                     blocking=blocking,
                     is_remote=True,

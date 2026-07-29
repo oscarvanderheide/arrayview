@@ -9,7 +9,12 @@
 ## Transport
 
 - **Network**: FastAPI + WebSocket, extension opens a VS Code webview panel tab.
-- Remote/tunnel sessions use VS Code forwarded ports plus `asExternalUri`; do not add a second backend transport inside the extension.
+- Local VS Code and Remote SSH may use URL webviews. VS Code tunnels use
+  request-scoped integrated-browser tabs that open verified remote `localhost`
+  URLs through VS Code's private remote-browser proxy.
+- Never promote a tunnel port to public or fall back to a public
+  `asExternalUri` route. If the private proxy, backend, or exact window cannot
+  be verified, fail closed.
 
 `_VSCODE_EXT_VERSION` in `src/arrayview/_vscode_extension.py` must match `vscode-extension/package.json`.
 Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-opener.vsix`
@@ -27,7 +32,9 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
   per-window env collection); `_superseding_window_registration` in `_platform.py`
   maps a stale id back to its window, and refuses ambiguous claims rather than
   guessing. Read the collection *before* `replace()` overwrites it.
-- Remote ports: configure preview, promote tunnel privacy when available, resolve URL via `asExternalUri`
+- Tunnel display: fence concurrent private integrated-browser requests by exact
+  request/window/backend identity and serialize only active-tab browser
+  commands; readiness remains concurrent.
 - Which backend version a click runs is *not* obvious: `arrayview.packageSpec`
   (machine-scoped, so it leaks across windows) can redirect `--with arrayview`
   to a local checkout, and an already-running daemon on port 8000 overrides

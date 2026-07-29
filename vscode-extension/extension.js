@@ -135,39 +135,11 @@ const _activeClaimedFiles = new Set();
 // tunnel URL may change while one request is being recovered.
 const _openPanels = new Map(); // request key (or URL for legacy calls) -> panel
 const _readyPanels = new WeakSet();
-// The integrated browser has no disposal event. Reserve it while a direct
-// launch is starting, then re-check the backend's real viewer count before a
-// later launch. Sequential close/reopen can reuse the direct loopback proxy;
-// a concurrent viewer retains its dedicated webview panel.
-let _integratedBrowserState = 'idle'; // idle | pending | active
-const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
-const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
-
-function _cachedTunnelBases(port) {
-    const candidates = [];
-    const addCandidate = value => {
-        if (typeof value !== 'string' || isLoopbackUrl(value)) return;
-        try {
-            const parsed = new URL(value);
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
-            const normalized = value.replace(/\/$/, '');
-            if (!candidates.includes(normalized)) candidates.push(normalized);
-        } catch (_) {}
-    };
-    const inMemory = _publicTunnelUrls.get(port);
-    addCandidate(inMemory);
-    try {
-        const cache = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
-        // Prefer this window's route, but retain verified routes across window
-        // reloads.  VS Code's desktop tunnel resolver can return localhost
-        // even when the provider still exposes the same public port route.
-        addCandidate(cache[`${logWindowId}:${port}`]);
-        for (const [key, value] of Object.entries(cache)) {
-            if (key.endsWith(`:${port}`)) addCandidate(value);
-        }
-    } catch (_) {}
-    return candidates;
-}
+// Browser commands act on VS Code's active integrated-browser editor. Initial
+// opens, retries, and reveal+reload recovery therefore need a very small
+// command-only critical section. Readiness remains request-scoped and runs
+// concurrently after each command returns.
+let _integratedBrowserCommandTail = Promise.resolve();
 
 // Hedging, not escalation. Measured against the live devtunnel relay (30 fresh
 // connections, `/ping`, backend healthy on loopback throughout): answers arrive
@@ -209,95 +181,6 @@ function _setRetryTiming({
     }
 }
 
-/**
- * The best cached route we have no evidence against.
- *
- * Only PROBE_DEAD — a well-formed reply carrying a different backend's
- * instance_id, or a refusal — may discard a cached route. A no-answer must not,
- * and that asymmetry is the whole point of this function. Across every observed
- * occurrence in ~/.arrayview/extension.log (6 of 6), a route discarded on a
- * no-answer was then re-derived through asExternalUri and port promotion, which
- * returned the byte-identical URL 6.5-90 s later. The probe has never once
- * caught a genuinely unusable route by stalling; it has only ever delayed a
- * launch, and in one case (20:34:08 on 2026-07-27) delayed it past a downstream
- * deadline into an outright failure.
- *
- * So a no-answer returns the route and lets the panel decide. That is not a
- * guess: the panel navigates on its own connection, which fails independently
- * of this one, and the navigation watchdog re-arms and re-assigns `frame.src`
- * if the page never arrives. It is a better probe than this one because it does
- * the real work while it waits.
- *
- * `deadBases` carries proof across the two or three times one request consults
- * the cache. Without it, accepting a no-answer would let a later call resurrect
- * a candidate an earlier call had already proven foreign — the stall rate is
- * high enough that re-probing a known-dead route can plausibly return no
- * answer. Proof, once obtained, outranks a later absence of evidence.
- */
-async function _usableCachedTunnelBase(
-    port,
-    expectedServerId,
-    ensureActive = () => {},
-    deadBases = new Set()
-) {
-    for (const candidate of _cachedTunnelBases(port)) {
-        ensureActive();
-        if (deadBases.has(candidate)) continue;
-        log(`REMOTE: checking cached route ${candidate} `
-            + `(hedged x${RELAY_PROBE_HEDGE.attempts})`);
-        const outcome = await hedgedProbeStatus(
-            `${candidate}/ping`, expectedServerId
-        );
-        ensureActive();
-        if (outcome === PROBE_DEAD) {
-            deadBases.add(candidate);
-            log(`REMOTE: cached route stale for localhost:${port}`);
-            continue;
-        }
-        if (outcome === PROBE_RELAY_DOWN) {
-            // Not proof the route is wrong, so it does not join deadBases and
-            // may be re-probed after promotion. But it is proof the route
-            // cannot carry traffic now, so returning it would hand the panel a
-            // URL known to 502. Fall through to port promotion, which reattaches
-            // the connector.
-            log(`REMOTE: cached route reachable but its connector is detached `
-                + `for localhost:${port}; falling through to promotion`);
-            continue;
-        }
-        if (outcome === PROBE_OK) {
-            _rememberTunnelBase(port, candidate);
-            log(`REMOTE: cached route ready for localhost:${port}`);
-        } else {
-            // Deliberately not cached: this is an absence of evidence, not a
-            // verification, and it must not promote an unproven route.
-            log(`REMOTE: cached route unverified for localhost:${port}; `
-                + `using it anyway (no evidence it is wrong)`);
-        }
-        return candidate;
-    }
-    return null;
-}
-
-function _rememberTunnelBase(port, externalBase) {
-    if (!externalBase || isLoopbackUrl(externalBase)) return;
-    const normalized = externalBase.replace(/\/$/, '');
-    _publicTunnelUrls.set(port, normalized);
-    let cache = {};
-    try {
-        const parsed = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cache = parsed;
-    } catch (_) {}
-    cache[`${logWindowId}:${port}`] = normalized;
-    const tmp = `${TUNNEL_ROUTE_CACHE_FILE}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-    try {
-        fs.writeFileSync(tmp, JSON.stringify(cache));
-        fs.renameSync(tmp, TUNNEL_ROUTE_CACHE_FILE);
-    } catch (error) {
-        try { fs.unlinkSync(tmp); } catch (_) {}
-        log(`REMOTE: failed to cache tunnel route: ${error.message}`);
-    }
-}
-
 function _withTimeout(promise, timeoutMs, label) {
     let timer;
     return Promise.race([
@@ -308,88 +191,23 @@ function _withTimeout(promise, timeoutMs, label) {
     ]).finally(() => clearTimeout(timer));
 }
 
+async function _runIntegratedBrowserCommand(operation) {
+    const previous = _integratedBrowserCommandTail;
+    let release;
+    _integratedBrowserCommandTail = new Promise(resolve => { release = resolve; });
+    await previous;
+    try {
+        return await operation();
+    } finally {
+        release();
+    }
+}
+
 function _asExternalUriAttempt(baseUri) {
     // A timed-out VS Code resolver cannot be cancelled. Keep attempts
     // request-local and side-effect free so a hung promise cannot poison all
     // future launches for the same port.
     return Promise.resolve().then(() => vscode.env.asExternalUri(baseUri));
-}
-
-async function _boundedCommand(command, args, timeoutMs = 3000) {
-    try {
-        return await _withTimeout(
-            vscode.commands.executeCommand(command, ...(args || [])),
-            timeoutMs,
-            command
-        );
-    } catch (error) {
-        log(`REMOTE: ${command} unavailable: ${error.message}`);
-        return null;
-    }
-}
-
-function _tunnelItem(port) {
-    return {
-        // Match VS Code's stripped TunnelItem shape.  The privacy action
-        // forwards this source back to the tunnel provider after closing the
-        // old route, so its enum values must be the real workbench values.
-        tunnelType: 'Forwarded',
-        remoteHost: 'localhost',
-        remotePort: port,
-        localPort: port,
-        name: 'ArrayView',
-        source: { source: 0, description: 'User Forwarded' },
-    };
-}
-
-function _publicBaseFromTunnelResult(result, expectedPort) {
-    if (typeof result === 'string') {
-        try {
-            const parsed = new URL(result);
-            if (
-                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
-                && !isLoopbackUrl(result)
-            ) {
-                return result.replace(/\/$/, '');
-            }
-        } catch (_) {}
-        return null;
-    }
-    if (!result || typeof result !== 'object') return null;
-    const remotePort = Number(
-        result.tunnelRemotePort ?? result.remotePort ?? 0
-    );
-    const remoteHost = String(
-        result.tunnelRemoteHost ?? result.remoteHost ?? 'localhost'
-    ).toLowerCase();
-    if (remotePort !== Number(expectedPort) || result.privacy !== 'public') {
-        return null;
-    }
-    if (!['localhost', '127.0.0.1', '::1'].includes(remoteHost)) return null;
-    const candidates = [
-        result.localAddress,
-        result.tunnelLocalAddress,
-        result.localUri,
-    ];
-    for (const candidate of candidates) {
-        if (!candidate) continue;
-        let value = typeof candidate === 'string'
-            ? candidate
-            : (typeof candidate.toString === 'function' ? candidate.toString() : '');
-        if (value && !/^[a-z][a-z0-9+.-]*:/i.test(value)) {
-            value = `${result.protocol || 'http'}://${value}`;
-        }
-        try {
-            const parsed = new URL(value);
-            if (
-                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
-                && !isLoopbackUrl(parsed.toString())
-            ) {
-                return parsed.toString().replace(/\/$/, '');
-            }
-        } catch (_) {}
-    }
-    return null;
 }
 
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
@@ -934,26 +752,6 @@ async function closeActiveArrayViewCustomEditor(uri, reason) {
         log(`CUSTOM-EDITOR: close placeholder failed (${reason}): ${e.message}`);
         return false;
     }
-}
-
-// Set while resolving a tunnel URL when VS Code reports a specific, actionable
-// reason for refusing to forward the port. A bare "failed to resolve" tells the
-// user nothing they can act on.
-let _lastForwardingDiagnostic = null;
-
-function _forwardingDiagnostic(result, port) {
-    const text = typeof result === 'string' ? result : (() => {
-        try { return JSON.stringify(result); } catch (_) { return ''; }
-    })();
-    if (!text) return null;
-    if (/PortsPerTunnel|Resource limit exceeded|\b429\b|Too Many Requests/i.test(text)) {
-        return `VS Code could not forward port ${port}: this tunnel has reached its limit on forwarded ports, so the port cannot be made public and the viewer cannot connect. Close forwarded ports you no longer need in the Ports view, or set "remote.autoForwardPorts": false so VS Code stops forwarding every listening port it detects.`;
-    }
-    if (/Could not forward port/i.test(text)) {
-        const trimmed = text.replace(/\s+/g, ' ').slice(0, 300);
-        return `VS Code could not forward port ${port}: ${trimmed}`;
-    }
-    return null;
 }
 
 function _escapeHtml(value) {
@@ -2313,11 +2111,26 @@ function waitForViewerReady(panel, timeoutMs = 25000) {
 
 function _integratedBrowserLaunchUrl(
     url,
+    tabKey,
+    navigationKey
+) {
+    try {
+        const parsed = new URL(url);
+        parsed.pathname = `/_av/${encodeURIComponent(tabKey)}/${encodeURIComponent(navigationKey)}`;
+        parsed.search = '';
+        parsed.hash = '';
+        return parsed.toString();
+    } catch (_) {
+        return null;
+    }
+}
+
+function _correlatedBrowserLaunchUrl(
+    url,
     requestId,
     serverId,
     windowId,
-    token,
-    forceNew = false
+    token
 ) {
     try {
         const parsed = new URL(url);
@@ -2326,9 +2139,7 @@ function _integratedBrowserLaunchUrl(
         parsed.searchParams.set('_av_launch_server_id', serverId);
         parsed.searchParams.set('_av_launch_window_id', windowId);
         parsed.searchParams.set('_av_launch_token', token);
-        if (forceNew) {
-            parsed.hash = `#av-${requestId.slice(0, 8)}`;
-        }
+        parsed.hash = `#av-${requestId}`;
         return parsed.toString();
     } catch (_) {
         return null;
@@ -2369,16 +2180,17 @@ async function waitForBackendViewerReady(
     let unreachableCount = 0;
     const maxUnreachableAfterScript = 15;
     let navigationAttempt = 0;
-    const firstNavigationRetryDelayMs = Math.min(
+    // Every recovery step is a full fresh navigation.  The relay drops a page
+    // request outright rather than delivering it slowly, so the only useful
+    // response is another independent fetch.  Escalating to a hard reload of
+    // the already-blank tab recovered 0 of 5 observed stalls; a fresh
+    // navigation recovered 2 of 7.  The budget buys repeats of the latter.
+    const navigationRetryDelayMs = Math.min(
         1500,
-        Math.max(50, Math.floor(preScriptTimeoutMs * 0.25))
+        Math.max(50, Math.floor(preScriptTimeoutMs * 0.15))
     );
-    const laterNavigationRetryDelayMs = Math.min(
-        3000,
-        Math.max(50, Math.floor(preScriptTimeoutMs * 0.35))
-    );
-    let nextNavigationRetryAt = Date.now() + firstNavigationRetryDelayMs;
-    const maxNavigationRetries = 2;
+    let nextNavigationRetryAt = Date.now() + navigationRetryDelayMs;
+    const maxNavigationRetries = 4;
     while (Date.now() < deadline) {
         ensureActive();
         const activeDeadline = scriptLoaded
@@ -2451,14 +2263,14 @@ async function waitForBackendViewerReady(
             try {
                 replacementToken = await retryPreScriptNavigation(
                     navigationAttempt,
-                    deadline
+                    Math.min(deadline, preScriptDeadline)
                 );
             } catch (error) {
                 log(`PANEL: pre-script navigation retry failed: ${error.message || error}`);
             }
             ensureActive();
             if (replacementToken) activeToken = replacementToken;
-            nextNavigationRetryAt = Date.now() + laterNavigationRetryDelayMs;
+            nextNavigationRetryAt = Date.now() + navigationRetryDelayMs;
         }
         const remaining = (
             scriptLoaded ? deadline : Math.min(deadline, preScriptDeadline)
@@ -2498,24 +2310,21 @@ async function openInIntegratedBrowser(
     // and must use the client-forwarded asExternalUri URL.
     const browserUrl = remoteProxyEnabled ? backendUrl : url;
     const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
-    const reuseUrlFilter = `?_av_launch_request_id=${encodeURIComponent(requestId)}`;
+    const tabKey = crypto.randomBytes(12).toString('base64url');
+    const reuseUrlFilter = `/_av/${tabKey}/`;
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
-        let launchUrl = _integratedBrowserLaunchUrl(
-            browserUrl,
-            requestId,
-            serverId,
-            windowId,
-            token,
-            navigationAttempt === 0
-        );
-        if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
-        if (navigationAttempt > 0) {
-            const parsed = new URL(launchUrl);
-            parsed.searchParams.set('_av_navigation_attempt', String(navigationAttempt));
-            launchUrl = parsed.toString();
-        }
+        const navigationKey = crypto.randomBytes(12).toString('base64url');
+        const viewerQuery = new URL(backendUrl).search;
+        // A hedge must fit inside the budget it is hedging.  `deadline` is the
+        // caller's pre-script deadline; without clamping to it, every attempt
+        // could spend a full POST timeout plus a full command timeout *past*
+        // that budget, so raising the retry count multiplied the overshoot
+        // instead of packing more attempts into it.
+        const attemptDeadline = deadline !== null
+            ? Math.min(deadline, viewerDeadline)
+            : viewerDeadline;
         const prepared = await httpPostJson(
             journalUrl,
             {
@@ -2523,8 +2332,12 @@ async function openInIntegratedBrowser(
                 server_id: serverId,
                 window_id: windowId,
                 token,
+                viewer_query: viewerQuery,
+                tab_key: tabKey,
+                navigation_key: navigationKey,
+                navigation_attempt: navigationAttempt,
             },
-            Math.max(1, Math.min(1500, viewerDeadline - Date.now()))
+            Math.max(1, Math.min(1500, attemptDeadline - Date.now()))
         );
         if (
             !prepared
@@ -2532,24 +2345,39 @@ async function openInIntegratedBrowser(
             || prepared.server_id !== serverId
             || prepared.window_id !== windowId
             || prepared.token !== token
+            || prepared.tab_key !== tabKey
+            || prepared.navigation_key !== navigationKey
+            || prepared.navigation_attempt !== navigationAttempt
         ) {
             throw new Error('Unable to prepare correlated viewer readiness journal');
         }
-        const commandPromise = vscode.commands.executeCommand('workbench.action.browser.open', {
-            url: launchUrl,
-            // Each invocation gets a new browser tab in the preferred group.
-            // openToSide=true creates and locks a new editor group per launch,
-            // eventually leaving VS Code unable to load another browser page.
-            openToSide: false,
-            // Retry/replay of this exact request reuses its one tab, while every
-            // distinct ArrayView invocation opens a fresh browser tab.
-            reuseUrlFilter,
-        });
+        const launchUrl = _integratedBrowserLaunchUrl(
+            browserUrl,
+            tabKey,
+            navigationKey
+        );
+        if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
+        const commandPromise = _runIntegratedBrowserCommand(
+            () => _withTimeout(
+                vscode.commands.executeCommand('workbench.action.browser.open', {
+                    url: launchUrl,
+                    // Each invocation gets a new browser tab in the preferred group.
+                    // openToSide=true creates and locks a new editor group per launch,
+                    // eventually leaving VS Code unable to load another browser page.
+                    openToSide: false,
+                    // Retry/replay of this exact request reuses its one tab, while every
+                    // distinct ArrayView invocation opens a fresh browser tab.
+                    reuseUrlFilter,
+                }),
+                3000,
+                'integrated browser open'
+            )
+        );
         if (navigationAttempt > 0 && deadline !== null) {
             try {
                 await _withTimeout(
                     commandPromise,
-                    Math.max(1, Math.min(3000, deadline - Date.now())),
+                    Math.max(1, Math.min(3000, attemptDeadline - Date.now())),
                     'integrated browser pre-script navigation'
                 );
             } catch (error) {
@@ -2586,29 +2414,96 @@ async function openInIntegratedBrowser(
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
             async (navigationAttempt, deadline) => {
-                const remaining = deadline - Date.now();
-                if (remaining <= 0) return null;
-                if (navigationAttempt === 1) {
-                    log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
-                    return prepareNavigation(navigationAttempt, deadline);
-                }
-                log(`PANEL: hard-reloading exact request tab after pre-script stall`);
-                await _withTimeout(
-                    vscode.commands.executeCommand('workbench.action.browser.open', {
-                        reuseUrlFilter,
-                    }),
-                    Math.max(1, Math.min(3000, remaining)),
-                    'integrated browser exact-tab reveal'
-                );
-                ensureActive();
-                await _withTimeout(
-                    vscode.commands.executeCommand('workbench.action.browser.hardReload'),
-                    Math.max(1, Math.min(3000, deadline - Date.now())),
-                    'integrated browser hard reload'
-                );
-                return null;
+                if (deadline - Date.now() <= 0) return null;
+                log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
+                return prepareNavigation(navigationAttempt, deadline);
             },
             preScriptTimeoutMs
+        ),
+    };
+}
+
+async function openInExternalBrowser(
+    backendUrl,
+    requestId,
+    serverId,
+    windowId,
+    viewerTimeoutMs,
+    ensureActive = () => {}
+) {
+    const viewerDeadline = Date.now() + viewerTimeoutMs;
+    const sid = collectReleaseSidsFromUrl(backendUrl)[0] || null;
+    if (!sid || !requestId || !serverId || !windowId) {
+        throw new Error('External browser launch is missing correlated viewer identity');
+    }
+    const pingUrl = pingUrlFromViewerUrl(backendUrl);
+    const status = pingUrl ? await httpJson(pingUrl, 750) : null;
+    if (
+        !status
+        || status.service !== 'arrayview'
+        || status.instance_id !== serverId
+    ) {
+        throw new Error('Unable to verify the backend before opening the external browser');
+    }
+
+    const token = crypto.randomBytes(16).toString('hex');
+    const launchUrl = _correlatedBrowserLaunchUrl(
+        backendUrl,
+        requestId,
+        serverId,
+        windowId,
+        token
+    );
+    if (!launchUrl) throw new Error('Unable to build external browser launch URL');
+    const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
+    const prepared = await httpPostJson(
+        journalUrl,
+        {
+            phase: 'launch-prepared',
+            server_id: serverId,
+            window_id: windowId,
+            token,
+        },
+        Math.max(1, Math.min(1500, viewerDeadline - Date.now()))
+    );
+    if (
+        !prepared
+        || prepared.request_id !== requestId
+        || prepared.server_id !== serverId
+        || prepared.window_id !== windowId
+        || prepared.token !== token
+    ) {
+        throw new Error('Unable to prepare correlated external-browser readiness journal');
+    }
+
+    ensureActive();
+    // openExternal is the supported remote-extension path for a top-level
+    // system browser. VS Code forwards remote localhost privately and the
+    // top-level browser can complete tunnel authentication; no public-port
+    // promotion or embedded iframe is involved.
+    let opened;
+    try {
+        opened = await vscode.env.openExternal(vscode.Uri.parse(launchUrl));
+    } catch (error) {
+        releaseUrlSession(backendUrl, backendUrl, serverId);
+        throw error;
+    }
+    if (opened === false) {
+        releaseUrlSession(backendUrl, backendUrl, serverId);
+        throw new Error('VS Code declined to open the external browser');
+    }
+    log(`PANEL: external browser opened ${backendUrl}`);
+    return {
+        viewerReady: waitForBackendViewerReady(
+            backendUrl,
+            sid,
+            requestId,
+            serverId,
+            windowId,
+            token,
+            Math.max(1, viewerDeadline - Date.now()),
+            ensureActive,
+            null
         ),
     };
 }
@@ -2635,18 +2530,14 @@ async function reserveDirectIntegratedBrowser(backendUrl, expectedServerId = nul
         .getConfiguration('workbench.browser')
         .get('enableRemoteProxy', false);
     if (!remoteProxyEnabled) {
-        log('PANEL: integrated browser direct proxy disabled; retaining webview');
-        return false;
-    }
-    if (_integratedBrowserState === 'pending') {
-        log('PANEL: integrated browser launch pending; retaining concurrent webview');
+        log('PANEL: integrated browser direct proxy disabled');
         return false;
     }
     if (
         typeof expectedServerId !== 'string'
         || expectedServerId.length === 0
     ) {
-        log('PANEL: direct-browser request has no backend identity; retaining webview');
+        log('PANEL: direct-browser request has no backend identity');
         return false;
     }
     const pingUrl = pingUrlFromViewerUrl(backendUrl);
@@ -2656,28 +2547,11 @@ async function reserveDirectIntegratedBrowser(backendUrl, expectedServerId = nul
         || status.service !== 'arrayview'
         || status.instance_id !== expectedServerId
     ) {
-        log('PANEL: unable to verify direct-browser ownership; retaining webview');
-        return false;
-    }
-    const activeViewerValue = (
-        status.active_viewer_sockets ?? status.viewer_sockets
-    );
-    const activeViewers = Number(activeViewerValue);
-    if (
-        activeViewerValue === undefined
-        || !Number.isFinite(activeViewers)
-        || activeViewers < 0
-    ) {
-        log('PANEL: backend did not report a valid viewer count; retaining webview');
-        return false;
-    }
-    if (activeViewers > 0) {
-        _integratedBrowserState = 'active';
-        log(`PANEL: ${activeViewers} viewer socket(s) active; retaining concurrent webview`);
+        log('PANEL: unable to verify direct-browser ownership');
         return false;
     }
     if (!await integratedBrowserCommandAvailable()) {
-        log('PANEL: integrated browser unavailable; retaining webview');
+        log('PANEL: integrated browser unavailable');
         return false;
     }
     return true;
@@ -2835,240 +2709,35 @@ async function openInWebviewPanel(
     return viewerReady;
 }
 
-/**
- * Ensure a forwarded port has public visibility so the devtunnel URL is
- * accessible from the VS Code client.  VS Code auto-forwards ports as
- * private by default; the devtunnel URL only works if the port is public.
- *
- * VS Code's remote.portsAttributes schema does not support privacy, so do
- * not persist a no-op entry for every dynamically selected ArrayView port.
- * Change the live forward through `remote.tunnel.privacypublic`.  This
- * closes the existing private tunnel and re-forwards with public visibility.
- * The command is registered lazily by the Ports view when the provider
- * supports privacy changes (devtunnels do).
- */
-async function ensurePortPublic(
-    port,
-    externalBase,
-    expectedServerId = null,
-    ensureActive = () => {}
-) {
-    ensureActive();
-    const hasExternalRoute = !isLoopbackUrl(externalBase);
-    const publicPingUrl = `${externalBase}/ping`;
-    if (hasExternalRoute && await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
-        _rememberTunnelBase(port, externalBase);
-        log(`PORT: verified public route for ${externalBase}`);
-        return true;
-    }
-    _publicTunnelUrls.delete(port);
-
-    // Change privacy of the already-forwarded port.
-    // The privacy command (remote.tunnel.privacypublic) is lazily
-    // registered by VS Code's Forwarded Ports view.  In a pure tunnel
-    // session (no Remote-SSH), it may not be loaded yet.  Try focusing
-    // the forwarded ports view first to trigger lazy loading, then retry.
-    const tunnelItem = _tunnelItem(port);
-
-    let privacyDone = false;
-    let promotedExternalBase = null;
-    try {
-        ensureActive();
-        const result = await _boundedCommand(
-            'remote.tunnel.privacypublic', [tunnelItem]
-        );
-        if (result && typeof result === 'object') {
-            log(`PORT: privacy result ${JSON.stringify({
-                remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
-                remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
-                localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
-                privacy: result.privacy ?? null,
-                protocol: result.protocol ?? null,
-            })}`);
-            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
-        } else {
-            const detail = typeof result === 'string'
-                ? JSON.stringify(result.slice(0, 500))
-                : (result === null ? 'null' : typeof result);
-            log(`PORT: privacy command returned ${detail}`);
-            _lastForwardingDiagnostic =
-                _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
-            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
-        }
-        if (promotedExternalBase) {
-            privacyDone = true;
-            log(`PORT: changed privacy to public via command`);
-            log(`PORT: privacy command returned ${promotedExternalBase}`);
-        }
-    } catch (e) {
-        log(`PORT: privacy command failed: ${e.message || e}`);
-    }
-    ensureActive();
-
-    if (!privacyDone) {
-        // Retry: force-load forwarded ports view, then retry the command
-        log(`PORT: privacy not found — loading forwarded ports view...`);
-        try {
-            ensureActive();
-            await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
-            await new Promise(r => setTimeout(r, 500));
-        } catch (_) {}
-        ensureActive();
-
-        // Check if the command is now registered
-        const cmds = await _withTimeout(
-            vscode.commands.getCommands(true),
-            3000,
-            'get tunnel commands'
-        );
-        if (cmds.includes('remote.tunnel.privacypublic')) {
-            try {
-                ensureActive();
-                log(`PORT: privacy command found after view load — retrying`);
-
-                // Do not call asExternalUri again here.  It starts another
-                // forward for the same port; VS Code suppresses the privacy
-                // action's replacement forward while that factory operation
-                // is still in progress, making the command resolve undefined.
-                const result = await _boundedCommand(
-                    'remote.tunnel.privacypublic', [tunnelItem]
-                );
-                if (result && typeof result === 'object') {
-                    log(`PORT: privacy retry result ${JSON.stringify({
-                        remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
-                        remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
-                        localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
-                        privacy: result.privacy ?? null,
-                        protocol: result.protocol ?? null,
-                    })}`);
-                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
-                } else {
-                    const detail = typeof result === 'string'
-                        ? JSON.stringify(result.slice(0, 500))
-                        : (result === null ? 'null' : typeof result);
-                    log(`PORT: privacy retry returned ${detail}`);
-                    _lastForwardingDiagnostic =
-                        _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
-                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
-                }
-                if (promotedExternalBase) {
-                    privacyDone = true;
-                    log(`PORT: changed privacy to public via command (retry)`);
-                    log(`PORT: privacy command returned ${promotedExternalBase}`);
-                }
-            } catch (e2) {
-                log(`PORT: privacy retry failed: ${e2.message || e2}`);
-            }
-        } else {
-            log(`PORT: privacypublic still not available after view load`);
-        }
-        ensureActive();
-    }
-    if (!privacyDone) return false;
-
-    if (promotedExternalBase) {
-        const promotedPingUrl = `${promotedExternalBase}/ping`;
-        const deadline = Date.now() + 20000;
-        while (Date.now() < deadline) {
-            ensureActive();
-            if (await arrayViewStatusOk(promotedPingUrl, expectedServerId)) {
-                _rememberTunnelBase(port, promotedExternalBase);
-                log(`PORT: public route ready for ${promotedExternalBase}`);
-                return promotedExternalBase;
-            }
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        log(`PORT: returned public route did not become ready for ${promotedExternalBase}`);
-        return false;
-    }
-
-    // A tunnel resolver can return localhost until the forward has been
-    // promoted.  In that case the local /ping says nothing about client
-    // reachability: promotion succeeded, but the caller must resolve again to
-    // obtain and verify the new non-loopback route.
-    if (!hasExternalRoute) {
-        log(`PORT: promoted localhost:${port}; waiting for external URI retry`);
-        return true;
-    }
-
-    const deadline = Date.now() + 20000;
-    while (Date.now() < deadline) {
-        ensureActive();
-        if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
-            _rememberTunnelBase(port, externalBase);
-            log(`PORT: public route ready for ${externalBase}`);
-            return true;
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    log(`PORT: public route did not become ready for ${externalBase}`);
-    return false;
-}
-
 async function resolveRemoteViewerUrl(
     url,
     expectedServerId = null,
     ensureActive = () => {}
 ) {
     ensureActive();
-    _lastForwardingDiagnostic = null;
-    let port = 8000;
-    try { port = parseInt(new URL(url).port, 10) || 8000; } catch (_) {}
-    let origQuery = '';
-    try { origQuery = new URL(url).search; } catch (_) {}
-    // Ask loopback who owns the port before touching any remote machinery.
-    // The extension host and the backend share a machine even in a tunnel
-    // window, so this answers in single-digit milliseconds, whereas a stale
-    // request otherwise stays undetected until the entire asExternalUri
-    // backoff has expired — roughly 90s of dead waiting that ends in failure
-    // anyway, during which the signal queue lock starves newer live requests.
-    // Only LOCAL_FOREIGN is actionable: it proves a different backend now owns
-    // the port, so no cached route, external URI or privacy promotion could
-    // ever reach the requested session.
-    if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
-        log(`REMOTE: localhost:${port} is owned by a different backend; `
-            + `abandoning stale request for ${expectedServerId}`);
+    if (vscode.env.remoteName === 'tunnel') {
+        log('REMOTE: public tunnel URL resolution is disabled');
         return null;
     }
-    // No shortcut for `workbench.browser.enableRemoteProxy` here. That setting
-    // proxies VS Code's own integrated browser through the remote, and the
-    // viewer stopped using the integrated browser when tunnel delivery moved to
-    // webview panels. A webview panel's iframe runs on the desktop, so a
-    // loopback backend URL resolves against the desktop's own port and reaches
-    // nothing. Reachability must be established the same way for every tunnel
-    // viewer: a cached route, otherwise an external URI promotion.
-    const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
-    // Shared across every cache consultation in this request; see
-    // _usableCachedTunnelBase.
-    const deadBases = new Set();
-    const cachedBase = vscode.env.remoteName === 'tunnel'
-        ? await _usableCachedTunnelBase(
-            port, expectedServerId, ensureActive, deadBases
-        )
-        : null;
-    if (cachedBase) {
-        return cachedBase + '/' + origQuery;
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (_) {
+        return null;
     }
-    let tunnelPromotionAttempted = false;
-    const attempts = EXTERNAL_URI_ATTEMPTS;
-    for (let i = 0; i < attempts.length; i++) {
+    const port = parseInt(parsed.port, 10) || 8000;
+    if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
+        log(`REMOTE: localhost:${port} is owned by a different backend`);
+        return null;
+    }
+    const baseUri = vscode.Uri.parse(`${parsed.protocol}//${parsed.hostname}:${port}/`);
+    for (let i = 0; i < EXTERNAL_URI_ATTEMPTS.length; i++) {
         ensureActive();
-        const attempt = attempts[i];
+        const attempt = EXTERNAL_URI_ATTEMPTS[i];
         if (attempt.pauseMs) {
             await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
         }
-        // Re-check ownership between attempts. A backend that was merely slow
-        // to bind when we started can exit and be replaced part-way through
-        // this chain; without this the remaining attempts run to exhaustion on
-        // a session that already cannot be served.
-        if (await localBackendIdentity(port, expectedServerId) === LOCAL_FOREIGN) {
-            log(`REMOTE: localhost:${port} changed owner during retry; `
-                + `abandoning stale request for ${expectedServerId}`);
-            return null;
-        }
         try {
-            ensureActive();
-            log(`REMOTE: asExternalUri(http://localhost:${port}/) attempt=${i + 1}`);
             const externalUri = await _withTimeout(
                 _asExternalUriAttempt(baseUri),
                 attempt.timeoutMs,
@@ -3076,89 +2745,11 @@ async function resolveRemoteViewerUrl(
             );
             ensureActive();
             const externalBase = externalUri.toString().replace(/\/$/, '');
-            log(`REMOTE: → ${externalBase}`);
-
-            if (vscode.env.remoteName === 'tunnel' && isLoopbackUrl(externalBase)) {
-                // A loopback answer is not usable by a webview panel: its
-                // iframe runs on the desktop. Always promote instead of
-                // accepting it, whatever the integrated browser is configured
-                // to do.
-                if (!tunnelPromotionAttempted) {
-                    tunnelPromotionAttempted = true;
-                    // Let auto-forwarders in all connected windows finish
-                    // materializing their default/private route.  Privacy
-                    // promotion must be the final forwarding operation.
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    const promoted = await ensurePortPublic(
-                        port, externalBase, expectedServerId, ensureActive
-                    );
-                    if (typeof promoted === 'string') {
-                        ensureActive();
-                        const finalUrl = promoted + '/' + origQuery;
-                        log(`REMOTE: promotion returned final URL = ${finalUrl}`);
-                        return finalUrl;
-                    } else if (promoted) {
-                        log(`REMOTE: tunnel route promoted without a returned public URL`);
-                    } else {
-                        log(`REMOTE: tunnel promotion did not return a verified public URL`);
-                    }
-                    // Promotion may activate a provider route without exposing
-                    // its address through the command API.  Re-check routes
-                    // learned by prior incarnations of this window, accepting
-                    // one only when /ping identifies this exact backend.
-                    const recoveredBase = await _usableCachedTunnelBase(
-                        port, expectedServerId, ensureActive, deadBases
-                    );
-                    if (recoveredBase) {
-                        const finalUrl = recoveredBase + '/' + origQuery;
-                        log(`REMOTE: recovered verified cached URL = ${finalUrl}`);
-                        return finalUrl;
-                    }
-                    // Never call asExternalUri after the final privacy action:
-                    // that recreates the route as private.  A failed verified
-                    // promotion is terminal for this request.
-                    return null;
-                } else {
-                    log(`REMOTE: tunnel route still loopback after promotion; waiting before retry`);
-                }
-                continue;
-            }
-
-            if (vscode.env.remoteName === 'tunnel') {
-                const publicReady = await ensurePortPublic(
-                    port, externalBase, expectedServerId, ensureActive
-                );
-                if (!publicReady) {
-                    throw new Error('public tunnel route is not ready');
-                }
-                _rememberTunnelBase(port, externalBase);
-            }
-
-            const finalUrl = externalBase + '/' + origQuery;
-            log(`REMOTE: final URL = ${finalUrl}`);
+            const finalUrl = externalBase + '/' + parsed.search;
+            log(`REMOTE: final Remote SSH URL = ${finalUrl}`);
             return finalUrl;
-        } catch (err) {
-            log(`REMOTE: asExternalUri attempt ${i + 1} failed: ${err.message}`);
-        }
-    }
-
-    // Last resort: asExternalUri never produced a usable answer. In a wedged
-    // tunnel window every attempt times out without ever returning, so the
-    // loopback branch above — and the cache recovery inside it — is never
-    // reached, and a route this window already verified would go unused while
-    // the request fails. Re-probe it before giving up. No asExternalUri call
-    // happens here, so this cannot re-create the forward as private.
-    if (vscode.env.remoteName === 'tunnel') {
-        if (tunnelPromotionAttempted) {
-            log(`REMOTE: tunnel route did not converge within bounded retry window`);
-        }
-        const lastResortBase = await _usableCachedTunnelBase(
-            port, expectedServerId, ensureActive, deadBases
-        );
-        if (lastResortBase) {
-            const finalUrl = lastResortBase + '/' + origQuery;
-            log(`REMOTE: recovered verified cached URL after resolver failure = ${finalUrl}`);
-            return finalUrl;
+        } catch (error) {
+            log(`REMOTE: asExternalUri attempt ${i + 1} failed: ${error.message}`);
         }
     }
     return null;
@@ -3293,31 +2884,48 @@ async function _processSignalDataBody(
         vscode.env.remoteName === 'tunnel'
         && vscode.env.appHost === 'desktop'
     );
+    const displaySurface = data.displaySurface || (
+        vscode.env.remoteName === 'tunnel' ? 'integrated-browser' : null
+    );
     let useIntegratedBrowser = false;
-    if (desktopTunnel) {
+    const useExternalBrowser = displaySurface === 'external-browser';
+    if (desktopTunnel && !useExternalBrowser) {
         useIntegratedBrowser = await reserveDirectIntegratedBrowser(
             url,
             data.serverId || null
         );
         if (useIntegratedBrowser) {
             log('REMOTE: desktop integrated-browser proxy uses backend URL directly');
+        } else {
+            const reason = 'Private integrated-browser routing is unavailable; '
+                + 'enable workbench.browser.enableRemoteProxy and retry';
+            log(`REMOTE: ${reason}`);
+            writeProtocolAck(data, 'failed', reason);
+            if (!_reportFailureToPlaceholder(data, reason)) {
+                try { vscode.window.showErrorMessage(`ArrayView: ${reason}`); } catch (_) {}
+            }
+            return;
         }
     }
-    if (vscode.env.remoteName && !useIntegratedBrowser) {
-        // Remote / tunnel: asExternalUri forwards the port and returns the
-        // devtunnel URL (e.g. https://HOST-8000.euw.devtunnels.ms/).
-        // VS Code strips query strings during this conversion, so we extract
-        // ?sid=... from the original URL and re-append it manually.
-        //
-        // The forward is created as Private by default.  A Private devtunnel
-        // redirects to Microsoft/GitHub auth, which the Simple Browser iframe
-        // cannot complete (CSP frame-ancestors:none) — producing a blank
-        // tab.  We flip the forward to Public after asExternalUri creates it.
-        //
-        // Timing: remote.tunnel.privacypublic only works after the forward
-        // exists. Resolve a real external URI before opening the panel; a
-        // localhost fallback inside a tunnel webview points at the wrong side
-        // of the connection and renders as a blank tab.
+    if (
+        vscode.env.remoteName === 'tunnel'
+        && !desktopTunnel
+        && !useExternalBrowser
+    ) {
+        const reason = 'Private integrated-browser routing is unavailable in browser-hosted VS Code; '
+            + 'retry with --window browser';
+        log(`REMOTE: ${reason}`);
+        writeProtocolAck(data, 'failed', reason);
+        if (!_reportFailureToPlaceholder(data, reason)) {
+            try { vscode.window.showErrorMessage(`ArrayView: ${reason}`); } catch (_) {}
+        }
+        return;
+    }
+    if (vscode.env.remoteName && !useIntegratedBrowser && !useExternalBrowser) {
+        // Preserve the existing Remote SSH webview route. Tunnel requests have
+        // already selected a private browser surface or failed closed above,
+        // so they can never reach the public-port resolver from signal
+        // processing.
         const remoteUrl = await resolveRemoteViewerUrl(
             url,
             data.serverId || null,
@@ -3326,8 +2934,7 @@ async function _processSignalDataBody(
         ensureActive();
         if (!remoteUrl) {
             log('REMOTE: failed to resolve external URI; leaving signal retry to reopen later');
-            const reason = _lastForwardingDiagnostic
-                || 'Failed to resolve remote viewer URL';
+            const reason = 'Failed to resolve remote viewer URL';
             writeProtocolAck(data, 'failed', reason);
             if (!_reportFailureToPlaceholder(data, reason)) {
                 try { vscode.window.showErrorMessage(`ArrayView: ${reason}`); } catch (_) {}
@@ -3375,13 +2982,14 @@ async function _processSignalDataBody(
     let handedOff = false;
     let viewerReady;
     let integratedBrowserOpened = false;
+    let externalBrowserOpened = false;
     let integratedBrowserPlaceholder = null;
     // Set when this request has reached a terminal state, so a panel disposal
     // arriving while the request is still running does not release the session
     // out from under it. See the handoff disposal handler below.
     const requestSettled = { done: false };
     let handoffPanelDisposed = false;
-    if (useIntegratedBrowser) {
+    if (useIntegratedBrowser || useExternalBrowser) {
         for (const [filePath, placeholder] of _pendingPlaceholders) {
             const exactHandoff = data.handoffPath
                 && path.resolve(data.handoffPath) === placeholder.filePath;
@@ -3394,7 +3002,9 @@ async function _processSignalDataBody(
             }
         }
     }
-    for (const [filePath, placeholder] of useIntegratedBrowser ? [] : _pendingPlaceholders) {
+    for (const [filePath, placeholder] of (
+        useIntegratedBrowser || useExternalBrowser ? [] : _pendingPlaceholders
+    )) {
         const exactHandoff = data.handoffPath
             && path.resolve(data.handoffPath) === placeholder.filePath;
         const legacyTitleMatch = !data.handoffPath
@@ -3457,22 +3067,15 @@ async function _processSignalDataBody(
         ensureActive();
         if (useIntegratedBrowser) {
             log(`openInIntegratedBrowser(${openUrl})`);
-            _integratedBrowserState = 'pending';
-            let opened;
-            try {
-                opened = await openInIntegratedBrowser(
-                    openUrl,
-                    data.url,
-                    requestId,
-                    data.serverId || null,
-                    data.windowId || logWindowId,
-                    viewerTimeoutMs,
-                    ensureActive
-                );
-            } catch (error) {
-                _integratedBrowserState = 'idle';
-                throw error;
-            }
+            const opened = await openInIntegratedBrowser(
+                openUrl,
+                data.url,
+                requestId,
+                data.serverId || null,
+                data.windowId || logWindowId,
+                viewerTimeoutMs,
+                ensureActive
+            );
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
@@ -3486,6 +3089,31 @@ async function _processSignalDataBody(
                     log(`CUSTOM-EDITOR: closed placeholder after integrated-browser handoff for ${placeholder.basename}`);
                 } catch (error) {
                     log(`CUSTOM-EDITOR: placeholder already closed after integrated-browser handoff for ${placeholder.basename}: ${error.message}`);
+                }
+            }
+        } else if (useExternalBrowser) {
+            log(`openInExternalBrowser(${data.url})`);
+            const opened = await openInExternalBrowser(
+                data.url,
+                requestId,
+                data.serverId || null,
+                data.windowId || logWindowId,
+                viewerTimeoutMs,
+                ensureActive
+            );
+            viewerReady = opened.viewerReady;
+            externalBrowserOpened = true;
+            log('openInExternalBrowser done');
+            if (integratedBrowserPlaceholder) {
+                const { filePath, placeholder } = integratedBrowserPlaceholder;
+                if (_pendingPlaceholders.get(filePath) === placeholder) {
+                    _pendingPlaceholders.delete(filePath);
+                }
+                try {
+                    placeholder.panel.dispose();
+                    log(`CUSTOM-EDITOR: closed placeholder after external-browser handoff for ${placeholder.basename}`);
+                } catch (error) {
+                    log(`CUSTOM-EDITOR: placeholder already closed after external-browser handoff for ${placeholder.basename}: ${error.message}`);
                 }
             }
         } else {
@@ -3508,18 +3136,17 @@ async function _processSignalDataBody(
             // exact request loses its claim before panel_opened is persisted,
             // do not leave the process-wide reservation stuck at `pending`
             // and do not leave an unowned backend session behind.
-            if (integratedBrowserOpened) {
-                _integratedBrowserState = 'idle';
+            if (integratedBrowserOpened || externalBrowserOpened) {
                 releaseUrlSession(openUrl, data.url, data.serverId || null);
             }
             throw error;
         }
     }
 
-    // Everything above claimed shared state: the route cache, a pending
-    // placeholder, an entry in _openPanels. Everything below is this request
-    // waiting on its own backend and its own panel. Hand the queue on here so
-    // the next click gets a panel while this array is still loading.
+    // Everything above claimed shared state: a pending placeholder, an entry
+    // in _openPanels, or a browser-command slot. Everything below is this
+    // request waiting on its own backend and display. Hand the queue on here so
+    // the next launch proceeds while this array is still loading.
     releaseQueue('panel open; readiness continues off-queue');
 
     try {
@@ -3583,17 +3210,13 @@ async function _processSignalDataBody(
         const viewerError = await viewerReady;
         if (viewerError) throw viewerError;
         ensureActive();
-        if (integratedBrowserOpened) {
-            _integratedBrowserState = 'active';
-        }
         requestSettled.done = true;
         advanceAck('visibility_verified');
         advanceAck('backend_ready');
         return;
     } catch (error) {
         requestSettled.done = true;
-        if (integratedBrowserOpened) {
-            _integratedBrowserState = 'idle';
+        if (integratedBrowserOpened || externalBrowserOpened) {
             releaseUrlSession(openUrl, data.url, data.serverId || null);
         } else if (handedOff && handoffPanelDisposed) {
             // The disposal handler deferred this so it would not race the
@@ -3903,7 +3526,6 @@ module.exports = {
         LOCAL_MINE,
         LOCAL_FOREIGN,
         LOCAL_UNKNOWN,
-        _usableCachedTunnelBase,
         _setRetryTiming,
         resolveRemoteViewerUrl,
         claimProtocolRequest,
@@ -3926,15 +3548,14 @@ module.exports = {
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
         _viewerPanelHtml,
-        _publicBaseFromTunnelResult,
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,
         reserveDirectIntegratedBrowser,
-        integratedBrowserState: () => _integratedBrowserState,
-        setIntegratedBrowserState(state) { _integratedBrowserState = state; },
+        _runIntegratedBrowserCommand,
         waitForBackendViewerReady,
         waitForViewerReady,
         openInIntegratedBrowser,
+        openInExternalBrowser,
         openInWebviewPanel,
         _openPanels,
         extensionInstanceId: EXTENSION_INSTANCE_ID,

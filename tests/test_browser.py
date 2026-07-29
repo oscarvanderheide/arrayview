@@ -33,6 +33,47 @@ def test_perf_mode_collects_render_samples(page, server_url, sid_3d):
     assert perf["sample"]["client_total_ms"] is None or perf["sample"]["client_total_ms"] >= 0
 
 
+def test_integrated_browser_short_route_survives_refresh(
+    page, client, server_url, sid_3d
+):
+    request_id = "0123456789abcdef0123456789abcdef"
+    tab_key = "tabkey0123456789"
+    navigation_key = "navkey0123456789"
+    token = "abcdef0123456789abcdef0123456789"
+    server_id = client.get("/ping").json()["instance_id"]
+    prepared = client.post(
+        f"/viewer-phase/{sid_3d}/{request_id}",
+        json={
+            "phase": "launch-prepared",
+            "server_id": server_id,
+            "window_id": "window-one",
+            "token": token,
+            "viewer_query": f"?sid={sid_3d}",
+            "tab_key": tab_key,
+            "navigation_key": navigation_key,
+            "navigation_attempt": 0,
+        },
+    )
+    assert prepared.status_code == 200
+    short_url = f"{server_url}/_av/{tab_key}/{navigation_key}"
+
+    page.goto(short_url)
+    page.wait_for_function(
+        "() => window.currentSid && lastImageData !== null",
+        timeout=15_000,
+    )
+
+    assert page.url == short_url
+
+    page.reload()
+    page.wait_for_function(
+        "() => window.currentSid && lastImageData !== null",
+        timeout=15_000,
+    )
+    assert page.url == short_url
+    assert page.evaluate("() => window.currentSid") == sid_3d
+
+
 def test_patient_loading_overlay_waits_for_matching_frame(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     before = page.locator("#viewer").bounding_box()

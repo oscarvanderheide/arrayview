@@ -32,7 +32,7 @@ fs.mkdirSync(path.join(tempHome, '.arrayview'));
 let resolverCalls = 0;
 const vscodeMock = {
     env: {
-        remoteName: 'tunnel',
+        remoteName: 'ssh-remote',
         appHost: 'web',
         asExternalUri: async (uri) => {
             resolverCalls += 1;

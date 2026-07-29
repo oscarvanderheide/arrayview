@@ -55,7 +55,7 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.15.7"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.15.12"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
@@ -463,9 +463,8 @@ def _write_vscode_extension_hash(
 def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     """Verify or install the bundled opener for the current VS Code window.
 
-    The extension bridges local VS Code terminals to a webview panel tab
-    and, in remote/tunnel sessions, can actively invoke VS Code's forwarded-port
-    commands to promote the port to public preview.
+    The extension bridges local VS Code terminals to a viewer tab and remote
+    sessions to a private client-side display surface.
 
     Remote installs use the exact current server CLI and must observe activation
     in the exact current window before launch can continue. Tunnel and Remote-SSH
@@ -709,18 +708,25 @@ def _configure_vscode_port_preview(
     *,
     in_vscode: bool | None = None,
     is_remote: bool | None = None,
+    is_tunnel: bool | None = None,
 ) -> bool:
     """Write VS Code port settings for the arrayview server.
 
-    In VS Code remote/tunnel sessions this writes both Machine and User
-    settings files to maximize the chance VS Code honors them. Workspace-
-    level settings are unreliable for port privacy in tunnel sessions.
+    VS Code tunnels use the opener's private remote proxy and must not persist
+    port-forwarding settings. Remote SSH retains its existing Machine/User
+    settings behavior.
 
     In local VS Code terminals we keep the workspace-level attribute so
     auto-forward/silent remains configured when relevant.
 
     Returns True on success.
     """
+    legacy_arrayview_attributes = {
+        "protocol": "http",
+        "label": "ArrayView",
+        "onAutoForward": "silent",
+        "privacy": "public",
+    }
 
     def _strip_json_comments(raw: str) -> str:
         raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.DOTALL)
@@ -749,12 +755,7 @@ def _configure_vscode_port_preview(
         if settings is None:
             return
         attrs = settings.setdefault("remote.portsAttributes", {})
-        desired = {
-            "protocol": "http",
-            "label": "ArrayView",
-            "onAutoForward": "silent",
-            "privacy": "public",
-        }
+        desired = legacy_arrayview_attributes
         current = attrs.get(str(port))
         updated = {**current, **desired} if isinstance(current, dict) else desired
         stale = _stale_arrayview_port_keys(attrs, port)
@@ -774,15 +775,43 @@ def _configure_vscode_port_preview(
             in_vscode = _in_vscode_terminal()
         if is_remote is None:
             is_remote = _is_vscode_remote()
+        if is_tunnel is None:
+            from arrayview._platform import _in_vscode_tunnel
+
+            is_tunnel = _in_vscode_tunnel()
+
+        if is_tunnel:
+            home = os.path.expanduser("~")
+            for root in (
+                os.path.join(home, ".vscode"),
+                os.path.join(home, ".vscode", "cli"),
+                os.path.join(home, ".vscode-server"),
+            ):
+                for scope in ("Machine", "User"):
+                    settings_path = os.path.join(
+                        root, "data", scope, "settings.json"
+                    )
+                    settings = _load_settings(settings_path)
+                    if settings is None:
+                        continue
+                    attrs = settings.get("remote.portsAttributes")
+                    if not isinstance(attrs, dict):
+                        continue
+                    changed = False
+                    for key, value in tuple(attrs.items()):
+                        if value == legacy_arrayview_attributes:
+                            attrs.pop(key)
+                            changed = True
+                    if changed:
+                        with open(settings_path, "w") as f:
+                            json.dump(settings, f, indent=2)
+                            f.write("\n")
+            return True
 
         if is_remote:
             home = os.path.expanduser("~")
             targets: list[str] = []
-            # `code tunnel` keeps its data under ~/.vscode/data/ and its
-            # extensions under ~/.vscode/extensions/.  SSH-Remote uses
-            # ~/.vscode-server/data/.  The `code tunnel` CLI server is rooted
-            # at ~/.vscode/cli/.  Write Machine/User settings to all three so
-            # the port auto-forwards as public regardless of transport.
+            # Remote SSH installations can use either server data root.
             for root in (
                 os.path.join(home, ".vscode"),
                 os.path.join(home, ".vscode", "cli"),
@@ -794,8 +823,7 @@ def _configure_vscode_port_preview(
                     )
                     targets.append(os.path.join(root, "data", "User", "settings.json"))
             if not targets:
-                # Fallback: write to the most common paths even if root
-                # directories don't exist yet.
+                # Fallback: write to the common remote-server paths.
                 for root in (
                     os.path.join(home, ".vscode"),
                     os.path.join(home, ".vscode-server"),

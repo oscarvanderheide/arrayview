@@ -394,6 +394,7 @@ def _open_via_signal_file(
     window_id: str | None = None,
     is_remote: bool | None = None,
     max_age_ms: int | None = None,
+    display_surface: str | None = None,
 ) -> SignalRequest:
     """Write the URL to the versioned ArrayView opener signal file.
 
@@ -447,6 +448,8 @@ def _open_via_signal_file(
         payload["windowId"] = window_id
     if server_id:
         payload["serverId"] = server_id
+    if display_surface:
+        payload["displaySurface"] = display_surface
     if title:
         payload["title"] = title
     if handoff_path := os.environ.get("ARRAYVIEW_HANDOFF_PATH"):

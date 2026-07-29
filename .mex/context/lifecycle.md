@@ -59,11 +59,11 @@ This contract describes who owns the backend, when it starts, and what closes it
 ## Remote, Tunnel, And SSH
 
 - Remote or tunnel launches may persist when `--serve` or tunnel display ownership requires it, but persistence must remain bounded. Current defaults use a 210-second viewer-connect timeout and a 1,800-second idle timeout unless configured otherwise.
-- Desktop VS Code tunnel display uses the integrated browser. With VS Code's remote browser proxy enabled it opens the backend URL directly; otherwise it automatically promotes the tunnel port to public and requires a verified non-loopback `asExternalUri` URL. Other remote hosts retain the URL webview path.
+- VS Code tunnel display uses the integrated browser and opens the verified backend loopback URL through VS Code's private remote-browser proxy. Each request has an independent browser identity; active or pending viewers must not force a later request onto a public URL.
 - With multiple registered tunnel windows, a missing or stale `ARRAYVIEW_WINDOW_ID` recovers the exact live registration from the terminal IPC hook or the uniquely matching VS Code server root. If no exact registration can be recovered, delivery fails closed instead of broadcasting to a possibly wrong window.
 - An exact registered `ARRAYVIEW_WINDOW_ID` wins; do not redirect it to a newer same-parent registration because live tunnel windows can share ancestry.
 - Protocol request claims are atomic across extension hosts. Compatibility queue copies with the same request ID must never open in a sibling window or overwrite a terminal ACK.
-- A desktop tunnel may use a loopback backend URL only through VS Code's enabled integrated-browser remote proxy; otherwise desktop and web-hosted tunnels require a verified non-loopback public URL. Remote-SSH may legitimately resolve to a local forwarded URL and must not be subjected to tunnel-only public-port commands. First-frame proof from the correlated backend phase journal remains the acceptance gate.
+- A tunnel may use a loopback backend URL only through VS Code's enabled integrated-browser remote proxy. If that private route, the exact backend, or the exact target window cannot be verified, delivery fails closed; it never promotes or falls back to a public tunnel URL. Remote-SSH remains separate and may legitimately resolve to a local forwarded URL. First-frame proof from the correlated backend phase journal remains the acceptance gate.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
 
 ## Shared Rules
@@ -72,8 +72,6 @@ This contract describes who owns the backend, when it starts, and what closes it
 - `release_session()` is the session-release primitive.
 - Viewer WebSocket connect/disconnect owns active viewer counts.
 - URL panel disposal must release every SID encoded in the URL: `sid`, `compare_sid`, `compare_sids`, and `overlay_sid`.
-- Tunnel webview-panel disposal posts release requests to the local backend immediately;
-  the forwarded public URL is display-only and is not the cleanup authority.
 - The desktop-tunnel integrated browser has no stable tab-disposal handle. Its
   correlated viewer marks the SID for fenced WebSocket-disconnect release with
   a short reconnect grace period.

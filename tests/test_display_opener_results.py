@@ -240,6 +240,45 @@ def test_planned_remote_vscode_passes_frozen_placement_to_signal(monkeypatch):
         lambda: pytest.fail("planned route must not re-detect remote placement"),
     )
     monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: True)
+    configured = {}
+    monkeypatch.setattr(
+        browser,
+        "_configure_vscode_port_preview",
+        lambda port, **kwargs: configured.update(kwargs),
+    )
+    monkeypatch.setattr(browser, "_server_id_for_url", lambda url: "server-1")
+    captured = {}
+
+    def _signal(*args, **kwargs):
+        captured.update(kwargs)
+        return SignalRequest("request-1", "window-1", "server-1", Path("ack"), True)
+
+    monkeypatch.setattr(browser, "_open_via_signal_file", _signal)
+    monkeypatch.setattr(
+        browser,
+        "_wait_for_vscode_ack",
+        lambda request, timeout: SimpleNamespace(state=AckState.BACKEND_READY),
+    )
+
+    result = browser._open_browser(
+        "http://localhost:8123/",
+        blocking=True,
+        launch_context=context,
+    )
+
+    assert captured["is_remote"] is True
+    assert captured["display_surface"] == "integrated-browser"
+    assert configured["is_tunnel"] is True
+    assert result.state is browser.OpenState.READY
+
+
+def test_planned_remote_browser_signals_private_external_surface(monkeypatch):
+    context = _context(
+        requested_window="browser",
+        environment="vscode_remote",
+    )
+    assert context.plan.display.value == "browser"
+    monkeypatch.setattr(browser, "_ensure_vscode_extension", lambda **kwargs: True)
     monkeypatch.setattr(
         browser, "_configure_vscode_port_preview", lambda port, **kwargs: None
     )
@@ -263,7 +302,7 @@ def test_planned_remote_vscode_passes_frozen_placement_to_signal(monkeypatch):
         launch_context=context,
     )
 
-    assert captured["is_remote"] is True
+    assert captured["display_surface"] == "external-browser"
     assert result.state is browser.OpenState.READY
 
 

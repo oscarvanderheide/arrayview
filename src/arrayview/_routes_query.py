@@ -1,5 +1,7 @@
 import asyncio
 import io
+import re
+from urllib.parse import parse_qs
 
 import numpy as np
 from fastapi import Depends, HTTPException, Request, Response
@@ -73,6 +75,52 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         journals = _session_mod.VIEWER_PHASE_JOURNALS.setdefault(sid, {})
         if phase == "launch-prepared":
             previous_journal = journals.get(request_id)
+            viewer_query = body.get("viewer_query")
+            tab_key = body.get("tab_key")
+            navigation_key = body.get("navigation_key")
+            navigation_attempt = body.get("navigation_attempt")
+            short_route = any(
+                value is not None
+                for value in (
+                    viewer_query,
+                    tab_key,
+                    navigation_key,
+                    navigation_attempt,
+                )
+            )
+            if short_route:
+                if (
+                    not isinstance(viewer_query, str)
+                    or not viewer_query.startswith("?")
+                    or len(viewer_query) > 65536
+                ):
+                    raise HTTPException(status_code=400, detail="Invalid viewer query")
+                parsed_query = parse_qs(
+                    viewer_query.removeprefix("?"),
+                    keep_blank_values=True,
+                )
+                if parsed_query.get("sid") != [sid]:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Viewer primary session changed",
+                    )
+                if any(key.startswith("_av_") for key in parsed_query):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Reserved viewer query field",
+                    )
+                if (
+                    not isinstance(tab_key, str)
+                    or re.fullmatch(r"[A-Za-z0-9_-]{16,64}", tab_key) is None
+                    or not isinstance(navigation_key, str)
+                    or re.fullmatch(r"[A-Za-z0-9_-]{16,64}", navigation_key) is None
+                    or not isinstance(navigation_attempt, int)
+                    or not 0 <= navigation_attempt <= 32
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid short viewer route identity",
+                    )
             previous_release_task = (
                 previous_journal.get("release_task")
                 if previous_journal is not None
@@ -83,9 +131,23 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                 and not previous_release_task.done()
             ):
                 previous_release_task.cancel()
+            previous_navigation_key = (
+                previous_journal.get("navigation_key")
+                if previous_journal is not None
+                else None
+            )
+            if previous_navigation_key:
+                _session_mod.VIEWER_LAUNCH_ROUTES.pop(
+                    previous_navigation_key,
+                    None,
+                )
             journal = journals[request_id] = {
                 "token": token,
                 "window_id": window_id,
+                "viewer_query": viewer_query,
+                "tab_key": tab_key,
+                "navigation_key": navigation_key,
+                "navigation_attempt": navigation_attempt,
                 "viewer_instance_ids": [],
                 "phases": [],
                 "related_sids": None,
@@ -93,12 +155,20 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                 "release_task": None,
                 "disconnect_release_grace_seconds": 30.0,
             }
+            if navigation_key:
+                _session_mod.VIEWER_LAUNCH_ROUTES[navigation_key] = (
+                    sid,
+                    request_id,
+                )
             return {
                 "sid": sid,
                 "request_id": request_id,
                 "window_id": window_id,
                 "server_id": _session_mod.SERVER_RUNTIME.instance_id,
                 "token": token,
+                "tab_key": tab_key,
+                "navigation_key": navigation_key,
+                "navigation_attempt": navigation_attempt,
                 "phases": [],
                 "viewer_instance_ids": [],
                 "related_sids": [],
