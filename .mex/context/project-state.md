@@ -25,12 +25,23 @@ last_updated: 2026-07-28
   screen once input has gone quiet and nothing is covering the frame, so
   exploring after a step is never cut short and an echo can never play out
   behind the panel that step just opened.
-- The tour is divided into named sections (`moving`, `looking`, `views`,
-  `two arrays`, `marks`, `the rest`), each announced before it asks for
+- The tour is divided into 13 named sections, each announced before it asks for
   anything. A rail along the bottom is the one piece of tutorial furniture and
   the one thing clickable; `Tab`/`Shift+Tab` also switch. Every section declares
   the viewer state it needs and stages it on entry, so sections are real entry
   points and can be jumped to in any order.
+- Two sections run on their own sessions because they cannot share the main
+  one: a vector field disables statistical projections for whatever session it
+  is attached to, and a ragged collection is a single session built from
+  differently shaped files. `_configure_tutorial_args` generates them into a
+  *separate* temp directory — the main bundle is deleted by the spawned daemon
+  before the parent regains control — and `_register_tutorial_extras` registers
+  them best-effort and publishes their sids as `tutorial_flow_sid` /
+  `tutorial_stack_sid` on the viewer URL. Sections whose sid is absent are
+  dropped from the tour rather than offered and stalled on.
+- Switching sessions is a navigation (the viewer has no in-place primary-session
+  swap), so the tour stores the main session's query under
+  `arrayview:tutorial:home` and parks its step index before leaving.
 - Tutorial step key labels are literal keymap characters (`v` and `V` are
   different commands). `tests/test_tutorial_browser.py` cross-checks every step
   against `keybinds`; do not hand-edit a label without that check passing.

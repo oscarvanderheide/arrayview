@@ -115,8 +115,11 @@ panel opens over the array, the tutorial fades out and waits rather than talking
 underneath it.
 
 The tour is divided into sections — `moving`, `looking`, `shaping`, `closer`,
-`all at once`, `spectra`, `values`, `views`, `two arrays`, `marks`, `the rest` —
-listed along the bottom of the frame. Each announces
+`all at once`, `spectra`, `values`, `views`, `two arrays`, `marks`, `flow`,
+`a stack`, `the rest` — listed along the bottom of the frame. `flow` and
+`a stack` run on their own generated sessions (a deformation field, and a
+ragged collection of differently shaped volumes); entering them loads that
+session and leaving returns you to the main array. Each announces
 itself before it starts asking for anything. Click a section to jump to it, or
 use `Tab` and `Shift+Tab`. Jumping is safe in either direction: every section
 sets up the state it needs, so skipping ahead to `two arrays` loads the pair and

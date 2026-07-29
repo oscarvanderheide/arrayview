@@ -1813,6 +1813,9 @@ def _handle_cli_existing_server(
             expected_server_id=expected_server_id,
             native_request_id=native_request_id,
         )
+        # Inside this try on purpose: the generated bundle is removed in the
+        # finally below, and these sessions read from it.
+        _register_tutorial_extras(port, expected_server_id)
     except Exception as e:
         err = str(e)
         stale_stack_server = (
@@ -2200,6 +2203,9 @@ def _handle_cli_spawned_daemon(
             cleanup_tutorial_bundle(cleanup_dir)
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
+
+    # Before the bundle is cleaned up below: these sessions read from it.
+    _register_tutorial_extras(port, daemon_server_id)
 
     try:
         _open_cli_spawned_view(
@@ -2709,6 +2715,77 @@ _FAILED_LOAD_EXIT_GRACE_SECONDS = float(
 )
 
 
+# The tutorial's extra sessions. Two of its sections cannot share the main
+# session — a vector field disables statistical projections for whatever
+# session it is attached to, and a ragged collection is a single session made
+# of differently shaped files — so they are registered separately and the tour
+# navigates to them by sid. Set once per CLI invocation, read when the viewer
+# URL is built; empty for every launch that is not the tutorial, in which case
+# the tour simply does not offer those sections.
+_TUTORIAL_BUNDLE = None
+_TUTORIAL_EXTRAS: dict[str, str] = {}
+
+
+def _register_tutorial_extras(port: int, expected_server_id: str | None = None) -> None:
+    """Register the tutorial's vector-field and ragged-collection sessions.
+
+    Best effort: a failure here costs two sections, not the tour, so it is
+    traced and swallowed rather than allowed to fail a launch that has already
+    loaded the main array.
+
+    The collection loads eagerly on purpose. The generated bundle is deleted as
+    soon as registration returns, and a lazy collection would still be holding
+    paths into it.
+    """
+    bundle = _TUTORIAL_BUNDLE
+    if bundle is None:
+        return
+    try:
+        _register_tutorial_extras_impl(port, bundle, expected_server_id)
+    finally:
+        from arrayview._tutorial import cleanup_tutorial_bundle
+
+        cleanup_tutorial_bundle(bundle.extras_directory)
+
+
+def _register_tutorial_extras_impl(port, bundle, expected_server_id) -> None:
+    try:
+        flow = _load_session_from_filepath(
+            port,
+            bundle.flow_file,
+            "flow",
+            expected_server_id=expected_server_id,
+        )
+        flow_sid = flow.get("sid")
+        if flow_sid and "error" not in flow:
+            attached = _attach_vectorfield_to_session(
+                port,
+                str(flow_sid),
+                bundle.flow_field_file,
+                expected_server_id=expected_server_id,
+            )
+            if "error" not in attached:
+                _TUTORIAL_EXTRAS["flow"] = str(flow_sid)
+    except Exception as exc:  # pragma: no cover - best effort
+        _trace_launch_event("tutorial.extra_failed", extra="flow", error=str(exc))
+
+    try:
+        stack = _load_session_from_filepath(
+            port,
+            "",
+            "cases",
+            dir_patterns=[bundle.stack_pattern],
+            collection_stack="ragged",
+            collection_load="eager",
+            expected_server_id=expected_server_id,
+        )
+        stack_sid = stack.get("sid")
+        if stack_sid and "error" not in stack:
+            _TUTORIAL_EXTRAS["stack"] = str(stack_sid)
+    except Exception as exc:  # pragma: no cover - best effort
+        _trace_launch_event("tutorial.extra_failed", extra="stack", error=str(exc))
+
+
 def _join_query_values(values: _CSVValues) -> str:
     if isinstance(values, str):
         return values
@@ -2743,6 +2820,11 @@ def _viewer_query(
         parts.append(f"dim_y={dims[1]}")
     if inline:
         parts.append("inline=1")
+    if _TUTORIAL_EXTRAS:
+        # The tour needs these to survive the navigations it makes between
+        # its own sessions, so they ride in the URL rather than in memory.
+        for key, extra_sid in sorted(_TUTORIAL_EXTRAS.items()):
+            parts.append(f"tutorial_{key}_sid={extra_sid}")
     return "?" + "&".join(parts)
 
 
@@ -4935,6 +5017,8 @@ def _configure_tutorial_args(args):
     """Turn a file-less CLI request into the generated tutorial bundle."""
     from arrayview._tutorial import create_tutorial_bundle
 
+    global _TUTORIAL_BUNDLE
+
     tutorial = create_tutorial_bundle()
     args.files = [tutorial.base_file, tutorial.compare_file]
     args.overlay = [f"Regions={tutorial.overlay_file}"]
@@ -4942,6 +5026,8 @@ def _configure_tutorial_args(args):
     args._demo_cleanup = False
     args._tutorial_cleanup_dir = tutorial.directory
     args.rgb = False
+    _TUTORIAL_BUNDLE = tutorial
+    _TUTORIAL_EXTRAS.clear()
     return tutorial
 
 

@@ -15228,7 +15228,10 @@
                 if (loadNameEl) { loadNameEl.textContent = data.name; loadNameEl.classList.add('visible'); }
             }
             _isWelcomeScreen = data.name === 'welcome';
-            _isTutorialSession = data.name === 'tutorial';
+            // The tour spans several sessions, only one of which is called
+            // "tutorial", so the URL is what says a tour is running.
+            _isTutorialSession = data.name === 'tutorial'
+                || !!(_TUTORIAL_SIDS.flow || _TUTORIAL_SIDS.stack);
             if (_isWelcomeScreen) {
                 document.body.classList.add('welcome-mode');
             }
@@ -27732,6 +27735,39 @@
 
         // ── Learn by doing tutorial ─────────────────────────────────
         const _TUTORIAL_STORAGE_KEY = 'arrayview:tutorial:v3';
+        // Where to come back to. Two sections live on their own sessions and
+        // are reached by navigating, which is the only way this viewer
+        // changes which array is primary; the main session's query has to
+        // survive that round trip.
+        const _TUTORIAL_HOME_KEY = 'arrayview:tutorial:home';
+
+        const _tutorialUrlParams = new URLSearchParams(location.search);
+        const _TUTORIAL_SIDS = {
+            flow: _tutorialUrlParams.get('tutorial_flow_sid') || '',
+            stack: _tutorialUrlParams.get('tutorial_stack_sid') || '',
+        };
+
+        /** Which of the tour's sessions this tab is currently showing. */
+        function _tutorialSessionKind() {
+            const here = _tutorialUrlParams.get('sid') || '';
+            if (here && here === _TUTORIAL_SIDS.flow) return 'flow';
+            if (here && here === _TUTORIAL_SIDS.stack) return 'stack';
+            return 'main';
+        }
+
+        /** The query that shows one of the tour's sessions. */
+        function _tutorialSessionQuery(kind) {
+            if (kind === 'main') {
+                return sessionStorage.getItem(_TUTORIAL_HOME_KEY) || '';
+            }
+            const target = _TUTORIAL_SIDS[kind];
+            if (!target) return '';
+            const params = new URLSearchParams();
+            params.set('sid', target);
+            if (_TUTORIAL_SIDS.flow) params.set('tutorial_flow_sid', _TUTORIAL_SIDS.flow);
+            if (_TUTORIAL_SIDS.stack) params.set('tutorial_stack_sid', _TUTORIAL_SIDS.stack);
+            return `?${params.toString()}`;
+        }
         let _tutorialStarted = false;
         let _tutorialVisible = false;
         let _tutorialIndex = 0;
@@ -28032,6 +28068,43 @@
                 ],
             },
             {
+                id: 'flow', title: 'flow', stage: 'single', session: 'flow',
+                note: 'arrows that are data, not decoration',
+                steps: [
+                    {
+                        key: '}', whisper: 'press it a few times',
+                        echo: 'the arrows scale · they follow a displacement per voxel',
+                        expect: ['vfield.adjustLength'], count: 3,
+                    },
+                    {
+                        // Deliberately short. A live vector field counts as an
+                        // active tool, and ortho view refuses to open over one
+                        // (`_TOOL_ORTHO_ALLOWED`), so there is no third key
+                        // here that would actually do anything.
+                        key: '{', whisper: 'and back the other way',
+                        echo: 'length is yours to set · the direction is the data',
+                        expect: ['vfield.adjustLength'], count: 3,
+                    },
+                ],
+            },
+            {
+                id: 'stack', title: 'a stack', stage: 'single', session: 'stack',
+                note: 'many arrays that do not agree on their shape',
+                steps: [
+                    {
+                        key: 'l', whisper: 'find the dimension that is not space',
+                        echo: 'that one indexes whole arrays, not slices',
+                        expect: ['dim.next', 'dim.prev'],
+                        test: () => _isCollectionDim(activeDim),
+                    },
+                    {
+                        key: 'k', whisper: 'move along it',
+                        echo: 'each one keeps its own size — nothing was padded or resampled',
+                        expect: ['slice.next', 'slice.prev'], count: 2,
+                    },
+                ],
+            },
+            {
                 id: 'rest', title: 'the rest', stage: 'single',
                 note: 'far more than fits in one tour',
                 steps: [
@@ -28055,6 +28128,18 @@
          * read; index positions stay stable so a stored resume point and
          * `_tutorialGo(n)` keep meaning the same thing.
          */
+        /**
+         * Sections whose session was never registered are dropped rather
+         * than shown and stalled on. The vector-field and collection
+         * sessions are registered best-effort by the launcher, and a tour
+         * that offers a chapter it cannot open is worse than one that does
+         * not mention it.
+         */
+        for (let i = _TUTORIAL_SECTIONS.length - 1; i >= 0; i--) {
+            const needed = _TUTORIAL_SECTIONS[i].session;
+            if (needed && !_TUTORIAL_SIDS[needed]) _TUTORIAL_SECTIONS.splice(i, 1);
+        }
+
         const _TUTORIAL_STEPS = _TUTORIAL_SECTIONS.flatMap(
             (section, sectionIndex) => section.steps.map((step, stepIndex) => (
                 Object.assign({}, step, {
@@ -28093,6 +28178,11 @@
         function _tutorialMaybeStart() {
             if (!_isTutorialSession || _tutorialStarted || !_metadataProcessed) return;
             _tutorialStarted = true;
+            // Remember how to get back to the main session before any section
+            // navigates away from it.
+            if (_tutorialSessionKind() === 'main' && location.search) {
+                sessionStorage.setItem(_TUTORIAL_HOME_KEY, location.search);
+            }
             const stored = Number(sessionStorage.getItem(_TUTORIAL_STORAGE_KEY));
             const resume = Number.isInteger(stored)
                 ? Math.max(0, Math.min(_TUTORIAL_STEPS.length - 1, stored))
@@ -28329,6 +28419,22 @@
         async function _tutorialStage(sectionIndex) {
             const section = _TUTORIAL_SECTIONS[sectionIndex];
             if (!section) return;
+            // A section that lives on another session is reached by loading
+            // it. Park the tour at this section first so the reload comes
+            // back in exactly here rather than at the top.
+            const wanted = section.session || 'main';
+            if (wanted !== _tutorialSessionKind()) {
+                const query = _tutorialSessionQuery(wanted);
+                if (query) {
+                    sessionStorage.setItem(
+                        _TUTORIAL_STORAGE_KEY,
+                        String(_TUTORIAL_SECTION_START[sectionIndex])
+                    );
+                    location.href = query;
+                    // Nothing after this matters; the page is going away.
+                    await new Promise(() => {});
+                }
+            }
             if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
             if (multiViewActive) exitMultiView();
             if (isPlaying) togglePlay();
@@ -28505,10 +28611,14 @@
             if (!_tutorialVisible) return;
             _tutorialLastInput = performance.now();
             // Esc wakes you up. Nothing else here is dismissible, because
-            // there is nothing to dismiss — but when a panel is open, Esc
-            // belongs to that panel. Closing the thing a step just opened
-            // must not also end the tour.
-            if (event.key === 'Escape' && !_tutorialPanelOpen()) {
+            // there is nothing to dismiss — but when a panel is open or a
+            // tool is running, Esc belongs to that. Leaving the ROI tool or
+            // the vector field a step just turned on must not also end the
+            // tour.
+            const toolRunning = (() => {
+                try { return !!makeContext(null).anyToolActive; } catch (_) { return false; }
+            })();
+            if (event.key === 'Escape' && !_tutorialPanelOpen() && !toolRunning) {
                 _tutorialFinish();
                 showStatus('tutorial closed · reload this tab to resume', 3200);
                 return;
