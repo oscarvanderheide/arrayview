@@ -2,6 +2,9 @@
 
 Consult `.mex/ROUTER.md` for task routing, project state, and context loading.
 
+When responding, use plain language, short sentences, and avoid dense or overly compressed
+phrasing. I'm not fluent with webdev stuff like websockets and don't plan to be.
+
 ## Skills
 
 Load the relevant skill before touching the corresponding area.
