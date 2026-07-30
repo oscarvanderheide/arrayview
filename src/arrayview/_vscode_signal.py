@@ -525,6 +525,9 @@ def _write_vscode_signal(
         exact_registration = _exact_vscode_window_registration(current_ipc_hook)
         if exact_registration is not None:
             exact_wid = exact_registration[0]
+            exact_remote_name = exact_registration[1].get("remoteName")
+            if isinstance(exact_remote_name, str) and exact_remote_name:
+                data["targetRemoteName"] = exact_remote_name
             if env_wid and env_wid != exact_wid:
                 _vprint(
                     "[ArrayView] signal: ignoring stale ARRAYVIEW_WINDOW_ID="
@@ -542,9 +545,12 @@ def _write_vscode_signal(
             try:
                 with open(current_ipc_registration) as registration_file:
                     current_ipc_data = json.load(registration_file)
-                current_ipc_pid = int(current_ipc_data.get("pid", 0))
-                os.kill(current_ipc_pid, 0)
-                if current_ipc_data.get("hookTag") == current_ipc_wid:
+                from arrayview._platform import _process_is_alive
+
+                if (
+                    _process_is_alive(current_ipc_data.get("pid"))
+                    and current_ipc_data.get("hookTag") == current_ipc_wid
+                ):
                     if env_wid and env_wid != current_ipc_wid:
                         _vprint(
                             "[ArrayView] signal: ignoring stale ARRAYVIEW_WINDOW_ID="

@@ -483,7 +483,11 @@ function _reportExtensionVersionSkew(ownWindowId, ownVersion) {
             } catch (_) { continue; }
             if (!data || !data.extensionVersion || data.extensionVersion === ownVersion) continue;
             if (!data.pid || !isProcessAlive(data.pid)) continue;
-            peers.push(`${data.extensionVersion} (window ${data.windowId || '?'}, pid ${data.pid})`);
+            const host = data.remoteName || 'local';
+            peers.push(
+                `${data.extensionVersion} (${host}, window `
+                + `${data.windowId || '?'}, pid ${data.pid})`
+            );
         }
     } catch (_) { return; }
     if (!peers.length) return;
@@ -1404,7 +1408,25 @@ function _remainingSignalMs(data) {
 }
 
 function isProcessAlive(pid) {
-    try { process.kill(pid, 0); return true; } catch { return false; }
+    try {
+        process.kill(pid, 0);
+    } catch {
+        return false;
+    }
+    if (process.platform === 'linux') {
+        try {
+            const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+            if (/^State:\s+Z\b/m.test(status)) return false;
+        } catch (_) {
+            // A readable live process is enough when procfs state is unavailable.
+        }
+    }
+    return true;
+}
+
+function requestMatchesRemoteName(data, remoteName) {
+    const ownRemoteName = remoteName || 'local';
+    return !data?.targetRemoteName || data.targetRemoteName === ownRemoteName;
 }
 
 function _removeRegistrationIfOwned(regFile, owner) {
@@ -1773,11 +1795,17 @@ async function tryOpenSignalFile() {
             continue;
         }
 
-        if (data.requiredExtensionVersion && !isVersionAtLeast(version, data.requiredExtensionVersion)) {
-            const message = `Stale ArrayView opener v${version}; v${data.requiredExtensionVersion} is required. Reload this VS Code window.`;
-            log(`SIGNAL: ${message}`);
-            writeProtocolAck(data, 'failed', message);
-            try { fs.unlinkSync(claimedFile); } catch (_) {}
+        const ownRemoteName = vscode.env.remoteName || 'local';
+        if (!requestMatchesRemoteName(data, vscode.env.remoteName)) {
+            log(
+                `SIGNAL: target host ${data.targetRemoteName} deferred by `
+                + `${ownRemoteName}`
+            );
+            try {
+                fs.renameSync(claimedFile, signalFile);
+            } catch (_) {
+                try { fs.unlinkSync(claimedFile); } catch (_) {}
+            }
             continue;
         }
 
@@ -1800,6 +1828,14 @@ async function tryOpenSignalFile() {
                 fs.renameSync(tmp, targetedFile);
                 log(`SIGNAL: forwarded to ${path.basename(targetedFile)}`);
             } catch (_) {}
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+
+        if (data.requiredExtensionVersion && !isVersionAtLeast(version, data.requiredExtensionVersion)) {
+            const message = `Stale ArrayView opener v${version}; v${data.requiredExtensionVersion} is required. Reload this VS Code window.`;
+            log(`SIGNAL: ${message}`);
+            writeProtocolAck(data, 'failed', message);
             try { fs.unlinkSync(claimedFile); } catch (_) {}
             continue;
         }
@@ -3397,9 +3433,8 @@ function activate(context) {
         log(`REGISTER: failed to write: ${e.message}`);
     }
 
-    _reportExtensionVersionSkew(windowId, version);
-
     cleanupStaleFiles();
+    _reportExtensionVersionSkew(windowId, version);
 
     // Clean up stale registrations from previous tunnel sessions.
     // Do not delete live same-tunnel registrations just because they are older:
@@ -3580,6 +3615,8 @@ module.exports = {
         processSignalData,
         isSignalQueueBusy: () => isProcessingSignal,
         _remainingSignalMs,
+        isProcessAlive,
+        requestMatchesRemoteName,
         tryOpenSignalFile,
         _registerHandoffPlaceholder,
         openFolderInArrayView,

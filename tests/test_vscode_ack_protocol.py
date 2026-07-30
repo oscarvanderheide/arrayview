@@ -129,6 +129,39 @@ def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_p
     assert request.window_id == "live-window"
 
 
+def test_remote_request_records_exact_target_host(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    monkeypatch.setattr(signal, "_find_vscode_ipc_hook", lambda: "/tmp/current-ipc")
+    monkeypatch.setattr(
+        signal,
+        "_exact_vscode_window_registration",
+        lambda ipc: ("window-1", {"remoteName": "tunnel"}),
+    )
+    signal_dir = tmp_path / ".arrayview"
+    signal_dir.mkdir()
+    (signal_dir / "window-window-1.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hookTag": "window-1",
+                "remoteName": "tunnel",
+                "signalQueueVersion": 1,
+            }
+        )
+    )
+
+    request = signal._open_via_signal_file(
+        "http://localhost:8123/", is_remote=True
+    )
+
+    queued = signal_dir / (
+        f"open-request-ipc-window-1.request-{request.request_id}.json"
+    )
+    assert json.loads(queued.read_text())["targetRemoteName"] == "tunnel"
+
+
 def test_open_request_with_stale_id_and_multiple_remote_windows_fails_closed(
     monkeypatch, tmp_path, capsys
 ):

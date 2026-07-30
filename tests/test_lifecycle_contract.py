@@ -926,6 +926,22 @@ def test_revived_terminal_does_not_guess_between_same_server_windows(
     assert platform._exact_vscode_window_registration(None) is None
 
 
+def test_vscode_process_liveness_rejects_linux_zombie(monkeypatch):
+    import io
+    import arrayview._platform as platform
+
+    monkeypatch.setattr(platform.os, "kill", lambda pid, signal: None)
+    monkeypatch.setattr(platform.sys, "platform", "linux")
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda *args, **kwargs: io.StringIO(
+            "Name:\tMainThread\nState:\tZ (zombie)\n"
+        ),
+    )
+
+    assert platform._process_is_alive(123) is False
+
+
 def test_extension_activation_wait_requires_fresh_exact_registration(monkeypatch):
     import arrayview._vscode_extension as extension
 
@@ -2106,6 +2122,7 @@ def test_vscode_tunnel_resolution_with_node(script):
         "test_panel_replay.js",
         "test_folder_open_command.js",
         "test_nonblocking_logging.js",
+        "test_process_liveness.js",
     ],
 )
 def test_vscode_transaction_contracts_with_node(script):

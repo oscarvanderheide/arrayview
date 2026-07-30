@@ -445,10 +445,19 @@ def _has_vscode_window_registration() -> bool:
 
 def _process_is_alive(pid: object) -> bool:
     try:
-        os.kill(int(pid), 0)
-        return True
+        numeric_pid = int(pid)
+        os.kill(numeric_pid, 0)
     except (OSError, TypeError, ValueError):
         return False
+    if sys.platform.startswith("linux"):
+        try:
+            with open(f"/proc/{numeric_pid}/status", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("State:"):
+                        return not line.split()[1].startswith("Z")
+        except (OSError, IndexError):
+            pass
+    return True
 
 
 def _superseding_window_registration(
