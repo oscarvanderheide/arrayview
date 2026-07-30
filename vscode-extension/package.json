@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView through private, request-scoped VS Code display routes",
-  "version": "0.15.12",
+  "version": "0.15.13",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -20,7 +20,7 @@
     "lifecycle_helpers.js",
     "package.json",
     "icon.png",
-    "LICENSE"
+    "LICENSE*"
   ],
   "contributes": {
     "configurationDefaults": {

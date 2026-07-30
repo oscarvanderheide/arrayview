@@ -27,6 +27,12 @@ const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
 const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');  // fallback
 const LOG_FILE = path.join(SIGNAL_DIR, 'extension.log');
 const EXTENSION_INSTANCE_ID = crypto.randomBytes(16).toString('hex');
+const LOG_QUEUE_LIMIT = 256;
+const LOG_BATCH_SIZE = 32;
+const _logQueue = [];
+let _logWriteActive = false;
+let _logWriteDisabled = false;
+let _droppedLogLines = 0;
 
 // Per-window targeted signal file: Python writes to a file named by the SHA256
 // of VSCODE_IPC_HOOK_CLI, which is unique per VS Code window on the remote.
@@ -215,10 +221,41 @@ function _asExternalUriAttempt(baseUri) {
 // creating a second panel, avoiding a visible flicker.
 const _pendingPlaceholders = new Map(); // filePath -> { panel, basename }
 
+function _drainLogQueue() {
+    if (_logWriteActive || _logWriteDisabled || !_logQueue.length) return;
+    const lines = _logQueue.splice(0, LOG_BATCH_SIZE);
+    if (_droppedLogLines) {
+        lines.unshift(
+            `[${new Date().toISOString()}] ArrayView dropped `
+            + `${_droppedLogLines} log lines while the log filesystem was slow\n`
+        );
+        _droppedLogLines = 0;
+    }
+    _logWriteActive = true;
+    fs.appendFile(LOG_FILE, lines.join(''), error => {
+        _logWriteActive = false;
+        if (error) {
+            // The log is diagnostic only. A slow or unavailable remote home
+            // directory must never stall or repeatedly hammer the extension host.
+            _logWriteDisabled = true;
+            _logQueue.length = 0;
+            return;
+        }
+        setImmediate(_drainLogQueue);
+    });
+}
+
 function log(message) {
     const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
     const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
-    try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
+    if (!_logWriteDisabled) {
+        if (_logQueue.length >= LOG_QUEUE_LIMIT) {
+            _logQueue.shift();
+            _droppedLogLines += 1;
+        }
+        _logQueue.push(line);
+        _drainLogQueue();
+    }
     console.log(`[arrayview-opener] ${prefix}${message}`);
 }
 
@@ -452,10 +489,10 @@ function _reportExtensionVersionSkew(ownWindowId, ownVersion) {
     if (!peers.length) return;
 
     log(`SKEW: this window runs v${ownVersion}; live peers on ${peers.join(', ')}`);
-    const detail = `This window runs ArrayView opener v${ownVersion}, but other open windows still run ${peers.join(', ')}. Mixed versions share one signal directory and can drop each other's requests. Reload the other windows.`;
-    vscode.window.showWarningMessage(detail, 'Reload Other Windows').then(choice => {
-        if (choice) vscode.commands.executeCommand('workbench.action.reloadWindow');
-    }, () => {});
+    const detail = `This window runs ArrayView opener v${ownVersion}, but other open windows still run ${peers.join(', ')}. Mixed versions share one signal directory and can drop each other's requests. Reload the listed windows.`;
+    // VS Code cannot reload a sibling window from here. The old action claimed
+    // it would do that but reloaded this healthy window instead.
+    vscode.window.showWarningMessage(detail);
 }
 
 function _arrayviewPackageSpec() {
@@ -3501,7 +3538,7 @@ function activate(context) {
             c.includes('forward') || c.includes('privacy') ||
             c.includes('preview')
         );
-        log(`AVAILABLE CMD: ${JSON.stringify(relevant)}`);
+        log(`AVAILABLE CMD count=${relevant.length}`);
     }).catch(() => {});
 }
 
@@ -3560,6 +3597,13 @@ module.exports = {
         _openPanels,
         extensionInstanceId: EXTENSION_INSTANCE_ID,
         signalDir: SIGNAL_DIR,
+        log,
+        logQueueState: () => ({
+            queued: _logQueue.length,
+            writeActive: _logWriteActive,
+            writeDisabled: _logWriteDisabled,
+            dropped: _droppedLogLines,
+        }),
         setWindowId(windowId) { logWindowId = windowId; },
         setTargetedSignalFile(filePath) { TARGETED_SIGNAL_FILE = filePath; },
     },

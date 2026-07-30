@@ -645,9 +645,12 @@ def test_vscode_extension_requires_reload_for_stale_live_host(monkeypatch):
     assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
 
 
-def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatch):
+def test_vscode_extension_install_timeout_fails_closed_for_stale_host(
+    monkeypatch, tmp_path
+):
     import arrayview._vscode_extension as extension
 
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setattr(extension, "_is_vscode_remote", lambda: False)
     monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
     monkeypatch.setattr(extension, "_newer_extension_on_disk", lambda *args, **kwargs: None)
@@ -661,6 +664,124 @@ def test_vscode_extension_install_timeout_fails_closed_for_stale_host(monkeypatc
 
     assert extension._ensure_vscode_extension() is False
     assert extension._VSCODE_EXT_RELOAD_REQUIRED is True
+
+
+def test_vscode_extension_install_failure_is_guarded_until_live_host_changes(
+    monkeypatch, tmp_path, capsys
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    marker = {
+        "pid": 123,
+        "extensionInstanceId": "instance-one",
+        "ts": 1000,
+        "extensionVersion": "0.14.47",
+    }
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        extension, "_newer_extension_on_disk", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        extension, "_active_extension_registration", lambda: dict(marker)
+    )
+    monkeypatch.setattr(
+        extension, "_active_extension_version", lambda: marker["extensionVersion"]
+    )
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    calls = []
+
+    def fail_install(command, env):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1, "", "installer failed")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", fail_install)
+
+    assert extension._ensure_vscode_extension(is_remote=True) is False
+    assert "--force" not in calls[0]
+    assert extension._ensure_vscode_extension(is_remote=True) is False
+    assert len(calls) == 1
+    assert "same unchanged host" in capsys.readouterr().out
+
+    marker["extensionInstanceId"] = "instance-two"
+    marker["ts"] = 2000
+    assert extension._ensure_vscode_extension(is_remote=True) is False
+    assert len(calls) == 2
+
+
+def test_vscode_extension_install_guard_without_live_host_has_bounded_cooldown(
+    monkeypatch, tmp_path
+):
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    version = extension._VSCODE_EXT_VERSION
+    code = "/exact/code"
+    monkeypatch.setattr(extension.time, "time", lambda: 1000.0)
+
+    assert extension._write_extension_install_failure_guard(
+        version, code, None, "failed"
+    )
+    assert extension._extension_install_failure_guard(
+        version, code, None, now=1001.0
+    )
+    assert (
+        extension._extension_install_failure_guard(
+            version,
+            code,
+            None,
+            now=1000.0
+            + extension._VSCODE_EXT_INSTALL_NO_HOST_COOLDOWN_SECONDS
+            + 1.0,
+        )
+        is None
+    )
+
+
+def test_successful_vscode_extension_install_clears_prior_profile_guards(
+    monkeypatch, tmp_path
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    remote_base = home / ".vscode-server" / "extensions"
+    remote_base.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    wanted = extension._VSCODE_EXT_VERSION
+    code = "/exact/code"
+    old_marker = (123, "old-instance", 1000)
+    extension._write_extension_install_failure_guard(
+        wanted, code, old_marker, "old failure"
+    )
+    monkeypatch.setattr(extension, "_extension_on_disk", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        extension, "_newer_extension_on_disk", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(extension, "_active_extension_registration", lambda: None)
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: None)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: code)
+
+    def install(command, env):
+        target = remote_base / f"arrayview.arrayview-opener-{wanted}"
+        target.mkdir()
+        (target / "package.json").write_text("{}")
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+    monkeypatch.setattr(
+        extension, "_patch_vscode_extension_metadata", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        extension, "_wait_for_active_extension_version", lambda *args, **kwargs: True
+    )
+
+    assert extension._ensure_vscode_extension(is_remote=True) is True
+    assert extension._extension_install_failure_guard(
+        wanted, code, old_marker
+    ) is None
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
@@ -1984,6 +2105,7 @@ def test_vscode_tunnel_resolution_with_node(script):
         "test_request_deadline.js",
         "test_panel_replay.js",
         "test_folder_open_command.js",
+        "test_nonblocking_logging.js",
     ],
 )
 def test_vscode_transaction_contracts_with_node(script):

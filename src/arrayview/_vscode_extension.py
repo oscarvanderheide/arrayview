@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -55,8 +56,128 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.15.12"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.15.13"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
+_VSCODE_EXT_INSTALL_GUARD_PREFIX = "vscode-extension-install-failure-"
+_VSCODE_EXT_INSTALL_NO_HOST_COOLDOWN_SECONDS = 300.0
+
+
+def _extension_install_guard_key(
+    version: str, code: str, registration_marker: tuple | None
+) -> dict:
+    """Return the exact installer target state protected by a failure guard."""
+    return {
+        "version": version,
+        "codeCli": os.path.realpath(code),
+        "registrationMarker": (
+            list(registration_marker) if registration_marker is not None else None
+        ),
+    }
+
+
+def _extension_install_guard_path(key: dict) -> str:
+    encoded = json.dumps(key, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(encoded).hexdigest()[:24]
+    return os.path.join(
+        os.path.expanduser("~/.arrayview"),
+        f"{_VSCODE_EXT_INSTALL_GUARD_PREFIX}{digest}.json",
+    )
+
+
+def _write_extension_install_failure_guard(
+    version: str,
+    code: str,
+    registration_marker: tuple | None,
+    message: str,
+) -> bool:
+    """Persist one failed install transaction so new processes do not repeat it."""
+    key = _extension_install_guard_key(version, code, registration_marker)
+    path = _extension_install_guard_path(key)
+    payload = {**key, "failedAt": time.time(), "message": message}
+    tmp = f"{path}.tmp-{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        _vprint(
+            f"[ArrayView] could not persist VS Code installer failure guard: {exc}",
+            flush=True,
+        )
+        return False
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _clear_extension_install_failure_guards(version: str, code: str) -> None:
+    """Clear prior failures for a profile after that profile installs successfully."""
+    signal_dir = os.path.expanduser("~/.arrayview")
+    wanted_cli = os.path.realpath(code)
+    try:
+        filenames = os.listdir(signal_dir)
+    except OSError:
+        return
+    for filename in filenames:
+        if not (
+            filename.startswith(_VSCODE_EXT_INSTALL_GUARD_PREFIX)
+            and filename.endswith(".json")
+        ):
+            continue
+        path = os.path.join(signal_dir, filename)
+        try:
+            with open(path) as handle:
+                payload = json.load(handle)
+            if (
+                payload.get("version") == version
+                and payload.get("codeCli") == wanted_cli
+            ):
+                os.unlink(path)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+
+
+def _extension_install_failure_guard(
+    version: str,
+    code: str,
+    registration_marker: tuple | None,
+    *,
+    now: float | None = None,
+) -> dict | None:
+    """Return an applicable durable guard for this exact live installer target.
+
+    A live registration marker makes the guard valid until that extension host
+    changes. Without a live marker, allow another attempt after a bounded
+    cooldown because there is no reconnect evidence that can invalidate it.
+    """
+    key = _extension_install_guard_key(version, code, registration_marker)
+    path = _extension_install_guard_path(key)
+    try:
+        with open(path) as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict) or any(
+        payload.get(field) != value for field, value in key.items()
+    ):
+        return None
+    if registration_marker is not None:
+        return payload
+    failed_at = payload.get("failedAt")
+    if not isinstance(failed_at, (int, float)):
+        return None
+    current = time.time() if now is None else now
+    if current - failed_at < _VSCODE_EXT_INSTALL_NO_HOST_COOLDOWN_SECONDS:
+        return payload
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    return None
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""
@@ -183,8 +304,6 @@ def _extension_on_disk(
     missing or stale marker falls back to comparing the packaged files before
     deciding that a reinstall is necessary.
     """
-    import hashlib
-
     for base in _extension_bases(remote=remote):
         ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
         if not os.path.isdir(ext_dir):
@@ -450,8 +569,6 @@ def _write_vscode_extension_hash(
     version: str, vsix_path: str, *, bases: tuple[str, ...]
 ) -> None:
     """Record the bundled content hash only in the selected installation root."""
-    import hashlib
-
     vsix_hash = hashlib.md5(open(vsix_path, "rb").read()).hexdigest()
     for base in bases:
         ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
@@ -566,6 +683,23 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         if is_remote:
             _VSCODE_EXT_INSTALL_FAILED = True
         return False
+    install_guard = _extension_install_failure_guard(
+        ext_version, code, active_marker
+    )
+    if install_guard is not None:
+        _VSCODE_EXT_INSTALL_FAILED = True
+        prior_message = install_guard.get("message")
+        detail = f": {prior_message}" if isinstance(prior_message, str) else ""
+        if active_marker is None:
+            guidance = "waiting for the bounded installer cooldown"
+        else:
+            guidance = "retry after this VS Code window reloads or reconnects"
+        print(
+            "[ArrayView] skipping a repeated VS Code opener install against the "
+            f"same unchanged host ({guidance}){detail}",
+            flush=True,
+        )
+        return False
 
     env = dict(os.environ)
     ipc = _find_vscode_ipc_hook()
@@ -584,7 +718,7 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     )
     try:
         r = _run_extension_installer(
-            [code, "--install-extension", vsix_path, "--force"], env
+            [code, "--install-extension", vsix_path], env
         )
         combined = (r.stdout or "") + (r.stderr or "")
         install_failed = (
@@ -603,6 +737,12 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
                 )
                 if active_base is None:
                     _VSCODE_EXT_INSTALL_FAILED = True
+                    _write_extension_install_failure_guard(
+                        ext_version,
+                        code,
+                        active_marker,
+                        "the active remote extension profile could not be identified",
+                    )
                     print(
                         "[ArrayView] extension installed, but its active remote "
                         "profile could not be identified safely; no other VS Code "
@@ -620,6 +760,7 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
                 )
             except Exception:
                 pass  # non-critical
+            _clear_extension_install_failure_guards(ext_version, code)
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
             if not is_remote:
@@ -648,12 +789,19 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
             _VSCODE_EXT_RELOAD_REQUIRED = True
         if is_remote:
             _VSCODE_EXT_INSTALL_FAILED = True
-        print(f"[ArrayView] extension install failed: {combined.strip()!r}", flush=True)
+        failure_message = combined.strip() or f"installer exited with {r.returncode}"
+        _write_extension_install_failure_guard(
+            ext_version, code, active_marker, failure_message
+        )
+        print(f"[ArrayView] extension install failed: {failure_message!r}", flush=True)
     except Exception as exc:
         if active_version not in (None, ext_version):
             _VSCODE_EXT_RELOAD_REQUIRED = True
         if is_remote:
             _VSCODE_EXT_INSTALL_FAILED = True
+        _write_extension_install_failure_guard(
+            ext_version, code, active_marker, str(exc)
+        )
         print(f"[ArrayView] extension install error: {exc}", flush=True)
     return False
 
