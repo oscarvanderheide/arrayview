@@ -544,6 +544,7 @@
             transition-delay: 0s;
         }
         #dmenu-picker.closing .dmenu-bound-label,
+        #dmenu-picker.closing .dmenu-symmetry-toggle,
         #dmenu-picker.closing .dmenu-percent-label {
             opacity: 0;
             transition: opacity 0.06s ease;
@@ -579,7 +580,8 @@
             z-index: 1;
             pointer-events: none;
         }
-        .dmenu-bound-label {
+        .dmenu-bound-label,
+        .dmenu-symmetry-toggle {
             position: absolute;
             display: flex;
             align-items: center;
@@ -600,7 +602,8 @@
             transform: translateX(-50%);
             opacity: 0.7;
         }
-        .dmenu-bound-label:hover {
+        .dmenu-bound-label:hover,
+        .dmenu-symmetry-toggle:hover {
             color: var(--active-dim);
             opacity: 1;
         }
@@ -608,8 +611,19 @@
             color: var(--muted);
             opacity: 0.92;
         }
-        .dmenu-bound-label:hover {
+        .dmenu-symmetry-toggle.is-active {
+            color: var(--active-dim);
+            opacity: 1;
+        }
+        .dmenu-bound-label:hover,
+        .dmenu-symmetry-toggle:hover {
             background: color-mix(in srgb, var(--active-dim) 13%, transparent);
+        }
+        .dmenu-symmetry-mark {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 12px;
         }
         .dmenu-bound-lock {
             display: block;
@@ -37095,7 +37109,7 @@
             ];
             if (_dmenuSymmetricAvailable()) {
                 rows.push({
-                    kind: 'lock',
+                    kind: 'symmetry',
                     action: 'symmetric',
                     label: '±',
                     note: _dmenuEffectiveSymmetricLocked() ? 'locked' : '',
@@ -37158,12 +37172,41 @@
                 });
                 return btn;
             };
-            const locks = [
+            const controls = [
                 makeLock(rows[0], 0, _dmenuEffectiveVminLocked()),
                 makeLock(rows[1], 1, vmaxLocked),
             ];
-            if (rows[2]) locks.push(makeLock(rows[2], 2, _dmenuEffectiveSymmetricLocked()));
-            return locks;
+            const symmetry = rows.find(row => row.kind === 'symmetry');
+            if (symmetry) {
+                const idx = rows.indexOf(symmetry);
+                const active = _dmenuEffectiveSymmetricLocked();
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'dmenu-symmetry-toggle';
+                btn.setAttribute('role', 'menuitemcheckbox');
+                btn.setAttribute('aria-checked', active ? 'true' : 'false');
+                btn.setAttribute('aria-label', symmetry.lockTitle);
+                btn.title = symmetry.lockTitle;
+                if (idx === _dmenuSelectedIdx) btn.classList.add('is-selected');
+                if (active) btn.classList.add('is-active');
+                btn.innerHTML = '<span class="dmenu-symmetry-mark" aria-hidden="true">±</span>';
+                btn.addEventListener('mouseenter', () => {
+                    _dmenuSelectedIdx = idx;
+                    _dmenuPickerRender();
+                });
+                btn.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _dmenuSelectedIdx = idx;
+                    _dmenuActivateSelected(false);
+                });
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+                controls.push(btn);
+            }
+            return controls;
         }
 
         function _dmenuSetBoundManual(action, value) {
@@ -37386,18 +37429,16 @@
                     lock.style.top = `${Math.max(percentTop, lockTop)}px`;
                 }
             });
-            // The symmetric ± lock is a third range control, not another
-            // bound. It has no value label to anchor to, so position it
-            // explicitly at the colorbar midpoint on the same row as the
-            // vmin/vmax locks. Without this, its absolute position defaults to
-            // the menu's top-left and looks like a duplicate vmin lock.
-            const symmetricLock = box.querySelector('.dmenu-lock-symmetric');
-            if (symmetricLock) {
+            // Symmetry couples the two bounds; it is not a third bound lock.
+            // Keep it visually and structurally distinct, and position it as a
+            // range modifier at the colorbar midpoint.
+            const symmetryToggle = box.querySelector('.dmenu-symmetry-toggle');
+            if (symmetryToggle) {
                 const vminLock = box.querySelector('.dmenu-lock-vmin');
-                symmetricLock.style.left = `${
+                symmetryToggle.style.left = `${
                     canvasRect.left - boxRect.left + canvasRect.width / 2
                 }px`;
-                symmetricLock.style.top = vminLock && vminLock.style.top
+                symmetryToggle.style.top = vminLock && vminLock.style.top
                     ? vminLock.style.top
                     : `${Math.max(percentTop, canvasRect.bottom - boxRect.top + 2)}px`;
             }

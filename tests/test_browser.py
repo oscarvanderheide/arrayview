@@ -4152,6 +4152,7 @@ class TestDiffPaneRangeMenu:
             expanded: !!(_diffCenterCb && _diffCenterCb._expanded),
             pickerVisible: !!document.querySelector('#dmenu-picker.visible'),
             lockRows: document.querySelectorAll('#dmenu-list .dmenu-bound-label').length,
+            symmetryControls: document.querySelectorAll('#dmenu-list .dmenu-symmetry-toggle').length,
             target: _dmenuRangeTarget,
             diffVmin: _diffManualVmin,
             diffVmax: _diffManualVmax,
@@ -4197,8 +4198,8 @@ class TestDiffPaneRangeMenu:
         assert state["pickerVisible"], (
             f"d should bring up the range menu, not just the histogram, got {state}"
         )
-        assert state["lockRows"] >= 3, (
-            f"the range menu should offer the vmin/vmax/± locks, got {state}"
+        assert state["lockRows"] == 2 and state["symmetryControls"] == 1, (
+            f"the range menu should offer two bound locks and one distinct ± modifier, got {state}"
         )
 
     @pytest.mark.parametrize("layout", ["horizontal", "big-left"])
@@ -4228,7 +4229,7 @@ class TestDiffPaneRangeMenu:
                 const centerX = r => r ? r.left + r.width / 2 : null;
                 const vminLock = rect('.dmenu-lock-vmin');
                 const vmaxLock = rect('.dmenu-lock-vmax');
-                const symmetricLock = rect('.dmenu-lock-symmetric');
+                const symmetryToggle = rect('.dmenu-symmetry-toggle');
                 const vminLabel = rect('#compare-diff-pane-cb-vmin');
                 const vmaxLabel = rect('#compare-diff-pane-cb-vmax');
                 const diffCb = rect('#compare-diff-pane-cb');
@@ -4237,7 +4238,7 @@ class TestDiffPaneRangeMenu:
                     activeIsDiff: _dmenuActiveColorbar() === _diffCenterCb,
                     vminDx: vminLock && vminLabel ? Math.abs(centerX(vminLock) - centerX(vminLabel)) : null,
                     vmaxDx: vmaxLock && vmaxLabel ? Math.abs(centerX(vmaxLock) - centerX(vmaxLabel)) : null,
-                    symmetricDx: symmetricLock && diffCb ? Math.abs(centerX(symmetricLock) - centerX(diffCb)) : null,
+                    symmetricDx: symmetryToggle && diffCb ? Math.abs(centerX(symmetryToggle) - centerX(diffCb)) : null,
                     baselineDy: sourceCb && diffCb ? Math.abs(sourceCb.bottom - diffCb.bottom) : null,
                     layout: _resolvedCompareLayoutMode(),
                 };
@@ -4246,7 +4247,7 @@ class TestDiffPaneRangeMenu:
         assert geometry["activeIsDiff"], f"range menu should be owned by the diff ColorBar, got: {geometry}"
         assert geometry["vminDx"] is not None and geometry["vminDx"] <= 1, f"vmin lock should anchor to the diff vmin label, got: {geometry}"
         assert geometry["vmaxDx"] is not None and geometry["vmaxDx"] <= 1, f"vmax lock should anchor to the diff vmax label, got: {geometry}"
-        assert geometry["symmetricDx"] is not None and geometry["symmetricDx"] <= 1, f"± lock should center on the diff colorbar, got: {geometry}"
+        assert geometry["symmetricDx"] is not None and geometry["symmetricDx"] <= 1, f"± modifier should center on the diff colorbar, got: {geometry}"
         if layout == "horizontal":
             assert geometry["baselineDy"] is not None and geometry["baselineDy"] <= 1, f"horizontal source and diff colorbar strips should align, got: {geometry}"
 

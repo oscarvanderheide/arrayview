@@ -435,3 +435,15 @@ One slow request could therefore open several blank or partially loaded tabs.
 **Fix:** Issue exactly one visible open command per request, then wait through
 the bounded correlated readiness deadline. A blank tab now fails without
 multiplying displays.
+
+## Range Modifiers Are Not Extra Bounds
+
+**Problem:** The histogram menu represented vmin, vmax, and symmetric-range
+coupling as identical lock rows. The shared renderer therefore painted three
+unlabelled padlocks and had to invent a midpoint anchor for the control that had
+no bound of its own. Async histogram loading made that third lock seem to
+disappear and return.
+**Fix:** Keep endpoint locks and range modifiers as distinct control kinds.
+Only endpoint locks anchor to value labels; render symmetry as an explicit `±`
+modifier through the shared menu so normal, compare, and mirrored layouts all
+inherit the same semantics.
