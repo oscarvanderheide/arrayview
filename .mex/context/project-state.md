@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-07-28
+last_updated: 2026-07-30
 ---
 
 # Project State
@@ -64,13 +64,16 @@ last_updated: 2026-07-28
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- The working tree targets VS Code opener v0.15.12. It removes the public-webview
+- The working tree targets VS Code opener v0.15.15. It removes the public-webview
   tunnel path and the zero-viewer singleton gate: tunnel requests use
   request-scoped private integrated-browser direct-loopback delivery, with
   exact request/window/backend identity and first-frame acknowledgement.
   Browser commands are serialized narrowly while readiness waits remain
-  concurrent. If the private proxy or target cannot be verified, delivery fails
-  closed instead of promoting the port.
+  concurrent. Each request now issues exactly one integrated-browser open
+  command: delayed script startup waits inside the bounded readiness deadline
+  instead of issuing retries that VS Code turns into duplicate tabs. If the
+  private proxy or target cannot be verified, delivery fails closed instead of
+  promoting the port.
 - Component coverage guards private selection, concurrent command
   serialization, display intent, stale public-setting cleanup, and readiness
   correlation. The desktop-tunnel CLI path reached its first rendered frame
@@ -160,11 +163,13 @@ last_updated: 2026-07-28
 ## In Progress
 
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
-  implemented in opener v0.15.12. A real desktop-tunnel CLI launch reached
-  `frame-rendered` through the private route, and the user confirmed the short
-  tab label. Completion still requires middle-close isolation, reconnect,
-  clean final release, explicit external-browser delivery, proxy-disabled
-  fail-closed behavior, and the separate browser-hosted tunnel row.
+  implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`,
+  but its delayed script startup exposed four tabs from one request. Opener
+  v0.15.15 removes those repeated browser-open commands and has component
+  coverage; real-host validation still requires installing/reloading the active
+  tunnel window. Middle-close isolation, reconnect, clean final release,
+  explicit external-browser delivery, proxy-disabled fail-closed behavior, and
+  the separate browser-hosted tunnel row also remain open.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 

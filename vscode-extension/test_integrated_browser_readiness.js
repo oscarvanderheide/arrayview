@@ -320,81 +320,63 @@ Module._load = originalLoad;
         );
         commandObserver = null;
 
-        const recoveryStart = commandArgsHistory.length;
-        const recoveryCommandStart = commandHistory.length;
-        const recoveryPreparedStart = preparedBodies.length;
+        const delayedPreScriptStart = commandArgsHistory.length;
+        const delayedPreScriptCommandStart = commandHistory.length;
+        const delayedPreScriptPreparedStart = preparedBodies.length;
         journal = null;
         deferReady = true;
+        let delayedPreScriptPublished = false;
         commandObserver = (args, command) => {
             if (
                 command === 'workbench.action.browser.open'
                 && args && args.url
-                && preparedBodies.at(-1).navigation_attempt === 2
-                && journal.request_id === 'request-recovery'
+                && journal.request_id === 'request-delayed-pre-script'
+                && !delayedPreScriptPublished
             ) {
-                journal.phases = [
-                    'script-loaded',
-                    'ws-open',
-                    'metadata-loaded',
-                    'frame-rendered',
-                ];
-                journal.viewer_instance_ids = ['viewer-one'];
+                delayedPreScriptPublished = true;
+                setTimeout(() => {
+                    journal.phases = [
+                        'script-loaded',
+                        'ws-open',
+                        'metadata-loaded',
+                        'frame-rendered',
+                    ];
+                    journal.viewer_instance_ids = ['viewer-one'];
+                }, 600);
             }
         };
-        const recovered = await __test.openInIntegratedBrowser(
+        const delayedPreScript = await __test.openInIntegratedBrowser(
             'http://localhost:9000/?sid=sid-one',
             backendUrl,
-            'request-recovery',
+            'request-delayed-pre-script',
             'server-one',
             'window-one',
             6000,
             () => {},
             1000
         );
-        assert.strictEqual(await recovered.viewerReady, null);
-        const recoveryCommands = commandArgsHistory.slice(recoveryStart);
+        assert.strictEqual(await delayedPreScript.viewerReady, null);
+        const delayedPreScriptCommands = commandArgsHistory.slice(delayedPreScriptStart);
         assert.strictEqual(
-            recoveryCommands.length,
-            3,
-            'pre-script recovery must hedge with repeated fresh navigations'
+            delayedPreScriptCommands.length,
+            1,
+            'a delayed viewer script must not open extra integrated-browser tabs'
+        );
+        const delayedPreScriptPrepared = preparedBodies.slice(
+            delayedPreScriptPreparedStart
         );
         assert.deepStrictEqual(
-            recoveryCommands.map(args => args.openToSide),
-            [false, false, false]
+            delayedPreScriptPrepared.map(body => body.navigation_attempt),
+            [0],
+            'a delayed viewer script must keep its original prepared navigation'
+        );
+        const delayedPreScriptSequence = commandHistory.slice(
+            delayedPreScriptCommandStart
         );
         assert.deepStrictEqual(
-            recoveryCommands.map(args => args.reuseUrlFilter),
-            Array(3).fill(recoveryCommands[0].reuseUrlFilter),
-            'pre-script recovery must reuse the one request-specific tab'
-        );
-        const recoveryPrepared = preparedBodies.slice(recoveryPreparedStart);
-        assert.deepStrictEqual(
-            recoveryPrepared.map(body => body.navigation_attempt),
-            [0, 1, 2],
-            'each hedge must bypass a failed navigation cache'
-        );
-        const recoveryTokens = recoveryPrepared.map(body => body.token);
-        assert.strictEqual(
-            new Set(recoveryTokens).size,
-            recoveryTokens.length,
-            'each navigation attempt must fence stale documents with a fresh token'
-        );
-        assert.strictEqual(
-            new Set(recoveryPrepared.map(body => body.navigation_key)).size,
-            recoveryPrepared.length,
-            'each navigation attempt must have a fresh short route'
-        );
-        const recoverySequence = commandHistory.slice(recoveryCommandStart);
-        assert.deepStrictEqual(
-            recoverySequence.map(entry => entry.command),
-            Array(3).fill('workbench.action.browser.open'),
-            'recovery must never escalate to a hard reload of the blank tab'
-        );
-        await new Promise(resolve => setTimeout(resolve, 700));
-        assert.strictEqual(
-            commandHistory.length,
-            recoveryCommandStart + 3,
-            'navigation retries must stop permanently after script-loaded'
+            delayedPreScriptSequence.map(entry => entry.command),
+            ['workbench.action.browser.open'],
+            'one request must issue exactly one integrated-browser open command'
         );
         commandObserver = null;
 
@@ -425,24 +407,20 @@ Module._load = originalLoad;
         const cappedCommands = commandArgsHistory.slice(cappedStart);
         assert.strictEqual(
             cappedCommands.length,
-            5,
-            'a blank tab must spend its pre-script budget on bounded fresh navigations'
-        );
-        assert.deepStrictEqual(
-            cappedCommands.map(args => args.reuseUrlFilter),
-            Array(5).fill(cappedCommands[0].reuseUrlFilter),
-            'all bounded recovery attempts must target one request tab'
+            1,
+            'a permanently blank request must not open extra integrated-browser tabs'
         );
         assert.deepStrictEqual(
             preparedBodies
                 .slice(cappedPreparedStart)
                 .map(body => body.navigation_attempt),
-            [0, 1, 2, 3, 4]
+            [0],
+            'a permanently blank request must keep its original prepared navigation'
         );
         assert.deepStrictEqual(
             commandHistory.slice(cappedCommandStart).map(entry => entry.command),
-            Array(5).fill('workbench.action.browser.open'),
-            'a permanently blank request never escalates to a hard reload'
+            ['workbench.action.browser.open'],
+            'a permanently blank request must issue exactly one browser command'
         );
         deferReady = false;
 

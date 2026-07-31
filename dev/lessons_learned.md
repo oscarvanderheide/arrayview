@@ -426,3 +426,12 @@ the file. Flattening the proxy for a color sample could also read gigabytes.
 **Fix:** Keep a single `.nii` file in native proxy order, derive orientation
 metadata without moving voxels, sample with bounded basic indexing, and make
 RAS conversion an explicit user action.
+
+## Readiness Retries Must Not Create New Displays
+
+**Problem:** Retrying `workbench.action.browser.open` was assumed to reuse the
+integrated-browser tab, but real VS Code created a new tab for every attempt.
+One slow request could therefore open several blank or partially loaded tabs.
+**Fix:** Issue exactly one visible open command per request, then wait through
+the bounded correlated readiness deadline. A blank tab now fails without
+multiplying displays.

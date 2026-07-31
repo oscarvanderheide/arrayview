@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView through private, request-scoped VS Code display routes",
-  "version": "0.15.14",
+  "version": "0.15.15",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",

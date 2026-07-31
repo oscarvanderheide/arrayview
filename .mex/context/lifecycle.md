@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-07-22
+last_updated: 2026-07-30
 ---
 
 # Lifecycle
@@ -75,6 +75,10 @@ This contract describes who owns the backend, when it starts, and what closes it
 - The desktop-tunnel integrated browser has no stable tab-disposal handle. Its
   correlated viewer marks the SID for fenced WebSocket-disconnect release with
   a short reconnect grace period.
+- A desktop-tunnel request issues exactly one integrated-browser open command.
+  Readiness waits through the bounded pre-script deadline; it must not retry
+  `workbench.action.browser.open`, because VS Code may create a new visible tab
+  instead of reusing the still-loading request tab.
 - Reused file and collection sessions acquire one lease per tab, so closing one
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only

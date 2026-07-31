@@ -2438,8 +2438,7 @@ async function openInIntegratedBrowser(
                     // openToSide=true creates and locks a new editor group per launch,
                     // eventually leaving VS Code unable to load another browser page.
                     openToSide: false,
-                    // Retry/replay of this exact request reuses its one tab, while every
-                    // distinct ArrayView invocation opens a fresh browser tab.
+                    // Distinct ArrayView invocations must open distinct tabs.
                     reuseUrlFilter,
                 }),
                 3000,
@@ -2486,11 +2485,12 @@ async function openInIntegratedBrowser(
             token,
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
-            async (navigationAttempt, deadline) => {
-                if (deadline - Date.now() <= 0) return null;
-                log(`PANEL: retrying pre-script navigation attempt=${navigationAttempt}`);
-                return prepareNavigation(navigationAttempt, deadline);
-            },
+            // workbench.action.browser.open does not reliably honor
+            // reuseUrlFilter for a retry with a changed URL. A retry therefore
+            // creates another visible tab while the original is still loading.
+            // Keep one display command per request and let the correlated
+            // readiness deadline distinguish a slow tab from a blank one.
+            null,
             preScriptTimeoutMs
         ),
     };
