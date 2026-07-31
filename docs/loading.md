@@ -6,7 +6,7 @@
 |-----------|---------|-------|
 | `.npy` | numpy | Memory-mapped |
 | `.npz` | numpy | Must contain one array |
-| `.nii` / `.nii.gz` | nibabel | Lazy proxy |
+| `.nii` / `.nii.gz` | nibabel | Native voxel order; `.nii` is lazy |
 | `.zarr` / `.zarr.zip` | zarr | Chunked access |
 | `.pt` / `.pth` | torch | Converted to numpy |
 | `.h5` / `.hdf5` | h5py | Must contain one dataset |
@@ -16,6 +16,17 @@
 Optional libraries are imported only when needed.
 
 Multi-array formats (`.npz`, `.mat`) show an in-viewer picker when they contain more than one array.
+
+Single NIfTI files open in their native voxel order. ArrayView trusts the
+file's affine for axis labels and voxel sizes, but does not automatically move
+the voxel data to canonical RAS order. This keeps large uncompressed `.nii`
+files disk-backed and makes the initial X/Y slice follow the file's efficient
+storage layout.
+
+Press `A` to explicitly convert a NIfTI volume to RAS. This can read or
+allocate the complete volume. Press `A` again to return to the native
+disk-backed data. Compressed `.nii.gz` files still need a full gzip decode
+before arbitrary slices are cheap.
 
 ## CLI
 

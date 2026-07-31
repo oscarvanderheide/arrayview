@@ -6477,7 +6477,7 @@
         let symmetricLocked = false;  // tie vmin = -vmax so zero stays centred
         let _dmenuSymmetricMirroring = false;  // re-entrancy guard for the mirror write
         let excludeZeros = false; // exclude zero-valued voxels from histogram computation
-        let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
+        let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique, is_canonical} or null
         let rasResampleActive = false;
         let multiViewActive = false;
         let _mvOrientationHidden = false; // ~ toggle — hides orientation cube
@@ -23758,7 +23758,7 @@
                 },
             },
             'nifti.toggleRasResample': {
-                title: 'Toggle RAS resample (NIfTI oblique scans)',
+                title: 'Toggle explicit RAS conversion (NIfTI)',
                 when: [],
                 run: (ctx, e) => {
                     if (compareActive || qmriActive) {
@@ -23769,13 +23769,13 @@
                         showToast('RAS resample: not a NIfTI scan');
                         return;
                     }
-                    if (!spatialMeta.is_oblique) {
+                    if (!spatialMeta.is_oblique && spatialMeta.is_canonical !== false) {
                         const labels = (spatialMeta.axis_labels || []).join('');
                         showToast(`already in canonical RAS (${labels || 'axis-aligned'}) — no resample needed`);
                         return;
                     }
                     const wantOn = !rasResampleActive;
-                    showToast(wantOn ? 'resampling to RAS...' : 'reverting to original orientation...');
+                    showToast(wantOn ? 'converting to RAS...' : 'reverting to native orientation...');
                     proxyFetch(`/resample_ras/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},

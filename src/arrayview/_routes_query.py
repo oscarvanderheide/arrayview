@@ -357,13 +357,17 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             spatial_shape = tuple(
                 int(v)
                 for v in spatial_meta.get(
-                    "canonical_shape", session.shape[: len(voxel_sizes)]
+                    "spatial_shape",
+                    spatial_meta.get(
+                        "canonical_shape", session.shape[: len(voxel_sizes)]
+                    ),
                 )
             )
             info["spatial_meta"] = {
                 "voxel_sizes": list(voxel_sizes),
                 "axis_labels": list(spatial_meta["axis_labels"]),
                 "is_oblique": bool(spatial_meta["is_oblique"]),
+                "is_canonical": bool(spatial_meta.get("is_canonical", True)),
                 "field_of_view": [
                     float(size * spacing)
                     for size, spacing in zip(spatial_shape, voxel_sizes)

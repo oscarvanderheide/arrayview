@@ -393,8 +393,22 @@ def _recommend_colormap_reason(data) -> str:
     if dtype.kind == "i":
         return "RdBu_r (signed integer dtype)"
     if dtype.kind == "f":
-        # Slice before materializing — avoids a full-array copy for mmap-backed arrays
-        sample = np.nan_to_num(np.asarray(data.ravel()[:10000]))
+        # Never flatten a proxy-backed or non-contiguous volume here. ravel()
+        # can copy or fault in the complete dataset before [:10000] is applied.
+        shape = tuple(int(v) for v in getattr(data, "shape", ()))
+        if not shape or any(v == 0 for v in shape):
+            return "gray (default — unsigned/positive data)"
+        strides = getattr(data, "strides", None)
+        if strides is not None and len(strides) == len(shape):
+            sample_axis = min(
+                range(len(shape)), key=lambda axis: abs(int(strides[axis]))
+            )
+        else:
+            # NIfTI ArrayProxy storage is axis-0-fastest.
+            sample_axis = 0
+        slicer = [0] * len(shape)
+        slicer[sample_axis] = slice(0, min(shape[sample_axis], 10000))
+        sample = np.nan_to_num(np.asarray(data[tuple(slicer)]).reshape(-1))
         if sample.size > 0 and float(sample.min()) < 0:
             return "RdBu_r (signed data — vmin < 0)"
     return "gray (default — unsigned/positive data)"

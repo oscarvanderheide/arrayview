@@ -139,8 +139,13 @@ def _select_npz_array(npz, filepath):
     return npz[keys[0]]
 
 
-def _nifti_header_with_meta(filepath):
-    """Return a NIfTI image and canonical spatial metadata without reading voxels."""
+def _nifti_header_with_meta(filepath, *, native=False):
+    """Return a NIfTI image and spatial metadata without reading voxels.
+
+    Directory collections use canonical metadata because their lazy series
+    objects expose canonical axes. A single volume uses native metadata so an
+    uncompressed NIfTI can keep its proxy and storage-friendly axis order.
+    """
     nib = _nib()
     img = nib.load(filepath)
     original_affine = np.asarray(img.affine, dtype=np.float64)
@@ -151,30 +156,40 @@ def _nifti_header_with_meta(filepath):
         transform, img.shape[:3]
     )
 
-    rot = affine_canonical[:3, :3]
+    data_affine = original_affine if native else affine_canonical
+    rot = data_affine[:3, :3]
     voxel_sizes = tuple(float(np.linalg.norm(rot[:, i])) for i in range(3))
+    canonical_rot = affine_canonical[:3, :3]
+    canonical_voxel_sizes = tuple(
+        float(np.linalg.norm(canonical_rot[:, i])) for i in range(3)
+    )
     norm_rot = np.zeros((3, 3))
     for i in range(3):
-        if voxel_sizes[i] > 0:
-            norm_rot[:, i] = rot[:, i] / voxel_sizes[i]
-    pos_labels = ("R", "A", "S")
-    neg_labels = ("L", "P", "I")
-    axis_labels = tuple(
-        pos_labels[i] if norm_rot[i, i] >= 0 else neg_labels[i] for i in range(3)
-    )
+        if canonical_voxel_sizes[i] > 0:
+            norm_rot[:, i] = canonical_rot[:, i] / canonical_voxel_sizes[i]
+    axis_labels = tuple(str(v) for v in nib.aff2axcodes(data_affine))
     off_diag_max = max(
         (abs(norm_rot[i, j]) for i in range(3) for j in range(3) if i != j),
         default=0.0,
     )
     canonical_shape = tuple(int(img.shape[int(axis)]) for axis in transform[:, 0])
-    return img, {
+    meta = {
         "affine": original_affine,
         "affine_canonical": affine_canonical,
+        "data_affine": data_affine,
         "voxel_sizes": voxel_sizes,
         "axis_labels": axis_labels,
         "is_oblique": bool(off_diag_max > 1e-3),
-        "canonical_shape": canonical_shape,
+        "is_canonical": bool(
+            np.array_equal(transform, np.asarray([[0, 1], [1, 1], [2, 1]]))
+        ),
+        "to_canonical": transform,
     }
+    if native:
+        meta["spatial_shape"] = tuple(int(v) for v in img.shape[:3])
+    else:
+        meta["canonical_shape"] = canonical_shape
+    return img, meta
 
 
 def _nifti_display_array(proxy):
@@ -373,25 +388,19 @@ def _get_progressive_nifti_pool(*, overlay_prefetch=False):
 
 
 def _load_nifti_with_meta(filepath):
-    """Load a NIfTI file, canonical-reorient, return (array, meta).
+    """Load a NIfTI file in native voxel order and return (array, meta).
 
-    meta is a dict with keys:
-      affine            : original 4x4 affine (RAS+ mm)
-      affine_canonical  : 4x4 affine after as_closest_canonical
-      voxel_sizes       : tuple (sx, sy, sz) in mm, post-reorient
-      axis_labels       : tuple of 3 strs from {"R","L","A","P","S","I"}
-                          — positive direction of each canonical axis
-      is_oblique        : bool — True if rotation part has off-diagonal magnitude > 1e-3
-                          after normalizing voxel sizes
+    Uncompressed .nii stays proxy-backed. This preserves cheap native-plane
+    reads even when the affine describes permuted or flipped anatomical axes.
+    Compressed .nii.gz still has to be decoded eagerly because gzip is not
+    random-access, but it is no longer silently reordered.
     """
-    img, meta = _nifti_header_with_meta(filepath)
-    canon = _nib().as_closest_canonical(img)
-
-    # NOTE: reorient requires materializing axis permutes/flips. .nii.gz is
-    # already eager (gzip not seekable), so this is free; .nii loses mmap as a
-    # necessary cost to apply the reorient.
-    arr = np.asarray(canon.dataobj)
-
+    img, meta = _nifti_header_with_meta(filepath, native=True)
+    arr = (
+        img.dataobj
+        if filepath.endswith(".nii")
+        else _nifti_display_array(img.dataobj)
+    )
     return arr, meta
 
 

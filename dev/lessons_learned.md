@@ -417,3 +417,12 @@ while rendering the incoming pane hidden, then swap visibility on one animation
 frame after pixels are ready. Tag async work with a transition generation so a
 late response from a mode the user already left cannot paint into the current
 pane.
+
+## Native Voxel Order Is a Performance Contract
+
+**Problem:** Canonicalizing a large uncompressed NIfTI image changed its memory-
+mapped strides, so a small displayed slice could fault pages scattered across
+the file. Flattening the proxy for a color sample could also read gigabytes.
+**Fix:** Keep a single `.nii` file in native proxy order, derive orientation
+metadata without moving voxels, sample with bounded basic indexing, and make
+RAS conversion an explicit user action.

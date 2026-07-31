@@ -105,7 +105,13 @@ Separate 1-thread `ThreadPoolExecutor` (`arrayview-prefetch`). Warms `raw_cache`
 
 - **RGB arrays** — detected by `_setup_rgb()`. Skip colormap; go directly to `render_rgb_rgba()`. `session.rgb_axis` holds the axis index; `session.spatial_shape` is shape without that axis.
 - **Complex arrays** — `apply_complex_mode()` transforms to real before colormapping. Supported modes: magnitude, phase, real, imag. FFT is a separate data-level transform (see note above).
-- **NIfTI** — canonical-reoriented on load by `_load_nifti_with_meta()`. `session.spatial_meta` holds affine, voxel sizes, axis labels. RAS resample cached in `session.resampled_volume`.
+- **Single NIfTI files** — uncompressed `.nii` stays proxy-backed in native
+  voxel order so normal slice reads follow the file's storage layout.
+  `.nii.gz` is decoded eagerly but is not automatically reoriented.
+  `session.spatial_meta` holds the native affine, voxel sizes, and axis labels.
+  Explicit RAS conversion is cached in `session.resampled_volume`.
+- **NIfTI collections** — collection series retain their existing lazy
+  canonical orientation contract.
 - **Large memmap arrays** — `_default_start_dims_for_data()` may override the default startup axes to avoid high-stride reads.
 
 ## High-Risk Areas

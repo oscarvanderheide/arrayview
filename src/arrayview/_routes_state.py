@@ -5,7 +5,7 @@ import os
 import numpy as np
 from fastapi import Depends, HTTPException, Request, Response
 
-from arrayview._io import load_data
+from arrayview._io import _nib, load_data
 from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS, _estimate_array_bytes
 
 
@@ -129,53 +129,67 @@ def register_state_routes(app, get_session_or_404) -> None:
             return {"skipped": True, "reason": "not_nifti"}
 
         if enabled:
-            if not sm["is_oblique"]:
+            if not sm["is_oblique"] and sm.get("is_canonical", True):
                 return {"skipped": True, "reason": "axis_aligned"}
             t0 = time.time()
             if session.resampled_volume is None:
-                try:
-                    from scipy.ndimage import affine_transform
-                except ImportError:
-                    return {"error": "scipy not available"}
                 vol = session.original_volume
                 if vol.ndim != 3:
                     return {"skipped": True, "reason": "ndim_not_3"}
-                affine_canonical = sm["affine_canonical"]
-                rot = np.asarray(affine_canonical[:3, :3], dtype=np.float64)
-                iso = float(min(sm["voxel_sizes"]))
-                shp = vol.shape
-                corners_idx = np.array(
-                    [
-                        [i, j, k]
-                        for i in (0, shp[0] - 1)
-                        for j in (0, shp[1] - 1)
-                        for k in (0, shp[2] - 1)
-                    ],
-                    dtype=np.float64,
-                )
-                origin = np.asarray(affine_canonical[:3, 3], dtype=np.float64)
-                ras = corners_idx @ rot.T + origin
-                ras_min = ras.min(axis=0)
-                ras_max = ras.max(axis=0)
-                out_shape = tuple(
-                    int(np.ceil((ras_max[i] - ras_min[i]) / iso)) + 1
-                    for i in range(3)
-                )
-                inv_rot = np.linalg.inv(rot)
-                matrix = inv_rot * iso
-                offset = inv_rot @ (ras_min - origin)
-                try:
-                    resampled = affine_transform(
-                        np.asarray(vol),
-                        matrix=matrix,
-                        offset=offset,
-                        output_shape=out_shape,
-                        order=1,
-                        cval=0.0,
-                        prefilter=False,
+                if not sm["is_oblique"]:
+                    try:
+                        oriented = _nib().orientations.apply_orientation(
+                            np.asanyarray(vol), sm["to_canonical"]
+                        )
+                        # Make the explicit conversion storage-friendly for
+                        # normal NIfTI X/Y plane reads.
+                        resampled = np.asfortranarray(oriented)
+                    except Exception as exc:
+                        return {"error": f"reorientation failed: {exc}"}
+                else:
+                    try:
+                        from scipy.ndimage import affine_transform
+                    except ImportError:
+                        return {"error": "scipy not available"}
+                    data_affine = np.asarray(
+                        sm.get("data_affine", sm["affine_canonical"]),
+                        dtype=np.float64,
                     )
-                except Exception as exc:
-                    return {"error": f"resample failed: {exc}"}
+                    rot = data_affine[:3, :3]
+                    iso = float(min(sm["voxel_sizes"]))
+                    shp = vol.shape
+                    corners_idx = np.array(
+                        [
+                            [i, j, k]
+                            for i in (0, shp[0] - 1)
+                            for j in (0, shp[1] - 1)
+                            for k in (0, shp[2] - 1)
+                        ],
+                        dtype=np.float64,
+                    )
+                    origin = np.asarray(data_affine[:3, 3], dtype=np.float64)
+                    ras = corners_idx @ rot.T + origin
+                    ras_min = ras.min(axis=0)
+                    ras_max = ras.max(axis=0)
+                    out_shape = tuple(
+                        int(np.ceil((ras_max[i] - ras_min[i]) / iso)) + 1
+                        for i in range(3)
+                    )
+                    inv_rot = np.linalg.inv(rot)
+                    matrix = inv_rot * iso
+                    offset = inv_rot @ (ras_min - origin)
+                    try:
+                        resampled = affine_transform(
+                            np.asarray(vol),
+                            matrix=matrix,
+                            offset=offset,
+                            output_shape=out_shape,
+                            order=1,
+                            cval=0.0,
+                            prefilter=False,
+                        )
+                    except Exception as exc:
+                        return {"error": f"resample failed: {exc}"}
                 session.resampled_volume = resampled
             session.data = session.resampled_volume
             session.shape = session.resampled_volume.shape

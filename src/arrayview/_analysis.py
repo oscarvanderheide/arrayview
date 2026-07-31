@@ -51,6 +51,7 @@ def _build_metadata(session) -> dict:
             "voxel_sizes": list(sm["voxel_sizes"]),
             "axis_labels": list(sm["axis_labels"]),
             "is_oblique": bool(sm["is_oblique"]),
+            "is_canonical": bool(sm.get("is_canonical", True)),
         }
         meta["ras_resample_active"] = bool(
             getattr(session, "ras_resample_active", False)
