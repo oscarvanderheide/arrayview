@@ -19,6 +19,25 @@ Auto-detects VS Code terminals and opens in a VS Code tab. Works automatically.
 The same routing applies when `view()` is called from Python, MATLAB, or Julia.
 See [MATLAB and Julia](foreign-hosts.md).
 
+## Jupyter
+
+Inline viewers in Jupyter use the notebook server as a bridge to ArrayView.
+This is what makes remote notebooks work without forwarding a second port.
+ArrayView keeps that route while it loads, even when the notebook server is
+temporarily slow.
+
+If the browser and kernel truly run on the same machine and the notebook server
+does not provide its proxy route, direct localhost access can be requested
+before importing ArrayView:
+
+```python
+import os
+os.environ["ARRAYVIEW_JUPYTER_PROXY"] = "0"
+```
+
+Do not disable the proxy for a remote notebook: the browser's `localhost` is
+then a different machine from the kernel.
+
 ## VS Code tunnel
 
 The VS Code extension uses the normal WebSocket viewer through VS Code's

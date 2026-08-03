@@ -3133,10 +3133,8 @@ def _build_jupyter_inline_html(
   const proxiedSrc = useProxy
     ? new URL({json.dumps(proxied_target)}, window.location.origin + base).toString()
     : directSrc;
-  let loaded = false;
   const cleanup = () => {{
     window.removeEventListener('message', onMessage);
-    if (fallbackTimer) window.clearTimeout(fallbackTimer);
     removalObserver.disconnect();
   }};
   const onMessage = (event) => {{
@@ -3150,19 +3148,12 @@ def _build_jupyter_inline_html(
       );
       return;
     }}
-    if (msg.phase !== 'script-loaded') return;
-    loaded = true;
-    if (fallbackTimer) window.clearTimeout(fallbackTimer);
   }};
   window.addEventListener('message', onMessage);
   const removalObserver = new MutationObserver(() => {{
     if (!host.isConnected) cleanup();
   }});
   removalObserver.observe(document.documentElement, {{ childList: true, subtree: true }});
-  const fallbackTimer = window.setTimeout(() => {{
-    if (loaded || !useProxy) return;
-    frame.src = directSrc;
-  }}, 1500);
   frame.src = useProxy ? proxiedSrc : directSrc;
 }})();
 </script>

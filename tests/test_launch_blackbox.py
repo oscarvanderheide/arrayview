@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -237,6 +238,7 @@ def test_real_ipykernel_inline_session_renders_and_is_kernel_owned(
         )
     )
     monkeypatch.setenv("JUPYTER_PATH", str(kernel_root))
+    monkeypatch.setenv("ARRAYVIEW_JUPYTER_PROXY", "0")
 
     manager, kernel = start_new_kernel(
         kernel_name="arrayview-test",
@@ -289,9 +291,9 @@ def test_real_ipykernel_inline_session_renders_and_is_kernel_owned(
         )
         assert status["pid"] == manager.provisioner.pid
 
-        # Render the actual notebook MIME wrapper. When jupyter-server-proxy is
-        # importable but the current frontend has no proxy route, its bounded
-        # fallback must replace the failed relative URL with localhost.
+        # Explicit direct-inline mode remains valid when the browser and kernel
+        # share localhost. Proxy behavior is covered through a real notebook
+        # server below rather than emulated from a page with no proxy route.
         page.goto(f"http://localhost:{port}/")
         page.set_content(html_outputs[-1])
         viewer_frame = page.frame_locator("iframe")
@@ -319,6 +321,276 @@ def test_real_ipykernel_inline_session_renders_and_is_kernel_owned(
         lambda: not _tcp_port_open(port),
         timeout=10.0,
         message="kernel-owned ArrayView server survived kernel shutdown",
+    )
+
+
+def test_real_jupyter_classic_slow_proxy_keeps_selected_route(
+    page,
+    tmp_path,
+):
+    """A slow notebook proxy must not send a remote browser to localhost."""
+    notebook_port = _free_port()
+    arrayview_port = _free_port()
+    token = "arrayview-classic-test-token"
+    kernel_root = tmp_path / "jupyter"
+    kernel_dir = kernel_root / "kernels" / "arrayview-test"
+    kernel_dir.mkdir(parents=True)
+    (kernel_dir / "kernel.json").write_text(
+        json.dumps(
+            {
+                "argv": [
+                    sys.executable,
+                    "-m",
+                    "ipykernel_launcher",
+                    "-f",
+                    "{connection_file}",
+                ],
+                "display_name": "ArrayView test kernel",
+                "language": "python",
+            }
+        )
+    )
+
+    cells = [
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "id": "arrayview-0",
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import numpy as np\n",
+                "from arrayview import view\n",
+                "shape = (12, 218, 170)\n",
+                "base = np.linspace(0, 1, np.prod(shape), dtype=np.float32).reshape(shape)\n",
+                "arr = (base + 1j * (1 - base)).astype(np.complex64)\n",
+                f"view(arr.copy(), name='classic-view-0', window='inline', port={arrayview_port})\n",
+            ],
+        }
+    ]
+    for index in range(1, 6):
+        cells.append(
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "id": f"arrayview-{index}",
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    f"view(arr.copy(), name='classic-view-{index}', window='inline', port={arrayview_port})\n"
+                ],
+            }
+        )
+    notebook_path = tmp_path / "repro.ipynb"
+    notebook_path.write_text(
+        json.dumps(
+            {
+                "cells": cells,
+                "metadata": {
+                    "kernelspec": {
+                        "display_name": "ArrayView test kernel",
+                        "language": "python",
+                        "name": "arrayview-test",
+                    },
+                    "language_info": {"name": "python", "version": "3"},
+                },
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        )
+    )
+
+    env = dict(os.environ)
+    env["JUPYTER_PATH"] = str(kernel_root)
+    env["ARRAYVIEW_JUPYTER_PROXY"] = "1"
+    env["ARRAYVIEW_DISCONNECT_GRACE_SECONDS"] = "0.2"
+    nbclassic = Path(sys.executable).with_name("jupyter-nbclassic")
+    assert nbclassic.is_file()
+    log_path = tmp_path / "nbclassic.log"
+    log_handle = log_path.open("w")
+    server = subprocess.Popen(
+        [
+            str(nbclassic),
+            "--no-browser",
+            f"--ServerApp.port={notebook_port}",
+            "--ServerApp.port_retries=0",
+            "--ServerApp.ip=localhost",
+            f"--ServerApp.root_dir={tmp_path}",
+            f"--IdentityProvider.token={token}",
+            "--ServerApp.allow_remote_access=False",
+        ],
+        cwd=tmp_path,
+        env=env,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    base_url = f"http://localhost:{notebook_port}"
+    websocket_urls = []
+    direct_requests = []
+    request_failures = []
+    console_messages = []
+    page.on("websocket", lambda ws: websocket_urls.append(ws.url))
+    page.on(
+        "requestfailed",
+        lambda request: request_failures.append(
+            {"url": request.url, "failure": str(request.failure)}
+        ),
+    )
+    page.on("console", lambda message: console_messages.append(message.text))
+
+    def _delay_proxy_document(route, request):
+        if request.resource_type == "document":
+            time.sleep(2.0)
+        route.continue_()
+
+    page.route(
+        f"{base_url}/proxy/{arrayview_port}/**",
+        _delay_proxy_document,
+    )
+
+    def _reject_direct_request(route, request):
+        direct_requests.append(request.url)
+        route.abort()
+
+    page.route(
+        f"http://localhost:{arrayview_port}/**",
+        _reject_direct_request,
+    )
+    try:
+        _wait_until(
+            lambda: httpx.get(
+                f"{base_url}/api?token={token}", timeout=0.5
+            ).status_code
+            == 200,
+            timeout=20.0,
+            message="nbclassic server did not become ready",
+        )
+        page.set_viewport_size({"width": 1400, "height": 4200})
+        page.goto(
+            f"{base_url}/notebooks/{notebook_path.name}?token={token}",
+            wait_until="domcontentloaded",
+        )
+        page.wait_for_function(
+            """() => window.Jupyter
+                && Jupyter.notebook
+                && Jupyter.notebook.kernel
+                && Jupyter.notebook.kernel.is_connected()""",
+            timeout=30_000,
+        )
+        page.evaluate(
+            """() => {
+                window.__avRenderedFrames = new Map();
+                window.__avEvents = [];
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    if (!message || message.source !== 'arrayview-viewer') return;
+                    window.__avEvents.push(message.phase);
+                    if (message.phase === 'frame-rendered') {
+                        window.__avRenderedFrames.set(event.source, message.detail);
+                    }
+                });
+            }"""
+        )
+        page.evaluate("() => Jupyter.notebook.execute_all_cells()")
+        page.wait_for_function(
+            """() => document.querySelectorAll("iframe[title='ArrayView']").length === 6""",
+            timeout=60_000,
+        )
+        try:
+            page.wait_for_function(
+                """() => window.__avRenderedFrames.size === 6
+                    && Array.from(window.__avRenderedFrames.values()).every(
+                        detail => detail && detail.width > 0 && detail.height > 0
+                    )""",
+                timeout=60_000,
+            )
+        except Exception:
+            status = None
+            try:
+                status = httpx.get(
+                    f"http://localhost:{arrayview_port}/ping", timeout=0.5
+                ).json()
+            except Exception:
+                pass
+            diagnostics = {
+                "ping": status,
+                "frame_urls": [
+                    frame.url for frame in page.frames if "sid=" in frame.url
+                ],
+                "websocket_urls": websocket_urls,
+                "request_failures": request_failures,
+                "console": console_messages,
+                "events": page.evaluate("() => window.__avEvents"),
+                "nbclassic_log": log_path.read_text(),
+            }
+            pytest.fail(json.dumps(diagnostics, indent=2, sort_keys=True))
+
+        status = _wait_json(
+            f"http://localhost:{arrayview_port}/ping",
+            lambda body: body.get("owner_mode") == "kernel"
+            and body.get("active_sessions") == 6
+            and body.get("active_viewer_sockets") == 6
+            and body.get("viewer_connections_seen", 0) >= 6,
+        )
+        assert status["active_viewer_sockets"] == 6
+        frame_urls = [frame.url for frame in page.frames if "sid=" in frame.url]
+        assert len(frame_urls) == 6
+        assert all(
+            f"/proxy/{arrayview_port}/" in frame_url
+            for frame_url in frame_urls
+        ), frame_urls
+        proxy_websockets = [
+            url
+            for url in websocket_urls
+            if f"/proxy/{arrayview_port}/ws/" in url
+        ]
+        assert len(proxy_websockets) == 6, websocket_urls
+        assert direct_requests == []
+
+        original_urls = set(frame_urls)
+        page.evaluate("() => Jupyter.notebook.get_cell(2).clear_output()")
+        _wait_json(
+            f"http://localhost:{arrayview_port}/ping",
+            lambda body: body.get("active_viewer_sockets") == 5
+            and body.get("active_sessions") == 5,
+        )
+        page.evaluate("() => Jupyter.notebook.get_cell(2).execute()")
+        page.wait_for_function(
+            "() => window.__avRenderedFrames.size === 7",
+            timeout=60_000,
+        )
+        _wait_json(
+            f"http://localhost:{arrayview_port}/ping",
+            lambda body: body.get("active_viewer_sockets") == 6
+            and body.get("active_sessions") == 6
+            and body.get("viewer_connections_seen", 0) >= 7,
+        )
+        replacement_urls = {
+            frame.url for frame in page.frames if "sid=" in frame.url
+        }
+        assert len(replacement_urls) == 6
+        assert len(original_urls & replacement_urls) == 5
+        assert direct_requests == []
+    finally:
+        page.close()
+        server.terminate()
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(server.pid, signal.SIGKILL)
+            server.wait(timeout=5)
+        log_handle.close()
+
+    _wait_until(
+        lambda: not _tcp_port_open(notebook_port),
+        timeout=10.0,
+        message="nbclassic server survived test cleanup",
+    )
+    _wait_until(
+        lambda: not _tcp_port_open(arrayview_port),
+        timeout=10.0,
+        message="kernel-owned ArrayView server survived nbclassic cleanup",
     )
 
 

@@ -7216,8 +7216,9 @@ class TestViewDisplayRouting:
             assert result.__class__.__name__ == "HTML"
             assert "proxy/8123/" in result.data
             assert "document.body && document.body.dataset" in result.data
-            assert "frame.src = directSrc" in result.data
-            assert "phase !== 'script-loaded'" in result.data
+            assert "frame.src = directSrc" not in result.data
+            assert "fallbackTimer" not in result.data
+            assert "msg.phase === 'mode-change'" in result.data
         finally:
             for sid in set(session_mod.SESSIONS) - before_sids:
                 session_mod.SESSIONS.pop(sid, None)
