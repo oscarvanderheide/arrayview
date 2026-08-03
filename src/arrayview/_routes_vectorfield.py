@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from fastapi import HTTPException, Request, Response
 
@@ -9,6 +11,14 @@ from arrayview._vectorfield import (
     _configure_vectorfield,
     _get_vfield_layout,
     _vfield_counts_for_level,
+)
+from arrayview._source_safety import (
+    cleanup_staging_directory,
+    direct_network_mount,
+    lexical_abspath,
+    network_mount_below,
+    source_may_require_sibling_discovery,
+    validated_staging_directory,
 )
 
 
@@ -64,6 +74,31 @@ def register_vectorfield_routes(app) -> None:
                 )
         sid = str(body["sid"])
         filepath = str(body["filepath"])
+        filepath = lexical_abspath(filepath)
+        claimed_staging = body.get("source_staging_dir")
+        staging_dir = validated_staging_directory(filepath, claimed_staging)
+        if claimed_staging and staging_dir is None:
+            raise HTTPException(status_code=400, detail="invalid source staging directory")
+        unsafe_mount = direct_network_mount(filepath)
+        if unsafe_mount is not None:
+            return {
+                "error": (
+                    f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
+                    "is refused; launch through the arrayview CLI."
+                )
+            }
+        nested_mount = network_mount_below(filepath)
+        if source_may_require_sibling_discovery(filepath):
+            nested_mount = nested_mount or network_mount_below(
+                os.path.dirname(filepath)
+            )
+        if nested_mount is not None:
+            return {
+                "error": (
+                    f"Vector-field discovery would enter network mount "
+                    f"{nested_mount.mountpoint!r}; copy it locally first."
+                )
+            }
         components_dim = body.get("components_dim")
         session = SESSIONS.get(sid)
         if not session:
@@ -71,8 +106,14 @@ def register_vectorfield_routes(app) -> None:
         try:
             vf_data = load_data(filepath)
             layout = _configure_vectorfield(session, vf_data, components_dim)
+            if staging_dir:
+                directories = list(getattr(session, "_source_staging_dirs", []))
+                directories.append(str(staging_dir))
+                session._source_staging_dirs = directories
             return {"ok": True, "components_dim": layout["components_dim"]}
         except Exception as e:
+            if staging_dir:
+                cleanup_staging_directory(staging_dir)
             return {"error": str(e)}
 
     @app.get("/oblique_vectorfield/{sid}")

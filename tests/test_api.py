@@ -262,6 +262,49 @@ class TestHealth:
 
 
 class TestLoad:
+    def test_load_rejects_direct_network_source_before_target_access(
+        self, client, tmp_path, monkeypatch
+    ):
+        mountpoint = tmp_path / "network"
+        mountinfo = tmp_path / "mountinfo"
+        mountinfo.write_text(
+            f"42 31 0:55 / {mountpoint} rw - cifs //server/share "
+            "rw,addr=10.20.30.40\n"
+        )
+        monkeypatch.setenv("_ARRAYVIEW_TEST_MOUNTINFO", str(mountinfo))
+
+        started = time.monotonic()
+        response = client.post(
+            "/load", json={"filepath": str(mountpoint / "must-not-be-statted.nii")}
+        )
+
+        assert response.status_code == 200
+        assert "Direct server access" in response.json()["error"]
+        assert time.monotonic() - started < 2
+
+    def test_load_rejects_arbitrary_staging_cleanup_authority(
+        self, client, arr_2d, tmp_path, monkeypatch
+    ):
+        source = tmp_path / "source.npy"
+        np.save(source, arr_2d)
+        arbitrary = tmp_path / "must-survive"
+        arbitrary.mkdir()
+        (arbitrary / "keep.txt").write_text("keep")
+        monkeypatch.setenv(
+            "_ARRAYVIEW_TEST_SAFE_SOURCE_ROOT", str(tmp_path / "safe-source-root")
+        )
+
+        response = client.post(
+            "/load",
+            json={
+                "filepath": str(source),
+                "source_staging_dir": str(arbitrary),
+            },
+        )
+
+        assert response.status_code == 400
+        assert (arbitrary / "keep.txt").read_text() == "keep"
+
     def test_load_rejects_replaced_server_generation_before_side_effect(
         self, client, arr_2d, tmp_path
     ):
@@ -3959,12 +4002,11 @@ class TestCliOpenHelpers:
         assert terminated == []
         assert opened == []
 
-    def test_open_cli_spawned_view_overlay_browser_path_starts_watch(self, monkeypatch):
+    def test_open_cli_spawned_view_overlay_browser_path_uses_server_owned_watch(self, monkeypatch):
         import arrayview._launcher as launcher
 
         opened = []
         printed = []
-        watched = []
         monkeypatch.setattr(
             launcher,
             "_open_webview_cli_tracked",
@@ -3972,11 +4014,6 @@ class TestCliOpenHelpers:
         )
         monkeypatch.setattr(
             launcher, "_print_viewer_location", lambda url: printed.append(url)
-        )
-        monkeypatch.setattr(
-            launcher,
-            "_start_watch_thread",
-            lambda filepath, sid, port: watched.append((filepath, sid, port)),
         )
         monkeypatch.setattr(
             launcher,
@@ -4001,7 +4038,6 @@ class TestCliOpenHelpers:
         )
 
         assert printed == ["http://localhost:8000/?sid=sid_base&overlay_sid=sid_overlay"]
-        assert watched == [("/tmp/base.npy", "sid_base", 8000)]
         assert opened == [
             {
                 "url": "http://localhost:8000/?sid=sid_base&overlay_sid=sid_overlay",

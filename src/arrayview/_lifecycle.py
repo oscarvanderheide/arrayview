@@ -35,7 +35,8 @@ def commit_session_group_unless_cancelled(
 ) -> bool:
     """Atomically commit all sessions produced by one registration request."""
     with _SESSION_LEASE_LOCK:
-        if request_sid in CANCELLED_PENDING_SESSIONS:
+        group_sids = {request_sid, *(session.sid for session in sessions)}
+        if group_sids.intersection(CANCELLED_PENDING_SESSIONS):
             return False
         for session in sessions:
             SESSIONS[session.sid] = session
@@ -130,9 +131,20 @@ def release_session(sid: str, *, cancel_if_missing: bool = False) -> bool:
         session.data = None
     except Exception:
         pass
-    staging_dir = getattr(session, "_drop_staging_dir", None)
-    if staging_dir:
-        shutil.rmtree(staging_dir, ignore_errors=True)
+    watch_stop = getattr(session, "_source_watch_stop", None)
+    watch_thread = getattr(session, "_source_watch_thread", None)
+    if watch_stop is not None:
+        watch_stop.set()
+    if watch_thread is not None and watch_thread is not threading.current_thread():
+        watch_thread.join(timeout=2.0)
+    drop_staging_dir = getattr(session, "_drop_staging_dir", None)
+    if drop_staging_dir:
+        shutil.rmtree(drop_staging_dir, ignore_errors=True)
+    if getattr(session, "_source_staging_dirs", []):
+        from arrayview._source_safety import cleanup_staging_directory
+
+        for staging_dir in dict.fromkeys(session._source_staging_dirs):
+            cleanup_staging_directory(staging_dir)
 
     try:
         from arrayview._routes_persistence import _CROP_LOCK, _CROP_STATE

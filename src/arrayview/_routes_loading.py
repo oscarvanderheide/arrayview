@@ -27,6 +27,15 @@ from arrayview._session import (
     upgrade_memmap_in_background,
     wait_for_session_ready,
 )
+from arrayview._source_safety import (
+    cleanup_staging_directory,
+    direct_network_mount,
+    lexical_abspath,
+    network_mount_below,
+    scan_root_before_magic,
+    source_may_require_sibling_discovery,
+    validated_staging_directory,
+)
 
 
 _RELAY_DISPLAY_ACK_TIMEOUT_SECONDS = 195.0
@@ -123,7 +132,48 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         filepath = str(body.get("filepath") or (dir_patterns or [""])[0])
         name = str(body.get("name") or os.path.basename(filepath))
         notify = bool(body.get("notify", False))
-        abs_path = os.path.abspath(filepath)
+        abs_path = lexical_abspath(filepath)
+        claimed_staging = body.get("source_staging_dir")
+        staging_dir = validated_staging_directory(abs_path, claimed_staging)
+        if claimed_staging and staging_dir is None:
+            raise HTTPException(status_code=400, detail="invalid source staging directory")
+        unsafe_mount = direct_network_mount(abs_path)
+        if unsafe_mount is not None:
+            return {
+                "error": (
+                    f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
+                    "is refused. Launch the file through the arrayview CLI so it can "
+                    "be staged safely."
+                )
+            }
+        nested_source_mount = network_mount_below(abs_path)
+        if nested_source_mount is not None:
+            return {
+                "error": (
+                    f"Source discovery would enter network mount "
+                    f"{nested_source_mount.mountpoint!r}; copy the collection locally first."
+                )
+            }
+        if source_may_require_sibling_discovery(abs_path):
+            nested_sibling_mount = network_mount_below(os.path.dirname(abs_path))
+            if nested_sibling_mount is not None:
+                return {
+                    "error": (
+                        f"Related-file discovery would enter network mount "
+                        f"{nested_sibling_mount.mountpoint!r}; copy the series locally first."
+                    )
+                }
+        for pattern in dir_patterns or []:
+            pattern_path = lexical_abspath(str(pattern))
+            scan_root = scan_root_before_magic(pattern_path)
+            unsafe_mount = direct_network_mount(scan_root) or network_mount_below(scan_root)
+            if unsafe_mount is not None:
+                return {
+                    "error": (
+                        f"Directory scan would enter network mount "
+                        f"{unsafe_mount.mountpoint!r}; copy the collection locally first."
+                    )
+                }
         if requested_sid in CANCELLED_PENDING_SESSIONS:
             CANCELLED_PENDING_SESSIONS.discard(requested_sid)
             raise HTTPException(status_code=409, detail="load request was cancelled")
@@ -294,8 +344,19 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     session.related_release_sids = [
                         str(value) for value in body.get("related_sids", [])
                     ]
+                    if staging_dir:
+                        session._source_staging_dirs = [str(staging_dir)]
                     upgrade_memmap_in_background(session)
-                    commit_pending_session(sid, session)
+                    committed = commit_pending_session(sid, session)
+                    if not committed and staging_dir:
+                        cleanup_staging_directory(staging_dir)
+                    if committed and body.get("watch"):
+                        import arrayview._session as _session_mod
+                        from ._watch import attach_file_watch
+
+                        attach_file_watch(
+                            session, filepath, _session_mod.SERVER_PORT or 8000
+                        )
                 except Exception as exc:
                     # Keep the server alive, and record why this sid will never
                     # become ready. Without the record the opener cannot tell a
@@ -305,6 +366,8 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
 
                     traceback.print_exc()
                     FAILED_PENDING_SESSIONS[sid] = str(exc) or exc.__class__.__name__
+                    if staging_dir:
+                        cleanup_staging_directory(staging_dir)
                 finally:
                     PENDING_SESSIONS.discard(sid)
                     CANCELLED_PENDING_SESSIONS.discard(sid)
@@ -356,10 +419,17 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 select=body.get("select"),
             ) if not dir_patterns else (data, spatial_meta)
         except Exception as e:
+            if staging_dir:
+                cleanup_staging_directory(staging_dir)
             return {"error": str(e)}
-        session = await asyncio.to_thread(
-            Session, data, filepath=None if dir_patterns else filepath, name=name
-        )
+        try:
+            session = await asyncio.to_thread(
+                Session, data, filepath=None if dir_patterns else filepath, name=name
+            )
+        except Exception as e:
+            if staging_dir:
+                cleanup_staging_directory(staging_dir)
+            return {"error": str(e)}
         if requested_sid:
             session.sid = requested_sid
         session.release_on_disconnect = bool(
@@ -368,8 +438,15 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         session.related_release_sids = [
             str(value) for value in body.get("related_sids", [])
         ]
+        if staging_dir:
+            session._source_staging_dirs = [str(staging_dir)]
         if not dir_patterns:
-            signature_after_load = file_signature(abs_path)
+            try:
+                signature_after_load = file_signature(abs_path)
+            except Exception as e:
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
+                return {"error": str(e)}
             if signature_before_load == signature_after_load:
                 session.file_signature = signature_after_load
         if dir_patterns:
@@ -385,14 +462,21 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             try:
                 await asyncio.to_thread(setup_rgb, session)
             except ValueError as e:
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
                 return {"error": str(e)}
         overlay_sids = []
         overlay_names = []
         overlay_sessions = []
         for item in dir_overlay_items if dir_patterns else []:
-            overlay_session = await asyncio.to_thread(
-                Session, item["data"], filepath=None, name=item["name"]
-            )
+            try:
+                overlay_session = await asyncio.to_thread(
+                    Session, item["data"], filepath=None, name=item["name"]
+                )
+            except Exception as e:
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
+                return {"error": str(e)}
             overlay_sessions.append(overlay_session)
             overlay_sids.append(overlay_session.sid)
             overlay_names.append(item["name"])
@@ -405,11 +489,18 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 [session, *overlay_sessions],
             ):
                 CANCELLED_PENDING_SESSIONS.discard(session.sid)
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
                 return {"error": "load request was cancelled"}
         else:
             SESSIONS[session.sid] = session
             for overlay_session in overlay_sessions:
                 SESSIONS[overlay_session.sid] = overlay_session
+        if body.get("watch"):
+            import arrayview._session as _session_mod
+            from ._watch import attach_file_watch
+
+            attach_file_watch(session, filepath, _session_mod.SERVER_PORT or 8000)
         notified = False
         if notify:
             tab_url = None

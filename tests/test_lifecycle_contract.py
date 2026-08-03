@@ -2,10 +2,27 @@ from pathlib import Path
 import os
 import sys
 from threading import Thread as RealThread
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+
+
+def test_atomic_session_group_rejects_cancelled_related_sid(monkeypatch):
+    import arrayview._lifecycle as lifecycle
+    import arrayview._session as session_mod
+
+    primary = SimpleNamespace(sid="primary")
+    overlay = SimpleNamespace(sid="overlay")
+    monkeypatch.setattr(session_mod, "CANCELLED_PENDING_SESSIONS", {"overlay"})
+    monkeypatch.setattr(lifecycle, "CANCELLED_PENDING_SESSIONS", {"overlay"})
+    monkeypatch.setattr(lifecycle, "SESSIONS", {})
+
+    assert not lifecycle.commit_session_group_unless_cancelled(
+        primary.sid, [primary, overlay]
+    )
+    assert lifecycle.SESSIONS == {}
 
 
 def _run_async_in_thread(coro_factory):
@@ -1359,6 +1376,7 @@ def test_transient_waiter_notices_quick_viewer_connect_close(monkeypatch):
 
     session_mod.VIEWER_SOCKETS = 0
     session_mod.VIEWER_CONNECTIONS_SEEN = 0
+    monkeypatch.setitem(session_mod.SESSIONS, "waiting", object())
     sleeps = []
 
     def _sleep(_seconds):

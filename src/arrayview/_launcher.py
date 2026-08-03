@@ -34,6 +34,15 @@ def _print_failure(message: str, stream=None) -> None:
 
     print_failure(message, stream if stream is not None else sys.stdout)
 
+
+def _cleanup_source_staging_dirs(directories: dict[str, str] | None) -> None:
+    if not directories:
+        return
+    from arrayview._source_safety import cleanup_staging_directory
+
+    for directory in set(directories.values()):
+        cleanup_staging_directory(directory)
+
 # ---------------------------------------------------------------------------
 # Imports from sibling modules
 # ---------------------------------------------------------------------------
@@ -1260,8 +1269,9 @@ def _release_remote_sessions(
     *,
     expected_server_id: str,
     host: str = _LOOPBACK_HOST,
-) -> None:
-    """Best-effort rollback fenced to the server that created the leases."""
+) -> bool:
+    """Release leases on the creating server and report whether all were acknowledged."""
+    released = True
     for sid in reversed(sids):
         request = urllib.request.Request(
             f"http://{host}:{port}/release/{sid}",
@@ -1275,7 +1285,8 @@ def _release_remote_sessions(
             with urllib.request.urlopen(request, timeout=10) as response:
                 response.read()
         except Exception:
-            pass
+            released = False
+    return released
 
 
 def _load_session_from_filepath(
@@ -1297,6 +1308,8 @@ def _load_session_from_filepath(
     native_request_id: str | None = None,
     release_on_disconnect: bool = False,
     related_sids: list[str] | None = None,
+    source_staging_dir: str | None = None,
+    watch: bool = False,
 ) -> dict:
     requested_sid = uuid.uuid4().hex
     payload = {
@@ -1307,6 +1320,10 @@ def _load_session_from_filepath(
         "release_on_disconnect": release_on_disconnect,
         "related_sids": related_sids or [],
     }
+    if source_staging_dir:
+        payload["source_staging_dir"] = source_staging_dir
+    if watch:
+        payload["watch"] = True
     if rgb:
         payload["rgb"] = True
     if dir_patterns:
@@ -1361,12 +1378,15 @@ def _attach_vectorfield_to_session(
     *,
     components_dim: int | None = None,
     expected_server_id: str | None = None,
+    source_staging_dir: str | None = None,
 ) -> dict:
     payload = {
         "sid": sid,
         "filepath": filepath,
         "components_dim": components_dim,
     }
+    if source_staging_dir:
+        payload["source_staging_dir"] = source_staging_dir
     if expected_server_id is not None:
         payload["expected_server_id"] = expected_server_id
     return _server_json_request(
@@ -1490,6 +1510,7 @@ def _load_compare_sids(
     *,
     expected_server_id: str | None = None,
     loaded_sids: list[str] | None = None,
+    source_staging_dirs: dict[str, str] | None = None,
 ) -> list[str]:
     compare_sids: list[str] = []
     for compare_file in compare_files:
@@ -1498,6 +1519,7 @@ def _load_compare_sids(
             compare_file,
             os.path.basename(compare_file),
             expected_server_id=expected_server_id,
+            source_staging_dir=(source_staging_dirs or {}).get(compare_file),
         )
         if "error" in cmp_result:
             raise RuntimeError(
@@ -1595,8 +1617,6 @@ def _open_cli_existing_server_view(
                 **fallback_kwargs,
             )
         return
-    if watch:
-        _start_watch_thread(base_file, sid, port)
     if launch_context is not None and launch_context.plan.display.value == "none":
         return
     _open_browser(
@@ -1638,6 +1658,8 @@ def _register_cli_session_with_existing_server_impl(
     background_base: bool = False,
     expected_server_id: str | None = None,
     native_request_id: str | None = None,
+    source_staging_dirs: dict[str, str] | None = None,
+    watch: bool = False,
     _loaded_sids: list[str],
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
@@ -1651,6 +1673,7 @@ def _register_cli_session_with_existing_server_impl(
             os.path.abspath(ov_path),
             ov_name,
             expected_server_id=expected_server_id,
+            source_staging_dir=(source_staging_dirs or {}).get(ov_path),
         )
         if "error" in ov_result:
             raise RuntimeError(
@@ -1668,6 +1691,7 @@ def _register_cli_session_with_existing_server_impl(
         compare_files,
         expected_server_id=expected_server_id,
         loaded_sids=_loaded_sids,
+        source_staging_dirs=source_staging_dirs,
     )
     notify_native_shell = _should_notify_native_shell(use_native_shell, overlay_sid)
     result = _load_session_from_filepath(
@@ -1688,6 +1712,8 @@ def _register_cli_session_with_existing_server_impl(
         native_request_id=native_request_id,
         release_on_disconnect=True,
         related_sids=[*compare_sids, *overlay_sids_list],
+        source_staging_dir=(source_staging_dirs or {}).get(base_file),
+        watch=watch,
     )
     if "error" in result:
         error = str(result["error"])
@@ -1711,6 +1737,7 @@ def _register_cli_session_with_existing_server_impl(
             os.path.abspath(vectorfield),
             components_dim=vfield_components_dim,
             expected_server_id=expected_server_id,
+            source_staging_dir=(source_staging_dirs or {}).get(vectorfield),
         )
         if "error" in vf_result:
             raise RuntimeError(
@@ -1777,6 +1804,7 @@ def _handle_cli_existing_server(
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
     cleanup_dir: str | None = None,
+    source_staging_dirs: dict[str, str] | None = None,
 ) -> None:
     _trace_launch_event("server.decision", decision="reuse", port=port)
     expected_server_id = (
@@ -1812,6 +1840,8 @@ def _handle_cli_existing_server(
             ),
             expected_server_id=expected_server_id,
             native_request_id=native_request_id,
+            source_staging_dirs=source_staging_dirs,
+            watch=watch,
         )
         # Inside this try on purpose: the generated bundle is removed in the
         # finally below, and these sessions read from it.
@@ -1887,6 +1917,7 @@ def _handle_cli_existing_server(
                     collection_load=collection_load,
                     collection_stack=collection_stack,
                     overlay_names=overlay_names,
+                    source_staging_dirs=source_staging_dirs,
                 )
                 return
         if os.path.isdir(base_file) and "Unsupported format" in str(e):
@@ -1950,6 +1981,26 @@ def _handle_cli_existing_server(
                 else {}
             ),
         )
+        if (
+            launch_context is not None
+            and launch_context.plan.display.value == "none"
+            and expected_server_id is not None
+        ):
+            no_display_sids = [str(session_info["sid"])]
+            no_display_sids.extend(str(value) for value in session_info["compare_sids"])
+            no_display_sids.extend(
+                value
+                for value in str(session_info["overlay_sid"] or "").split(",")
+                if value
+            )
+            if not all(_wait_for_server_session(port, value) for value in no_display_sids):
+                raise RuntimeError("No-display session group failed before registration completed")
+            if not _release_remote_sessions(
+                port,
+                no_display_sids,
+                expected_server_id=expected_server_id,
+            ):
+                raise RuntimeError("ArrayView could not confirm no-display session cleanup")
     except Exception:
         if expected_server_id is not None:
             rollback_sids = [str(session_info["sid"])]
@@ -1966,6 +2017,7 @@ def _handle_cli_existing_server(
                 rollback_sids,
                 expected_server_id=expected_server_id,
             )
+        _cleanup_source_staging_dirs(source_staging_dirs)
         raise
 
 
@@ -1995,6 +2047,7 @@ def _handle_cli_spawned_daemon(
     collection_stack: str = "auto",
     overlay_names: list[str] | None = None,
     cleanup_dir: str | None = None,
+    source_staging_dirs: dict[str, str] | None = None,
     launch_context=None,
 ) -> None:
     sid = uuid.uuid4().hex
@@ -2056,6 +2109,7 @@ def _handle_cli_spawned_daemon(
                 collection_stack=collection_stack,
                 overlay_names=resolved_overlay_names,
                 cleanup_dir=cleanup_dir,
+                source_staging_dirs=source_staging_dirs,
             )
             return
 
@@ -2109,6 +2163,8 @@ def _handle_cli_spawned_daemon(
             f" collection_load={repr(collection_load)},"
             f" collection_stack={repr(collection_stack)},"
             f" cleanup_dir={repr(cleanup_dir)},"
+            f" source_staging_dirs={repr(source_staging_dirs or {})},"
+            f" watch={watch},"
             f")"
         )
 
@@ -2150,6 +2206,7 @@ def _handle_cli_spawned_daemon(
 
         if not _wait_for_spawned_server(daemon_proc, port, timeout=15.0):
             _terminate_owned_process(daemon_proc)
+            _cleanup_source_staging_dirs(source_staging_dirs)
             if cleanup_dir is not None:
                 from arrayview._tutorial import cleanup_tutorial_bundle
 
@@ -2163,6 +2220,7 @@ def _handle_cli_spawned_daemon(
         daemon_identity = _server_runtime_identity(port)
         if daemon_identity is None or daemon_identity[0] is None:
             _terminate_owned_process(daemon_proc)
+            _cleanup_source_staging_dirs(source_staging_dirs)
             if cleanup_dir is not None:
                 from arrayview._tutorial import cleanup_tutorial_bundle
 
@@ -2185,6 +2243,7 @@ def _handle_cli_spawned_daemon(
         bundled_compare_sid,
     ):
         _terminate_owned_process(daemon_proc)
+        _cleanup_source_staging_dirs(source_staging_dirs)
         if cleanup_dir is not None:
             from arrayview._tutorial import cleanup_tutorial_bundle
 
@@ -2204,6 +2263,7 @@ def _handle_cli_spawned_daemon(
         )
     except Exception as e:
         _terminate_owned_process(daemon_proc)
+        _cleanup_source_staging_dirs(source_staging_dirs)
         if cleanup_dir is not None:
             from arrayview._tutorial import cleanup_tutorial_bundle
 
@@ -2236,8 +2296,27 @@ def _handle_cli_spawned_daemon(
             ),
             expected_server_id=daemon_server_id,
         )
+        if (
+            launch_context is not None
+            and launch_context.plan.display.value == "none"
+            and daemon_server_id is not None
+        ):
+            no_display_sids = [sid, *(compare_sids or []), *overlay_sids]
+            no_display_sids = [str(value) for value in no_display_sids if value]
+            if not all(
+                _wait_for_registered_session(daemon_proc, port, value)
+                for value in no_display_sids
+            ):
+                raise RuntimeError("No-display session group failed before registration completed")
+            if not _release_remote_sessions(
+                port,
+                no_display_sids,
+                expected_server_id=daemon_server_id,
+            ):
+                raise RuntimeError("ArrayView could not confirm no-display session cleanup")
     except Exception:
         _terminate_owned_process(daemon_proc)
+        _cleanup_source_staging_dirs(source_staging_dirs)
         if cleanup_dir is not None:
             from arrayview._tutorial import cleanup_tutorial_bundle
 
@@ -2314,8 +2393,6 @@ def _open_cli_spawned_view(
             flush=True,
         )
     _print_viewer_location(url, **route_kwargs)
-    if watch:
-        _start_watch_thread(base_file, sid, port)
     if launch_context is not None and launch_context.plan.display.value == "none":
         return
     _open_browser(
@@ -2503,6 +2580,25 @@ def _wait_for_registered_session(
         try:
             if proc.poll() is not None:
                 return False
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                if response.status == 200:
+                    response.read()
+                    return True
+        except urllib.error.HTTPError as exc:
+            if exc.code == 422:
+                return False
+        except (OSError, urllib.error.URLError):
+            pass
+        time.sleep(0.02)
+    return False
+
+
+def _wait_for_server_session(port: int, sid: str, *, timeout: float = 30.0) -> bool:
+    """Wait for an existing server's pending session to become queryable."""
+    deadline = time.monotonic() + timeout
+    url = f"http://{_LOOPBACK_HOST}:{port}/metadata/{sid}"
+    while time.monotonic() < deadline:
+        try:
             with urllib.request.urlopen(url, timeout=1.0) as response:
                 if response.status == 200:
                     response.read()
@@ -3997,6 +4093,8 @@ def _wait_for_viewer_close(
         _sm.VIEWER_SOCKETS == 0
         and _sm.VIEWER_CONNECTIONS_SEEN == connections_before
     ):
+        if not _sm.SESSIONS and not _sm.PENDING_SESSIONS:
+            return
         if connect_deadline is not None and time.monotonic() >= connect_deadline:
             return
         time.sleep(0.2)
@@ -4365,6 +4463,8 @@ def _serve_daemon(
     collection_load: str = "lazy",
     collection_stack: str = "auto",
     cleanup_dir: str | None = None,
+    source_staging_dirs: dict[str, str] | None = None,
+    watch: bool = False,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -4372,6 +4472,7 @@ def _serve_daemon(
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
     sid_tag = _launch_trace_tag(sid)
+    source_staging_dirs = source_staging_dirs or {}
     _trace_launch_event(
         "daemon.started",
         port=port,
@@ -4382,6 +4483,8 @@ def _serve_daemon(
     _session_mod.PENDING_SESSIONS.add(sid)
     if compare_sid:
         _session_mod.PENDING_SESSIONS.add(compare_sid)
+    for overlay_sid in overlay_sids or []:
+        _session_mod.PENDING_SESSIONS.add(overlay_sid)
     _pending_event = threading.Event()
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
@@ -4481,6 +4584,8 @@ def _serve_daemon(
             session = _session_mod.Session(
                 data, filepath=None if cleanup else filepath, name=name
             )
+            if filepath in source_staging_dirs:
+                session._source_staging_dirs = [source_staging_dirs[filepath]]
             session.sid = sid
             if signature_before_load is not None:
                 signature_after_load = file_signature(filepath)
@@ -4504,24 +4609,34 @@ def _serve_daemon(
 
                     vf_data = load_data(vfield_filepath)
                     _configure_vectorfield(session, vf_data, vfield_components_dim)
+                    if vfield_filepath in source_staging_dirs:
+                        directories = list(
+                            getattr(session, "_source_staging_dirs", [])
+                        )
+                        directories.append(source_staging_dirs[vfield_filepath])
+                        session._source_staging_dirs = directories
                     _vprint(
                         f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape} component_axis={session.vfield_component_dim}",
                         flush=True,
                     )
                 except Exception as e:
+                    if vfield_filepath in source_staging_dirs:
+                        _cleanup_source_staging_dirs(
+                            {vfield_filepath: source_staging_dirs[vfield_filepath]}
+                        )
                     _vprint(
                         f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
                         flush=True,
                     )
             _session_mod.upgrade_memmap_in_background(session)
-            _session_mod.SESSIONS[session.sid] = session
+            sessions_to_commit = [session]
             if dir_overlay_items is not None:
                 for item, ov_sid in zip(dir_overlay_items, overlay_sids or []):
                     ov_session = _session_mod.Session(
                         item["data"], filepath=None, name=item["name"]
                     )
                     ov_session.sid = ov_sid
-                    _session_mod.SESSIONS[ov_sid] = ov_session
+                    sessions_to_commit.append(ov_session)
             resolved_overlay_names = overlay_names or [
                 os.path.basename(path) or f"overlay {i + 1}"
                 for i, path in enumerate(overlay_filepaths or [])
@@ -4534,12 +4649,23 @@ def _serve_daemon(
                     ov_session = _session_mod.Session(
                         ov_data, filepath=ov_path, name=ov_name
                     )
+                    if ov_path in source_staging_dirs:
+                        ov_session._source_staging_dirs = [
+                            source_staging_dirs[ov_path]
+                        ]
                     ov_session.sid = ov_sid
-                    _session_mod.SESSIONS[ov_sid] = ov_session
+                    sessions_to_commit.append(ov_session)
                 except Exception as e:
+                    if ov_path in source_staging_dirs:
+                        _cleanup_source_staging_dirs(
+                            {ov_path: source_staging_dirs[ov_path]}
+                        )
                     _vprint(
                         f"[ArrayView] Warning: failed to load overlay {ov_path}: {e}",
                         flush=True,
+                    )
+                    _session_mod.FAILED_PENDING_SESSIONS[ov_sid] = (
+                        str(e) or type(e).__name__
                     )
             if compare_filepath and compare_sid:
                 try:
@@ -4548,9 +4674,21 @@ def _serve_daemon(
                     cmp_session = _session_mod.Session(
                         cmp_data, filepath=compare_filepath, name=cmp_name
                     )
+                    if compare_filepath in source_staging_dirs:
+                        cmp_session._source_staging_dirs = [
+                            source_staging_dirs[compare_filepath]
+                        ]
                     cmp_session.sid = compare_sid
-                    _session_mod.SESSIONS[compare_sid] = cmp_session
+                    sessions_to_commit.append(cmp_session)
                 except Exception as e:
+                    if compare_filepath in source_staging_dirs:
+                        _cleanup_source_staging_dirs(
+                            {
+                                compare_filepath: source_staging_dirs[
+                                    compare_filepath
+                                ]
+                            }
+                        )
                     _session_mod.FAILED_PENDING_SESSIONS[compare_sid] = (
                         str(e) or type(e).__name__
                     )
@@ -4558,6 +4696,18 @@ def _serve_daemon(
                         f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                         flush=True,
                     )
+            from arrayview._lifecycle import commit_session_group_unless_cancelled
+
+            session.related_release_sids = [
+                related.sid for related in sessions_to_commit if related.sid != session.sid
+            ]
+            if not commit_session_group_unless_cancelled(sid, sessions_to_commit):
+                _cleanup_source_staging_dirs(source_staging_dirs)
+                return
+            if watch:
+                from arrayview._watch import attach_file_watch
+
+                attach_file_watch(session, filepath, port)
             _trace_launch_event("session.ready", sid_tag=sid_tag)
         except Exception as exc:
             _trace_launch_event(
@@ -4582,6 +4732,8 @@ def _serve_daemon(
             _session_mod.PENDING_SESSIONS.discard(sid)
             if compare_sid:
                 _session_mod.PENDING_SESSIONS.discard(compare_sid)
+            for overlay_sid in overlay_sids or []:
+                _session_mod.PENDING_SESSIONS.discard(overlay_sid)
             _pending_event.set()
             _session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
             if cleanup_dir is not None:
@@ -4613,6 +4765,7 @@ def _serve_daemon(
             registry.remove(record.instance_id)
         except Exception:
             pass
+        _cleanup_source_staging_dirs(source_staging_dirs)
         os._exit(0)
 
     threading.Thread(target=_exit_if_initial_load_failed, daemon=True).start()
@@ -4644,6 +4797,7 @@ def _serve_daemon(
         "server.unregistered",
         instance_tag=_launch_trace_tag(record.instance_id),
     )
+    _cleanup_source_staging_dirs(source_staging_dirs)
     os._exit(0)
 
 
@@ -4688,48 +4842,6 @@ def _make_demo_array() -> "np.ndarray":
         arr[:, :, ti, 2] = (b * 255.0).astype(np.float32)
 
     return arr
-
-
-def _start_watch_thread(filepath: str, sid: str, port: int) -> None:
-    """Start a background thread that watches *filepath* for mtime changes.
-
-    On each detected change the thread POSTs to /reload/{sid} on the local
-    server so the viewer automatically re-renders the updated array.
-    Runs as a daemon thread — exits automatically when the main process ends.
-    """
-    import urllib.request as _urlreq
-
-    def _watch():
-        try:
-            last_mtime = os.stat(filepath).st_mtime
-        except OSError:
-            return
-        while True:
-            time.sleep(1.0)
-            try:
-                mtime = os.stat(filepath).st_mtime
-            except OSError:
-                continue
-            if mtime != last_mtime:
-                last_mtime = mtime
-                try:
-                    req = _urlreq.Request(
-                        f"http://{_LOOPBACK_HOST}:{port}/reload/{sid}",
-                        data=b"",
-                        method="POST",
-                    )
-                    with _urlreq.urlopen(req, timeout=10) as resp:
-                        result = json.loads(resp.read())
-                    ver = result.get("version", "?")
-                    print(
-                        f"[ArrayView] File changed — reloaded (version {ver})",
-                        flush=True,
-                    )
-                except Exception as e:
-                    _vprint(f"[ArrayView] Watch reload error: {e}", flush=True)
-
-    t = threading.Thread(target=_watch, daemon=True)
-    t.start()
 
 
 # ── Config Subcommand ─────────────────────────────────────────────
@@ -5522,7 +5634,22 @@ def arrayview():
                 "Directory FILE input is incompatible with --compare, --overlay, "
                 "--vectorfield, and --watch."
             )
-        _stack_dir = os.path.abspath(args.files[0])
+        from arrayview._source_safety import (
+            direct_network_mount,
+            lexical_abspath,
+            network_mount_below,
+            scan_root_before_magic,
+        )
+
+        _stack_dir = lexical_abspath(args.files[0])
+        _stack_mount = direct_network_mount(_stack_dir)
+        _nested_stack_mount = network_mount_below(_stack_dir)
+        if _stack_mount is not None or _nested_stack_mount is not None:
+            _print_failure(
+                "network directory sources are not accessed directly. Copy the "
+                "directory to local storage before using a directory stack policy."
+            )
+            sys.exit(1)
         if not os.path.isdir(_stack_dir):
             _print_failure(f"not a directory: {_stack_dir}")
             sys.exit(1)
@@ -5550,13 +5677,22 @@ def arrayview():
             relay_port = int(relay_port_str)
         except ValueError:
             parser.error(f"--relay port must be an integer, got: {relay_port_str!r}")
-        relay_file = os.path.abspath(args.files[0])
-        if not os.path.isfile(relay_file):
-            _print_failure(f"file not found: {relay_file}")
+        from arrayview._source_safety import (
+            UnsafeSourceError,
+            cleanup_prepared_sources,
+            prepare_source,
+        )
+
+        try:
+            relay_source = prepare_source(args.files[0])
+        except UnsafeSourceError as exc:
+            _print_failure(str(exc))
             sys.exit(1)
-        relay_name = os.path.basename(relay_file)
+        relay_file = relay_source.launch_path
+        relay_name = os.path.basename(relay_source.original_path)
         relay_identity = _server_runtime_identity(relay_port, host=relay_host)
         if relay_identity is None or relay_identity[0] is None:
+            cleanup_prepared_sources([relay_source])
             print(
                 f"[ArrayView] No ArrayView server found on {relay_host}:{relay_port}.\n"
                 f"  Make sure the reverse tunnel is active:"
@@ -5576,6 +5712,8 @@ def arrayview():
         except Exception as e:
             print(f"[ArrayView] Relay failed: {e}", flush=True)
             sys.exit(1)
+        finally:
+            cleanup_prepared_sources([relay_source])
         return
 
     # -- --kill: deprecated alias for `arrayview stop` --
@@ -5675,7 +5813,30 @@ def arrayview():
         return
 
     if args.stack_mode:
-        dir_patterns = [os.path.abspath(p) for p in args.files]
+        from arrayview._source_safety import (
+            direct_network_mount,
+            lexical_abspath,
+            network_mount_below,
+            scan_root_before_magic,
+        )
+
+        dir_patterns = [lexical_abspath(p) for p in args.files]
+        collection_inputs = list(dir_patterns)
+        collection_inputs.extend(
+            pattern for _name, pattern in _normalize_dir_overlay_specs(args.overlay or [])
+        )
+        collection_inputs.extend(args.overlay_dir or [])
+        for pattern in collection_inputs:
+            pattern = lexical_abspath(pattern)
+            probe_prefix = scan_root_before_magic(pattern)
+            mount = direct_network_mount(probe_prefix)
+            nested_mount = network_mount_below(probe_prefix)
+            if mount is not None or nested_mount is not None:
+                _print_failure(
+                    "network directory collections are not accessed directly. "
+                    "Copy the collection to local storage before using --stack."
+                )
+                sys.exit(1)
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
         dir_overlay_specs = [
@@ -5723,6 +5884,8 @@ def arrayview():
         if args.dry_run:
             return
     else:
+        from arrayview._source_safety import lexical_abspath
+
         if args.overlay_dir:
             parser.error("--overlay-dir requires --stack.")
         try:
@@ -5733,12 +5896,85 @@ def arrayview():
         file_overlay_paths = [path for _name, path in file_overlay_specs]
         dir_patterns = None
         dir_overlay_specs = None
-        base_file = os.path.abspath(args.files[0])
-        compare_files = [os.path.abspath(p) for p in args.files[1:]]
+        base_file = lexical_abspath(args.files[0])
+        compare_files = [lexical_abspath(p) for p in args.files[1:]]
         if args.compare:
-            compare_files.append(os.path.abspath(args.compare))
+            compare_files.append(lexical_abspath(args.compare))
         data = spatial_meta = overlay_items = summary = None
         name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
+
+        from arrayview._source_safety import (
+            UnsafeSourceError,
+            cleanup_prepared_sources,
+            direct_network_mount,
+            prepare_source,
+        )
+
+        prepared_sources = []
+
+        def _prepare_cli_source(path: str) -> str:
+            absolute = lexical_abspath(path)
+            prepared = prepare_source(absolute)
+            prepared_sources.append(prepared)
+            return prepared.launch_path
+
+        original_base_file = base_file
+        original_base_mount = direct_network_mount(original_base_file)
+        if args.watch and original_base_mount is not None:
+            _print_failure(
+                "--watch is not supported for network-mounted sources because "
+                "polling can block forever after a disconnect. Launch without "
+                "--watch or copy the file to local storage first."
+            )
+            sys.exit(1)
+        try:
+            base_file = _prepare_cli_source(base_file)
+            compare_files = [_prepare_cli_source(path) for path in compare_files]
+            file_overlay_paths = [
+                _prepare_cli_source(path) for path in file_overlay_paths
+            ]
+            if args.vectorfield:
+                args.vectorfield = _prepare_cli_source(args.vectorfield)
+        except UnsafeSourceError as exc:
+            cleanup_prepared_sources(prepared_sources)
+            _print_failure(str(exc))
+            sys.exit(1)
+        source_staging_dirs = {
+            prepared.launch_path: prepared.staging_dir
+            for prepared in prepared_sources
+            if prepared.staging_dir is not None
+        }
+        import atexit
+
+        source_cleanup_owner = [True]
+
+        def _cleanup_unclaimed_sources() -> None:
+            if source_cleanup_owner[0]:
+                cleanup_prepared_sources(prepared_sources)
+
+        atexit.register(_cleanup_unclaimed_sources)
+
+    if not args.stack_mode:
+        from arrayview._source_safety import (
+            network_mount_below,
+            source_may_require_sibling_discovery,
+        )
+
+        nested_source_mount = network_mount_below(base_file)
+        nested_sibling_mount = (
+            network_mount_below(os.path.dirname(base_file))
+            if source_may_require_sibling_discovery(base_file)
+            else None
+        )
+        if nested_source_mount is not None or nested_sibling_mount is not None:
+            unsafe_mount = nested_source_mount or nested_sibling_mount
+            cleanup_prepared_sources(prepared_sources)
+            _print_failure(
+                f"source or related-file discovery would enter network mount "
+                f"{unsafe_mount.mountpoint!r}. Copy the collection or DICOM series "
+                "to local storage first."
+            )
+            sys.exit(1)
 
     if not args.stack_mode and os.path.isdir(base_file):
         from arrayview._dicom import is_dicom_source, resolve_dicom_series_path
@@ -6005,7 +6241,13 @@ def arrayview():
                 collection_load=args.load,
                 collection_stack=args.stack_policy or "auto",
                 cleanup_dir=getattr(args, "_tutorial_cleanup_dir", None),
+                source_staging_dirs=(
+                    source_staging_dirs if not args.stack_mode else None
+                ),
             )
+            if not args.stack_mode:
+                source_cleanup_owner[0] = False
+                atexit.unregister(_cleanup_unclaimed_sources)
             return
 
         demo_name = getattr(args, "_demo_name", None)
@@ -6037,7 +6279,13 @@ def arrayview():
             dir_exclude_cases=sorted(excluded_cases),
             collection_load=args.load,
             collection_stack=args.stack_policy or "auto",
+            source_staging_dirs=(
+                source_staging_dirs if not args.stack_mode else None
+            ),
         )
+        if not args.stack_mode:
+            source_cleanup_owner[0] = False
+            atexit.unregister(_cleanup_unclaimed_sources)
     except Exception as e:
         if args.trace or os.environ.get("ARRAYVIEW_TRACE"):
             raise

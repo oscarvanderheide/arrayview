@@ -39,6 +39,36 @@ uvx arrayview --watch data.npy              # reload on file change
 uvx arrayview --version                     # print version
 ```
 
+### Network-mounted source files
+
+On Linux, ArrayView checks the mount table before touching an explicit source.
+For recognized CIFS/SMB, NFS, SSHFS, and common network filesystems, it avoids
+direct access. CIFS mounts also use the kernel connection state, so a mount
+reported as disconnected or reconnecting fails immediately with a clear error.
+
+Healthy network-mounted files are copied once into local temporary storage by a
+bounded helper. The server, NIfTI proxy, and renderer then use the local
+snapshot. The snapshot is removed when its session or transient server
+is released. Network directory collections are not scanned directly; copy them
+locally before using `--stack`. `--watch` is also disabled for network sources,
+because polling a mount that disconnects later can block inside the kernel.
+Network DICOM inputs, including extensionless DICOM files, must be copied as a
+local series directory so sibling discovery remains complete. ArrayView only
+uses a staging root whose mount type is known to be local; it fails safely if
+no such temporary location is available.
+Network HDF5, MATLAB, PyTorch, and other containers that can refer to external
+paths are also refused; copy them locally first. Bounded network staging is
+limited to self-contained NIfTI and NumPy files.
+The staging deadline defaults to 30 seconds and can be changed with
+`ARRAYVIEW_SOURCE_TIMEOUT_SECONDS` for large files on healthy but slow links.
+
+This is preventive, not a way to recover an already stuck process. Linux tasks
+already sleeping in uninterruptible `D` state cannot be stopped by ArrayView or
+`kill -9`. The mount must recover or be detached. Mount-state detection also has
+an unavoidable race and cannot reliably see a network filesystem hidden behind
+a symlink or overlay without touching that target. Filesystems not identified as
+network-backed by Linux mount information use the normal direct-loading path.
+
 ## Python
 
 ```python
