@@ -4181,7 +4181,7 @@
             background: rgba(0,0,0,0.35);
         }
         #fft-spinner-overlay.visible { display: flex; }
-        #patient-loading-overlay {
+        #busy-overlay {
             /* Centred by transform rather than by subtracting half of a
                hard-coded size: the shared panel sizes to its caption, so the
                old fixed 190x36 assumption put it off-centre. */
@@ -4189,7 +4189,7 @@
             top: 50%; left: 50%; transform: translate(-50%, -50%);
             pointer-events: none;
         }
-        #patient-loading-overlay.visible { display: block; }
+        #busy-overlay.visible { display: block; }
         @keyframes av-patient-spin { to { transform: rotate(360deg); } }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
@@ -5291,7 +5291,7 @@
         <div id="render-progress"><div class="bar"></div></div>
         <div id="render-progress-text"></div>
         <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
-        <div id="patient-loading-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading patient…</span></div></div>
+        <div id="busy-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading…</span></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -6245,12 +6245,18 @@
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
         let pendingRequest = false;
-        let wsSlowTimer = null;   // show startup-style overlay for slow non-patient renders
+        let wsSlowTimer = null;   // show the busy panel for slow renders
         const WS_SLOW_THRESHOLD_MS = 80;
         const PATIENT_LOADING_THRESHOLD_MS = 80;
         let _displayedPatientIndex = null;
         let _patientLoadingIndex = null;
+        // Two independent sources can want the busy panel: a slow render of any
+        // kind, and a switch along the collection dimension. They keep separate
+        // flags so clearing one cannot hide the panel out from under the other;
+        // _reconcileUI ORs them. The startup logo (#loading-overlay) is not part
+        // of this — it plays once at page load and is never shown again.
         let _patientLoadingVisible = false;
+        let _slowRenderBusyVisible = false;
         let _patientLoadingTimer = null;
         let _mainRenderPatientIndex = null;
         let _compareRenderPatientIndex = null;
@@ -6312,6 +6318,19 @@
             _reconcileUI();
         }
 
+        // Called whenever a render stops being in flight — frame arrived, socket
+        // closed, or the request failed. Clearing only the timer is not enough:
+        // once the panel is up, the timer is already gone.
+        function _clearSlowRenderBusy() {
+            if (wsSlowTimer) {
+                clearTimeout(wsSlowTimer);
+                wsSlowTimer = null;
+            }
+            if (!_slowRenderBusyVisible) return;
+            _slowRenderBusyVisible = false;
+            _reconcileUI();
+        }
+
         let preloadPolling = null;
         let preloadActiveDim = -1;
         let statusFadeTimer = null;
@@ -6352,7 +6371,14 @@
         }
 
         function _playStartupAnimation() {
-            if (_startupAnimPlayed) return;
+            if (_startupAnimPlayed) {
+                // Nothing should re-show the splash now that slow renders use
+                // the busy panel. If something ever does, hide it rather than
+                // returning and leaving it stuck on screen forever.
+                const stale = document.getElementById('loading-overlay');
+                if (stale && stale.style.display !== 'none') hideLoadingOverlay();
+                return;
+            }
             _startupAnimPlayed = true;
 
             const ol = document.getElementById('loading-overlay');
@@ -14309,7 +14335,7 @@
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
                 const height = headerU32[2];
-                if (wsSlowTimer) { clearTimeout(wsSlowTimer); wsSlowTimer = null; }
+                _clearSlowRenderBusy();
                 if (compareActive) {
                     isRendering = false;
                     if (pendingRequest) {
@@ -14399,6 +14425,7 @@
                 _clearWsOpenTimer();
                 reportParent('ws-close', { sid });
                 _cancelPatientLoading(_mainRenderPatientIndex);
+                _clearSlowRenderBusy();
                 wsReady = false;
                 // Reset render-state so we don't get stuck when the socket
                 // closes while a render is in-flight (isRendering would
@@ -14686,6 +14713,7 @@
                 reportParent('http-render-error', { message: e.message || String(e) });
                 setStatus(`HTTP render failed: ${e.message || e}`);
             } finally {
+                _clearSlowRenderBusy();
                 isRendering = false;
                 if (pendingRequest) {
                     pendingRequest = false;
@@ -20324,15 +20352,18 @@
                 vf_t: hasVectorfield ? vfieldT : undefined,
                 perf: _PERF_ENABLED,
             }));
-            // Patient switches have their own non-layout-shifting indicator.
-            // Keep the existing slow-render overlay for all other requests.
-            if (_patientLoadingIndex === null) {
-                if (wsSlowTimer) clearTimeout(wsSlowTimer);
-                wsSlowTimer = setTimeout(() => {
-                    wsSlowTimer = null;
-                    if (isRendering) document.getElementById('loading-overlay').style.display = '';
-                }, WS_SLOW_THRESHOLD_MS);
-            }
+            // Every slow render uses the same non-layout-shifting busy panel.
+            // This used to re-show #loading-overlay, the startup splash, which
+            // only _playStartupAnimation can hide — and that runs once per page
+            // load. After startup the splash therefore came back and stayed up
+            // forever. Slow .nii.gz decompression made that easy to hit.
+            if (wsSlowTimer) clearTimeout(wsSlowTimer);
+            wsSlowTimer = setTimeout(() => {
+                wsSlowTimer = null;
+                if (!isRendering) return;
+                _slowRenderBusyVisible = true;
+                _reconcileUI();
+            }, WS_SLOW_THRESHOLD_MS);
         }
 
         let playLastFrameTime = 0;
@@ -35765,10 +35796,11 @@
             _reconcileDimbarExtent();
             _reconcileRoiColorbarControls();
             _reconcileMainLoupeState();
-            const patientLoadingOverlay = document.getElementById('patient-loading-overlay');
-            if (patientLoadingOverlay) {
-                patientLoadingOverlay.classList.toggle('visible', _patientLoadingVisible);
-                patientLoadingOverlay.setAttribute('aria-hidden', _patientLoadingVisible ? 'false' : 'true');
+            const busyOverlay = document.getElementById('busy-overlay');
+            if (busyOverlay) {
+                const busy = _patientLoadingVisible || _slowRenderBusyVisible;
+                busyOverlay.classList.toggle('visible', busy);
+                busyOverlay.setAttribute('aria-hidden', busy ? 'false' : 'true');
             }
             const renderProgress = document.getElementById('render-progress');
             if (renderProgress) {
