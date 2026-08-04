@@ -639,7 +639,13 @@ async function _fastLoadViaDaemon(filePath, title) {
         return false;
     }
     const resolvedSid = loadResult.sid;
-    const url = `http://localhost:${port}/?sid=${encodeURIComponent(resolvedSid)}`;
+    // av_name lets the viewer title its tab while the HTML parses, instead of
+    // showing the bare host until metadata arrives over the WebSocket — which
+    // waits on the array load, seconds for a large file. This must be the same
+    // string sent as loadPayload.name, because that becomes the session name
+    // the metadata later carries; a mismatch retitles the tab a second time.
+    const url = `http://localhost:${port}/?sid=${encodeURIComponent(resolvedSid)}`
+        + `&av_name=${encodeURIComponent(loadPayload.name)}`;
     const requestId = crypto.randomBytes(16).toString('hex');
     const ackPath = path.join(SIGNAL_DIR, `open-ack-v0100-${requestId}.json`);
     const signalPayload = {
@@ -3235,6 +3241,10 @@ async function _processSignalDataBody(
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
+            // Dispose only after the browser tab is open. Closing it earlier
+            // disposes the panel VS Code is still resolving in
+            // resolveCustomEditor, which fails the click outright with
+            // "OverlayWebview has been disposed". Tried 2026-08-04, reverted.
             if (integratedBrowserPlaceholder) {
                 const { filePath, placeholder } = integratedBrowserPlaceholder;
                 if (_pendingPlaceholders.get(filePath) === placeholder) {
