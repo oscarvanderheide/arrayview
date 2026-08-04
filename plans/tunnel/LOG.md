@@ -1997,3 +1997,85 @@ threshold.
 
 **Cause of the blank navigation remains unidentified. No behavioural change is
 justified until it is measured.**
+
+## Session started: 2026-08-04 (evening)
+
+### Hypothesis tested: the placeholder close was killing the navigation
+
+**Disproven.** Recorded here so it is not retried as-is.
+
+Reasoning: `processSignalData` disposed the custom-editor placeholder in the
+same tick the browser command returned — i.e. while the new tab was still
+navigating. Disposing a webview at that moment looked like a plausible way to
+drop the navigation, and it would have tied the blank-page failures to the
+visible double-tab flicker.
+
+Change under test (opener 0.15.21, then 0.15.22): hold the dispose until the
+viewer script is first seen, via a new `onScriptLoaded` callback threaded
+through `waitForBackendViewerReady`, with a 15 s leak guard.
+
+| build | opens | first attempt died | rate |
+|-------|-------|--------------------|------|
+| 0.15.20 and earlier | 27 | 5 | 19% |
+| 0.15.21 (test run)  | 13 | 0 | 0% |
+| 0.15.22 (after)     |  8 | 1 | 12% |
+
+The 0-in-13 was luck. At the observed 19% rate, P(0 failures in 13) = 7%, which
+was computed at the time and then reported as "this appears to have been it".
+It should have been reported as underpowered, and the run continued.
+
+**The decisive counterexample** is `coil_sensitivities.npy` at 20:19:45
+(`377e84c5`): tab opened 45.31, blank close + retry at 46.97, blank close +
+retry again at 48.63, `script-loaded` finally at 49.29. The placeholder was
+**still open for all of it** — `closed placeholder ... (viewer page loaded)` is
+logged at 49.29, after every retry. So the disposal the hypothesis blamed had
+not happened, and the navigation still died twice consecutively.
+
+Two back-to-back retry failures also argue against any one-shot race.
+
+The 0.15.22 ordering is kept: closing after the page loads is the safer order
+regardless, and it does remove the visible two-tab overlap. It is **not** a fix
+for the blank navigations and must not be recorded as one.
+
+### Method notes
+
+- `plans/tunnel/LOG.md` was not read before starting this investigation, and it
+  already ended with "cause of the blank navigation remains unidentified; no
+  behavioural change is justified until it is measured." The prior entry's point
+  that **the 1.5 s cadence censors its own evidence** is directly relevant and
+  was re-derived from scratch hours later. `[[feedback-read-router-and-tunnel-log-first]]`
+  exists for exactly this and was still skipped.
+- Useful measurement that did work, worth reusing: classify each navigation from
+  `~/.arrayview/launch-trace.jsonl` by grouping on `navigation_key_tag` and
+  asking whether `page.route_entered` ever appeared before `page.route_retired`.
+  This splits the failures cleanly:
+
+  | outcome | count |
+  |---------|-------|
+  | tab opened, page never requested | 6 |
+  | tab opened, page served, nothing ran | 2 |
+
+  The dominant mode is that the document is **never fetched at all** — the
+  request does not reach the backend. Anything server-side is therefore ruled
+  out for those, and instrumentation belongs on the VS Code side of the
+  navigation.
+
+### Still unexplained
+
+- Why a `simpleBrowser.show` navigation sometimes never issues a document
+  request, twice in a row for the same request.
+- Whether the two "served but nothing ran" cases share a cause with the six
+  "never requested" ones, or are a separate failure.
+- Whether the 1.5 s threshold is defensible; per the earlier entry, the data
+  cannot answer this while the threshold itself removes the counterexamples.
+  Measuring it needs a build that observes without closing.
+
+### Unrelated fixes landed this session
+
+- `e92a92c` — viewer socket is accepted before the array finishes loading. It
+  previously waited, so the page saw silence and reported "could not connect"
+  for any array slower than its retry budget. This is the Jupyter-inline failure
+  a colleague hit.
+- `cc58453` — tab is named as the page parses, from `av_name` on the URL.
+- `7802cf1` — the eager `.npy` read reports progress; only reachable because the
+  socket now opens before the read finishes.
