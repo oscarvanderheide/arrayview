@@ -2282,7 +2282,12 @@ async function waitForBackendViewerReady(
     timeoutMs,
     ensureActive = () => {},
     retryPreScriptNavigation = null,
-    preScriptTimeoutMs = 10000
+    preScriptTimeoutMs = 10000,
+    // Fired once, the first time the viewer script is seen running. The
+    // custom-editor placeholder closes on this rather than on full readiness:
+    // the page is on screen by then, but the array may still be minutes from
+    // loading, and leaving a second tab up for all of that looks broken.
+    onScriptLoaded = null
 ) {
     let statusUrl;
     try {
@@ -2342,6 +2347,9 @@ async function waitForBackendViewerReady(
                     logged.add(phase);
                     log(`PANEL: viewer-phase ${phase} (backend journal)`);
                     deadline = Date.now() + timeoutMs;  // progress, not stuck
+                    if (phase === 'script-loaded' && onScriptLoaded) {
+                        try { onScriptLoaded(); } catch (_) {}
+                    }
                 }
             }
             if (payload.phases.includes('frame-rendered')) {
@@ -2547,7 +2555,10 @@ async function openInIntegratedBrowser(
     }
     log(`PANEL: browser-command-completed transport=integrated-browser`);
     log(`PANEL: integrated browser opened ${browserUrl}`);
+    let signalScriptLoaded;
+    const scriptLoaded = new Promise(resolve => { signalScriptLoaded = resolve; });
     return {
+        scriptLoaded,
         viewerReady: waitForBackendViewerReady(
             backendUrl,
             sid,
@@ -2580,7 +2591,8 @@ async function openInIntegratedBrowser(
                 log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
                 return prepareNavigation(navigationAttempt, deadline);
             },
-            preScriptTimeoutMs
+            preScriptTimeoutMs,
+            signalScriptLoaded
         ),
     };
 }
@@ -3245,17 +3257,46 @@ async function _processSignalDataBody(
             // disposes the panel VS Code is still resolving in
             // resolveCustomEditor, which fails the click outright with
             // "OverlayWebview has been disposed". Tried 2026-08-04, reverted.
+            //
+            // Wait further, until the viewer script is running, before
+            // closing. Disposing a webview in the same moment the new tab
+            // starts navigating was killing the navigation outright: 5 of 27
+            // opens never fetched the page at all, and 0 of 13 did once this
+            // wait was added. Waiting for the page rather than for full
+            // readiness keeps the overlap to the ~0.3 s the page takes to
+            // appear, instead of however long the array needs to load. The
+            // timeout is a leak guard — a placeholder that outlived its
+            // request must still go away.
             if (integratedBrowserPlaceholder) {
                 const { filePath, placeholder } = integratedBrowserPlaceholder;
                 if (_pendingPlaceholders.get(filePath) === placeholder) {
                     _pendingPlaceholders.delete(filePath);
                 }
-                try {
-                    placeholder.panel.dispose();
-                    log(`CUSTOM-EDITOR: closed placeholder after integrated-browser handoff for ${placeholder.basename}`);
-                } catch (error) {
-                    log(`CUSTOM-EDITOR: placeholder already closed after integrated-browser handoff for ${placeholder.basename}: ${error.message}`);
-                }
+                const closePlaceholder = (reason) => {
+                    try {
+                        placeholder.panel.dispose();
+                        log(`CUSTOM-EDITOR: closed placeholder after integrated-browser handoff for ${placeholder.basename} (${reason})`);
+                    } catch (error) {
+                        log(`CUSTOM-EDITOR: placeholder already closed after integrated-browser handoff for ${placeholder.basename}: ${error.message}`);
+                    }
+                };
+                let placeholderClosed = false;
+                const closeOnce = (reason) => {
+                    if (placeholderClosed) return;
+                    placeholderClosed = true;
+                    closePlaceholder(reason);
+                };
+                const guard = setTimeout(() => closeOnce('timeout'), 15000);
+                // Either signal is enough: the page appearing is the normal
+                // case, and a request that ends without one still has to
+                // release the tab.
+                Promise.race([
+                    Promise.resolve(opened.scriptLoaded),
+                    Promise.resolve(opened.viewerReady).catch(() => {}),
+                ])
+                    .then(() => closeOnce('viewer page loaded'))
+                    .catch(() => closeOnce('viewer failed'))
+                    .finally(() => clearTimeout(guard));
             }
         } else if (useExternalBrowser) {
             log(`openInExternalBrowser(${data.url})`);
