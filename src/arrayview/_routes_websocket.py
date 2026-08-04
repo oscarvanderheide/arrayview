@@ -190,8 +190,28 @@ def register_websocket_routes(app) -> None:
         native_request_id = ws.query_params.get("native_request_id")
         launch_request_id = ws.query_params.get("launch_request_id")
         launch_token = ws.query_params.get("launch_token")
-        session = await wait_for_session_ready(sid)
+        # Answer the handshake before the array is ready.  Holding it closed
+        # until the load finished made the viewer decide the backend was dead:
+        # it gives up after three attempts and shows "could not connect", which
+        # a large array reaches purely by being slow to load.  Accepting first
+        # stops that clock.  The viewer keeps its splash up until the metadata
+        # below arrives, so an early accept shows nothing half-rendered.
+        await ws.accept()
+
+        session = _session_mod.SESSIONS.get(sid)
+        if session is None:
+            session = await wait_for_session_ready(sid)
         if not session:
+            # The socket has already opened, and the viewer treats a drop after
+            # a successful open as a recoverable reconnect — it would retry
+            # forever.  Say the load failed so it shows an error instead.
+            try:
+                await ws.send_json({
+                    "type": "render_error",
+                    "message": "the array could not be loaded",
+                })
+            except Exception:
+                pass
             await ws.close()
             return
 
@@ -207,8 +227,6 @@ def register_websocket_routes(app) -> None:
             ):
                 await ws.close(code=1008)
                 return
-
-        await ws.accept()
 
         # A new viewer proves that the prior disconnect was a reload, tunnel
         # interruption, or other recoverable transport break. Invalidate and
