@@ -384,6 +384,46 @@ def _find_arrayview_window_id() -> str | None:
     return None
 
 
+def _session_name_for_url(url: str) -> str | None:
+    """Return the session name behind *url*'s ``?sid=``, or None."""
+    try:
+        import urllib.parse as _up
+
+        sid = _up.parse_qs(_up.urlparse(url).query).get("sid", [None])[0]
+        if not sid:
+            return None
+        import arrayview._session as _sm
+
+        session = _sm.SESSIONS.get(sid)
+        return getattr(session, "name", None) if session else None
+    except Exception:
+        return None
+
+
+def _with_viewer_name(url: str, name: str | None) -> str:
+    """Add ``av_name`` so the viewer can title its tab before metadata lands.
+
+    The page otherwise shows the bare host until the WebSocket delivers the
+    session name, and that WebSocket waits on the array load — seconds for a
+    large file.  This stays a query parameter rather than being baked into the
+    served HTML because the gzip cache in ``_server`` is keyed on the page
+    body; a per-session body would evict on every open and re-compress ~2 MB.
+    """
+    if not name:
+        return url
+    try:
+        import urllib.parse as _up
+
+        parts = _up.urlsplit(url)
+        query = _up.parse_qsl(parts.query, keep_blank_values=True)
+        if any(key == "av_name" for key, _ in query):
+            return url
+        query.append(("av_name", str(name)))
+        return _up.urlunsplit(parts._replace(query=_up.urlencode(query)))
+    except Exception:
+        return url
+
+
 def _open_via_signal_file(
     url: str,
     delay: float = 0.0,
@@ -402,19 +442,13 @@ def _open_via_signal_file(
     If omitted it is auto-derived from the session name embedded in the URL's
     ``?sid=`` query parameter.
     """
-    if title is None:
-        try:
-            import urllib.parse as _up
-
-            _sid = _up.parse_qs(_up.urlparse(url).query).get("sid", [None])[0]
-            if _sid:
-                import arrayview._session as _sm
-
-                _sess = _sm.SESSIONS.get(_sid)
-                if _sess:
-                    title = f"ArrayView: {_sess.name}"
-        except Exception:
-            pass
+    session_name = _session_name_for_url(url)
+    if title is None and session_name:
+        title = f"ArrayView: {session_name}"
+    # The viewer titles its own tab from this, so it must be the session name
+    # the metadata will later carry — not *title*, which some callers pass
+    # pre-formatted and others pass as a bare filename.
+    url = _with_viewer_name(url, session_name)
 
     request_id = uuid.uuid4().hex
     if window_id is None:
