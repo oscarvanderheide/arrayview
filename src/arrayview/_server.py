@@ -422,6 +422,16 @@ def get_short_viewer_ui(
     navigation_key: str,
 ):
     """Resolve a private integrated-browser launch without exposing its query."""
+    try:
+        from arrayview._launch_trace import emit_route_launch_event
+
+        emit_route_launch_event(
+            "page.route_entered",
+            navigation_key=navigation_key,
+            tab_key=tab_key,
+        )
+    except Exception:
+        pass
     owner = _session_mod.VIEWER_LAUNCH_ROUTES.get(navigation_key)
     if owner is None:
         raise HTTPException(status_code=404, detail="Viewer launch route expired")
@@ -437,6 +447,18 @@ def get_short_viewer_ui(
         or journal.get("navigation_key") != navigation_key
     ):
         raise HTTPException(status_code=409, detail="Viewer launch route changed")
+    try:
+        from arrayview._launch_trace import emit_route_launch_event
+
+        emit_route_launch_event(
+            "page.route_resolved",
+            navigation_key=navigation_key,
+            tab_key=tab_key,
+            request_id=request_id,
+            navigation_attempt=journal["navigation_attempt"],
+        )
+    except Exception:
+        pass
     bootstrap_query = journal["viewer_query"] + "&" + urlencode(
         {
             "_av_integrated_browser": "1",

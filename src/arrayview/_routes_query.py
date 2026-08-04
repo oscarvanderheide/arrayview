@@ -140,6 +140,20 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                     previous_navigation_key,
                     None,
                 )
+                try:
+                    from arrayview._launch_trace import emit_route_launch_event
+
+                    emit_route_launch_event(
+                        "page.route_retired",
+                        navigation_key=previous_navigation_key,
+                        tab_key=previous_journal.get("tab_key"),
+                        request_id=request_id,
+                        navigation_attempt=previous_journal.get(
+                            "navigation_attempt"
+                        ),
+                    )
+                except Exception:
+                    pass
             journal = journals[request_id] = {
                 "token": token,
                 "window_id": window_id,
@@ -159,6 +173,18 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                     sid,
                     request_id,
                 )
+                try:
+                    from arrayview._launch_trace import emit_route_launch_event
+
+                    emit_route_launch_event(
+                        "page.route_prepared",
+                        navigation_key=navigation_key,
+                        tab_key=tab_key,
+                        request_id=request_id,
+                        navigation_attempt=navigation_attempt,
+                    )
+                except Exception:
+                    pass
             return {
                 "sid": sid,
                 "request_id": request_id,

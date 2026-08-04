@@ -1836,3 +1836,164 @@ mocked commands are instant — it cannot catch a bound derived from the wrong
 deadline. Nothing yet reproduces a slow command or POST. The 34 s gap after
 attempt 3 is explained in direction but not measured per-await; the relay
 black-hole hypothesis and `page.requested` remain uncaptured.
+
+### 0.15.19 — a hedge invalidated the load it was waiting for
+
+**Date**: 2026-08-04
+**Trigger**: user report — an Explorer click on `1226601.nii.gz` "bounced a few
+times before it showed the array".
+
+**Real-host evidence** (`extension.log:11097-11135`, window `0bf6eeb4`, opener
+0.15.18, both live windows on 0.15.18, click path running the editable working
+tree at 0.42.0 — no version skew):
+
+    13:12:04.9  click; no daemon on 8000, fresh Python launch
+    13:12:06.97 integrated browser tab opened
+    13:12:08.68 closed exact blank tab; retry 1
+    13:12:10.41 closed exact blank tab; retry 2
+    13:12:12.15 closed exact blank tab; retry 3
+    13:12:12.62 script-loaded
+    13:12:12.85 frame-rendered
+
+~8 s to first frame, three visible tab close/reopen cycles. A second episode at
+09:48 the same day recovered on hedge 2. These are the first two firings of the
+multi-hedge ladder since 0.15.9 — the path the 0.15.9 entry recorded as never
+having run.
+
+**Root cause, proven against the real route table: the hedge revoked its own
+predecessor's credential.** Every hedge POSTs `launch-prepared`, which replaces
+the journal with a fresh token. A delivered page reports with the token baked
+into its own URL, and `record_viewer_phase` rejected any non-current token with
+409; `reportParent` in `_viewer.html` swallows the failure (`.catch(() => {})`).
+So **any load slower than the ~1.5 s hedge interval could never report
+readiness** — the opener saw "still blank", hedged again, and revoked the next
+one. Every successful launch in the log reported within 1.5 s of its own
+navigation, because nothing slower has ever been allowed to succeed.
+
+This also contaminates two earlier conclusions: "hard reload recovered 0 of 5"
+and the hedge recovery rates were all measured while late arrivals were being
+silently 409'd.
+
+**Fix (server, `_routes_query.py`)**: a request's journal keeps every token it
+has issued (cap 8). A phase reported on a superseded token is accepted, and
+observed phases/instances carry forward across hedges, so readiness from any
+attempt is visible to the opener polling on the newest token. Window fencing is
+unchanged — inheritance requires the same `window_id`, and foreign windows and
+unknown tokens are still 409.
+
+**Fix (opener)**: the duplicate-viewer-instance guard now fails only when no
+hedge has run (`navigationAttempt === 0`), where two instances still means two
+live tabs. After a hedge, a superseded attempt reporting late from a closed tab
+is expected and is logged instead of failing a launch that did render.
+
+**Instrumentation**: `journal["document_requests"]` counts page requests the
+backend actually served for a launch, returned by the journal poll and logged by
+the opener. A blank tab with zero means the navigation never arrived; with one
+means it arrived and stalled after delivery. This is the distinction the
+`page.requested` trace was built for and never captured — it now rides on a poll
+that already happens, with no env var to remember.
+
+**Discarded mid-work, recorded so it is not retried**: a small bootstrap shell
+serving the ~2 MB viewer as a separate in-page fetch, to move retries off the
+tab. Two entries in this log kill it — 0.15.3 measured silent drops
+*independently* for a small probe, a large document, metadata, and a WebSocket
+upgrade, so a smaller document is not a safer one; and 0.15.7 put this path on
+`remoteProxy=true` loopback, which today's log confirms
+(`desktop integrated-browser proxy uses backend URL directly`), so the document
+does not cross the devtunnel at all. The premise was wrong on both counts. The
+"four consecutive drops is improbable" argument was wrong too: 0.15.6 already
+documents correlated bad windows where ten candidates went silent.
+
+**Evidence**: `real host` for the two bounce episodes and the version state.
+`component` for the fix — the handshake driven directly against the real route
+table (`launch-prepared` → document → hedge → superseded-token report → poll)
+fails on unmodified HEAD with `409 Viewer phase owner changed` and an empty
+phase list, and passes with the change; fencing checks unchanged. Baseline was
+taken by reverting the two files with `git checkout HEAD --` and confirming an
+empty `git diff HEAD --stat`, per the 0.14.99 stash trap. 18/18
+`vscode-extension/test_*.js` and 17/17 `tests/test_vscode_ack_protocol.py` pass.
+VSIX rebuilt at 0.15.19, manifest verified, packaged `extension.js`
+byte-identical to the working tree, sha256
+`20ad137cfd1d641f5271cb29ba661c5c927aadd4754148caaf52361a7e504da0`.
+
+**Open**: install/reload and the real-host launch gate. Not yet proven that this
+removes the visible bouncing, only that the mechanism which guaranteed it is
+gone. The next stall's `document_requests` count is the measurement to read.
+
+#### 0.15.19 correction — the mechanism is real, the attribution was not
+
+Written while preparing the review handoff, against the entry above.
+
+The 409 rejection is verified. **Its attribution to the observed bouncing is
+not, and is probably wrong.** In `extension.js` the retry callback closes the
+tab *before* calling `prepareNavigation`, and `prepareNavigation` is what POSTs
+`launch-prepared` and rotates the token. The superseded attempt's tab is
+therefore already disposed when the token rotates, and a disposed page does not
+POST. The 409 can only bite in the few-millisecond race between the readiness
+poll and the tab close — far too narrow to explain a three-bounce, 8 s episode.
+
+So the cause of the initial blank navigation on a `remoteProxy=true` loopback
+path **remains unidentified**. The entry above overstated it.
+
+**Regression risk this creates**, which the previous entry did not state:
+carrying `phases` forward means a superseded attempt's `script-loaded` can
+persist after its tab is closed. The hedge is gated on `!scriptLoaded`, so the
+opener would stop hedging and then wait for a `frame-rendered` that a dead tab
+cannot produce — converting a recoverable stall into a deadline failure. The
+old reset-per-attempt behaviour could not do this. Both the benefit and this
+risk live in the same narrow race, but they are not symmetric: one is a slower
+success, the other is a new failure mode.
+
+Open question for review: whether accepting superseded tokens *without*
+carrying phases forward is the correct, smaller change.
+
+Handoff: `HANDOFF-0.15.19-token-rotation-review.md`.
+
+#### 0.15.19 withdrawn after review — reverted, nothing shipped
+
+Independent review rejected the change. All code reverted to HEAD; `git diff
+HEAD -- src/arrayview vscode-extension` is empty, VSIX restored to 0.15.18,
+version markers back to 0.15.18. `tests/test_api.py` +
+`tests/test_vscode_ack_protocol.py` 320 passed, 18/18
+`vscode-extension/test_*.js`.
+
+**The decisive finding, which the author missed: the reset-and-reject behaviour
+is a deliberate, tested contract.** `tests/test_api.py:151-155` asserts that a
+replay `launch-prepared` empties `phases`, `viewer_instance_ids` and
+`related_sids`, and that the superseded token then 409s. The change contradicted
+it directly. That suite is named in `CLAUDE.md` and was never run — the author
+ran only the two suites that happened to pass. Running the named suites is not
+optional.
+
+**Confirmed regression**: a pending `script-loaded` from a closed attempt can
+enter the shared journal after rotation, set `scriptLoaded`, disable further
+hedges, refresh the longer render deadline, and leave the opener waiting on a
+frame a dead tab cannot produce.
+
+**The narrower fallback is also unsafe.** Accepting superseded tokens *without*
+carrying phases still appends the dead attempt's phase to the current aggregate
+journal (`_routes_query.py:205`), so it still controls the live hedge gate. Any
+future design needs **per-attempt phases**; reports from closed attempts may be
+diagnostic but must never gate the active attempt.
+
+**Component evidence was weaker than presented.** The mock in
+`test_integrated_browser_readiness.js:136` replaces the journal and rejects old
+tokens on every preparation, so 18/18 passing never exercised the new path. The
+duplicate-instance relaxation was accepted on that basis and is also reverted —
+an aggregate ID list cannot distinguish one closed historical tab plus one live
+tab from two live tabs.
+
+**`document_requests` as written was wrong too**: omitted from the replacement
+journal so it reset on every hedge, and incremented before the response was
+built, so it meant "route handler entered", not "document served" or "browser
+received it". The measurement idea survives; the implementation does not.
+Per-attempt recording, carried across same-request/same-window rotations, is the
+shape to build.
+
+**Still true and still unexplained**: the two bounce episodes, and that the
+1.5 s cadence censors its own evidence — once every page that has not loaded by
+1.5 s is closed, the absence of slower successful loads cannot justify the
+threshold.
+
+**Cause of the blank navigation remains unidentified. No behavioural change is
+justified until it is measured.**
