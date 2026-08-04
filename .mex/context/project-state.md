@@ -24,12 +24,22 @@ last_updated: 2026-08-03
 - The tour is paced to the reader, not to a clock: a new line is only put on
   screen once input has gone quiet and nothing is covering the frame, so
   exploring after a step is never cut short and an echo can never play out
-  behind the panel that step just opened.
+  behind the panel that step just opened. Each line's dwell is measured from
+  its own length, lines are never blanked between steps (an empty frame reads
+  as "the tour ended"), and once a line has been up long enough to have been
+  read it offers `↵` to move on early — the one key the tour takes for itself,
+  because any other press is someone still exploring.
+- An ask never gives a bare command to the reader ("press it"). It states
+  something about the array and lets the key be the answer; the echo names what
+  the key did. Steps wanting several presses show them landing on the key chip.
 - The tour is divided into 13 named sections, each announced before it asks for
-  anything. A rail along the bottom is the one piece of tutorial furniture and
-  the one thing clickable; `Tab`/`Shift+Tab` also switch. Every section declares
-  the viewer state it needs and stages it on entry, so sections are real entry
-  points and can be jumped to in any order.
+  anything. A rail down the left gutter is the one piece of tutorial furniture
+  and the one thing clickable: a mark per section, naming only the current one
+  (or the one hovered). It is in the gutter because the colorbar sits flush
+  against the bottom of the window — a bottom rail lands on the array.
+  `Tab`/`Shift+Tab` also switch. Every section declares the viewer state it
+  needs and stages it on entry, so sections are real entry points and can be
+  jumped to in any order.
 - Two sections run on their own sessions because they cannot share the main
   one: a vector field disables statistical projections for whatever session it
   is attached to, and a ragged collection is a single session built from
