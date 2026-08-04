@@ -346,7 +346,8 @@ class TestLoad:
         started = threading.Event()
         finish = threading.Event()
 
-        def slow_load(filepath, key=None, select=None, *, load="lazy", stack="auto"):
+        def slow_load(filepath, key=None, select=None, *, load="lazy",
+                      stack="auto", progress=None):
             started.set()
             assert finish.wait(2.0)
             return np.zeros((4, 4), dtype=np.float32), None
@@ -390,7 +391,8 @@ class TestLoad:
         started = threading.Event()
         finish = threading.Event()
 
-        def slow_load(filepath, key=None, select=None, *, load="lazy", stack="auto"):
+        def slow_load(filepath, key=None, select=None, *, load="lazy",
+                      stack="auto", progress=None):
             started.set()
             assert finish.wait(2.0)
             return np.zeros((4, 4), dtype=np.float32), None

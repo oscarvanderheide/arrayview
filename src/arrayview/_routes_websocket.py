@@ -111,6 +111,42 @@ def _render_progress_reporter(
     return report
 
 
+async def _await_session_reporting_read_progress(ws, sid):
+    """Wait for a background read, telling the viewer how far along it is.
+
+    Nothing else can report this: the reader is a plain thread and the array
+    is not a session until it finishes, so this socket is the only thing
+    holding a line to the viewer while the wait happens.
+
+    Silent for the first stretch, so an ordinary fast open never flashes a
+    bar on its way past — the same rule the render progress reporter uses.
+    """
+    quiet_for_s = 0.6
+    started = time.perf_counter()
+    waiter = asyncio.ensure_future(wait_for_session_ready(sid))
+    last = None
+    while True:
+        done, _pending = await asyncio.wait({waiter}, timeout=0.15)
+        if waiter in done:
+            break
+        if time.perf_counter() - started < quiet_for_s:
+            continue
+        state = _session_mod.LOAD_PROGRESS.get(sid)
+        if state and state != last:
+            last = state
+            read, total = state
+            await _send_json_quietly(ws, {
+                "type": "render_progress",
+                "done": int(read),
+                "total": int(total),
+                "label": "Reading array",
+            })
+    try:
+        return waiter.result()
+    except Exception:
+        return _session_mod.SESSIONS.get(sid)
+
+
 async def _send_json_quietly(ws, payload):
     try:
         await ws.send_json(payload)
@@ -200,7 +236,7 @@ def register_websocket_routes(app) -> None:
 
         session = _session_mod.SESSIONS.get(sid)
         if session is None:
-            session = await wait_for_session_ready(sid)
+            session = await _await_session_reporting_read_progress(ws, sid)
         if not session:
             # The socket has already opened, and the viewer treats a drop after
             # a successful open as a recoverable reconnect — it would retry

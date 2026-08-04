@@ -320,6 +320,14 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             PENDING_SESSION_EVENTS[sid] = pending_event
             signature_before_load = file_signature(abs_path)
 
+            def _report_read_progress(done: int, total: int) -> None:
+                # Read from the viewer's websocket while it waits; see
+                # LOAD_PROGRESS. Kept to a plain assignment so the read loop
+                # pays nothing for it.
+                import arrayview._session as _sm
+
+                _sm.LOAD_PROGRESS[sid] = (done, total)
+
             def _load_in_background() -> None:
                 try:
                     from ._io import load_data_with_meta
@@ -327,6 +335,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     data, spatial_meta = load_data_with_meta(
                         filepath,
                         select=body.get("select"),
+                        progress=_report_read_progress,
                     )
                     session = Session(data, filepath=filepath, name=name)
                     session.sid = sid
@@ -369,6 +378,9 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     if staging_dir:
                         cleanup_staging_directory(staging_dir)
                 finally:
+                    import arrayview._session as _sm
+
+                    _sm.LOAD_PROGRESS.pop(sid, None)
                     PENDING_SESSIONS.discard(sid)
                     CANCELLED_PENDING_SESSIONS.discard(sid)
                     pending_event.set()

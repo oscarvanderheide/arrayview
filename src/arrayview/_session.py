@@ -51,6 +51,10 @@ CANCELLED_PENDING_SESSIONS: set[str] = set()
 # without this the opener cannot tell "still loading" from "will never load" and
 # waits out its whole deadline on a file that failed in the first second.
 FAILED_PENDING_SESSIONS: dict[str, str] = {}
+# sid -> (bytes read, bytes total) for a background read still in progress.
+# The reader is a plain thread with no socket of its own, so it leaves its
+# progress here and the viewer's websocket picks it up while it waits.
+LOAD_PROGRESS: dict[str, tuple[int, int]] = {}
 
 
 def file_signature(filepath: str):
