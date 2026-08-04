@@ -5266,15 +5266,56 @@ def _handle_management_command(argv: list[str]) -> bool:
                 ),
             }
         )
+    from arrayview._platform import _in_vscode_terminal  # noqa: PLC0415
+    from arrayview._vscode_extension import (  # noqa: PLC0415
+        _describe_window,
+        _opener_version_report,
+    )
+
+    versions = _opener_version_report()
+    if versions["state"] in {"window_older", "window_unversioned"}:
+        remediation.append(
+            {
+                "code": "opener_version_skew",
+                "message": (
+                    "Reload this VS Code window to run opener "
+                    f"v{versions['bundled_opener']}."
+                ),
+            }
+        )
     report = {
         "snapshot": snapshot_dict,
         "plan": plan.to_dict(),
         "instances": rows,
         "remediation": remediation,
+        "versions": versions,
     }
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
+        print(
+            f"arrayview {versions['package_version']} "
+            f"({versions['package_path']})"
+        )
+        print(f"Opener bundled here: v{versions['bundled_opener']}")
+        if versions["this_window"] is not None:
+            suffix = {
+                "window_older": "  ← older than this arrayview; reload this window",
+                "window_newer": "  ← newer than this arrayview; kept and used",
+                "window_unversioned": "  ← pre-0.15 build; reload this window",
+            }.get(versions["state"], "")
+            print(
+                "Opener live in this window: "
+                f"{_describe_window(versions['this_window'])}{suffix}"
+            )
+        elif _in_vscode_terminal():
+            print(
+                "Opener live in this window: none — no live VS Code window "
+                "claims this terminal"
+            )
+        for index, other in enumerate(versions["other_windows"]):
+            label = "Opener live in other windows:" if index == 0 else " " * 29
+            print(f"{label} {_describe_window(other)}")
         print(f"Environment: {plan.environment.value}")
         print(
             f"Server: {plan.server_owner.value} on port {plan.effective_port} "
