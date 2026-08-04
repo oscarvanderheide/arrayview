@@ -1654,7 +1654,7 @@ def test_launch_journal_prepares_before_large_session_is_ready():
             transport=transport,
             base_url="http://localhost",
         ) as client:
-            return await client.post(
+            prepared = await client.post(
                 path,
                 json={
                     "phase": "launch-prepared",
@@ -1663,16 +1663,31 @@ def test_launch_journal_prepares_before_large_session_is_ready():
                     "token": "token-pending",
                 },
             )
+            script_loaded = await client.post(
+                path,
+                json={
+                    "phase": "script-loaded",
+                    "server_id": session_mod.SERVER_RUNTIME.instance_id,
+                    "window_id": "window-pending",
+                    "token": "token-pending",
+                    "viewer_instance_id": "viewer-pending",
+                    "sid": sid,
+                },
+            )
+            observed = await client.get(
+                path,
+                params={"token": "token-pending"},
+            )
+            return prepared, script_loaded, observed
 
     try:
         session_mod.PENDING_SESSIONS.add(sid)
-        prepared = asyncio.run(prepare())
+        prepared, script_loaded, observed = asyncio.run(prepare())
         assert prepared.status_code == 200
         assert prepared.json()["token"] == "token-pending"
-        assert (
-            session_mod.VIEWER_PHASE_JOURNALS[sid][request_id]["phases"]
-            == []
-        )
+        assert script_loaded.status_code == 200
+        assert observed.status_code == 200
+        assert observed.json()["phases"] == ["script-loaded"]
     finally:
         session_mod.PENDING_SESSIONS.discard(sid)
         session_mod.VIEWER_PHASE_JOURNALS.pop(sid, None)

@@ -19,6 +19,7 @@ from arrayview._platform import (
     _find_vscode_ipc_hook,
     _in_vscode_terminal,
     _is_vscode_remote,
+    _process_is_alive,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,8 +57,11 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.15.15"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.15.18"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
+# Version-skew notices already printed, so a long-lived process (Jupyter, a
+# script opening several arrays) states the mismatch once instead of per call.
+_VSCODE_EXT_SKEW_REPORTED: set[tuple] = set()
 _VSCODE_EXT_INSTALL_GUARD_PREFIX = "vscode-extension-install-failure-"
 _VSCODE_EXT_INSTALL_NO_HOST_COOLDOWN_SECONDS = 300.0
 
@@ -415,6 +419,167 @@ def _newer_extension_on_disk(version: str, *, remote: bool) -> str | None:
     return max(newer)[1] if newer else None
 
 
+def _live_window_registrations() -> list[dict]:
+    """Return every live opener registration under ``~/.arrayview``.
+
+    Each open VS Code window writes one of these files and then keeps running
+    whatever opener build it loaded when it activated.  Reading them all is the
+    only way a terminal can see which versions its sibling windows are on.
+    """
+    signal_dir = os.path.expanduser("~/.arrayview")
+    registrations: list[dict] = []
+    try:
+        filenames = sorted(os.listdir(signal_dir))
+    except OSError:
+        return registrations
+    for filename in filenames:
+        if not filename.startswith("window-") or not filename.endswith(".json"):
+            continue
+        try:
+            with open(
+                os.path.join(signal_dir, filename), encoding="utf-8"
+            ) as handle:
+                registration = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(registration, dict):
+            continue
+        if not _process_is_alive(registration.get("pid")):
+            continue
+        registrations.append(registration)
+    return registrations
+
+
+def _window_version_summary(registration: dict) -> dict:
+    """Return the display-ready identity of one live window."""
+    version = registration.get("extensionVersion")
+    window_id = registration.get("windowId")
+    return {
+        "opener_version": version if isinstance(version, str) and version else None,
+        "window_id": window_id if isinstance(window_id, str) else None,
+        "pid": registration.get("pid"),
+        "host": registration.get("remoteName") or "local",
+    }
+
+
+def _describe_window(summary: dict) -> str:
+    """Render one window as ``v0.15.16  (window 0761ea2d, pid 644152, tunnel)``."""
+    version = summary.get("opener_version")
+    label = f"v{version}" if version else "unknown version (pre-0.15 build)"
+    window_id = summary.get("window_id") or "?"
+    return (
+        f"{label}  (window {window_id[:8]}, pid {summary.get('pid') or '?'}, "
+        f"{summary.get('host')})"
+    )
+
+
+def _opener_version_report(bundled_version: str | None = None) -> dict:
+    """Summarise every version that decides which opener a launch will use.
+
+    Three things can disagree and only one of them is visible from the shell
+    prompt: the ``arrayview`` on this terminal's PATH, the opener that copy of
+    arrayview ships, and the opener this VS Code window actually has loaded.
+    """
+    from arrayview import __version__ as package_version
+
+    if bundled_version is None:
+        vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
+        bundled_version = (
+            _bundled_vscode_vsix_version(vsix_path)
+            if os.path.isfile(vsix_path)
+            else None
+        ) or _VSCODE_EXT_VERSION
+
+    active = _active_extension_registration()
+    this_window = _window_version_summary(active) if active is not None else None
+    this_id = this_window.get("window_id") if this_window else None
+    others = [
+        _window_version_summary(registration)
+        for registration in _live_window_registrations()
+        if registration.get("windowId") != this_id
+    ]
+
+    live_version = this_window.get("opener_version") if this_window else None
+    if this_window is None:
+        state = "no_live_window"
+    elif live_version is None:
+        state = "window_unversioned"
+    elif live_version == bundled_version:
+        state = "match"
+    else:
+        bundled_key = _version_tuple(bundled_version)
+        live_key = _version_tuple(live_version)
+        if bundled_key is not None and live_key is not None and live_key > bundled_key:
+            state = "window_newer"
+        else:
+            state = "window_older"
+
+    return {
+        "package_version": package_version,
+        "package_path": os.path.dirname(os.path.abspath(__file__)),
+        "bundled_opener": bundled_version,
+        "this_window": this_window,
+        "other_windows": others,
+        "state": state,
+    }
+
+
+def _version_skew_lines(report: dict) -> list[str]:
+    """Return the terminal notice for a report, or ``[]`` when versions agree."""
+    state = report["state"]
+    if state in {"match", "no_live_window"}:
+        return []
+    this_window = report["this_window"] or {}
+    live = this_window.get("opener_version")
+    live_label = f"v{live}" if live else "an unversioned build"
+    lines = [
+        "[ArrayView] This VS Code window is not running the opener this "
+        "arrayview ships.",
+        f"  this terminal:  arrayview {report['package_version']} "
+        f"ships opener v{report['bundled_opener']}",
+        f"                  {report['package_path']}",
+        f"  this window:    opener {live_label} "
+        f"(fixed when the window last reloaded)",
+    ]
+    if state == "window_newer":
+        lines.append(
+            "  A newer arrayview in another window installed it. The newer "
+            "opener is kept and used."
+        )
+    else:
+        lines.append(
+            '  Reload this window (Ctrl+Shift+P → "Developer: Reload Window") '
+            f"to run v{report['bundled_opener']}."
+        )
+    return lines
+
+
+def _report_opener_version_skew(bundled_version: str | None = None) -> bool:
+    """Print an up-front notice when this window's opener is not the bundled one.
+
+    Announced before the launch is attempted rather than only in the failure
+    message afterwards: with several windows open, each pinned to whichever
+    opener it loaded at activation, "which build am I about to run" is not
+    answerable from the prompt.
+    """
+    global _VSCODE_EXT_SKEW_REPORTED
+    report = _opener_version_report(bundled_version)
+    lines = _version_skew_lines(report)
+    if not lines:
+        return False
+    this_window = report["this_window"] or {}
+    fingerprint = (
+        report["bundled_opener"],
+        this_window.get("opener_version"),
+        this_window.get("window_id"),
+    )
+    if fingerprint in _VSCODE_EXT_SKEW_REPORTED:
+        return False
+    _VSCODE_EXT_SKEW_REPORTED.add(fingerprint)
+    print("\n".join(lines), flush=True)
+    return True
+
+
 def _active_extension_registration() -> dict | None:
     """Return the live opener registration for this terminal's exact window."""
     ipc = _find_vscode_ipc_hook()
@@ -614,6 +779,9 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         is_remote = _is_vscode_remote()
     active_version = _active_extension_version()
     active_registration = _active_extension_registration()
+    # Before the slow install/verify work, not only in the failure text after
+    # it: the user needs to know which opener this window will run.
+    _report_opener_version_skew(ext_version)
     active_marker = (
         _extension_registration_marker(active_registration)
         if active_registration is not None

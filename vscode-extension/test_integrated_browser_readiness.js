@@ -17,7 +17,26 @@ let commandFailure = null;
 let commandObserver = null;
 let getCommandsCalls = 0;
 const externalOpens = [];
+const editorTabs = [];
+const closedTabs = [];
+class TabInputText {}
+class TabInputTextDiff {}
+class TabInputNotebook {}
+class TabInputNotebookDiff {}
+class TabInputCustom {}
+class TabInputTerminal {}
+class TabInputInteractiveWindow {}
+class TabInputWebview {}
+let browserTabFactory = () => new TabInputWebview();
 const vscodeMock = {
+    TabInputText,
+    TabInputTextDiff,
+    TabInputNotebook,
+    TabInputNotebookDiff,
+    TabInputCustom,
+    TabInputTerminal,
+    TabInputInteractiveWindow,
+    TabInputWebview,
     commands: {
         async getCommands() {
             getCommandsCalls += 1;
@@ -36,8 +55,25 @@ const vscodeMock = {
                 commandArgs = args;
                 commandArgsHistory.push(args);
                 if (commandFailure) throw commandFailure;
+                editorTabs.push({
+                    label: 'Integrated Browser',
+                    input: browserTabFactory(),
+                    url: args.url,
+                });
             }
             if (commandObserver) commandObserver(args, command);
+        },
+    },
+    window: {
+        tabGroups: {
+            all: [{ tabs: editorTabs }],
+            async close(tab) {
+                const index = editorTabs.indexOf(tab);
+                if (index < 0) return false;
+                editorTabs.splice(index, 1);
+                closedTabs.push(tab);
+                return true;
+            },
         },
     },
     workspace: {
@@ -353,7 +389,7 @@ Module._load = originalLoad;
             'window-one',
             6000,
             () => {},
-            1000
+            5000
         );
         assert.strictEqual(await delayedPreScript.viewerReady, null);
         const delayedPreScriptCommands = commandArgsHistory.slice(delayedPreScriptStart);
@@ -380,9 +416,141 @@ Module._load = originalLoad;
         );
         commandObserver = null;
 
+        const unsafeStart = commandArgsHistory.length;
+        const unsafeClosedStart = closedTabs.length;
+        const unsafeVisibleStart = editorTabs.length;
+        journal = null;
+        deferReady = true;
+        browserTabFactory = () => new TabInputText();
+        const unsafe = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-unsafe-tab',
+            'server-one',
+            'window-one',
+            2500,
+            () => {},
+            500
+        );
+        assert.match((await unsafe.viewerReady).message, /did not start the viewer script/);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            unsafeStart + 1,
+            'a known editor tab must disable navigation recovery'
+        );
+        assert.strictEqual(
+            closedTabs.length,
+            unsafeClosedStart,
+            'recovery must never close a known text editor tab'
+        );
+        assert.strictEqual(editorTabs.length, unsafeVisibleStart + 1);
+        browserTabFactory = () => new TabInputWebview();
+
+        const staleStart = commandArgsHistory.length;
+        const staleClosedStart = closedTabs.length;
+        const staleVisibleStart = editorTabs.length;
+        journal = null;
+        commandObserver = (args, command) => {
+            if (
+                command === 'workbench.action.browser.open'
+                && args && args.url
+                && journal.request_id === 'request-stale-tab'
+            ) {
+                setTimeout(() => {
+                    const index = editorTabs.length - 1;
+                    editorTabs[index] = {
+                        label: 'Rebuilt Integrated Browser',
+                        input: new TabInputWebview(),
+                        url: args.url,
+                    };
+                }, 50);
+            }
+        };
+        const stale = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-stale-tab',
+            'server-one',
+            'window-one',
+            2500,
+            () => {},
+            500
+        );
+        assert.match((await stale.viewerReady).message, /did not start the viewer script/);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            staleStart + 1,
+            'a stale tab handle must disable navigation recovery'
+        );
+        assert.strictEqual(
+            closedTabs.length,
+            staleClosedStart,
+            'recovery must not close a replacement tab model object'
+        );
+        assert.strictEqual(editorTabs.length, staleVisibleStart + 1);
+        commandObserver = null;
+
+        const recoveredStart = commandArgsHistory.length;
+        const recoveredPreparedStart = preparedBodies.length;
+        const recoveredClosedStart = closedTabs.length;
+        const recoveredVisibleStart = editorTabs.length;
+        journal = null;
+        deferReady = true;
+        commandObserver = (args, command) => {
+            if (
+                command === 'workbench.action.browser.open'
+                && args && args.url
+                && journal.request_id === 'request-recovered'
+                && journal.navigation_attempt === 1
+            ) {
+                journal.phases = [
+                    'script-loaded',
+                    'ws-open',
+                    'metadata-loaded',
+                    'frame-rendered',
+                ];
+                journal.viewer_instance_ids = ['viewer-one'];
+            }
+        };
+        const recovered = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-recovered',
+            'server-one',
+            'window-one',
+            5000,
+            () => {},
+            1000
+        );
+        assert.strictEqual(await recovered.viewerReady, null);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            recoveredStart + 2,
+            'one dropped navigation must be replaced by one fresh navigation'
+        );
+        assert.deepStrictEqual(
+            preparedBodies
+                .slice(recoveredPreparedStart)
+                .map(body => body.navigation_attempt),
+            [0, 1]
+        );
+        assert.strictEqual(
+            closedTabs.length,
+            recoveredClosedStart + 1,
+            'recovery must close the exact blank tab before retrying'
+        );
+        assert.strictEqual(
+            editorTabs.length,
+            recoveredVisibleStart + 1,
+            'recovery must leave only the successful replacement tab'
+        );
+        commandObserver = null;
+
         const cappedStart = commandArgsHistory.length;
         const cappedCommandStart = commandHistory.length;
         const cappedPreparedStart = preparedBodies.length;
+        const cappedClosedStart = closedTabs.length;
+        const cappedVisibleStart = editorTabs.length;
         journal = null;
         const cappedStartedAt = Date.now();
         const capped = await __test.openInIntegratedBrowser(
@@ -407,20 +575,30 @@ Module._load = originalLoad;
         const cappedCommands = commandArgsHistory.slice(cappedStart);
         assert.strictEqual(
             cappedCommands.length,
-            1,
-            'a permanently blank request must not open extra integrated-browser tabs'
+            5,
+            'a permanently blank request must stop after the bounded recovery attempts'
         );
         assert.deepStrictEqual(
             preparedBodies
                 .slice(cappedPreparedStart)
                 .map(body => body.navigation_attempt),
-            [0],
-            'a permanently blank request must keep its original prepared navigation'
+            [0, 1, 2, 3, 4],
+            'each bounded retry must have fresh prepared navigation state'
         );
         assert.deepStrictEqual(
             commandHistory.slice(cappedCommandStart).map(entry => entry.command),
-            ['workbench.action.browser.open'],
-            'a permanently blank request must issue exactly one browser command'
+            Array(5).fill('workbench.action.browser.open'),
+            'a permanently blank request must use fresh browser navigation only'
+        );
+        assert.strictEqual(
+            closedTabs.length,
+            cappedClosedStart + 4,
+            'every retry must first close the exact prior blank tab'
+        );
+        assert.strictEqual(
+            editorTabs.length,
+            cappedVisibleStart + 1,
+            'bounded recovery must leave at most one blank tab for the request'
         );
         deferReady = false;
 

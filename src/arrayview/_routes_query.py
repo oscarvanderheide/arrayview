@@ -60,12 +60,11 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             raise HTTPException(status_code=400, detail="Invalid viewer phase")
         if phase != "launch-prepared" and not viewer_instance_id:
             raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
-        # `launch-prepared` is control-plane bookkeeping. The viewer is meant
-        # to open while a large array is still loading, so waiting for the data
-        # Session here deadlocks that design against the opener's short journal
-        # timeout. Pending registration is sufficient; later viewer phases
-        # still wait for the real Session.
-        if phase == "launch-prepared":
+        # Preparation and script startup are control-plane events. The viewer
+        # is meant to open while a large array is still loading, so hiding
+        # either event behind Session readiness creates a false pre-script
+        # timeout. Data-dependent phases still wait for the real Session.
+        if phase in {"launch-prepared", "script-loaded"}:
             if sid not in SESSIONS and sid not in _session_mod.PENDING_SESSIONS:
                 raise HTTPException(status_code=404, detail="Session not found")
         else:
@@ -208,8 +207,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
     @app.get("/viewer-phase/{sid}/{request_id}")
     async def get_viewer_phases(sid: str, request_id: str, token: str):
         """Return phases correlated to one browser launch transaction."""
-        session = SESSIONS.get(sid)
-        if session is None:
+        if sid not in SESSIONS and sid not in _session_mod.PENDING_SESSIONS:
             raise HTTPException(status_code=404, detail="Session not found")
         journals = _session_mod.VIEWER_PHASE_JOURNALS.get(sid, {})
         journal = journals.get(request_id, {})
