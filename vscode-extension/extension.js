@@ -209,6 +209,53 @@ async function _runIntegratedBrowserCommand(operation) {
     }
 }
 
+function _visibleEditorTabs() {
+    const groups = vscode.window?.tabGroups?.all;
+    if (!Array.isArray(groups)) return [];
+    return groups.flatMap(group => Array.isArray(group.tabs) ? group.tabs : []);
+}
+
+function _tabInputType(tab) {
+    return tab?.input?.constructor?.name || typeof tab?.input;
+}
+
+function _isBrowserTabCandidate(tab) {
+    const input = tab?.input;
+    const webviewType = vscode.TabInputWebview;
+    if (typeof webviewType === 'function' && input instanceof webviewType) {
+        return true;
+    }
+    const unsafeTypes = [
+        vscode.TabInputText,
+        vscode.TabInputTextDiff,
+        vscode.TabInputNotebook,
+        vscode.TabInputNotebookDiff,
+        vscode.TabInputCustom,
+        vscode.TabInputTerminal,
+        vscode.TabInputInteractiveWindow,
+    ].filter(type => typeof type === 'function');
+    if (unsafeTypes.some(type => input instanceof type)) return false;
+    // VS Code has changed the integrated-browser input type across releases.
+    // An unknown input remains eligible, but known editor, notebook, custom,
+    // and terminal inputs must never be force-closed by recovery.
+    return true;
+}
+
+async function _newEditorTabSince(previousTabs, timeoutMs = 750) {
+    const previous = new Set(previousTabs);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const added = _visibleEditorTabs().filter(tab => !previous.has(tab));
+        if (added.length === 1 && _isBrowserTabCandidate(added[0])) return added[0];
+        if (added.length > 1) return null;
+        const remaining = deadline - Date.now();
+        if (remaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(25, remaining)));
+        }
+    }
+    return null;
+}
+
 function _asExternalUriAttempt(baseUri) {
     // A timed-out VS Code resolver cannot be cancelled. Keep attempts
     // request-local and side-effect free so a hung promise cannot poison all
@@ -2342,7 +2389,13 @@ async function waitForBackendViewerReady(
                 log(`PANEL: pre-script navigation retry failed: ${error.message || error}`);
             }
             ensureActive();
-            if (replacementToken) activeToken = replacementToken;
+            if (replacementToken) {
+                activeToken = replacementToken;
+            } else {
+                // A null result means the callback cannot safely identify or
+                // replace this request's tab. Do not invoke it repeatedly.
+                retryPreScriptNavigation = null;
+            }
             nextNavigationRetryAt = Date.now() + navigationRetryDelayMs;
         }
         const remaining = (
@@ -2375,9 +2428,8 @@ async function openInIntegratedBrowser(
     if (!sid || !requestId || !serverId || !windowId) {
         throw new Error('Integrated browser launch is missing correlated viewer identity');
     }
-    // A replay must navigate the existing request tab but prove readiness from
-    // the newly navigated document.  The reuse filter deliberately excludes
-    // this fresh token; the backend journal is reset before navigation.
+    // A recovery closes the exact blank request tab, then opens a replacement
+    // with fresh navigation state. The backend journal is reset first.
     // With remote proxy enabled the browser resolves localhost in the remote
     // workspace and must use the backend URL.  Otherwise it runs on the client
     // and must use the client-forwarded asExternalUri URL.
@@ -2385,6 +2437,7 @@ async function openInIntegratedBrowser(
     const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
     const tabKey = crypto.randomBytes(12).toString('base64url');
     const reuseUrlFilter = `/_av/${tabKey}/`;
+    let requestTab = null;
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
@@ -2430,6 +2483,7 @@ async function openInIntegratedBrowser(
             navigationKey
         );
         if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
+        const tabsBefore = _visibleEditorTabs();
         const commandPromise = _runIntegratedBrowserCommand(
             () => _withTimeout(
                 vscode.commands.executeCommand('workbench.action.browser.open', {
@@ -2461,6 +2515,18 @@ async function openInIntegratedBrowser(
         } else {
             await commandPromise;
         }
+        requestTab = await _newEditorTabSince(
+            tabsBefore,
+            Math.max(0, Math.min(750, attemptDeadline - Date.now()))
+        );
+        if (requestTab) {
+            log(
+                `PANEL: captured exact request tab label=${JSON.stringify(requestTab.label || '')}`
+                + ` input=${_tabInputType(requestTab)}`
+            );
+        } else {
+            log('PANEL: no exact integrated-browser tab handle captured');
+        }
         return token;
     };
     let commandAttempted = false;
@@ -2485,9 +2551,29 @@ async function openInIntegratedBrowser(
             token,
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
-            // The stable VS Code API cannot target the exact integrated-browser
-            // tab after a dropped navigation. Retrying may create duplicates.
-            null,
+            async (navigationAttempt, deadline) => {
+                const tabGroups = vscode.window?.tabGroups;
+                if (!requestTab || typeof tabGroups?.close !== 'function') {
+                    log('PANEL: blank-tab recovery unavailable without exact tab handle');
+                    return null;
+                }
+                if (
+                    !_visibleEditorTabs().includes(requestTab)
+                    || !_isBrowserTabCandidate(requestTab)
+                ) {
+                    requestTab = null;
+                    log('PANEL: exact blank tab handle became stale or unsafe; recovery stopped');
+                    return null;
+                }
+                const closed = await tabGroups.close(requestTab, true);
+                if (!closed) {
+                    log('PANEL: exact blank tab could not be closed; recovery stopped');
+                    return null;
+                }
+                requestTab = null;
+                log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
+                return prepareNavigation(navigationAttempt, deadline);
+            },
             preScriptTimeoutMs
         ),
     };

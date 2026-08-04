@@ -72,17 +72,28 @@ This contract describes who owns the backend, when it starts, and what closes it
 - `release_session()` is the session-release primitive.
 - Viewer WebSocket connect/disconnect owns active viewer counts.
 - URL panel disposal must release every SID encoded in the URL: `sid`, `compare_sid`, `compare_sids`, and `overlay_sid`.
-- The desktop-tunnel integrated browser has no stable tab-disposal handle. Its
+- The desktop-tunnel integrated browser fires no tab-disposal event. Its
   correlated viewer marks the SID for fenced WebSocket-disconnect release with
-  a short reconnect grace period.
-- A desktop-tunnel request issues exactly one integrated-browser open command.
-  Readiness waits through the bounded pre-script deadline; it must not retry
-  `workbench.action.browser.open`, because VS Code may create a new visible tab
-  instead of reusing the still-loading request tab.
-- If a desktop-tunnel window accepts that command but never requests the viewer
-  page, restarting only the extension host is insufficient. A full reload of
-  that exact VS Code window clears the observed stuck browser state. Do not hide
-  this boundary with command retries or a public webview fallback.
+  a short reconnect grace period. (The `Tab` handle v0.15.18 captures is for
+  blank-navigation recovery during launch only; it is not a disposal signal.)
+- A desktop-tunnel request must never retry `workbench.action.browser.open`
+  blindly. A tab that dropped its navigation never matches the reuse URL filter,
+  so VS Code creates another visible tab instead of reusing it — real v0.15.14
+  retries produced four tabs from one request.
+- Retrying is allowed only after the exact tab from this request has been
+  closed. v0.15.18 captures the `Tab` object its own open command created, and
+  on a missing `script-loaded` closes that object with
+  `vscode.window.tabGroups.close` before preparing fresh navigation state, up to
+  four bounded attempts. Every ambiguity stops recovery rather than guessing:
+  more than one new tab, a stale handle, a known text/diff/notebook/custom/
+  terminal input, or a refused close.
+- The integrated-browser tab reports `input=undefined` on the real host, so the
+  reject-list is what makes closing safe. Do not convert it into a positive
+  `TabInputWebview` requirement — that would disable recovery silently.
+- If a desktop-tunnel window accepts the open command but never requests the
+  viewer page, restarting only the extension host is insufficient. A full reload
+  of that exact VS Code window clears the observed stuck browser state. Do not
+  hide this boundary with a public webview fallback.
 - Reused file and collection sessions acquire one lease per tab, so closing one
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only

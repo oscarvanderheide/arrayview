@@ -84,25 +84,29 @@ last_updated: 2026-08-03
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- The working tree targets VS Code opener v0.15.16. It removes the public-webview
+- The working tree targets VS Code opener v0.15.18. It removes the public-webview
   tunnel path and the zero-viewer singleton gate: tunnel requests use
   request-scoped private integrated-browser direct-loopback delivery, with
   exact request/window/backend identity and first-frame acknowledgement.
   Browser commands are serialized narrowly while readiness waits remain
-  concurrent. Each request now issues exactly one integrated-browser open
-  command: delayed script startup waits inside the bounded readiness deadline
-  instead of issuing retries that VS Code turns into duplicate tabs. If the
-  private proxy or target cannot be verified, delivery fails closed instead of
-  promoting the port.
+  concurrent. If the private proxy or target cannot be verified, delivery fails
+  closed instead of promoting the port.
 - A real desktop-tunnel window was observed accepting the integrated-browser
   command while making no page request at all. Restarting its extension host
-  did not clear that VS Code window state; a full window reload did. After the
-  reload, the unchanged CLI command reached first frame once and then on five
-  consecutive launches, with one browser-open command per request. Automatic
-  browser retries remain disabled because the stable VS Code API cannot target
-  the exact blank tab and real v0.15.14 retries created four tabs. Opener
-  v0.15.16 also makes pending-session `script-loaded` observable and reports a
-  blank browser navigation without blaming array size.
+  did not clear that VS Code window state; a full window reload did. Opener
+  v0.15.18 recovers from that drop instead of failing: it captures the exact
+  `Tab` object its own `workbench.action.browser.open` created, and on a missing
+  `script-loaded` closes that exact tab before retrying, up to four bounded
+  attempts. Blind retries are still never issued — real v0.15.14 retries created
+  four tabs because a blank tab never matches the reuse URL filter.
+  Identification is deliberately conservative: the capture requires exactly one
+  new tab, rejects known text/diff/notebook/custom/terminal inputs, and
+  re-validates the handle before closing. On the real host the browser tab
+  reports `input=undefined`, so the reject-list — not a positive
+  `TabInputWebview` match — is what makes the close safe. Turning that into a
+  require-list would silently disable recovery.
+- Opener v0.15.18 also makes pending-session `script-loaded` observable and
+  reports a blank browser navigation without blaming array size.
 - Component coverage guards private selection, concurrent command
   serialization, display intent, stale public-setting cleanup, and readiness
   correlation. The desktop-tunnel CLI path reached its first rendered frame
@@ -194,11 +198,16 @@ last_updated: 2026-08-03
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
   implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`
   but exposed four tabs from one delayed request; v0.15.15 removed those retry
-  commands. After a full reload cleared one stuck VS Code browser window,
-  v0.15.16 reached first frame for the reported NIfTI and five consecutive
-  repeats with one browser-open command per request. Middle-close isolation,
-  reconnect, explicit external-browser delivery, proxy-disabled fail-closed
-  behavior, and the separate browser-hosted tunnel row remain open.
+  commands, which turned every dropped navigation into a hard failure.
+  v0.15.18 passed the real-host gate on 2026-08-04: eight launches of the
+  reported NIfTI all reached `frame-rendered` across two extension-host
+  generations, and one launch hit a genuine dropped navigation twice, closed
+  its exact blank tab each time, and recovered in ~3.4 s with one tab left.
+  Middle-close isolation was verified in the same run — closing one of three
+  viewers released exactly one session and left the other two usable — and
+  closing the last tab shut the daemon down after its grace period with no
+  orphans. Reconnect, explicit external-browser delivery, proxy-disabled
+  fail-closed behavior, and the separate browser-hosted tunnel row remain open.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 
