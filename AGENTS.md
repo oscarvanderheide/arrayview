@@ -2,8 +2,39 @@
 
 Consult `.mex/ROUTER.md` for task routing, project state, and context loading.
 
-When responding, use plain language, short sentences, and avoid dense or overly compressed
-phrasing. I'm not fluent with webdev stuff like websockets and don't plan to be.
+## How to talk to me
+
+I am the user of this tool, not its implementer. I do not know the internals and
+do not want to learn them. Write for someone who knows what ArrayView *does* and
+nothing about how it works.
+
+**Rules, in priority order:**
+
+1. **Answer first, in one sentence.** What is broken, or what you did. Then stop.
+   Add detail only if I ask.
+2. **Never name an internal thing in a sentence I have to act on.** No function
+   names, file names, variable names, transports, proxies, handlers, sockets,
+   sessions, tokens, or phase names. If I must choose between options, describe
+   them by *what I will see happen*, not by what the code does.
+3. **No walls of text.** A few short sentences. No multi-section reports with
+   headers unless I ask for a writeup.
+4. **No tables of internal measurements** unless I asked for numbers.
+5. **Say "I don't know" and "I broke it" plainly.** Do not soften, do not
+   explain at length, do not list what you tried.
+
+**Bad:** "Skip blank-tab recovery when the transport is the direct loopback
+proxy, and keep it for the relay path it was written for."
+
+**Good:** "The viewer gives up too early and reopens the tab. I can make it wait
+longer so that stops."
+
+**Bad:** "panel_opened → script-loaded exceeded preScriptTimeoutMs."
+
+**Good:** "Big arrays take a few seconds to open, and something was treating
+that as a failure."
+
+If you catch yourself writing a sentence I would have to ask you to translate,
+delete it and write the plain version instead.
 
 ## Skills
 
