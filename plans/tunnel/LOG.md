@@ -2079,3 +2079,134 @@ for the blank navigations and must not be recorded as one.
 - `cc58453` — tab is named as the page parses, from `av_name` on the URL.
 - `7802cf1` — the eager `.npy` read reports progress; only reachable because the
   socket now opens before the read finishes.
+
+## Session started: 2026-08-04 (late evening) — the failure is saturation, not chance
+
+### 0.15.23 — observe-only measurement build
+
+Built the variant the previous handoff asked for: a launch carrying
+`ARRAYVIEW_MEASURE_NAVIGATION=1` sets `measureNavigation` in the signal payload,
+and the opener then runs with a 40 s pre-script budget and
+`retryPreScriptNavigation = null` — it watches the navigation instead of closing
+and reopening it. Ordinary launches are untouched, so a measurement run can share
+a window with real work.
+
+Server-side, `record_viewer_phase` now emits `page.phase_recorded` on the launch
+trace for each newly observed phase, keyed by the journal's `navigation_key`. Per
+navigation the trace therefore carries `route_prepared` → `route_entered` →
+`script-loaded` → `frame-rendered`, which is the first per-navigation timing
+anyone has had.
+
+### The result: 16 clean opens, then a wall
+
+**Evidence: `real host`.** 32 opens of `1226601.nii.gz` (49 KiB) through the
+tunnel window `c4222dfd` on opener 0.15.23, one every ~5 s, tabs never closed.
+
+| navigation outcome | count |
+|--------------------|-------|
+| first frame rendered | 16 |
+| document never requested | 15 |
+| document served, no script | 1 |
+| script ran, no frame | 2 |
+
+The order is the finding. Opens 1–16 succeeded, every one of them in **432–753 ms
+from `route_prepared` to `frame-rendered`** (median ~480 ms). Open 17 onward
+failed, **without a single recovery in 18 consecutive attempts**. The transition
+is not gradual: two of the first three failures got their document or even ran
+their script, and everything after that never fetched the page at all.
+
+This kills the "intermittent 12–19% drop" model that every prior entry, threshold
+and hedge was built on. The per-open failure probability is not ~15%; it is ~0
+until some limit is reached and ~1 afterwards. The historical 12–19% is what that
+step function looks like when opens are sampled across windows at different points
+in their life.
+
+It also retires the threshold question. No successful navigation in 34 took longer
+than 0.55 s to first frame, against a 1.5 s recovery cadence — the cadence was
+never truncating real successes. The reason recovery "worked sometimes" is that a
+window below the limit succeeds on any attempt, and one above it fails on all of
+them.
+
+**Ruled out during the run**: the backend. `GET /ping` on the same server answered
+in 2 ms immediately after the 18th consecutive failure, and the successful opens
+either side of the wall used the identical route, port and session machinery. For
+the 15 `no_doc` navigations VS Code never issued the request at all.
+
+**Consistent with**: 0.15.6's correlated bad windows, and the long-standing
+observation that a full window reload restores it temporarily while an extension
+host restart does not. Both are what a per-window resource limit looks like.
+
+### Open — the discriminating experiment, not yet run
+
+Whether the limit is **open browser tabs** or **cumulative navigations in the
+window's life**:
+
+- close every ArrayView tab in the saturated window *without reloading it*, then
+  open again. Success ⇒ the live tab count is the resource, and the fix is to stop
+  accumulating tabs (reuse or close on release).
+- still fails ⇒ the window is spent regardless, and the fix has to live outside
+  the integrated browser.
+
+`~16` is suspiciously close to a hard cap on concurrently live webviews per
+window, but nothing has measured that yet, and the number may depend on what else
+the window has open. Do not build on it until the experiment above says which
+resource it is.
+
+### The discriminating experiment: it is the live tab count
+
+**Evidence: `real host`.** All ArrayView tabs in the saturated window were closed
+by hand, **without a reload**. Five immediate opens: 5/5 rendered, 471–553 ms to
+first frame. The window that had just failed 18 consecutive times was healthy
+again.
+
+So the resource is **live integrated-browser tabs in the window**, not cumulative
+navigations and not a poisoned window. A reload only ever "fixed" it because it
+disposed the tabs.
+
+**What this means for every earlier conclusion in this file**: the intermittency
+was self-inflicted. Each launch leaves a tab behind and nothing ever removes it,
+so a working window walks itself into the wall. Hedges, thresholds, reload
+recovery and the relay black-hole model were all fitted to a step function that
+was really a leak.
+
+The exact cap is not established — the run started with an unknown number of
+pre-existing tabs — nor whether non-ArrayView webviews count toward it. Both are
+measurable by logging the window's tab count at each navigation.
+
+### What actually runs out: connections, and one of the two was waste
+
+Each open viewer tab held **two** long-lived WebSockets through the single
+channel VS Code uses for browser tabs: `/ws/{sid}`, which carries the view, and
+`/ws/shell`, opened by any top-level viewer to listen for `new_tab` messages so a
+repeat CLI invocation can inject a tab into an existing browser window.
+
+In a VS Code browser tab the shell socket can never do anything — each launch
+opens its own tab through the extension, and `window.open` is not the delivery
+path there. It was costing half the budget for nothing.
+
+**Fix** (`_viewer.html`): the shell socket is skipped when the page is an
+integrated-browser viewer (`_av_integrated_browser=1`). Everything else — browser
+mode, Jupyter, the shell iframe — is unchanged.
+
+**Measured, `real host`:**
+
+| build | sockets per open viewer | opens before the wall |
+|-------|-------------------------|-----------------------|
+| before | 2 | 16 consecutive, then 18 consecutive failures |
+| after  | 1 | 18 consecutive, wall at ~22–24 live sockets |
+
+With 22 viewer tabs open the server showed exactly 22 established connections —
+one per array, nothing spare — and 0 the moment the arrays were gone. Killing a
+server does **not** leave its orphaned tabs retrying; the sockets drop and stay
+dropped.
+
+**Honest limit of this evidence**: the ceiling is not pinned to an exact number,
+and tab count and socket count could not be fully separated, because the window
+held an unknown number of pre-existing viewer tabs when the first run started.
+Halving the sockets roughly doubled the reachable depth, which points at the
+socket budget, but does not prove tabs play no part. Chromium's default cap of 32
+sockets per proxy is a plausible mechanism, not a measured one.
+
+Per the user, the tab ceiling itself is acceptable at 16 or 32; the objection was
+to holding connections that do nothing. That is what was removed. No automatic
+tab-closing was built.

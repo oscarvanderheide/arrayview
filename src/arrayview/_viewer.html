@@ -5570,8 +5570,11 @@
         // never need to appear in the browser toolbar.
         const _arrayViewLaunchSearch = __ARRAYVIEW_QUERY__ || window.location.search;
         const urlParams = new URLSearchParams(_arrayViewLaunchSearch);
-        const _integratedBrowserDisplayHash = (
+        const _isIntegratedBrowserViewer = (
             urlParams.get('_av_integrated_browser') === '1'
+        );
+        const _integratedBrowserDisplayHash = (
+            _isIntegratedBrowserViewer
             && window.location.hash.startsWith('#av-')
         ) ? window.location.hash : '';
         // isInlineEmbed: true when explicitly launched as an inline Jupyter/notebook embed
@@ -15503,7 +15506,14 @@
 
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
             // new-tab signals so CLI tab injection still works.
-            if (window === window.top) {
+            //
+            // Skipped inside a VS Code browser tab. Every such tab holds its
+            // sockets open through one shared VS Code channel that stops
+            // carrying new page requests at ~32 of them, so a second socket per
+            // viewer halves how many arrays can be open before opening breaks.
+            // Nothing is lost: each launch opens its own VS Code tab, so the
+            // window.open path this socket exists to serve never runs there.
+            if (window === window.top && !_isIntegratedBrowserViewer) {
                 try {
                     const _shellProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const _shellWs = new WebSocket(`${_shellProto}//${location.host}${resolveServerPath('/ws/shell')}`);

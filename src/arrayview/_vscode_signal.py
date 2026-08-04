@@ -488,6 +488,11 @@ def _open_via_signal_file(
         payload["title"] = title
     if handoff_path := os.environ.get("ARRAYVIEW_HANDOFF_PATH"):
         payload["handoffPath"] = handoff_path
+    # Opt-in measurement launch: the opener observes the navigation for a long
+    # budget instead of closing and reopening a blank tab after 1.5 s.  Only
+    # this launch is affected, so ordinary use continues alongside a run.
+    if os.environ.get("ARRAYVIEW_MEASURE_NAVIGATION") == "1":
+        payload["measureNavigation"] = True
     if floating:
         payload["floating"] = True
     if remote_was_supplied:

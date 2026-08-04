@@ -217,6 +217,24 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         phases = journal["phases"]
         if phase not in phases:
             phases.append(phase)
+            # Timestamps the page's own milestones against the navigation that
+            # delivered it, so time-to-first-script can be measured per
+            # navigation rather than inferred from opener poll intervals.
+            navigation_key = journal.get("navigation_key")
+            if navigation_key:
+                try:
+                    from arrayview._launch_trace import emit_route_launch_event
+
+                    emit_route_launch_event(
+                        "page.phase_recorded",
+                        navigation_key=navigation_key,
+                        tab_key=journal.get("tab_key"),
+                        request_id=request_id,
+                        navigation_attempt=journal.get("navigation_attempt"),
+                        phase=phase,
+                    )
+                except Exception:
+                    pass
         if bool(body.get("release_on_disconnect")):
             journal["disconnect_release_grace_seconds"] = 30.0
         return {

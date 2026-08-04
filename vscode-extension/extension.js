@@ -128,6 +128,9 @@ let signalQueueOwner = null;
 // Upper bound on waiting for a viewer's first frame once the backend has
 // published its URL. Keeps a failed launch from holding the request queue.
 const VIEWER_READY_TIMEOUT_MS = 45000;
+// Measurement-mode pre-script budget: long enough that a late navigation is
+// recorded rather than truncated, and still inside VIEWER_READY_TIMEOUT_MS.
+const MEASUREMENT_PRE_SCRIPT_TIMEOUT_MS = 40000;
 // Minimum remaining signal lifetime worth opening a panel for. Real requests
 // carry 190–240s, so this only rejects ones already at their deadline.
 const PANEL_MIN_REMAINING_MS = 1000;
@@ -2430,9 +2433,26 @@ async function openInIntegratedBrowser(
     windowId,
     viewerTimeoutMs,
     ensureActive = () => {},
-    preScriptTimeoutMs = 10000
+    preScriptTimeoutMs = 10000,
+    // Measurement mode: observe the navigation instead of recovering it.
+    // The 1.5 s recovery cadence censors its own evidence — once every page
+    // that has not loaded by then is closed, a page that would have loaded at
+    // 3 s can never be observed, so the data can neither justify nor refute the
+    // threshold while the threshold is running.  Opt in per launch with
+    // ARRAYVIEW_MEASURE_NAVIGATION=1; normal launches are unaffected.
+    measureNavigation = false
 ) {
     const viewerDeadline = Date.now() + viewerTimeoutMs;
+    if (measureNavigation) {
+        preScriptTimeoutMs = Math.max(
+            preScriptTimeoutMs,
+            MEASUREMENT_PRE_SCRIPT_TIMEOUT_MS
+        );
+        log(
+            `PANEL: navigation measurement mode — recovery disabled,`
+            + ` pre-script budget ${preScriptTimeoutMs}ms`
+        );
+    }
     ensureActive();
     const remoteProxyEnabled = vscode.workspace
         .getConfiguration('workbench.browser')
@@ -2568,7 +2588,7 @@ async function openInIntegratedBrowser(
             token,
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
-            async (navigationAttempt, deadline) => {
+            measureNavigation ? null : async (navigationAttempt, deadline) => {
                 const tabGroups = vscode.window?.tabGroups;
                 if (!requestTab || typeof tabGroups?.close !== 'function') {
                     log('PANEL: blank-tab recovery unavailable without exact tab handle');
@@ -3248,7 +3268,9 @@ async function _processSignalDataBody(
                 data.serverId || null,
                 data.windowId || logWindowId,
                 viewerTimeoutMs,
-                ensureActive
+                ensureActive,
+                undefined,
+                data.measureNavigation === true
             );
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
