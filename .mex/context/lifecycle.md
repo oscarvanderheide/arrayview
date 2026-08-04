@@ -79,6 +79,10 @@ This contract describes who owns the backend, when it starts, and what closes it
   Readiness waits through the bounded pre-script deadline; it must not retry
   `workbench.action.browser.open`, because VS Code may create a new visible tab
   instead of reusing the still-loading request tab.
+- If a desktop-tunnel window accepts that command but never requests the viewer
+  page, restarting only the extension host is insufficient. A full reload of
+  that exact VS Code window clears the observed stuck browser state. Do not hide
+  this boundary with command retries or a public webview fallback.
 - Reused file and collection sessions acquire one lease per tab, so closing one
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only

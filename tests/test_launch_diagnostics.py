@@ -116,6 +116,17 @@ def test_a_real_failure_still_reads_as_one():
     )
 
 
+def test_integrated_browser_navigation_failure_does_not_blame_the_array():
+    message = (
+        "Integrated browser did not start the viewer script before recovery "
+        "timeout"
+    )
+    _severity, what, fix = diagnose(message)
+    assert "did not navigate" in what
+    assert "too large" not in what.lower()
+    assert "too large" not in fix.lower()
+
+
 def test_an_unrecognized_failure_still_offers_the_traceback():
     severity, _what, fix = diagnose("something nobody has seen before")
     assert severity == FATAL

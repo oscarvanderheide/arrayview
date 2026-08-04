@@ -2485,11 +2485,8 @@ async function openInIntegratedBrowser(
             token,
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
-            // workbench.action.browser.open does not reliably honor
-            // reuseUrlFilter for a retry with a changed URL. A retry therefore
-            // creates another visible tab while the original is still loading.
-            // Keep one display command per request and let the correlated
-            // readiness deadline distinguish a slow tab from a blank one.
+            // The stable VS Code API cannot target the exact integrated-browser
+            // tab after a dropped navigation. Retrying may create duplicates.
             null,
             preScriptTimeoutMs
         ),
