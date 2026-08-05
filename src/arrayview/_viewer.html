@@ -12690,12 +12690,11 @@
             const data = await _fetchVolumeHistogram(_volHistSpatialOpts());
             if (!data || expectedKey !== _expectedHistKey()
                     || manualVmin !== null || manualVmax !== null) return;
+            // Prefetch and cache the volume range so the histogram opens
+            // instantly, but do NOT apply it: on launch the first slice keeps
+            // its own auto contrast. Applying the volume-wide window here made
+            // the image visibly re-render seconds after opening.
             _histData = data;
-            window._dQuantileIdx = 0;
-            _dmenuVminPresetIdx = 0;
-            _dmenuVmaxPresetIdx = 0;
-            _reapplyCurrentQuantilePreset();
-            _dmenuRefreshAfterRangeChange(true);
         }
 
         /** Compute expected histogram version key for current dim/index config. */
@@ -36234,7 +36233,7 @@
             document.querySelectorAll('.qv-canvas-clip, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
-            document.querySelectorAll('.compare-canvas-clip').forEach(el => {
+            document.querySelectorAll('.compare-canvas-clip, .sm-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
 

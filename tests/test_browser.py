@@ -1761,23 +1761,38 @@ class TestKeyboard:
         after_boundary = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim], seq: wsSentSeq})")
         assert after_boundary == at_boundary, "navigation past the final index must be a complete no-op"
 
-    def test_initial_scoped_volume_range_stays_fixed_without_opening_histogram(self, loaded_viewer, sid_3d):
+    def test_launch_keeps_slice_auto_range_without_histogram(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.wait_for_function("() => manualVmin !== null && manualVmax !== null")
+        page.wait_for_function("() => lastImageData !== null && lastImgW > 0 && lastImgH > 0", timeout=5_000)
         before = page.evaluate("""() => ({
-            range: [manualVmin, manualVmax],
+            manual: [manualVmin, manualVmax],
+            range: [currentVmin, currentVmax],
             index: indices[activeDim],
             histogramOpen: primaryCb._expanded,
         })""")
 
+        # Give any background volume-range computation time to run. It must
+        # not install a manual window or re-render the first slice.
+        page.wait_for_timeout(800)
+        after = page.evaluate("""() => ({
+            manual: [manualVmin, manualVmax],
+            range: [currentVmin, currentVmax],
+            index: indices[activeDim],
+            histogramOpen: primaryCb._expanded,
+        })""")
+
+        assert before["manual"] == [None, None], f"launch should start on slice auto range, got: {before}"
+        assert after["manual"] == [None, None], f"opening must not install a manual window, got: {after}"
+        assert after["range"] == before["range"], "opening must not re-render the first slice with a different range"
+        assert after["histogramOpen"] is False
+        assert after["index"] == before["index"]
+
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(300)
-        after = page.evaluate("() => ({range: [manualVmin, manualVmax], index: indices[activeDim]})")
-
-        assert before["histogramOpen"] is False
-        assert after["index"] > before["index"]
-        assert after["range"] == before["range"]
+        scrolled = page.evaluate("() => ({manual: [manualVmin, manualVmax], index: indices[activeDim]})")
+        assert scrolled["index"] > before["index"]
+        assert scrolled["manual"] == [None, None], "scrolling an unscoped stack must keep slice auto range"
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

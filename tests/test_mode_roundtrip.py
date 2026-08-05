@@ -386,11 +386,12 @@ IGNORED_FIELDS_GLOBAL: set[str] = {"viewStates", "mmModeName"}
 PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
     "cycle_colormap":      {"colormap_idx", "customColormap"},
     # Tapping `d` opens the histogram colorbar (flips lebesgueMode). The
-    # first tap does NOT cycle percentile presets / touch vmin/vmax —
-    # subsequent taps while the histogram is visible do, but the mode
-    # round-trip only exercises a single tap. So the expected diff is the
-    # same lebesgueMode flip as before the preset work.
-    "toggle_histogram":    {"lebesgueMode"},
+    # first tap does NOT cycle percentile presets, but on a volume it adopts
+    # the volume's full range so scrolling an in-scope dim cannot fall back
+    # to slice-local extrema; a 2-D image opens without touching the range.
+    # All round-trip modes here are volumes, so manualVmin/manualVmax may
+    # legitimately change.
+    "toggle_histogram":    {"lebesgueMode", "manualVmin", "manualVmax"},
     # toggle_log changes logScale AND recomputes vmin/vmax for the new scale
     "toggle_log":          {"logScale", "manualVmin", "manualVmax"},
     "toggle_pixel_info":   {"_pixelInfoVisible"},
@@ -406,7 +407,13 @@ PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
 # and the toggleRegistrationMode fallback at ~line 10210). These are
 # remembered state, not leaked state.
 IGNORED_FIELDS_PER_MODE: dict[str, set[str]] = {
-    "compare": {"compareSid", "compareName", "compareSidList"},
+    "compare": {
+        "compareSid", "compareName", "compareSidList",
+        # Entering compare auto-syncs the panes to the union of their slice
+        # ranges for a fair comparison when no manual window is set. That is
+        # the point of the mode, not corruption.
+        "manualVmin", "manualVmax",
+    },
 }
 
 # Additional per-case ignores for genuine mode-specific quirks (empty for now;
