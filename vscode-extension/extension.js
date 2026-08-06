@@ -2710,15 +2710,22 @@ async function openInIntegratedBrowser(
         } else {
             await commandPromise;
         }
-        requestTab = await _newEditorTabSince(
+        // A wake-up navigation reuses this launch's tab rather than adding one,
+        // because every attempt shares reuseUrlFilter. No new tab appearing is
+        // the expected, quiet case then — keep the handle we already have
+        // instead of reading it as a lost tab and disabling recovery.
+        const captured = await _newEditorTabSince(
             tabsBefore,
             Math.max(0, Math.min(750, attemptDeadline - Date.now()))
         );
-        if (requestTab) {
+        if (captured) requestTab = captured;
+        if (captured) {
             log(
-                `PANEL: captured exact request tab label=${JSON.stringify(requestTab.label || '')}`
-                + ` input=${_tabInputType(requestTab)}`
+                `PANEL: captured exact request tab label=${JSON.stringify(captured.label || '')}`
+                + ` input=${_tabInputType(captured)}`
             );
+        } else if (requestTab) {
+            log('PANEL: navigation reused this launch\'s existing tab');
         } else {
             log('PANEL: no exact integrated-browser tab handle captured');
         }
@@ -2780,8 +2787,7 @@ async function openInIntegratedBrowser(
                         ? `reachable in ${Date.now() - probeStartedAt}ms`
                         : 'unreachable'}`
                 );
-                const tabGroups = vscode.window?.tabGroups;
-                if (!requestTab || typeof tabGroups?.close !== 'function') {
+                if (!requestTab || typeof vscode.window?.tabGroups?.close !== 'function') {
                     log('PANEL: blank-tab recovery unavailable without exact tab handle');
                     return null;
                 }
@@ -2791,6 +2797,19 @@ async function openInIntegratedBrowser(
                 ) {
                     requestTab = null;
                     log('PANEL: exact blank tab handle became stale or unsafe; recovery stopped');
+                    return null;
+                }
+                // The blank tab is closed before renavigating. Leaving it open
+                // and relying on this launch's shared reuseUrlFilter to
+                // navigate it in place was tried in 0.15.35 and does not work:
+                // the workbench opened a fresh tab for every wake-up attempt
+                // instead of reusing the one already there, so a single launch
+                // left five stacked tabs with the viewer only in the last. The
+                // flicker this causes is the lesser fault until something
+                // actually makes the reuse happen.
+                const tabGroups = vscode.window?.tabGroups;
+                if (typeof tabGroups?.close !== 'function') {
+                    log('PANEL: blank-tab recovery unavailable without tab close');
                     return null;
                 }
                 const closed = await tabGroups.close(requestTab, true);
@@ -2941,6 +2960,7 @@ async function reserveDirectIntegratedBrowser(backendUrl, expectedServerId = nul
     }
     return true;
 }
+
 
 function _backendPortMapping(displayUrl, backendUrl) {
     try {
