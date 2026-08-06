@@ -57,7 +57,7 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.15.42"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.15.43"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 # Version-skew notices already printed, so a long-lived process (Jupyter, a
 # script opening several arrays) states the mismatch once instead of per call.

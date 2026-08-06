@@ -626,10 +626,34 @@ function _arrayviewLaunchCandidates(filePath) {
     return candidates;
 }
 
+// Ask a running server to serve this launch from a port VS Code has not
+// forwarded before. Only when no viewer is connected: a forward that is already
+// carrying a viewer is warm, and one that has sat idle drops the first requests
+// through it, which is what makes the tab redraw before the array appears.
+// Returns the port to display from — the original one if anything at all goes
+// wrong, since a launch on the old port still works, it just may flicker.
+async function _coldStartPort(port, viewerSockets) {
+    if (vscode.env.remoteName !== 'tunnel') return port;
+    if (viewerSockets > 0) return port;
+    try {
+        const result = await httpPostJson(
+            `http://localhost:${port}/cold-start-port`, {}, 3000
+        );
+        if (result && result.port) {
+            log(`FASTLOAD: cold start, serving this launch from port ${result.port}`);
+            return result.port;
+        }
+    } catch (error) {
+        log(`FASTLOAD: no cold-start port (${error.message || error}); using ${port}`);
+    }
+    return port;
+}
+
 async function _fastLoadViaDaemon(filePath, title) {
     const port = 8000;
     const pingUrl = `http://localhost:${port}/ping`;
     let serverId = null;
+    let pingViewerSockets = 0;
     try {
         const pingPayload = await httpJson(pingUrl, 1000);
         if (!pingPayload || pingPayload.service !== 'arrayview' || !pingPayload.instance_id) {
@@ -637,6 +661,7 @@ async function _fastLoadViaDaemon(filePath, title) {
             return false;
         }
         serverId = pingPayload.instance_id;
+        pingViewerSockets = Number(pingPayload.viewer_sockets) || 0;
     } catch (_) {
         return false;
     }
@@ -652,12 +677,19 @@ async function _fastLoadViaDaemon(filePath, title) {
         return false;
     }
     const resolvedSid = loadResult.sid;
+    // A click that finds the server already running takes this path instead of
+    // the Python one, so it has to ask for a cold-start port itself. Without
+    // this, clicking the first array after a pause loses its first page loads
+    // and the tab visibly redraws — the case the Python path already covers.
+    // Tunnel only, matching that path: an idle forward is what drops requests,
+    // and Remote SSH reaches its port a different way.
+    const displayPort = await _coldStartPort(port, pingViewerSockets);
     // av_name lets the viewer title its tab while the HTML parses, instead of
     // showing the bare host until metadata arrives over the WebSocket — which
     // waits on the array load, seconds for a large file. This must be the same
     // string sent as loadPayload.name, because that becomes the session name
     // the metadata later carries; a mismatch retitles the tab a second time.
-    const url = `http://localhost:${port}/?sid=${encodeURIComponent(resolvedSid)}`
+    const url = `http://localhost:${displayPort}/?sid=${encodeURIComponent(resolvedSid)}`
         + `&av_name=${encodeURIComponent(loadPayload.name)}`;
     const requestId = crypto.randomBytes(16).toString('hex');
     const ackPath = path.join(SIGNAL_DIR, `open-ack-v0100-${requestId}.json`);
