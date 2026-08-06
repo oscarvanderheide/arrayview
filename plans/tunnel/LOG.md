@@ -2629,3 +2629,51 @@ earlier session, and two windows each running their own server. All are
 live, requests were claimed across them, and one wedged window took a request and
 answered a 3 s timeout 34 s later. That behaviour has never been explained and no
 row previously existed for it.
+
+### Two investigations: the SSH guard, and what multi-window actually does
+
+**Remote SSH was taking new risk for an unmeasured benefit.** The cold-start port
+swap sat in `_open_via_signal_file`, the single funnel for *all* VS Code
+launches, so Remote SSH received an ephemeral port too. Under SSH the main port
+is forwarded by two mechanisms an ephemeral port does not get: it is printed to
+the terminal for VS Code's output scanner (`_print_viewer_location`), and it is
+given `remote.portsAttributes` with `onAutoForward: silent`
+(`_configure_vscode_port_preview`). Nothing measured says SSH forwards suffer the
+idle drop at all. Now gated: `cold_start_port=is_tunnel`, passed from
+`_vscode_browser.py` where `is_tunnel` was already computed. **Do not gate on
+`display_surface`** — it is `"integrated-browser"` under Remote SSH as well.
+
+**A gap the fix does not cover**: `_fastLoadViaDaemon` in the opener writes its
+own signal file and hardcodes port 8000, bypassing the Python signal writer
+entirely. Explorer clicks against a running daemon therefore never get a
+cold-start port, and that path is also wrong whenever the daemon is not on 8000.
+Not fixed.
+
+**Correction to the previous entry, and to what the user was told.** "Requests
+were claimed across windows" on 2026-08-05 is **false**. Across 544 dispatches in
+`extension.log` there are zero cross-window claims, zero shared-fallback claims,
+and zero broadcast skips. Every request is targeted at one window by filename,
+and sibling windows correctly leave each other's claims alone (1474 `retained
+active claim`). The episode was one extension host starved for ~34 s: a 1.5 s
+timeout fired at 12.4 s, a 3 s timeout at 35.4 s, and a log append landed 33.9 s
+late, while the other two hosts ticked normally throughout.
+
+**The real multi-window defect is row 32, and it reproduced today.** Claim
+liveness is pid-based only — no heartbeat, no claim age limit, no takeover on
+staleness. A window that is alive but wedged holds its request indefinitely and
+no other window may touch it, because targeted files are invisible to everyone
+else. Observed again 2026-08-06: window `dbc75319` returned
+`ERROR: integrated browser open timeout after 3000ms` on three consecutive
+launches while a second window was healthy. The user's only recovery is to reload
+that window, and nothing tells them that is what is wrong.
+
+**Also found, unverified**: `_writeSignalFile` always uses the `ipc-` filename
+prefix, but a window with no IPC hook watches `open-request-pid-<id>.json`. On
+such a platform (documented: local macOS) every Explorer click writes a name
+nobody watches and pays the ~12 s ack timeout before falling back to spawning
+Python. Found by reading, not by running.
+
+**Row 31 is not reachable.** The focus-deferral guard protects the broadcast
+path, and current Python never sets `broadcast`; when it cannot identify a window
+and several are live it refuses the launch instead. Safety comes from targeting,
+not from focus.

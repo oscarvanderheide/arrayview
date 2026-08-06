@@ -101,22 +101,25 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 26 | Close one viewer, others keep working | never verified |
 | 27 | `--kill` / shutdown leaves no orphan processes | never verified this session |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |
-| 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified — three windows were live during the 2026-08-05 failures and requests were claimed across them |
-| 30 | Two+ windows open, Explorer click opens in **the window clicked in** | never verified |
-| 31 | Two+ windows open, one unfocused/idle — it must not claim another window's launch | never verified — the opener defers a broadcast when unfocused, but a targeted request goes to its window regardless of focus |
-| 32 | Two+ windows, a stale window from a previous session still registered | never verified — a wedged window was observed taking a request and answering ~34 s late (2026-08-05) |
-| 33 | Two windows, each with its own server on its own port | never verified |
+| 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified end to end — every request is targeted at one window by name and 544 dispatches show **0** cross-window claims, so misrouting is not the risk; the risk is a **refusal** when the terminal outlives ~8 window reloads or under tmux |
+| 30 | Two+ windows open, Explorer click opens in **the window clicked in** | never verified — sound on this host (the click writes to its own window's file), but on any platform with no IPC hook (documented: local macOS) the click writes a filename **no window watches**, costing ~12 s per click before it falls back |
+| 31 | Two+ windows, an unfocused window must not claim another's launch | **not reachable** — the focus guard protects a broadcast path that current Python never writes; safety comes from every request being targeted, not from focus |
+| 32 | Two+ windows, one alive but **not responding** | **broken 2026-08-06 `real host`** — liveness is pid-based only, with no heartbeat and no takeover on staleness, so a wedged window holds its claim indefinitely. Observed twice: a 3 s timeout logged 34 s late (2026-08-05) and three consecutive `integrated browser open timeout` in one window (2026-08-06). The user's only recovery is reloading that window |
+| 33 | Two windows, each with its own server on its own port | never verified — and **not a state the code maintains**: the instance registry has no concept of a window, so a second window silently reuses the first window's server unless `--port` is passed explicitly |
 
 ## Known-bad rows, in priority order
 
-1. **Row 25** — no ceiling was found at 24 open viewers. Nothing still closes
+1. **Row 32** — a VS Code window that is alive but not responding keeps its
+   claim on a launch forever. Nothing detects it, nothing takes over, and the
+   user just sees nothing happen. Observed on two separate days.
+2. **Row 25** — no ceiling was found at 24 open viewers. Nothing still closes
    viewer tabs, so a ceiling presumably exists somewhere higher; it has not been
    observed and should not be designed against until it is.
-2. A blank tab has three unrelated causes — a stale forward, a forward that does
+3. A blank tab has three unrelated causes — a stale forward, a forward that does
    not exist yet, and the tab ceiling — and they look identical from outside.
    Check `browserTabsOpen=` and whether any viewer is connected before
    theorising about any of them.
-3. Everything marked `never verified` is a claim nobody has checked.
+4. Everything marked `never verified` is a claim nobody has checked.
 
 ## Risks the current fixes introduce
 
@@ -145,11 +148,15 @@ while nothing is being opened):
 **The cold-start port** (running server binds one more port for a launch with no
 viewer connected):
 
-- **Rows 6 and 21, Remote SSH — the real risk.** Remote SSH goes through the same
-  signal path, so it gets a cold-start port too, and it resolves URLs differently
-  (`asExternalUri` on the port). A freshly bound high port may not be forwarded
-  the way the fixed one is. Never verified before or after. **If Remote SSH
-  breaks, this is the first thing to look at.**
+- **Explorer clicks against an already-running server never reach this code at
+  all**: the opener's fast path writes its own signal and hardcodes port 8000
+  (`extension.js` `_fastLoadViaDaemon`), bypassing the Python signal writer. So
+  the cold-start fix does not cover the click path, and that fast path also
+  breaks outright if the daemon is not on 8000. Unfixed.
+- Rows 6 and 21 (Remote SSH): **guarded 2026-08-06** — the swap is now tunnel
+  only. Under SSH the main port is forwarded because it is printed to the
+  terminal and given port attributes; an ephemeral port gets neither, so it
+  would have taken new risk for a benefit never measured there.
 - Rows 11 and 17 (`--window none`, `window=False`): unaffected — the swap only
   happens on the VS Code signal path, and those return the original URL.
 - Rows 5, 7, 8-10, 12-15 (browser, native, Jupyter): unaffected, same reason.

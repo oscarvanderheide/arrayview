@@ -322,6 +322,15 @@ def _open_browser(
                     if selected_adapter == "vscode-external-browser"
                     else "integrated-browser"
                 ),
+                # Tunnel only. Serving a cold launch from a freshly forwarded
+                # port was measured against the tunnel, where an idle forward
+                # drops the viewer's first requests. Remote SSH reaches its
+                # port a different way: the main port is forwarded because it
+                # is printed to the terminal and given port attributes, and an
+                # ephemeral port gets neither — so there it would take new risk
+                # for a benefit nobody has measured. `display_surface` cannot
+                # stand in for this: it is "integrated-browser" under SSH too.
+                cold_start_port=is_tunnel,
                 max_age_ms=_vscode_request_max_age_ms(
                     blocking=blocking,
                     is_remote=True,

@@ -481,6 +481,7 @@ def _open_via_signal_file(
     is_remote: bool | None = None,
     max_age_ms: int | None = None,
     display_surface: str | None = None,
+    cold_start_port: bool = False,
 ) -> SignalRequest:
     """Write the URL to the versioned ArrayView opener signal file.
 
@@ -488,7 +489,8 @@ def _open_via_signal_file(
     If omitted it is auto-derived from the session name embedded in the URL's
     ``?sid=`` query parameter.
     """
-    url = _cold_start_url(url)
+    if cold_start_port:
+        url = _cold_start_url(url)
     session_name = _session_name_for_url(url)
     if title is None and session_name:
         title = f"ArrayView: {session_name}"
