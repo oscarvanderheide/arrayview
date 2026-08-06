@@ -362,6 +362,16 @@ def register_websocket_routes(app) -> None:
         _session_mod.VIEWER_CONNECTIONS_SEEN += 1
         _session_mod.LIVE_VIEWER_SOCKETS.append(ws)
         _ensure_path_nudge_task()
+        # Which port this viewer arrived on, so a cold-start port can be
+        # released the moment its own viewer goes away rather than waiting for
+        # every viewer everywhere to close.
+        arrived_on = (ws.scope.get("server") or (None, None))[1]
+        try:
+            from arrayview import _extra_ports
+
+            _extra_ports.viewer_connected(arrived_on)
+        except Exception:
+            pass
         _session_mod.VIEWER_SID_COUNTS[sid] = (
             _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
         )
@@ -751,16 +761,19 @@ def register_websocket_routes(app) -> None:
                 _session_mod.LIVE_VIEWER_SOCKETS.remove(ws)
             except ValueError:
                 pass
-            if _session_mod.VIEWER_SOCKETS == 0:
-                # No viewer is connected, so no page can still be using a
-                # cold-start port.  That is both the only moment it is safe to
-                # release one and the moment it stops being needed.
-                try:
-                    from arrayview import _extra_ports
+            try:
+                from arrayview import _extra_ports
 
+                # Release this viewer's own cold-start port as soon as it is
+                # the last one there — not when the whole server goes idle, or
+                # a single cold start would keep a port listening all session.
+                asyncio.create_task(_extra_ports.viewer_disconnected(arrived_on))
+                if _session_mod.VIEWER_SOCKETS == 0:
+                    # Backstop: if a viewer was lost without its disconnect
+                    # being seen, an idle server still reclaims everything.
                     asyncio.create_task(_extra_ports.close_extra_ports())
-                except Exception:
-                    pass
+            except Exception:
+                pass
             sid_count = max(0, _session_mod.VIEWER_SID_COUNTS.get(sid, 0) - 1)
             if sid_count:
                 _session_mod.VIEWER_SID_COUNTS[sid] = sid_count
