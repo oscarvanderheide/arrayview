@@ -73,7 +73,34 @@ Use **subagent-driven development**. Work in **feature branches**.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 
+### Settled decisions — do not reopen these
+
+Both were decided by measurement and both keep getting proposed again by people
+who have not read this. If you are about to suggest either, you are going
+backwards.
+
+**The viewer is delivered over a forwarded port with a WebSocket. Not a webview.**
+The extension-owned webview panel was tried and is **slower**. It also cannot
+resolve a URL to load in the tunnel setup and fails outright with "Failed to
+resolve remote viewer URL". Do not propose moving the viewer back into a webview
+panel, an iframe wrapper inside one, or any variant of "retry inside our own tab"
+that depends on that surface. If the built-in browser tab needs to behave
+differently, fix the browser path.
+
+**Private ports are fine. Stop trying to make ports public.** A long series of
+tricks existed to force a public/relay-visible port, and they are all obsolete —
+a way was found to use private ports. Do not add port-promotion, relay
+publication, public-visibility fallbacks, or "the port must be public for the
+client to reach it" reasoning. If the client cannot reach the port, the forward
+is missing or stale, which is a different problem with a different fix.
+
 ### Launch and display changes
+
+`LAUNCH-MATRIX.md` lists every way ArrayView can be launched and whether that way
+is known to work. Before changing launch, display, or server code, name the rows
+you are changing and the rows you could break; after the change, re-check those
+rows and update their status with the date and evidence label. A row is about the
+last time it was *seen* working, not about whether the code looks right.
 
 - Before editing launch code, run the smallest affected **public command** in
   the real target environment when that environment is available. Record the

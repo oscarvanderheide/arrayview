@@ -2337,3 +2337,149 @@ and it still went cold — so whatever their sockets hold is not this path.
 send them out of the user's sight instead of pacing them at 1.5 s behind a
 visible tab that closes and reopens. Do not attack this by shortening the retry
 delay; see the timing-constant note above.
+
+### 0.15.35 — the wake-up navigations stop being visible
+
+**Fix**: recovery no longer closes the blank tab before renavigating. Every
+attempt in a launch already shares one `reuseUrlFilter`, so reissuing
+`workbench.action.browser.open` navigates the same tab in place. The tab handle is
+kept when no new tab appears, which is now the expected case rather than a lost
+handle.
+
+**Confirmed by the user, `real host`**: after a reload and a minute idle — the
+reproduction established above — the viewer no longer flickers. One tab appears,
+stays blank while the swallowed navigations wake the path, then shows the array.
+
+**What this does not fix.** The navigations are still being swallowed, so the
+first open after tens of seconds idle still costs the user several seconds of
+blank tab. This change hides the churn; it does not shorten it. The stale client
+path is still unexplained and is the next thing to attack — and per the entries
+above, not by tuning the retry delay, which cannot help because a swallowed
+navigation never recovers on its own.
+
+Worth testing next: whether anything cheaper than a full navigation wakes the path
+(so the wake-up can happen before the user asks for an array rather than during),
+and where the staleness threshold actually sits — it is only bracketed to 12-47 s.
+
+### 0.15.36 — 0.15.35 reverted: the tab is not reused, it stacks
+
+**Disproven, `real host`, user-reported**: one launch left **five** tabs open with
+the viewer only in the last one. Leaving the blank tab open and reissuing
+`workbench.action.browser.open` with the launch's shared `reuseUrlFilter` does
+**not** navigate that tab in place — the workbench opens a fresh tab per attempt.
+The filter evidently does not match a tab whose navigation was swallowed, which is
+exactly the tab this path is trying to reuse.
+
+Closing before renavigating is restored. The flicker is back and is the lesser
+fault: N tabs stacked is strictly worse than one tab redrawn N times.
+
+**Do not retry this shape** without first establishing, in isolation, that a
+blank integrated-browser tab can be renavigated at all. That is a small
+experiment and it was skipped here — 0.15.35 was shipped on the reuse filter's
+name rather than on evidence it fires, and the user found the regression instead
+of a test.
+
+### Disproven: an idle HTTP keep-alive from an open viewer does not keep the path warm
+
+**Hypothesis**: the client's page-fetch path decays when unused, so a tiny
+periodic `fetch('ping')` from any open integrated-browser viewer would keep it
+alive and make the next open instant.
+
+**Evidence: `real host`, measured, negative.** Keep-alive added to `_viewer.html`
+at 10 s intervals, daemon restarted so the edited page was actually served
+(verified by grepping the served HTML — the first run of this test was invalid
+because the running daemon still had the old page in memory, and it would have
+been reported as a false negative). With a keep-alive viewer open and 100 s idle,
+the next launch still lost **2** navigations. A second run at ~90 s idle lost 3.
+
+**Therefore**: what goes stale is not an idle HTTP connection to the backend, and
+it is not reachable by traffic from an already-loaded page. It is specific to
+creating and navigating a *new* integrated-browser tab after idle. That narrows
+the next experiment to the workbench's own per-tab machinery rather than anything
+ArrayView serves. The keep-alive was removed rather than left in as dead traffic.
+
+**Method note worth keeping**: when testing a `_viewer.html` change against a
+persistent daemon, restart the daemon and confirm the served page contains the
+change before trusting the result.
+
+### 0.15.37 — the flicker is a display-surface choice, and the non-flickering surface still exists
+
+**Where the flicker came from.** `~/.arrayview/extension.log` dates it exactly:
+the first `closed exact blank tab` is **2026-08-04 09:48**, and there is not one
+before it, across 52 opens on 07-28..08-03. It arrived with the tab-level
+recovery that commit `630e23b` ("recover dropped tunnel navigations via the exact
+tab") committed at 14:58 the same day. The user is right that this is new: the
+swallowed navigations are old, but *recovering them by closing the tab* is one day
+old.
+
+**What recovery looked like before.** The desktop-tunnel path used to run in a
+webview panel this extension owns, whose HTML is delivered by VS Code rather than
+fetched over the network, with the viewer in an iframe and hedged navigation
+retried *inside* that one tab (`_viewerPanelHtml`, `openInWebviewPanel`). A
+swallowed navigation cost the user nothing visible. Simple Browser replaced it for
+the tunnel case at v0.15.7 when the relay was bypassed; tab-level recovery had to
+be invented afterwards because a built-in browser tab cannot be renavigated
+(confirmed independently by 0.15.35's five stacked tabs).
+
+**That path is still present and still wired.** It is the fallback branch for
+local and SSH, unchanged and passing its tests.
+
+**Change**: `displaySurface: 'webview-panel'` in the signal now forces it for the
+desktop-tunnel case too, settable per launch with `ARRAYVIEW_DISPLAY_SURFACE`.
+Left opt-in, **not** default: the panel's iframe reaches the backend through VS
+Code's `portMapping` rather than the browser remote proxy, and that has not been
+exercised on this host since v0.15.7. Defaulting it untested could replace a
+flicker with a viewer that never loads.
+
+**Not yet validated** — it needs a window reload to take effect and the user is
+asleep. The test to run is the established reproduction: reload, idle 60 s+, then
+
+    ARRAYVIEW_DISPLAY_SURFACE=webview-panel uv run arrayview <file>
+
+Expected if the theory holds: one tab, no close/reopen, and `PANEL: created` in
+the log instead of `closed exact blank tab`. If it renders clean, make it the
+default for `desktopTunnel` and delete the tab-level recovery with it. If the
+iframe cannot reach the backend, the portMapping wiring is what to fix — the
+surface choice is still right, because it is the only one that can retry without
+the user watching.
+
+### 0.42.x — the idle path is fixed by a server-driven nudge; the tab wall is what is left
+
+**Change.** The server keeps the client's forwarded port from going idle. It
+picks **one** connected viewer and sends it `warm_path`; that viewer opens three
+short connections. Nothing is scheduled in the page — closing the last viewer
+ends the traffic. Nothing is sent while arrays are being opened: a page served
+within `_PATH_NUDGE_IDLE_S` means the path is already in use. One viewer is asked
+rather than all of them, so the cost does not scale with tab count, which matters
+because tab count is itself a scarce resource here (see below).
+
+**Measured, `real host`, `scripts/measure_idle_launch.sh`:**
+
+| idle before open | trials | clean, no flicker |
+|------------------|--------|-------------------|
+| 90 s             | 6      | **6/6**           |
+| 180 s            | 1      | 1/1 before the window saturated |
+
+Baseline for the same conditions, same day: 2-4 swallowed page loads on
+essentially every open after a minute idle. Row 2 of `LAUNCH-MATRIX.md` is fixed.
+
+**Bug found by the measurement, worth keeping.** The first version nudged
+`LIVE_VIEWER_SOCKETS[0]` — the *oldest* viewer. A socket that has died but not
+yet been cleaned up accepts the send silently through `_send_json_quietly`, so
+every nudge went nowhere and the protection quietly disappeared. Two of three
+trials at 180 s failed that way. It now walks newest-first and drops any socket
+that raises, stopping at the first that accepts. **A single trial would have
+shown 1/1 and shipped this.**
+
+**What the later failures actually were.** After the trials, launches failed
+outright again — and the opener log shows `browserTabsOpen=18`. That is the tab
+ceiling from the 2026-08-04 entry, not the idle path: the measurement runs left
+eighteen viewer tabs open and walked the window into the wall. **The two failure
+modes are indistinguishable from outside** — both are a tab that never requests
+its page — which is how they have been repeatedly conflated in this file. Tab
+count is now logged at every blank tab; use it to tell them apart before
+theorising.
+
+**Next**: row 25. Nothing closes viewer tabs, so any heavy session walks into
+this. It was identified on 2026-08-04, has never been built, and is now the
+top user-facing defect with the idle path fixed.
