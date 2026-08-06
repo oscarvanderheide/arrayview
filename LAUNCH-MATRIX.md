@@ -104,14 +104,15 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified end to end — every request is targeted at one window by name and 544 dispatches show **0** cross-window claims, so misrouting is not the risk; the risk is a **refusal** when the terminal outlives ~8 window reloads or under tmux |
 | 30 | Two+ windows open, Explorer click opens in **the window clicked in** | partially verified 2026-08-06 `real host` — clicks landed in the clicking window throughout; not tested with two windows side by side. Separately: sound on this host (the click writes to its own window's file), but on any platform with no IPC hook (documented: local macOS) the click writes a filename **no window watches**, costing ~12 s per click before it falls back |
 | 31 | Two+ windows, an unfocused window must not claim another's launch | **not reachable** — the focus guard protects a broadcast path that current Python never writes; safety comes from every request being targeted, not from focus |
-| 32 | Two+ windows, one alive but **not responding** | **broken 2026-08-06 `real host`** — liveness is pid-based only, with no heartbeat and no takeover on staleness, so a wedged window holds its claim indefinitely. Observed twice: a 3 s timeout logged 34 s late (2026-08-05) and three consecutive `integrated browser open timeout` in one window (2026-08-06). The user's only recovery is reloading that window |
+| 32 | Two+ windows, one alive but **not responding** | **partially fixed 2026-08-06** — the window now detects itself after two consecutive stalled display commands and offers a one-click reload, and the CLI names the cause instead of suggesting a plain retry (`component` evidence: notice fires on the 2nd stall, once only). Still true underneath: liveness is pid-based, there is no heartbeat and no takeover, so a launch already claimed by that window is still lost |
 | 33 | Two windows, each with its own server on its own port | never verified — and **not a state the code maintains**: the instance registry has no concept of a window, so a second window silently reuses the first window's server unless `--port` is passed explicitly |
 
 ## Known-bad rows, in priority order
 
-1. **Row 32** — a VS Code window that is alive but not responding keeps its
-   claim on a launch forever. Nothing detects it, nothing takes over, and the
-   user just sees nothing happen. Observed on two separate days.
+1. **Row 32** — a wedged window now *announces itself* and the CLI explains it,
+   but nothing takes over the launch it already claimed, so that one launch is
+   still lost. A takeover needs a heartbeat in the claim journal; the detection
+   landed first because it is what the user actually lacked.
 2. **Row 25** — no ceiling was found at 24 open viewers. Nothing still closes
    viewer tabs, so a ceiling presumably exists somewhere higher; it has not been
    observed and should not be designed against until it is.

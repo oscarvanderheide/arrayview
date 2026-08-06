@@ -75,6 +75,23 @@ _DIAGNOSES: list[tuple[str, str, str, str]] = [
      "fine.",
      _RETRY),
 
+    # ── A window that is alive but not answering ──────────────────────────
+    # Its process exists, so nothing treats it as dead and no other window may
+    # take the request from it — targeted requests are invisible to everyone
+    # else. The user sees nothing happen at all, and reloading that one window
+    # is the only recovery, so say so rather than suggesting a plain retry:
+    # retrying sends the next launch to the same stuck window.
+    (r"integrated browser open timeout|command discovery timeout|"
+     r"browser command did not return", ACTION,
+     "The VS Code window handling this request has stopped responding. It is "
+     "still running, so nothing else will take the request from it.",
+     _RELOAD + "  Retrying without reloading sends the next launch to the "
+     "same window."),
+    (r"claimed but never|no progress after being claimed", ACTION,
+     "A VS Code window took this request and then went quiet, so the launch is "
+     "stuck with it.",
+     _RELOAD),
+
     # ── Timing — slow, not broken ─────────────────────────────────────────
     (r"did not start the viewer script", ACTION,
      "VS Code opened an integrated-browser tab, but the tab did not navigate "

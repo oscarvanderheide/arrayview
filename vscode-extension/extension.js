@@ -259,6 +259,45 @@ async function _newEditorTabSince(previousTabs, timeoutMs = 750) {
     return null;
 }
 
+// A window whose extension host has wedged is the worst failure this opener
+// has, because it is completely silent: the process is alive, so nothing treats
+// it as dead, and a launch addressed to this window cannot be picked up by any
+// other — targeted requests are invisible to them. The user sees nothing happen,
+// retries, and the retry goes to the same stuck window. Reloading it is the only
+// recovery and nothing anywhere says so.
+//
+// Two consecutive failures of a command that normally returns in milliseconds is
+// the signal. One can be a slow moment; two in a row is the host not running our
+// code. Observed twice on the real host: 2026-08-05 a 3 s timeout fired at 35 s,
+// and 2026-08-06 three consecutive open timeouts in one window while a second
+// window was healthy.
+let _consecutiveCommandStalls = 0;
+let _stallNoticeShown = false;
+
+function _noteBrowserCommandStalled() {
+    _consecutiveCommandStalls += 1;
+    if (_consecutiveCommandStalls < 2 || _stallNoticeShown) return;
+    _stallNoticeShown = true;
+    log('PANEL: this window appears wedged; telling the user to reload it');
+    try {
+        vscode.window.showErrorMessage(
+            'ArrayView: this VS Code window has stopped responding to display '
+            + 'requests. Reload it to fix — arrays opened from here will not '
+            + 'appear until you do.',
+            'Reload Window'
+        ).then((choice) => {
+            if (choice === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        });
+    } catch (_) { /* a notification is best effort */ }
+}
+
+function _noteBrowserCommandSucceeded() {
+    _consecutiveCommandStalls = 0;
+    _stallNoticeShown = false;
+}
+
 function _asExternalUriAttempt(baseUri) {
     // A timed-out VS Code resolver cannot be cancelled. Keep attempts
     // request-local and side-effect free so a hung promise cannot poison all
@@ -2724,6 +2763,9 @@ async function openInIntegratedBrowser(
                 }),
                 3000,
                 'integrated browser open'
+            ).then(
+                (value) => { _noteBrowserCommandSucceeded(); return value; },
+                (error) => { _noteBrowserCommandStalled(); throw error; }
             )
         );
         if (navigationAttempt > 0 && deadline !== null) {

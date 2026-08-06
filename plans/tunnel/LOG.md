@@ -2677,3 +2677,33 @@ Python. Found by reading, not by running.
 path, and current Python never sets `broadcast`; when it cannot identify a window
 and several are live it refuses the launch instead. Safety comes from targeting,
 not from focus.
+
+### A wedged window now says so
+
+Row 32 was the worst failure this opener has, because it is completely silent.
+The window's process is alive, so nothing treats it as dead; a launch addressed
+to it cannot be picked up by any other window, because targeted requests are
+invisible to them; the user sees nothing happen, retries, and the retry goes to
+the same stuck window. Reloading it is the only recovery and nothing anywhere
+said so. It cost the user an hour on 2026-08-06 and had already happened on
+2026-08-05.
+
+**Signal chosen**: two *consecutive* failures of a command that normally returns
+in milliseconds. One can be a slow moment; two in a row is the host not running
+our code. The counter resets on any success, and the notice is shown once per
+wedge rather than per launch.
+
+**What the user now gets**: a VS Code notification with a `Reload Window` button
+in the window itself, and — for launches from the terminal, where no notification
+is visible — a diagnosis naming the cause instead of the old advice to retry.
+Retrying was actively wrong: the next launch goes to the same stuck window.
+
+**Evidence `component`**: verified on the real test scaffolding — silent on the
+first stall, one notification on the second, none on the third.
+
+**Not fixed**: the launch already claimed by that window is still lost, because
+nothing may take a targeted claim from a living process. A takeover needs a
+heartbeat in the claim journal — the claim would have to be refreshed while held,
+and a claim whose heartbeat has stopped could then be reassigned. Detection
+landed first because it is what the user actually lacked: not recovery, but
+knowing what was wrong.
