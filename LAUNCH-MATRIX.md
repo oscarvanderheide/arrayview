@@ -86,7 +86,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`** — but shares row 2's idle failure |
+| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`, by the user** — clean cold start via Explorer click, served from a freshly forwarded port |
 | 20 | VS Code tunnel | vscode tab | folder / collection (`openFolder`) | never verified |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
@@ -102,7 +102,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 27 | `--kill` / shutdown leaves no orphan processes | never verified this session |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |
 | 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified end to end — every request is targeted at one window by name and 544 dispatches show **0** cross-window claims, so misrouting is not the risk; the risk is a **refusal** when the terminal outlives ~8 window reloads or under tmux |
-| 30 | Two+ windows open, Explorer click opens in **the window clicked in** | never verified — sound on this host (the click writes to its own window's file), but on any platform with no IPC hook (documented: local macOS) the click writes a filename **no window watches**, costing ~12 s per click before it falls back |
+| 30 | Two+ windows open, Explorer click opens in **the window clicked in** | partially verified 2026-08-06 `real host` — clicks landed in the clicking window throughout; not tested with two windows side by side. Separately: sound on this host (the click writes to its own window's file), but on any platform with no IPC hook (documented: local macOS) the click writes a filename **no window watches**, costing ~12 s per click before it falls back |
 | 31 | Two+ windows, an unfocused window must not claim another's launch | **not reachable** — the focus guard protects a broadcast path that current Python never writes; safety comes from every request being targeted, not from focus |
 | 32 | Two+ windows, one alive but **not responding** | **broken 2026-08-06 `real host`** — liveness is pid-based only, with no heartbeat and no takeover on staleness, so a wedged window holds its claim indefinitely. Observed twice: a 3 s timeout logged 34 s late (2026-08-05) and three consecutive `integrated browser open timeout` in one window (2026-08-06). The user's only recovery is reloading that window |
 | 33 | Two windows, each with its own server on its own port | never verified — and **not a state the code maintains**: the instance registry has no concept of a window, so a second window silently reuses the first window's server unless `--port` is passed explicitly |
@@ -148,11 +148,16 @@ while nothing is being opened):
 **The cold-start port** (running server binds one more port for a launch with no
 viewer connected):
 
-- **Explorer clicks against an already-running server never reach this code at
-  all**: the opener's fast path writes its own signal and hardcodes port 8000
-  (`extension.js` `_fastLoadViaDaemon`), bypassing the Python signal writer. So
-  the cold-start fix does not cover the click path, and that fast path also
-  breaks outright if the daemon is not on 8000. Unfixed.
+- Explorer clicks against an already-running server take the opener's own fast
+  path (`extension.js` `_fastLoadViaDaemon`) rather than the Python signal
+  writer. That path now asks for a cold-start port itself, tunnel only —
+  **observed firing correctly 2026-08-06** (fresh port, rendered in under a
+  second). What is *not* verified is that same path after a long idle, because
+  the state it needs — server running, no viewer open, connection gone cold — is
+  hard to produce: the server tends to stop when its last viewer closes. Likely
+  rare in normal use; do not spend much on it.
+- That fast path still **hardcodes port 8000** and silently declines when the
+  daemon is on any other port. Unfixed, and unrelated to the flicker.
 - Rows 6 and 21 (Remote SSH): **guarded 2026-08-06** — the swap is now tunnel
   only. Under SSH the main port is forwarded because it is printed to the
   terminal and given port attributes; an ephemeral port gets neither, so it
