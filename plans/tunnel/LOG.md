@@ -2585,3 +2585,47 @@ holding one port while a viewer is open, which is the expected steady state.
 **Pre-existing failures**, confirmed against a clean worktree at HEAD, unrelated
 to this change: `test_remote_vscode_spawned_daemon_keeps_backend_persistent` and
 `test_integrated_launch_cleanup_is_scoped_per_request_token`.
+
+### Reflection: what the two 2026-08-06 fixes could break
+
+Recorded because both fixes were built under time pressure at the end of a long
+session, and the failure mode of this file has always been a fix that quietly
+moved the problem somewhere nobody was looking.
+
+**The idle nudge.** The dangerous property is that it fails *silently*. It is
+already known to have failed silently once — nudging the oldest socket, which a
+dead-but-uncleaned connection accepted without acting, so the protection
+vanished with no error anywhere. The same shape survives in a mixed
+environment: the server stops at the first viewer that accepts the message, not
+the first that can act, and only an integrated-browser viewer acts. A Jupyter
+viewer alongside a VS Code viewer could therefore absorb every nudge. The right
+fix is for the viewer to declare that it can warm the path, so the server
+chooses on capability rather than on order — deliberately not built tonight,
+because the last three things built late in this session were all wrong.
+
+**The cold-start port.** The real exposure is Remote SSH (matrix rows 6 and 21).
+It shares the signal path, so it now receives a cold-start port, and it resolves
+URLs through `asExternalUri` rather than the tunnel's direct proxy. A freshly
+bound ephemeral port may not be reachable the way the fixed port is. That row was
+never verified before this change either, so this is not a regression against a
+known-good state — but it is the first place to look if Remote SSH is reported
+broken.
+
+Everything outside the VS Code signal path — `--window none`, `window=False`,
+browser, native, Jupyter — cannot reach the swap and is unaffected by
+construction, not by measurement.
+
+One quieter consequence worth knowing: the port recorded in the instance registry
+is no longer necessarily the port a viewer is using. Nothing today depends on
+that, but anything written later that assumes it will be wrong.
+
+### Multi-window rows added to the matrix
+
+Rows 29-33 now cover what was previously one vague line: a terminal launch
+opening in the window its terminal belongs to, a click opening in the window
+clicked, an idle window not stealing another's launch, a stale window from an
+earlier session, and two windows each running their own server. All are
+`never verified`. This is not idle bookkeeping — on 2026-08-05 three windows were
+live, requests were claimed across them, and one wedged window took a request and
+answered a 3 s timeout 34 s later. That behaviour has never been explained and no
+row previously existed for it.

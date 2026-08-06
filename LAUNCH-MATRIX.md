@@ -101,7 +101,11 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 26 | Close one viewer, others keep working | never verified |
 | 27 | `--kill` / shutdown leaves no orphan processes | never verified this session |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |
-| 29 | Two VS Code windows open, launch claimed by the right one | never verified — three windows were live during 2026-08-05 failures |
+| 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified — three windows were live during the 2026-08-05 failures and requests were claimed across them |
+| 30 | Two+ windows open, Explorer click opens in **the window clicked in** | never verified |
+| 31 | Two+ windows open, one unfocused/idle — it must not claim another window's launch | never verified — the opener defers a broadcast when unfocused, but a targeted request goes to its window regardless of focus |
+| 32 | Two+ windows, a stale window from a previous session still registered | never verified — a wedged window was observed taking a request and answering ~34 s late (2026-08-05) |
+| 33 | Two windows, each with its own server on its own port | never verified |
 
 ## Known-bad rows, in priority order
 
@@ -113,6 +117,50 @@ Status is **`never verified`** unless a dated entry says otherwise.
    Check `browserTabsOpen=` and whether any viewer is connected before
    theorising about any of them.
 3. Everything marked `never verified` is a claim nobody has checked.
+
+## Risks the current fixes introduce
+
+Both 2026-08-06 fixes are narrow, but neither is free. Re-check these rows before
+trusting them.
+
+**The idle nudge** (server asks one connected viewer to make a few connections
+while nothing is being opened):
+
+- Rows 12-15 (Jupyter, native, plain browser): the nudge is sent to whichever
+  viewer the server picks, and only a VS Code integrated-browser viewer acts on
+  it — everything else ignores the message. Harmless, but **untested against a
+  Jupyter or native viewer**, and it does mean a non-VS-Code deployment sends a
+  message every 15 s that nobody uses.
+- **Known gap, mixed environments**: the server stops at the first viewer that
+  *accepts* the message, not the first that can act on it. With a Jupyter viewer
+  and a VS Code viewer on one server, the nudge may keep going to the Jupyter one
+  and the VS Code path would silently stop being protected — the exact failure
+  shape as the oldest-socket bug, which took a five-run measurement to catch.
+  Not built: the scenario is rare, and it should be fixed by having the viewer
+  declare it can act rather than by guessing.
+- Row 25: adds a small burst of short-lived connections. It is one burst total
+  regardless of tab count, which is why it was built this way, but it is still
+  connections against a ceiling that has not been located.
+
+**The cold-start port** (running server binds one more port for a launch with no
+viewer connected):
+
+- **Rows 6 and 21, Remote SSH — the real risk.** Remote SSH goes through the same
+  signal path, so it gets a cold-start port too, and it resolves URLs differently
+  (`asExternalUri` on the port). A freshly bound high port may not be forwarded
+  the way the fixed one is. Never verified before or after. **If Remote SSH
+  breaks, this is the first thing to look at.**
+- Rows 11 and 17 (`--window none`, `window=False`): unaffected — the swap only
+  happens on the VS Code signal path, and those return the original URL.
+- Rows 5, 7, 8-10, 12-15 (browser, native, Jupyter): unaffected, same reason.
+- Row 27 (orphans): extra ports live in the existing process and die with it, so
+  they cannot outlive the server. The release path is only *observed* holding one
+  port while a viewer is open; it has not been watched letting go on the real
+  host, because that needs every viewer tab closed.
+- `doctor`, `instances`, `--kill` and the registry all still record the main
+  port only. A viewer served from an extra port is still owned by that process,
+  so stopping works — but any tool that assumes "the port in the registry is the
+  port the viewer uses" is now wrong.
 
 ## Where the work is logged
 
