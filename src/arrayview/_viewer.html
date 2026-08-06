@@ -5618,6 +5618,19 @@
             _isIntegratedBrowserViewer
             && window.location.hash.startsWith('#av-')
         ) ? window.location.hash : '';
+        // Shorten what the tab shows next to the array name. The launch address
+        // carries two unguessable keys and is ~50 characters, all of it greyed
+        // out after the name and all of it useless to read — and every one of
+        // those characters is taken from the array name in a narrow tab. The
+        // keys cannot be shortened, so drop them from view once they have done
+        // their job. Everything this page needs was captured above, before this
+        // runs: the launch query is injected into the document rather than read
+        // back from the address bar, so nothing downstream reads it again.
+        if (_isIntegratedBrowserViewer) {
+            try {
+                history.replaceState(null, '', '/' + _integratedBrowserDisplayHash);
+            } catch (_) { /* not fatal: the address is cosmetic here */ }
+        }
         // Keep the next array's first page load from being swallowed.
         //
         // In VS Code the viewer is reached over a forwarded port. Measured
