@@ -20,7 +20,7 @@
                 if (!name) return;
                 var clean = String(name).trim();
                 document.title = clean && clean !== 'welcome'
-                    ? 'ArrayView: ' + clean
+                    ? clean
                     : 'ArrayView';
             } catch (_) {}
         })();
@@ -8094,7 +8094,7 @@
 
         function _setWindowIdentity(name) {
             const clean = String(name || '').trim();
-            const title = clean && clean !== 'welcome' ? `ArrayView: ${clean}` : 'ArrayView';
+            const title = clean && clean !== 'welcome' ? clean : 'ArrayView';
             document.title = title;
             document.body.classList.toggle('titlebar-identity', clean && clean !== 'welcome');
             try {
