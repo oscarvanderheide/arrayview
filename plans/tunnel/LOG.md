@@ -2511,3 +2511,41 @@ sufficient: **a live viewer socket is what matters, not a tab that looks open.**
 built against until a cliff is actually observed. The real remaining defect is
 the cold start, visible as open 1 above — the first array with no viewer running
 has nothing keeping its path warm and still loses three page loads.
+
+### Disproven: the cold start cannot be warmed from an extension-owned tab
+
+**Hypothesis**: on a cold start the viewer tab pays for the idle forward's
+dropped connections, so make them from the "Opening…" tab instead — it is
+already on screen on the click path, and one can be created for terminal
+launches. Skipped when a viewer is already connected (`viewer_sockets > 0`).
+
+**Evidence: `real host`, 5 cold starts per run (`--kill`, 90 s idle, launch).**
+
+| build | clean | failed outright |
+|-------|-------|-----------------|
+| warm-up, no CSP declared | 1/5 | 0/5 |
+| warm-up, CSP + nonce declared | 2/5 | **2/5** |
+
+Baseline is 3 swallowed loads but a viewer every time. The first run was
+invalid — a webview blocks inline scripts and outbound connections unless the
+page declares a policy and a nonce, so the warm-up script never ran and 1/5 is
+what doing nothing looks like. **Declaring them did not rescue it**: 2/5 clean is
+not distinguishable from chance, and two launches produced no viewer at all,
+which is worse than the flicker it was meant to remove.
+
+**Why it cannot work, and this is the part worth keeping**: warming from an
+already-open *viewer* works (6/6 at 90 s idle) because the viewer runs inside the
+built-in browser tab and its requests go over the forwarded port. An
+extension-owned webview is not on that route — VS Code serves webview content
+through its own channel — so its requests warm something else. **Any plan that
+warms this path from a webview is dead on arrival**, including the click tab, a
+created warm-up tab, or a hidden panel.
+
+Reverted in full; the created warm-up tab went with it, since it added a visible
+tab for no measured benefit.
+
+**What is left for row 23**: the only thing known to warm the path is traffic
+from a page inside the built-in browser, and on a cold start there is no such
+page yet — that is the whole difficulty. Options not yet tried: keeping one
+viewer alive across a `--kill` so the path is never cold, or accepting the
+flicker on the first open only. Do not attempt another webview-based warm-up.
