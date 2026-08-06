@@ -271,6 +271,16 @@ function _asExternalUriAttempt(baseUri) {
 // creating a second panel, avoiding a visible flicker.
 const _pendingPlaceholders = new Map(); // filePath -> { panel, basename }
 
+// Launches whose click tab was closed before the viewer tab exists, keyed by
+// filePath. The value is the callback that ends that launch's status-bar
+// spinner. See _launchWithStatusProgress.
+const _pendingLaunchProgress = new Map(); // filePath -> settle(reason)
+
+// How long a handoff waits for the viewer page before giving up on the signal
+// it was waiting for: closing a leftover tab, ending a spinner. This is a leak
+// guard, not a launch budget — the launch itself may still be loading.
+const HANDOFF_SETTLE_TIMEOUT_MS = 15000;
+
 function _drainLogQueue() {
     if (_logWriteActive || _logWriteDisabled || !_logQueue.length) return;
     const lines = _logQueue.splice(0, LOG_BATCH_SIZE);
@@ -814,6 +824,15 @@ function isArrayViewCustomEditorTab(tab, uri = null) {
     return !uri || input.uri.toString() === uri.toString();
 }
 
+// True where the viewer will land in VS Code's built-in browser, which is
+// always a tab of its own. On that route a custom-editor tab can never become
+// the viewer, so keeping one open only makes the user watch a second tab
+// appear and the first vanish. Known synchronously at click time, before any
+// launch has started, which is what lets the click tab close immediately.
+function _viewerOpensInBuiltInBrowser() {
+    return vscode.env.remoteName === 'tunnel' && vscode.env.appHost === 'desktop';
+}
+
 function keepActiveArrayViewPreview(reason, uri = null) {
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
     if (!isArrayViewCustomEditorTab(tab, uri)) {
@@ -864,6 +883,9 @@ function _escapeHtml(value) {
 function _reportFailureToPlaceholder(data, message) {
     const handoff = data && data.handoffPath;
     if (!handoff) return false;
+    // A launch with no placeholder still has a spinner running for it, and a
+    // spinner that outlives its failed launch is worse than no spinner.
+    _settleLaunchProgress(handoff, 'launch failed');
     let key;
     try { key = path.resolve(handoff); } catch (_) { return false; }
     const placeholder = _pendingPlaceholders.get(key);
@@ -879,6 +901,77 @@ function _reportFailureToPlaceholder(data, message) {
     } catch (_) {
         return false;  // panel already disposed
     }
+}
+
+// Ends the status-bar spinner for a launch whose click tab was closed. Called
+// from the signal handler at the same moment the old code closed a placeholder
+// tab: when the viewer page is on screen, or when the launch has failed.
+function _settleLaunchProgress(sourcePath, reason) {
+    if (!sourcePath) return false;
+    let key;
+    try { key = path.resolve(sourcePath); } catch (_) { return false; }
+    const settle = _pendingLaunchProgress.get(key);
+    if (!settle) return false;
+    settle(reason);
+    return true;
+}
+
+// Runs a launch and reports it in the status bar for as long as it takes. The
+// spinner must outlive launchArrayViewFile: that resolves once the request has
+// been handed to a backend, which is still short of any page existing, and it
+// has to keep going across the moment the click tab hands over to the viewer
+// tab — the one moment nothing else on screen says a launch is running.
+function _launchWithStatusProgress(sourcePath, title, logTag, handoff = null) {
+    let key = null;
+    try { key = path.resolve(sourcePath); } catch (_) {}
+    let settle = () => {};
+    const onScreen = new Promise(resolve => {
+        settle = (reason) => {
+            if (key && _pendingLaunchProgress.get(key) === settle) {
+                _pendingLaunchProgress.delete(key);
+            }
+            log(`${logTag}: launch spinner ended (${reason})`);
+            resolve();
+        };
+    });
+    if (key) {
+        const previous = _pendingLaunchProgress.get(key);
+        if (previous) previous('superseded by a newer launch');
+        _pendingLaunchProgress.set(key, settle);
+    }
+    const guard = setTimeout(
+        () => settle('timeout'), HANDOFF_SETTLE_TIMEOUT_MS
+    );
+    const run = async () => {
+        try {
+            await launchArrayViewFile(sourcePath, title);
+            log(`${logTag}: launched network viewer for ${sourcePath}`);
+        } catch (error) {
+            settle('launch failed');
+            // The tab is the better place to say so while it is still there;
+            // once it has handed over there is nowhere left but a notification.
+            if (handoff) {
+                handoff.reportError(error);
+            } else {
+                log(`${logTag}: error: ${error.message}\n${error.stack || ''}`);
+            }
+            try {
+                vscode.window.showErrorMessage(
+                    `ArrayView could not open ${title}: ${error.message}`
+                );
+            } catch (_) {}
+        }
+        await onScreen;
+        clearTimeout(guard);
+    };
+    if (!vscode.window.withProgress) return run();
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Window,
+            title: `Opening ${title} in ArrayView`,
+        },
+        run
+    );
 }
 
 // Registers *webviewPanel* as the tab that the eventual signal-file URL should
@@ -945,7 +1038,35 @@ class ArrayViewEditorProvider {
         const filePath = document.uri.fsPath;
         const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
-        // This custom editor is a handoff placeholder.  We keep it open and
+        if (_viewerOpensInBuiltInBrowser()) {
+            // The viewer needs a browser tab of its own here, so this tab
+            // cannot become it — it can only be handed over. The handover is
+            // one step: this tab is closed in the moment before the viewer tab
+            // is opened (see the integrated-browser branch of the signal
+            // handler), so the two are never both on screen and nothing else
+            // is on screen in between.
+            //
+            // Returning without awaiting the launch is what makes that legal.
+            // Disposing this panel while VS Code is still awaiting
+            // resolveCustomEditor fails the click outright with "OverlayWebview
+            // has been disposed" — the 2026-08-04 attempt awaited the launch
+            // here, so the dispose always landed mid-resolve.
+            // Name this tab exactly what the viewer tab will name itself, so
+            // the handover is not also a rename. VS Code would otherwise label
+            // it with the bare filename while the viewer ends up prefixed, and
+            // two labels in a row read as two tabs. Must match the title the
+            // viewer page sets from `av_name` at parse time.
+            webviewPanel.title = `ArrayView: ${title}`;
+            const handover = _registerHandoffPlaceholder(
+                webviewPanel, filePath, title, 'CUSTOM-EDITOR'
+            );
+            void _launchWithStatusProgress(
+                filePath, title, 'CUSTOM-EDITOR', handover
+            );
+            return;
+        }
+        // Everywhere else the viewer can live in this very webview, so this
+        // custom editor is a handoff placeholder. We keep it open and
         // navigate its webview when the signal-file URL arrives — no flicker.
         const handoff = _registerHandoffPlaceholder(
             webviewPanel, filePath, title, 'CUSTOM-EDITOR'
@@ -2319,12 +2440,34 @@ async function waitForBackendViewerReady(
     // response is another independent fetch.  Escalating to a hard reload of
     // the already-blank tab recovered 0 of 5 observed stalls; a fresh
     // navigation recovered 2 of 7.  The budget buys repeats of the latter.
-    const navigationRetryDelayMs = Math.min(
-        1500,
-        Math.max(50, Math.floor(preScriptTimeoutMs * 0.15))
+    // A navigation that is going to answer answers quickly, so the wait before
+    // replacing one is a detection delay, not a grace period.  Measured
+    // server-side (2026-08-05): of 213 real navigations, 169 reached the
+    // backend and 44 never arrived at all; of those that arrived, the page
+    // request landed within 398 ms in every single case and the viewer script
+    // reported in by 1.32 s at the very worst, 833 ms at the 99th percentile.
+    // So there is no population of merely-slow pages that a longer wait would
+    // protect: past about 1.5 s the page is not late, it is gone, and every
+    // further millisecond is dead time.  The first attempt gets the same wait
+    // as the rest, because it is no more likely to be merely slow than they
+    // are.  The wait stays a fraction of the budget below that cap so that a
+    // shortened budget still fits a retry inside itself rather than expiring
+    // on the first wait.
+    const navigationRetryDelayMs = Math.max(
+        50,
+        Math.min(1500, Math.floor(preScriptTimeoutMs * 0.4))
     );
-    let nextNavigationRetryAt = Date.now() + navigationRetryDelayMs;
-    const maxNavigationRetries = 4;
+    const firstNavigationRetryDelayMs = navigationRetryDelayMs;
+    let nextNavigationRetryAt = Date.now() + firstNavigationRetryDelayMs;
+    // Drops arrive in bursts rather than independently, so what recovers a
+    // launch is covering enough wall time, not making more attempts inside the
+    // same instant.  With a faster cadence a fixed count would stop retrying
+    // halfway through the budget and then sit idle until it expired; scale the
+    // count so the attempts keep going for as long as the budget lasts.
+    const maxNavigationRetries = Math.max(
+        4,
+        Math.min(8, Math.floor(preScriptTimeoutMs / navigationRetryDelayMs) - 1)
+    );
     while (Date.now() < deadline) {
         ensureActive();
         const activeDeadline = scriptLoaded
@@ -2440,7 +2583,10 @@ async function openInIntegratedBrowser(
     // 3 s can never be observed, so the data can neither justify nor refute the
     // threshold while the threshold is running.  Opt in per launch with
     // ARRAYVIEW_MEASURE_NAVIGATION=1; normal launches are unaffected.
-    measureNavigation = false
+    measureNavigation = false,
+    // Called once, immediately before the first navigation command. See
+    // beforeNavigate below.
+    onBeforeNavigate = null
 ) {
     const viewerDeadline = Date.now() + viewerTimeoutMs;
     if (measureNavigation) {
@@ -2462,6 +2608,20 @@ async function openInIntegratedBrowser(
     if (!sid || !requestId || !serverId || !windowId) {
         throw new Error('Integrated browser launch is missing correlated viewer identity');
     }
+    // Fired in the moment before each navigation command, once the URL and the
+    // journal are ready and nothing is left that could still fail cheaply. The
+    // click tab closes here so the workbench applies the close and the open in
+    // one go: no overlap, and no gap showing whatever was on screen before.
+    // Not after the open — disposing a webview while the new tab was
+    // navigating killed 5 of 27 opens outright.
+    const beforeNavigate = () => {
+        if (!onBeforeNavigate) return;
+        const fire = onBeforeNavigate;
+        onBeforeNavigate = null;  // handover happens once, not per retry
+        try { fire(); } catch (error) {
+            log(`PANEL: pre-navigation handover failed: ${error.message}`);
+        }
+    };
     // A recovery closes the exact blank request tab, then opens a replacement
     // with fresh navigation state. The backend journal is reset first.
     // With remote proxy enabled the browser resolves localhost in the remote
@@ -2518,6 +2678,7 @@ async function openInIntegratedBrowser(
         );
         if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
         const tabsBefore = _visibleEditorTabs();
+        beforeNavigate();
         const commandPromise = _runIntegratedBrowserCommand(
             () => _withTimeout(
                 vscode.commands.executeCommand('workbench.action.browser.open', {
@@ -2589,6 +2750,36 @@ async function openInIntegratedBrowser(
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
             measureNavigation ? null : async (navigationAttempt, deadline) => {
+                // Recorded before the tab is closed, because closing it
+                // destroys the only evidence of why it stayed blank. A blank
+                // tab has exactly two causes and they need opposite fixes:
+                // the page request was issued and lost, or the webview never
+                // ran and issued nothing. The backend probe below separates
+                // them — it takes the same last hop the browser's request
+                // would take, so if it answers while the page never arrived,
+                // nothing was ever sent and the tab, not the transport, is at
+                // fault. Focus and visibility are recorded alongside it
+                // because a webview VS Code considers hidden does not load.
+                const probeUrl = pingUrlFromViewerUrl(backendUrl);
+                const probeStartedAt = Date.now();
+                const probe = probeUrl ? await httpJson(probeUrl, 500) : null;
+                // Live browser tabs in the window is the resource that runs
+                // out (plans/tunnel/LOG.md, 2026-08-04: closing them by hand
+                // restored a window that had failed 18 times running). Record
+                // it at every blank tab so saturation is visible in the log
+                // instead of being re-explained as chance for a fourth time.
+                const openTabs = _visibleEditorTabs();
+                log(
+                    `PANEL: blank tab at attempt=${navigationAttempt}`
+                    + ` browserTabsOpen=${openTabs.filter(_isBrowserTabCandidate).length}`
+                    + ` tabsOpen=${openTabs.length}`
+                    + ` windowFocused=${vscode.window?.state?.focused}`
+                    + ` tabVisible=${!!requestTab && _visibleEditorTabs().includes(requestTab)}`
+                    + ` tabActive=${!!requestTab && requestTab.isActive === true}`
+                    + ` backend=${probe && probe.service === 'arrayview'
+                        ? `reachable in ${Date.now() - probeStartedAt}ms`
+                        : 'unreachable'}`
+                );
                 const tabGroups = vscode.window?.tabGroups;
                 if (!requestTab || typeof tabGroups?.close !== 'function') {
                     log('PANEL: blank-tab recovery unavailable without exact tab handle');
@@ -3261,6 +3452,27 @@ async function _processSignalDataBody(
         ensureActive();
         if (useIntegratedBrowser) {
             log(`openInIntegratedBrowser(${openUrl})`);
+            // The tab the click opened is handed over in one step: closed in
+            // the moment before the viewer tab is opened, so the workbench
+            // applies both in the same go. Never both on screen, and never
+            // neither. Anything that can still fail — resolving the route,
+            // claiming the request, preparing the journal — has already
+            // happened, so the tab is not thrown away for a launch that then
+            // never produces a viewer.
+            const handOverTab = () => {
+                if (!integratedBrowserPlaceholder) return;
+                const { filePath, placeholder } = integratedBrowserPlaceholder;
+                integratedBrowserPlaceholder = null;
+                if (_pendingPlaceholders.get(filePath) === placeholder) {
+                    _pendingPlaceholders.delete(filePath);
+                }
+                try {
+                    placeholder.panel.dispose();
+                    log(`CUSTOM-EDITOR: handed over ${placeholder.basename} to the viewer tab`);
+                } catch (error) {
+                    log(`CUSTOM-EDITOR: tab for ${placeholder.basename} already closed at handover: ${error.message}`);
+                }
+            };
             const opened = await openInIntegratedBrowser(
                 openUrl,
                 data.url,
@@ -3270,54 +3482,37 @@ async function _processSignalDataBody(
                 viewerTimeoutMs,
                 ensureActive,
                 undefined,
-                data.measureNavigation === true
+                data.measureNavigation === true,
+                handOverTab
             );
             viewerReady = opened.viewerReady;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
-            // Dispose only after the browser tab is open. Closing it earlier
-            // disposes the panel VS Code is still resolving in
-            // resolveCustomEditor, which fails the click outright with
-            // "OverlayWebview has been disposed". Tried 2026-08-04, reverted.
-            //
-            // Wait further, until the viewer script is running, before
-            // closing. Disposing a webview in the same moment the new tab
-            // starts navigating was killing the navigation outright: 5 of 27
-            // opens never fetched the page at all, and 0 of 13 did once this
-            // wait was added. Waiting for the page rather than for full
-            // readiness keeps the overlap to the ~0.3 s the page takes to
-            // appear, instead of however long the array needs to load. The
-            // timeout is a leak guard — a placeholder that outlived its
-            // request must still go away.
-            if (integratedBrowserPlaceholder) {
-                const { filePath, placeholder } = integratedBrowserPlaceholder;
-                if (_pendingPlaceholders.get(filePath) === placeholder) {
-                    _pendingPlaceholders.delete(filePath);
-                }
-                const closePlaceholder = (reason) => {
-                    try {
-                        placeholder.panel.dispose();
-                        log(`CUSTOM-EDITOR: closed placeholder after integrated-browser handoff for ${placeholder.basename} (${reason})`);
-                    } catch (error) {
-                        log(`CUSTOM-EDITOR: placeholder already closed after integrated-browser handoff for ${placeholder.basename}: ${error.message}`);
-                    }
+            // The status-bar spinner runs from the click until the viewer page
+            // is actually on screen — the tab is gone by now, so it is the only
+            // thing left saying the launch is still going. The timeout is a
+            // leak guard: a spinner that outlived its request must still stop.
+            {
+                let spinnerStopped = false;
+                const stopSpinner = (reason) => {
+                    if (spinnerStopped) return;
+                    spinnerStopped = true;
+                    // A launch whose tab never closed (the open failed before
+                    // the handover) must not keep a stale tab either.
+                    handOverTab();
+                    _settleLaunchProgress(data.handoffPath, reason);
                 };
-                let placeholderClosed = false;
-                const closeOnce = (reason) => {
-                    if (placeholderClosed) return;
-                    placeholderClosed = true;
-                    closePlaceholder(reason);
-                };
-                const guard = setTimeout(() => closeOnce('timeout'), 15000);
+                const guard = setTimeout(
+                    () => stopSpinner('timeout'), HANDOFF_SETTLE_TIMEOUT_MS
+                );
                 // Either signal is enough: the page appearing is the normal
-                // case, and a request that ends without one still has to
-                // release the tab.
+                // case, and a request that ends without one still has to stop.
                 Promise.race([
                     Promise.resolve(opened.scriptLoaded),
                     Promise.resolve(opened.viewerReady).catch(() => {}),
                 ])
-                    .then(() => closeOnce('viewer page loaded'))
-                    .catch(() => closeOnce('viewer failed'))
+                    .then(() => stopSpinner('viewer page loaded'))
+                    .catch(() => stopSpinner('viewer failed'))
                     .finally(() => clearTimeout(guard));
             }
         } else if (useExternalBrowser) {
@@ -3333,6 +3528,7 @@ async function _processSignalDataBody(
             viewerReady = opened.viewerReady;
             externalBrowserOpened = true;
             log('openInExternalBrowser done');
+            _settleLaunchProgress(data.handoffPath, 'external browser opened');
             if (integratedBrowserPlaceholder) {
                 const { filePath, placeholder } = integratedBrowserPlaceholder;
                 if (_pendingPlaceholders.get(filePath) === placeholder) {
@@ -3670,12 +3866,12 @@ function activate(context) {
             filePath = selected[0].fsPath;
         }
 
-        try {
-            await launchArrayViewFile(filePath, path.basename(filePath));
-        } catch (e) {
-            log(`COMMAND: openFile failed: ${e.message}`);
-            vscode.window.showErrorMessage(`ArrayView: ${e.message}`);
-        }
+        // No editor is opened here, so this route never creates a tab of its
+        // own: the viewer's tab is the only one that ever appears. The status
+        // bar is the only place a launch can report itself.
+        await _launchWithStatusProgress(
+            filePath, path.basename(filePath), 'COMMAND'
+        );
     });
     context.subscriptions.push(openFileCmd);
 
@@ -3775,8 +3971,12 @@ module.exports = {
         requestMatchesRemoteName,
         tryOpenSignalFile,
         _registerHandoffPlaceholder,
+        _viewerOpensInBuiltInBrowser,
+        _launchWithStatusProgress,
+        _settleLaunchProgress,
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
+        pendingLaunchProgress: _pendingLaunchProgress,
         _viewerPanelHtml,
         _integratedBrowserLaunchUrl,
         integratedBrowserCommandAvailable,

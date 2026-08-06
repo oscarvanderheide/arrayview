@@ -33,6 +33,13 @@ VIEWER_SID_COUNTS: dict[str, int] = {}  # active viewer WS count per session ID
 VIEWER_CONNECTION_EPOCHS: dict[str, int] = {}
 VIEWER_RELEASE_TASKS: dict[str, asyncio.Task] = {}
 VIEWER_CONNECTIONS_SEEN = 0  # monotonic count of accepted viewer WS connections
+# Live viewer WebSockets, oldest first.  Only the first one is ever asked to
+# keep the client's connection to this server from going idle, so the nudge
+# traffic stays the same whether the user has one viewer open or twenty.
+LIVE_VIEWER_SOCKETS: list = []
+# When a viewer page was last served.  The path only decays while nothing is
+# being opened, so the nudge is skipped entirely while the user is working.
+LAST_PAGE_SERVED_AT: float = 0.0
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 SHELL_REQUEST_IDS: set[str] = set()
 VIEWER_REQUEST_COUNTS: dict[tuple[str, str], int] = {}

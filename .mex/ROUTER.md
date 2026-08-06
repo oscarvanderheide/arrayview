@@ -33,6 +33,7 @@ Load only the file(s) matching the task. One is usually enough.
 | Task | File |
 |------|------|
 | Current shipped / in-progress status | `context/project-state.md` |
+| Open VS Code task handoffs (unfinished task state) | `handoffs/vscode-open-flicker.md` |
 | System architecture, component connections | `context/architecture.md` |
 | Startup, shutdown, display ownership, orphans, VS Code tabs, session release | `context/lifecycle.md` |
 | Proving a startup/display fix in real use | `patterns/validate-launch-path.md` |

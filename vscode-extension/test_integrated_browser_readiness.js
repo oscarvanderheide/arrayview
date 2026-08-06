@@ -572,27 +572,31 @@ Module._load = originalLoad;
             Date.now() - cappedStartedAt < 2000,
             'a permanently blank tab must not consume the full render deadline'
         );
+        // Every recovery waits the same, and that wait scales with the budget,
+        // so a 1 s budget fits two retries. What must hold is that recovery is
+        // bounded, sequential and stops well inside the budget, not the exact
+        // count a cadence yields.
         const cappedCommands = commandArgsHistory.slice(cappedStart);
         assert.strictEqual(
             cappedCommands.length,
-            5,
+            3,
             'a permanently blank request must stop after the bounded recovery attempts'
         );
         assert.deepStrictEqual(
             preparedBodies
                 .slice(cappedPreparedStart)
                 .map(body => body.navigation_attempt),
-            [0, 1, 2, 3, 4],
+            [0, 1, 2],
             'each bounded retry must have fresh prepared navigation state'
         );
         assert.deepStrictEqual(
             commandHistory.slice(cappedCommandStart).map(entry => entry.command),
-            Array(5).fill('workbench.action.browser.open'),
+            Array(3).fill('workbench.action.browser.open'),
             'a permanently blank request must use fresh browser navigation only'
         );
         assert.strictEqual(
             closedTabs.length,
-            cappedClosedStart + 4,
+            cappedClosedStart + 2,
             'every retry must first close the exact prior blank tab'
         );
         assert.strictEqual(

@@ -147,6 +147,79 @@ async def _await_session_reporting_read_progress(ws, sid):
         return _session_mod.SESSIONS.get(sid)
 
 
+# How often to consider nudging, how long the path must have been unused
+# before it is worth nudging, and how many connections the nudge opens.
+_PATH_NUDGE_INTERVAL_S = 15.0
+_PATH_NUDGE_IDLE_S = 20.0
+_PATH_NUDGE_CONNECTIONS = 3
+_PATH_NUDGE_TASK: "asyncio.Task | None" = None
+
+
+async def _nudge_client_path_forever() -> None:
+    """Keep the client's connection to this server from going idle.
+
+    In VS Code the viewer is reached over a forwarded port.  Measured
+    2026-08-06: once that forward has sat unused for tens of seconds, the first
+    two or three connections through it are dropped outright — the tab opens,
+    nothing is ever requested, and the opener has to discard the tab and open
+    another, which the user sees as flickering.  Traffic through the forward
+    prevents it; an open viewer is the only thing on the client side that can
+    produce that traffic on demand.
+
+    Exactly one viewer is asked, so the cost does not grow with the number of
+    open tabs — which matters, because many open viewers already push against a
+    per-window connection ceiling, and scaling the nudge with tab count would
+    push hardest exactly when there is least headroom.  Nothing is sent while
+    arrays are being opened: a page served in the last ``_PATH_NUDGE_IDLE_S``
+    means the path is already in use.
+    """
+    while True:
+        try:
+            await asyncio.sleep(_PATH_NUDGE_INTERVAL_S)
+            sockets = _session_mod.LIVE_VIEWER_SOCKETS
+            if not sockets:
+                continue
+            idle_for = time.time() - _session_mod.LAST_PAGE_SERVED_AT
+            if idle_for < _PATH_NUDGE_IDLE_S:
+                continue
+            # Newest first: the most recently opened viewer is the most likely
+            # to still be on screen, and a socket that has died but not yet
+            # been cleaned up would otherwise swallow every nudge in silence —
+            # which is exactly how this failed on its first measurement.  Stop
+            # at the first viewer that actually accepts it, so the traffic
+            # stays one burst no matter how many viewers are open.
+            payload = {
+                "type": "warm_path",
+                "connections": _PATH_NUDGE_CONNECTIONS,
+            }
+            for ws in reversed(list(sockets)):
+                try:
+                    await ws.send_json(payload)
+                    break
+                except Exception:
+                    try:
+                        sockets.remove(ws)
+                    except ValueError:
+                        pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A nudge is best-effort.  It must never take the server down or
+            # end the loop, or the next launch silently loses its protection.
+            pass
+
+
+def _ensure_path_nudge_task() -> None:
+    """Start the nudge loop once, when the first viewer connects."""
+    global _PATH_NUDGE_TASK
+    if _PATH_NUDGE_TASK is not None and not _PATH_NUDGE_TASK.done():
+        return
+    try:
+        _PATH_NUDGE_TASK = asyncio.create_task(_nudge_client_path_forever())
+    except RuntimeError:
+        _PATH_NUDGE_TASK = None
+
+
 async def _send_json_quietly(ws, payload):
     try:
         await ws.send_json(payload)
@@ -287,6 +360,8 @@ def register_websocket_routes(app) -> None:
 
         _session_mod.VIEWER_SOCKETS += 1
         _session_mod.VIEWER_CONNECTIONS_SEEN += 1
+        _session_mod.LIVE_VIEWER_SOCKETS.append(ws)
+        _ensure_path_nudge_task()
         _session_mod.VIEWER_SID_COUNTS[sid] = (
             _session_mod.VIEWER_SID_COUNTS.get(sid, 0) + 1
         )
@@ -672,6 +747,10 @@ def register_websocket_routes(app) -> None:
             except asyncio.CancelledError:
                 pass
             _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
+            try:
+                _session_mod.LIVE_VIEWER_SOCKETS.remove(ws)
+            except ValueError:
+                pass
             sid_count = max(0, _session_mod.VIEWER_SID_COUNTS.get(sid, 0) - 1)
             if sid_count:
                 _session_mod.VIEWER_SID_COUNTS[sid] = sid_count

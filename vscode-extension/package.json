@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView through private, request-scoped VS Code display routes",
-  "version": "0.15.23",
+  "version": "0.15.34",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -58,6 +58,11 @@
           "command": "arrayview.openFolder",
           "when": "explorerResourceIsFolder",
           "group": "navigation@30"
+        },
+        {
+          "command": "arrayview.openFile",
+          "when": "!explorerResourceIsFolder && resourceFilename =~ /\\.(npy|npz|nii(\\.gz)?|h5|hdf5|mat|tif|tiff|pt|pth|zarr\\.zip)$/",
+          "group": "navigation@29"
         }
       ],
       "commandPalette": [

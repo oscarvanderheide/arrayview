@@ -912,6 +912,108 @@ class TestKeyboard:
         # Canvas should still be visible (mosaic mode still active)
         assert page.is_visible("#canvas-wrap")
 
+    def test_stack_mosaic_enters_navigates_exits(self, loaded_viewer, client, tmp_path):
+        """Shift+; prompts for N, shows N panes side by side along the stack
+        dim, j/k steps the window by N when the stack dim is active, and the
+        same key exits back to a single view without tearing out the canvas."""
+        import shutil
+        stack_dir = tmp_path / "stack_mosaic_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(7)
+        for i in range(6):
+            np.save(stack_dir / f"vol_{i}.npy", (rng.standard_normal((5, 40, 40)) + i).astype(np.float32))
+        resp = client.post("/load", json={"filepath": str(stack_dir)})
+        sid = resp.json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        # Must have a collection dim (the stack)
+        assert page.evaluate("() => collectionSpatialNdim >= 0")
+        total = page.evaluate("() => shape[collectionSpatialNdim]")
+        assert total == 6
+
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "2")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => stackMosaicActive", timeout=5_000)
+        page.wait_for_function("() => stackMosaicViews.length === 2", timeout=5_000)
+        page.wait_for_function(
+            "() => stackMosaicViews.every(v => v.lastW > 0 && v.lastH > 0)",
+            timeout=10_000,
+        )
+        assert page.is_visible("#stack-mosaic-wrap.active")
+        # Window shows the first two arrays
+        assert page.evaluate("() => stackMosaicViews.map(v => v.colIdx)") == [0, 1]
+        # Dimbar shows the window range
+        dimbar = page.inner_text("#info")
+        assert "1–2" in dimbar, f"expected window range in dimbar, got: {dimbar}"
+
+        # Make the stack dim active, then step forward by N with k.
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("k")
+        page.wait_for_function(
+            "() => stackMosaicViews.map(v => v.colIdx).join(',') === '2,3'",
+            timeout=10_000,
+        )
+        # Step forward again to the last window (4,5).
+        page.keyboard.press("k")
+        page.wait_for_function(
+            "() => stackMosaicViews.map(v => v.colIdx).join(',') === '4,5'",
+            timeout=10_000,
+        )
+        # At the end, stepping forward again is a no-op.
+        page.keyboard.press("k")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => stackMosaicStart") == 4
+
+        # Resize the window with [ / ].
+        page.keyboard.press("]")
+        page.wait_for_function("() => stackMosaicN === 3", timeout=5_000)
+        page.keyboard.press("[")
+        page.wait_for_function("() => stackMosaicN === 2", timeout=5_000)
+
+        # Exit with the same key: single view returns, canvas stays intact.
+        page.keyboard.press("Shift+;")
+        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+        assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
+        assert page.is_visible("canvas#viewer")
+
+    def test_stack_mosaic_ragged_hover_shapes(self, loaded_viewer, client, tmp_path):
+        """Ragged stacks: each pane renders its own array's spatial shape, and
+        the dimbar spatial sizes follow the hovered pane."""
+        stack_dir = tmp_path / "stack_ragged_src"
+        stack_dir.mkdir()
+        shapes = [(4, 30, 40), (7, 24, 18), (3, 16, 32)]
+        for i, sh in enumerate(shapes):
+            np.save(stack_dir / f"r_{i}.npy", (np.zeros(sh, dtype=np.float32) + i))
+        resp = client.post("/load", json={"filepath": str(stack_dir)})
+        sid = resp.json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "3")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => stackMosaicActive", timeout=5_000)
+        page.wait_for_function(
+            "() => stackMosaicViews.length === 3 && stackMosaicViews.every(v => v.lastW > 0)",
+            timeout=10_000,
+        )
+        # Each pane carries its own spatial shape (lastW=shape[dim_x], lastH=shape[dim_y]).
+        assert page.evaluate("() => stackMosaicViews.map(v => [v.lastW, v.lastH])") == [
+            [30, 40], [24, 18], [16, 32],
+        ]
+        # Hover pane 1: dimbar x size follows that array's shape.
+        page.evaluate(
+            "() => document.querySelectorAll('.sm-pane')[1].dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}))"
+        )
+        page.wait_for_function(
+            "() => document.getElementById('info').textContent.includes('x/24')",
+            timeout=5_000,
+        )
+
     def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):

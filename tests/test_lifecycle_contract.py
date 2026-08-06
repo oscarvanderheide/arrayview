@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import sys
 from threading import Thread as RealThread
 from types import SimpleNamespace
@@ -2221,6 +2222,50 @@ def test_vscode_extension_contributes_explorer_folder_entry():
         ]
         assert folder_entries, "no explorer/context entry for arrayview.openFolder"
         assert folder_entries[0]["when"] == "explorerResourceIsFolder"
+
+
+def test_vscode_extension_contributes_explorer_array_file_entry():
+    """Single array files get a tab-free right-click entry.
+
+    Opening a file through the custom editor always shows a loading tab first,
+    and on tunnel launches that tab is the flicker (placeholder -> viewer ->
+    close). The right-click command launches the array directly with no
+    placeholder, so it must exist in the *bundled* VSIX too — a menu that only
+    exists in the source tree contributes nothing to an installed extension.
+    """
+    import json
+    import zipfile
+
+    repo_root = Path(__file__).resolve().parents[1]
+    source_package = json.loads(
+        (repo_root / "vscode-extension" / "package.json").read_text()
+    )
+    with zipfile.ZipFile(repo_root / "src/arrayview/arrayview-opener.vsix") as zf:
+        bundled_package = json.loads(zf.read("extension/package.json"))
+
+    for package in (source_package, bundled_package):
+        commands = {
+            entry["command"] for entry in package["contributes"]["commands"]
+        }
+        assert "arrayview.openFile" in commands
+        file_entries = [
+            entry
+            for entry in package["contributes"]["menus"]["explorer/context"]
+            if entry["command"] == "arrayview.openFile"
+        ]
+        assert file_entries, "no explorer/context entry for arrayview.openFile"
+        when = file_entries[0]["when"]
+        # There is no `explorerResourceIsFile` context key. v0.15.25 used one,
+        # so the clause was always false and the entry never appeared in the
+        # menu at all — the failure this test exists to catch.
+        assert "!explorerResourceIsFolder" in when
+        match = re.search(r"resourceFilename =~ /(.+?)/$", when)
+        assert match, "array file entry must match via a resourceFilename regex"
+        pattern = match.group(1)
+        for name in ("a.npy", "b.nii.gz", "c.zarr.zip", "d.tiff", "e.hdf5", "f.mat"):
+            assert re.search(pattern, name), f"pattern must match {name}"
+        for name in ("notes.txt", "data.csv", "plain.zip", "image.png"):
+            assert not re.search(pattern, name), f"pattern must not match {name}"
 
 
 def test_bundled_vscode_vsix_matches_release_lifecycle_source():

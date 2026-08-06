@@ -9,9 +9,14 @@
         // rides in on ?av_name= because the hash already carries #av-<id>.
         // Formatting must match _setWindowIdentity(), or the title changes a
         // second time when metadata lands.
+        //
+        // The private VS Code launch route keeps its query out of the URL, so
+        // location.search is empty there and the name arrives injected. Read
+        // that first, or every tunnel tab is born showing the host.
         (function () {
             try {
-                var name = new URLSearchParams(location.search).get('av_name');
+                var launchSearch = __ARRAYVIEW_QUERY__ || location.search;
+                var name = new URLSearchParams(launchSearch).get('av_name');
                 if (!name) return;
                 var clean = String(name).trim();
                 document.title = clean && clean !== 'welcome'
@@ -455,6 +460,28 @@
 
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
         #slim-cb-tooltip.percentile { font-size: 10px; color: var(--muted); letter-spacing: 0.01em; }
+        /* Window/level drag readout — follows the cursor while W/L is live */
+        #bc-hud {
+            position: fixed; left: 0; top: 0; z-index: 14;
+            display: flex; align-items: baseline; gap: 6px;
+            padding: 6px 9px;
+            background: color-mix(in srgb, var(--surface) 92%, transparent);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 82%, transparent);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            font-size: 11px; line-height: 1; color: var(--text);
+            white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 140ms ease;
+        }
+        #bc-hud.visible { opacity: 1; }
+        #bc-hud .bc-hud-arrow { color: var(--active-dim); }
+        #bc-hud .bc-hud-label { color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; }
+        #bc-hud .bc-hud-sep { width: 7px; }
+        #bc-hud .bc-hud-row { display: inline-flex; align-items: center; gap: 6px; }
+        /* A locked vmin / symmetric window collapses the drag to vertical-only:
+           the horizontal axis has nothing to move, so dim it out of the readout. */
+        #bc-hud.vertical-only .bc-hud-level-row { opacity: 0.35; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -3973,6 +4000,19 @@
         #qmri-view-wrap.active.mosaic-overflow.mosaic-dragging { cursor: grabbing; }
         #qmri-mosaic-inner { display: contents; }
         #qmri-view-wrap.mosaic-overflow #qmri-mosaic-inner { display: flex; flex-direction: column; align-items: center; gap: inherit; will-change: transform; }
+        /* ── Stack mosaic: N arrays side by side along the collection dim ── */
+        #stack-mosaic-wrap { display: none; position: relative; width: 100%; height: 100%; }
+        #stack-mosaic-wrap.active { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; }
+        #stack-mosaic-panes { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 16px; }
+        .sm-pane { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; background: var(--bg); }
+        .sm-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
+        .sm-label { font-size: 13px; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; white-space: nowrap; }
+        .sm-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+        .sm-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
+        .sm-pane.sm-focused::after {
+            content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
+            box-shadow: inset 0 0 0 2px var(--active-dim); border-radius: 4px; box-sizing: border-box;
+        }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
@@ -5404,6 +5444,7 @@
         <div id="cutaway-unavailable" role="status">3D cutaway unavailable for this data</div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
+        <div id="stack-mosaic-wrap"></div>
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
         <div id="render-progress"><div class="bar"></div></div>
         <div id="render-progress-text"></div>
@@ -5577,6 +5618,34 @@
             _isIntegratedBrowserViewer
             && window.location.hash.startsWith('#av-')
         ) ? window.location.hash : '';
+        // Keep the next array's first page load from being swallowed.
+        //
+        // In VS Code the viewer is reached over a forwarded port. Measured
+        // 2026-08-06: once that forward has sat unused for tens of seconds, the
+        // first two or three connections through it are dropped outright — the
+        // tab opens, nothing is ever requested, and the opener has to discard
+        // the tab and open another, which the user sees as flickering. Opening
+        // a second array within about ten seconds of the first never hits it.
+        //
+        // Making connections through the forward prevents it, and this page is
+        // the only thing on the client side that can make them on demand. The
+        // server decides when: it asks exactly one open viewer, and only while
+        // no array is being opened. Nothing is scheduled here, so closing the
+        // last viewer simply ends the traffic.
+        //
+        // A single connection is not enough (it took three flickers down to
+        // one, not zero) — the drops come in short runs, and connections opened
+        // together absorb a run instead of queueing behind it.
+        function _warmClientPath(connections) {
+            if (!_isIntegratedBrowserViewer) return;
+            const count = Math.max(1, Math.min(6, Number(connections) || 3));
+            for (let i = 0; i < count; i++) {
+                // Distinct URLs so nothing is served from cache and each one is
+                // a real connection through the forward.
+                fetch(`ping?warm=${Date.now()}-${i}`, { cache: 'no-store' })
+                    .catch(() => {});
+            }
+        }
         // isInlineEmbed: true when explicitly launched as an inline Jupyter/notebook embed
         // (the Python launcher adds &inline=1 to the URL for inline IFrames).
         const isInlineEmbed = urlParams.get('inline') === '1';
@@ -6017,6 +6086,7 @@
         let _histDimState = new Map();    // Map<int, 'scope'|'recompute'|'frozen'>
         let _histPickerActive = false;    // Legacy expanded picker mode toggle
         let _dmenuPickerOpen = false;
+        let _dmenuDeferCloseOnCanvas = false; // picker stays open while a canvas W/L press may become a drag
         let _dmenuSelectedIdx = 0;
         let _dmenuPositionTrackToken = 0;
         let _dmenuAttachToken = 0;
@@ -6898,6 +6968,14 @@
         let _cmvCrosshairAnim = null;  // animation frame id for compare-mv crosshair fade
         let compareMvSids = [];        // SIDs being compared in compare-mv mode
         let compareMvDims = [];        // [dimX, dimY, sliceDir×3] spatial dims used
+        // ── Stack mosaic: N arrays side by side along a collection dim ──
+        let stackMosaicActive = false; // N-array window view over the collection dim
+        let stackMosaicN = 4;          // arrays per window
+        let stackMosaicStart = 0;      // first collection index in the current window
+        let stackMosaicViews = [];     // flat array of {colIdx, canvas, ws, ...}
+        let stackMosaicFocus = 0;      // focused pane index within the window
+        let stackMosaicHover = -1;     // hovered pane index within the window (-1 = none)
+        let _smPrevZoom = 1.0;
         const QMRI_COLORMAPS = {
             3: ['lipari', 'navia', 'gray'],
             4: ['lipari', 'navia', 'gray', 'twilight_shifted'],
@@ -7474,6 +7552,7 @@
         // ── Mode Registry ────────────────────────────────────────────────
         const ModeRegistry = {
             getScaler() {
+                if (stackMosaicActive)    return smScaleAllCanvases;
                 if (compareQmriActive) return compareQmriScaleAllCanvases;
                 if (compareMvActive)   return compareMvScaleAllCanvases;
                 if (multiViewActive)   return mvScaleAllCanvases;
@@ -7497,12 +7576,13 @@
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
             },
             get isMultiPane() {
-                return multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive;
+                return stackMosaicActive || multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive;
             },
             get isGrid() {
-                return qmriActive || compareQmriActive || compareMvActive;
+                return stackMosaicActive || qmriActive || compareQmriActive || compareMvActive;
             },
             get name() {
+                if (stackMosaicActive) return 'stack-mosaic';
                 if (compareQmriActive) return 'compareQmri';
                 if (compareMvActive)   return 'compareMv';
                 if (multiViewActive)   return 'multiView';
@@ -7511,6 +7591,9 @@
                 return 'normal';
             },
             getEggsAnchorRect() {
+                if (stackMosaicActive) {
+                    return _unionVisibleRects(stackMosaicViews.map(v => v.canvas));
+                }
                 if (multiViewActive) {
                     return _unionVisibleRects(document.querySelectorAll('#mv-panes .mv-canvas'));
                 }
@@ -10096,7 +10179,8 @@
             const _cbRefEl = _sharedCompareCb
                 ? (_sharedSourceClip || comparePaneEls[1] || comparePaneEls[0] || document.getElementById('compare-panes') || vpEl)
                 : compareActive ? (document.getElementById('compare-panes') || vpEl)
-                : multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
+                : multiViewActive ? (document.getElementById('mv-panes') || vpEl)
+                : stackMosaicActive ? (document.getElementById('stack-mosaic-panes') || vpEl) : vpEl;
             const canvasRect = (_cbRefEl || canvas).getBoundingClientRect();
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
@@ -11165,8 +11249,17 @@
                 const range = this.opts.getRange();
                 const vmin = win.vmin ?? range.vmin, vmax = win.vmax ?? range.vmax;
 
-                // If targets changed, start a ticker animation from current displayed value
-                if (vmin !== this._labelVminTarget || vmax !== this._labelVmaxTarget) {
+                if (this._dragActive) {
+                    // Live window/level drag: snap the ticker to the cursor
+                    // instead of chasing it with the 300 ms ease-out.
+                    this._labelVmin = vmin;
+                    this._labelVmax = vmax;
+                    this._labelVminTarget = vmin;
+                    this._labelVmaxTarget = vmax;
+                    this._labelVminFrom = vmin;
+                    this._labelVmaxFrom = vmax;
+                    this._labelTransStart = performance.now();
+                } else if (vmin !== this._labelVminTarget || vmax !== this._labelVmaxTarget) {
                     this._labelVminFrom = this._labelVmin ?? vmin;
                     this._labelVmaxFrom = this._labelVmax ?? vmax;
                     this._labelVminTarget = vmin;
@@ -14427,6 +14520,8 @@
                             _perfHandleTimingMessage(event.data, 'main');
                         } else if (msg.type === 'render_progress') {
                             _showRenderProgress(msg.done, msg.total, msg.label);
+                        } else if (msg.type === 'warm_path') {
+                            _warmClientPath(msg.connections);
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
@@ -18485,12 +18580,25 @@
 
         function renderInfo() {
             _ensureQmriActiveDimVisible();
+            // In stack mosaic, the spatial sizes shown come from the hovered
+            // (or focused) pane's own array shape so ragged stacks read the
+            // right extents; the tiled collection dim shows the window range.
+            const _smSpatial = stackMosaicActive ? _stackMosaicHoverSpatialShape() : null;
+            const sizeOf = (i) => (_smSpatial && i < collectionSpatialNdim && _smSpatial[i] != null) ? _smSpatial[i] : shape[i];
             const idxParts = indices.map((v, i) => {
                 if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim active-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
+                if (stackMosaicActive && i === _stackMosaicColDim()) {
+                    const total = shape[i];
+                    const end = Math.min(total, stackMosaicStart + stackMosaicN);
+                    const inner = `<span class="dim-idx">${stackMosaicStart + 1}–${end}</span>`
+                        + `<span class="dim-slash">/</span><span class="dim-size">${total}</span>`;
+                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
+                                  : `<span class="dim-label" ${d}>${inner}</span>`;
+                }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">S<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
@@ -18520,24 +18628,24 @@
                 }
                 if (i === dim_x) {
                     const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + 'x' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${shape[i]}</span>`;
+                    const inner = sign + 'x' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + 'y' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${shape[i]}</span>`;
+                    const inner = sign + 'y' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
-                    const inner = `z<span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${shape[i]}</span>`;
+                    const inner = `z<span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
-                const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
-                const inner = `${_dimIndexDisplay(i, v + 1, shape[i], active)}${slash}<span class="dim-size">${shape[i]}</span>`;
+                const pct = Math.round(v / Math.max(1, sizeOf(i) - 1) * 100);
+                const slash = sizeOf(i) > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
+                const inner = `${_dimIndexDisplay(i, v + 1, sizeOf(i), active)}${slash}<span class="dim-size">${sizeOf(i)}</span>`;
                 return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                               : `<span class="dim-label" ${d}>${inner}</span>`;
             }).filter(Boolean);
@@ -20415,6 +20523,10 @@
             }
             if (mipActive) { _mipBuildLUT(); _mipRender(); return; }
             if (cutawayActive) { _cutawayBuildLUT(); _cutawayRender(); return; }
+            if (stackMosaicActive) {
+                stackMosaicViews.forEach(v => smRender(v));
+                return;
+            }
             if (mvCutawayActive) {
                 Promise.all(mvViews.map(_mvCutawayLoad))
                     .then(_mvCutawayRenderAll)
@@ -21398,6 +21510,52 @@
                 }
             }, 3000);
         }
+        // ── Window/level drag readout ────────────────────────────────
+        // A tiny cursor-following HUD that names the two drag axes (◄► level,
+        // ▲▼ window), so a window/level drag is self-explaining. Fades in on
+        // drag start, out on release. Lock state is shown by the range picker
+        // itself, which stays open for the gesture.
+        let _bcHudEl = null;
+        function _bcHudEnsure() {
+            if (_bcHudEl) return _bcHudEl;
+            _bcHudEl = document.createElement('div');
+            _bcHudEl.id = 'bc-hud';
+            _bcHudEl.innerHTML =
+                '<span class="bc-hud-row bc-hud-level-row">' +
+                    '<span class="bc-hud-arrow">◄►</span><span class="bc-hud-label">level</span>' +
+                '</span>' +
+                '<span class="bc-hud-sep"></span>' +
+                '<span class="bc-hud-row">' +
+                    '<span class="bc-hud-arrow">▲▼</span><span class="bc-hud-label">window</span>' +
+                '</span>';
+            document.body.appendChild(_bcHudEl);
+            return _bcHudEl;
+        }
+        function _bcHudShow(e) {
+            const hud = _bcHudEnsure();
+            hud.classList.add('visible');
+            _bcHudUpdate(e);
+        }
+        function _bcHudUpdate(e) {
+            if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
+            // A locked vmin or symmetric window removes the horizontal degree of
+            // freedom, so the drag is vertical-only and the level row is dimmed.
+            _bcHudEl.classList.toggle('vertical-only', !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric)));
+            // Position near the cursor, clamped to the viewport.
+            const r = _bcHudEl.getBoundingClientRect();
+            const offX = 16, offY = 18, m = 8;
+            let x = e.clientX + offX;
+            let y = e.clientY + offY;
+            if (x + r.width > window.innerWidth - m) x = e.clientX - r.width - offX;
+            if (y + r.height > window.innerHeight - m) y = e.clientY - r.height - offY;
+            _bcHudEl.style.left = Math.max(m, x) + 'px';
+            _bcHudEl.style.top = Math.max(m, y) + 'px';
+        }
+        function _bcHudHide() {
+            if (!_bcHudEl) return;
+            _bcHudEl.classList.remove('visible');
+        }
+
         async function _bcStartDrag(e) {
             const vmin = manualVmin ?? currentVmin;
             const vmax = manualVmax ?? currentVmax;
@@ -21410,15 +21568,21 @@
                 // _bcUpdateDrag.
                 vminLocked: _dmenuEffectiveVminLocked(),
                 symmetric: _dmenuEffectiveSymmetricLocked(),
+                vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
             };
             canvas.style.cursor = 'crosshair';
+            // The colorbar treats an active drag as "snap the window range to
+            // the cursor" (see ColorBar.draw). Without this, the histogram
+            // range tweens behind the mouse and feels laggy.
+            primaryCb._dragActive = true;
             // Drop any dismissal armed by whatever happened before this drag —
             // a `d` press, or a previous window/level gesture. The countdown
             // was started for a histogram nobody was using; this one is in use.
             _restartHistAutoDismiss();
             _bcExpandHist();
             _bcPreviewInit();
+            _bcHudShow(e);
         }
         function _bcUpdateDrag(e) {
             if (!_bcDrag) return;
@@ -21449,6 +21613,7 @@
             // The local preview already repainted inside _bcApplyWindow;
             // only fall back to the server round-trip when there is none.
             if (!_bcPreview && !_bcPreviewPending) _bcThrottledUpdate();
+            _bcHudUpdate(e);
         }
         // A plain left press arms a pending drag rather than starting one, so a
         // press that never travels stays a click-to-copy / pixel-info hold.
@@ -21468,14 +21633,25 @@
         }
         function _bcEndDrag() {
             _bcPendingDrag = null;
-            if (!_bcDrag) return;
+            if (!_bcDrag) {
+                // A canvas press deferred the picker close in case it became a
+                // window/level drag; it was only a click, so close the picker now.
+                if (_dmenuDeferCloseOnCanvas) {
+                    _dmenuDeferCloseOnCanvas = false;
+                    if (_dmenuPickerOpen) _histPickerClose(false);
+                }
+                return;
+            }
+            _dmenuDeferCloseOnCanvas = false;
             _bcDrag = null;
             canvas.style.cursor = '';
+            primaryCb._dragActive = false;
             if (_bcUpdateTimer) { clearTimeout(_bcUpdateTimer); _bcUpdateTimer = null; }
             // Drop the preview first: this updateView() is the authoritative
             // render, and the committed frame must be the server's bytes.
             _bcPreview = null;
             _bcPreviewPending = false;
+            _bcHudHide();
             updateView();
             saveState();
             _bcAutoDismiss();
@@ -25035,6 +25211,36 @@
                     });
                 },
             },
+            'stackMosaic.toggle': {
+                title: 'Toggle stack mosaic',
+                when: [],
+                run: async (ctx, e) => {
+                    if (e) e.preventDefault();
+                    if (stackMosaicActive) { exitStackMosaic(); return; }
+                    if (!_stackMosaicHasStack()) {
+                        showStatus('stack mosaic: needs a stack (use --stack or open a folder)');
+                        return;
+                    }
+                    const total = shape[_stackMosaicColDim()];
+                    const raw = await showInlinePrompt('Arrays per window:', String(stackMosaicN));
+                    if (raw === null) return;
+                    const n = parseInt(raw, 10);
+                    if (!Number.isInteger(n) || n < 1) { showStatus(`stack mosaic: invalid count (${raw})`); return; }
+                    enterStackMosaic(Math.min(n, total));
+                },
+            },
+            'stackMosaic.adjustN': {
+                title: 'Adjust arrays per window (stack mosaic)',
+                when: ['stackMosaicActive'],
+                run: (ctx, e) => {
+                    if (!stackMosaicActive) return;
+                    const dir = e && e.key === ']' ? 1 : -1;
+                    const total = shape[_stackMosaicColDim()];
+                    const next = Math.max(1, Math.min(total, stackMosaicN + dir));
+                    if (next === stackMosaicN) return;
+                    _stackMosaicResize(next);
+                },
+            },
             'axis.assignY': {
                 title: 'Assign active dim to Y axis',
                 when: [],
@@ -25204,6 +25410,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
+                    if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -25249,6 +25456,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
+                    if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(-1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -25505,6 +25713,10 @@
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
+            // Stack mosaic: [ / ] resize the window. Must precede the generic
+            // bracket binds so the mosaic's when-guarded command wins.
+            { key: '[', command: 'stackMosaic.adjustN' },
+            { key: ']', command: 'stackMosaic.adjustN' },
             { key: '[', command: 'detachedDim.adjustIndexA' },
             { key: ']', command: 'detachedDim.adjustIndexA' },
             { key: '[', command: 'ui.adjustBracket' },
@@ -25515,6 +25727,8 @@
             { key: '}', command: 'vfield.adjustLength' },
             { key: 'i', command: 'hoverinfo.toggle' },
             { key: 'Z', command: 'mode.toggleZen' },
+            // Physical `;` with Shift — layout-independent like Shift+4 above.
+            { code: 'Semicolon', shift: true, command: 'stackMosaic.toggle' },
             // Order matters: cycleVisibility must come before openPicker
             // so Shift+O (with an overlay loaded) cycles instead of opening.
             { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
@@ -25613,6 +25827,7 @@
                     || (hasVectorfield && vfieldVisible)
                 ),
                 multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive),
+                stackMosaicActive: (typeof stackMosaicActive !== 'undefined') ? !!stackMosaicActive : false,
             };
         }
 
@@ -25630,6 +25845,7 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
+                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -27707,6 +27923,17 @@
                 if (dimLabel) return;
                 const activeCbWrap = _dmenuActiveColorbarWrap();
                 if (activeCbWrap && activeCbWrap.contains(e.target)) return;
+                // A press on the image canvas begins the window/level drag, and
+                // the picker's bound-lock icons must stay visible for the whole
+                // gesture. Don't tear the picker down here; if the press turns
+                // out to be a plain click (no drag), the mouseup path closes it.
+                const onCanvas = e.target && e.target.closest
+                    ? (e.target.closest('#viewer') || e.target.closest('#canvas-inner'))
+                    : false;
+                if (onCanvas && _bcCanDrag()) {
+                    _dmenuDeferCloseOnCanvas = true;
+                    return;
+                }
                 _histPickerClose(false);
             }, true);
             window.addEventListener('resize', () => {
@@ -27875,6 +28102,7 @@
             }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
             if (e.key === 'Escape') {
+                if (stackMosaicActive) { exitStackMosaic(); return; }
                 if (cutawayActive) { exitCutawayMode(); return; }
                 if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
@@ -29148,6 +29376,7 @@
 
                 if (multiViewActive) exitMultiView();
                 if (qmriActive) exitQmri();
+                if (stackMosaicActive) exitStackMosaic();
                 compareSid = targetSid;
                 compareName = cmpMeta.name || targetNameHint || targetSid.slice(0, 8);
                 compareNameBySid[targetSid] = compareName;
@@ -29981,6 +30210,7 @@
         function enterMultiView(dims) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
+            if (stackMosaicActive) exitStackMosaic();
             if (!Array.isArray(dims) || dims.length !== 3 || dims.some(d => _isCollectionDim(d))) {
                 showStatus('Ortho uses spatial dims only');
                 return;
@@ -31504,6 +31734,7 @@
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
+            if (stackMosaicActive) exitStackMosaic();
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
             qmriActive = true;
             qmriDim = targetDim;
@@ -32006,6 +32237,477 @@
                     modeManager.enterMode(new NormalLayout(), [_sess]);
                 } catch(e) { console.warn('Phase 8 exitQmri modeManager restore failed:', e); }
             }
+        }
+
+        // --------------- Stack mosaic (N arrays in one window) ---------------
+        // Shows `stackMosaicN` consecutive collection indices side by side in a
+        // grid, each pane rendering its own array's spatial slice. j/k moves the
+        // window by N when the collection dim is the active dim; spatial dims
+        // move every pane together in lockstep. Ragged stacks render each
+        // array's own spatial shape per pane.
+        function _stackMosaicHasStack() {
+            return collectionSpatialNdim >= 0
+                && Number.isInteger(collectionSpatialNdim)
+                && collectionSpatialNdim < shape.length
+                && shape[collectionSpatialNdim] > 1;
+        }
+
+        function _stackMosaicColDim() {
+            return collectionSpatialNdim;
+        }
+
+        function _stackMosaicWindowPanes() {
+            const total = shape[_stackMosaicColDim()];
+            return Math.max(0, Math.min(stackMosaicN, total - stackMosaicStart));
+        }
+
+        // Spatial sizes for the hovered (or focused) pane, used by the dimbar
+        // so ragged stacks show the array under the cursor's own extents.
+        function _stackMosaicHoverSpatialShape() {
+            const idx = stackMosaicHover >= 0 ? stackMosaicHover : stackMosaicFocus;
+            const view = stackMosaicViews[idx];
+            if (!view) return null;
+            if (Array.isArray(raggedSpatialShapes)) {
+                const row = raggedSpatialShapes[view.colIdx] || [];
+                const channelDim = collectionSpatialNdim + 1;
+                const channelIdx = shape.length > channelDim
+                    ? Math.max(0, Math.min(row.length - 1, indices[channelDim] || 0))
+                    : 0;
+                const spatial = row[channelIdx] || row[0];
+                if (Array.isArray(spatial)) return spatial.map(Number);
+            }
+            return shape.slice(0, collectionSpatialNdim).map(Number);
+        }
+
+        function enterStackMosaic(n) {
+            if (!_stackMosaicHasStack()) {
+                showStatus('stack mosaic: needs a stack (use --stack or open a folder)');
+                return;
+            }
+            if (multiViewActive) exitMultiView();
+            if (qmriActive) exitQmri();
+            if (compareActive) exitCompareMode();
+            const total = shape[_stackMosaicColDim()];
+            stackMosaicN = Math.max(1, Math.min(Math.floor(n) || 4, total));
+            // Align the current collection index into a window of N.
+            const cur = Math.max(0, Math.min(total - 1, indices[_stackMosaicColDim()] || 0));
+            stackMosaicStart = Math.max(0, Math.min(total - stackMosaicN, Math.floor(cur / stackMosaicN) * stackMosaicN));
+            stackMosaicFocus = Math.max(0, Math.min(stackMosaicN - 1, cur - stackMosaicStart));
+            stackMosaicHover = -1;
+            stackMosaicActive = true;
+            _smPrevZoom = userZoom;
+            userZoom = 1.0;
+            hideLoadingOverlay();
+            const wrap = document.getElementById('stack-mosaic-wrap');
+            wrap.innerHTML = '';
+            wrap.classList.add('active');
+            const panes = document.createElement('div');
+            panes.id = 'stack-mosaic-panes';
+            wrap.appendChild(panes);
+            _buildStackMosaicViews(panes);
+            modeManager.modeName = 'stack-mosaic';
+            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'stack-mosaic' } }));
+            _kickInitialRenders(stackMosaicViews, smRender);
+            _reconcileUI();
+            renderInfo();
+            _stackMosaicPreload();
+            showStatus(`stack mosaic: ${stackMosaicN} per window (${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total})`);
+        }
+
+        function _buildStackMosaicViews(panes) {
+            if (typeof window._smDragCleanup === 'function') {
+                window._smDragCleanup();
+                window._smDragCleanup = null;
+            }
+            stackMosaicViews = [];
+            const nPanes = _stackMosaicWindowPanes();
+            for (let i = 0; i < nPanes; i++) {
+                const colIdx = stackMosaicStart + i;
+                const pane = document.createElement('div');
+                pane.className = 'sm-pane';
+                pane.dataset.smIdx = String(i);
+                const label = document.createElement('div');
+                label.className = 'sm-label';
+                label.textContent = `#${colIdx + 1}`;
+                const cvWrap = document.createElement('div');
+                cvWrap.className = 'sm-canvas-wrap';
+                const cv = document.createElement('canvas');
+                cv.className = 'sm-canvas';
+                const clip = document.createElement('div');
+                clip.className = 'sm-canvas-clip';
+                clip.style.position = 'relative';
+                clip.style.overflow = 'hidden';
+                clip.appendChild(cv);
+                cvWrap.appendChild(clip);
+                pane.appendChild(label);
+                pane.appendChild(cvWrap);
+                panes.appendChild(pane);
+                const view = {
+                    colIdx,
+                    pane, label, clip,
+                    canvas: cv, ctx: cv.getContext('2d'),
+                    vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
+                    ws: null, seq: 0, rendering: false, pending: false,
+                    lastW: 0, lastH: 0, lastImageData: null,
+                    pan: new PanManager({
+                        getViewport: () => {
+                            const r = clip.getBoundingClientRect();
+                            return { w: r.width || 1, h: r.height || 1 };
+                        },
+                        getContent: () => ({
+                            w: parseInt(cv.style.width) || cv.width || 1,
+                            h: parseInt(cv.style.height) || cv.height || 1,
+                        }),
+                        apply: (x, y) => {
+                            cv.style.transform = (x || y) ? `translate(${x}px,${y}px)` : '';
+                        },
+                    }),
+                };
+                pane.addEventListener('mouseenter', () => {
+                    stackMosaicHover = i;
+                    renderInfo();
+                });
+                pane.addEventListener('mouseleave', () => {
+                    if (stackMosaicHover === i) { stackMosaicHover = -1; renderInfo(); }
+                });
+                pane.addEventListener('mousedown', (e) => {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    _stackMosaicFocusPane(i);
+                    sink.focus();
+                    if (!view.lastW || !view.lastH) return;
+                    view.pan.startDrag(e);
+                });
+                cv.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const _s = _wheelIndexDelta(current_slice_dim, e);
+                    if (!_s) return;
+                    indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + _s));
+                    renderInfo();
+                    stackMosaicViews.forEach(v2 => smRender(v2));
+                    saveState();
+                }, { passive: false });
+                if (!httpTransport) {
+                    view.ws = createTransport(sid,
+                        (event) => smOnMessage(view, event),
+                        () => smRender(view),
+                        () => { view.rendering = false; },
+                        () => { view.rendering = false; if (view.ws) view.ws.close(); }
+                    );
+                }
+                stackMosaicViews.push(view);
+            }
+            // Shared drag-to-pan handler for all mosaic panes (added once per
+            // mode entry; active only while a pane is dragging).
+            const _smDragMove = (e) => {
+                if (!stackMosaicActive) return;
+                stackMosaicViews.forEach(v => { if (v.pan.dragging) v.pan.updateDrag(e); });
+            };
+            const _smDragUp = () => {
+                if (!stackMosaicActive) return;
+                stackMosaicViews.forEach(v => { if (v.pan.dragging) v.pan.endDrag(); });
+            };
+            document.addEventListener('mousemove', _smDragMove);
+            document.addEventListener('mouseup', _smDragUp);
+            window._smDragCleanup = () => {
+                document.removeEventListener('mousemove', _smDragMove);
+                document.removeEventListener('mouseup', _smDragUp);
+            };
+        }
+
+        function _stackMosaicFocusPane(i) {
+            if (i < 0 || i >= stackMosaicViews.length) return;
+            stackMosaicFocus = i;
+            indices[_stackMosaicColDim()] = stackMosaicStart + i;
+            _syncRaggedShapeForCollection();
+            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === i));
+            renderInfo();
+            _stackMosaicSyncSharedRange();
+        }
+
+        function _stackMosaicSyncSharedRange() {
+            const v = stackMosaicViews[stackMosaicFocus];
+            if (!v || !(v.lastW && v.lastH)) return;
+            currentVmin = v.vmin;
+            currentVmax = v.vmax;
+            if (manualVmin === null) drawSlimColorbar();
+        }
+
+        function exitStackMosaic() {
+            if (!stackMosaicActive) return;
+            stackMosaicActive = false;
+            stackMosaicHover = -1;
+            if (typeof window._smDragCleanup === 'function') {
+                window._smDragCleanup();
+                window._smDragCleanup = null;
+            }
+            stackMosaicViews.forEach(v => {
+                if (v.ws) { v.ws.onclose = null; v.ws.close(); }
+            });
+            stackMosaicViews = [];
+            const wrap = document.getElementById('stack-mosaic-wrap');
+            wrap.innerHTML = '';
+            wrap.classList.remove('active');
+            userZoom = _smPrevZoom;
+            // Restore modeManager to normal. The mosaic never swapped
+            // currentLayout/currentViews (only modeName), so there is no
+            // layout to rebuild — calling enterMode() here would destroy the
+            // still-bound normal view and tear out #canvas-wrap.
+            modeManager.modeName = 'normal';
+            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            _reconcileUI();
+            updateView();
+            renderInfo();
+            showStatus('stack mosaic: off');
+        }
+
+        function _stackMosaicWindowStep(dir) {
+            if (!stackMosaicActive) return;
+            const total = shape[_stackMosaicColDim()];
+            const maxStart = Math.max(0, total - stackMosaicN);
+            const nextStart = Math.max(0, Math.min(maxStart, stackMosaicStart + dir * stackMosaicN));
+            if (nextStart === stackMosaicStart) return;
+            stackMosaicStart = nextStart;
+            stackMosaicFocus = 0;
+            indices[_stackMosaicColDim()] = stackMosaicStart;
+            _syncRaggedShapeForCollection();
+            // Rebuild pane collection indices and re-render each pane.
+            stackMosaicViews.forEach((v, i) => {
+                v.colIdx = stackMosaicStart + i;
+                v.label.textContent = `#${v.colIdx + 1}`;
+                smRender(v);
+            });
+            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === 0));
+            smScaleAllCanvases();
+            renderInfo();
+            saveState();
+            _stackMosaicPreload();
+            showStatus(`stack mosaic: ${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total}`);
+        }
+
+        function _stackMosaicResize(n) {
+            if (!stackMosaicActive) return;
+            const total = shape[_stackMosaicColDim()];
+            stackMosaicN = Math.max(1, Math.min(Math.floor(n) || stackMosaicN, total));
+            stackMosaicStart = Math.max(0, Math.min(total - stackMosaicN, stackMosaicStart));
+            stackMosaicFocus = Math.min(stackMosaicFocus, stackMosaicN - 1);
+            _syncRaggedShapeForCollection();
+            const panes = document.getElementById('stack-mosaic-panes');
+            panes.innerHTML = '';
+            _buildStackMosaicViews(panes);
+            _kickInitialRenders(stackMosaicViews, smRender);
+            _reconcileUI();
+            renderInfo();
+            _stackMosaicPreload();
+            showStatus(`stack mosaic: ${stackMosaicN} per window`);
+        }
+
+        function _stackMosaicPreload() {
+            // Request the next window's panes in the background so the first
+            // j/k lands without waiting. Reuses the pane transport (warm LUTs).
+            if (!stackMosaicActive) return;
+            const total = shape[_stackMosaicColDim()];
+            const nextStart = stackMosaicStart + stackMosaicN;
+            if (nextStart >= total) return;
+            stackMosaicViews.forEach((v, i) => {
+                const colIdx = nextStart + i;
+                if (colIdx >= total) return;
+                if (httpTransport) return; // HTTP panes render on demand only
+                if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
+                // Separate seq space so preload responses never collide with
+                // an in-flight render's seq on the same pane.
+                v._pseq = (v._pseq || 0) + 1;
+                const seq = 100000 + v._pseq;
+                const smIndices = [...indices];
+                smIndices[_stackMosaicColDim()] = colIdx;
+                v.ws.send(JSON.stringify({
+                    seq, dim_x, dim_y, dim_z: -1,
+                    indices: smIndices, colormap: currentColormap(),
+                    dr: 0, complex_mode: complexMode, log_scale: logScale,
+                    slice_dim: current_slice_dim, direction: 1,
+                    vmin_override: manualVmin ?? null,
+                    vmax_override: manualVmax ?? null,
+                    overlay_sid: _getVisibleOverlaySids() || null,
+                    overlay_colors: _getVisibleOverlayColors() || null,
+                    overlay_alphas: _getVisibleOverlayAlphas() || null,
+                    overlay_outline: overlayOutlineOnly,
+                    canvas_w: Math.round((parseInt(v.canvas.style.width) || window.innerWidth) * (window.devicePixelRatio || 1)),
+                    canvas_h: Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * (window.devicePixelRatio || 1)),
+                    projection_mode: projectionMode,
+                    projection_dim: projectionMode > 0 ? projectionDim : -1,
+                    perf: _PERF_ENABLED,
+                }));
+                // Responses to preload seqs are ignored (see smOnMessage) —
+                // they only warm the server render cache.
+                v._preloadSeq = seq;
+            });
+        }
+
+        function smRender(v) {
+            if (httpTransport) {
+                smRenderHttp(v);
+                return;
+            }
+            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true;
+            v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
+            const smIndices = [...indices];
+            smIndices[_stackMosaicColDim()] = v.colIdx;
+            const _dpr = window.devicePixelRatio || 1;
+            const _cw = Math.round((parseInt(v.canvas.style.width) || window.innerWidth) * _dpr);
+            const _ch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _dpr);
+            v.ws.send(JSON.stringify({
+                seq: v.seq, dim_x, dim_y, dim_z: -1,
+                indices: smIndices, colormap: currentColormap(),
+                dr: 0, complex_mode: complexMode, log_scale: logScale,
+                slice_dim: current_slice_dim, direction: 1,
+                vmin_override: manualVmin ?? null,
+                vmax_override: manualVmax ?? null,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
+                overlay_alphas: _getVisibleOverlayAlphas() || null,
+                overlay_outline: overlayOutlineOnly,
+                canvas_w: _cw,
+                canvas_h: _ch,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? projectionDim : -1,
+                perf: _PERF_ENABLED,
+            }));
+        }
+
+        function smOnMessage(v, event) {
+            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, `sm:${v.colIdx}`); return; }
+            const buf = event.data;
+            const h32 = new Uint32Array(buf, 0, 3);
+            const width = h32[1], height = h32[2];
+            const seq = h32[0];
+            // Ignore preload responses (they only warm the server cache).
+            if (v._preloadSeq && seq === v._preloadSeq) {
+                v._preloadSeq = null;
+                return;
+            }
+            if (seq === v.seq && stackMosaicActive && stackMosaicViews.includes(v)) {
+                const f32 = new Float32Array(buf, 12, 2);
+                v.vmin = f32[0]; v.vmax = f32[1];
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
+                }
+                const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                const frame = _applyAutoCropIfReady(
+                    { imageData: new ImageData(rgba, width, height), width, height },
+                    sid, dim_x, dim_y, indices,
+                );
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
+                smScaleAllCanvases();
+                smDrawFrame(v);
+                if (stackMosaicViews.indexOf(v) === stackMosaicFocus) _stackMosaicSyncSharedRange();
+            }
+            v.rendering = false;
+            if (v.pending) { v.pending = false; smRender(v); }
+            else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+        }
+
+        async function smRenderHttp(v) {
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true;
+            v.seq++;
+            v._renderPatientIndex = _currentPatientIndex();
+            try {
+                const smIndices = [...indices];
+                smIndices[_stackMosaicColDim()] = v.colIdx;
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    dim_z: '-1',
+                    indices: smIndices.join(','),
+                    colormap: currentColormap(),
+                    dr: '0',
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                    slice_dim: String(current_slice_dim),
+                });
+                _applyOverlayRenderParams(params);
+                if (manualVmin !== null && manualVmax !== null) {
+                    params.set('vmin_override', String(manualVmin));
+                    params.set('vmax_override', String(manualVmax));
+                }
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(projectionDim));
+                }
+                const frame = await fetchSliceFrame(params);
+                if (!stackMosaicActive || !stackMosaicViews.includes(v)) return;
+                v.vmin = frame.vmin;
+                v.vmax = frame.vmax;
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
+                }
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width; v.lastH = frame.height;
+                smScaleAllCanvases();
+                smDrawFrame(v);
+                if (stackMosaicViews.indexOf(v) === stackMosaicFocus) _stackMosaicSyncSharedRange();
+            } finally {
+                v.rendering = false;
+                if (v.pending) { v.pending = false; smRender(v); }
+                else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            }
+        }
+
+        function smDrawFrame(v) {
+            if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
+                v.canvas.width = v.lastW;
+                v.canvas.height = v.lastH;
+            }
+            v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _patientFrameDisplayed(v._renderPatientIndex);
+            _refreshLoupeFromLastMouse();
+        }
+
+        function smScaleAllCanvases() {
+            const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
+            if (!ready.length) return;
+            const n = ready.length;
+            const cols = Math.ceil(Math.sqrt(n));
+            const rows = Math.ceil(n / cols);
+            const colGap = 16, rowGap = 16;
+            const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 4 + 8;
+            const cbH = document.getElementById('slim-cb-wrap')
+                && getComputedStyle(document.getElementById('slim-cb-wrap')).display !== 'none' ? 30 : 0;
+            const uiReserveH = uiReserveV() + (cbH + labelH) * (1 - _crossfadeCollapseP);
+            const availW = Math.max(50, window.innerWidth - 80);
+            const availH = Math.max(50, window.innerHeight - uiReserveH);
+            const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
+            const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
+            const absMaxScale = Math.min(...ready.map(v =>
+                Math.min(cellW / v.lastW, cellH / v.lastH)));
+            const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
+            const baseScale = cappedScale / Math.max(0.0001, userZoom);
+            for (const v of ready) {
+                _scalePane(
+                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: v.pan },
+                    null,
+                    {
+                        maxW: Math.round(cellW),
+                        maxH: Math.round(cellH),
+                        baseScale,
+                        squareStretch: squareStretch,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                    }
+                );
+                v.clip.style.width = Math.min(parseInt(v.canvas.style.width) || v.lastW, Math.round(cellW)) + 'px';
+                v.clip.style.height = Math.min(parseInt(v.canvas.style.height) || v.lastH, Math.round(cellH)) + 'px';
+            }
+            fixWrapperAlignment();
+            requestAnimationFrame(() => {
+                if (stackMosaicActive) positionEggs();
+            });
+            return atMax ? 'max' : null;
         }
 
         // --------------- Compare + qMRI combined mode ---------------
@@ -34548,7 +35250,8 @@
                     updateView(); _roiClearOnDimChange(); triggerPreload(); flashAxesIndicators(); sink.focus(); return;
                 }
             }
-            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z) {
+            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z
+                    && !(stackMosaicActive && _isCollectionDim(d))) {
                 current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
             flashAxesIndicators();
@@ -36209,7 +36912,7 @@
             // 1. Canvas wrap — visible only in single-view (no special mode)
             const canvasWrap = document.getElementById('canvas-wrap');
             if (canvasWrap && !document.body.classList.contains('av-loading')) {
-                canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) ? '' : 'none';
+                canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive && !stackMosaicActive) ? '' : 'none';
             }
             const cutawayCanvas = document.getElementById('cutaway-canvas');
             if (cutawayCanvas) cutawayCanvas.style.display = cutawayActive ? 'block' : 'none';
@@ -36233,7 +36936,7 @@
             document.querySelectorAll('.qv-canvas-clip, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
-            document.querySelectorAll('.compare-canvas-clip, .sm-pane').forEach(el => {
+            document.querySelectorAll('.compare-canvas-clip').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
 

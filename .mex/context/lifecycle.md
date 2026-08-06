@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-07-30
+last_updated: 2026-08-05
 ---
 
 # Lifecycle
@@ -41,6 +41,56 @@ This contract describes who owns the backend, when it starts, and what closes it
 - Closing one tab releases only that tab's arrays/sessions.
 - Closing the last viewer tab should stop the transient daemon.
 - The VS Code wrapper must not show "backend unavailable" based on a webview-side `fetch()`; backend health checks belong in the extension host.
+
+## Why a single-file click creates a tab at all
+
+A click on an array is intercepted by registering as that file's editor, and
+VS Code's rule is that an editor is always a visible tab. There is no pre-open
+interception API left: the old `window.registerEditorOpener` hook that could
+answer "handled" and prevent any tab from being created was removed from VS
+Code (absent in 1.128; a 0.15.24 prototype that relied on it silently disabled
+single-file interception). The only supported interception is the custom
+editor, so a tab exists from the moment the file is clicked. Do not try to
+remove it with an editor opener — that cannot work on current VS Code.
+
+What that tab is used for depends on where the viewer can live:
+
+- **Local VS Code and Remote SSH** — the viewer runs in that same webview, so
+  the click tab is a placeholder that is navigated in place. One tab, no close.
+- **Desktop tunnel** (and any `--window browser` request) — the viewer needs
+  VS Code's built-in browser, which is always its own tab, so the click tab can
+  never become the viewer; it is handed over instead. It keeps saying
+  "Opening …" for the whole launch and is closed in the moment before the
+  browser open command is issued, so the workbench applies the close and the
+  open together. Three ordering constraints are load-bearing: return from
+  `resolveCustomEditor` *without awaiting the launch* (disposing while VS Code
+  still awaits it fails the click with "OverlayWebview has been disposed");
+  close *before* the browser tab navigates, never during (overlapping the two
+  killed 5 of 27 navigations); and close only after the route, the claim and
+  the readiness journal have all succeeded, so a tab is never thrown away for a
+  launch that then produces no viewer. Closing the click tab immediately
+  instead was tried in v0.15.26: the tab paints anyway and the editor
+  underneath shows for ~400 ms, which reads as more flicker, not less.
+- **No tab at all**: the `arrayview.openFile` command (right-click → Open in
+  ArrayView) opens no editor, so the viewer's tab is the only one that appears.
+  Every editor route — left-click as default, Open With → ArrayView — goes
+  through the custom editor and therefore through a tab.
+
+The handover must not also be a rename, or one tab reads as two. Three labels
+have to agree: the click tab's (`webviewPanel.title`, set to
+`ArrayView: <name>` because VS Code would otherwise use the bare filename), the
+viewer page's `<title>` (set at parse time from `av_name`), and the name
+metadata later carries. The private launch route keeps its query out of the
+URL, so the viewer's parse-time title script reads the injected launch query
+first — reading only `location.search` there left every tunnel tab named after
+the host until the array had loaded.
+- **Folder launches** keep their placeholder tab: enumerating a folder can take
+  minutes, and there is no click tab to reuse, so its own tab is the feedback.
+
+Why the tunnel cannot just show the viewer in the click tab: a webview's
+`portMapping` does not remap WebSocket ports, and the viewer uses one document
+origin for both HTTP and WebSocket traffic. Only the built-in browser's remote
+proxy carries both privately.
 
 ## Python Script
 

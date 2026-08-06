@@ -351,7 +351,12 @@ def _trace_page_request(
     from the opener's side alone: the relay may have dropped the page request,
     or the page may have arrived and the script stalled.  This distinguishes
     the two.  Inert unless ``ARRAYVIEW_LAUNCH_TRACE`` is set.
+
+    Also stamps when a page was last served, which the idle nudge in
+    ``_routes_websocket`` uses to stay silent while arrays are being opened.
+    That stamp is not diagnostic and is kept before the trace guard below.
     """
+    _session_mod.LAST_PAGE_SERVED_AT = time.time()
     if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
         return
     try:

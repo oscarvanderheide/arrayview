@@ -2210,3 +2210,130 @@ sockets per proxy is a plausible mechanism, not a measured one.
 Per the user, the tab ceiling itself is acceptable at 16 or 32; the objection was
 to holding connections that do nothing. That is what was removed. No automatic
 tab-closing was built.
+
+## Session started: 2026-08-05 (evening) — re-derived the leak as a transport story, twice
+
+**Process failure first.** This session did not read this file until the user
+asked whether it was being read, near the end. Everything below that looks like a
+discovery was reached by re-deriving, and two of the conclusions reported to the
+user were wrong in exactly the way the 2026-08-04 entry warns about: *"Hedges,
+thresholds, reload recovery and the relay black-hole model were all fitted to a
+step function that was really a leak."* A third fitting was produced here before
+the file was opened. Read this file first.
+
+### What was measured (`real host`, `~/.arrayview/launch-trace.jsonl`, 30.3 h)
+
+Server-side, across 213 navigations:
+
+    reached the backend  169   p50 60 ms   p99 350 ms   max 398 ms
+    never arrived         44
+    prepared -> script-loaded, when it arrived: p99 833 ms, max 1.32 s
+
+**There is nothing between 398 ms and never** — the same shape the relay probes
+showed in 0.14.97, now measured on the page request itself. Today alone: 48 opens,
+41 first-try, 5 needed a retry, 2 never rendered.
+
+### New instrumentation (v0.15.33, v0.15.34)
+
+At the moment a tab is found blank, before it is closed, the opener now records
+whether the backend answers from the extension host, whether the tab is visible
+and active, whether the window is focused, and the window's open tab counts.
+First results, `real host`:
+
+    blank tab at attempt=1..3  windowFocused=true tabVisible=true tabActive=true
+                               backend=reachable in 9-15 ms
+
+So the tab is on screen, the window has focus, and the backend answers in ~10 ms
+while the page is never requested. That rules out the hidden-webview explanation
+and the backend, and it is consistent with the tab-count wall from 2026-08-04
+rather than with any transport story. The tab-count fields were added in v0.15.34
+precisely because this entry's author reached for a transport story again; the
+2026-08-04 entry had already asked for that measurement.
+
+### Claims made to the user this session that the evidence does not support
+
+- *"The connection between your laptop and this machine is dropping the request."*
+  Not supported. With `workbench.browser.enableRemoteProxy` on, the last hop is
+  loopback on the host, which does not drop. Retracted.
+- *"The path goes cold when idle and the first attempts re-establish it."* Fitted
+  to six launches. Across all 213 opens the gap to the previous open gives
+  0/84 losses under 10 s but 40% at 10-60 s, 35% at 1-5 min and 17% over 5 min —
+  **not monotonic**, so not a cold path. It also contradicts the 81-episode
+  idle-time correlation in 0.14.99. The sharp part (0/84 within 10 s) is real and
+  unexplained, and is plausibly confounded by tab count, since back-to-back opens
+  were run by hand while the window's tab population was changing.
+- *"This has been happening for weeks."* The trace file covers 30 hours. Check its
+  first and last timestamp before characterising any trend.
+
+### One measurement that did earn its keep
+
+With recovery disabled (`ARRAYVIEW_MEASURE_NAVIGATION=1`), a blank tab **never**
+recovers on its own inside the 10 s budget — the page is never requested, no
+matter how long it is given. Only a fresh navigation command produces a page. So
+waiting cannot be traded against recovering: this is the observe-without-closing
+build that the 2026-08-04 "Still unexplained" list asked for, and it answers the
+third bullet — a threshold cannot be tuned into working, because the navigation it
+is waiting on is already dead.
+
+### Timing constant
+
+`firstNavigationRetryDelayMs` had been given a 4 s first wait in an uncommitted
+working tree earlier the same day, citing a measurement of 259 opens. It is back to
+the uniform ~1.5 s cadence that every commit in this file has used. Per the user,
+this constant has now been moved back and forth by successive agents often enough
+to read as nobody knowing why. **Do not tune it again.** It cannot help: see above.
+
+### Next, per this file's own open question
+
+The 2026-08-04 conclusion — the resource is live integrated-browser tabs in the
+window, and nothing ever removes them — is the standing explanation and it has an
+unbuilt fix: stop accumulating viewer tabs (reuse, or close on release). The new
+`browserTabsOpen=` field should confirm saturation directly on the next wall.
+
+### The controlled experiment: it is the gap, and it is not the tab count
+
+**Evidence: `real host`, v0.15.34, one freshly reloaded window, same file, same
+port, only the gap since the previous open varied.**
+
+| gap since previous open | browser tabs open | navigations lost |
+|-------------------------|-------------------|------------------|
+| first open after reload | 1                 | 4                |
+| 67 s                    | 2                 | 3                |
+| 6.7 s                   | 3                 | 0                |
+| 7.0 s                   | 4                 | 0                |
+| 47 s                    | 5                 | 3                |
+| 12.4 s                  | 6                 | 0                |
+
+Perfectly ordered by gap, and inversely ordered against tab count — the two opens
+with the **most** tabs open rendered on the first navigation in under 400 ms,
+while the open with a single tab in a just-reloaded window lost four.
+
+**This falsifies the live-tab-count explanation for this failure mode.** The
+2026-08-04 entry is not wrong about the 18-consecutive-failure wall it measured,
+but that wall is a different failure from the everyday 3-4 flicker at the start of
+a session: saturation cannot produce a loss in a window holding one tab, and
+cannot produce a first-navigation success in the same window holding six.
+
+**It also reverses this session's own retraction.** The idle-gap story was
+withdrawn earlier in this entry because the whole-file buckets were not monotonic
+(40% at 10-60 s but 17% over 5 min). Those buckets mix click launches with CLI
+launches, which differ by more than 2x on their own. Held constant, the gap is the
+variable: **under ~12 s never fails; at ~45 s and beyond the first three or four
+navigations are swallowed.** The threshold sits somewhere in 12-47 s and has not
+been narrowed.
+
+Established alongside it, same build: at every one of these blank tabs the window
+was focused, the tab was visible and active, and the backend answered the
+extension host in 11-16 ms. The document request is never issued. And per the
+measurement build, a swallowed navigation never recovers on its own — only a new
+navigation command can, which is why the retries work at all.
+
+**Reading**: something on the client side of the page fetch decays after tens of
+seconds idle, and the first few navigations after that are spent re-establishing
+it. Open viewer tabs do **not** keep it alive — six were open across the 47 s gap
+and it still went cold — so whatever their sockets hold is not this path.
+
+**Fix shape, not yet built**: the throwaway navigations are warm-up traffic, so
+send them out of the user's sight instead of pacing them at 1.5 s behind a
+visible tab that closes and reopens. Do not attack this by shortening the retry
+delay; see the timing-constant note above.

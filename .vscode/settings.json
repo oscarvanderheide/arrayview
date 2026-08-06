@@ -77,139 +77,19 @@
     "**/src/arrayview/_viewer.html": "default"
   },
   "remote.portsAttributes": {
-    "8123": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
     "8000": {
       "protocol": "http",
       "label": "ArrayView",
       "onAutoForward": "silent",
       "privacy": "public"
     },
-    "9999": {
+    "8129": {
       "protocol": "http",
       "label": "ArrayView",
       "onAutoForward": "silent",
       "privacy": "public"
     },
-    "9876": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "9877": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18799": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18800": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18801": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18802": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18803": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18804": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18805": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18806": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8766": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18999": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "19877": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18991": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8744": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8765": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "18234": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8777": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8778": {
-      "protocol": "http",
-      "label": "ArrayView",
-      "onAutoForward": "silent",
-      "privacy": "public"
-    },
-    "8779": {
+    "8131": {
       "protocol": "http",
       "label": "ArrayView",
       "onAutoForward": "silent",
