@@ -2483,3 +2483,31 @@ theorising.
 **Next**: row 25. Nothing closes viewer tabs, so any heavy session walks into
 this. It was identified on 2026-08-04, has never been built, and is now the
 top user-facing defect with the idle path fixed.
+
+### The tab ceiling does not reproduce — 24 open viewers, 24 clean opens
+
+**Evidence: `real host`, `scripts/measure_tab_ceiling.sh 24 5`.** Twenty-four
+arrays opened back to back into one window, every tab left open, 5 s between
+opens so the idle path is out of play:
+
+    open 1   1 tab    3 swallowed   ok   <- cold start, no viewer to nudge yet
+    open 2   2 tabs   0 swallowed   ok
+    ...
+    open 24  24 tabs  0 swallowed   ok
+
+**No ceiling reached.** The 2026-08-04 wall at ~16-22 was measured *before*
+`285e4f6` removed the second, useless WebSocket each viewer held; that entry
+predicted halving the sockets would roughly double the reachable depth, and
+nothing has failed at twice the old wall since.
+
+**The 18-tab failures earlier today were misattributed** — by this file's own
+author, one entry after writing down that the two failure modes look identical.
+They followed `--kill`, which kills the server, so all 18 tabs were dead pages
+with no live viewer behind them and therefore no nudge running. That is the cold
+path, not saturation. `browserTabsOpen=` is necessary to tell them apart but not
+sufficient: **a live viewer socket is what matters, not a tab that looks open.**
+
+**Consequence**: row 25 is not currently a demonstrated defect and should not be
+built against until a cliff is actually observed. The real remaining defect is
+the cold start, visible as open 1 above — the first array with no viewer running
+has nothing keeping its path warm and still loses three page loads.

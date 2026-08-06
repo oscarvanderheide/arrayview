@@ -97,7 +97,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 |---|------|--------|
 | 23 | Cold start — no server running yet | partially — first open with no viewer running is still unprotected; succeeded first try 2026-08-06 but has no nudge behind it |
 | 24 | Warm repeat — second array within ~10 s | **verified 2026-08-06 `real host`** — always first-try, ~0.4 s |
-| 25 | Several viewers open at once | **broken 2026-08-06 `real host`** — at 18 open viewer tabs, launches fail outright with no viewer; nothing closes tabs automatically |
+| 25 | Several viewers open at once | **verified 2026-08-06 `real host`** — 24 viewers open, 24/24 clean opens, no ceiling reached; the 2026-08-04 wall predates the duplicate-socket fix |
 | 26 | Close one viewer, others keep working | never verified |
 | 27 | `--kill` / shutdown leaves no orphan processes | never verified this session |
 | 28 | Repeat launch after `--kill` | **broken 2026-08-06 `real host`** — see row 23 |
@@ -105,11 +105,12 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 ## Known-bad rows, in priority order
 
-1. **Row 25** — viewer tabs accumulate and nothing removes them. At 18 open
-   tabs, launches stop working entirely. Identified 2026-08-04, never built.
-   With the idle path fixed this is the top user-facing defect.
-2. **Row 23** — the very first open, with no viewer running, has nothing keeping
-   its path warm and is still exposed.
+1. **Row 23** — the cold start. The first array opened with no viewer already
+   running has nothing keeping its path warm, and loses three page loads: the
+   user sees the tab redraw three times. Every later open is clean.
+2. **Row 25** — no ceiling was found at 24 open viewers. Nothing still closes
+   viewer tabs, so a ceiling presumably exists somewhere higher; it has not been
+   observed and should not be designed against until it is.
 3. A blank tab has two unrelated causes — a stale path and the tab ceiling — and
    they look identical. Check `browserTabsOpen=` in the opener log before
    theorising about either.
