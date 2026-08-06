@@ -2549,3 +2549,39 @@ from a page inside the built-in browser, and on a cold start there is no such
 page yet — that is the whole difficulty. Options not yet tried: keeping one
 viewer alive across a `--kill` so the path is never cold, or accepting the
 flicker on the first open only. Do not attempt another webview-based warm-up.
+
+### Cold start fixed by serving it from a port VS Code has not forwarded yet
+
+**The distinction that had been missed.** A stale forward and an absent one are
+different problems and this file kept treating them as one. Re-reading the
+2026-08-06 measurements: every launch where the forward had to be **created**
+was clean (4/4, and 3/3 on genuine cold starts on unused ports); every launch
+that flickered had a forward that already existed and had gone idle. The nudge
+covers the stale case. The cold case needs a forward that does not exist yet.
+
+**Change.** When a launch is signalled to VS Code and no viewer is connected,
+the *running* server binds one more port and the launch is served from it
+(`_extra_ports`, `POST /cold-start-port`, `_cold_start_url`). Same process, same
+loaded arrays — this is not a second server, which is what made "a fresh port
+per launch" a bad trade. Warm launches skip it entirely and reuse the main port.
+
+**Measured, `real host`, 5 cold starts (`--kill`, 90 s idle, launch):**
+
+| build | clean, no flicker |
+|-------|-------------------|
+| before | 0/5 (3 swallowed loads each, 2/5 no viewer at all) |
+| after  | **5/5**, each on a fresh port |
+
+Warm launches re-checked in the same session: both reused port 8000, 0 swallowed.
+
+**Lifetime.** The port is released when no viewer is connected anywhere — the
+only moment nothing can still be using it. It must **not** be released when the
+viewer that loaded from it merely finishes rendering: the viewer keeps issuing
+HTTP on its own origin afterwards, so closing the port under it would break the
+viewer. Verified in isolation that a released port stops answering and is
+rebindable by another process; the release trigger itself has only been observed
+holding one port while a viewer is open, which is the expected steady state.
+
+**Pre-existing failures**, confirmed against a clean worktree at HEAD, unrelated
+to this change: `test_remote_vscode_spawned_daemon_keeps_backend_persistent` and
+`test_integrated_launch_cleanup_is_scoped_per_request_token`.

@@ -751,6 +751,16 @@ def register_websocket_routes(app) -> None:
                 _session_mod.LIVE_VIEWER_SOCKETS.remove(ws)
             except ValueError:
                 pass
+            if _session_mod.VIEWER_SOCKETS == 0:
+                # No viewer is connected, so no page can still be using a
+                # cold-start port.  That is both the only moment it is safe to
+                # release one and the moment it stops being needed.
+                try:
+                    from arrayview import _extra_ports
+
+                    asyncio.create_task(_extra_ports.close_extra_ports())
+                except Exception:
+                    pass
             sid_count = max(0, _session_mod.VIEWER_SID_COUNTS.get(sid, 0) - 1)
             if sid_count:
                 _session_mod.VIEWER_SID_COUNTS[sid] = sid_count

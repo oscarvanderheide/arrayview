@@ -292,6 +292,23 @@ def get_shell():
     return HTMLResponse(content=_SHELL_HTML)
 
 
+@app.post("/cold-start-port")
+async def cold_start_port():
+    """Serve this same server on one more, never-before-forwarded port.
+
+    Asked for only when no viewer is connected.  A forward VS Code has just
+    created does not drop its first requests, while one that has sat idle does,
+    and that is what makes a cold launch flicker.  The port is released as soon
+    as no viewer is connected anywhere.
+    """
+    from arrayview import _extra_ports
+
+    if _session_mod.VIEWER_SOCKETS > 0:
+        return {"port": None, "reason": "a viewer is already connected"}
+    port = await _extra_ports.open_extra_port()
+    return {"port": port}
+
+
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""

@@ -424,6 +424,52 @@ def _with_viewer_name(url: str, name: str | None) -> str:
         return url
 
 
+def _cold_start_url(url: str) -> str:
+    """Serve a cold launch from a port VS Code has not forwarded before.
+
+    Measured 2026-08-06, real host: a forward VS Code has just created never
+    loses the viewer's page request (3/3 on genuine cold starts), while one that
+    already exists and has been idle for tens of seconds drops the first two to
+    four.  A dropped request never arrives, so the opener can only throw the tab
+    away and open another — the flicker.
+
+    While any viewer is open the server keeps the forward alive and this is
+    skipped, so the ordinary case still reuses the one port.  Only a launch with
+    nothing connected pays for a fresh one, and the server releases it as soon
+    as no viewer is left.  Best effort throughout: a launch that cannot get a
+    fresh port proceeds on the original one exactly as before.
+    """
+    import json as _json
+    import urllib.request
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(url)
+        if parts.hostname != "localhost" or not parts.port:
+            return url
+        origin = f"http://localhost:{parts.port}"
+        with urllib.request.urlopen(f"{origin}/ping", timeout=1.0) as response:
+            status = _json.load(response)
+        if status.get("service") != "arrayview":
+            return url
+        if int(status.get("viewer_sockets") or 0) > 0:
+            return url
+        request = urllib.request.Request(
+            f"{origin}/cold-start-port", data=b"", method="POST"
+        )
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            port = _json.load(response).get("port")
+        if not port:
+            return url
+        _vprint(f"[ArrayView] cold start: serving this launch from port {port}")
+        return urlunsplit(
+            (parts.scheme, f"localhost:{port}", parts.path, parts.query, parts.fragment)
+        )
+    except Exception as exc:
+        _vprint(f"[ArrayView] cold-start port unavailable ({exc}); using the main port")
+        return url
+
+
 def _open_via_signal_file(
     url: str,
     delay: float = 0.0,
@@ -442,6 +488,7 @@ def _open_via_signal_file(
     If omitted it is auto-derived from the session name embedded in the URL's
     ``?sid=`` query parameter.
     """
+    url = _cold_start_url(url)
     session_name = _session_name_for_url(url)
     if title is None and session_name:
         title = f"ArrayView: {session_name}"
