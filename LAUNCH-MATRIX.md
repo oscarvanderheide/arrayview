@@ -60,7 +60,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 |---|-------------|--------|-----------------|--------|
 | 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`** — clean when a viewer is already open; see row 2 |
 | 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **verified 2026-08-06 `real host`** — 6/6 clean at 90 s idle, no flicker, after the server-driven idle nudge |
-| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB+), fast local | never verified — believed to share row 1/2 behaviour once the page loads |
+| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **verified 2026-08-06 `real host`** — every flicker measurement this session used this file; renders in ~0.4-0.9 s once the page loads |
 | 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | never verified |
 | 5 | VS Code tunnel, Linux | browser | any | never verified |
 | 6 | VS Code Remote SSH | vscode tab | small, fast local | never verified this session; resolves the URL differently (`asExternalUri`) |
@@ -68,7 +68,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 8 | local desktop Linux | native window | small | never verified |
 | 9 | local desktop macOS | native window | small | never verified |
 | 10 | local desktop Windows | native window | small | never verified |
-| 11 | any | none | any | never verified — succeeds only after registration completes |
+| 11 | any | none | any | **verified 2026-08-06 `real host`** — but note what it *does*: it loads the array, waits for the session to register, then **releases it again** and exits, so no server is left behind. The URL is printed only under `--verbose`. This is deliberate (`_release_remote_sessions` on the no-display path), not a defect — but it is not "give me a URL to open later", and nothing says so |
 
 ### Python `arrayview.view()`
 

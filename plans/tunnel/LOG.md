@@ -2707,3 +2707,27 @@ heartbeat in the claim journal — the claim would have to be refreshed while he
 and a claim whose heartbeat has stopped could then be reassigned. Detection
 landed first because it is what the user actually lacked: not recovery, but
 knowing what was wrong.
+
+### Verifying matrix rows: `--window none` does not mean what it looks like
+
+Row 11 looked broken on first contact: `--window none` printed nothing, left no
+server, registered nothing, exited 0. Polling during a run showed the server
+answering at t+1 s and gone by t+2 s.
+
+**It is deliberate.** On the no-display path the launcher waits for every session
+to register and then calls `_release_remote_sessions` on them, with explicit
+error handling for that cleanup. The mode is "load the array, confirm it
+registers, release it", not "serve it and hand me the URL". The server exiting
+immediately afterwards is the intended end state, and AGENTS.md's line —
+"`--window none` succeeds only after registration completes" — describes exactly
+this.
+
+Recorded rather than "fixed": a fix here would have broken a working path to
+satisfy an assumption I brought with me. What is genuinely questionable is that
+the URL it prints is only visible under `--verbose`, and that a user reading
+`view(window=False)`'s docstring — "no automatic opening; returns URL" — would
+expect the CLI flag to leave something running. That is a product question, not
+a defect.
+
+Row 3 (large array) is verified as a side effect: every flicker measurement this
+session used an 88 MB 4-D file, which rendered in 0.4-0.9 s once its page loaded.
