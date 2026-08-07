@@ -5089,7 +5089,7 @@ class _CliCollectionScanProgress:
 
 
 def _print_dir_collection_summary(summary):
-    print("[ArrayView] --stack matched collection:")
+    print("[ArrayView] --match matched collection:")
     print(f"  cases: {len(summary['cases'])}")
     print(f"  spatial shape: {summary['spatial_shape']}")
     print(f"  image shape: {summary['shape']}")
@@ -5406,7 +5406,7 @@ def arrayview():
         default=None,
         help=(
             "Segmentation mask overlay. In file mode, pass a concrete mask file. "
-            "In --stack mode, pass NAME=PATTERN to add a named overlay role. "
+            "In --match mode, pass NAME=PATTERN to add a named overlay role. "
             "Repeat --overlay to load multiple overlays."
         ),
     )
@@ -5416,7 +5416,7 @@ def arrayview():
         action="append",
         default=None,
         help=(
-            "In --stack mode, discover mask filenames below matching per-case "
+            "In --match mode, discover mask filenames below matching per-case "
             "directories as sparse overlay roles. Missing masks render as empty. "
             "Case directories are inferred automatically; --case-regex can "
             "override unusual layouts. Repeat to include multiple directories."
@@ -5503,7 +5503,7 @@ def arrayview():
         help="Display name for the array",
     )
     parser.add_argument(
-        "--stack",
+        "--match",
         action="store_true",
         dest="stack_mode",
         help=(
@@ -5511,6 +5511,16 @@ def arrayview():
             "aligned collection. Repeated patterns become image channels; "
             "--overlay values become overlay role patterns."
         ),
+    )
+    # --stack was renamed to --match. Without this it would not error: argparse
+    # matches unambiguous prefixes, and --stack is a prefix of --stack-policy,
+    # which takes an optional value — so an old command would run and quietly
+    # ignore what the user asked for. Failing loudly is the point of it.
+    parser.add_argument(
+        "--stack",
+        action="store_true",
+        dest="stack_flag_removed",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--series",
@@ -5525,7 +5535,7 @@ def arrayview():
         default=None,
         dest="case_regex",
         help=(
-            "Regex used in --stack mode to extract a case id. Must define "
+            "Regex used in --match mode to extract a case id. Must define "
             "a named (?P<case>...) group."
         ),
     )
@@ -5533,7 +5543,7 @@ def arrayview():
         "--dry-run",
         action="store_true",
         dest="dry_run",
-        help="In --stack mode, print matched cases and roles without opening a viewer.",
+        help="In --match mode, print matched cases and roles without opening a viewer.",
     )
     parser.add_argument(
         "--stack-policy",
@@ -5542,7 +5552,7 @@ def arrayview():
         choices=("auto", "dense", "ragged"),
         dest="stack_policy",
         help=(
-            "Collection stacking policy for --stack mode: auto picks dense when "
+            "Collection stacking policy for --match mode: auto picks dense when "
             "shapes agree and ragged otherwise; dense requires matching shapes; "
             "ragged always keeps per-item shapes."
         ),
@@ -5653,19 +5663,25 @@ def arrayview():
                 f"--dims {args.dims!r} is invalid. "
                 "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
             )
+    if getattr(args, "stack_flag_removed", False):
+        parser.error(
+            "--stack has been renamed to --match, because it never controlled "
+            "stacking: a directory of arrays is stacked either way. It selects "
+            "which files form the collection."
+        )
     if args.dry_run and not args.stack_mode:
-        parser.error("--dry-run requires --stack.")
+        parser.error("--dry-run requires --match.")
     excluded_cases = set()
     if args.stack_mode:
         if not args.files:
-            parser.error("--stack requires at least one image pattern.")
+            parser.error("--match requires at least one image pattern.")
         if args.compare or args.vectorfield or args.watch or args.rgb:
             parser.error(
-                "--stack is incompatible with --compare, --vectorfield, "
+                "--match is incompatible with --compare, --vectorfield, "
                 "--watch, and --rgb."
             )
         if args.relay:
-            parser.error("--stack is incompatible with --relay.")
+            parser.error("--match is incompatible with --relay.")
     if args.stack_policy and not args.stack_mode:
         if len(args.files) != 1:
             parser.error(
@@ -5876,7 +5892,7 @@ def arrayview():
             if mount is not None or nested_mount is not None:
                 _print_failure(
                     "network directory collections are not accessed directly. "
-                    "Copy the collection to local storage before using --stack."
+                    "Copy the collection to local storage before using --match."
                 )
                 sys.exit(1)
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
@@ -5916,11 +5932,11 @@ def arrayview():
                 break
             except MissingOverlayCasesError as e:
                 if not _confirm_partial_overlay_match(e):
-                    _print_failure(f"--stack could not match collection: {e}")
+                    _print_failure(f"--match could not match collection: {e}")
                     sys.exit(1)
                 excluded_cases.update(e.missing_cases)
             except Exception as e:
-                _print_failure(f"--stack could not match collection: {e}")
+                _print_failure(f"--match could not match collection: {e}")
                 sys.exit(1)
         _print_dir_collection_summary(summary)
         if args.dry_run:
@@ -5929,7 +5945,7 @@ def arrayview():
         from arrayview._source_safety import lexical_abspath
 
         if args.overlay_dir:
-            parser.error("--overlay-dir requires --stack.")
+            parser.error("--overlay-dir requires --match.")
         try:
             file_overlay_specs = _normalize_file_overlay_specs(args.overlay)
         except ValueError as e:

@@ -132,12 +132,12 @@ class TestNiftiSeriesErrors:
             load_data_with_meta(str(tmp_path))
 
     def test_multiple_files_in_one_folder_load_as_a_flat_collection(self, tmp_path):
-        """A folder of arrays opens directly instead of demanding --stack.
+        """A folder of arrays opens directly instead of demanding --match.
 
-        This used to raise "Use --stack with explicit file patterns", which is
+        This used to raise "Use --match with explicit file patterns", which is
         unreachable advice for any caller that can only hand over a path: the
         VS Code Explorer's "Open Folder in ArrayView", the /load route, a drop.
-        The result must equal what --stack builds for the same directory.
+        The result must equal what --match builds for the same directory.
         """
         from arrayview._io import load_dir_collection
 

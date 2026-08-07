@@ -1139,7 +1139,7 @@ def load_dir_collection(
     overlay match.
     """
     if not base_patterns:
-        raise ValueError("--stack requires at least one positional image pattern.")
+        raise ValueError("--match requires at least one positional image pattern.")
     overlays = overlays or []
 
     inferred_case_depth = None
@@ -1338,7 +1338,7 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
 
     One file per patient folder → 4D ``(*vol, P)``.  When a folder holds
     several arrays side by side there is no per-folder case to key on, so every
-    file becomes its own case — the same collection ``--stack`` builds for that
+    file becomes its own case — the same collection ``--match`` builds for that
     directory.
 
     If every file is NIfTI (.nii/.nii.gz), delegates to
@@ -1383,9 +1383,9 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
 
     # A folder holding several arrays side by side is a flat collection: one
     # case per file. This used to raise and tell the user to retype the command
-    # with --stack, which made "open this folder" unreachable from any caller
+    # with --match, which made "open this folder" unreachable from any caller
     # that can only hand over a path (VS Code Explorer, drag-and-drop, the
-    # /load route). Route it through the same builder --stack uses so both
+    # /load route). Route it through the same builder --match uses so both
     # spellings produce the same session instead of one of them failing.
     if any(len(files) != 1 for files in patients.values()):
         flat = sorted(fpath for files in patients.values() for fpath in files)
@@ -1445,7 +1445,7 @@ def _load_nifti_series(path, *, load="lazy", stack="auto"):
             raise ValueError(
                 f"Patient folder {pdir!r} contains {len(nii_files)} NIfTI "
                 f"files: {[os.path.basename(f) for f in nii_files]}. "
-                "Use --stack with explicit file patterns for multi-file folders."
+                "Use --match with explicit file patterns for multi-file folders."
             )
 
     return _series_from_file_matrix(file_matrix, load=load, stack=stack)

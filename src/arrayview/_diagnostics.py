@@ -148,7 +148,7 @@ _DIAGNOSES: list[tuple[str, str, str, str]] = [
      "Check the path — and that the share it lives on is mounted."),
     (r"not a directory", FATAL,
      "That path is not a directory.",
-     "Point --stack at a directory of arrays."),
+     "Point --match at a directory of arrays."),
     (r"invalid vector ?field", FATAL,
      "The vector field file could not be used with this array.",
      "It needs the array's spatial shape plus a trailing components axis."),

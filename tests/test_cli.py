@@ -177,7 +177,7 @@ def test_cli_stack_existing_server_has_remote_flag_before_register(monkeypatch, 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["arrayview", "--stack", base_pattern, "--overlay-dir", overlay_dir],
+        ["arrayview", "--match", base_pattern, "--overlay-dir", overlay_dir],
     )
     monkeypatch.setattr(
         _launcher_mod,
@@ -459,7 +459,7 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(tmp_path / "images" / "*_0000.npy"),
             "--overlay",
             f"gt={tmp_path / 'gt' / '*.npy'}",
@@ -471,7 +471,7 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
     appmod.arrayview()
 
     text = stdout.getvalue()
-    assert "--stack matched collection" in text
+    assert "--match matched collection" in text
     assert "cases: 2" in text
     assert "overlay gt:" in text
     assert "caseA, caseB" in text
@@ -499,7 +499,7 @@ def test_cli_stack_can_continue_with_only_cases_that_have_overlays(
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(images / "*.npy"),
             "--overlay",
             f"gt={masks / '*.npy'}",
@@ -542,7 +542,7 @@ def test_cli_stack_declining_partial_overlay_match_keeps_error(
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(images / "*.npy"),
             "--overlay",
             f"gt={masks / '*.npy'}",
@@ -561,7 +561,7 @@ def test_cli_stack_declining_partial_overlay_match_keeps_error(
     assert "Continue with the 1 image cases that have masks?" in text
     # The failure is now rendered as a cause + suggested action; the
     # original reason is kept verbatim in the detail line.
-    assert "--stack could not match collection" in text
+    assert "--match could not match collection" in text
 
 
 def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
@@ -582,7 +582,7 @@ def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(images / "*.npy"),
             "--overlay",
             f"gt={masks / '*.npy'}",
@@ -601,7 +601,7 @@ def test_cli_stack_noninteractive_partial_overlay_match_does_not_prompt(
     assert "Continue with" not in text
     # The failure is now rendered as a cause + suggested action; the
     # original reason is kept verbatim in the detail line.
-    assert "--stack could not match collection" in text
+    assert "--match could not match collection" in text
 
 
 def test_cli_stack_partial_overlays_keep_case_intersection(monkeypatch, tmp_path):
@@ -629,7 +629,7 @@ def test_cli_stack_partial_overlays_keep_case_intersection(monkeypatch, tmp_path
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(images / "*.npy"),
             "--overlay",
             f"first={first_masks / '*.npy'}",
@@ -669,7 +669,7 @@ def test_cli_overlay_dir_discovers_sparse_roles(monkeypatch, tmp_path):
         "argv",
         [
             "arrayview",
-            "--stack",
+            "--match",
             str(tmp_path / "*" / "images" / "scan.npy"),
             "--overlay-dir",
             str(tmp_path / "*" / "masks"),

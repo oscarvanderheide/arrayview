@@ -520,8 +520,8 @@ class TestLoad:
         """The VS Code folder entry point can only send a path, never patterns.
 
         `_fastLoadViaDaemon` posts `{filepath: <folder>, background: true}` —
-        there is no place in that payload for --stack, and the extension must not
-        invent one because --stack is wrong for DICOM. So the plain path has to
+        there is no place in that payload for --match, and the extension must not
+        invent one because --match is wrong for DICOM. So the plain path has to
         produce the same session the explicit dir_patterns form does, including
         the collection axis that keeps the case index out of the startup plane.
         """
@@ -567,7 +567,7 @@ class TestLoad:
     ):
         """A DICOM folder must not be stacked slice-by-slice.
 
-        Globbing the folder the way --stack does makes every .dcm its own case,
+        Globbing the folder the way --match does makes every .dcm its own case,
         and each of those loads the *whole* surrounding series — an N-slice study
         becomes N identical 3D volumes. The folder entry point therefore leaves
         classification to the loader, and this pins the loader's answer.

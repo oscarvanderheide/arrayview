@@ -460,28 +460,37 @@
 
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
         #slim-cb-tooltip.percentile { font-size: 10px; color: var(--muted); letter-spacing: 0.01em; }
-        /* Window/level drag readout — follows the cursor while W/L is live */
+        /* Window/level drag readout — replaces the cursor while W/L is live */
         #bc-hud {
             position: fixed; left: 0; top: 0; z-index: 14;
-            display: flex; align-items: baseline; gap: 6px;
-            padding: 6px 9px;
+            display: inline-grid;
+            grid-template-columns: auto auto;
+            grid-template-rows: auto auto;
+            align-items: center;
+            column-gap: 9px; row-gap: 4px;
+            padding: 9px 13px;
             background: color-mix(in srgb, var(--surface) 92%, transparent);
-            border: 1px solid var(--border); border-radius: var(--radius-lg);
-            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-            box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 82%, transparent);
+            border: 1px solid var(--border); border-radius: 18px;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 10px 31px color-mix(in srgb, var(--bg) 82%, transparent);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
             font-size: 11px; line-height: 1; color: var(--text);
             white-space: nowrap; pointer-events: none;
             opacity: 0; transition: opacity 140ms ease;
         }
         #bc-hud.visible { opacity: 1; }
-        #bc-hud .bc-hud-arrow { color: var(--active-dim); }
+        #bc-hud .bc-hud-icon { grid-column: 1; grid-row: 1; color: var(--muted); }
+        #bc-hud .bc-hud-icon svg { display: block; }
+        #bc-hud .bc-hud-dot { fill: var(--active-dim); }
         #bc-hud .bc-hud-label { color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; }
-        #bc-hud .bc-hud-sep { width: 7px; }
-        #bc-hud .bc-hud-row { display: inline-flex; align-items: center; gap: 6px; }
+        /* "level" sits beside the flat (horizontal) line, "window" sits under the
+           tall (vertical) one, so each word is where its own motion happens. */
+        #bc-hud .bc-hud-level-label { grid-column: 2; grid-row: 1; align-self: center; }
+        #bc-hud .bc-hud-window-label { grid-column: 1; grid-row: 2; justify-self: center; }
         /* A locked vmin / symmetric window collapses the drag to vertical-only:
-           the horizontal axis has nothing to move, so dim it out of the readout. */
-        #bc-hud.vertical-only .bc-hud-level-row { opacity: 0.35; }
+           the horizontal axis has nothing to move, so dim it and its label. */
+        #bc-hud.vertical-only .bc-hud-level-label,
+        #bc-hud.vertical-only .bc-hud-arm-h { opacity: 0.35; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -12833,17 +12842,20 @@
          * from whatever data is currently visible.
          *
          * Three-state dim semantics: when a specific nav dim is provided,
-         * only recompute if that dim's picker state is 'recompute'. 'scope'
-         * dims already aggregate into the histogram (no change needed);
-         * 'frozen' dims explicitly preserve vmin/vmax. Callers without a
-         * nav dim (dim swaps, RGB toggle, etc.) fall back to the global
-         * rangeLocked boolean for back-compat.
+         * only recompute if that dim's picker state is 'recompute'. 'frozen'
+         * dims explicitly preserve vmin/vmax. 'scope' dims preserve it too:
+         * their values all feed one histogram, so one window covers the whole
+         * range they span. Leaving 'scope' alone instead used to mean *nothing*
+         * pinned the window, and the server then re-derived it from each slice
+         * on its own — contrast visibly drifted while scrolling a volume.
+         * Callers without a nav dim (dim swaps, RGB toggle, etc.) fall back to
+         * the global rangeLocked boolean for back-compat.
          */
         function _maybeAutoRecomputeRange(navDim) {
             if (vminLocked && vmaxLocked) return;
             if (Number.isInteger(navDim) && navDim >= 0) {
                 const dimState = _dimStateFor(navDim);
-                if (dimState === 'frozen') {
+                if (dimState === 'frozen' || dimState === 'scope') {
                     const seedVmin = !vminLocked && manualVmin === null;
                     const seedVmax = !vmaxLocked && manualVmax === null;
                     if (seedVmin) manualVmin = currentVmin;
@@ -21524,45 +21536,73 @@
             }, 3000);
         }
         // ── Window/level drag readout ────────────────────────────────
-        // A tiny cursor-following HUD that names the two drag axes (◄► level,
-        // ▲▼ window), so a window/level drag is self-explaining. Fades in on
-        // drag start, out on release. Lock state is shown by the range picker
-        // itself, which stays open for the gesture.
+        // Replaces the cursor for the duration of a window/level drag: it
+        // appears once, centered exactly where the cursor was, and then stays
+        // put — only the dot inside it travels, tracing the actual drag (flat
+        // line = level/left-right, tall line = window/up-down), so the
+        // gesture explains itself without the panel itself moving around.
+        // Lock state is shown by the range picker itself, which stays open
+        // for the gesture.
         let _bcHudEl = null;
         function _bcHudEnsure() {
             if (_bcHudEl) return _bcHudEl;
             _bcHudEl = document.createElement('div');
             _bcHudEl.id = 'bc-hud';
             _bcHudEl.innerHTML =
-                '<span class="bc-hud-row bc-hud-level-row">' +
-                    '<span class="bc-hud-arrow">◄►</span><span class="bc-hud-label">level</span>' +
+                '<span class="bc-hud-icon">' +
+                    '<svg width="31" height="31" viewBox="0 0 26 26">' +
+                        '<g class="bc-hud-arm-h">' +
+                            '<polyline points="4,10 1.5,13 4,16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+                            '<polyline points="22,10 24.5,13 22,16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+                            '<line x1="5" y1="13" x2="21" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
+                        '</g>' +
+                        '<g class="bc-hud-arm-v">' +
+                            '<polyline points="10,4 13,1.5 16,4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+                            '<polyline points="10,22 13,24.5 16,22" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+                            '<line x1="13" y1="5" x2="13" y2="21" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
+                        '</g>' +
+                        '<circle class="bc-hud-dot" cx="13" cy="13" r="2.8"/>' +
+                    '</svg>' +
                 '</span>' +
-                '<span class="bc-hud-sep"></span>' +
-                '<span class="bc-hud-row">' +
-                    '<span class="bc-hud-arrow">▲▼</span><span class="bc-hud-label">window</span>' +
-                '</span>';
+                '<span class="bc-hud-label bc-hud-level-label">level</span>' +
+                '<span class="bc-hud-label bc-hud-window-label">window</span>';
             document.body.appendChild(_bcHudEl);
             return _bcHudEl;
         }
+        // Shows the HUD centered exactly on the cursor — so it reads as the
+        // cursor's replacement — and freezes it there for the whole drag.
         function _bcHudShow(e) {
             const hud = _bcHudEnsure();
+            const dot = hud.querySelector('.bc-hud-dot');
+            dot.setAttribute('cx', 13);
+            dot.setAttribute('cy', 13);
+            // A locked vmin or symmetric window removes the horizontal degree
+            // of freedom for this whole drag, so decide it once up front.
+            hud.classList.toggle('vertical-only', !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric)));
             hud.classList.add('visible');
-            _bcHudUpdate(e);
+            // Measure where the icon's center sits inside the pill, then place
+            // the pill so that point lands exactly on the cursor.
+            const pillRect = hud.getBoundingClientRect();
+            const iconRect = hud.querySelector('.bc-hud-icon').getBoundingClientRect();
+            const cx = iconRect.left - pillRect.left + iconRect.width / 2;
+            const cy = iconRect.top - pillRect.top + iconRect.height / 2;
+            const m = 8;
+            const x = Math.max(m, Math.min(e.clientX - cx, window.innerWidth - pillRect.width - m));
+            const y = Math.max(m, Math.min(e.clientY - cy, window.innerHeight - pillRect.height - m));
+            hud.style.left = x + 'px';
+            hud.style.top = y + 'px';
         }
-        function _bcHudUpdate(e) {
+        // Moves only the dot, tracing the raw drag distance — the pill itself
+        // never moves once _bcHudShow has placed it.
+        function _bcHudUpdateDot(dx, dy) {
             if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
-            // A locked vmin or symmetric window removes the horizontal degree of
-            // freedom, so the drag is vertical-only and the level row is dimmed.
-            _bcHudEl.classList.toggle('vertical-only', !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric)));
-            // Position near the cursor, clamped to the viewport.
-            const r = _bcHudEl.getBoundingClientRect();
-            const offX = 16, offY = 18, m = 8;
-            let x = e.clientX + offX;
-            let y = e.clientY + offY;
-            if (x + r.width > window.innerWidth - m) x = e.clientX - r.width - offX;
-            if (y + r.height > window.innerHeight - m) y = e.clientY - r.height - offY;
-            _bcHudEl.style.left = Math.max(m, x) + 'px';
-            _bcHudEl.style.top = Math.max(m, y) + 'px';
+            const dot = _bcHudEl.querySelector('.bc-hud-dot');
+            if (!dot) return;
+            const maxPx = 120, travel = 6;
+            const nx = _bcHudEl.classList.contains('vertical-only') ? 0 : Math.max(-1, Math.min(1, dx / maxPx));
+            const ny = Math.max(-1, Math.min(1, dy / maxPx));
+            dot.setAttribute('cx', 13 + nx * travel);
+            dot.setAttribute('cy', 13 + ny * travel);
         }
         function _bcHudHide() {
             if (!_bcHudEl) return;
@@ -21584,7 +21624,8 @@
                 vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
             };
-            canvas.style.cursor = 'crosshair';
+            // The HUD replaces the cursor for the drag, so hide the real one.
+            canvas.style.cursor = 'none';
             // The colorbar treats an active drag as "snap the window range to
             // the cursor" (see ColorBar.draw). Without this, the histogram
             // range tweens behind the mouse and feels laggy.
@@ -21626,7 +21667,7 @@
             // The local preview already repainted inside _bcApplyWindow;
             // only fall back to the server round-trip when there is none.
             if (!_bcPreview && !_bcPreviewPending) _bcThrottledUpdate();
-            _bcHudUpdate(e);
+            _bcHudUpdateDot(dx, dy);
         }
         // A plain left press arms a pending drag rather than starting one, so a
         // press that never travels stays a click-to-copy / pixel-info hold.
@@ -35244,6 +35285,22 @@
                 _roiToggleFloodfillScopeDim(d);
                 return;
             }
+            _activateDimLabel(d);
+            sink.focus();
+        });
+
+        /**
+         * Make dim `d` the active one and, unless it is a displayed axis, the
+         * one the wheel scrubs.
+         *
+         * Shared by the click and mousedown handlers on purpose. Pressing a dim
+         * label repaints the dim bar from mousedown, which detaches the very
+         * element that was pressed; the browser then fires no `click` at all, so
+         * a click-only version of this ran for keyboard-driven paths and never
+         * for an actual press. The label went yellow and the wheel kept scrubbing
+         * the previous dim.
+         */
+        function _activateDimLabel(d) {
             // Skip dims in projection or quantization mode — they aren't navigable
             if (projectionMode > 0 && d === projectionDim) return;
             if ((qmriActive && d === qmriDim) || (compareQmriActive && d === compareQmriDim)) return;
@@ -35251,7 +35308,6 @@
             if (d === VFIELD_T_DIM) {
                 flashAxesIndicators();
                 renderInfo();
-                sink.focus();
                 return;
             }
             // In normal mode, clicking x when y was active (or vice versa) swaps them directly
@@ -35260,7 +35316,7 @@
                     [dim_x, dim_y] = [dim_y, dim_x];
                     dim_z = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
-                    updateView(); _roiClearOnDimChange(); triggerPreload(); flashAxesIndicators(); sink.focus(); return;
+                    updateView(); _roiClearOnDimChange(); triggerPreload(); flashAxesIndicators(); return;
                 }
             }
             if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z
@@ -35269,8 +35325,7 @@
             }
             flashAxesIndicators();
             renderInfo();
-            sink.focus();
-        });
+        }
 
         // Drag on a dim label to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
@@ -35283,7 +35338,7 @@
             if (d !== VFIELD_T_DIM && shape[d] <= 1) return;
             e.preventDefault();
             // Activate the dragged dim immediately
-            if (d !== VFIELD_T_DIM && activeDim !== d) { activeDim = d; renderInfo(); }
+            if (d !== VFIELD_T_DIM && activeDim !== d) _activateDimLabel(d);
             _trackDrag = { d, isVfield: d === VFIELD_T_DIM };
             document.body.style.userSelect = 'none';
         });
@@ -35560,6 +35615,10 @@
             indices[scrollDim] = Math.max(
                 0, Math.min(shape[scrollDim] - 1, indices[scrollDim] + _step)
             );
+            // Name the dim we moved along, like every other nav path does, so
+            // the window follows that dim's picker state. Without it the wheel
+            // was the one way to navigate that never pinned vmin/vmax at all.
+            _pendingNavDim = scrollDim;
             updateView();
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
