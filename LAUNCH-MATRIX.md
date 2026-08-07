@@ -68,7 +68,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 8 | local desktop Linux | native window | small | never verified |
 | 9 | local desktop macOS | native window | small | never verified |
 | 10 | local desktop Windows | native window | small | never verified |
-| 11 | any | none | any | **verified 2026-08-06 `real host`** — but note what it *does*: it loads the array, waits for the session to register, then **releases it again** and exits, so no server is left behind. The URL is printed only under `--verbose`. This is deliberate (`_release_remote_sessions` on the no-display path), not a defect — but it is not "give me a URL to open later", and nothing says so |
+| 11 | any | none | any | **verified 2026-08-06 `real host`** — but note what it *does*: it loads the array, waits for the session to register, then **releases it again** and exits, so no server is left behind. It now says so on success. This is deliberate and **pinned by tests** (`test_source_safety.py`: the daemon must not keep its port or stay alive), because the mode exists to load a source — including one on a network share — prove it registers, and leave nothing holding it. It is a safe loader, not "give me a URL to open later" |
 
 ### Python `arrayview.view()`
 

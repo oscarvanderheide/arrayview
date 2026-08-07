@@ -2314,6 +2314,16 @@ def _handle_cli_spawned_daemon(
                 expected_server_id=daemon_server_id,
             ):
                 raise RuntimeError("ArrayView could not confirm no-display session cleanup")
+            # Say what happened. This mode loads the array, proves it registers,
+            # and then deliberately releases it so nothing is left holding the
+            # source — which is the whole point of it, and is why no server
+            # survives and no window opens. Printing nothing at all made a
+            # successful check indistinguishable from silently doing nothing.
+            print(
+                f"[ArrayView] {name}: loaded and released. "
+                f"No display was opened and no server is left running.",
+                flush=True,
+            )
     except Exception:
         _terminate_owned_process(daemon_proc)
         _cleanup_source_staging_dirs(source_staging_dirs)
