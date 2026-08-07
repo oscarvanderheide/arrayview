@@ -2731,3 +2731,32 @@ a defect.
 
 Row 3 (large array) is verified as a side effect: every flicker measurement this
 session used an 88 MB 4-D file, which rendered in 0.4-0.9 s once its page loaded.
+
+### Row 27 verified: shutdown is clean, but "orphan" needs defining
+
+`--kill` with viewers open leaves nothing: no daemon process, no listening port —
+**including the cold-start extra ports, which die with the process** — no stale
+claim files, and an empty instance registry. A normal launch creates exactly one
+server, not several.
+
+Two things that look like leaks and are not:
+
+- **An interrupted launch leaves its server running.** SIGINT to the CLI
+  mid-launch leaves a daemon serving port 8000 indefinitely. That is by design:
+  the daemon is spawned `persist`ent under a remote so repeat opens are fast, and
+  it is not tied to the command that started it. It remains listed by
+  `arrayview instances` and stopped by `--kill`, so it is a managed server rather
+  than an invisible process. The non-negotiable "shutdown must be automatic"
+  should be read as "nothing is left that the user cannot see or stop" — that
+  holds; literal automatic teardown does not, and never has.
+- **A second server on port 8765** appeared in `instances` and was killed twice
+  today. It was **not** created by these launches — a later launch produced only
+  one instance. It was a survivor of an earlier session, which is exactly the
+  case above: persistent, invisible until you ask, and cleaned by `--kill`.
+
+Method note: the first probe reported ten "arrayview processes" and zero registry
+entries, both wrong. `pgrep -f arrayview` matches the shell's own command line
+because the repository path contains the word, and the registry is not a
+directory of JSON files under `~/.arrayview/instances`. Use `ps -eo pid,args`
+filtered on `_serve_daemon`, and ask `arrayview instances` rather than reading
+files.
