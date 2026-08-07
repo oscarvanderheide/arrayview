@@ -27823,7 +27823,6 @@
             _cmapPickerSearchFocused = !!(opts && opts.focusSearch);
             _cmapPickerSearchQuery = '';
             _cmapPickerOpen = true;
-            root.classList.add('visible');
             box.classList.remove('search-active', 'has-query');
             input.value = '';
             _cmapPickerSetMeta('12 swatches · Search to browse the full library.');
@@ -27833,8 +27832,9 @@
                 _cmapPickerFetchMissingStops(names);
                 _cmapPickerFilter('');
                 _cmapPickerApplySearchFocusState();
+                _cmapPickerPosition();
+                root.classList.add('visible');
                 requestAnimationFrame(() => {
-                    _cmapPickerPosition();
                     if (_cmapPickerSearchFocused) input.focus();
                     else sink.focus();
                 });
