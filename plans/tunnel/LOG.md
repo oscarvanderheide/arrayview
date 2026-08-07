@@ -2760,3 +2760,36 @@ because the repository path contains the word, and the registry is not a
 directory of JSON files under `~/.arrayview/instances`. Use `ps -eo pid,args`
 filtered on `_serve_daemon`, and ask `arrayview instances` rather than reading
 files.
+
+### Row 20 is broken: opening a directory never displays
+
+**Evidence `real host`, interleaved control.** Same server, same directory, four
+launches alternating:
+
+    single file  case_00.npy  -> rendered
+    folder       coll/        -> failed
+    folder       coll/        -> failed
+    single file  case_01.npy  -> rendered
+
+**Root cause.** The session id the folder launch signals to VS Code is not
+registered on the server. Posting the opener's own `launch-prepared` phase for
+that sid returns **404 Session not found**, which is the route's documented
+behaviour when the sid is in neither `SESSIONS` nor `PENDING_SESSIONS`
+(`_routes_query.py`). The opener surfaces this as "Unable to prepare correlated
+viewer readiness journal" and the launch dies before any tab opens.
+
+A second symptom appears when no server is running yet — "Private
+integrated-browser routing is unavailable" — which is the ownership probe
+failing rather than the journal, but the launch fails just the same.
+
+**Not caused by this session's work**: the only change on that path is the
+cold-start port swap, which rewrites a port and is skipped entirely when a viewer
+is connected — it was, in the failing runs. A pre-session build was not tested,
+so this is inference rather than measurement.
+
+**Not fixed.** The fix belongs to the collection session model — what a directory
+launch registers, and under which id — which is untouched by the flicker work and
+deserves its own investigation rather than a guess at the end of a long session.
+
+Row 18 verified in passing: `view(a, b, c)` returns three handles and opens one
+tab holding all three as a compare group, first try.

@@ -80,14 +80,14 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 15 | plain Python, local desktop | native (auto) | small | never verified |
 | 16 | plain Python, VS Code tunnel terminal | vscode tab | small | never verified — auto-resolves to `vscode` |
 | 17 | any | `window=False` | any | never verified — must return a URL and open nothing |
-| 18 | any | multiple arrays (2-4 handles) | any | never verified |
+| 18 | any | multiple arrays (2-4 handles) | any | **verified 2026-08-06 `real host`** — `view(a, b, c)` returns 3 handles and opens one tab holding all three as a compare group, first try |
 
 ### VS Code Explorer click
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
 | 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`, by the user** — clean cold start via Explorer click, served from a freshly forwarded port |
-| 20 | VS Code tunnel | vscode tab | folder / collection (`openFolder`) | never verified |
+| 20 | VS Code tunnel | vscode tab | folder / collection | **broken 2026-08-06 `real host`** — opening a *directory* from the CLI never displays. The session it signals to VS Code is not registered on the server (`POST /viewer-phase/<sid>/…` returns 404 Session not found), so the opener cannot prepare its readiness journal and the launch fails. Interleaved control: single files from the same directory rendered 2/2 while the folder failed 2/2. The Explorer `openFolder` click is a separate path and still untested |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
 
