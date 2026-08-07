@@ -87,7 +87,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
 | 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`, by the user** — clean cold start via Explorer click, served from a freshly forwarded port |
-| 20 | VS Code tunnel | vscode tab | folder / collection | **broken 2026-08-06 `real host`** — opening a *directory* from the CLI never displays. The session it signals to VS Code is not registered on the server (`POST /viewer-phase/<sid>/…` returns 404 Session not found), so the opener cannot prepare its readiness journal and the launch fails. Interleaved control: single files from the same directory rendered 2/2 while the folder failed 2/2. The Explorer `openFolder` click is a separate path and still untested |
+| 20 | VS Code tunnel | vscode tab | folder / collection | **verified 2026-08-06 `real host`** — a directory of uniform arrays renders both bare and with `--stack` (stacked to `(32, 32, 4)`). **But a folder whose contents do not line up fails misleadingly**: the load fails, a display is signalled anyway, and the user gets "failed to open the display" with the real cause (a rank mismatch) nowhere in it. `--stack` names the cause but leads with "The pattern matched no files", which is not what happened. The Explorer `openFolder` click is a separate path and still untested |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
 

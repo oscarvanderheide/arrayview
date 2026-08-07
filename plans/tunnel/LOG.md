@@ -2793,3 +2793,31 @@ deserves its own investigation rather than a guess at the end of a long session.
 
 Row 18 verified in passing: `view(a, b, c)` returns three handles and opens one
 tab holding all three as a compare group, first try.
+
+### Correction: folders are not broken — the test directory was
+
+The previous entry declared row 20 broken. That was wrong, and the user caught
+the premise: a bare directory is only meaningful for DICOM, and otherwise the
+arrays have to be stackable. The test directory held two 2-D arrays and one 3-D
+one, which cannot be a collection at all.
+
+With four uniform `(32, 32)` arrays, both forms work on the real host: bare
+directory renders, and `--stack` renders a stacked `(32, 32, 4)`. Row 20 is
+verified, not broken.
+
+**What is real, and smaller.** When a directory's contents do not line up:
+
+- the bare path fails the load, **signals a display anyway**, and surfaces "VS
+  Code viewer failed to become ready / Unable to prepare correlated viewer
+  readiness journal". The session was never registered because the load failed,
+  which is why the journal cannot be prepared — the 404 in the previous entry was
+  a symptom of a failed load, not a routing defect.
+- `--stack` reports "The pattern matched no files" as its headline when the
+  pattern matched three files and one had the wrong rank. The true cause is in
+  the parenthetical, and the headline contradicts it.
+
+**Method note, second time today.** A path was declared broken from a symptom
+without first checking the input was valid — the same shape as the `--window
+none` near-miss, and both were caught by someone else's knowledge rather than by
+the evidence. Construct a known-good input before concluding that a code path is
+broken; a confusing error message is far likelier than a broken feature.
