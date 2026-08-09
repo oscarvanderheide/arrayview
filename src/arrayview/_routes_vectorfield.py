@@ -79,26 +79,27 @@ def register_vectorfield_routes(app) -> None:
         staging_dir = validated_staging_directory(filepath, claimed_staging)
         if claimed_staging and staging_dir is None:
             raise HTTPException(status_code=400, detail="invalid source staging directory")
-        unsafe_mount = direct_network_mount(filepath)
-        if unsafe_mount is not None:
-            return {
-                "error": (
-                    f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
-                    "is refused; launch through the arrayview CLI."
+        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING") != "1":
+            unsafe_mount = direct_network_mount(filepath)
+            if unsafe_mount is not None:
+                return {
+                    "error": (
+                        f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
+                        "is refused; launch through the arrayview CLI."
+                    )
+                }
+            nested_mount = network_mount_below(filepath)
+            if source_may_require_sibling_discovery(filepath):
+                nested_mount = nested_mount or network_mount_below(
+                    os.path.dirname(filepath)
                 )
-            }
-        nested_mount = network_mount_below(filepath)
-        if source_may_require_sibling_discovery(filepath):
-            nested_mount = nested_mount or network_mount_below(
-                os.path.dirname(filepath)
-            )
-        if nested_mount is not None:
-            return {
-                "error": (
-                    f"Vector-field discovery would enter network mount "
-                    f"{nested_mount.mountpoint!r}; copy it locally first."
-                )
-            }
+            if nested_mount is not None:
+                return {
+                    "error": (
+                        f"Vector-field discovery would enter network mount "
+                        f"{nested_mount.mountpoint!r}; copy it locally first."
+                    )
+                }
         components_dim = body.get("components_dim")
         session = SESSIONS.get(sid)
         if not session:

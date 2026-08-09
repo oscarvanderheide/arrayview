@@ -137,32 +137,33 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         staging_dir = validated_staging_directory(abs_path, claimed_staging)
         if claimed_staging and staging_dir is None:
             raise HTTPException(status_code=400, detail="invalid source staging directory")
-        unsafe_mount = direct_network_mount(abs_path)
-        if unsafe_mount is not None:
-            return {
-                "error": (
-                    f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
-                    "is refused. Launch the file through the arrayview CLI so it can "
-                    "be staged safely."
-                )
-            }
-        nested_source_mount = network_mount_below(abs_path)
-        if nested_source_mount is not None:
-            return {
-                "error": (
-                    f"Source discovery would enter network mount "
-                    f"{nested_source_mount.mountpoint!r}; copy the collection locally first."
-                )
-            }
-        if source_may_require_sibling_discovery(abs_path):
-            nested_sibling_mount = network_mount_below(os.path.dirname(abs_path))
-            if nested_sibling_mount is not None:
+        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING") != "1":
+            unsafe_mount = direct_network_mount(abs_path)
+            if unsafe_mount is not None:
                 return {
                     "error": (
-                        f"Related-file discovery would enter network mount "
-                        f"{nested_sibling_mount.mountpoint!r}; copy the series locally first."
+                        f"Direct server access to network mount {unsafe_mount.mountpoint!r} "
+                        "is refused. Launch the file through the arrayview CLI so it can "
+                        "be staged safely."
                     )
                 }
+            nested_source_mount = network_mount_below(abs_path)
+            if nested_source_mount is not None:
+                return {
+                    "error": (
+                        f"Source discovery would enter network mount "
+                        f"{nested_source_mount.mountpoint!r}; copy the collection locally first."
+                    )
+                }
+            if source_may_require_sibling_discovery(abs_path):
+                nested_sibling_mount = network_mount_below(os.path.dirname(abs_path))
+                if nested_sibling_mount is not None:
+                    return {
+                        "error": (
+                            f"Related-file discovery would enter network mount "
+                            f"{nested_sibling_mount.mountpoint!r}; copy the series locally first."
+                        )
+                    }
         for pattern in dir_patterns or []:
             pattern_path = lexical_abspath(str(pattern))
             scan_root = scan_root_before_magic(pattern_path)
