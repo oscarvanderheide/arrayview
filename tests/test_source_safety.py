@@ -44,6 +44,9 @@ def _proc_fixtures(monkeypatch, tmp_path, mountpoint, *, disconnected=False):
     monkeypatch.setenv(
         "_ARRAYVIEW_TEST_SAFE_SOURCE_ROOT", str(tmp_path / "source-safety")
     )
+    # Staging is opt-in by default now; these tests exercise the staging
+    # subsystem itself, so turn it on regardless of the ambient default.
+    monkeypatch.setenv("ARRAYVIEW_SKIP_SOURCE_STAGING", "0")
 
 
 def test_mountinfo_uses_nested_component_boundary_and_unescapes():
@@ -417,6 +420,7 @@ def test_public_command_repeated_disconnected_failures_leave_no_owned_state(tmp_
             "_ARRAYVIEW_TEST_CIFS_DEBUG": str(debug),
             "ARRAYVIEW_RUNTIME_DIR": str(runtime),
             "_ARRAYVIEW_TEST_SAFE_SOURCE_ROOT": str(tmp_path / "source-safety"),
+            "ARRAYVIEW_SKIP_SOURCE_STAGING": "0",
         }
     )
     with socket.socket() as sock:
@@ -468,6 +472,7 @@ def test_public_command_bounds_blocked_copy_and_does_not_spawn_retries(tmp_path)
             "_ARRAYVIEW_TEST_COPY_SLEEP_SECONDS": "3600",
             "ARRAYVIEW_SOURCE_TIMEOUT_SECONDS": "0.1",
             "ARRAYVIEW_RUNTIME_DIR": str(runtime),
+            "ARRAYVIEW_SKIP_SOURCE_STAGING": "0",
         }
     )
     with socket.socket() as sock:

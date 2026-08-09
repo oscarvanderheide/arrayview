@@ -713,6 +713,14 @@ def prepare_source(path: str, *, timeout: float | None = None) -> PreparedSource
     """Preflight and, for a network file, make a bounded local snapshot."""
     absolute = lexical_abspath(path)
     mount = mount_for_path(absolute)
+    if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING", "1") != "0":
+        # Network-source staging is opt-in, not the default: use the source
+        # path directly, exactly like a local file. This is the pre-staging
+        # behavior (fast open, but a dropped network mount while the file is
+        # memory-mapped can wedge the process in a way not even `kill -9`
+        # recovers from — see docs/loading.md). Set
+        # ARRAYVIEW_SKIP_SOURCE_STAGING=0 to restore the safety copy.
+        return PreparedSource(absolute, absolute, None, mount)
     if mount is None or mount.filesystem not in _NETWORK_FILESYSTEMS:
         unsafe_discovery = discovery_network_mount(absolute)
         if unsafe_discovery is not None:
