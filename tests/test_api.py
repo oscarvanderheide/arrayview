@@ -272,6 +272,9 @@ class TestLoad:
             "rw,addr=10.20.30.40\n"
         )
         monkeypatch.setenv("_ARRAYVIEW_TEST_MOUNTINFO", str(mountinfo))
+        # Staging is opt-in by default now; this test exercises the refusal
+        # that only applies when staging is enabled.
+        monkeypatch.setenv("ARRAYVIEW_SKIP_SOURCE_STAGING", "0")
 
         started = time.monotonic()
         response = client.post(

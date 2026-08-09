@@ -41,33 +41,36 @@ uvx arrayview --version                     # print version
 
 ### Network-mounted source files
 
-On Linux, ArrayView checks the mount table before touching an explicit source.
-For recognized CIFS/SMB, NFS, SSHFS, and common network filesystems, it avoids
-direct access. CIFS mounts also use the kernel connection state, so a mount
-reported as disconnected or reconnecting fails immediately with a clear error.
+By default, ArrayView opens network-mounted files (CIFS/SMB, NFS, SSHFS, and
+other recognized network filesystems on Linux) the same as local ones: direct
+access, no copy, no size or format restriction. This is fast but has a real
+risk — if the network mount drops or hangs while a file is open, the process
+can wedge in a way that not even `kill -9` recovers from. Linux tasks already
+sleeping in uninterruptible `D` state cannot be stopped; the mount has to
+recover or be detached before anything frees up.
 
-Healthy network-mounted files are copied once into local temporary storage by a
-bounded helper. The server, NIfTI proxy, and renderer then use the local
-snapshot. The snapshot is removed when its session or transient server
-is released. Network directory collections are not scanned directly; copy them
-locally before using `--stack`. `--watch` is also disabled for network sources,
+Set `ARRAYVIEW_SKIP_SOURCE_STAGING=0` to opt into the safer, slower behavior:
+ArrayView checks the mount table before touching an explicit source, and for
+network-mounted single-file formats, copies the healthy file into local
+temporary storage once via a bounded helper before opening it, instead of
+touching the network mount directly. CIFS mounts also use the kernel
+connection state in this mode, so a mount reported as disconnected or
+reconnecting fails immediately with a clear error, instead of hanging.
+
+With staging enabled, network directory collections are still not scanned
+directly (copy them locally before using `--stack`), network DICOM inputs
+must be copied as a local series directory, and network HDF5/MATLAB/PyTorch
+containers are refused outright — copy any of those locally first regardless
+of the staging setting; only self-contained NumPy and NIfTI files can be
+staged automatically. `--watch` is disabled for network sources either way,
 because polling a mount that disconnects later can block inside the kernel.
-Network DICOM inputs, including extensionless DICOM files, must be copied as a
-local series directory so sibling discovery remains complete. ArrayView only
-uses a staging root whose mount type is known to be local; it fails safely if
-no such temporary location is available.
-Network HDF5, MATLAB, PyTorch, and other containers that can refer to external
-paths are also refused; copy them locally first. Bounded network staging is
-limited to self-contained NIfTI and NumPy files.
 The staging deadline defaults to 30 seconds and can be changed with
 `ARRAYVIEW_SOURCE_TIMEOUT_SECONDS` for large files on healthy but slow links.
 
-This is preventive, not a way to recover an already stuck process. Linux tasks
-already sleeping in uninterruptible `D` state cannot be stopped by ArrayView or
-`kill -9`. The mount must recover or be detached. Mount-state detection also has
-an unavoidable race and cannot reliably see a network filesystem hidden behind
-a symlink or overlay without touching that target. Filesystems not identified as
-network-backed by Linux mount information use the normal direct-loading path.
+Mount-state detection has an unavoidable race and cannot reliably see a
+network filesystem hidden behind a symlink or overlay without touching that
+target. Filesystems not identified as network-backed by Linux mount
+information always use the normal direct-loading path.
 
 ## Python
 

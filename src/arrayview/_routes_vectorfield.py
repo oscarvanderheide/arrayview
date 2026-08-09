@@ -79,7 +79,7 @@ def register_vectorfield_routes(app) -> None:
         staging_dir = validated_staging_directory(filepath, claimed_staging)
         if claimed_staging and staging_dir is None:
             raise HTTPException(status_code=400, detail="invalid source staging directory")
-        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING") != "1":
+        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING", "1") == "0":
             unsafe_mount = direct_network_mount(filepath)
             if unsafe_mount is not None:
                 return {

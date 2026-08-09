@@ -137,7 +137,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         staging_dir = validated_staging_directory(abs_path, claimed_staging)
         if claimed_staging and staging_dir is None:
             raise HTTPException(status_code=400, detail="invalid source staging directory")
-        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING") != "1":
+        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING", "1") == "0":
             unsafe_mount = direct_network_mount(abs_path)
             if unsafe_mount is not None:
                 return {
