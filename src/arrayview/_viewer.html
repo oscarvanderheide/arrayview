@@ -19597,7 +19597,11 @@
             const targetX = Math.max(8, Math.min(loupeClientX - L / 2, window.innerWidth - L - 8));
             const targetY = Math.max(8, Math.min(loupeClientY - L / 2, window.innerHeight - L - 8));
             _drawMainLoupe(pt, targetX, targetY);
-            gsap.set(mainLoupe, { x: targetX, y: targetY });
+            if (typeof gsap !== 'undefined') {
+                gsap.set(mainLoupe, { x: targetX, y: targetY });
+            } else {
+                mainLoupe.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            }
             if (mainLoupeInfo && mainLoupeInfo.style.display === 'block') {
                 _positionMainLoupeInfo(loupeClientX, loupeClientY);
             }
@@ -19704,6 +19708,9 @@
                 gsap.killTweensOf(_qmriLoupeEl);
                 gsap.fromTo(_qmriLoupeEl, { opacity: 0 }, { opacity: 1, duration: 0.12, overwrite: 'auto' });
                 gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 109 });
+            } else {
+                _qmriLoupeEl.style.opacity = '1';
+                _qmriLoupeEl.style.transform = `translate(${e.clientX + 18}px, ${e.clientY - 109}px)`;
             }
             _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
         }
@@ -19895,11 +19902,20 @@
             if (logScale) params.set('log_scale', '1');
             if (opts.qmriRole) params.set('qmri_role', opts.qmriRole);
 
+            // A slower or reordered reply must not clobber a fresher one, and
+            // must not snap the card back to the cursor position at request
+            // time — track the latest request per display element and always
+            // draw at the current cursor position.
+            const _fpEl = opts.displayEl;
+            const _fpGen = _fpEl ? ((_fpEl._pixelInfoGen || 0) + 1) : null;
+            if (_fpEl) _fpEl._pixelInfoGen = _fpGen;
+
             proxyFetch('/pixel/' + opts.sid + '?' + params)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, opts.event.clientX, opts.event.clientY);
+                    if (_fpEl && _fpEl._pixelInfoGen !== _fpGen) return;
+                    showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, _lastMouseX, _lastMouseY);
                     if (opts.onResult) opts.onResult(d, rawX, rawY);
                 })
                 .catch(() => {});
@@ -23540,13 +23556,20 @@
                         complex_mode: complexMode,
                     });
                     if (logScale) params.set('log_scale', '1');
+                    // See fetchPixelInfo: guard against a slow/reordered reply
+                    // clobbering a fresher one, and draw at the live cursor
+                    // position rather than the stale one from request time.
+                    const _mpEl = _mainPixelInfoDisplayEl(e);
+                    const _mpGen = _mpEl ? ((_mpEl._pixelInfoGen || 0) + 1) : null;
+                    if (_mpEl) _mpEl._pixelInfoGen = _mpGen;
                     proxyFetch('/pixel/' + sid + '?' + params)
                         .then(r => r.ok ? r.json() : null)
                         .then(d => {
                             if (!d) return;
+                            if (_mpEl && _mpEl._pixelInfoGen !== _mpGen) return;
                             const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
-                            showPixelInfo(_mainPixelInfoDisplayEl(e), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
+                            showPixelInfo(_mainPixelInfoDisplayEl({ clientX: _lastMouseX, clientY: _lastMouseY }), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
                         }).catch(() => {});
                 }
                 return;
