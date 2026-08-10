@@ -141,14 +141,22 @@ _OVERLAY_PREFETCH_POOL = None
 _PREFETCH_LOCK = threading.Lock()
 
 
+_PREFETCH_WORKERS: int = max(2, min(4, os.cpu_count() or 2))
+
+
 def _get_prefetch_pool():
     global _PREFETCH_POOL
     with _PREFETCH_LOCK:
         if _PREFETCH_POOL is None or _PREFETCH_POOL._shutdown:
             import concurrent.futures
 
+            # One pool is shared by every open session (see _schedule_prefetch).
+            # A single worker meant a second open array serialized behind the
+            # first array's lookahead, so scrolling any pane lagged. Size like
+            # _RENDER_WORKERS so a handful of concurrently open arrays each get
+            # a lane.
             _PREFETCH_POOL = concurrent.futures.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="arrayview-prefetch"
+                max_workers=_PREFETCH_WORKERS, thread_name_prefix="arrayview-prefetch"
             )
         return _PREFETCH_POOL
 
@@ -674,6 +682,7 @@ __all__ = [
     "_render",
     # Prefetch
     "_PREFETCH_POOL",
+    "_PREFETCH_WORKERS",
     "_OVERLAY_PREFETCH_POOL",
     "_PREFETCH_LOCK",
     "_get_prefetch_pool",
