@@ -23,7 +23,7 @@ from arrayview._render import (
     render_rgb_rgba,
     render_rgba,
 )
-from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS
+from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS, _schedule_prefetch
 from arrayview._synthetic_mri import (
     _qmri_adjust_vmin_vmax,
     qmri_display_slice,
@@ -276,6 +276,21 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     mosaic_cols,
                 )
         render_ms = (time.perf_counter() - render_t0) * 1000.0
+        # This endpoint is what compare mode polls per scroll step (the live
+        # WS path has its own prefetch call). Without this, a second array
+        # open puts every pane on the request-then-wait path with nothing
+        # warmed ahead, which is a much bigger hit than the extra data alone.
+        # No per-request direction field here (stateless HTTP), so infer it
+        # from the index this session last rendered, mirroring the WS guard.
+        if slice_dim >= 0 and dim_z < 0:
+            prev_idx = getattr(session, "_http_prefetch_prev_idx", None)
+            direction = 1
+            if prev_idx is not None and len(prev_idx) == len(idx_tuple):
+                delta = idx_tuple[slice_dim] - prev_idx[slice_dim]
+                if delta:
+                    direction = 1 if delta > 0 else -1
+            session._http_prefetch_prev_idx = idx_tuple
+            _schedule_prefetch(session, dim_x, dim_y, list(idx_tuple), slice_dim, direction)
         encode_t0 = time.perf_counter()
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
         buf = io.BytesIO()

@@ -6773,6 +6773,16 @@
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
         let compareFrames = [];
         let compareDisplaySids = [];
+        // One persistent WS connection per pane (mirrors compareMvViews/qvViews),
+        // rebuilt whenever getCompareRenderSids() changes. Panes stay batch-
+        // coalesced via compareRendering/comparePending below rather than each
+        // having its own rendering/pending flag, because every compare trigger
+        // (wheel, slider, keyboard) re-renders all visible panes together.
+        let comparePanes = [];           // [{ sid, ws, seq }]
+        let _compareConnectedSids = [];  // sid list the current comparePanes[] reflect
+        let _compareRoundRenderSids = [];
+        let _compareRoundExpected = new Set(); // pane indices sent-to in the round in flight
+        let _compareRoundArrived = new Set();  // pane indices whose frame has landed
         let _compareExplicitSids = null; // when set, getCompareRenderSids() returns this directly
         let compareLayoutMode = null;    // null=auto, 'horizontal', 'vertical', 'grid'
         let _compareAutoLayoutMode = null; // resolved once per compare session when compareLayoutMode === null
@@ -14963,7 +14973,229 @@
             }
         }
 
+        function _compareTeardownPaneConnections() {
+            comparePanes.forEach(p => { if (p.ws) { p.ws.onclose = null; p.ws.close(); } });
+            comparePanes = [];
+            _compareConnectedSids = [];
+        }
+
+        function _compareRoundComplete() {
+            return [..._compareRoundExpected].every(i => _compareRoundArrived.has(i));
+        }
+
+        // A pane's socket can drop mid-round (network blip, tab backgrounded).
+        // Without this, a round that will never complete leaves compareRendering
+        // stuck true and every later trigger just queues behind it forever.
+        function _compareHandlePaneDrop(paneIdx) {
+            if (!_compareRoundExpected.has(paneIdx)) return;
+            _compareRoundExpected.delete(paneIdx);
+            if (_compareRoundComplete()) _compareFinalizeRound();
+        }
+
+        // The backend sends this before closing when a pane's sid can never be
+        // loaded (session gone, invalid sid) — unlike a dropped connection,
+        // this pane will never produce a frame. The old HTTP path got the same
+        // signal for free from a rejected fetch: fall back out of compare mode
+        // if nothing has rendered yet, otherwise just report it and keep
+        // showing whatever was last on screen.
+        function _compareHandlePaneFailure(paneIdx, message) {
+            setStatus(`Compare render failed: ${message || 'unknown error'}`);
+            if (!compareFrames.some(Boolean)) {
+                exitCompareMode();
+                return;
+            }
+            _compareRoundExpected.delete(paneIdx);
+            if (_compareRoundComplete()) _compareFinalizeRound();
+        }
+
+        function _compareReconcilePaneConnections() {
+            const target = getCompareRenderSids();
+            const unchanged = target.length === _compareConnectedSids.length
+                && target.every((s, i) => s === _compareConnectedSids[i]);
+            if (unchanged) return;
+            _compareTeardownPaneConnections();
+            _compareConnectedSids = [...target];
+            comparePanes = target.map((sidVal, i) => {
+                const pane = { sid: sidVal, ws: null, seq: 0 };
+                if (!httpTransport) {
+                    pane.ws = createTransport(sidVal,
+                        (event) => compareOnMessage(i, event),
+                        () => compareRender(),
+                        () => _compareHandlePaneDrop(i),
+                        () => { if (pane.ws) pane.ws.close(); }
+                    );
+                }
+                return pane;
+            });
+        }
+
+        function _compareBuildPaneMessage(sidVal, paneIdx, seq) {
+            const msg = {
+                seq, dim_x, dim_y, dim_z,
+                indices: [...indices],
+                colormap: currentColormap(),
+                dr: 0,
+                complex_mode: complexMode,
+                log_scale: logScale,
+                slice_dim: current_slice_dim,
+                direction: lastDirection,
+                perf: _PERF_ENABLED,
+            };
+            if (detachedDimMode && detachedDim >= 0 && paneIdx < 2) {
+                const paneIndices = [...indices];
+                paneIndices[detachedDim] = paneIdx === 0 ? detachedDimIndexA : detachedDimIndexB;
+                msg.indices = paneIndices;
+            }
+            if (projectionMode > 0) {
+                msg.projection_mode = projectionMode;
+                msg.projection_dim = projectionDim;
+            }
+            const pVmin = cmpManualVmin[paneIdx] ?? manualVmin;
+            const pVmax = cmpManualVmax[paneIdx] ?? manualVmax;
+            if (pVmin !== null && pVmax !== null) {
+                msg.vmin_override = pVmin;
+                msg.vmax_override = pVmax;
+            }
+            if (sidVal === sid && overlay_sid) {
+                msg.overlay_sid = _getVisibleOverlaySids() || null;
+                msg.overlay_colors = _getVisibleOverlayColors() || null;
+                msg.overlay_alphas = _getVisibleOverlayAlphas() || null;
+                msg.overlay_outline = overlayOutlineOnly;
+            }
+            return msg;
+        }
+
+        function compareOnMessage(paneIdx, event) {
+            const pane = comparePanes[paneIdx];
+            if (!pane) return;
+            const perfKey = `compare:${paneIdx}:${pane.sid}`;
+            if (typeof event.data === 'string') {
+                let msg = null;
+                try { msg = JSON.parse(event.data); } catch (_) { /* not JSON */ }
+                if (msg && msg.type === 'render_error') {
+                    _compareHandlePaneFailure(paneIdx, msg.message);
+                } else {
+                    _perfHandleTimingMessage(event.data, perfKey);
+                }
+                return;
+            }
+            const buf = event.data;
+            const frameReceiveTime = _perfNow();
+            const h32 = new Uint32Array(buf, 0, 3);
+            if (h32[0] !== pane.seq) return; // stale reply from a superseded request — drop it
+            const width = h32[1], height = h32[2];
+            const f32 = new Float32Array(buf, 12, 2);
+            const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+            const frame = _applyAutoCropIfReady(
+                { imageData: new ImageData(rgba, width, height), width, height },
+                pane.sid, dim_x, dim_y, indices,
+            );
+            compareFrames[paneIdx] = {
+                imageData: frame.imageData, width: frame.width, height: frame.height,
+                vmin: f32[0], vmax: f32[1], perfSeq: null,
+            };
+            _perfCompleteRequest('ws', h32[0], {
+                frame_receive_at: frameReceiveTime,
+                width, height, payload_bytes: buf.byteLength, perfKey,
+                server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
+            });
+            _compareRoundArrived.add(paneIdx);
+            if (_compareRoundComplete()) _compareFinalizeRound();
+        }
+
+        // The single shared finish line for a round: reached either when every
+        // pane's frame has landed (compareOnMessage) or when a pane drops out
+        // mid-round (_compareHandlePaneDrop) and the rest already have. Mirrors
+        // what used to run inline after `await Promise.all(requests)`.
+        function _compareFinalizeRound() {
+            const renderSids = _compareRoundRenderSids;
+            // Auto-sync to shared range: if no manual range set and frames have
+            // different ranges, re-render with the union range for fair comparison.
+            if (manualVmin === null && renderSids.length >= 2) {
+                const allPaneNull = renderSids.every((_, i) => cmpManualVmin[i] === null);
+                if (allPaneNull) {
+                    const present = compareFrames.filter(Boolean);
+                    const uVmin = Math.min(...present.map(f => f.vmin));
+                    const uVmax = Math.max(...present.map(f => f.vmax));
+                    const alreadySync = present.every(f =>
+                        Math.abs(f.vmin - uVmin) < 1e-10 && Math.abs(f.vmax - uVmax) < 1e-10);
+                    if (!alreadySync) {
+                        manualVmin = uVmin;
+                        manualVmax = uVmax;
+                        { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
+                        compareRendering = false;
+                        compareRender();
+                        return;
+                    }
+                }
+            }
+            compareDisplaySids = renderSids;
+            if (compareFrames[0]) {
+                currentVmin = compareFrames[0].vmin;
+                currentVmax = compareFrames[0].vmax;
+            }
+            if (detachedDimMode) {
+                updateCompareTitles();
+                renderInfo();
+            }
+            applyCompareLayout();
+            _reconcileCbVisibility();
+            drawCompareFramesFromCache();
+            hideLoadingOverlay();
+            if (!_reportedFirstFrame && compareFrames.length) {
+                _reportedFirstFrame = true;
+                reportParent('frame-rendered', {
+                    mode: 'compare',
+                    panes: compareFrames.length,
+                });
+            }
+            if (diffMode > 0) fetchAndDrawDiff();
+            compareRendering = false;
+            if (comparePending) {
+                comparePending = false;
+                compareRender();
+                return;
+            }
+            if (compareActive && isPlaying) {
+                playNext();
+            }
+        }
+
         async function compareRender() {
+            if (httpTransport) return compareRenderHttp();
+            if (!compareSid) return;
+            _compareReconcilePaneConnections();
+            if (compareRendering) {
+                comparePending = true;
+                return;
+            }
+            const renderSids = registrationMode
+                ? getCompareRenderSids().slice(0, 2)
+                : getCompareRenderSids();
+            const openIdx = [];
+            for (let i = 0; i < renderSids.length; i++) {
+                const pane = comparePanes[i];
+                if (pane && pane.ws && pane.ws.readyState === WebSocket.OPEN) openIdx.push(i);
+            }
+            if (!openIdx.length) return; // nothing open yet — each pane's own onopen retries
+            compareRendering = true;
+            _compareRenderPatientIndex = _currentPatientIndex();
+            _compareRoundRenderSids = renderSids;
+            _compareRoundExpected = new Set(openIdx);
+            _compareRoundArrived = new Set();
+            // The diff is computed from the raw arrays, not from the frames
+            // these requests return, so it has no reason to queue behind them.
+            if (diffMode > 0) fetchAndDrawDiff();
+            for (const i of openIdx) {
+                const pane = comparePanes[i];
+                pane.seq += 1;
+                const perfKey = `compare:${i}:${pane.sid}`;
+                _perfMarkRequest('ws', pane.seq, { perfKey, sid: pane.sid, pane: 'compare', dim_x, dim_y, slice_dim: current_slice_dim });
+                pane.ws.send(JSON.stringify(_compareBuildPaneMessage(renderSids[i], i, pane.seq)));
+            }
+        }
+
+        async function compareRenderHttp() {
             if (!compareSid) return;
             if (compareRendering) {
                 comparePending = true;
@@ -15038,7 +15270,7 @@
                             manualVmax = uVmax;
                             { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             compareRendering = false;
-                            await compareRender();
+                            await compareRenderHttp();
                             return;
                         }
                     }
@@ -15074,7 +15306,7 @@
                 compareRendering = false;
                 if (comparePending) {
                     comparePending = false;
-                    compareRender();
+                    compareRenderHttp();
                     return;
                 }
                 if (compareActive && isPlaying) {
@@ -30161,6 +30393,7 @@
             if (compareQmriActive) exitCompareQmri();
             if (compareMvActive) exitCompareMv();
             compareActive = false;
+            _compareTeardownPaneConnections();
             compareFrames = [];
             compareDisplaySids = [];
             _compareExplicitSids = null;
