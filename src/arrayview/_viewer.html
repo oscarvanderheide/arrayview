@@ -34042,39 +34042,35 @@
                          - bottomPad * (1 - _crossfadeCollapseP);
             const absMaxScaleW = (window.innerWidth - sidePad - (nCols - 1) * colGap) / nCols;
             const absMaxScaleH = Math.max(10, totalH / nRows);
-            const absMaxScale = Math.min(...ready.map(v =>
-                Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const { capped: cappedScale, atMax: _cmvAtMax } = _clampUniformZoom(absMaxScale);
-            // Per-pane geometry routed through the shared _scalePane primitive.
-            // compare-multiview has no pan state (no clip wrappers) and no
-            // per-pane viewport element to size — _scalePane just needs to set
-            // canvas cssW/cssH. baseScale = absMaxScale (global min across all
-            // views) so finalScale = baseScale * userZoom = cappedScale, giving
-            // every pane the same uniform scale factor. userZoom is pre-clamped
-            // by _clampUniformZoom, so updateAutoFit / allowOverflowRecalc are
-            // both false. squareStretch uses default per-pane max(cssW,cssH)
-            // (not a shared forceViewport square), matching the pre-refactor
-            // behavior where each view's square was sized from its own
-            // max(w,h)*cappedScale.
+            // Compare ortho uses one shared square slot for every plane, just
+            // like single-array ortho. Deriving a square from each pane's own
+            // aspect ratio makes a rotated/transposed column change width and
+            // breaks the row/column grid.
+            const absMaxT = Math.max(10, Math.min(absMaxScaleW, absMaxScaleH));
+            const { atMax: _cmvAtMax } = _clampUniformZoom(absMaxT);
+            const T = Math.min(Math.max(10, Math.floor(absMaxT * userZoom)), absMaxT);
+            const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
+            const cmvBaseScale = absMaxT / maxSide;
             const _cmvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
                 _scalePane(
                     { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _cmvPanStub },
                     null,
                     {
-                        maxW: Math.round(absMaxScaleW),
-                        maxH: Math.round(absMaxScaleH),
-                        baseScale: absMaxScale,
+                        maxW: T,
+                        maxH: T,
+                        baseScale: cmvBaseScale,
                         squareStretch: squareStretch,
                         updateAutoFit: false,
                         allowOverflowRecalc: false,
+                        forceViewport: { w: T, h: T },
                     }
                 );
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('#qmri-view-wrap .cq-header-label');
             if (headerLabels.length && ready.length) {
-                const paneW = Math.round(ready[0].lastW * cappedScale);
+                const paneW = Math.round(T);
                 headerLabels.forEach(el => { el.style.width = paneW + 'px'; });
             }
             // Apply dynamic gaps to DOM elements
@@ -34082,7 +34078,7 @@
             if (wrapEl) wrapEl.style.gap = rowGap + 'px';
             wrapEl.querySelectorAll('.qv-row, .cq-header-row').forEach(r => r.style.gap = colGap + 'px');
             if (cbWrap) {
-                const cmvCbTarget = cbTargetWidth(Math.round(ready[0].lastW * cappedScale));
+                const cmvCbTarget = cbTargetWidth(Math.round(T));
                 if (cmvCbTarget == null) {
                     cbWrap.style.display = 'none';
                 } else {
