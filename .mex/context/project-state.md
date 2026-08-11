@@ -84,7 +84,7 @@ last_updated: 2026-08-03
 - Backend transport: FastAPI HTTP/WebSocket is the single viewer transport; shared helpers keep route modules small for metadata/analysis, compare/diff, overlay compositing, and vector field layout/arrow sampling.
 - NIfTI spatial metadata, RAS resampling
 - Directory collections are header-scanned and lazy by default: compatible files form a dense virtual stack, mixed shapes use a ragged collection, and `--load lazy|eager` plus `--stack-policy auto|dense|ragged` make both choices explicit. Supported 3D `.nii.gz` stacks now return the requested axial plane while the same one-pass decode finishes in the byte-bounded LRU cache; unsupported layouts fall back safely. Patient changes show a centered loading card until the matching frame arrives. `view_dir()` exposes the same collection controls.
-- The working tree targets VS Code opener v0.15.18. It removes the public-webview
+- The working tree targets VS Code opener v0.15.45. It removes the public-webview
   tunnel path and the zero-viewer singleton gate: tunnel requests use
   request-scoped private integrated-browser direct-loopback delivery, with
   exact request/window/backend identity and first-frame acknowledgement.
@@ -92,9 +92,12 @@ last_updated: 2026-08-03
   concurrent. If the private proxy or target cannot be verified, delivery fails
   closed instead of promoting the port.
 - A real desktop-tunnel window was observed accepting the integrated-browser
-  command while making no page request at all. Restarting its extension host
-  did not clear that VS Code window state; a full window reload did. Opener
-  v0.15.18 recovers from that drop instead of failing: it captures the exact
+  command while making no page request at all. Fresh backends on two different
+  ports failed in that same long-idle window; a full window reload made the
+  next launch render immediately. Opener v0.15.45 offers **Reload and reopen**
+  after bounded tab recovery is exhausted, keeps the original launch alive,
+  and lets only the uniquely superseding instance of that exact window replay
+  it once. The earlier bounded recovery captures the exact
   `Tab` object its own `workbench.action.browser.open` created, and on a missing
   `script-loaded` closes that exact tab before retrying, up to four bounded
   attempts. Blind retries are still never issued — real v0.15.14 retries created

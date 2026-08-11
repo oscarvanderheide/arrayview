@@ -125,6 +125,10 @@ def test_integrated_browser_navigation_failure_does_not_blame_the_array():
     assert "did not navigate" in what
     assert "too large" not in what.lower()
     assert "too large" not in fix.lower()
+    assert "reload" in fix.lower()
+    assert "run the same command again" not in fix.lower(), (
+        "the diagnosed window is stuck, so retrying before reload repeats the failure"
+    )
 
 
 def test_an_unrecognized_failure_still_offers_the_traceback():

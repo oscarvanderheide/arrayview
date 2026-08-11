@@ -141,9 +141,12 @@ proxy carries both privately.
   reject-list is what makes closing safe. Do not convert it into a positive
   `TabInputWebview` requirement — that would disable recovery silently.
 - If a desktop-tunnel window accepts the open command but never requests the
-  viewer page, restarting only the extension host is insufficient. A full reload
-  of that exact VS Code window clears the observed stuck browser state. Do not
-  hide this boundary with a public webview fallback.
+  viewer page, restarting only the extension host is insufficient. The opener
+  offers **Reload and reopen**, preserves the non-terminal launch, and lets only
+  the uniquely superseding instance of that exact window reclaim it after a full
+  window reload. The replay is one-shot; dismissal, expiry, ambiguity, or a
+  second blank navigation fails normally and releases the sessions. Do not hide
+  this boundary with a public webview fallback.
 - Reused file and collection sessions acquire one lease per tab, so closing one
   tab cannot invalidate another tab that shares the same SID.
 - A VS Code readiness ACK includes the live opener version and is terminal only

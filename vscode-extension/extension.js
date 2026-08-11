@@ -134,6 +134,9 @@ const MEASUREMENT_PRE_SCRIPT_TIMEOUT_MS = 40000;
 // Minimum remaining signal lifetime worth opening a panel for. Real requests
 // carry 190–240s, so this only rejects ones already at their deadline.
 const PANEL_MIN_REMAINING_MS = 1000;
+// A guided reload is useful only if the replacement extension host still has
+// time to activate, reclaim the request, navigate, and reach its first frame.
+const RELOAD_RECOVERY_MIN_REMAINING_MS = 15000;
 let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
@@ -399,10 +402,23 @@ function _atomicWriteJson(filePath, payload) {
     }
 }
 
+function _logicalAckWindowId(data) {
+    const recovery = data?.reloadRecovery;
+    if (
+        recovery
+        && recovery.attempts === 1
+        && typeof recovery.fromWindowId === 'string'
+        && recovery.fromWindowId
+    ) {
+        return recovery.fromWindowId;
+    }
+    return logWindowId;
+}
+
 function _writeClaimAck(ackPath, data, owner) {
     _atomicWriteJson(
         ackPath,
-        ackPayload('claimed', data, logWindowId, null, version, owner)
+        ackPayload('claimed', data, _logicalAckWindowId(data), null, version, owner)
     );
     return true;
 }
@@ -488,7 +504,14 @@ function writeProtocolAck(data, state, message) {
 
         _atomicWriteJson(
             ackPath,
-            ackPayload(state, data, logWindowId, message, version, owner)
+            ackPayload(
+                state,
+                data,
+                _logicalAckWindowId(data),
+                message,
+                version,
+                owner
+            )
         );
         log(`ACK: state=${state} requestId=${data.requestId}`);
         return true;
@@ -1702,15 +1725,169 @@ function _ackForProtocolRequest(data) {
     }
 }
 
+function _uniqueLiveSupersedingRegistration(windowId) {
+    const matches = [];
+    try {
+        for (const filename of fs.readdirSync(SIGNAL_DIR)) {
+            if (!filename.startsWith('window-') || !filename.endsWith('.json')) continue;
+            let registration;
+            try {
+                registration = JSON.parse(fs.readFileSync(
+                    path.join(SIGNAL_DIR, filename), 'utf8'
+                ));
+            } catch (_) {
+                continue;
+            }
+            if (
+                !registration
+                || !registration.pid
+                || !isProcessAlive(registration.pid)
+                || !Array.isArray(registration.supersedes)
+                || !registration.supersedes.includes(windowId)
+            ) {
+                continue;
+            }
+            matches.push(registration);
+        }
+    } catch (_) {
+        return null;
+    }
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function _isReloadRecoveryForClaim(data, ack, claimedWindowId) {
+    const recovery = data?.reloadRecovery;
+    return Boolean(
+        recovery
+        && recovery.attempts === 1
+        && recovery.fromWindowId === claimedWindowId
+        && data.windowId === claimedWindowId
+        && ack?.windowId === claimedWindowId
+        && ack?.claimOwner?.windowId === claimedWindowId
+        && !isTerminalAck(ack)
+    );
+}
+
 function _recoveryQueuePath(filename, data, ack) {
     const claimedWindowId = ack?.claimOwner?.windowId || null;
-    if (claimedWindowId && claimedWindowId !== logWindowId) return null;
+    if (claimedWindowId && claimedWindowId !== logWindowId) {
+        if (!_isReloadRecoveryForClaim(data, ack, claimedWindowId)) return null;
+        const successor = _uniqueLiveSupersedingRegistration(claimedWindowId);
+        if (
+            !successor
+            || successor.windowId !== logWindowId
+            || successor.pid !== process.pid
+            || successor.extensionInstanceId !== EXTENSION_INSTANCE_ID
+        ) {
+            return null;
+        }
+        return _targetedSignalPath(logWindowId, data);
+    }
     if (data?.broadcast === true && claimedWindowId && TARGETED_SIGNAL_FILE) {
         const base = TARGETED_SIGNAL_FILE.replace(/\.json$/, '');
         return `${base}.request-${data.requestId}.json`;
     }
     const original = filename.replace(/\.claimed-\d+$/, '');
     return path.join(SIGNAL_DIR, original);
+}
+
+function _writeReloadRecovery(claimedFile, signalFile, data) {
+    if (!claimedFile || !signalFile || !data?.requestId) return false;
+    if (
+        isExpiredSignal(data)
+        || !_hasReloadRecoveryBudget(data)
+        || !_ownsProtocolClaim(data)
+    ) return false;
+    const resolvedClaim = path.resolve(claimedFile);
+    const resolvedSignal = path.resolve(signalFile);
+    if (
+        path.dirname(resolvedClaim) !== path.resolve(SIGNAL_DIR)
+        || !path.basename(resolvedClaim).startsWith('open-request-')
+        || resolvedClaim !== `${resolvedSignal}.claimed-${process.pid}`
+        || !resolvedClaim.endsWith(`.claimed-${process.pid}`)
+        || !fs.existsSync(resolvedClaim)
+    ) {
+        return false;
+    }
+    const ack = _ackForProtocolRequest(data);
+    if (
+        !ack
+        || isTerminalAck(ack)
+        || !sameClaimOwner(data.__claimOwner, ack.claimOwner)
+        || ack.windowId !== data.windowId
+    ) {
+        return false;
+    }
+    data.reloadRecovery = {
+        attempts: 1,
+        fromWindowId: data.windowId,
+        requestedAtMs: Date.now(),
+    };
+    _atomicWriteJson(resolvedClaim, data);
+    log(`RECOVERY: preserved request for reload requestId=${data.requestId}`);
+    return true;
+}
+
+async function _executeReloadRecovery(claimedFile, signalFile, data) {
+    let preserved = false;
+    try {
+        preserved = _writeReloadRecovery(claimedFile, signalFile, data);
+    } catch (error) {
+        log(`RECOVERY: could not preserve request: ${error.message || error}`);
+    }
+    if (preserved) {
+        log(`RECOVERY: reloading window for requestId=${data.requestId}`);
+        try {
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            return true;
+        } catch (error) {
+            log(`RECOVERY: reload command failed: ${error.message || error}`);
+        }
+    }
+    delete data.reloadRecovery;
+    try { _atomicWriteJson(claimedFile, data); } catch (_) {}
+    releaseUrlSession(data.url, data.url, data.serverId || null);
+    const reason = preserved
+        ? 'VS Code could not reload this window; reload it manually and retry'
+        : 'ArrayView could not preserve this launch for window reload';
+    writeProtocolAck(data, 'failed', reason);
+    try { vscode.window.showErrorMessage(`ArrayView: ${reason}`); } catch (_) {}
+    return false;
+}
+
+function _resumeReloadRecoveries(windowId, supersededIds) {
+    if (!windowId || !Array.isArray(supersededIds)) return 0;
+    const base = path.basename(TARGETED_SIGNAL_FILE || '', '.json');
+    if (!base) return 0;
+    const queuedBefore = new Set();
+    try {
+        for (const name of fs.readdirSync(SIGNAL_DIR)) {
+            if (name.startsWith(`${base}.request-`) && name.endsWith('.json')) {
+                queuedBefore.add(name);
+            }
+        }
+    } catch (_) {}
+    cleanupStaleFiles();
+    let restored = 0;
+    try {
+        for (const name of fs.readdirSync(SIGNAL_DIR)) {
+            if (!name.startsWith(`${base}.request-`) || !name.endsWith('.json')) continue;
+            if (queuedBefore.has(name)) continue;
+            let data;
+            try {
+                data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, name), 'utf8'));
+            } catch (_) {
+                continue;
+            }
+            if (
+                data?.reloadRecovery?.attempts === 1
+                && supersededIds.includes(data.reloadRecovery.fromWindowId)
+            ) {
+                restored += 1;
+            }
+        }
+    } catch (_) {}
+    return restored;
 }
 
 function _restoreClaimedFile(fullPath, filename, data, ack = null) {
@@ -2146,13 +2323,17 @@ async function tryOpenSignalFile() {
 
         log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
         _activeClaimedFiles.add(claimedFile);
+        let dispatchResult = null;
         try {
-            await processSignalData(data);
+            dispatchResult = await processSignalData(data);
         } catch (error) {
             log(`ERROR: ${error.message}`);
             writeProtocolAck(data, 'failed', error.message);
         } finally {
             _activeClaimedFiles.delete(claimedFile);
+        }
+        if (dispatchResult?.reloadRecoveryRequested) {
+            if (await _executeReloadRecovery(claimedFile, signalFile, data)) return;
         }
         if (!_deleteTerminalClaimedFile(claimedFile, data)) {
             log(`JOURNAL: requeueing non-terminal claim ${path.basename(claimedFile)} requestId=${data.requestId || 'none'}`);
@@ -2597,9 +2778,11 @@ async function waitForBackendViewerReady(
             }
         }
         if (!scriptLoaded && Date.now() >= preScriptDeadline) {
-            return new Error(
+            const error = new Error(
                 'Integrated browser did not start the viewer script before recovery timeout'
             );
+            error.code = 'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION';
+            return error;
         }
         if (
             !scriptLoaded
@@ -2637,6 +2820,20 @@ async function waitForBackendViewerReady(
         }
     }
     return new Error('Integrated browser did not render a frame before timeout');
+}
+
+function _isIntegratedBrowserNavigationWedge(error) {
+    return Boolean(
+        error
+        && error.code === 'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION'
+        && error.arrayviewIntegratedBrowserOpened === true
+        && error.arrayviewRetainSession === true
+    );
+}
+
+function _hasReloadRecoveryBudget(data) {
+    const remaining = _remainingSignalMs(data);
+    return remaining === null || remaining >= RELOAD_RECOVERY_MIN_REMAINING_MS;
 }
 
 async function openInIntegratedBrowser(
@@ -2703,6 +2900,21 @@ async function openInIntegratedBrowser(
     const tabKey = crypto.randomBytes(12).toString('base64url');
     const reuseUrlFilter = `/_av/${tabKey}/`;
     let requestTab = null;
+    const closeExactRequestTab = async () => {
+        if (!requestTab || typeof vscode.window?.tabGroups?.close !== 'function') {
+            return false;
+        }
+        if (
+            !_visibleEditorTabs().includes(requestTab)
+            || !_isBrowserTabCandidate(requestTab)
+        ) {
+            requestTab = null;
+            return false;
+        }
+        const tab = requestTab;
+        requestTab = null;
+        return Boolean(await vscode.window.tabGroups.close(tab, true));
+    };
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
@@ -2821,6 +3033,7 @@ async function openInIntegratedBrowser(
     const scriptLoaded = new Promise(resolve => { signalScriptLoaded = resolve; });
     return {
         scriptLoaded,
+        closeExactRequestTab,
         viewerReady: waitForBackendViewerReady(
             backendUrl,
             sid,
@@ -2881,17 +3094,11 @@ async function openInIntegratedBrowser(
                 // left five stacked tabs with the viewer only in the last. The
                 // flicker this causes is the lesser fault until something
                 // actually makes the reuse happen.
-                const tabGroups = vscode.window?.tabGroups;
-                if (typeof tabGroups?.close !== 'function') {
-                    log('PANEL: blank-tab recovery unavailable without tab close');
-                    return null;
-                }
-                const closed = await tabGroups.close(requestTab, true);
+                const closed = await closeExactRequestTab();
                 if (!closed) {
                     log('PANEL: exact blank tab could not be closed; recovery stopped');
                     return null;
                 }
-                requestTab = null;
                 log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
                 return prepareNavigation(navigationAttempt, deadline);
             },
@@ -3279,6 +3486,29 @@ async function processSignalData(data) {
         ]);
     } catch (error) {
         log(`ERROR: ${error.message}`);
+        if (_isIntegratedBrowserNavigationWedge(error)) {
+            let choice = null;
+            try {
+                choice = await vscode.window.showErrorMessage(
+                    'ArrayView: VS Code\'s browser is stuck. Reload this window '
+                    + 'and ArrayView will reopen the array automatically.',
+                    'Reload and reopen'
+                );
+            } catch (_) {}
+            if (
+                choice === 'Reload and reopen'
+                && !operation.cancelled
+                && !isExpiredSignal(data)
+                && _hasReloadRecoveryBudget(data)
+                && _ownsProtocolClaim(data)
+            ) {
+                return { reloadRecoveryRequested: true, error };
+            }
+            if (choice === 'Reload and reopen') {
+                log('RECOVERY: reload declined because the request expired or lost its claim');
+            }
+            releaseUrlSession(data.url, data.url, data.serverId || null);
+        }
         writeProtocolAck(data, 'failed', error.message);
         const shown = _reportFailureToPlaceholder(data, error.message);
         if (!shown) {
@@ -3461,6 +3691,7 @@ async function _processSignalDataBody(
     let handedOff = false;
     let viewerReady;
     let integratedBrowserOpened = false;
+    let closeIntegratedBrowserTab = null;
     let externalBrowserOpened = false;
     let integratedBrowserPlaceholder = null;
     // Set when this request has reached a terminal state, so a panel disposal
@@ -3580,6 +3811,7 @@ async function _processSignalDataBody(
                 handOverTab
             );
             viewerReady = opened.viewerReady;
+            closeIntegratedBrowserTab = opened.closeExactRequestTab;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
             // The status-bar spinner runs from the click until the viewer page
@@ -3727,7 +3959,24 @@ async function _processSignalDataBody(
             throw new Error('Viewer session did not become ready after panel opened');
         }
         const viewerError = await viewerReady;
-        if (viewerError) throw viewerError;
+        if (viewerError) {
+            if (
+                integratedBrowserOpened
+                && viewerError.code === 'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION'
+            ) {
+                viewerError.arrayviewIntegratedBrowserOpened = true;
+                viewerError.arrayviewRetainSession = !data.reloadRecovery;
+                if (viewerError.arrayviewRetainSession && closeIntegratedBrowserTab) {
+                    try {
+                        const closed = await closeIntegratedBrowserTab();
+                        log(`RECOVERY: final blank tab closed=${closed}`);
+                    } catch (error) {
+                        log(`RECOVERY: final blank tab close failed: ${error.message || error}`);
+                    }
+                }
+            }
+            throw viewerError;
+        }
         ensureActive();
         requestSettled.done = true;
         advanceAck('visibility_verified');
@@ -3735,7 +3984,10 @@ async function _processSignalDataBody(
         return;
     } catch (error) {
         requestSettled.done = true;
-        if (integratedBrowserOpened || externalBrowserOpened) {
+        if (
+            (integratedBrowserOpened || externalBrowserOpened)
+            && !_isIntegratedBrowserNavigationWedge(error)
+        ) {
             releaseUrlSession(openUrl, data.url, data.serverId || null);
         } else if (handedOff && handoffPanelDisposed) {
             // The disposal handler deferred this so it would not race the
@@ -3879,7 +4131,10 @@ function activate(context) {
         log(`REGISTER: failed to write: ${e.message}`);
     }
 
-    cleanupStaleFiles();
+    const resumedReloads = _resumeReloadRecoveries(windowId, supersededIds);
+    if (resumedReloads) {
+        log(`RECOVERY: resumed ${resumedReloads} launch after window reload`);
+    }
     _reportExtensionVersionSkew(windowId, version);
 
     // Clean up stale registrations from previous tunnel sessions.
@@ -4051,6 +4306,11 @@ module.exports = {
         cleanupStaleFiles,
         _deleteTerminalClaimedFile,
         _requeueOwnedClaim,
+        _writeReloadRecovery,
+        _executeReloadRecovery,
+        _resumeReloadRecoveries,
+        _isIntegratedBrowserNavigationWedge,
+        _hasReloadRecoveryBudget,
         _ownsProtocolClaim,
         _expireProtocolRequest,
         _acquireAckLock,
