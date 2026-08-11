@@ -288,6 +288,42 @@ class TestStateTransitions:
         page.wait_for_selector("#qmri-view-wrap.active", timeout=5_000)
         panes = page.locator("#qmri-view-wrap canvas.qv-canvas")
         assert panes.count() == 6
+        page.wait_for_function(
+            "() => compareMvViews.length === 6 && compareMvViews.every(v => v.lastW && v.lastH)"
+        )
+
+        def assert_aligned_square_grid():
+            grids = page.evaluate(
+                """() => {
+                    const rects = selector => Array.from(
+                        document.querySelectorAll(selector)
+                    ).map(el => {
+                        const r = el.getBoundingClientRect();
+                        return { left: r.left, top: r.top, right: r.right,
+                                 bottom: r.bottom, width: r.width, height: r.height };
+                    });
+                    return {
+                        panes: rects('#qmri-view-wrap .qv-pane'),
+                        clips: rects('#qmri-view-wrap .qv-canvas-clip'),
+                    };
+                }"""
+            )
+            tolerance = 1.0
+            for rects in grids.values():
+                assert len(rects) == 6
+                assert all(abs(r["width"] - r["height"]) <= tolerance for r in rects), rects
+                assert max(r["width"] for r in rects) - min(r["width"] for r in rects) <= tolerance
+                assert max(r["height"] for r in rects) - min(r["height"] for r in rects) <= tolerance
+                for col in range(3):
+                    top, bottom = rects[col], rects[col + 3]
+                    assert abs(top["left"] - bottom["left"]) <= tolerance
+                    assert abs(top["right"] - bottom["right"]) <= tolerance
+                for row_start in (0, 3):
+                    row = rects[row_start:row_start + 3]
+                    assert max(r["top"] for r in row) - min(r["top"] for r in row) <= tolerance
+                    assert max(r["bottom"] for r in row) - min(r["bottom"] for r in row) <= tolerance
+
+        assert_aligned_square_grid()
 
         # Seed stale interaction state in column 0, then hover column 1.
         panes.nth(0).click()
@@ -302,6 +338,7 @@ class TestStateTransitions:
         )
         changed = [before != after for before, after in zip(dims_before, dims_after)]
         assert changed == [False, True, False, False, True, False]
+        assert_aligned_square_grid()
 
         # A second hover must retarget without another click or stale redraw state.
         panes.nth(2).hover()
@@ -313,6 +350,7 @@ class TestStateTransitions:
         )
         changed = [before != after for before, after in zip(dims_before, dims_after)]
         assert changed == [False, False, True, False, False, True]
+        assert_aligned_square_grid()
 
     def test_diff_exit_cleans_up_panes(self, loaded_viewer, sid_2d, sid_compare_2d):
         """After exiting compare with diff active, no residual diff pane."""
