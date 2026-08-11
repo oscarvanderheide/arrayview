@@ -18247,8 +18247,8 @@
         }
 
         function _overlayPaletteAnchor() {
-            if (compareQmriActive || qmriActive) return document.getElementById('qmri-view-wrap');
-            if (compareMvActive || multiViewActive) return document.getElementById('multi-view-wrap');
+            if (compareQmriActive || qmriActive || compareMvActive) return document.getElementById('qmri-view-wrap');
+            if (multiViewActive) return document.getElementById('multi-view-wrap');
             if (compareActive) return document.getElementById('compare-view-wrap');
             return document.getElementById('canvas-viewport');
         }
@@ -24512,14 +24512,15 @@
                 run: (ctx, e) => {
                     // Transpose x and y: swap the dimension indices and flips
                     if (shape.length < 2) return;
-                    if (multiViewActive) {
-                        const v = _mvCurrentPane();
-                        if (!v) return;
-                        const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
-                        [v.dimX, v.dimY] = [v.dimY, v.dimX];
-                        v.flipX = ofy; v.flipY = ofx;
-                        _mvUpdatePaneAxisLabels(v);
-                        _mvRenderPaneOnly(v);
+                    const _orthoT = _orthoTransposeTargets();
+                    if (_orthoT) {
+                        for (const v of _orthoT.views) {
+                            const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
+                            [v.dimX, v.dimY] = [v.dimY, v.dimX];
+                            v.flipX = ofy; v.flipY = ofx;
+                            _orthoT.updateLabels(v);
+                            _orthoT.renderOne(v);
+                        }
                         showStatus('transposed pane x/y');
                         _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -24546,14 +24547,15 @@
                 when: [],
                 run: (ctx, e) => {
                     if (_segMode) { _segReset(); return; }
-                    if (multiViewActive) {
-                        const v = _mvCurrentPane();
-                        if (!v) return;
-                        const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
-                        [v.dimX, v.dimY] = [v.dimY, v.dimX];
-                        v.flipX = ofy; v.flipY = !ofx;
-                        _mvUpdatePaneAxisLabels(v);
-                        _mvRenderPaneOnly(v);
+                    const _orthoR = _orthoTransposeTargets();
+                    if (_orthoR) {
+                        for (const v of _orthoR.views) {
+                            const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
+                            [v.dimX, v.dimY] = [v.dimY, v.dimX];
+                            v.flipX = ofy; v.flipY = !ofx;
+                            _orthoR.updateLabels(v);
+                            _orthoR.renderOne(v);
+                        }
                         showStatus('rotated pane 90°');
                         _roiClearOnDimChange();
                         renderInfo(); saveState();
@@ -33496,6 +33498,66 @@
 
         // --------------- Compare + 3-plane multiview combined mode ---------------
         // Layout: rows = compared arrays (up to 4), columns = 3 planes (axial, coronal, sagittal)
+
+        // Per-pane helpers mirroring the single-array ortho ones (_mvCurrentPane,
+        // _mvUpdatePaneAxisLabels, _mvRenderPaneOnly) so keyboard shortcuts like
+        // transpose/rotate can target compare-mode ortho panes the same way.
+        let _cmvCurrentView = null;
+
+        function _cmvSetCurrentView(view) {
+            if (view && compareMvViews.includes(view)) _cmvCurrentView = view;
+        }
+
+        function _cmvCurrentPane() {
+            if (_cmvCurrentView && compareMvViews.includes(_cmvCurrentView)) return _cmvCurrentView;
+            return compareMvViews.find(v => v && v.canvas && v.canvas.matches(':hover')) || compareMvViews[0] || null;
+        }
+
+        function _cmvUpdatePaneAxisLabels(v) {
+            const _axLetters = ['x', 'y', 'z'];
+            const newX = _axLetters[compareMvDims.indexOf(v.dimX)] || '?';
+            const newY = _axLetters[compareMvDims.indexOf(v.dimY)] || '?';
+            v.axLblX = newX; v.axLblY = newY;
+            if (v.axesSvg) {
+                const xEl = v.axesSvg.querySelector('.axes-lbl-x');
+                const yEl = v.axesSvg.querySelector('.axes-lbl-y');
+                if (xEl) xEl.textContent = newX;
+                if (yEl) yEl.textContent = newY;
+            }
+        }
+
+        function _cmvRenderPaneOnly(v) {
+            _cmvSetCurrentView(v);
+            v.seq++;
+            v.lastImageData = null;
+            v.lastW = 0; v.lastH = 0;
+            v.rendering = false; v.pending = false;
+            compareMvDrawFrame(v);
+            compareMvRender(v);
+        }
+
+        // Dispatcher used by the transpose/rotate keyboard commands so they work
+        // identically whether ortho is showing one array (mvViews) or several
+        // (compareMvViews). Compare mode applies the change to the whole column
+        // (that plane, across every compared array) rather than just the hovered
+        // pane, since compare mode's point is viewing co-registered arrays from
+        // the same perspective — matching how wheel-scroll already keeps rows
+        // in sync (see compareMv pane 'wheel' listener).
+        function _orthoTransposeTargets() {
+            if (multiViewActive) {
+                const v = _mvCurrentPane();
+                return v ? { views: [v], updateLabels: _mvUpdatePaneAxisLabels, renderOne: _mvRenderPaneOnly } : null;
+            }
+            if (compareMvActive) {
+                const v = _cmvCurrentPane();
+                if (!v) return null;
+                const pi = compareMvViews.indexOf(v) % 3;
+                const views = compareMvViews.filter((_, idx) => idx % 3 === pi);
+                return { views, updateLabels: _cmvUpdatePaneAxisLabels, renderOne: _cmvRenderPaneOnly };
+            }
+            return null;
+        }
+
         function enterCompareMv() {
             if (!compareActive) return;
             if (shape.length < 3) { showStatus('Need at least 3 dimensions for 3-plane view'); return; }
@@ -33607,7 +33669,7 @@
                         sid: sidVal,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         flipX: def.flipX, flipY: def.flipY,
-                        canvas: cv, ctx: cv.getContext('2d'), area,
+                        canvas: cv, ctx: cv.getContext('2d'), area, axesSvg: axDiv,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
@@ -33652,6 +33714,7 @@
                             }
                         }
                         cmvDraggingView = view;
+                        _cmvSetCurrentView(view);
                         _reconcileMvOrientationVisibility();
                         _cmvSetCrosshairTarget(1, sidVal);
                         handleCmvPointer(view, e);
@@ -33796,6 +33859,14 @@
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
+            // Mirror exitMultiView: drop the colorbar so a later ortho entry
+            // (either mode) always gets a freshly bound instance instead of
+            // reusing one whose getWindow/setWindow closures still point at
+            // this mode's now-empty view list.
+            if (window._mvColorBar) {
+                window._mvColorBar.destroy();
+                window._mvColorBar = null;
+            }
             // Restore compare mode visuals
             if (compareActive) {
                 applyCompareLayout();
@@ -33932,13 +34003,9 @@
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
             const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
             const cssCx = offsetX + cx * _scaleX, cssCy = offsetY + cy * _scaleY;
-            const firstRow = compareMvViews.slice(0, 3);
-            const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
-            const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
             _chCtx.lineWidth = 1;
-            _chCtx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
+            _chCtx.strokeStyle = _mvCrosshairStroke();
             _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, paneH); _chCtx.stroke();
-            _chCtx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
             _chCtx.beginPath(); _chCtx.moveTo(0, cssCy); _chCtx.lineTo(paneW, cssCy); _chCtx.stroke();
             }
             }
