@@ -96,7 +96,8 @@ _DIAGNOSES: list[tuple[str, str, str, str]] = [
     (r"did not start the viewer script", ACTION,
      "VS Code opened an integrated-browser tab, but the tab did not navigate "
      "to the ArrayView page.",
-     _RETRY + "  If it repeats, reload the VS Code window."),
+     _RELOAD + "  Retrying without reloading sends the next launch to the "
+     "same stuck browser."),
     (r"did not render a frame|did not become ready",
      ACTION,
      "The viewer opened but showed no frame before the deadline — usually a "

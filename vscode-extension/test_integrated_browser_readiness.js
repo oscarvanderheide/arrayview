@@ -563,10 +563,16 @@ Module._load = originalLoad;
             () => {},
             1000
         );
+        const cappedError = await capped.viewerReady;
         assert.match(
-            (await capped.viewerReady).message,
+            cappedError.message,
             /Integrated browser did not start the viewer script before recovery timeout/,
             'a permanently blank tab must fail on the short pre-script recovery budget'
+        );
+        assert.strictEqual(
+            cappedError.code,
+            'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION',
+            'the guided recovery path needs a stable code, not message parsing'
         );
         assert(
             Date.now() - cappedStartedAt < 2000,
@@ -604,6 +610,13 @@ Module._load = originalLoad;
             cappedVisibleStart + 1,
             'bounded recovery must leave at most one blank tab for the request'
         );
+        assert.strictEqual(
+            await capped.closeExactRequestTab(),
+            true,
+            'guided reload must be able to close only its final captured blank tab'
+        );
+        assert.strictEqual(closedTabs.length, cappedClosedStart + 3);
+        assert.strictEqual(editorTabs.length, cappedVisibleStart);
         deferReady = false;
 
         commandFailure = new Error('browser command failed after dispatch');
