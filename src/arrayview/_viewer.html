@@ -30382,13 +30382,25 @@
 
         let _mvCurrentView = null;
 
+        function _orthoCurrentPane(views, currentView) {
+            const hovered = views.find(v => v && v.canvas && v.canvas.matches(':hover'));
+            if (hovered) return hovered;
+            if (currentView && views.includes(currentView)) return currentView;
+            return views[0] || null;
+        }
+
+        function _orthoBindCurrentPane(view, setCurrent, ...elements) {
+            for (const el of new Set(elements.filter(Boolean))) {
+                el.addEventListener('mouseenter', () => setCurrent(view));
+            }
+        }
+
         function _mvSetCurrentView(view) {
             if (view && mvViews.includes(view)) _mvCurrentView = view;
         }
 
         function _mvCurrentPane() {
-            if (_mvCurrentView && mvViews.includes(_mvCurrentView)) return _mvCurrentView;
-            return mvViews.find(v => v && v.canvas && v.canvas.matches(':hover')) || mvViews[0] || null;
+            return _orthoCurrentPane(mvViews, _mvCurrentView);
         }
 
         function _mvUpdatePaneAxisLabels(v) {
@@ -30405,7 +30417,6 @@
         }
 
         function _mvRenderPaneOnly(v) {
-            _mvSetCurrentView(v);
             v.seq++;
             v.lastImageData = null;
             v.lastW = 0; v.lastH = 0;
@@ -30654,8 +30665,7 @@
                     flipX: def.flipX, flipY: def.flipY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
-                pane.addEventListener('mouseenter', () => _mvSetCurrentView(view));
-                cv.addEventListener('mouseenter', () => _mvSetCurrentView(view));
+                _orthoBindCurrentPane(view, _mvSetCurrentView, pane, cv);
                 _mvCutawayAttachEvents(view);
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
@@ -33509,8 +33519,7 @@
         }
 
         function _cmvCurrentPane() {
-            if (_cmvCurrentView && compareMvViews.includes(_cmvCurrentView)) return _cmvCurrentView;
-            return compareMvViews.find(v => v && v.canvas && v.canvas.matches(':hover')) || compareMvViews[0] || null;
+            return _orthoCurrentPane(compareMvViews, _cmvCurrentView);
         }
 
         function _cmvUpdatePaneAxisLabels(v) {
@@ -33527,7 +33536,6 @@
         }
 
         function _cmvRenderPaneOnly(v) {
-            _cmvSetCurrentView(v);
             v.seq++;
             v.lastImageData = null;
             v.lastW = 0; v.lastH = 0;
@@ -33675,6 +33683,7 @@
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
                     };
+                    _orthoBindCurrentPane(view, _cmvSetCurrentView, area, cv);
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = _wheelIndexDelta(view.sliceDir, e);

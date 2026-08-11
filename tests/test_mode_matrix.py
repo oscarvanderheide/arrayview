@@ -277,6 +277,43 @@ class TestStateTransitions:
         page.wait_for_timeout(500)
         assert page.is_visible("#compare-view-wrap.active")
 
+    def test_compare_multiview_transform_follows_hover(
+        self, loaded_viewer, sid_3d, sid_compare_3d
+    ):
+        """r/t target the hovered plane even after another plane was clicked."""
+        page = loaded_viewer(sid_3d)
+        _enter_compare(page, sid_compare_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#qmri-view-wrap.active", timeout=5_000)
+        panes = page.locator("#qmri-view-wrap canvas.qv-canvas")
+        assert panes.count() == 6
+
+        # Seed stale interaction state in column 0, then hover column 1.
+        panes.nth(0).click()
+        panes.nth(1).hover()
+        dims_before = page.evaluate(
+            "() => compareMvViews.map(v => [v.dimX, v.dimY])"
+        )
+        page.keyboard.press("t")
+        page.wait_for_timeout(500)
+        dims_after = page.evaluate(
+            "() => compareMvViews.map(v => [v.dimX, v.dimY])"
+        )
+        changed = [before != after for before, after in zip(dims_before, dims_after)]
+        assert changed == [False, True, False, False, True, False]
+
+        # A second hover must retarget without another click or stale redraw state.
+        panes.nth(2).hover()
+        dims_before = dims_after
+        page.keyboard.press("r")
+        page.wait_for_timeout(500)
+        dims_after = page.evaluate(
+            "() => compareMvViews.map(v => [v.dimX, v.dimY])"
+        )
+        changed = [before != after for before, after in zip(dims_before, dims_after)]
+        assert changed == [False, False, True, False, False, True]
+
     def test_diff_exit_cleans_up_panes(self, loaded_viewer, sid_2d, sid_compare_2d):
         """After exiting compare with diff active, no residual diff pane."""
         page = loaded_viewer(sid_2d)
