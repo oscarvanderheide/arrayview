@@ -2891,3 +2891,63 @@ retrying navigation` followed by `script-loaded` the next time it fires.
 leaving the desktop — is client-side and remains unobservable from here. This
 change only stops it escalating into a window reload; it does not reduce how
 often the retry ladder runs.
+
+---
+
+## Session continued: 2026-08-13 — the main port is the stale one, not "cold"
+
+**Input**: "i still see it happening when i click on arrays in other vscode
+windows. is that because they use uvx arrayview and thus not the latest
+version?" — answered no, and the retries were the drop recovery, which the
+0.15.46 change never touched. What *was* new is where the drops concentrate.
+
+### What the retries are actually hitting
+
+All active windows were on 0.15.46 (verified in the log), so the version
+hypothesis was wrong. Correlating `SIGNAL:` URLs against the drop events in
+window `8fe6c750` on 2026-08-13 evening: every retry episode ran on
+`localhost:8000` — the **main** port — while the clean opens ran on fresh
+cold-start ports. The cold-start-port fix (2026-08-06) only ever moves the
+*first* launch off the main port; every launch after it took the
+`viewer_sockets > 0` branch in `_cold_start_url` / `_coldStartPort` and reused
+8000. But the fresh-port viewers warm only their own port, so 8000's forward
+sits idle and drops the first requests of the next warm launch. The
+"keep the forward warm" nudge cannot fix this: it nudges the newest viewer,
+which warms that viewer's own port, never 8000.
+
+The criterion was the bug. `viewer_sockets > 0` was a proxy for "the main
+port's forward is warm," and it is false whenever the connected viewers are on
+extra ports — which is exactly when 8000 was last used.
+
+### Change (opener 0.15.47)
+
+The viewer page is now served from one extra port that is reused while a viewer
+is on it, and the main port never carries a viewer page at all.
+
+- `_extra_ports.py`: added `warm_port()` — the extra port with a live viewer,
+  else `None`.
+- `_server.py`: `POST /cold-start-port` returns that warm port (`reused: true`)
+  if one exists, otherwise opens a fresh one. The `VIEWER_SOCKETS > 0` guard is
+  gone.
+- `_vscode_signal.py` `_cold_start_url` and `extension.js` `_coldStartPort` now
+  always ask for the port instead of short-circuiting to the main port when any
+  viewer is connected.
+
+Net effect: exactly one extra port at a time (reused by every viewer, so the
+`MAX_EXTRA_PORTS` cap is a guard again rather than a per-viewer budget), it is
+released when its last viewer leaves, and the stale main port is out of the
+viewer path. The number of extra ports no longer scales with concurrent
+viewers, which the "always a fresh port" alternative would have done.
+
+**Evidence**: `component`. `warm_port()` covered by two new unit tests; the
+extension fast-load path (`_fastLoadViaDaemon`) now logs `serving this launch
+from port N (reused warm port|fresh port)`. 20/20 extension tests pass,
+`test_vscode_ack_protocol.py` 17/17, `test_api.py` 308 passed with the one
+long-standing environmental `_is_vscode_remote` failure (fails on HEAD too).
+Real-host re-validation of the warm-launch row is still open.
+
+**Race noted, not fixed**: a launch that reuses the warm port can lose it if the
+port's last viewer disconnects in the window between the port request and the
+new viewer's page fetch — the same sub-second race the main-port reuse never had
+because 8000 is never released. The consequence is a drop, which the system
+already recovers from; a release grace period is the fix if it ever shows up.

@@ -67,6 +67,22 @@ def extra_ports() -> list[int]:
     return sorted(_EXTRA_PORTS)
 
 
+def warm_port() -> int | None:
+    """The extra port currently carrying a viewer, if any.
+
+    The viewer page is served from an extra port so the main port's forwarded
+    connection — which drops its first requests once it has sat idle — never
+    carries a viewer.  Once one viewer is on an extra port that port is warm,
+    so later launches reuse it instead of opening another: reusing the one warm
+    port keeps the number of extra ports at one and keeps its forward warm for
+    every later launch.
+    """
+    for port, entry in _EXTRA_PORTS.items():
+        if entry["viewers"] > 0:
+            return port
+    return None
+
+
 def _bind_free_port() -> socket.socket:
     """Bind a port the OS says is free, so nothing has to be guessed."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

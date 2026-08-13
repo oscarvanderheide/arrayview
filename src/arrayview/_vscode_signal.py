@@ -425,7 +425,7 @@ def _with_viewer_name(url: str, name: str | None) -> str:
 
 
 def _cold_start_url(url: str) -> str:
-    """Serve a cold launch from a port VS Code has not forwarded before.
+    """Serve the launch from a port whose forwarded connection is warm.
 
     Measured 2026-08-06, real host: a forward VS Code has just created never
     loses the viewer's page request (3/3 on genuine cold starts), while one that
@@ -433,11 +433,13 @@ def _cold_start_url(url: str) -> str:
     four.  A dropped request never arrives, so the opener can only throw the tab
     away and open another — the flicker.
 
-    While any viewer is open the server keeps the forward alive and this is
-    skipped, so the ordinary case still reuses the one port.  Only a launch with
-    nothing connected pays for a fresh one, and the server releases it as soon
-    as no viewer is left.  Best effort throughout: a launch that cannot get a
-    fresh port proceeds on the original one exactly as before.
+    The server returns a fresh port for the first launch and then reuses that
+    same port while a viewer is still on it.  That one port is the only one
+    whose forward is kept warm, so the main port never carries a viewer page at
+    all — which is the point: reusing the main port instead (as "warm launches"
+    once did) hits its idle forward and flickers just the same.  Best effort
+    throughout: a launch that cannot get a port proceeds on the original one
+    exactly as before.
     """
     import json as _json
     import urllib.request
@@ -452,8 +454,6 @@ def _cold_start_url(url: str) -> str:
             status = _json.load(response)
         if status.get("service") != "arrayview":
             return url
-        if int(status.get("viewer_sockets") or 0) > 0:
-            return url
         request = urllib.request.Request(
             f"{origin}/cold-start-port", data=b"", method="POST"
         )
@@ -461,12 +461,12 @@ def _cold_start_url(url: str) -> str:
             port = _json.load(response).get("port")
         if not port:
             return url
-        _vprint(f"[ArrayView] cold start: serving this launch from port {port}")
+        _vprint(f"[ArrayView] serving this launch from port {port}")
         return urlunsplit(
             (parts.scheme, f"localhost:{port}", parts.path, parts.query, parts.fragment)
         )
     except Exception as exc:
-        _vprint(f"[ArrayView] cold-start port unavailable ({exc}); using the main port")
+        _vprint(f"[ArrayView] viewer port unavailable ({exc}); using the main port")
         return url
 
 

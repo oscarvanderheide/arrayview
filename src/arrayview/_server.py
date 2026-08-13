@@ -296,17 +296,22 @@ def get_shell():
 async def cold_start_port():
     """Serve this same server on one more, never-before-forwarded port.
 
-    Asked for only when no viewer is connected.  A forward VS Code has just
-    created does not drop its first requests, while one that has sat idle does,
-    and that is what makes a cold launch flicker.  The port is released as soon
-    as no viewer is connected anywhere.
+    A forward VS Code has just created does not drop its first requests, while
+    one that has sat idle for tens of seconds drops the first two to four.  So
+    the viewer page is served from an extra port rather than the main one: a
+    fresh port for the first launch, then that same port is reused while a
+    viewer is still on it, because a port with a live viewer is warm.  Reusing
+    the warm port keeps the number of extra ports at one instead of one per
+    viewer, and the main port's forward is never asked to carry a viewer page at
+    all.  The port is released as soon as no viewer is left on it.
     """
     from arrayview import _extra_ports
 
-    if _session_mod.VIEWER_SOCKETS > 0:
-        return {"port": None, "reason": "a viewer is already connected"}
+    warm = _extra_ports.warm_port()
+    if warm is not None:
+        return {"port": warm, "reused": True}
     port = await _extra_ports.open_extra_port()
-    return {"port": port}
+    return {"port": port, "reused": False}
 
 
 @app.get("/ping")

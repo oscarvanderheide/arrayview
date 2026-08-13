@@ -5669,6 +5669,33 @@ class TestPortAndTunnelHelpers:
             assert alive is False
             assert found != busy_port  # scanned past the busy port
 
+    def test_extra_ports_warm_port_returns_port_with_a_viewer(self):
+        """warm_port() reports the extra port a viewer is on, else None.
+
+        The viewer page is served from an extra port so the main port's idle
+        forward never carries a viewer; later launches reuse the one warm port
+        instead of opening another, which is what keeps the forward warm.
+        """
+        from arrayview import _extra_ports
+
+        _extra_ports._EXTRA_PORTS.clear()
+        try:
+            _extra_ports._EXTRA_PORTS[4001] = {"viewers": 0}
+            _extra_ports._EXTRA_PORTS[4002] = {"viewers": 2}
+            assert _extra_ports.warm_port() == 4002
+        finally:
+            _extra_ports._EXTRA_PORTS.clear()
+
+    def test_extra_ports_warm_port_none_when_no_viewer(self):
+        from arrayview import _extra_ports
+
+        _extra_ports._EXTRA_PORTS.clear()
+        try:
+            _extra_ports._EXTRA_PORTS[4001] = {"viewers": 0}
+            assert _extra_ports.warm_port() is None
+        finally:
+            _extra_ports._EXTRA_PORTS.clear()
+
     def test_in_vscode_tunnel_false_in_clean_env(self, monkeypatch):
         import arrayview._platform as platform
         from arrayview._app import _in_vscode_tunnel
