@@ -9564,6 +9564,11 @@
             }
             _normalizeCompareLayoutMode();
             applyCompareLayout();
+            // Reconcile the diff/wipe pane visibility before scaling so the
+            // incoming centre pane is already display:flex when its canvas is
+            // measured — sizing it against a settled layout instead of a
+            // display:none pane, which avoids a visible size jump on handoff.
+            _reconcileCompareState();
 
             if (newMode === 0) {
                 // Restore shared colorbar; hide per-pane colorbars and rescale to 2-column layout
@@ -9594,7 +9599,6 @@
             }
             _renderCompareCenterTitleControls();
             if (newMode > 0) _syncCompareCenterIsland();
-            _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileCompareCenterPicker();
             _reconcileCompareCenterModeBadge();
