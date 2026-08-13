@@ -3083,8 +3083,15 @@ async function openInIntegratedBrowser(
                     || !_isBrowserTabCandidate(requestTab)
                 ) {
                     requestTab = null;
-                    log('PANEL: exact blank tab handle became stale or unsafe; recovery stopped');
-                    return null;
+                    // A stale or unsafe handle must not end recovery.  The
+                    // dropped thing was the navigation itself, so a fresh
+                    // navigation has every chance of loading, and returning
+                    // null here is what escalates a recoverable drop into a
+                    // full window reload.  The old tab cannot be closed, so a
+                    // close-less recovery can at worst leave an extra blank tab
+                    // behind — the lesser fault than losing the request.
+                    log('PANEL: exact blank tab handle became stale or unsafe; retrying navigation');
+                    return prepareNavigation(navigationAttempt, deadline);
                 }
                 // The blank tab is closed before renavigating. Leaving it open
                 // and relying on this launch's shared reuseUrlFilter to
@@ -3096,10 +3103,10 @@ async function openInIntegratedBrowser(
                 // actually makes the reuse happen.
                 const closed = await closeExactRequestTab();
                 if (!closed) {
-                    log('PANEL: exact blank tab could not be closed; recovery stopped');
-                    return null;
+                    log('PANEL: exact blank tab could not be closed; retrying navigation');
+                } else {
+                    log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
                 }
-                log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
                 return prepareNavigation(navigationAttempt, deadline);
             },
             preScriptTimeoutMs,

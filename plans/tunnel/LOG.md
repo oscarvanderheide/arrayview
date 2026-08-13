@@ -2821,3 +2821,73 @@ without first checking the input was valid — the same shape as the `--window
 none` near-miss, and both were caught by someone else's knowledge rather than by
 the evidence. Construct a known-good input before concluding that a code path is
 broken; a confusing error message is far likelier than a broken feature.
+
+---
+
+## Session started: 2026-08-13 — the recovery still gives up on a stale handle
+
+**Input**: "it still happens regularly that i open arrayview in vscode tab and
+it needs to retry 4 or 5 times before it works with ~2 seconds in between."
+
+### What the logs showed
+
+Two episodes on 2026-08-13, both in window `b8204d08`:
+
+| request | time (UTC) | port | outcome |
+|---|---|---|---|
+| `42457e3cf476` | 08:33:07 | 8000 (main) | 2 drops, recovered on the 3rd navigation |
+| `46d1bd6d392e` | 11:21:47 | 8000 (main) | 3 drops, recovery stopped, full window reload |
+
+Correlating `SIGNAL:` URLs against `launch-trace.jsonl` on 2026-08-13: every
+launch served from a **fresh cold-start port** (43033, 40789, 38979, 44793,
+37281, 44485) was clean, while the **main port 8000** dropped on 2 of 5 uses.
+The cold-start-port fix moves the first launch off 8000, but every *warm* launch
+reuses 8000 — and nothing warms 8000, because the fresh-port viewers warm only
+their own port. So the flicker shifted from the cold start to the first warm
+launch rather than disappearing. Aug 11 also shows fresh ports failing outright
+(`0f330223e009`, `037314ad24a3`, both `compare_sid` launches), so "fresh = safe"
+is not universal either: the drop is a client-side run phenomenon, not a
+per-port idle state.
+
+The genuinely new, actionable finding is in the 11:21 trace. After two
+close/reopen recoveries, the third attempt logged
+`tabVisible=false tabActive=false` and the code hit
+`PANEL: exact blank tab handle became stale or unsafe; recovery stopped`. That
+`return null` disables `retryPreScriptNavigation` for the rest of the request,
+so the request timed out and escalated into a window reload. "handle became
+stale" appears **5 times** in the whole log; the other give-up branches
+("recovery unavailable without exact tab handle", "could not be closed") appear
+**zero** times. So the stale branch is the only recovery-stopping path that ever
+fires, and it is the one that turns a recoverable drop into a reload.
+
+### Change (opener 0.15.46)
+
+`vscode-extension/extension.js`: when the exact-tab handle is stale or unsafe,
+recovery now issues a fresh navigation instead of returning null. It still never
+force-closes a tab it cannot identify as a safe browser tab — only the *close*
+is skipped, not the recovery. A close-less recovery can leave an extra blank tab
+behind, which is the lesser fault than losing the request. The "no handle at
+all" branch (`return null`) is unchanged, because that is the safety path the
+`test_integrated_browser_readiness.js` "unsafe tab" case guards, and it never
+fires in the real log.
+
+**Evidence**: `component`. All 20 `vscode-extension/test_*.js` pass (the
+placeholder-cleanup test remains the known legacy skip); `test_vscode_ack_protocol.py`
+17/17. The stale-handle readiness test was rewritten to assert the new contract
+— a stale handle produces one fresh navigation (`navigation_attempt` 0 then 1)
+that recovers, with zero force-closes and one left-behind tab.
+
+**Verification, `real host` (2026-08-13)**: 0.15.46 installed (the Python
+auto-install ran when a launch fired during the session), stale 0.15.45 and
+local 0.15.23 directories removed by hand, and every live window reloaded to
+0.15.46. A real `small_array.npy` launch through window `721249f4` reached
+`frame-rendered` → `backend_ready` in ~1.1 s with zero drops and zero retries —
+the normal path is unaffected. The stale-handle branch itself was not exercised
+live (the triggering drop is client-side and could not be forced); it is covered
+by the rewritten component test and will show `... became stale or unsafe;
+retrying navigation` followed by `script-loaded` the next time it fires.
+
+**Still open**: the underlying drop — the browser tab's page request never
+leaving the desktop — is client-side and remains unobservable from here. This
+change only stops it escalating into a window reload; it does not reduce how
+often the retry ladder runs.

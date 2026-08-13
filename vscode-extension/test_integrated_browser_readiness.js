@@ -447,23 +447,37 @@ Module._load = originalLoad;
         browserTabFactory = () => new TabInputWebview();
 
         const staleStart = commandArgsHistory.length;
+        const stalePreparedStart = preparedBodies.length;
         const staleClosedStart = closedTabs.length;
         const staleVisibleStart = editorTabs.length;
         journal = null;
+        deferReady = true;
         commandObserver = (args, command) => {
             if (
                 command === 'workbench.action.browser.open'
                 && args && args.url
                 && journal.request_id === 'request-stale-tab'
             ) {
-                setTimeout(() => {
-                    const index = editorTabs.length - 1;
-                    editorTabs[index] = {
-                        label: 'Rebuilt Integrated Browser',
-                        input: new TabInputWebview(),
-                        url: args.url,
-                    };
-                }, 50);
+                if (journal.navigation_attempt === 0) {
+                    // Rebuild the tab model so the captured handle goes stale
+                    // before the recovery cadence fires.
+                    setTimeout(() => {
+                        const index = editorTabs.length - 1;
+                        editorTabs[index] = {
+                            label: 'Rebuilt Integrated Browser',
+                            input: new TabInputWebview(),
+                            url: args.url,
+                        };
+                    }, 50);
+                } else {
+                    journal.phases = [
+                        'script-loaded',
+                        'ws-open',
+                        'metadata-loaded',
+                        'frame-rendered',
+                    ];
+                    journal.viewer_instance_ids = ['viewer-one'];
+                }
             }
         };
         const stale = await __test.openInIntegratedBrowser(
@@ -472,22 +486,31 @@ Module._load = originalLoad;
             'request-stale-tab',
             'server-one',
             'window-one',
-            2500,
+            5000,
             () => {},
-            500
+            1000
         );
-        assert.match((await stale.viewerReady).message, /did not start the viewer script/);
+        assert.strictEqual(await stale.viewerReady, null);
         assert.strictEqual(
             commandArgsHistory.length,
-            staleStart + 1,
-            'a stale tab handle must disable navigation recovery'
+            staleStart + 2,
+            'a stale tab handle must be replaced by one fresh navigation'
+        );
+        assert.deepStrictEqual(
+            preparedBodies
+                .slice(stalePreparedStart)
+                .map(body => body.navigation_attempt),
+            [0, 1],
+            'the fresh navigation after a stale handle must carry attempt 1'
         );
         assert.strictEqual(
             closedTabs.length,
             staleClosedStart,
-            'recovery must not close a replacement tab model object'
+            'recovery must not force-close a stale tab handle'
         );
-        assert.strictEqual(editorTabs.length, staleVisibleStart + 1);
+        // The stale tab could not be closed, so it is left behind alongside the
+        // successful replacement — the lesser fault than losing the request.
+        assert.strictEqual(editorTabs.length, staleVisibleStart + 2);
         commandObserver = null;
 
         const recoveredStart = commandArgsHistory.length;
