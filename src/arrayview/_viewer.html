@@ -39803,11 +39803,15 @@
             if (!f0 || !f1) return null;
             const W = f0.width, H = f0.height;
             _wipeCanvas.width = W; _wipeCanvas.height = H;
-            const refCv = compareCanvases[0];
-            const cssW = parseInt(refCv.style.width)  || refCv.offsetWidth  || W;
-            const cssH = parseInt(refCv.style.height) || refCv.offsetHeight || H;
-            _wipeCanvas.style.width  = cssW + 'px';
-            _wipeCanvas.style.height = cssH + 'px';
+            if (!_isCompareBigLeftLayout()) {
+                const refCv = compareCanvases[0];
+                const cssW = parseInt(refCv.style.width)  || refCv.offsetWidth  || W;
+                const cssH = parseInt(refCv.style.height) || refCv.offsetHeight || H;
+                _wipeCanvas.style.width  = cssW + 'px';
+                _wipeCanvas.style.height = cssH + 'px';
+            }
+            const cssW = parseInt(_wipeCanvas.style.width)  || _wipeCanvas.offsetWidth  || W;
+            const cssH = parseInt(_wipeCanvas.style.height) || _wipeCanvas.offsetHeight || H;
             return { f0, f1, W, H, cssW, cssH };
         }
 
