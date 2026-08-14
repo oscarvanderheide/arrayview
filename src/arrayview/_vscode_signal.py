@@ -54,6 +54,7 @@ class SignalRequest:
     ack_path: Path
     written: bool
     extension_version: str | None = None
+    failure_reason: str | None = None
 
     def __bool__(self) -> bool:
         return self.written
@@ -424,8 +425,14 @@ def _with_viewer_name(url: str, name: str | None) -> str:
         return url
 
 
-def _cold_start_url(url: str) -> str:
-    """Serve the launch from a port whose forwarded connection is warm.
+def _viewer_port_url(
+    url: str,
+    *,
+    request_id: str,
+    max_age_ms: int,
+    server_id: str | None,
+) -> str:
+    """Acquire the private tunnel viewer port for one correlated launch.
 
     Measured 2026-08-06, real host: a forward VS Code has just created never
     loses the viewer's page request (3/3 on genuine cold starts), while one that
@@ -433,13 +440,10 @@ def _cold_start_url(url: str) -> str:
     four.  A dropped request never arrives, so the opener can only throw the tab
     away and open another — the flicker.
 
-    The server returns a fresh port for the first launch and then reuses that
-    same port while a viewer is still on it.  That one port is the only one
-    whose forward is kept warm, so the main port never carries a viewer page at
-    all — which is the point: reusing the main port instead (as "warm launches"
-    once did) hits its idle forward and flickers just the same.  Best effort
-    throughout: a launch that cannot get a port proceeds on the original one
-    exactly as before.
+    The backend holds the selected port for this request until its correlated
+    viewer connects or the request expires.  That lease prevents the last old
+    viewer from closing the port during the handoff.  Failure is explicit: the
+    known-stale main port is not a safe fallback for a tunnel viewer.
     """
     import json as _json
     import urllib.request
@@ -448,26 +452,47 @@ def _cold_start_url(url: str) -> str:
     try:
         parts = urlsplit(url)
         if parts.hostname != "localhost" or not parts.port:
-            return url
+            raise RuntimeError("the backend URL is not a private localhost route")
         origin = f"http://localhost:{parts.port}"
         with urllib.request.urlopen(f"{origin}/ping", timeout=1.0) as response:
             status = _json.load(response)
         if status.get("service") != "arrayview":
-            return url
+            raise RuntimeError("the target port is not an ArrayView server")
+        body = _json.dumps({
+            "requestId": request_id,
+            "ttlMs": max_age_ms,
+            "expectedServerId": server_id,
+        }).encode("utf-8")
         request = urllib.request.Request(
-            f"{origin}/cold-start-port", data=b"", method="POST"
+            f"{origin}/cold-start-port",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with urllib.request.urlopen(request, timeout=3.0) as response:
-            port = _json.load(response).get("port")
+            lease = _json.load(response)
+        if lease.get("requestId") != request_id:
+            raise RuntimeError(
+                "the running server does not support safe viewer handoff"
+            )
+        port = lease.get("port")
         if not port:
-            return url
+            raise RuntimeError("the server did not provide a viewer connection")
         _vprint(f"[ArrayView] serving this launch from port {port}")
         return urlunsplit(
             (parts.scheme, f"localhost:{port}", parts.path, parts.query, parts.fragment)
         )
     except Exception as exc:
-        _vprint(f"[ArrayView] viewer port unavailable ({exc}); using the main port")
-        return url
+        _vprint(f"[ArrayView] private viewer connection unavailable: {exc}")
+        if "does not support safe viewer handoff" in str(exc):
+            raise RuntimeError(
+                "ArrayView needs to restart once before it can open this viewer "
+                "safely; run `arrayview --kill`, then retry"
+            ) from exc
+        raise RuntimeError(
+            "ArrayView could not prepare the private VS Code viewer connection; "
+            "no display request was sent"
+        ) from exc
 
 
 def _open_via_signal_file(
@@ -489,8 +514,33 @@ def _open_via_signal_file(
     If omitted it is auto-derived from the session name embedded in the URL's
     ``?sid=`` query parameter.
     """
+    effective_max_age_ms = (
+        max(1, int(max_age_ms))
+        if max_age_ms is not None
+        else _VSCODE_SIGNAL_MAX_AGE_MS
+    )
+    request_id = uuid.uuid4().hex
+    ack_path = _vscode_ack_path(request_id)
     if cold_start_port:
-        url = _cold_start_url(url)
+        try:
+            url = _viewer_port_url(
+                url,
+                request_id=request_id,
+                max_age_ms=effective_max_age_ms,
+                server_id=server_id,
+            )
+        except RuntimeError as exc:
+            from arrayview._vscode_extension import _VSCODE_EXT_VERSION
+
+            return SignalRequest(
+                request_id,
+                window_id,
+                server_id,
+                ack_path,
+                False,
+                _VSCODE_EXT_VERSION,
+                str(exc),
+            )
     session_name = _session_name_for_url(url)
     if title is None and session_name:
         title = f"ArrayView: {session_name}"
@@ -499,10 +549,8 @@ def _open_via_signal_file(
     # pre-formatted and others pass as a bare filename.
     url = _with_viewer_name(url, session_name)
 
-    request_id = uuid.uuid4().hex
     if window_id is None:
         window_id = _find_arrayview_window_id()
-    ack_path = _vscode_ack_path(request_id)
     _cleanup_stale_vscode_acks()
     try:
         ack_path.unlink()
@@ -511,11 +559,7 @@ def _open_via_signal_file(
     payload: dict = {
         "action": "open-preview",
         "url": url,
-        "maxAgeMs": (
-            max(1, int(max_age_ms))
-            if max_age_ms is not None
-            else _VSCODE_SIGNAL_MAX_AGE_MS
-        ),
+        "maxAgeMs": effective_max_age_ms,
         "protocolVersion": _VSCODE_ACK_PROTOCOL_VERSION,
         "requestId": request_id,
         "ackPath": str(ack_path),

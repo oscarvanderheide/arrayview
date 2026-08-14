@@ -58,10 +58,10 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`** — clean when a viewer is already open; see row 2 |
-| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **verified 2026-08-06 `real host`** — 6/6 clean at 90 s idle, no flicker, after the server-driven idle nudge |
-| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **verified 2026-08-06 `real host`** — every flicker measurement this session used this file; renders in ~0.4-0.9 s once the page loads |
-| 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **verified 2026-08-11 `real host`, by the user** — the two-array SMB compare launch rendered after the affected VS Code window was reloaded |
+| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable without opening the active IDE**. Previous design verified 2026-08-06 `real host` |
+| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable without opening the active IDE**. Previous design passed 6/6 on 2026-08-06 `real host` |
+| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design verified 2026-08-06 `real host` |
+| 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design verified 2026-08-11 `real host`, by the user |
 | 5 | VS Code tunnel, Linux | browser | any | never verified |
 | 6 | VS Code Remote SSH | vscode tab | small, fast local | never verified this session; resolves the URL differently (`asExternalUri`) |
 | 7 | plain SSH, no VS Code | browser | small | never verified |
@@ -78,7 +78,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 13 | Jupyter remote | inline IFrame | small | never verified — a colleague hit a failure here (fixed in `e92a92c`, not re-verified) |
 | 14 | Jupyter any | native / browser | small | never verified |
 | 15 | plain Python, local desktop | native (auto) | small | never verified |
-| 16 | plain Python, VS Code tunnel terminal | vscode tab | small | never verified — auto-resolves to `vscode` |
+| 16 | plain Python, VS Code tunnel terminal | vscode tab | small | **2026-08-14 `component` only; real-host verification unavailable** — the correlated port lease is covered, but this public entry point has never been seen end to end |
 | 17 | any | `window=False` | any | never verified — must return a URL and open nothing |
 | 18 | any | multiple arrays (2-4 handles) | any | **verified 2026-08-06 `real host`** — `view(a, b, c)` returns 3 handles and opens one tab holding all three as a compare group, first try |
 
@@ -86,8 +86,8 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-06 `real host`, by the user** — clean cold start via Explorer click, served from a freshly forwarded port |
-| 20 | VS Code tunnel | vscode tab | folder / collection | **verified 2026-08-06 `real host`** — a directory of uniform arrays renders both bare and with `--stack` (stacked to `(32, 32, 4)`). **But a folder whose contents do not line up fails misleadingly**: the load fails, a display is signalled anyway, and the user gets "failed to open the display" with the real cause (a rank mismatch) nowhere in it. `--stack` names the cause but leads with "The pattern matched no files", which is not what happened. The Explorer `openFolder` click is a separate path and still untested |
+| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design verified 2026-08-06 `real host`, by the user |
+| 20 | VS Code tunnel | vscode tab | folder / collection | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. A valid collection passed on the previous design 2026-08-06 `real host`; misleading invalid-collection errors remain separate |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
 
@@ -95,10 +95,10 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Case | Status |
 |---|------|--------|
-| 23 | Cold start — no server running yet | **verified 2026-08-06 `real host`** — 5/5 clean, served from a freshly forwarded port |
-| 24 | Warm repeat — second array within ~10 s | **verified 2026-08-06 `real host`** — always first-try, ~0.4 s |
-| 25 | Several viewers open at once | **verified 2026-08-06 `real host`** — 24 viewers open, 24/24 clean opens, no ceiling reached; the 2026-08-04 wall predates the duplicate-socket fix |
-| 26 | Close one viewer, others keep working | never verified |
+| 23 | Cold start — no server running yet | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design passed 5/5 on 2026-08-06 `real host` |
+| 24 | Warm repeat — second array within ~10 s | **current handoff change: 2026-08-14 `real process`; real-host revalidation unavailable**. Two real array launches shared one leased port and each returned a rendered frame; previous design verified 2026-08-06 `real host` |
+| 25 | Several viewers open at once | **current handoff change: 2026-08-14 `real process`; real-host revalidation unavailable**. Overlapping leases shared one live listener and rendered real frames; previous design reached 24/24 on 2026-08-06 `real host` |
+| 26 | Close one viewer, others keep working | **2026-08-14 `real process`** — closing the old real WebSocket during a pending handoff preserved the listener, and reconnect rendered again after an abandoned lease expired; **real host unavailable** |
 | 27 | `--kill` / shutdown leaves no orphan processes | **verified 2026-08-06 `real host`** — after `--kill`: no daemon processes, no listening ports (cold-start ports included), no stale claims, registry empty. A normal launch creates exactly one server. **But**: the server is `persist`ent by design, so it outlives the command that started it — including one interrupted mid-launch — and is only stopped explicitly. It stays discoverable via `arrayview instances` and killable, so it is a managed server rather than an orphan; a server from an *earlier session* was still running today and was found and stopped the same way |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |
 | 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | never verified end to end — every request is targeted at one window by name and 544 dispatches show **0** cross-window claims, so misrouting is not the risk; the risk is a **refusal** when the terminal outlives ~8 window reloads or under tmux |
@@ -146,17 +146,12 @@ while nothing is being opened):
   regardless of tab count, which is why it was built this way, but it is still
   connections against a ceiling that has not been located.
 
-**The cold-start port** (running server binds one more port for a launch with no
-viewer connected):
+**The private viewer port** (the running server leases one extra port to tunnel
+launches):
 
-- Explorer clicks against an already-running server take the opener's own fast
-  path (`extension.js` `_fastLoadViaDaemon`) rather than the Python signal
-  writer. That path now asks for a cold-start port itself, tunnel only —
-  **observed firing correctly 2026-08-06** (fresh port, rendered in under a
-  second). What is *not* verified is that same path after a long idle, because
-  the state it needs — server running, no viewer open, connection gone cold — is
-  hard to produce: the server tends to stop when its last viewer closes. Likely
-  rare in normal use; do not spend much on it.
+- Explorer clicks and terminal launches now acquire the same port lease using
+  the same request identity. Port acquisition failure stops with an explicit
+  message instead of silently returning to the known-stale main port.
 - That fast path still **hardcodes port 8000** and silently declines when the
   daemon is on any other port. Unfixed, and unrelated to the flicker.
 - Rows 6 and 21 (Remote SSH): **guarded 2026-08-06** — the swap is now tunnel
@@ -166,10 +161,12 @@ viewer connected):
 - Rows 11 and 17 (`--window none`, `window=False`): unaffected — the swap only
   happens on the VS Code signal path, and those return the original URL.
 - Rows 5, 7, 8-10, 12-15 (browser, native, Jupyter): unaffected, same reason.
-- Row 27 (orphans): extra ports live in the existing process and die with it, so
-  they cannot outlive the server. The release path is only *observed* holding one
-  port while a viewer is open; it has not been watched letting go on the real
-  host, because that needs every viewer tab closed.
+- Rows 23-26: the singleton, overlapping handoffs, exact lease consumption,
+  abandoned-launch expiry, close-during-handoff, and reconnect grace have
+  component coverage. Their real tunnel boundary remains open.
+- Row 27 (orphans): the extra port lives in the existing process and dies with
+  it. Component coverage proves bounded abandoned-lease cleanup; real-host
+  final cleanup has not been re-observed for this design.
 - `doctor`, `instances`, `--kill` and the registry all still record the main
   port only. A viewer served from an extra port is still owned by that process,
   so stopping works — but any tool that assumes "the port in the registry is the

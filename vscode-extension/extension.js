@@ -688,28 +688,41 @@ function _arrayviewLaunchCandidates(filePath) {
     return candidates;
 }
 
-// Ask a running server to serve this launch from a port VS Code has not
-// forwarded before — a fresh port for the first launch, then the same port
-// while a viewer is still on it.  A forward that is already carrying a viewer
-// is warm, and one that has sat idle drops the first requests through it, which
-// is what makes the tab redraw before the array appears.  Returns the port to
-// display from — the original one if anything at all goes wrong, since a launch
-// on the old port still works, it just may flicker.
-async function _coldStartPort(port) {
-    if (vscode.env.remoteName !== 'tunnel') return port;
+// Acquire the single private tunnel viewer port for this exact launch.  The
+// backend leases it until the correlated viewer connects or the request
+// expires, so the last old viewer cannot close it during the handoff.  The
+// known-stale main port is deliberately not a fallback.
+async function _coldStartPort(port, requestId, serverId, ttlMs) {
+    if (vscode.env.remoteName !== 'tunnel') return { port, error: null };
     try {
         const result = await httpPostJson(
-            `http://localhost:${port}/cold-start-port`, {}, 3000
+            `http://localhost:${port}/cold-start-port`,
+            {
+                requestId,
+                expectedServerId: serverId,
+                ttlMs,
+            },
+            3000
         );
-        if (result && result.port) {
+        if (result && result.port && result.requestId === requestId) {
             log(`FASTLOAD: serving this launch from port ${result.port}`
                 + ` (${result.reused ? 'reused warm port' : 'fresh port'})`);
-            return result.port;
+            return { port: result.port, error: null };
         }
+        if (result && result.port) {
+            const error = 'ArrayView needs to restart once before it can open '
+                + 'this viewer safely. Run `arrayview --kill`, then retry.';
+            log(`FASTLOAD: running server did not confirm viewer-port lease`);
+            return { port: null, error };
+        }
+        log('FASTLOAD: private viewer port acquisition returned no port');
     } catch (error) {
-        log(`FASTLOAD: no viewer port (${error.message || error}); using ${port}`);
+        log(`FASTLOAD: no viewer port (${error.message || error})`);
     }
-    return port;
+    return {
+        port: null,
+        error: 'ArrayView could not prepare a private connection for this viewer.',
+    };
 }
 
 async function _fastLoadViaDaemon(filePath, title) {
@@ -738,6 +751,7 @@ async function _fastLoadViaDaemon(filePath, title) {
         return false;
     }
     const resolvedSid = loadResult.sid;
+    const requestId = crypto.randomBytes(16).toString('hex');
     // A click that finds the server already running takes this path instead of
     // the Python one, so it has to ask for a viewer port itself.  This is the
     // same request the Python path makes: a fresh port for the first launch,
@@ -745,15 +759,26 @@ async function _fastLoadViaDaemon(filePath, title) {
     // forward never carries a viewer page and the tab does not redraw.
     // Tunnel only, matching that path: an idle forward is what drops requests,
     // and Remote SSH reaches its port a different way.
-    const displayPort = await _coldStartPort(port);
+    const viewerPort = await _coldStartPort(
+        port, requestId, serverId, 240000
+    );
+    if (!viewerPort.port) {
+        releaseUrlSession(
+            `http://localhost:${port}/?sid=${encodeURIComponent(resolvedSid)}`,
+            null,
+            serverId
+        );
+        const message = `${viewerPort.error} No tab was opened.`;
+        log(`FASTLOAD: ${message}`);
+        throw new Error(message);
+    }
     // av_name lets the viewer title its tab while the HTML parses, instead of
     // showing the bare host until metadata arrives over the WebSocket — which
     // waits on the array load, seconds for a large file. This must be the same
     // string sent as loadPayload.name, because that becomes the session name
     // the metadata later carries; a mismatch retitles the tab a second time.
-    const url = `http://localhost:${displayPort}/?sid=${encodeURIComponent(resolvedSid)}`
+    const url = `http://localhost:${viewerPort.port}/?sid=${encodeURIComponent(resolvedSid)}`
         + `&av_name=${encodeURIComponent(loadPayload.name)}`;
-    const requestId = crypto.randomBytes(16).toString('hex');
     const ackPath = path.join(SIGNAL_DIR, `open-ack-v0100-${requestId}.json`);
     const signalPayload = {
         action: 'open-preview',
@@ -2778,6 +2803,13 @@ async function waitForBackendViewerReady(
             }
         }
         if (!scriptLoaded && Date.now() >= preScriptDeadline) {
+            const probeUrl = pingUrlFromViewerUrl(backendUrl);
+            const backend = probeUrl ? await httpJson(probeUrl, 500) : null;
+            if (!backend || backend.service !== 'arrayview') {
+                return new Error(
+                    'ArrayView lost its private viewer connection before the tab loaded'
+                );
+            }
             const error = new Error(
                 'Integrated browser did not start the viewer script before recovery timeout'
             );
@@ -4335,6 +4367,9 @@ module.exports = {
         _viewerOpensInBuiltInBrowser,
         _launchWithStatusProgress,
         _settleLaunchProgress,
+        _coldStartPort,
+        _fastLoadViaDaemon,
+        launchArrayViewFile,
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
         pendingLaunchProgress: _pendingLaunchProgress,

@@ -105,10 +105,16 @@ Module._load = originalLoad;
 (async () => {
     let duplicateViewers = false;
     let deferReady = false;
+    let backendAvailable = true;
     let journal = null;
     const preparedBodies = [];
     const releases = [];
     const server = http.createServer((req, res) => {
+        if (!backendAvailable) {
+            res.writeHead(503);
+            res.end();
+            return;
+        }
         if (req.method === 'GET' && req.url === '/ping') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -641,6 +647,31 @@ Module._load = originalLoad;
         assert.strictEqual(closedTabs.length, cappedClosedStart + 3);
         assert.strictEqual(editorTabs.length, cappedVisibleStart);
         deferReady = false;
+
+        backendAvailable = false;
+        const disconnected = await __test.waitForBackendViewerReady(
+            backendUrl,
+            'sid-one',
+            'request-disconnected',
+            'server-one',
+            'window-one',
+            'token-disconnected',
+            500,
+            () => {},
+            null,
+            250
+        );
+        assert.match(
+            disconnected.message,
+            /lost its private viewer connection/,
+            'a dead private route must be reported as a connection failure'
+        );
+        assert.strictEqual(
+            disconnected.code,
+            undefined,
+            'a dead private route must not trigger window-reload recovery'
+        );
+        backendAvailable = true;
 
         commandFailure = new Error('browser command failed after dispatch');
         await assert.rejects(

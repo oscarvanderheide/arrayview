@@ -2,6 +2,8 @@ import json
 import os
 import time
 
+import pytest
+
 import arrayview._vscode_signal as signal
 from arrayview._vscode_extension import _VSCODE_EXT_VERSION
 
@@ -102,6 +104,110 @@ def test_open_request_includes_explicit_display_surface(monkeypatch, tmp_path):
     )
 
     assert captured[0]["displaySurface"] == "external-browser"
+
+
+def test_tunnel_viewer_port_lease_uses_signal_request_identity(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(signal, "_find_arrayview_window_id", lambda: "window-1")
+    acquired = []
+    written = []
+
+    def acquire(url, **kwargs):
+        acquired.append((url, kwargs))
+        return url.replace("localhost:8123", "localhost:43123")
+
+    monkeypatch.setattr(signal, "_viewer_port_url", acquire)
+    monkeypatch.setattr(
+        signal,
+        "_write_vscode_signal",
+        lambda payload, delay=0.0, **kwargs: written.append(payload) or True,
+    )
+
+    request = signal._open_via_signal_file(
+        "http://localhost:8123/?sid=session-1",
+        server_id="server-1",
+        window_id="window-1",
+        is_remote=True,
+        max_age_ms=12_345,
+        cold_start_port=True,
+    )
+
+    assert request.written is True
+    assert acquired == [
+        (
+            "http://localhost:8123/?sid=session-1",
+            {
+                "request_id": request.request_id,
+                "max_age_ms": 12_345,
+                "server_id": "server-1",
+            },
+        )
+    ]
+    assert written[0]["requestId"] == request.request_id
+    assert written[0]["maxAgeMs"] == 12_345
+    assert "localhost:43123" in written[0]["url"]
+
+
+def test_tunnel_viewer_port_failure_does_not_signal_stale_main_port(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    written = []
+    monkeypatch.setattr(
+        signal,
+        "_viewer_port_url",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("private viewer connection unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        signal,
+        "_write_vscode_signal",
+        lambda payload, delay=0.0, **kwargs: written.append(payload) or True,
+    )
+
+    request = signal._open_via_signal_file(
+        "http://localhost:8123/?sid=session-1",
+        server_id="server-1",
+        window_id="window-1",
+        is_remote=True,
+        cold_start_port=True,
+    )
+
+    assert request.written is False
+    assert request.failure_reason == "private viewer connection unavailable"
+    assert written == []
+
+
+def test_tunnel_viewer_port_rejects_running_server_without_lease_support(
+    monkeypatch
+):
+    import io
+    import urllib.request
+
+    class Response(io.StringIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.close()
+
+    def urlopen(request, timeout):
+        if isinstance(request, str) and request.endswith("/ping"):
+            return Response(json.dumps({"service": "arrayview"}))
+        return Response(json.dumps({"port": 43123, "reused": False}))
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    with pytest.raises(RuntimeError, match="needs to restart once"):
+        signal._viewer_port_url(
+            "http://localhost:8123/?sid=session-1",
+            request_id="request-new",
+            max_age_ms=240_000,
+            server_id="server-1",
+        )
 
 
 def test_open_request_correlates_ack_to_recovered_live_window(monkeypatch, tmp_path):

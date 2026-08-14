@@ -5669,32 +5669,379 @@ class TestPortAndTunnelHelpers:
             assert alive is False
             assert found != busy_port  # scanned past the busy port
 
-    def test_extra_ports_warm_port_returns_port_with_a_viewer(self):
-        """warm_port() reports the extra port a viewer is on, else None.
+    def test_viewer_port_simultaneous_acquires_share_one_lease_port(
+        self, monkeypatch
+    ):
+        import asyncio
+        from arrayview import _extra_ports
 
-        The viewer page is served from an extra port so the main port's idle
-        forward never carries a viewer; later launches reuse the one warm port
-        instead of opening another, which is what keeps the forward warm.
-        """
+        async def no_shutdown(port, *, only_if_idle=False):
+            _extra_ports._EXTRA_PORTS.pop(port, None)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41001,
+                {"viewers": 0, "leases": {}, "opened_at": time.monotonic()},
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_close_port", no_shutdown)
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            return await asyncio.gather(
+                _extra_ports.acquire_viewer_port("request-a", 5000),
+                _extra_ports.acquire_viewer_port("request-b", 5000),
+            )
+
+        first, second = asyncio.run(exercise())
+        assert first == (41001, False)
+        assert second == (41001, True)
+        assert list(_extra_ports._EXTRA_PORTS) == [41001]
+        assert set(_extra_ports._EXTRA_PORTS[41001]["leases"]) == {
+            "request-a",
+            "request-b",
+        }
+        _extra_ports._EXTRA_PORTS.clear()
+
+    def test_viewer_port_disconnect_during_handoff_keeps_port(self, monkeypatch):
+        import asyncio
+        from arrayview import _extra_ports
+
+        closed = []
+
+        async def record_close(port, *, only_if_idle=False):
+            entry = _extra_ports._EXTRA_PORTS.get(port)
+            if (
+                only_if_idle
+                and entry is not None
+                and float(entry.get("idle_until", 0.0)) > time.monotonic()
+            ):
+                return
+            closed.append(port)
+            _extra_ports._EXTRA_PORTS.pop(port, None)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41002,
+                {"viewers": 0, "leases": {}, "opened_at": time.monotonic()},
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_close_port", record_close)
+        monkeypatch.setattr(_extra_ports, "VIEWER_RECONNECT_GRACE_S", 0.0)
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            port, _ = await _extra_ports.acquire_viewer_port("old", 5000)
+            _extra_ports.viewer_connected(port, "old")
+            assert (await _extra_ports.acquire_viewer_port("new", 5000))[0] == port
+            await _extra_ports.viewer_disconnected(port)
+            assert port in _extra_ports._EXTRA_PORTS
+            assert closed == []
+            _extra_ports.viewer_connected(port, "new")
+            await _extra_ports.viewer_disconnected(port)
+            await asyncio.sleep(0)
+            return port
+
+        port = asyncio.run(exercise())
+        assert closed == [port]
+
+    def test_viewer_port_reconnect_grace_keeps_origin_alive(self, monkeypatch):
+        import asyncio
+        from arrayview import _extra_ports
+
+        closed = []
+
+        async def record_close(port, *, only_if_idle=False):
+            closed.append(port)
+            _extra_ports._EXTRA_PORTS.pop(port, None)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41006,
+                {
+                    "viewers": 0,
+                    "leases": {},
+                    "opened_at": time.monotonic(),
+                    "idle_until": 0.0,
+                    "idle_generation": 0,
+                },
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_close_port", record_close)
+        monkeypatch.setattr(_extra_ports, "VIEWER_RECONNECT_GRACE_S", 0.02)
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            port, _ = await _extra_ports.acquire_viewer_port("request", 5000)
+            _extra_ports.viewer_connected(port, "request")
+            await _extra_ports.viewer_disconnected(port)
+            await asyncio.sleep(0.005)
+            assert port in _extra_ports._EXTRA_PORTS
+            _extra_ports.viewer_connected(port, "request")
+            await asyncio.sleep(0.03)
+            assert port in _extra_ports._EXTRA_PORTS
+            assert closed == []
+            await _extra_ports.viewer_disconnected(port)
+            await asyncio.sleep(0.03)
+
+        asyncio.run(exercise())
+        assert closed == [41006]
+
+    def test_expiring_handoff_lease_does_not_cut_off_reconnect(self, monkeypatch):
+        import asyncio
+        from arrayview import _extra_ports
+
+        closed = []
+
+        async def record_close(port, *, only_if_idle=False):
+            entry = _extra_ports._EXTRA_PORTS.get(port)
+            if (
+                only_if_idle
+                and entry is not None
+                and float(entry.get("idle_until", 0.0)) > time.monotonic()
+            ):
+                return
+            closed.append(port)
+            _extra_ports._EXTRA_PORTS.pop(port, None)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41011,
+                {
+                    "viewers": 0,
+                    "leases": {},
+                    "opened_at": time.monotonic(),
+                    "idle_until": 0.0,
+                    "idle_generation": 0,
+                },
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_close_port", record_close)
+        monkeypatch.setattr(_extra_ports, "VIEWER_RECONNECT_GRACE_S", 0.05)
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            port, _ = await _extra_ports.acquire_viewer_port("viewer-a", 5000)
+            _extra_ports.viewer_connected(port, "viewer-a")
+            await _extra_ports.acquire_viewer_port("handoff-b", 1)
+            await _extra_ports.viewer_disconnected(port)
+            await asyncio.sleep(0.02)
+            assert port in _extra_ports._EXTRA_PORTS
+            assert closed == []
+            _extra_ports.viewer_connected(port, "viewer-a")
+            await asyncio.sleep(0.05)
+            assert port in _extra_ports._EXTRA_PORTS
+            await _extra_ports.viewer_disconnected(port)
+            await asyncio.sleep(0.06)
+
+        asyncio.run(exercise())
+        assert closed == [41011]
+
+    def test_viewer_port_after_reconnect_grace_uses_fresh_listener(
+        self, monkeypatch
+    ):
+        import asyncio
+        from arrayview import _extra_ports
+
+        retired = []
+
+        async def record_shutdown(port, entry):
+            retired.append(port)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41010,
+                {
+                    "viewers": 0,
+                    "leases": {},
+                    "opened_at": time.monotonic(),
+                    "idle_until": 0.0,
+                    "idle_generation": 0,
+                },
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_shutdown_entry", record_shutdown)
+        _extra_ports._EXTRA_PORTS.clear()
+        _extra_ports._EXTRA_PORTS[41009] = {
+            "viewers": 0,
+            "leases": {},
+            "opened_at": time.monotonic() - 60,
+            "idle_until": time.monotonic() - 1,
+            "idle_generation": 1,
+        }
+
+        async def exercise():
+            result = await _extra_ports.acquire_viewer_port("new", 5000)
+            await asyncio.sleep(0)
+            return result
+
+        assert asyncio.run(exercise()) == (41010, False)
+        assert list(_extra_ports._EXTRA_PORTS) == [41010]
+        assert retired == [41009]
+        _extra_ports._EXTRA_PORTS.clear()
+
+    def test_viewer_port_consumes_only_exact_lease(self, monkeypatch):
+        import asyncio
+        from arrayview import _extra_ports
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41003,
+                {"viewers": 0, "leases": {}, "opened_at": time.monotonic()},
+            ),
+        )
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            port, _ = await _extra_ports.acquire_viewer_port("request-a", 5000)
+            await _extra_ports.acquire_viewer_port("request-b", 5000)
+            _extra_ports.viewer_connected(port, "request-a")
+            entry = _extra_ports._EXTRA_PORTS[port]
+            assert "request-a" not in entry["leases"]
+            assert "request-b" in entry["leases"]
+            assert entry["viewers"] == 1
+
+        asyncio.run(exercise())
+        _extra_ports._EXTRA_PORTS.clear()
+
+    def test_viewer_port_compatibility_lease_is_consumed_by_old_opener(
+        self, monkeypatch
+    ):
+        import asyncio
+        from arrayview import _extra_ports
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41007,
+                {"viewers": 0, "leases": {}, "opened_at": time.monotonic()},
+            ),
+        )
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            port, _ = await _extra_ports.acquire_viewer_port(
+                "compat-old-opener", 5000
+            )
+            _extra_ports.viewer_connected(port, "new-style-request-id")
+            assert _extra_ports._EXTRA_PORTS[port]["leases"] == {}
+
+        asyncio.run(exercise())
+        _extra_ports._EXTRA_PORTS.clear()
+
+    def test_viewer_port_expired_final_lease_closes_port(self, monkeypatch):
+        import asyncio
+        from arrayview import _extra_ports
+
+        closed = []
+
+        async def record_close(port, *, only_if_idle=False):
+            closed.append(port)
+            _extra_ports._EXTRA_PORTS.pop(port, None)
+
+        monkeypatch.setattr(
+            _extra_ports,
+            "_start_extra_port",
+            lambda: (
+                41004,
+                {"viewers": 0, "leases": {}, "opened_at": time.monotonic()},
+            ),
+        )
+        monkeypatch.setattr(_extra_ports, "_close_port", record_close)
+        _extra_ports._EXTRA_PORTS.clear()
+
+        async def exercise():
+            await _extra_ports.acquire_viewer_port("abandoned", 1)
+            await asyncio.sleep(0.02)
+
+        asyncio.run(exercise())
+        assert closed == [41004]
+        assert _extra_ports._EXTRA_PORTS == {}
+
+    def test_viewer_port_endpoint_rejects_bad_or_foreign_requests(self, client):
         from arrayview import _extra_ports
 
         _extra_ports._EXTRA_PORTS.clear()
-        try:
-            _extra_ports._EXTRA_PORTS[4001] = {"viewers": 0}
-            _extra_ports._EXTRA_PORTS[4002] = {"viewers": 2}
-            assert _extra_ports.warm_port() == 4002
-        finally:
-            _extra_ports._EXTRA_PORTS.clear()
+        assert client.post(
+            "/cold-start-port",
+            json={"requestId": "request", "ttlMs": 1000},
+        ).status_code == 400
+        response = client.post(
+            "/cold-start-port",
+            json={
+                "requestId": "request",
+                "ttlMs": 1000,
+                "expectedServerId": "not-this-server",
+            },
+        )
+        assert response.status_code == 409
+        assert _extra_ports._EXTRA_PORTS == {}
 
-    def test_extra_ports_warm_port_none_when_no_viewer(self):
+    def test_viewer_port_endpoint_keeps_old_opener_working(self, client, monkeypatch):
         from arrayview import _extra_ports
 
-        _extra_ports._EXTRA_PORTS.clear()
-        try:
-            _extra_ports._EXTRA_PORTS[4001] = {"viewers": 0}
-            assert _extra_ports.warm_port() is None
-        finally:
-            _extra_ports._EXTRA_PORTS.clear()
+        acquired = []
+
+        async def acquire(request_id, ttl_ms):
+            acquired.append((request_id, ttl_ms))
+            return 41008, False
+
+        monkeypatch.setattr(_extra_ports, "acquire_viewer_port", acquire)
+        response = client.post("/cold-start-port", json={})
+        assert response.status_code == 200
+        assert response.json() == {
+            "port": 41008,
+            "reused": False,
+            "ttlMs": 240_000,
+            "compatibility": True,
+            "requestId": acquired[0][0],
+        }
+        assert acquired[0][0].startswith("compat-")
+        assert acquired[0][1] == 240_000
+
+    def test_viewer_port_endpoint_acquires_identity_fenced_lease(
+        self, client, monkeypatch
+    ):
+        from arrayview import _extra_ports
+
+        acquired = []
+
+        async def acquire(request_id, ttl_ms):
+            acquired.append((request_id, ttl_ms))
+            return 41005, False
+
+        monkeypatch.setattr(_extra_ports, "acquire_viewer_port", acquire)
+        server_id = client.get("/ping").json()["instance_id"]
+        response = client.post(
+            "/cold-start-port",
+            json={
+                "requestId": "request-good",
+                "ttlMs": 5000,
+                "expectedServerId": server_id,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "port": 41005,
+            "reused": False,
+            "ttlMs": 5000,
+            "compatibility": False,
+            "requestId": "request-good",
+        }
+        assert acquired == [("request-good", 5000)]
 
     def test_in_vscode_tunnel_false_in_clean_env(self, monkeypatch):
         import arrayview._platform as platform

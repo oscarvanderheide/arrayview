@@ -2951,3 +2951,75 @@ port's last viewer disconnects in the window between the port request and the
 new viewer's page fetch — the same sub-second race the main-port reuse never had
 because 8000 is never released. The consequence is a drop, which the system
 already recovers from; a release grace period is the fix if it ever shows up.
+
+---
+
+## Session continued: 2026-08-14 — replace timing assumptions with correlated leases
+
+The previous entry understated its race: navigation retries keep the same URL,
+so once the selected listener closes, that launch cannot recover. It could then
+misreport a healthy ArrayView server as a stuck VS Code browser and offer a
+window reload that could not restore the dead URL. A second race existed before
+the first viewer connected: concurrent launches could each open another port,
+reach the cap, and silently fall back to the known-stale main port. A disconnect
+after first connection also closed the origin before the viewer's existing
+30-second reconnect window could work.
+
+**Change**:
+
+- The backend owns one private viewer port and atomically leases it to each
+  request ID for that request's bounded lifetime.
+- A correlated WebSocket consumes only its own lease. The port closes only when
+  there are no viewers and no live leases, after the same 30-second reconnect
+  grace used by the viewer session.
+- Terminal and Explorer paths generate the request ID before acquiring the
+  port, require the backend to echo it, and send the same identity through the
+  signal and viewer WebSocket. A still-running backend without lease support is
+  reported as needing one explicit ArrayView restart; it cannot silently bypass
+  the fix.
+- When the already-loaded 0.15.47 opener talks to an updated running backend,
+  it receives a bounded compatibility lease, so the endpoint change itself does
+  not break that window. The normal extension updater may still announce that
+  one user-approved reload is needed before 0.15.48 can activate; it never
+  reloads the window automatically.
+- Port preparation failure is terminal and explicit; it no longer falls back
+  to port 8000. A dead private route is reported as a connection failure and
+  cannot enter the user-approved window-reload recovery reserved for a healthy
+  backend with a stuck browser tab.
+- Explorer failures release the loaded session, replace the opening placeholder,
+  stop the progress indicator, and show the reason immediately; they do not
+  spawn a duplicate fallback or write a display signal.
+- Opener bumped to 0.15.48 and the bundled VSIX rebuilt. It was **not installed**
+  and no VS Code window was opened or reloaded.
+
+**Evidence `component` (2026-08-14)**: simultaneous acquisitions share one
+port; close-old-viewer during a new handoff retains it; exact lease consumption,
+abandoned lease expiry, reconnect grace, server identity fencing, failure
+without stale fallback, and dead-route/no-reload classification pass. The
+focused results were 314/314 API tests, 61/61 lease/ACK tests, 38/38 display
+result/ACK tests, all 20 opener tests, JavaScript syntax, bundled-source match,
+and VSIX integrity. The lifecycle contract had 74 passes and its one documented
+pre-existing failure,
+`test_integrated_launch_cleanup_is_scoped_per_request_token`; the same failure
+is recorded before this work in the 2026-08-06 log entry. Browser testing stopped
+at the pre-existing short-route URL assertion, which touches neither this port
+handoff nor the opener code changed here.
+
+**Evidence `real process` (2026-08-14)**: an isolated ArrayView server loaded
+two real 6x6 NumPy arrays, accepted two simultaneous launch leases on the same
+private port, and returned a correctly sized binary rendered frame over each
+real WebSocket. Closing the first viewer while the second launch was pending did
+not close the port. A short abandoned lease expired without interrupting the
+second viewer's reconnect, the reconnect rendered another real frame, the old
+port closed after the full 30-second recovery window, and a later abandoned
+launch received a fresh port which closed after its lease expired. The main
+server kept the same identity with zero viewer connections at the end, and the
+test stopped only its recorded server process. This proves backend handoff,
+rendering, reconnect, expiry, and cleanup across real TCP connections; it does
+not prove VS Code's forwarding or built-in browser behavior.
+
+**Real-host evidence `unavailable`**: installing opener 0.15.48 and exercising
+the active tunnel would modify/reload the user's IDE, which was not authorized.
+Rows 1-4, 16, 19-20 and 23-26 remain open for the required five-launch tunnel
+gate: overlapping launches, close a middle viewer, reconnect, idle repeat,
+first frame for every request, then final session/process/port cleanup.

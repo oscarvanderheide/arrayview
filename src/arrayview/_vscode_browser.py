@@ -348,7 +348,7 @@ def _open_browser(
                 return OpenResult(
                     OpenState.FAILED,
                     "vscode-signal",
-                    "signal request was not written",
+                    request.failure_reason or "signal request was not written",
                 )
             if not blocking:
                 return OpenResult(OpenState.ACCEPTED, "vscode-signal")
@@ -406,7 +406,7 @@ def _open_browser(
                 return OpenResult(
                     OpenState.FAILED,
                     "vscode-signal",
-                    "signal request was not written",
+                    request.failure_reason or "signal request was not written",
                 )
             if blocking:
                 ack = _wait_for_vscode_ack(

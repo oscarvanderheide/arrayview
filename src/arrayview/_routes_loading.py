@@ -832,7 +832,10 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             )
             if require_display_ack:
                 if not signal_request:
-                    raise RuntimeError("VS Code display request could not be written")
+                    raise RuntimeError(
+                        signal_request.failure_reason
+                        or "VS Code display request could not be written"
+                    )
                 ack = await asyncio.to_thread(
                     _wait_for_vscode_ack,
                     signal_request,

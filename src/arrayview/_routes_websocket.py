@@ -369,7 +369,7 @@ def register_websocket_routes(app) -> None:
         try:
             from arrayview import _extra_ports
 
-            _extra_ports.viewer_connected(arrived_on)
+            _extra_ports.viewer_connected(arrived_on, launch_request_id)
         except Exception:
             pass
         _session_mod.VIEWER_SID_COUNTS[sid] = (

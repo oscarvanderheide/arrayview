@@ -293,25 +293,55 @@ def get_shell():
 
 
 @app.post("/cold-start-port")
-async def cold_start_port():
+async def cold_start_port(payload: dict):
     """Serve this same server on one more, never-before-forwarded port.
 
     A forward VS Code has just created does not drop its first requests, while
     one that has sat idle for tens of seconds drops the first two to four.  So
     the viewer page is served from an extra port rather than the main one: a
-    fresh port for the first launch, then that same port is reused while a
-    viewer is still on it, because a port with a live viewer is warm.  Reusing
-    the warm port keeps the number of extra ports at one instead of one per
-    viewer, and the main port's forward is never asked to carry a viewer page at
-    all.  The port is released as soon as no viewer is left on it.
+    fresh port for the first launch, then that same port is leased to later
+    launches.  A lease keeps the route alive between handoff and connection,
+    including when the previous viewer closes during that gap.  The port is
+    released only after its last viewer and its last bounded lease are gone.
     """
     from arrayview import _extra_ports
 
-    warm = _extra_ports.warm_port()
-    if warm is not None:
-        return {"port": warm, "reused": True}
-    port = await _extra_ports.open_extra_port()
-    return {"port": port, "reused": False}
+    request_id = payload.get("requestId")
+    ttl_ms = payload.get("ttlMs")
+    expected_server_id = payload.get("expectedServerId")
+    compatibility_request = not payload
+    if compatibility_request:
+        # Opener 0.15.47 shipped before correlated leases. Keep that already-
+        # loaded host working after the Python package updates, so users are
+        # not forced to reload a VS Code window merely to open the next array.
+        request_id = f"compat-{uuid.uuid4().hex}"
+        ttl_ms = 240_000
+        expected_server_id = _session_mod.SERVER_RUNTIME.instance_id
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise HTTPException(status_code=400, detail="requestId is required")
+    if isinstance(ttl_ms, bool) or not isinstance(ttl_ms, int) or ttl_ms <= 0:
+        raise HTTPException(status_code=400, detail="ttlMs must be a positive integer")
+    if not isinstance(expected_server_id, str) or not expected_server_id:
+        raise HTTPException(status_code=400, detail="expectedServerId is required")
+    actual_server_id = _session_mod.SERVER_RUNTIME.instance_id
+    if expected_server_id != actual_server_id:
+        raise HTTPException(
+            status_code=409,
+            detail="The requested ArrayView backend no longer owns this port",
+        )
+    port, reused = await _extra_ports.acquire_viewer_port(request_id, ttl_ms)
+    if port is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not prepare the private VS Code viewer connection",
+        )
+    return {
+        "port": port,
+        "reused": reused,
+        "ttlMs": min(ttl_ms, _extra_ports.MAX_LEASE_TTL_MS),
+        "compatibility": compatibility_request,
+        "requestId": request_id,
+    }
 
 
 @app.get("/ping")
