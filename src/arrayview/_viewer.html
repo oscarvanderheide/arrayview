@@ -2332,7 +2332,7 @@
         #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #tool-hint, #qmri-hint {
+        #help-hint, #tool-hint, #qmri-hint, #ras-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -2348,7 +2348,25 @@
         #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover, #ras-hint:hover { color: var(--text); border-color: var(--muted); }
+        #ras-hint {
+            right: 106px; display: none; position: fixed;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 8px; font-weight: 600; letter-spacing: -0.3px;
+        }
+        #ras-hint.visible { display: flex; }
+        #ras-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
+        #ras-hint.loading { border-color: transparent; }
+        #ras-hint.loading::before {
+            content: ''; position: absolute; inset: -1px; border-radius: 50%;
+            padding: 1px;
+            background: conic-gradient(var(--active-dim) 0deg, var(--active-dim) 100deg, transparent 100deg, transparent 360deg);
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: ras-hint-spin 0.85s linear infinite;
+        }
+        @keyframes ras-hint-spin { to { transform: rotate(360deg); } }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
@@ -4502,7 +4520,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
-        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5503,6 +5521,7 @@
     <div id="tool-hint" title="Tool launcher (/)">/</div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
+    <div id="ras-hint" title="Convert to RAS orientation — aligns axes so every view scrolls fast, not just the native one (Shift+A)">RAS</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
     <div id="tool-launcher" aria-hidden="true"></div>
@@ -6736,6 +6755,7 @@
         let excludeZeros = false; // exclude zero-valued voxels from histogram computation
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique, is_canonical} or null
         let rasResampleActive = false;
+        let _rasResampleLoading = false;
         let multiViewActive = false;
         let _mvOrientationHidden = false; // ~ toggle — hides orientation cube
         let mipActive = false;
@@ -24426,6 +24446,7 @@
                 title: 'Toggle explicit RAS conversion (NIfTI)',
                 when: [],
                 run: (ctx, e) => {
+                    if (_rasResampleLoading) return;
                     if (compareActive || qmriActive) {
                         showToast('RAS resample not supported in compare/qMRI mode');
                         return;
@@ -24441,13 +24462,15 @@
                     }
                     const wantOn = !rasResampleActive;
                     showToast(wantOn ? 'converting to RAS...' : 'reverting to native orientation...');
+                    _rasResampleLoading = true;
+                    document.getElementById('ras-hint')?.classList.add('loading');
                     proxyFetch(`/resample_ras/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ enabled: wantOn }),
                     }).then(r => r.json()).then(d => {
-                        if (d.error) { showToast('RAS resample error: ' + d.error); return; }
-                        if (d.skipped) { showToast('RAS resample skipped: ' + d.reason); return; }
+                        if (d.error) { _clearRasHintLoading(); showToast('RAS resample error: ' + d.error); return; }
+                        if (d.skipped) { _clearRasHintLoading(); showToast('RAS resample skipped: ' + d.reason); return; }
                         rasResampleActive = wantOn;
                         // Refresh shape from /info, then re-center indices and refresh
                         // canvases. Because shape changes (e.g. (240,240,155) ->
@@ -24480,9 +24503,12 @@
                                 updateView(); triggerPreload();
                             }
                             renderInfo();
+                            _reconcileUI();
+                            _clearRasHintLoading();
                         });
                         showToast('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
                     }).catch(err => {
+                        _clearRasHintLoading();
                         showToast('RAS resample failed: ' + err);
                     });
                 },
@@ -27301,6 +27327,11 @@
         function _runCommand(id) {
             const cmd = commands[id];
             if (cmd && typeof cmd.run === 'function') cmd.run(makeContext(null), null);
+        }
+
+        function _clearRasHintLoading() {
+            _rasResampleLoading = false;
+            document.getElementById('ras-hint')?.classList.remove('loading');
         }
 
         function _saveFullArrayNpy() {
@@ -35601,6 +35632,9 @@
         document.getElementById('tool-hint').addEventListener('click', () => {
             openToolMenu();
         });
+        document.getElementById('ras-hint').addEventListener('click', () => {
+            _runCommand('nifti.toggleRasResample');
+        });
         document.getElementById('tool-launcher').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) closeToolLauncher();
         });
@@ -37362,6 +37396,15 @@
                 if (!qmriHintActive) _qmriOptionsPinned = false;
                 _reconcileQmriAltOptions();
             }
+
+            // 8. RAS conversion hint — visible whenever the loaded array carries
+            // NIfTI spatial metadata (single .nii/.nii.gz sessions).
+            const rasHint = document.getElementById('ras-hint');
+            if (rasHint) {
+                rasHint.classList.toggle('visible', !!spatialMeta);
+                rasHint.classList.toggle('active', rasResampleActive);
+                rasHint.setAttribute('aria-hidden', spatialMeta ? 'false' : 'true');
+            }
             _updateMvPaneFill();
         }
 
@@ -38508,7 +38551,7 @@
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#tool-hint',
+                        '#help-hint', '#tool-hint', '#ras-hint',
                         '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
