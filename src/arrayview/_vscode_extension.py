@@ -10,6 +10,7 @@ import signal
 import subprocess
 import time
 import zipfile
+from contextlib import contextmanager
 from importlib.resources import files as _pkg_files
 
 from arrayview._session import _vprint
@@ -64,6 +65,78 @@ _VSCODE_CONFIGURED_PORTS: set[int] = set()
 _VSCODE_EXT_SKEW_REPORTED: set[tuple] = set()
 _VSCODE_EXT_INSTALL_GUARD_PREFIX = "vscode-extension-install-failure-"
 _VSCODE_EXT_INSTALL_NO_HOST_COOLDOWN_SECONDS = 300.0
+_VSCODE_EXT_INSTALL_LOCK_TIMEOUT_SECONDS = 60.0
+_VSCODE_EXT_INSTALL_LOCK_STALE_SECONDS = 90.0
+
+
+def _vscode_extension_install_lock_path() -> str:
+    return os.path.join(
+        os.path.expanduser("~/.arrayview"), "vscode-extension-install.lock"
+    )
+
+
+@contextmanager
+def _vscode_extension_install_lock(
+    *, timeout: float = _VSCODE_EXT_INSTALL_LOCK_TIMEOUT_SECONDS
+):
+    """Serialize the rare shared-profile install transaction across processes."""
+    path = _vscode_extension_install_lock_path()
+    token = f"{os.getpid()}-{time.time_ns()}"
+    deadline = time.monotonic() + timeout
+    acquired = False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                json.dump(
+                    {"pid": os.getpid(), "token": token, "createdAt": time.time()},
+                    handle,
+                )
+            acquired = True
+            break
+        except FileExistsError:
+            try:
+                with open(path) as handle:
+                    owner = json.load(handle)
+                owner_pid = owner.get("pid")
+                created_at = owner.get("createdAt")
+                # A live installer keeps ownership however long VS Code takes.
+                # Age alone must not permit a second process to install into the
+                # same shared registry concurrently.
+                stale = not _process_is_alive(owner_pid)
+            except (OSError, ValueError, TypeError, AttributeError):
+                # Recover a lock whose owner died between the exclusive create
+                # and writing valid JSON, but do not race an in-progress write.
+                try:
+                    stale = (
+                        time.time() - os.stat(path).st_mtime
+                        > _VSCODE_EXT_INSTALL_LOCK_STALE_SECONDS
+                    )
+                except OSError:
+                    stale = False
+            if stale:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.1)
+        except OSError:
+            break
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                with open(path) as handle:
+                    owner = json.load(handle)
+                if owner.get("token") == token:
+                    os.unlink(path)
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass
 
 
 def _extension_install_guard_key(
@@ -256,6 +329,62 @@ def _extension_bases(*, remote: bool | None = None) -> tuple[str, ...]:
     return (local, remote_base)
 
 
+def _extension_registered(base: str, version: str) -> bool:
+    """Return whether one extension profile registers this exact installation."""
+    registry = os.path.join(base, "extensions.json")
+    expected = os.path.realpath(
+        os.path.join(base, f"arrayview.arrayview-opener-{version}")
+    )
+    try:
+        with open(registry) as handle:
+            entries = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return False
+    if not isinstance(entries, list):
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("version") != version:
+            continue
+        identifier = entry.get("identifier")
+        if not isinstance(identifier, dict) or (
+            str(identifier.get("id", "")).lower()
+            != "arrayview.arrayview-opener"
+        ):
+            continue
+        locations: list[str] = []
+        relative = entry.get("relativeLocation")
+        if isinstance(relative, str):
+            locations.append(os.path.join(base, relative))
+        location = entry.get("location")
+        if isinstance(location, dict):
+            for field in ("fsPath", "path"):
+                value = location.get(field)
+                if isinstance(value, str):
+                    locations.append(value)
+        if any(os.path.realpath(path) == expected for path in locations):
+            return True
+    return False
+
+
+def _wait_for_extension_registration(
+    base: str, version: str, *, timeout: float = 5.0
+) -> bool:
+    """Wait for VS Code to commit an install to the selected profile registry."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _extension_registered(base, version):
+            return True
+        time.sleep(0.1)
+    return _extension_registered(base, version)
+
+
+def _extension_directory_present(version: str, *, remote: bool) -> bool:
+    return any(
+        os.path.isdir(os.path.join(base, f"arrayview.arrayview-opener-{version}"))
+        for base in _extension_bases(remote=remote)
+    )
+
+
 def _remove_old_extension_versions(
     current_version: str, *, remote: bool | None = None
 ) -> None:
@@ -310,7 +439,7 @@ def _extension_on_disk(
     """
     for base in _extension_bases(remote=remote):
         ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
-        if not os.path.isdir(ext_dir):
+        if not os.path.isdir(ext_dir) or not _extension_registered(base, version):
             continue
         if vsix_path is None:
             return True
@@ -414,7 +543,11 @@ def _newer_extension_on_disk(version: str, *, remote: bool) -> str | None:
                 continue
             candidate = entry[len(prefix) :]
             key = _version_tuple(candidate)
-            if key is not None and key > wanted:
+            if (
+                key is not None
+                and key > wanted
+                and _extension_registered(base, candidate)
+            ):
                 newer.append((key, candidate))
     return max(newer)[1] if newer else None
 
@@ -742,6 +875,14 @@ def _write_vscode_extension_hash(
                 f.write(vsix_hash)
 
 
+def _installed_extension_candidate(
+    version: str, vsix_path: str, *, remote: bool
+) -> str | None:
+    if _extension_on_disk(version, vsix_path, remote=remote):
+        return version
+    return _newer_extension_on_disk(version, remote=remote)
+
+
 def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     """Verify or install the bundled opener for the current VS Code window.
 
@@ -813,7 +954,10 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         )
         return False
 
-    if _extension_on_disk(ext_version, vsix_path, remote=is_remote):
+    installed_version = _installed_extension_candidate(
+        ext_version, vsix_path, remote=is_remote
+    )
+    if installed_version == ext_version:
         active_matches = (
             active_version == ext_version
             if is_remote
@@ -830,7 +974,7 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         )
         return True
 
-    newer_version = _newer_extension_on_disk(ext_version, remote=is_remote)
+    newer_version = installed_version if installed_version != ext_version else None
     if newer_version is not None:
         active_matches = (
             active_version == newer_version
@@ -851,6 +995,72 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         if is_remote:
             _VSCODE_EXT_INSTALL_FAILED = True
         return False
+
+    with _vscode_extension_install_lock() as acquired:
+        if not acquired:
+            _VSCODE_EXT_INSTALL_FAILED = True
+            print(
+                "[ArrayView] timed out waiting for another VS Code opener install; "
+                "no viewer request was sent",
+                flush=True,
+            )
+            return False
+
+        # Another ArrayView process may have completed the shared-profile install
+        # while this process waited. Re-read both disk/registry and live-host state
+        # before consulting failure guards or starting a duplicate installer.
+        installed_version = _installed_extension_candidate(
+            ext_version, vsix_path, remote=is_remote
+        )
+        if installed_version is not None:
+            active_registration = _active_extension_registration()
+            active_version = (
+                active_registration.get("extensionVersion")
+                if active_registration is not None
+                else None
+            )
+            active_marker = _extension_registration_marker(active_registration)
+            active_matches = (
+                active_version == installed_version
+                if is_remote
+                else active_version in (None, installed_version)
+            )
+            if not active_matches:
+                return _reject_unmatched_host(installed_version)
+            if not is_remote and installed_version == ext_version:
+                _remove_old_extension_versions(ext_version, remote=False)
+            _VSCODE_EXT_INSTALLED = True
+            _vprint(
+                f"[ArrayView] extension v{installed_version} already installed — "
+                "skipping reinstall",
+                flush=True,
+            )
+            return True
+
+        return _install_vscode_extension_locked(
+            code=code,
+            env_ipc=_find_vscode_ipc_hook(),
+            ext_version=ext_version,
+            vsix_path=vsix_path,
+            is_remote=is_remote,
+            active_version=active_version,
+            active_marker=active_marker,
+        )
+
+
+def _install_vscode_extension_locked(
+    *,
+    code: str,
+    env_ipc: str | None,
+    ext_version: str,
+    vsix_path: str,
+    is_remote: bool,
+    active_version: str | None,
+    active_marker: tuple | None,
+) -> bool:
+    """Run and verify one install while the shared-profile lock is held."""
+    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
+    global _VSCODE_EXT_RELOAD_REQUIRED, _VSCODE_EXT_INSTALL_FAILED
     install_guard = _extension_install_failure_guard(
         ext_version, code, active_marker
     )
@@ -870,11 +1080,13 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         return False
 
     env = dict(os.environ)
-    ipc = _find_vscode_ipc_hook()
-    if ipc:
-        env["VSCODE_IPC_HOOK_CLI"] = ipc
+    if env_ipc:
+        env["VSCODE_IPC_HOOK_CLI"] = env_ipc
 
     install_snapshot = _extension_base_snapshot() if is_remote else {}
+    orphaned_install = _extension_directory_present(
+        ext_version, remote=is_remote
+    )
     # Say so before the slow part, not after it. Installing the opener takes
     # several seconds and may end in "reload this window once"; announcing that
     # only in the final error message left the terminal looking hung, with the
@@ -885,8 +1097,11 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
         flush=True,
     )
     try:
+        command = [code, "--install-extension", vsix_path]
+        if orphaned_install:
+            command.append("--force")
         r = _run_extension_installer(
-            [code, "--install-extension", vsix_path], env
+            command, env
         )
         combined = (r.stdout or "") + (r.stderr or "")
         install_failed = (
@@ -921,6 +1136,23 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
                 install_bases = (active_base,)
             else:
                 install_bases = _extension_bases(remote=False)
+            registered_bases = tuple(
+                base
+                for base in install_bases
+                if _wait_for_extension_registration(base, ext_version)
+            )
+            if not registered_bases:
+                _VSCODE_EXT_INSTALL_FAILED = True
+                message = (
+                    "the installer extracted the opener but did not register it "
+                    "in the selected VS Code profile"
+                )
+                _write_extension_install_failure_guard(
+                    ext_version, code, active_marker, message
+                )
+                print(f"[ArrayView] extension install incomplete: {message}", flush=True)
+                return False
+            install_bases = registered_bases
             _patch_vscode_extension_metadata(ext_version, bases=install_bases)
             try:
                 _write_vscode_extension_hash(

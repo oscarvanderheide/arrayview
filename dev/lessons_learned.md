@@ -447,3 +447,24 @@ disappear and return.
 Only endpoint locks anchor to value labels; render symmetry as an explicit `±`
 modifier through the shared menu so normal, compare, and mirrored layouts all
 inherit the same semantics.
+
+## A Display Handoff Must Release Unrelated Launches Before Host UI Calls
+
+**Problem:** A verified display request can still block every later launch if
+the host UI API used to open it never resolves. A multi-minute protocol timeout
+limits the leak but does not prevent head-of-line blocking.
+**Fix:** Keep the owner-ticket queue only through identity checks and shared
+state reservation, then release that exact ticket before awaiting a
+request-local host UI handoff. Test with the host promise deliberately left
+pending and prove a later request reaches its own first frame without fallback
+or tab reuse.
+
+## Extracted Extension Files Do Not Prove Installation
+
+**Problem:** A VS Code installer can leave the new extension directory on disk
+without registering it in the active profile. Treating those files as installed
+causes ArrayView to request a reload that cannot activate the new opener.
+**Fix:** Require the exact profile registry entry as part of both the fast-path
+and post-install contract. Serialize shared-profile installs, repair orphan
+directories through the exact CLI, and request reload only after registration
+has been observed.

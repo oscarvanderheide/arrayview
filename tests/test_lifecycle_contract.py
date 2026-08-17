@@ -407,6 +407,23 @@ def test_vscode_tunnel_open_request_is_remote_only(monkeypatch, tmp_path):
     assert captured[0]["remoteOnly"] is True
 
 
+def _register_test_vscode_extension(base: Path, version: str) -> None:
+    import json
+
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "extensions.json").write_text(
+        json.dumps(
+            [
+                {
+                    "identifier": {"id": "arrayview.arrayview-opener"},
+                    "version": version,
+                    "relativeLocation": f"arrayview.arrayview-opener-{version}",
+                }
+            ]
+        )
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
 def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_path):
     import arrayview._vscode_extension as extension
@@ -415,6 +432,7 @@ def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_p
     local_dir = home / ".vscode" / "extensions" / "arrayview.arrayview-opener-1.2.3"
     remote_dir = home / ".vscode-server" / "extensions" / "arrayview.arrayview-opener-1.2.3"
     local_dir.mkdir(parents=True)
+    _register_test_vscode_extension(local_dir.parent, "1.2.3")
     (home / ".vscode-server").mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(home))
 
@@ -422,7 +440,181 @@ def test_vscode_extension_disk_check_is_scoped_to_remote_host(monkeypatch, tmp_p
     assert extension._extension_on_disk("1.2.3", remote=True) is False
 
     remote_dir.mkdir(parents=True)
+    _register_test_vscode_extension(remote_dir.parent, "1.2.3")
     assert extension._extension_on_disk("1.2.3", remote=True) is True
+
+
+def test_vscode_extension_directory_without_registry_is_not_installed(
+    monkeypatch, tmp_path
+):
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    base = home / ".vscode-server" / "extensions"
+    installed = base / "arrayview.arrayview-opener-1.2.3"
+    installed.mkdir(parents=True)
+    (installed / ".vsix_hash").write_text("matching-files-are-not-registration")
+    monkeypatch.setenv("HOME", str(home))
+
+    assert extension._extension_on_disk("1.2.3", remote=True) is False
+
+
+def test_vscode_extension_registry_requires_exact_version_and_location(tmp_path):
+    import json
+    import arrayview._vscode_extension as extension
+
+    base = tmp_path / "extensions"
+    expected = base / "arrayview.arrayview-opener-1.2.3"
+    expected.mkdir(parents=True)
+    registry = base / "extensions.json"
+    registry.write_text(
+        json.dumps(
+            [
+                {
+                    "identifier": {"id": "arrayview.arrayview-opener"},
+                    "version": "1.2.3",
+                    "relativeLocation": "arrayview.arrayview-opener-older",
+                }
+            ]
+        )
+    )
+    assert extension._extension_registered(str(base), "1.2.3") is False
+
+    _register_test_vscode_extension(base, "1.2.3")
+    assert extension._extension_registered(str(base), "1.2.3") is True
+
+
+def test_vscode_extension_orphan_directory_is_repaired_through_exact_cli(
+    monkeypatch, tmp_path
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    base = home / ".vscode-server" / "extensions"
+    wanted = extension._VSCODE_EXT_VERSION
+    orphan = base / f"arrayview.arrayview-opener-{wanted}"
+    orphan.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.15.1")
+    monkeypatch.setattr(extension, "_active_extension_registration", lambda: None)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    monkeypatch.setattr(extension, "_find_vscode_ipc_hook", lambda: "/exact/ipc")
+    monkeypatch.setattr(
+        extension, "_wait_for_active_extension_version", lambda *args, **kwargs: True
+    )
+    commands = []
+
+    def install(command, env):
+        commands.append(command)
+        (orphan / "package.json").write_text("{}")
+        _register_test_vscode_extension(base, wanted)
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+
+    assert extension._ensure_vscode_extension(is_remote=True) is True
+    assert len(commands) == 1
+    assert commands[0][0:2] == ["/exact/code", "--install-extension"]
+    assert commands[0][-1] == "--force"
+
+
+def test_vscode_extension_success_without_registry_fails_before_reload(
+    monkeypatch, tmp_path
+):
+    import subprocess
+    import arrayview._vscode_extension as extension
+
+    home = tmp_path / "home"
+    base = home / ".vscode-server" / "extensions"
+    base.mkdir(parents=True)
+    wanted = extension._VSCODE_EXT_VERSION
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: "0.15.1")
+    monkeypatch.setattr(extension, "_active_extension_registration", lambda: None)
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+
+    def install(command, env):
+        target = base / f"arrayview.arrayview-opener-{wanted}"
+        target.mkdir()
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    monkeypatch.setattr(extension, "_run_extension_installer", install)
+    monkeypatch.setattr(
+        extension, "_wait_for_extension_registration", lambda *args, **kwargs: False
+    )
+
+    assert extension._ensure_vscode_extension(is_remote=True) is False
+    assert extension._VSCODE_EXT_INSTALL_FAILED is True
+    assert extension._VSCODE_EXT_RELOAD_REQUIRED is False
+    assert not (base / f"arrayview.arrayview-opener-{wanted}" / ".vsix_hash").exists()
+
+
+def test_vscode_extension_rechecks_install_after_acquiring_shared_lock(
+    monkeypatch, tmp_path
+):
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    wanted = extension._VSCODE_EXT_VERSION
+    candidates = iter([None, wanted])
+    monkeypatch.setattr(
+        extension, "_installed_extension_candidate", lambda *args, **kwargs: next(candidates)
+    )
+    monkeypatch.setattr(extension, "_active_extension_version", lambda: wanted)
+    monkeypatch.setattr(
+        extension,
+        "_active_extension_registration",
+        lambda: {
+            "extensionVersion": wanted,
+            "pid": 123,
+            "extensionInstanceId": "installed-by-peer",
+            "ts": 1,
+        },
+    )
+    monkeypatch.setattr(extension, "_find_code_cli", lambda **kwargs: "/exact/code")
+    monkeypatch.setattr(
+        extension,
+        "_run_extension_installer",
+        lambda *args, **kwargs: pytest.fail("the waiting process must not reinstall"),
+    )
+
+    assert extension._ensure_vscode_extension(is_remote=True) is True
+
+
+def test_vscode_extension_install_lock_times_out_without_stealing_live_owner(
+    monkeypatch, tmp_path
+):
+    import json
+    import os
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    path = Path(extension._vscode_extension_install_lock_path())
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({"pid": os.getpid(), "token": "other", "createdAt": -1000})
+    )
+    monkeypatch.setattr(extension.time, "time", lambda: 1)
+
+    with extension._vscode_extension_install_lock(timeout=0) as acquired:
+        assert acquired is False
+    assert path.exists()
+
+
+def test_vscode_extension_install_lock_recovers_dead_owner(monkeypatch, tmp_path):
+    import json
+    import arrayview._vscode_extension as extension
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    path = Path(extension._vscode_extension_install_lock_path())
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"pid": 999999999, "token": "dead", "createdAt": 1}))
+    monkeypatch.setattr(extension, "_process_is_alive", lambda pid: False)
+
+    with extension._vscode_extension_install_lock(timeout=0) as acquired:
+        assert acquired is True
+    assert not path.exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific VS Code extension lifecycle")
@@ -442,6 +634,7 @@ def test_vscode_extension_missing_hash_verifies_content_without_reinstall(
     version = extension._VSCODE_EXT_VERSION
     installed = base / f"arrayview.arrayview-opener-{version}"
     installed.mkdir(parents=True)
+    _register_test_vscode_extension(base, version)
     if remote:
         (home / ".vscode-server").mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(home))
@@ -786,6 +979,7 @@ def test_successful_vscode_extension_install_clears_prior_profile_guards(
         target = remote_base / f"arrayview.arrayview-opener-{wanted}"
         target.mkdir()
         (target / "package.json").write_text("{}")
+        _register_test_vscode_extension(remote_base, wanted)
         return subprocess.CompletedProcess(command, 0, "installed", "")
 
     monkeypatch.setattr(extension, "_run_extension_installer", install)
@@ -825,6 +1019,7 @@ def test_remote_vscode_launch_automatically_runs_exact_installer(monkeypatch, tm
         target = remote_base / f"arrayview.arrayview-opener-{wanted}"
         target.mkdir(parents=True)
         (target / "package.json").write_text("{}")
+        _register_test_vscode_extension(remote_base, wanted)
         return subprocess.CompletedProcess(command, 0, "installed", "")
 
     monkeypatch.setattr(extension, "_run_extension_installer", install)
@@ -1020,6 +1215,7 @@ def test_remote_vscode_setup_touches_only_active_extension_base(
         target = remote_base / f"arrayview.arrayview-opener-{wanted}"
         target.mkdir(parents=True)
         (target / "package.json").write_text("{}")
+        _register_test_vscode_extension(remote_base, wanted)
         return subprocess.CompletedProcess(command, 0, "installed", "")
 
     monkeypatch.setattr(extension, "_run_extension_installer", install)
@@ -1056,6 +1252,7 @@ def test_remote_vscode_install_requires_exact_activation_before_launch(
         target = remote_base / f"arrayview.arrayview-opener-{wanted}"
         target.mkdir(parents=True)
         (target / "package.json").write_text("{}")
+        _register_test_vscode_extension(remote_base, wanted)
         return subprocess.CompletedProcess(command, 0, "installed", "")
 
     monkeypatch.setattr(extension, "_run_extension_installer", install)
