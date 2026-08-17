@@ -6458,7 +6458,12 @@
         let isRendering = false;
         let pendingRequest = false;
         let wsSlowTimer = null;   // show the busy panel for slow renders
-        const WS_SLOW_THRESHOLD_MS = 80;
+        // Deliberately much higher than PATIENT_LOADING_THRESHOLD_MS: this one
+        // fires for every render, including plain in-array scrolling, so on a
+        // slow network drive a short threshold flickers on/off as each frame
+        // just barely crosses it. This should only catch renders that are
+        // actually stalled, not ordinary slow-drive catch-up.
+        const WS_SLOW_THRESHOLD_MS = 500;
         const PATIENT_LOADING_THRESHOLD_MS = 80;
         let _displayedPatientIndex = null;
         let _patientLoadingIndex = null;
