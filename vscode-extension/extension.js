@@ -3153,7 +3153,8 @@ async function openInExternalBrowser(
     serverId,
     windowId,
     viewerTimeoutMs,
-    ensureActive = () => {}
+    ensureActive = () => {},
+    releaseQueue = () => {}
 ) {
     const viewerDeadline = Date.now() + viewerTimeoutMs;
     const sid = collectReleaseSidsFromUrl(backendUrl)[0] || null;
@@ -3205,6 +3206,14 @@ async function openInExternalBrowser(
     // system browser. VS Code forwards remote localhost privately and the
     // top-level browser can complete tunnel authentication; no public-port
     // promotion or embedded iframe is involved.
+    //
+    // This VS Code call can remain pending indefinitely in a Tunnel window.
+    // It does not touch the pending-placeholder or integrated-browser state
+    // protected by the signal queue, so hand the queue to the next request
+    // before awaiting it. Otherwise one explicit system-browser request can
+    // starve every later Explorer and terminal launch in this window until
+    // the protocol's multi-minute hard timeout fires.
+    releaseQueue('external browser handoff continues off-queue');
     let opened;
     try {
         opened = await vscode.env.openExternal(vscode.Uri.parse(launchUrl));
@@ -3888,7 +3897,8 @@ async function _processSignalDataBody(
                 data.serverId || null,
                 data.windowId || logWindowId,
                 viewerTimeoutMs,
-                ensureActive
+                ensureActive,
+                releaseQueue
             );
             viewerReady = opened.viewerReady;
             externalBrowserOpened = true;

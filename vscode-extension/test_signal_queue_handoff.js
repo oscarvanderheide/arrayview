@@ -25,6 +25,14 @@ const originalHome = process.env.HOME;
 process.env.HOME = tempHome;
 
 const panels = [];
+let externalOpenResolve = null;
+let externalOpenCount = 0;
+let integratedBrowserAvailable = false;
+let remoteProxyEnabled = false;
+const browserCommandArgs = [];
+const editorTabs = [];
+
+class TabInputWebview {}
 
 function fakePanel(title) {
     const panel = {
@@ -55,13 +63,32 @@ function fakePanel(title) {
 }
 
 const vscodeMock = {
-    env: { remoteName: null, uiKind: 1 },
+    env: {
+        remoteName: null,
+        uiKind: 1,
+        openExternal() {
+            externalOpenCount += 1;
+            return new Promise(resolve => {
+                externalOpenResolve = () => resolve(true);
+            });
+        },
+    },
     UIKind: { Web: 2 },
+    TabInputWebview,
     ViewColumn: { Active: 1, Beside: 2 },
     Uri: { parse: v => v, file: v => ({ fsPath: v, toString: () => `file://${v}` }) },
     window: {
         state: { focused: true },
         activeTextEditor: null,
+        tabGroups: {
+            all: [{ tabs: editorTabs }],
+            async close(tab) {
+                const index = editorTabs.indexOf(tab);
+                if (index < 0) return false;
+                editorTabs.splice(index, 1);
+                return true;
+            },
+        },
         showErrorMessage() {},
         createWebviewPanel(_type, title) {
             const panel = fakePanel(title);
@@ -72,12 +99,32 @@ const vscodeMock = {
     workspace: {
         workspaceFolders: [],
         getWorkspaceFolder() { return null; },
-        getConfiguration() { return { get: (_k, fallback) => fallback }; },
+        getConfiguration() {
+            return {
+                get(key, fallback) {
+                    return key === 'enableRemoteProxy' ? remoteProxyEnabled : fallback;
+                },
+            };
+        },
     },
     commands: {
         registerCommand() { return { dispose() {} }; },
-        async getCommands() { return []; },
-        async executeCommand() { return undefined; },
+        async getCommands() {
+            return integratedBrowserAvailable
+                ? ['workbench.action.browser.open']
+                : [];
+        },
+        async executeCommand(command, args) {
+            if (command === 'workbench.action.browser.open') {
+                browserCommandArgs.push(args);
+                editorTabs.push({
+                    label: 'Integrated Browser',
+                    input: new TabInputWebview(),
+                    isActive: true,
+                });
+            }
+            return undefined;
+        },
     },
 };
 
@@ -121,8 +168,41 @@ async function waitFor(predicate, what, timeoutMs = 5000) {
 }
 
 (async () => {
+    const externalJournals = new Map();
     const server = http.createServer((req, res) => {
         const parsed = new URL(req.url, 'http://localhost');
+        if (parsed.pathname.startsWith('/viewer-phase/')) {
+            const parts = parsed.pathname.split('/').filter(Boolean);
+            const sid = decodeURIComponent(parts[1]);
+            const requestId = decodeURIComponent(parts[2]);
+            if (req.method === 'POST') {
+                let raw = '';
+                req.on('data', chunk => { raw += chunk; });
+                req.on('end', () => {
+                    const body = JSON.parse(raw);
+                    externalJournals.set(requestId, { sid, ...body });
+                    res.writeHead(200, { 'content-type': 'application/json' });
+                    res.end(JSON.stringify({
+                        ...body,
+                        sid,
+                        request_id: requestId,
+                    }));
+                });
+                return;
+            }
+            const journal = externalJournals.get(requestId);
+            res.writeHead(journal ? 200 : 404, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(journal ? {
+                sid,
+                request_id: requestId,
+                server_id: journal.server_id,
+                window_id: journal.window_id,
+                token: journal.token,
+                phases: ['script-loaded', 'ws-open', 'metadata-loaded', 'frame-rendered'],
+                viewer_instance_ids: ['external-viewer'],
+            } : {}));
+            return;
+        }
         if (parsed.pathname.startsWith('/metadata/')) {
             res.writeHead(200, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ ready: true }));
@@ -202,6 +282,52 @@ async function waitFor(predicate, what, timeoutMs = 5000) {
         panels[2].renderFrame();
         await thirdStarted;
         assert.strictEqual(ackState(third), 'backend_ready', 'C completed');
+
+        // --- a hung system-browser handoff cannot starve tab launches ------
+        vscodeMock.env.remoteName = 'tunnel';
+        vscodeMock.env.appHost = 'desktop';
+        remoteProxyEnabled = true;
+        integratedBrowserAvailable = true;
+        const external = requestData(port, 'req-external', 'external.npy');
+        external.displaySurface = 'external-browser';
+        assert.strictEqual(__test.claimProtocolRequest(external), 'acquired');
+        const externalDone = __test.processSignalData(external);
+        await waitFor(() => externalOpenCount === 1, 'external-browser handoff to start');
+        const releasedWhileExternalHung = !__test.isSignalQueueBusy();
+        if (!releasedWhileExternalHung) {
+            externalOpenResolve();
+            await externalDone;
+        }
+        assert.strictEqual(
+            releasedWhileExternalHung,
+            true,
+            'a pending external-browser API call must not own the signal queue'
+        );
+
+        const afterExternal = requestData(port, 'req-after-external', 'after.npy');
+        assert.strictEqual(__test.claimProtocolRequest(afterExternal), 'acquired');
+        const afterExternalDone = __test.processSignalData(afterExternal);
+        await waitFor(
+            () => ackState(afterExternal) === 'panel_opened',
+            'a tab launch behind the pending external-browser handoff'
+        );
+        assert.strictEqual(
+            browserCommandArgs.length,
+            1,
+            'the later launch must use the Tunnel integrated browser while the external call is pending'
+        );
+        await afterExternalDone;
+        assert.strictEqual(ackState(afterExternal), 'backend_ready');
+        assert.strictEqual(editorTabs.length, 1, 'the later launch gets its own browser tab');
+        assert.strictEqual(
+            externalOpenCount,
+            1,
+            'the later Tunnel launch must not fall back to the system browser'
+        );
+
+        externalOpenResolve();
+        await externalDone;
+        assert.strictEqual(ackState(external), 'backend_ready');
 
         assert.strictEqual(
             __test.isSignalQueueBusy(),
