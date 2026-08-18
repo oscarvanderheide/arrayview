@@ -1,6 +1,6 @@
 ---
 name: handoff-vscode-open-flicker
-description: Handoff for VS Code tunnel launch flicker/retries. Opener 0.15.53 fixes premature replacement and re-navigates the same request-owned tab; real-host activation and validation remain.
+description: Handoff for VS Code tunnel launch flicker/retries. Opener 0.15.53 is active and passed real-host launch, multi-tab, scoped-close, and final-cleanup validation.
 last_updated: 2026-08-18
 ---
 
@@ -8,11 +8,19 @@ last_updated: 2026-08-18
 
 ## Current state — read this first
 
-Opener **0.15.53 is built and registered in the active Tunnel profile, but is
-not active yet**. Its installed source exactly matches the bundled and working
-source. Live Tunnel windows still report 0.15.52. Do not call this complete
-until those windows are reloaded by the user and rows 1–4, 19, 24–25, 29, and
-32 receive real-host evidence.
+Opener **0.15.53 is built, installed, and active in both live Tunnel windows**.
+Its installed source exactly matches the bundled and working source. After the
+user reloaded, eleven real-host launches rendered on navigation attempt 0. Two
+controlled five-launch batches each produced five distinct tabs with no retry,
+replacement, or cross-window claim. In the second batch, closing the middle tab
+released exactly that array while the other four stayed connected; closing the
+rest released every session and the temporary server shut down automatically.
+
+Rows 1, 3, 23–26, and 29 now have 2026-08-18 `real host` evidence. Row 32's
+same-tab recovery remains `component`: no post-reload launch happened to lose
+its first navigation, so the retry path was not induced on the real host. Idle,
+network-mount, Explorer, collection, Remote SSH, and local VS Code rows were not
+exercised by this validation and must not be claimed from it.
 
 The prior diagnosis ("VS Code drops the request") combined two different
 failures and was too vague:

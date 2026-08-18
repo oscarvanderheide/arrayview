@@ -3583,3 +3583,27 @@ registered at the exact active Tunnel profile location. Installed source,
 bundled source, and working source are byte-identical. No VS Code window was
 reloaded automatically and no GUI launch was performed. Live windows still run
 0.15.52 until the user reloads them, so real-host validation remains open.
+
+**Post-reload real-host acceptance**: after the user reloaded, both live Tunnel
+windows registered opener 0.15.53. One user launch and two controlled batches
+of five public CLI launches all reached their first rendered frame on
+navigation attempt 0. The controlled batches alternated small and 88 MB arrays;
+every launch received a distinct tab, no tab was closed or replaced, and every
+request was claimed only by the initiating window despite a sibling Tunnel
+window being registered. One large array took about 3.25 s after navigation and
+was retained, directly exercising the new arrival fence that prevents a slow
+page from being mistaken for a dead one.
+
+The first cleanup attempt was invalidated when the entire remote VS Code server
+restarted, so it was not counted. The second batch supplied clean lifecycle
+evidence: closing the middle tab reduced five active sessions/viewers to four,
+removed only that array, and left the same extension host/window and the other
+four connections alive. Closing the remaining four reduced viewer connections
+to zero; after the bounded cleanup delay the last session disappeared and the
+temporary server stopped listening with no ArrayView process left.
+
+**Evidence classification**: rows 1, 3, 23–26, and 29 are verified
+2026-08-18 `real host`. The real host did not naturally enter the recovery
+branch, so same-tab re-navigation for a genuinely lost first navigation remains
+row 32 `component` evidence. Rows 2, 4, 19–20, Remote SSH, and local VS Code were
+not exercised and remain at their prior evidence levels.
