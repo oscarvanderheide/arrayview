@@ -33,6 +33,41 @@ def test_perf_mode_collects_render_samples(page, server_url, sid_3d):
     assert perf["sample"]["client_total_ms"] is None or perf["sample"]["client_total_ms"] >= 0
 
 
+def test_integrated_browser_reports_navigation_arrival(page, client, server_url, sid_3d):
+    request_id = "fedcba9876543210fedcba9876543210"
+    tab_key = "tabkey9876543210"
+    navigation_key = "navkey9876543210"
+    token = "9876543210fedcba9876543210fedcba"
+    server_id = client.get("/ping").json()["instance_id"]
+    prepared = client.post(
+        f"/viewer-phase/{sid_3d}/{request_id}",
+        json={
+            "phase": "launch-prepared",
+            "server_id": server_id,
+            "window_id": "window-one",
+            "token": token,
+            "viewer_query": f"?sid={sid_3d}",
+            "tab_key": tab_key,
+            "navigation_key": navigation_key,
+            "navigation_attempt": 0,
+        },
+    )
+    assert prepared.status_code == 200
+    short_url = f"{server_url}/_av/{tab_key}/{navigation_key}"
+
+    page.goto(short_url)
+    page.wait_for_function(
+        "() => window.currentSid && lastImageData !== null",
+        timeout=15_000,
+    )
+    journal = client.get(
+        f"/viewer-phase/{sid_3d}/{request_id}",
+        params={"token": token},
+    ).json()
+    assert "navigation-arrived" in journal["phases"]
+    assert len(journal["viewer_instance_ids"]) == 1
+
+
 def test_integrated_browser_short_route_survives_refresh(
     page, client, server_url, sid_3d
 ):

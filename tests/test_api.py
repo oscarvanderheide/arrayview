@@ -160,6 +160,67 @@ class TestHealth:
         assert getattr(session, "release_on_disconnect", False) is False
         assert getattr(session, "related_release_sids", []) == []
 
+    def test_navigation_arrival_is_attempt_owned_control_plane_phase(
+        self, client, sid_2d
+    ):
+        server_id = client.get("/ping").json()["instance_id"]
+        request_id = "navigation-arrival-request"
+        path = f"/viewer-phase/{sid_2d}/{request_id}"
+        prepared = client.post(
+            path,
+            json={
+                "phase": "launch-prepared",
+                "server_id": server_id,
+                "window_id": "window-one",
+                "token": "token-one",
+                "viewer_query": f"?sid={sid_2d}",
+                "tab_key": "tabkey0123456789",
+                "navigation_key": "navkey0123456789",
+                "navigation_attempt": 0,
+            },
+        )
+        assert prepared.status_code == 200
+
+        arrived_body = {
+            "phase": "navigation-arrived",
+            "sid": sid_2d,
+            "server_id": server_id,
+            "window_id": "window-one",
+            "token": "token-one",
+            "navigation_attempt": 0,
+        }
+        arrived = client.post(path, json=arrived_body)
+        assert arrived.status_code == 200
+        assert arrived.json()["phases"] == ["navigation-arrived"]
+        assert arrived.json()["viewer_instance_ids"] == []
+        assert arrived.json()["related_sids"] == []
+
+        wrong_attempt = client.post(
+            path,
+            json={**arrived_body, "navigation_attempt": 1},
+        )
+        assert wrong_attempt.status_code == 409
+        wrong_token = client.post(
+            path,
+            json={**arrived_body, "token": "wrong-token"},
+        )
+        assert wrong_token.status_code == 409
+
+        script_loaded = client.post(
+            path,
+            json={
+                **arrived_body,
+                "phase": "script-loaded",
+                "viewer_instance_id": "viewer-one",
+            },
+        )
+        assert script_loaded.status_code == 200
+        assert script_loaded.json()["phases"] == [
+            "navigation-arrived",
+            "script-loaded",
+        ]
+        assert script_loaded.json()["viewer_instance_ids"] == ["viewer-one"]
+
     def test_startup_overlay_has_no_artificial_dwell(self, client, sid_2d):
         r = client.get(f"/?sid={sid_2d}")
         assert r.status_code == 200

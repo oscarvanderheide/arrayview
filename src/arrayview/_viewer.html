@@ -3,6 +3,55 @@
 <head>
     <title>ArrayView</title>
     <script>
+        // Tell the opener as soon as this document starts parsing. The full
+        // viewer script is large and sits near the end of this file, so using
+        // its startup as proof that navigation arrived can make a slow but
+        // valid page look dropped and cause its tab to be closed prematurely.
+        (function () {
+            try {
+                var launchSearch = __ARRAYVIEW_QUERY__ || location.search;
+                var params = new URLSearchParams(launchSearch);
+                if (params.get('_av_integrated_browser') !== '1') return;
+                var sid = params.get('sid');
+                var requestId = params.get('_av_launch_request_id');
+                var serverId = params.get('_av_launch_server_id');
+                var windowId = params.get('_av_launch_window_id');
+                var token = params.get('_av_launch_token');
+                var attemptValue = params.get('_av_navigation_attempt');
+                var attempt = Number(attemptValue);
+                if (
+                    !sid || !requestId || !serverId || !windowId || !token
+                    || attemptValue === null
+                    || !Number.isInteger(attempt) || attempt < 0
+                ) return;
+                var phaseUrl = `/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
+                var phaseBody = JSON.stringify({
+                    phase: 'navigation-arrived',
+                    sid,
+                    server_id: serverId,
+                    window_id: windowId,
+                    token,
+                    navigation_attempt: attempt,
+                });
+                var reportArrival = function (retriesLeft) {
+                    fetch(phaseUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: phaseBody,
+                    }).then(function (response) {
+                        if (!response.ok) throw new Error('arrival rejected');
+                    }).catch(function () {
+                        if (retriesLeft > 0) {
+                            setTimeout(function () {
+                                reportArrival(retriesLeft - 1);
+                            }, 100);
+                        }
+                    });
+                };
+                reportArrival(3);
+            } catch (_) {}
+        })();
+
         // Name the tab at parse time. Without this the tab shows the host
         // ("localhost:8000") until metadata arrives over the WebSocket, and
         // that wait is the array load — seconds for a large file. The name
@@ -39354,7 +39403,13 @@
             return true;
         }
 
-        function _dmenuCyclePresetFromKey() {
+        async function _dmenuCyclePresetFromKey() {
+            // In qMRI mode each pane owns its own window, so once the picker
+            // is already open, repeat `d` must keep following the mouse
+            // instead of falling back to the single shared primary path.
+            if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
+                return await _cycleQmriPaneRangePreset();
+            }
             const preset = _cycleQuantilePreset();
             if (preset) {
                 _dmenuSelectCurrentPreset();

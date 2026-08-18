@@ -51,6 +51,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         if not token or len(token) > 256 or not window_id:
             raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
         allowed = {
+            "navigation-arrived",
             "script-loaded",
             "ws-open",
             "metadata-loaded",
@@ -58,13 +59,16 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
         }
         if phase != "launch-prepared" and phase not in allowed:
             raise HTTPException(status_code=400, detail="Invalid viewer phase")
-        if phase != "launch-prepared" and not viewer_instance_id:
+        if (
+            phase not in {"launch-prepared", "navigation-arrived"}
+            and not viewer_instance_id
+        ):
             raise HTTPException(status_code=400, detail="Incomplete viewer phase identity")
         # Preparation and script startup are control-plane events. The viewer
         # is meant to open while a large array is still loading, so hiding
         # either event behind Session readiness creates a false pre-script
         # timeout. Data-dependent phases still wait for the real Session.
-        if phase in {"launch-prepared", "script-loaded"}:
+        if phase in {"launch-prepared", "navigation-arrived", "script-loaded"}:
             if sid not in SESSIONS and sid not in _session_mod.PENDING_SESSIONS:
                 raise HTTPException(status_code=404, detail="Session not found")
         else:
@@ -207,13 +211,24 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             raise HTTPException(status_code=409, detail="Viewer phase owner changed")
         if body.get("sid") != sid:
             raise HTTPException(status_code=409, detail="Viewer primary session changed")
-        related_sids = _viewer_related_sids(body, sid)
-        if journal["related_sids"] is None:
-            journal["related_sids"] = related_sids
-        elif journal["related_sids"] != related_sids:
-            raise HTTPException(status_code=409, detail="Viewer related sessions changed")
-        if viewer_instance_id not in journal["viewer_instance_ids"]:
-            journal["viewer_instance_ids"].append(viewer_instance_id)
+        if phase == "navigation-arrived":
+            navigation_attempt = body.get("navigation_attempt")
+            if (
+                type(navigation_attempt) is not int
+                or navigation_attempt != journal.get("navigation_attempt")
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Viewer navigation attempt changed",
+                )
+        else:
+            related_sids = _viewer_related_sids(body, sid)
+            if journal["related_sids"] is None:
+                journal["related_sids"] = related_sids
+            elif journal["related_sids"] != related_sids:
+                raise HTTPException(status_code=409, detail="Viewer related sessions changed")
+            if viewer_instance_id not in journal["viewer_instance_ids"]:
+                journal["viewer_instance_ids"].append(viewer_instance_id)
         phases = journal["phases"]
         if phase not in phases:
             phases.append(phase)
@@ -245,7 +260,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             "token": token,
             "phases": list(phases),
             "viewer_instance_ids": list(journal["viewer_instance_ids"]),
-            "related_sids": list(journal["related_sids"]),
+            "related_sids": list(journal["related_sids"] or []),
         }
 
     @app.get("/viewer-phase/{sid}/{request_id}")

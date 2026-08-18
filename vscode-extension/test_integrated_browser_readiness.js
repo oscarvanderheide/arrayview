@@ -28,6 +28,16 @@ class TabInputTerminal {}
 class TabInputInteractiveWindow {}
 class TabInputWebview {}
 let browserTabFactory = () => new TabInputWebview();
+function reusableBrowserTab(args) {
+    if (!args.reuseUrlFilter || !args.reuseUrlFilter.endsWith('/**')) {
+        return null;
+    }
+    const pathPrefix = args.reuseUrlFilter.slice(0, -2);
+    return editorTabs.find(tab => {
+        if (!(tab.input instanceof TabInputWebview) || !tab.url) return false;
+        return new URL(tab.url).pathname.startsWith(pathPrefix);
+    }) || null;
+}
 const vscodeMock = {
     TabInputText,
     TabInputTextDiff,
@@ -55,11 +65,16 @@ const vscodeMock = {
                 commandArgs = args;
                 commandArgsHistory.push(args);
                 if (commandFailure) throw commandFailure;
-                editorTabs.push({
-                    label: 'Integrated Browser',
-                    input: browserTabFactory(),
-                    url: args.url,
-                });
+                const reusable = reusableBrowserTab(args);
+                if (reusable) {
+                    reusable.url = args.url;
+                } else {
+                    editorTabs.push({
+                        label: 'Integrated Browser',
+                        input: browserTabFactory(),
+                        url: args.url,
+                    });
+                }
             }
             if (commandObserver) commandObserver(args, command);
         },
@@ -107,6 +122,8 @@ Module._load = originalLoad;
     let deferReady = false;
     let backendAvailable = true;
     let journal = null;
+    let journalGetCount = 0;
+    let publishArrivalAfterGet = null;
     const preparedBodies = [];
     const releases = [];
     const server = http.createServer((req, res) => {
@@ -156,6 +173,7 @@ Module._load = originalLoad;
                     ],
                     viewer_instance_ids: deferReady ? [] : ['viewer-one'],
                 };
+                journalGetCount = 0;
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ...journal, phases: [], viewer_instance_ids: [] }));
             });
@@ -168,12 +186,20 @@ Module._load = originalLoad;
             res.end();
             return;
         }
+        journalGetCount += 1;
+        const responseJournal = { ...journal, phases: [...journal.phases] };
+        if (journalGetCount === publishArrivalAfterGet) {
+            setImmediate(() => {
+                journal.phases = ['navigation-arrived'];
+                journal.viewer_instance_ids = [];
+            });
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-            ...journal,
+            ...responseJournal,
             viewer_instance_ids: duplicateViewers
                 ? ['viewer-one', 'viewer-two']
-                : ['viewer-one'],
+                : responseJournal.viewer_instance_ids,
         }));
     });
     await new Promise(resolve => server.listen(0, 'localhost', resolve));
@@ -187,6 +213,7 @@ Module._load = originalLoad;
             'blocked command discovery must fall through to a direct command attempt'
         );
         const discoveryCalls = getCommandsCalls;
+        const distinctVisibleStart = editorTabs.length;
         const opened = await __test.openInIntegratedBrowser(
             'http://localhost:9000/?sid=sid-one',
             backendUrl,
@@ -216,13 +243,13 @@ Module._load = originalLoad;
             false,
             'distinct ArrayView calls need new tabs, not permanently locked side groups'
         );
-        assert.strictEqual(
-            commandArgs.reuseUrlFilter.startsWith('/_av/'),
-            true,
-            'only retries of the same request may reuse its browser tab'
-        );
         const openedUrl = new URL(commandArgs.url);
         const firstPrepared = preparedBodies.at(-1);
+        assert.strictEqual(
+            commandArgs.reuseUrlFilter,
+            `/_av/${firstPrepared.tab_key}/**`,
+            'only full short paths owned by this launch may reuse its browser tab'
+        );
         assert.strictEqual(openedUrl.origin, 'http://localhost:9000');
         assert.strictEqual(openedUrl.search, '');
         assert.strictEqual(openedUrl.hash, '');
@@ -265,6 +292,11 @@ Module._load = originalLoad;
             'a distinct request must use a fresh readiness token'
         );
         assert.strictEqual(await replayed.viewerReady, null);
+        assert.strictEqual(
+            editorTabs.length,
+            distinctVisibleStart + 2,
+            'distinct launches must retain distinct physical browser tabs'
+        );
 
         duplicateViewers = true;
         const currentToken = preparedBodies.at(-1).token;
@@ -362,6 +394,47 @@ Module._load = originalLoad;
         );
         commandObserver = null;
 
+        const nearDeadlineToken = 'near-deadline-token';
+        journal = {
+            sid: 'sid-one',
+            request_id: 'request-near-deadline-arrival',
+            window_id: 'window-one',
+            server_id: 'server-one',
+            token: nearDeadlineToken,
+            phases: [],
+            viewer_instance_ids: [],
+        };
+        setTimeout(() => {
+            journal.phases = ['navigation-arrived'];
+        }, 420);
+        setTimeout(() => {
+            journal.phases = [
+                'navigation-arrived',
+                'script-loaded',
+                'ws-open',
+                'metadata-loaded',
+                'frame-rendered',
+            ];
+            journal.viewer_instance_ids = ['viewer-one'];
+        }, 720);
+        const nearDeadlineError = await __test.waitForBackendViewerReady(
+            backendUrl,
+            'sid-one',
+            'request-near-deadline-arrival',
+            'server-one',
+            'window-one',
+            nearDeadlineToken,
+            2000,
+            () => {},
+            null,
+            500
+        );
+        assert.strictEqual(
+            nearDeadlineError,
+            null,
+            `a page arriving near the navigation deadline gets a fresh bounded script budget: ${nearDeadlineError?.message || ''}`
+        );
+
         const delayedPreScriptStart = commandArgsHistory.length;
         const delayedPreScriptCommandStart = commandHistory.length;
         const delayedPreScriptPreparedStart = preparedBodies.length;
@@ -422,6 +495,106 @@ Module._load = originalLoad;
         );
         commandObserver = null;
 
+        const arrivedStart = commandArgsHistory.length;
+        const arrivedPreparedStart = preparedBodies.length;
+        journal = null;
+        deferReady = true;
+        commandObserver = (args, command) => {
+            if (
+                command === 'workbench.action.browser.open'
+                && args && args.url
+                && journal.request_id === 'request-navigation-arrived'
+            ) {
+                journal.phases = ['navigation-arrived'];
+                journal.viewer_instance_ids = [];
+                setTimeout(() => {
+                    journal.phases = [
+                        'navigation-arrived',
+                        'script-loaded',
+                        'ws-open',
+                        'metadata-loaded',
+                        'frame-rendered',
+                    ];
+                    journal.viewer_instance_ids = ['viewer-one'];
+                }, 700);
+            }
+        };
+        const arrived = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-navigation-arrived',
+            'server-one',
+            'window-one',
+            3000,
+            () => {},
+            1200
+        );
+        assert.strictEqual(await arrived.viewerReady, null);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            arrivedStart + 1,
+            'an arrived page must not be replaced while its large script is still loading'
+        );
+        assert.deepStrictEqual(
+            preparedBodies
+                .slice(arrivedPreparedStart)
+                .map(body => body.navigation_attempt),
+            [0],
+            'an arrived page must keep its original navigation attempt'
+        );
+        commandObserver = null;
+
+        const arrivedButStuckStart = commandArgsHistory.length;
+        journal = null;
+        commandObserver = (args, command) => {
+            if (
+                command === 'workbench.action.browser.open'
+                && args && args.url
+                && journal.request_id === 'request-navigation-arrived-stuck'
+            ) {
+                journal.phases = ['navigation-arrived'];
+                journal.viewer_instance_ids = [];
+            }
+        };
+        const arrivedButStuck = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-navigation-arrived-stuck',
+            'server-one',
+            'window-one',
+            3000,
+            () => {},
+            500
+        );
+        assert.match((await arrivedButStuck.viewerReady).message, /kept failing to load/);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            arrivedButStuckStart + 1,
+            'an arrived page that never starts its script must still fail without visible retries'
+        );
+        commandObserver = null;
+
+        const arrivalRaceStart = commandArgsHistory.length;
+        journal = null;
+        publishArrivalAfterGet = 3;
+        const arrivalRace = await __test.openInIntegratedBrowser(
+            'http://localhost:9000/?sid=sid-one',
+            backendUrl,
+            'request-navigation-arrival-race',
+            'server-one',
+            'window-one',
+            3000,
+            () => {},
+            500
+        );
+        assert.match((await arrivalRace.viewerReady).message, /kept failing to load/);
+        assert.strictEqual(
+            commandArgsHistory.length,
+            arrivalRaceStart + 1,
+            'an arrival between the regular poll and retry decision must fence tab replacement'
+        );
+        publishArrivalAfterGet = null;
+
         const unsafeStart = commandArgsHistory.length;
         const unsafeClosedStart = closedTabs.length;
         const unsafeVisibleStart = editorTabs.length;
@@ -438,7 +611,7 @@ Module._load = originalLoad;
             () => {},
             500
         );
-        assert.match((await unsafe.viewerReady).message, /did not start the viewer script/);
+        assert.match((await unsafe.viewerReady).message, /kept failing to load/);
         assert.strictEqual(
             commandArgsHistory.length,
             unsafeStart + 1,
@@ -514,9 +687,11 @@ Module._load = originalLoad;
             staleClosedStart,
             'recovery must not force-close a stale tab handle'
         );
-        // The stale tab could not be closed, so it is left behind alongside the
-        // successful replacement — the lesser fault than losing the request.
-        assert.strictEqual(editorTabs.length, staleVisibleStart + 2);
+        assert.strictEqual(
+            editorTabs.length,
+            staleVisibleStart + 1,
+            'the request-owned glob must find and reuse the rebuilt browser tab'
+        );
         commandObserver = null;
 
         const recoveredStart = commandArgsHistory.length;
@@ -565,8 +740,8 @@ Module._load = originalLoad;
         );
         assert.strictEqual(
             closedTabs.length,
-            recoveredClosedStart + 1,
-            'recovery must close the exact blank tab before retrying'
+            recoveredClosedStart,
+            'recovery must not close its browser tab before retrying'
         );
         assert.strictEqual(
             editorTabs.length,
@@ -595,7 +770,7 @@ Module._load = originalLoad;
         const cappedError = await capped.viewerReady;
         assert.match(
             cappedError.message,
-            /Integrated browser did not start the viewer script before recovery timeout/,
+            /This array kept failing to load/,
             'a permanently blank tab must fail on the short pre-script recovery budget'
         );
         assert.strictEqual(
@@ -631,8 +806,8 @@ Module._load = originalLoad;
         );
         assert.strictEqual(
             closedTabs.length,
-            cappedClosedStart + 2,
-            'every retry must first close the exact prior blank tab'
+            cappedClosedStart,
+            'bounded retries must all navigate the same physical tab'
         );
         assert.strictEqual(
             editorTabs.length,
@@ -644,7 +819,7 @@ Module._load = originalLoad;
             true,
             'guided reload must be able to close only its final captured blank tab'
         );
-        assert.strictEqual(closedTabs.length, cappedClosedStart + 3);
+        assert.strictEqual(closedTabs.length, cappedClosedStart + 1);
         assert.strictEqual(editorTabs.length, cappedVisibleStart);
         deferReady = false;
 

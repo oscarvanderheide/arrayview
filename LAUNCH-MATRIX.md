@@ -58,10 +58,10 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **verified 2026-08-17 `real host`** — three launches rendered their first frames in three distinct tabs with no visible recovery attempt |
-| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable without opening the active IDE**. Previous design passed 6/6 on 2026-08-06 `real host` |
-| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **verified 2026-08-17 `real host`** — two launches rendered their first frames in two distinct tabs with no visible recovery attempt |
-| 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design verified 2026-08-11 `real host`, by the user |
+| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **0.15.53: 2026-08-18 `component`; installed, real-host revalidation awaits user reload**. Previous 0.15.52 verified 2026-08-17 `real host` |
+| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **0.15.53: 2026-08-18 `component`; installed, real-host revalidation awaits user reload**. Previous design passed 6/6 on 2026-08-06 `real host` |
+| 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **0.15.53: 2026-08-18 `component`; installed, real-host revalidation awaits user reload**. Previous 0.15.52 verified 2026-08-17 `real host` |
+| 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **0.15.53: 2026-08-18 `component`; installed, real-host revalidation awaits user reload**. Previous design verified 2026-08-11 `real host`, by the user |
 | 5 | VS Code tunnel, Linux | browser | any | never verified |
 | 6 | VS Code Remote SSH | vscode tab | small, fast local | never verified this session; resolves the URL differently (`asExternalUri`) |
 | 7 | plain SSH, no VS Code | browser | small | never verified |
@@ -86,7 +86,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design verified 2026-08-06 `real host`, by the user |
+| 19 | VS Code tunnel, Linux | vscode tab | small, fast local | **0.15.53: 2026-08-18 `component`; installed, real-host revalidation awaits user reload**. Previous design verified 2026-08-06 `real host`, by the user |
 | 20 | VS Code tunnel | vscode tab | folder / collection | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. A valid collection passed on the previous design 2026-08-06 `real host`; misleading invalid-collection errors remain separate |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
@@ -96,15 +96,15 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | # | Case | Status |
 |---|------|--------|
 | 23 | Cold start — no server running yet | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. Previous design passed 5/5 on 2026-08-06 `real host` |
-| 24 | Warm repeat — second array within ~10 s | **verified 2026-08-17 `real host`** — five consecutive launches all rendered in distinct tabs without visible recovery |
-| 25 | Several viewers open at once | **verified 2026-08-17 `real host`** — five distinct tabs remained connected at once |
+| 24 | Warm repeat — second array within ~10 s | **0.15.53: 2026-08-18 `component`** — retries reuse only their request-owned tab; installed, real-host revalidation awaits user reload. Previous 0.15.52 verified 2026-08-17 `real host` |
+| 25 | Several viewers open at once | **0.15.53: 2026-08-18 `component`** — distinct launches retain distinct tab keys and physical tabs; installed, real-host revalidation awaits user reload. Previous 0.15.52 verified 2026-08-17 `real host` |
 | 26 | Close one viewer, others keep working | **verified 2026-08-17 `real host`** — closing a middle tab released exactly that array; the other four remained connected after a long idle period |
 | 27 | `--kill` / shutdown leaves no orphan processes | **verified 2026-08-06 `real host`** — after `--kill`: no daemon processes, no listening ports (cold-start ports included), no stale claims, registry empty. A normal launch creates exactly one server. **But**: the server is `persist`ent by design, so it outlives the command that started it — including one interrupted mid-launch — and is only stopped explicitly. It stays discoverable via `arrayview instances` and killable, so it is a managed server rather than an orphan; a server from an *earlier session* was still running today and was found and stopped the same way |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |
 | 29 | Two+ windows open, terminal launch opens in **the window the terminal is in** | **verified 2026-08-17 `real host`** — with two Tunnel windows registered, five consecutive terminal launches were claimed by the initiating window and rendered there in distinct tabs |
 | 30 | Two+ windows open, Explorer click opens in **the window clicked in** | partially verified 2026-08-06 `real host` — clicks landed in the clicking window throughout; not tested with two windows side by side. Separately: sound on this host (the click writes to its own window's file), but on any platform with no IPC hook (documented: local macOS) the click writes a filename **no window watches**, costing ~12 s per click before it falls back |
 | 31 | Two+ windows, an unfocused window must not claim another's launch | **not reachable** — the focus guard protects a broadcast path that current Python never writes; safety comes from every request being targeted, not from focus |
-| 32 | Two+ windows, one alive but **not responding** | **failed 2026-08-11 `real host`; guided recovery added with `component` evidence** — two fresh backends in one long-idle window produced blank tabs without a single page request; reloading that exact window fixed it. The opener now offers **Reload and reopen**, keeps the original launch alive, and permits only the uniquely superseding window to resume it. The guided recovery still needs a real-host induced failure before it is marked verified |
+| 32 | Two+ windows, one alive but **not responding** | **failed 2026-08-11 `real host`; 0.15.53 same-tab recovery has 2026-08-18 `component` evidence** — a missing first navigation is reissued inside its request-owned tab; guided reload remains the bounded final fallback. Real-host induced-failure validation awaits approved install/reload |
 | 33 | Two windows, each with its own server on its own port | never verified — and **not a state the code maintains**: the instance registry has no concept of a window, so a second window silently reuses the first window's server unless `--port` is passed explicitly |
 
 ## Known-bad rows, in priority order

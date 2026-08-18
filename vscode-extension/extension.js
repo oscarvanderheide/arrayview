@@ -2703,12 +2703,14 @@ async function waitForBackendViewerReady(
     // finished loading, so a legitimately slow launch would otherwise be
     // killed for being slow rather than for being stuck.
     let deadline = Date.now() + timeoutMs;
-    const preScriptDeadline = Date.now() + Math.min(
+    const preScriptBudgetMs = Math.min(
         timeoutMs,
         Math.max(1, preScriptTimeoutMs)
     );
+    let preScriptDeadline = Date.now() + preScriptBudgetMs;
     let activeToken = token;
     let scriptLoaded = false;
+    let navigationArrived = false;
     let unreachableCount = 0;
     const maxUnreachableAfterScript = 15;
     let navigationAttempt = 0;
@@ -2745,6 +2747,16 @@ async function waitForBackendViewerReady(
         4,
         Math.min(8, Math.floor(preScriptTimeoutMs / navigationRetryDelayMs) - 1)
     );
+    const isOwnedPhasePayload = (payload, expectedToken = activeToken) => Boolean(
+        payload
+        && payload.sid === sid
+        && payload.request_id === requestId
+        && payload.server_id === serverId
+        && payload.window_id === windowId
+        && payload.token === expectedToken
+        && Array.isArray(payload.phases)
+        && Array.isArray(payload.viewer_instance_ids)
+    );
     while (Date.now() < deadline) {
         ensureActive();
         const activeDeadline = scriptLoaded
@@ -2754,17 +2766,17 @@ async function waitForBackendViewerReady(
             `${statusUrl}?token=${encodeURIComponent(activeToken)}`,
             Math.max(1, Math.min(1500, activeDeadline - Date.now()))
         );
-        if (
-            payload
-            && payload.sid === sid
-            && payload.request_id === requestId
-            && payload.server_id === serverId
-            && payload.window_id === windowId
-            && payload.token === activeToken
-            && Array.isArray(payload.phases)
-            && Array.isArray(payload.viewer_instance_ids)
-        ) {
+        if (isOwnedPhasePayload(payload)) {
             scriptLoaded = payload.phases.includes('script-loaded');
+            const arrivedNow = payload.phases.includes('navigation-arrived');
+            if (!navigationArrived && arrivedNow) {
+                navigationArrived = true;
+                // Arrival proves this navigation is alive. Give the large
+                // viewer script one complete, bounded startup budget from
+                // that point instead of expiring the navigation budget a few
+                // milliseconds later.
+                preScriptDeadline = Date.now() + preScriptBudgetMs;
+            }
             for (const phase of payload.phases) {
                 if (!logged.has(phase)) {
                     logged.add(phase);
@@ -2803,6 +2815,26 @@ async function waitForBackendViewerReady(
             }
         }
         if (!scriptLoaded && Date.now() >= preScriptDeadline) {
+            // A phase can land after the last regular poll while that poll's
+            // shrinking timeout is already too short to receive it. Recheck
+            // with a small bounded request before declaring the navigation
+            // dead, and give a newly arrived document its script budget.
+            const latest = await httpJson(
+                `${statusUrl}?token=${encodeURIComponent(activeToken)}`,
+                Math.max(1, Math.min(250, deadline - Date.now()))
+            );
+            if (isOwnedPhasePayload(latest)) {
+                const arrivedNow = latest.phases.includes('navigation-arrived');
+                const newlyArrived = !navigationArrived && arrivedNow;
+                if (newlyArrived) {
+                    navigationArrived = true;
+                    preScriptDeadline = Date.now() + preScriptBudgetMs;
+                }
+                scriptLoaded = latest.phases.includes('script-loaded');
+                if (newlyArrived || scriptLoaded) {
+                    continue;
+                }
+            }
             const probeUrl = pingUrlFromViewerUrl(backendUrl);
             const backend = probeUrl ? await httpJson(probeUrl, 500) : null;
             if (!backend || backend.service !== 'arrayview') {
@@ -2811,25 +2843,51 @@ async function waitForBackendViewerReady(
                 );
             }
             const error = new Error(
-                'Integrated browser did not start the viewer script before recovery timeout'
+                'This array kept failing to load. Click it again to retry.'
             );
             error.code = 'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION';
             return error;
         }
         if (
             !scriptLoaded
+            && !navigationArrived
             && retryPreScriptNavigation
             && navigationAttempt < maxNavigationRetries
             && Date.now() >= nextNavigationRetryAt
             && deadline - Date.now() > 500
         ) {
+            // The head marker can land after the regular poll but before this
+            // retry decision. Recheck the exact journal immediately before
+            // closing the tab so that narrow race cannot discard a valid page.
+            const latest = await httpJson(
+                `${statusUrl}?token=${encodeURIComponent(activeToken)}`,
+                Math.max(1, Math.min(250, preScriptDeadline - Date.now()))
+            );
+            if (
+                isOwnedPhasePayload(latest)
+                && (
+                    latest.phases.includes('navigation-arrived')
+                    || latest.phases.includes('script-loaded')
+                )
+            ) {
+                if (
+                    !navigationArrived
+                    && latest.phases.includes('navigation-arrived')
+                ) {
+                    navigationArrived = true;
+                    preScriptDeadline = Date.now() + preScriptBudgetMs;
+                }
+                scriptLoaded = latest.phases.includes('script-loaded');
+                continue;
+            }
             navigationAttempt += 1;
             ensureActive();
             let replacementToken = null;
             try {
                 replacementToken = await retryPreScriptNavigation(
                     navigationAttempt,
-                    Math.min(deadline, preScriptDeadline)
+                    Math.min(deadline, preScriptDeadline),
+                    activeToken
                 );
             } catch (error) {
                 log(`PANEL: pre-script navigation retry failed: ${error.message || error}`);
@@ -2930,7 +2988,10 @@ async function openInIntegratedBrowser(
     const browserUrl = remoteProxyEnabled ? backendUrl : url;
     const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
     const tabKey = crypto.randomBytes(12).toString('base64url');
-    const reuseUrlFilter = `/_av/${tabKey}/`;
+    // VS Code treats this value as a glob over the parsed URL path. The
+    // trailing wildcard is required to match this launch's changing
+    // navigation key while the unique tab key keeps other launches separate.
+    const reuseUrlFilter = `/_av/${tabKey}/**`;
     let requestTab = null;
     const closeExactRequestTab = async () => {
         if (!requestTab || typeof vscode.window?.tabGroups?.close !== 'function') {
@@ -3034,7 +3095,9 @@ async function openInIntegratedBrowser(
         // instead of reading it as a lost tab and disabling recovery.
         const captured = await _newEditorTabSince(
             tabsBefore,
-            Math.max(0, Math.min(750, attemptDeadline - Date.now()))
+            navigationAttempt > 0
+                ? 0
+                : Math.max(0, Math.min(750, attemptDeadline - Date.now()))
         );
         if (captured) requestTab = captured;
         if (captured) {
@@ -3075,7 +3138,7 @@ async function openInIntegratedBrowser(
             token,
             Math.max(1, viewerDeadline - Date.now()),
             ensureActive,
-            measureNavigation ? null : async (navigationAttempt, deadline) => {
+            measureNavigation ? null : async (navigationAttempt, deadline, currentToken) => {
                 // Recorded before the tab is closed, because closing it
                 // destroys the only evidence of why it stayed blank. A blank
                 // tab has exactly two causes and they need opposite fixes:
@@ -3106,7 +3169,29 @@ async function openInIntegratedBrowser(
                         ? `reachable in ${Date.now() - probeStartedAt}ms`
                         : 'unreachable'}`
                 );
-                if (!requestTab || typeof vscode.window?.tabGroups?.close !== 'function') {
+                // The tiny head script may have reported arrival while the
+                // diagnostic probe above was running. Check once more before
+                // navigating this exact tab again.
+                const latest = await httpJson(
+                    `${journalUrl}?token=${encodeURIComponent(currentToken)}`,
+                    Math.max(1, Math.min(250, deadline - Date.now()))
+                );
+                if (
+                    latest
+                    && latest.request_id === requestId
+                    && latest.server_id === serverId
+                    && latest.window_id === windowId
+                    && latest.token === currentToken
+                    && Array.isArray(latest.phases)
+                    && (
+                        latest.phases.includes('navigation-arrived')
+                        || latest.phases.includes('script-loaded')
+                    )
+                ) {
+                    log('PANEL: page arrived before blank-tab replacement; keeping tab');
+                    return currentToken;
+                }
+                if (!requestTab) {
                     log('PANEL: blank-tab recovery unavailable without exact tab handle');
                     return null;
                 }
@@ -3125,20 +3210,10 @@ async function openInIntegratedBrowser(
                     log('PANEL: exact blank tab handle became stale or unsafe; retrying navigation');
                     return prepareNavigation(navigationAttempt, deadline);
                 }
-                // The blank tab is closed before renavigating. Leaving it open
-                // and relying on this launch's shared reuseUrlFilter to
-                // navigate it in place was tried in 0.15.35 and does not work:
-                // the workbench opened a fresh tab for every wake-up attempt
-                // instead of reusing the one already there, so a single launch
-                // left five stacked tabs with the viewer only in the last. The
-                // flicker this causes is the lesser fault until something
-                // actually makes the reuse happen.
-                const closed = await closeExactRequestTab();
-                if (!closed) {
-                    log('PANEL: exact blank tab could not be closed; retrying navigation');
-                } else {
-                    log(`PANEL: closed exact blank tab; retrying navigation attempt=${navigationAttempt}`);
-                }
+                // Keep the exact request tab open. The request-owned glob
+                // makes VS Code navigate this tab in place, so a dropped page
+                // load does not create, close, or flicker browser tabs.
+                log(`PANEL: retrying navigation in exact tab attempt=${navigationAttempt}`);
                 return prepareNavigation(navigationAttempt, deadline);
             },
             preScriptTimeoutMs,
@@ -3538,8 +3613,9 @@ async function processSignalData(data) {
             let choice = null;
             try {
                 choice = await vscode.window.showErrorMessage(
-                    'ArrayView: VS Code\'s browser is stuck. Reload this window '
-                    + 'and ArrayView will reopen the array automatically.',
+                    'ArrayView: this array kept failing to load. Close this and '
+                    + 'click the array again — if it keeps happening, reloading '
+                    + 'the window can help.',
                     'Reload and reopen'
                 );
             } catch (_) {}

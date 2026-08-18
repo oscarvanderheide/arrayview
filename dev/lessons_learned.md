@@ -468,3 +468,17 @@ causes ArrayView to request a reload that cannot activate the new opener.
 and post-install contract. Serialize shared-profile installs, repair orphan
 directories through the exact CLI, and request reload only after registration
 has been observed.
+
+## Reuse Filters Are Globs, and Readiness Must Mark the Earliest Useful Boundary
+
+**Problem:** The integrated-browser command reports editor creation, not page
+load. ArrayView then used a marker near the end of a large inline script as its
+first proof of navigation and closed pages that had already reached the server.
+Its retry filter also omitted the wildcard required to match the request's
+changing short URL, while the test double ignored matching entirely. The result
+was a false "dropped request" diagnosis and replacement-tab flicker.
+**Fix:** Report arrival from the document head, give script startup a fresh
+bounded budget after that marker, and model the host's real glob semantics in
+tests. Give each launch a unique path prefix and use a trailing `/**`, so only
+that launch's retries navigate its existing tab while separate arrays retain
+separate tabs.

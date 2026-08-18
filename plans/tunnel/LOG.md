@@ -3023,3 +3023,563 @@ the active tunnel would modify/reload the user's IDE, which was not authorized.
 Rows 1-4, 16, 19-20 and 23-26 remain open for the required five-launch tunnel
 gate: overlapping launches, close a middle viewer, reconnect, idle repeat,
 first frame for every request, then final session/process/port cleanup.
+
+---
+
+## 2026-08-14/15 — 0.15.49: stop escalating a fully-dead ladder straight to a reload
+
+**Input**: "the fucking flickering/retries happened again" (~20:26 UTC), then "it
+happened few minutes ago too", then explicit instruction to dig for the real
+root cause, verify without asking for more input, and use subagents to
+challenge the work — the user was stepping away and not available to test.
+
+### What actually happened tonight, and what didn't
+
+Window `55affe0c`, request `4d80b922032d6bb30729c00f3791453a`
+(`initial_proton_density.npy`, reusing warm port 42445): 5 blank-tab retries
+20:26:55.956→20:27:03.183, `RECOVERY: final blank tab closed=true`, a window
+reload (`RECOVERY: reload command failed: Canceled` — misleading; the reload
+did happen, confirmed by the next window's clean activate/launch immediately
+after). Already-installed opener was 0.15.48, so this is the first real
+exercise of the lease-based fix from the previous entry, and it still hit the
+ladder's full exhaustion path.
+
+**First hypothesis, tried and killed by direct evidence.** `reportParent()` in
+`_viewer.html` posts each load phase (`script-loaded`, `ws-open`, …) as a
+single unretried `fetch()`, unlike the WebSocket connect (`_createHedgedWebSocket`)
+or GET traffic (`_hedgedFetch`), both of which already exist specifically
+because "a request that crosses the VS Code tunnel relay is dropped outright
+roughly one time in five, with no slow tail." Server-side, re-posting a phase
+is confirmed idempotent (`_routes_query.py::record_viewer_phase`, `if phase not
+in phases: phases.append(phase)`). Hypothesis: some blank-tab episodes are
+really a page that loaded fine but whose `script-loaded` report was lost —
+matching "flicker" (something briefly there) better than "hang".
+
+Two subagents were run in parallel to verify this against the log and red-team
+the fix before any code was written (per this skill's discipline). Both
+returned real findings — idempotency confirmed safe, no requirements conflict —
+but both also flagged the hypothesis as unproven: the most recent log entries
+(2026-08-13/14) attribute the same 5-retry-then-reload shape to stale
+port/lease races, not lost reports, and a similarly-shaped theory from 0.15.19
+(2026-08-04, see above) was already tried and withdrawn.
+
+**Direct evidence settled it.** `~/.arrayview/launch-trace.jsonl` (opt-in
+tracing, already enabled on this machine via `~/.arrayview/enable-launch-trace`)
+records `page.route_prepared` (extension asks for a route) and
+`page.route_entered` (the page's own GET actually reached the backend)
+separately. For every one of tonight's 6 navigation attempts:
+`page.route_prepared` fired, `page.route_entered` never did. The browser's GET
+for the viewer page never reached the server on any attempt — there was no
+loaded page to fail to report anything. This falsifies the phase-report
+hypothesis for tonight's incident outright.
+
+Scoped to the last 48h of the trace: per-attempt arrival rate is 72.7% (27.3%
+never arrive — consistent with, slightly worse than, the already-documented
+relay figure), but of 54 distinct launch requests only **2 went fully dead**
+(all 6 retries failed to arrive) — a rate ~90x higher than independent-attempt
+math predicts (0.273^6 ≈ 0.04%), confirming drops are bursty and a burst can
+outlast the whole ~10s retry window. This also means the ladder itself is
+already working well (96% recovery) — the residual ~4% "fully dead" tail is
+what tonight was, and it always escalated to a disruptive interactive window
+reload with no other automatic recovery.
+
+### Change (opener 0.15.49)
+
+`vscode-extension/extension.js`, inside `_processSignalDataBody`'s
+`ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION` handling: when the integrated
+ladder is confirmed fully exhausted (the stale tab is confirmed *closed*, not
+just attempted — see double-open guard below) and this is not already a
+reload-recovery attempt, try `openInExternalBrowser` once — the existing,
+already-implemented `vscode.env.openExternal` path, a structurally different
+VS Code transport than the `enableRemoteProxy`/integrated-browser channel that
+just failed 6 times — before ever prompting for a reload. On success, the
+request settles normally (`visibility_verified` → `backend_ready`) with no
+dialog and no reload. On failure, it falls through to the existing wedge/reload
+path unchanged.
+
+This is a cross-transport hedge for the rare fully-dead tail, not a retry-count
+or timeout retune (explicitly the wrong move — see "stop tuning the retry
+delay" in memory and the 0.15.35 stacked-tabs history above).
+
+**Two correctness issues found by the second red-team pass and fixed before
+landing, not after**:
+1. *Double-open risk*: if the stale integrated-browser tab's close is only
+   attempted, not confirmed, and its navigation was merely late rather than
+   dead, it could still render — an unrequested second live view of the same
+   session. Fixed by gating the fallback on `closeIntegratedBrowserTab()`
+   actually returning `true`, not just being called.
+2. *Session-release mismatch*: `openInExternalBrowser` releases the session
+   itself if `vscode.env.openExternal` fails or is declined — which
+   contradicts `arrayviewRetainSession`'s promise to the reload path that the
+   session is still there. Fixed by downgrading
+   `viewerError.arrayviewRetainSession = false` when the fallback attempt
+   itself throws, so a doubly-failed request gets a plain error instead of an
+   offer to reload into a session that's already gone.
+
+**Regression risk**: confined to the one `ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION`
+branch, which only fires for `desktopTunnel` launches whose integrated-browser
+ladder fully exhausted — never touches local VS Code, Remote-SSH, terminal
+cold-start, port selection, or the already-passing 96% of launches. On the
+new failure branch itself: success path mirrors the existing terminal-success
+ACK sequence exactly; failure path rethrows the original error unchanged
+(`arrayviewRetainSession` untouched) so the pre-existing reload prompt remains
+the safety net byte-for-byte, confirmed by `test_reload_recovery.js`'s
+unchanged wedge-classification assertions still passing.
+
+**Evidence `component`**: new `test_integrated_browser_external_fallback.js`
+drives `_processSignalDataBody` directly (not just `openInIntegratedBrowser`/
+`openInExternalBrowser` in isolation) against a real local HTTP server standing
+in for the backend, covering both the rescue-succeeds case (no reload prompt,
+no error message, ACK reaches `backend_ready`) and the rescue-also-fails case
+(original wedge error surfaces, `arrayviewRetainSession` correctly downgraded).
+All 21 `vscode-extension/test_*.js` pass. `tests/test_api.py` 314/314,
+`tests/test_vscode_ack_protocol.py` 20/20,
+`tests/test_lifecycle_contract.py` version/VSIX-consistency tests pass; its one
+failure (`test_integrated_launch_cleanup_is_scoped_per_request_token`) is
+confirmed pre-existing by stashing this change and re-running — identical
+failure on `HEAD`, matches the 2026-08-06 log entry.
+
+**Real-host evidence `unavailable`**: the user stepped away before this landed
+and reload/install requires their explicit permission per this file's
+non-negotiables — not attempted. Opener bumped to 0.15.49 and the bundled VSIX
+rebuilt (`npx @vscode/vsce package`); **not installed**, no window touched.
+
+**Result**: **REJECTED, before real-host testing** (2026-08-15). The maintainer
+does not want a system-browser popup under any circumstance, and does not want
+the retry ladder itself either — the bar is "it should just work, period", not
+a softer failure mode for the rare case retries don't recover. Reverted in
+full: `extension.js`, the 0.15.49 version bump in `package.json` and
+`_vscode_extension.py`, the rebuilt VSIX, and the new test file were all
+discarded (`git checkout --`), back to committed 0.15.48. Nothing was ever
+installed, so no live window needs anything undone.
+
+**What carries forward**: the trace-based method (`~/.arrayview/launch-trace.jsonl`,
+`page.route_prepared` vs `page.route_entered`) and the falsification of the
+phase-report-POST hypothesis are still true and worth reusing — re-derive
+neither. What does *not* carry forward is the fix direction: a fallback
+transport, however automatic, is not an acceptable answer here. The real ask
+is that the *visible* flicker — including a single successful retry, which
+happens far more often than the ~4% fully-dead case measured above — stop
+being visible at all, not that its worst outcome become gentler.
+
+**Still open, reframed**: making the open "just work, period" means either (a)
+the underlying drop rate the trace measured (~20-27% per page-load attempt)
+stops mattering because repeat opens stop requiring a fresh page load at all —
+the "push a new array into an already-open, already-connected tab over its
+live WebSocket instead of navigating a new one" idea considered and set aside
+earlier this session as too large to ship unattended — or (b) some other way
+to make the first navigation itself reliable, not just recoverable. Both are
+bigger and riskier than anything landed tonight, and (a) changes what the user
+sees on a normal open, so it needs to be scoped and agreed on its own before
+any code — not assumed from this rejection.
+
+---
+
+## 2026-08-15 continued — 0.15.49: in-place array switching (built after all)
+
+**Input**: explicit follow-up instruction, unattended — no visible retries,
+no fallback surface of any kind, "handles all cases of slow connection, stale
+server, stale whatever, i dont care", dig through the real history, use
+subagents, fix it, verify it, install it, don't ask again unless a window
+reload is genuinely required.
+
+This is option (a) from the entry above, built after two research subagents
+independently confirmed the alternatives are dead ends: making the retry
+ladder itself invisible has no VS Code API to do it with (no background/
+non-visible tab option exists on `workbench.action.browser.open`, and a
+hidden-webview warm-up was already tried in this file on 2026-08-06 and
+killed — a webview's requests cross a different channel than the real browser
+tab's, so it can't test or predict what it's standing in for), and nothing
+found reduces the underlying per-attempt drop rate itself.
+
+### The mechanism
+
+Most flicker isn't the rare fully-dead ladder from the previous entry — it's
+*any* single dropped attempt, which the trace's own 48h numbers put at
+20-27% of individual page loads, on every array opened after the first one in
+a session. The fix removes the fresh page load itself for that case: an
+already-open, already-connected viewer tab can be told to display a different
+array over its own live connection, with no new navigation and therefore
+nothing for the tunnel to drop.
+
+- `_routes_websocket.py`: new `/control/{viewer_instance_id}` WebSocket,
+  deliberately separate from the hot per-array `/ws/{sid}` render socket (that
+  one's send path is shared by every render mode; pushing an external message
+  into it would need a lock around every existing send site to stay safe —
+  this new socket sends and receives at most a couple of messages for its
+  whole life, so it carries none of that risk). New `POST
+  /viewer-switch/{viewer_instance_id}` pushes a `switch_session` message and
+  waits (bounded, 8s) for the page's own `switch_result` answer before
+  responding — session readiness alone can't distinguish "applied" from
+  "declined", since the target array loads on the backend either way.
+- `_viewer.html`: `sid` is `let`, not `const` — it's read in dozens of places
+  by closure reference but only ever written once at script start until now.
+  New `_switchPrimaryArray(newSid)` tears down the current WebSocket and
+  re-runs the page's own `init()` load sequence against the new sid, reusing
+  the exact same metadata-fetch/render/preference-restore path a fresh page
+  load already takes — not a parallel reimplementation of it. Declines
+  silently (no-op) when compare/qMRI/multiview is active, since a same-page
+  reload doesn't know how to fold that state back in; the caller falls back
+  to a normal navigation exactly as it already does today for those modes.
+- `extension.js`: a new in-memory `port -> {viewerInstanceId, serverId}` map
+  remembers the last confirmed-live tab per port. A launch tries
+  `_tryInPlaceSwitch` first; only on "no live tab remembered", "declined", or
+  "undelivered" (stale entry — tab closed/reloaded/crashed) does it fall
+  through to the existing `openInIntegratedBrowser` navigation, unchanged.
+
+### Two dormant bugs found by actually running it, not guessed
+
+`enterMode(NormalLayout)` had only ever been called once per page before this
+(the initial bootstrap) or as a return-to-normal from a *different* mode
+(qMRI/compare's own exit functions) — never normal-to-normal. Two single-shot
+assumptions broke the instant a second normal-mode load ran on the same page,
+found via real Playwright runs against a real local server, not static
+reading:
+
+1. **`View.destroy()` deleted the page's static `#canvas-wrap` permanently.**
+   `NormalLayout` *adopts* the page's static markup (`arrangeViews` pre-sets
+   `view.canvas`/`view.wrapper` from the existing `#viewer`/`#canvas-wrap`,
+   "back-compat with legacy DOM queries") rather than creating its own, but
+   `View.destroy()` unconditionally removed `this.wrapper` from the DOM on
+   every mode exit — correct for every other mode, which does create its own
+   wrapper, wrong for Normal, which doesn't own the one it's holding. Fixed
+   with a `this._ownsWrapper = !this.canvas` flag set in `init()`, checked in
+   `destroy()`. Traced through every layout by a review pass afterward:
+   Compare/qMRI/MultiView all still tear down correctly.
+2. **`_metadataFromWs` only ever resolves once per page.** It's a `const`
+   Promise settled by the first metadata push and consulted again by
+   `Promise.race` on every subsequent load — a second `init()` call raced
+   against an *already-settled* promise from the first load and always won
+   instantly with the wrong array's metadata, no matter how long the real
+   fetch took. Made resettable; reset once per switch, before the new
+   WebSocket opens.
+
+### A real concurrency bug found by review, fixed before landing
+
+An independent review subagent (run specifically to stress-test this before
+shipping, given the size of the change) found that `VIEWER_INSTANCE_SWITCH_WAITERS`
+was keyed only by `viewer_instance_id` — two switches fired close enough
+together (rapid consecutive Explorer clicks) would have the second `POST`
+silently overwrite the first's pending `Future`, orphaning it to time out
+reporting `applied: false` for an array that may have loaded correctly, and
+worse, `_switchPrimaryArray` had no reentrancy guard, so two overlapping
+`init()` calls could interleave writes to shared state (`sid`, `ws`,
+`wsReady`, ...) with no lock — a genuine data race in the browser, not just a
+slow response.
+
+Fixed both sides: the backend now correlates each push with a per-request
+`token`, keying the waiter dict by `(viewer_instance_id, token)` and requiring
+it echoed back in `switch_result`; the client got a `_switchGeneration`
+counter, the same "transition generation" pattern already used for
+compare-mode centre-pane transitions elsewhere in this file — each switch
+attempt captures its own generation and checks it again after every `await`,
+abandoning silently (no shared-state mutation, no stale confirmation sent)
+the moment a newer switch has superseded it.
+
+**Evidence `component`**: `vscode-extension/test_in_place_switch.js` — a cold
+port opens fresh and gets remembered; a second launch on the same port
+retargets it with zero new navigations; a third launch after the remembered
+instance goes stale (undelivered) falls back to a real navigation and
+re-remembers its own new tab. All 21 `vscode-extension/test_*.js` pass.
+
+**Evidence `real process` / real browser** (not mocked — real local server,
+real Chromium via Playwright): `tests/test_viewer_switch.py`, three tests —
+switching retargets the page with no navigation and the right array ends up
+displayed; compare mode declines correctly and leaves the original array in
+place; two genuinely concurrent switches (`ThreadPoolExecutor`, two separate
+`httpx.Client`s) to the same tab both get delivered, the page ends on exactly
+one complete, correct array (whichever request's confirmation the page
+processes second — not a hybrid, not neither), throws no page errors, and
+never navigates. Run 5 times in a row clean (not just once) given it's
+exercising a fixed race, not a deterministic path.
+
+**Full regression, before and after** (`git stash` diff): `tests/test_api.py`
+(314), `test_vscode_ack_protocol.py` (20), `test_lifecycle_contract.py`,
+`test_mode_roundtrip.py`, `test_mode_matrix.py`, `test_mode_consistency.py`,
+`test_colorbar_hover_highlight.py` — identical 20 pre-existing failures both
+times (formatting/round-trip issues unrelated to this change, several
+predating this whole investigation), 473 passing either way. No new failures
+anywhere, including in the modes this change does not touch.
+
+**Scope, stated plainly**: covers Explorer-click and terminal launches into a
+plain single-array normal-mode tab in a VS Code tunnel window — the common
+case, and the one the flicker complaints are actually about. Does not
+eliminate exposure for the very first array opened in a brand-new window
+(nothing to switch from yet — falls back to the existing, already-hardened
+navigation-and-retry path unchanged) or for compare/qMRI/multiview views
+(same fallback). Terminal launches on a cold port also fall back unchanged.
+
+**Real-host evidence `unavailable`**: not installed into the live tunnel
+window, and no window was reloaded, per this file's standing rule that
+requires the user's presence for that. Opener bumped to 0.15.49 (supersedes
+the reverted attempt earlier tonight, which never shipped), bundled VSIX
+rebuilt, and installed into the tunnel's own extension host via
+`_ensure_vscode_extension(is_remote=True)` — the correct install path for a
+tunnel session, confirmed by resolving to the real remote server CLI under
+`~/.vscode/cli/servers/.../bin/remote-cli/code`, not the desktop `code` on
+PATH. The user's own next window reload is the only step left; nothing else
+was touched.
+
+**Result**: **BROKEN, found by the user, reverted** (2026-08-16). Never gated
+on whether more than one ArrayView tab was already open: it reused *any*
+remembered live tab on the same port for *any* subsequent launch, so opening a
+second array while a first was already open silently retargeted the first tab
+instead of opening a second one — a direct R5 violation none of the testing
+(Playwright, extension unit tests, two subagent reviews, full regression)
+caught, because all of it exercised single-tab sequences only. Caught by the
+user asking "what if I want two tabs open" after the build was already
+installed and the window reloaded — i.e. it was live in the user's real
+session for a period. Reverted in full: `extension.js`, the two backend routes
+(`_routes_websocket.py`), and the `_viewer.html` client changes are all back
+to the pre-2026-08-16 state. Opener re-bumped to 0.15.50 (reverted code under a
+new version number, solely to supersede the broken 0.15.49 registration that
+had already activated) and installed 2026-08-16 21:28. Full narrative in
+`.mex/handoffs/vscode-open-flicker.md`.
+
+---
+
+## 2026-08-16 continued — 0.15.51: the ladder-exhaustion message misdiagnosed itself
+
+**Input**: explicit follow-up, unattended: "I don't just want to revert, I
+want you to actually fix the fucking arrayview launching... if it fails
+altogether without a good error message... it's also not good." Told to dig
+deep, plan, implement, and verify without asking at each step.
+
+### What was re-checked before proposing anything new
+
+Reread this file's full 2026-08-14/15 history and the handoff before touching
+code, per this skill's Step 0. Every structural lever for eliminating the
+*visible* flicker is already a documented dead end and none is re-proposed
+here:
+
+- Hidden/non-visible retry tab: no VS Code API supports it (confirmed
+  2026-08-15).
+- In-place navigation reuse *within* one launch's own retries (leaving the
+  blank tab open and relying on `reuseUrlFilter`): tried in 0.15.35, produced
+  five stacked tabs instead of one reused tab — the close-then-reopen cycle
+  currently in `openInIntegratedBrowser` is deliberately the lesser fault
+  (comment at `extension.js` "The blank tab is closed before renavigating").
+- Cross-launch retarget of an already-open tab to a different array: this is
+  exactly what broke 0.15.49 above — directly conflicts with R5 whenever the
+  user's actual intent is "open a second array," which is the common case, not
+  an edge case.
+- System-browser fallback: explicitly rejected by the user 2026-08-15, not
+  reproposed.
+- Reducing the underlying transport drop rate itself: two independent research
+  passes already found no lever inside this codebase (2026-08-15); re-reading
+  `waitForBackendViewerReady`'s retry cadence (`navigationRetryDelayMs`,
+  `maxNavigationRetries`) confirms it is already fitted to real measured
+  percentiles (213-navigation sample, 2026-08-05) — this matches the "stop
+  tuning the retry delay" memory note and was not touched.
+
+### What was actually wrong and is new
+
+The retry ladder's terminal failure message, shown via `showErrorMessage` with
+a `'Reload and reopen'` button (`extension.js`, inside the
+`_isIntegratedBrowserNavigationWedge` branch of the signal-dispatch catch),
+read *"VS Code's browser is stuck. Reload this window and ArrayView will
+reopen the array automatically."* This is a misdiagnosis for the common case:
+the underlying `Error` (`ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION`, thrown by
+`waitForBackendViewerReady` when the pre-script deadline passes with the
+backend still healthy) fires identically whether the cause is a genuinely
+wedged extension host or — per the 2026-08-14/15 trace evidence in this same
+file — a page GET that was dropped by the transport and never arrived at all.
+Every directly-observed instance in this file's own trace evidence was the
+latter, not the former. Telling the user "the browser is stuck" when the
+actual cause was "the connection to it kept failing" is exactly the kind of
+non-actionable/wrong failure message R10 rules out — the user's ask for "a
+good error message... with instructions" is this, concretely.
+
+The message also led with "reload," when reload is not shown by any evidence
+here to recover *this* case any better than simply retrying the same click
+would — the window-reload machinery just buys wall-clock time past a burst,
+which a plain re-click does too, without the disruption of a full window
+reload. Re-ordered to lead with the cheaper recovery.
+
+### Change (opener 0.15.51)
+
+`vscode-extension/extension.js`, two message strings only, no logic changed:
+
+1. The `Error` thrown by `waitForBackendViewerReady` on ladder exhaustion:
+   `'Integrated browser did not start the viewer script before recovery
+   timeout'` → `'This array kept failing to load. Click it again to retry.'`
+   This is what terminal launches see (no notification surface there), via
+   the existing `writeProtocolAck(data, 'failed', error.message)` /
+   `showErrorMessage` fallback paths — unchanged plumbing, just an accurate,
+   plain-language message instead of an internal phrase.
+2. The `showErrorMessage` dialog text in the `_isIntegratedBrowserNavigationWedge`
+   branch: reworded to state the actual observed cause ("kept failing to
+   load") and lead with "close this and click the array again," keeping
+   reload as the secondary option via the same `'Reload and reopen'` button
+   (unchanged string, so the existing choice-equality checks and the
+   preserve/resume-after-reload machinery are untouched).
+
+**Regression risk**: none — both changes are string literals only; no control
+flow, timing, retry count, or tab logic touched. Two test files asserted the
+old literal strings (`test_reload_recovery.js`, a self-constructed mock Error
+unrelated to production behavior; `test_integrated_browser_readiness.js`, two
+assertions against the real thrown message) — updated to match, still
+asserting the same `.code`/`.arrayviewIntegratedBrowserOpened`/
+`.arrayviewRetainSession` semantics as before.
+
+**Evidence `component`**: all 21 `vscode-extension/test_*.js` pass;
+`uv run pytest tests/test_lifecycle_contract.py -k "vsix or version"` (4/4)
+pass.
+
+**Real-host evidence `unavailable` at first, then installed**: opener bumped to
+0.15.51, VSIX rebuilt. First install attempt via
+`_ensure_vscode_extension(is_remote=True)` and directly via the remote `code
+--install-extension` CLI both hung and were killed after 30s/90s with no
+output — at that moment this host had no live `--type=extensionHost` process
+for this user (checked via `ps aux`), unlike other users' sessions on the same
+box, meaning the user's actual VS Code window was not connected to this tunnel
+host at that instant. Not a code regression — the same recipe installed
+0.15.50 cleanly at 21:28 the same day. A failure guard was recorded and, per
+its own semantics, correctly skipped an immediate second attempt against the
+same unchanged host. Retried once an `extensionHost` process reappeared in
+`ps aux` (00:21) — installed cleanly this time, no timeout, no error;
+`~/.vscode-server/extensions/arrayview.arrayview-opener-0.15.51` exists. The
+user's own next window reload is the only step left; nothing else was
+touched.
+
+**Not attempted, and why**: the higher-leverage structural idea that could
+actually get closer to "should just work, period" — moving from "N separate
+VS Code editor tabs, each a fresh navigation" to "one persistently-open,
+already-connected tab that renders its own in-page view per array" — was
+considered and explicitly not built. It is a variant of the same shape as the
+0.15.49 in-place-switching idea reverted above (a single live connection
+standing in for what today is N independent navigations), and this file's own
+standing rule for that shape of idea is explicit sign-off on the exact
+semantics, including edge cases, before any code — not after. Flagged to the
+user as a real option pending that sign-off, not built speculatively.
+
+**Result**: (pending — installed 2026-08-17 00:21, awaiting the user's next
+window reload and their real-host confirmation that the failure message now
+reads correctly)
+
+## 2026-08-17 — 0.15.52: a system-browser handoff must not block Tunnel tabs
+
+**User-visible failure (`real host`)**: an Explorer click stayed on “Opening
+example_3d_volume.npy in ArrayView…”, and a simultaneous
+`uv run arrayview large_array.npy` appeared to do nothing. Both arrays rendered
+only after several minutes. The extension reported
+`processSignalData hard timeout after 190448ms`.
+
+**Earliest failed boundary**: request `3bcc0e7f…` was an older explicit
+system-browser request for `oblique_test.nii`. Its backend identity and launch
+journal were verified, then VS Code's system-browser API never returned. The
+request held window `9bddfb05`'s launch queue from 10:58:47.908Z until the hard
+timeout at 11:01:58.385Z. The Explorer and terminal requests remained unclaimed
+behind it. Once the timeout released the queue, the Explorer request reached
+its first frame in 0.67 s and the terminal request in 0.59 s. All registrations
+were opener 0.15.51 and sibling windows did not steal the requests, ruling out
+version skew and cross-window claiming for this incident.
+
+**Change**: after the bounded backend and readiness-journal checks, the explicit
+system-browser handoff releases only its own owner-ticket queue before awaiting
+VS Code. The original request may still wait on that non-cancellable API, but it
+cannot starve unrelated Explorer or terminal launches. No display policy,
+fallback, retry timing, or tab reuse changed.
+
+**Retry incident kept separate**: request `8a8e5a08…` independently reproduced
+the visible retry problem. Attempts 0 and 1 were prepared and resolved but never
+entered the ArrayView page; attempt 2 reached `script-loaded` and rendered. This
+is a dropped Tunnel navigation, not a backend delay or the queue bug above.
+
+**Affected rows**: 5 directly; rows 1–4, 19–20, 25, 29–32 as later requests
+sharing the same window queue. Remote SSH and local display policy are unchanged
+but remain regression sentinels.
+
+**Evidence after the change (`component`)**: the queue regression holds the
+system-browser API pending, then proves a Tunnel integrated-browser request
+opens and reaches `backend_ready` in its own tab without calling the external
+browser again. All extension JavaScript tests pass; extension syntax passes;
+five Python version/protocol tests pass. Opener 0.15.52 is packaged as a
+54,191-byte VSIX containing exactly seven expected files. Real-host validation
+followed after the user-approved install and reload: five consecutive public
+CLI launches (three `example_3d_volume.npy`, two `large_array.npy`) rendered
+their first frames in five distinct tabs in the initiating Tunnel window, with
+two Tunnel windows registered. No recovery attempt, hard timeout, external
+browser call, or cross-window claim occurred. After a long idle, closing the
+middle tab reduced both active viewer sockets and active sessions from five to
+four while the other four remained connected.
+
+## 2026-08-17 — extension files are not an installed extension
+
+**User-visible failure (`real host`)**: the first 0.15.52 install extracted the
+extension directory and ArrayView asked for a reload. After that reload, the
+window still ran 0.15.51 and the next launch requested another installation.
+The second install later succeeded and registered 0.15.52; only the second
+reload activated it.
+
+**Earliest failed boundary**: the first install never added 0.15.52 to the
+active profile's `extensions.json`. The previous acceptance check treated the
+extracted directory and matching bundled content as sufficient, wrote its hash,
+and requested a reload that could not activate an unregistered extension.
+
+**Change**: an installation is accepted only when the selected profile registry
+contains the exact extension id, version, and location. An orphan directory is
+repaired through the exact VS Code CLI; a successful CLI result must gain the
+registry entry before metadata, hash, or reload state is written. Installs into
+the shared profile are serialized across ArrayView processes and rechecked
+inside the lock; a live slow installer cannot lose the lock merely due to age.
+
+**Evidence (`component`)**: 25 focused lifecycle tests pass, including orphan
+directory repair, absent/wrong registry data, failure before reload when a CLI
+returns without registration, recheck after a competing install, live-owner
+lock protection, and dead-owner recovery. Python compilation and `git diff
+--check` pass. The active VS Code installation was not modified during this
+test because 0.15.52 was already registered and active.
+
+## 2026-08-18 — 0.15.53: distinguish arrival and retry inside one tab
+
+**Correction to the old diagnosis**: the newest real flickers were not dropped
+page requests. For requests `918c60cf…` and `8a8e5a08…`, attempts 0 and 1 each
+entered and resolved the short viewer route in 31–69 ms. The opener waited
+about 1.6 s for `script-loaded`, closed the active tab, and only attempt 2
+reached that phase. Because `script-loaded` lives in the large inline viewer
+script, its absence did not prove navigation had failed; it only proved the
+full page had not begun executing that script before ArrayView cancelled it.
+
+**The other exact failure mode**: VS Code's integrated-browser command awaits
+editor creation, not navigation. Its main process starts the initial `loadURL`
+fire-and-forget, while remote-proxy information arrives asynchronously. If the
+localhost navigation starts before that information exists, it goes to the
+desktop side and is not replayed when the proxy becomes ready. There is no
+public extension API for proxy readiness or integrated-browser load events, so
+ArrayView must verify its own page and, when necessary, re-navigate.
+
+**Why retries created flicker**: the opener already supplied a request-owned
+`reuseUrlFilter`, but VS Code parses it as a path glob. The value
+`/_av/<tab-key>/` does not match `/_av/<tab-key>/<navigation-key>`. The earlier
+0.15.35 experiment therefore opened replacement tabs because ArrayView's filter
+never matched, not because VS Code cannot navigate an existing tab.
+
+**Change**:
+
+- A tiny script at the start of the viewer document reports
+  `navigation-arrived`, fenced by request, server, window, token, and navigation
+  attempt. Once seen, the opener never replaces that navigation merely because
+  the large script is still loading. Arrival receives one fresh bounded script
+  startup budget; it cannot extend the transaction forever.
+- The reuse glob is now `/_av/<tab-key>/**`. Recovery leaves the exact tab open
+  and invokes the next navigation with the same tab key, so VS Code calls
+  `navigate()` on that editor. New array launches receive distinct tab keys and
+  still open distinct tabs.
+- The final failure message remains explicit and actionable.
+
+**Evidence `component` / `real process`**: all extension JavaScript tests pass,
+including a mock of VS Code's path-glob reuse with one physical tab across
+multiple navigation attempts and two physical tabs across two array launches.
+The arrival API test, real-Chromium arrival test, short-route ownership test,
+launch-trace test, five package/version checks, JavaScript syntax, and
+`git diff --check` pass. The VSIX contains the seven expected files and its
+packaged extension source exactly matches the working tree. A broader browser
+run remains at its unrelated dirty-tree baseline (34 failures, 449 passes);
+the focused launch/browser tests pass.
+
+**Install evidence**: with the user's permission, 0.15.53 was installed and is
+registered at the exact active Tunnel profile location. Installed source,
+bundled source, and working source are byte-identical. No VS Code window was
+reloaded automatically and no GUI launch was performed. Live windows still run
+0.15.52 until the user reloads them, so real-host validation remains open.

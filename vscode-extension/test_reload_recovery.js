@@ -93,7 +93,7 @@ try {
     fs.mkdirSync(__test.signalDir, { recursive: true });
 
     const exact = new Error(
-        'Integrated browser did not start the viewer script before recovery timeout'
+        'This array kept failing to load. Click it again to retry.'
     );
     exact.code = 'ARRAYVIEW_INTEGRATED_BROWSER_NO_NAVIGATION';
     exact.arrayviewIntegratedBrowserOpened = true;
