@@ -107,6 +107,13 @@ class OpenResult:
 def _server_id_for_url(url: str) -> str | None:
     """Read the instance ID used to correlate a VS Code readiness ACK."""
     parsed = urllib.parse.urlsplit(url)
+    # A cold-start launch is handed the loading-page URL (see _with_loading):
+    # that stub answers every path, /ping included, with its placeholder
+    # HTML rather than proxying to the real backend. Probe the wrapped
+    # target instead so this actually reaches the ArrayView server.
+    target = urllib.parse.parse_qs(parsed.query).get("target")
+    if parsed.path == "/" and target:
+        parsed = urllib.parse.urlsplit(target[0])
     ping_url = urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, "/ping", "", "")
     )

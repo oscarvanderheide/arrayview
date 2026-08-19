@@ -550,7 +550,12 @@ def test_explicit_window_false_suppresses_config_and_opens_browser():
     assert "config_window_default" not in plan.reasons
 
 
-def test_remote_jupyter_defaults_to_vscode_but_preserves_explicit_inline():
+def test_remote_jupyter_defaults_to_inline_per_user_directive():
+    """Measured 2026-08-19 against a live tunnel session: the notebook cell's
+    page GET never reaches the backend at all when routed inline, so this
+    default currently produces a black cell for VS Code tunnel notebooks.
+    Kept as the default anyway per explicit user instruction — see
+    .mex/handoffs/vscode-jupyter-inline.md before changing this back."""
     from arrayview._launch_plan import Environment, Invocation, LaunchIntent, plan_launch
 
     facts = _facts(
@@ -590,7 +595,7 @@ def test_remote_jupyter_defaults_to_vscode_but_preserves_explicit_inline():
         facts,
     )
 
-    assert implicit.display.value == "vscode"
+    assert implicit.display.value == "inline"
     assert explicit_inline.display.value == "inline"
     assert explicit_inline_window.display.value == "inline"
     assert explicit_noninline.display.value == "browser"

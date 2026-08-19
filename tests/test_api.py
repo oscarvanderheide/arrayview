@@ -7355,9 +7355,14 @@ class TestViewValidation:
         assert "</script><script>alert(1)</script>" not in rendered
         assert "\\u003c/script\\u003e" in rendered
 
-    def test_resizable_inline_keeps_iframe_return_contract(self):
+    def test_resizable_inline_keeps_iframe_return_contract(self, monkeypatch):
+        import arrayview._launcher as launcher
         from IPython.display import IFrame
         from arrayview._launcher import _make_resizable_jupyter_iframe
+
+        # Off a tunnel the URL is handed through untouched; the tunnel rewrite
+        # is covered by row 13 of LAUNCH-MATRIX.md against a real host.
+        monkeypatch.setattr(launcher, "_in_vscode_tunnel", lambda: False)
 
         iframe = _make_resizable_jupyter_iframe(
             "http://localhost:8123/?sid=test&inline=1",
@@ -7663,12 +7668,17 @@ class TestViewDisplayRouting:
             for sid in set(session_mod.SESSIONS) - before_sids:
                 session_mod.SESSIONS.pop(sid, None)
 
-    def test_remote_vscode_jupyter_auto_opens_vscode_tab(self, monkeypatch):
-        """VS Code tunnel notebook can't reach localhost through the webview sandbox,
-        so `view(arr)` routes to the WebSocket VS Code tab path instead of inline."""
+    def test_remote_vscode_jupyter_defaults_to_inline(self, monkeypatch):
+        """A remote VS Code notebook shows the array in the cell, not a tab.
+
+        Tunnel windows additionally need the port published before the cell
+        can load it; that rewrite is exercised on a real host (LAUNCH-MATRIX
+        row 13), so it is switched off here to keep this about routing."""
         import arrayview._launcher as launcher
 
         opened = []
+
+        monkeypatch.setattr(launcher, "_in_vscode_tunnel", lambda: False)
 
         monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
         monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: True)
@@ -7681,6 +7691,7 @@ class TestViewDisplayRouting:
             launcher._platform_mod, "_is_vscode_remote", lambda: True
         )
         monkeypatch.setattr(launcher._platform_mod, "_in_matlab", lambda: False)
+        monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: False)
         _isolate_view_planner(
             monkeypatch,
             launcher,
@@ -7706,14 +7717,8 @@ class TestViewDisplayRouting:
 
         result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="remote-tab")
 
-        assert result.sid == "sid_remote"
-        assert len(opened) == 1
-        assert opened[0]["url"] == "http://localhost:8123/?sid=sid_remote"
-        assert opened[0]["force_vscode"] is True
-        assert opened[0]["blocking"] is True
-        assert opened[0]["title"] == "ArrayView: remote-tab"
-        assert opened[0]["floating"] is False
-        assert opened[0]["launch_context"].placement.value == "vscode_remote"
+        assert result.__class__.__name__ == "IFrame"
+        assert opened == []
 
     def test_jupyter_window_browser_disables_inline(self, monkeypatch):
         import arrayview._launcher as launcher

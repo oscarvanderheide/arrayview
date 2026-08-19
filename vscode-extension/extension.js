@@ -308,6 +308,503 @@ function _asExternalUriAttempt(baseUri) {
     return Promise.resolve().then(() => vscode.env.asExternalUri(baseUri));
 }
 
+// ── Public tunnel routes for inline notebook viewers ─────────────────
+//
+// An array shown inside a notebook cell renders in a webview on the VS Code
+// client. That webview has no route to the remote host's localhost, and no
+// devtunnel auth cookie, so a private forward answers it with a sign-in
+// redirect and the cell stays black. The only address it can load is the
+// forwarded port's external URL with public visibility.
+//
+// The viewer *tab* needs none of this — VS Code fetches that page itself,
+// remote-side, over the private route — so this path is entered only for an
+// explicit inline request and never touches tab delivery.
+const PUBLIC_PORT_REQUEST_PREFIX = 'public-port-request-';
+const PUBLIC_PORT_ACK_PREFIX = 'public-port-ack-';
+
+function _tunnelItem(port) {
+    return {
+        // Match VS Code's stripped TunnelItem shape. The privacy action
+        // forwards this source back to the tunnel provider after closing the
+        // old route, so its enum values must be the real workbench values.
+        tunnelType: 'Forwarded',
+        remoteHost: 'localhost',
+        remotePort: port,
+        localPort: port,
+        name: 'ArrayView',
+        source: { source: 0, description: 'User Forwarded' },
+    };
+}
+
+function _publicBaseFromTunnelResult(result, expectedPort) {
+    if (typeof result === 'string') {
+        try {
+            const parsed = new URL(result);
+            if (
+                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+                && !isLoopbackUrl(result)
+            ) {
+                return result.replace(/\/$/, '');
+            }
+        } catch (_) {}
+        return null;
+    }
+    if (!result || typeof result !== 'object') return null;
+    const remotePort = Number(result.tunnelRemotePort ?? result.remotePort ?? 0);
+    const remoteHost = String(
+        result.tunnelRemoteHost ?? result.remoteHost ?? 'localhost'
+    ).toLowerCase();
+    if (remotePort !== Number(expectedPort) || result.privacy !== 'public') return null;
+    if (!['localhost', '127.0.0.1', '::1'].includes(remoteHost)) return null;
+    for (const candidate of [result.localAddress, result.tunnelLocalAddress, result.localUri]) {
+        if (!candidate) continue;
+        let value = typeof candidate === 'string' ? candidate : String(candidate);
+        if (value && !/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+            value = `${result.protocol || 'http'}://${value}`;
+        }
+        try {
+            const parsed = new URL(value);
+            if (
+                (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+                && !isLoopbackUrl(parsed.toString())
+            ) {
+                return parsed.toString().replace(/\/$/, '');
+            }
+        } catch (_) {}
+    }
+    return null;
+}
+
+// `remote.portsAttributes` has no privacy field, so visibility cannot be set
+// by writing settings. The Ports view registers this command lazily, which is
+// why an unavailable command is retried once after focusing that view.
+async function _promotePortToPublic(port) {
+    const item = _tunnelItem(port);
+    const attempt = async () => {
+        const result = await _withTimeout(
+            Promise.resolve(vscode.commands.executeCommand('remote.tunnel.privacypublic', item)),
+            15000,
+            'privacypublic'
+        );
+        return _publicBaseFromTunnelResult(result, port);
+    };
+    try {
+        const base = await attempt();
+        if (base) return base;
+        log('PUBLIC: privacy command returned no public route');
+    } catch (error) {
+        log(`PUBLIC: privacy command failed: ${error.message || error}`);
+    }
+    try {
+        await _withTimeout(
+            Promise.resolve(vscode.commands.executeCommand('~remote.forwardedPorts.focus')),
+            3000,
+            'forwardedPorts.focus'
+        );
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return await attempt();
+    } catch (error) {
+        log(`PUBLIC: privacy retry failed: ${error.message || error}`);
+        return null;
+    }
+}
+
+const _publicTunnelUrls = new Map(); // port -> last externally reachable base URL
+const TUNNEL_ROUTE_CACHE_FILE = path.join(SIGNAL_DIR, 'tunnel-routes.json');
+
+function _cachedTunnelBases(port) {
+    const candidates = [];
+    const addCandidate = value => {
+        if (typeof value !== 'string' || isLoopbackUrl(value)) return;
+        try {
+            const parsed = new URL(value);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+            const normalized = value.replace(/\/$/, '');
+            if (!candidates.includes(normalized)) candidates.push(normalized);
+        } catch (_) {}
+    };
+    const inMemory = _publicTunnelUrls.get(port);
+    addCandidate(inMemory);
+    try {
+        const cache = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
+        // Prefer this window's route, but retain verified routes across window
+        // reloads.  VS Code's desktop tunnel resolver can return localhost
+        // even when the provider still exposes the same public port route.
+        addCandidate(cache[`${logWindowId}:${port}`]);
+        for (const [key, value] of Object.entries(cache)) {
+            if (key.endsWith(`:${port}`)) addCandidate(value);
+        }
+    } catch (_) {}
+    return candidates;
+}
+
+
+
+
+async function _usableCachedTunnelBase(
+    port,
+    expectedServerId,
+    ensureActive = () => {},
+    deadBases = new Set()
+) {
+    for (const candidate of _cachedTunnelBases(port)) {
+        ensureActive();
+        if (deadBases.has(candidate)) continue;
+        log(`REMOTE: checking cached route ${candidate} `
+            + `(hedged x${RELAY_PROBE_HEDGE.attempts})`);
+        const outcome = await hedgedProbeStatus(
+            `${candidate}/ping`, expectedServerId
+        );
+        ensureActive();
+        if (outcome === PROBE_DEAD) {
+            deadBases.add(candidate);
+            log(`REMOTE: cached route stale for localhost:${port}`);
+            continue;
+        }
+        if (outcome === PROBE_RELAY_DOWN) {
+            // Not proof the route is wrong, so it does not join deadBases and
+            // may be re-probed after promotion. But it is proof the route
+            // cannot carry traffic now, so returning it would hand the panel a
+            // URL known to 502. Fall through to port promotion, which reattaches
+            // the connector.
+            log(`REMOTE: cached route reachable but its connector is detached `
+                + `for localhost:${port}; falling through to promotion`);
+            continue;
+        }
+        if (outcome === PROBE_OK) {
+            _rememberTunnelBase(port, candidate);
+            log(`REMOTE: cached route ready for localhost:${port}`);
+        } else {
+            // Deliberately not cached: this is an absence of evidence, not a
+            // verification, and it must not promote an unproven route.
+            log(`REMOTE: cached route unverified for localhost:${port}; `
+                + `using it anyway (no evidence it is wrong)`);
+        }
+        return candidate;
+    }
+    return null;
+}
+
+function _rememberTunnelBase(port, externalBase) {
+    if (!externalBase || isLoopbackUrl(externalBase)) return;
+    const normalized = externalBase.replace(/\/$/, '');
+    _publicTunnelUrls.set(port, normalized);
+    let cache = {};
+    try {
+        const parsed = JSON.parse(fs.readFileSync(TUNNEL_ROUTE_CACHE_FILE, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cache = parsed;
+    } catch (_) {}
+    cache[`${logWindowId}:${port}`] = normalized;
+    const tmp = `${TUNNEL_ROUTE_CACHE_FILE}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(cache));
+        fs.renameSync(tmp, TUNNEL_ROUTE_CACHE_FILE);
+    } catch (error) {
+        try { fs.unlinkSync(tmp); } catch (_) {}
+        log(`REMOTE: failed to cache tunnel route: ${error.message}`);
+    }
+}
+
+async function _boundedCommand(command, args, timeoutMs = 3000) {
+    try {
+        return await _withTimeout(
+            vscode.commands.executeCommand(command, ...(args || [])),
+            timeoutMs,
+            command
+        );
+    } catch (error) {
+        log(`REMOTE: ${command} unavailable: ${error.message}`);
+        return null;
+    }
+}
+
+let _lastForwardingDiagnostic = null;
+
+function _forwardingDiagnostic(result, port) {
+    const text = typeof result === 'string' ? result : (() => {
+        try { return JSON.stringify(result); } catch (_) { return ''; }
+    })();
+    if (!text) return null;
+    if (/PortsPerTunnel|Resource limit exceeded|\b429\b|Too Many Requests/i.test(text)) {
+        return `VS Code could not forward port ${port}: this tunnel has reached its limit on forwarded ports, so the port cannot be made public and the viewer cannot connect. Close forwarded ports you no longer need in the Ports view, or set "remote.autoForwardPorts": false so VS Code stops forwarding every listening port it detects.`;
+    }
+    if (/Could not forward port/i.test(text)) {
+        const trimmed = text.replace(/\s+/g, ' ').slice(0, 300);
+        return `VS Code could not forward port ${port}: ${trimmed}`;
+    }
+    return null;
+}
+
+async function ensurePortPublic(
+    port,
+    externalBase,
+    expectedServerId = null,
+    ensureActive = () => {}
+) {
+    ensureActive();
+    const hasExternalRoute = !isLoopbackUrl(externalBase);
+    const publicPingUrl = `${externalBase}/ping`;
+    if (hasExternalRoute && await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
+        _rememberTunnelBase(port, externalBase);
+        log(`PORT: verified public route for ${externalBase}`);
+        return true;
+    }
+    _publicTunnelUrls.delete(port);
+
+    // Change privacy of the already-forwarded port.
+    // The privacy command (remote.tunnel.privacypublic) is lazily
+    // registered by VS Code's Forwarded Ports view.  In a pure tunnel
+    // session (no Remote-SSH), it may not be loaded yet.  Try focusing
+    // the forwarded ports view first to trigger lazy loading, then retry.
+    const tunnelItem = _tunnelItem(port);
+
+    let privacyDone = false;
+    let promotedExternalBase = null;
+    try {
+        ensureActive();
+        const result = await _boundedCommand(
+            'remote.tunnel.privacypublic', [tunnelItem]
+        );
+        if (result && typeof result === 'object') {
+            log(`PORT: privacy result ${JSON.stringify({
+                remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
+                remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
+                localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
+                privacy: result.privacy ?? null,
+                protocol: result.protocol ?? null,
+            })}`);
+            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+        } else {
+            const detail = typeof result === 'string'
+                ? JSON.stringify(result.slice(0, 500))
+                : (result === null ? 'null' : typeof result);
+            log(`PORT: privacy command returned ${detail}`);
+            _lastForwardingDiagnostic =
+                _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
+            promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+        }
+        if (promotedExternalBase) {
+            privacyDone = true;
+            log(`PORT: changed privacy to public via command`);
+            log(`PORT: privacy command returned ${promotedExternalBase}`);
+        }
+    } catch (e) {
+        log(`PORT: privacy command failed: ${e.message || e}`);
+    }
+    ensureActive();
+
+    if (!privacyDone) {
+        // Retry: force-load forwarded ports view, then retry the command
+        log(`PORT: privacy not found — loading forwarded ports view...`);
+        try {
+            ensureActive();
+            await _boundedCommand('~remote.forwardedPorts.focus', [], 2000);
+            await new Promise(r => setTimeout(r, 500));
+        } catch (_) {}
+        ensureActive();
+
+        // Check if the command is now registered
+        const cmds = await _withTimeout(
+            vscode.commands.getCommands(true),
+            3000,
+            'get tunnel commands'
+        );
+        if (cmds.includes('remote.tunnel.privacypublic')) {
+            try {
+                ensureActive();
+                log(`PORT: privacy command found after view load — retrying`);
+
+                // Do not call asExternalUri again here.  It starts another
+                // forward for the same port; VS Code suppresses the privacy
+                // action's replacement forward while that factory operation
+                // is still in progress, making the command resolve undefined.
+                const result = await _boundedCommand(
+                    'remote.tunnel.privacypublic', [tunnelItem]
+                );
+                if (result && typeof result === 'object') {
+                    log(`PORT: privacy retry result ${JSON.stringify({
+                        remotePort: result.tunnelRemotePort ?? result.remotePort ?? null,
+                        remoteHost: result.tunnelRemoteHost ?? result.remoteHost ?? null,
+                        localAddress: result.localAddress ?? result.tunnelLocalAddress ?? null,
+                        privacy: result.privacy ?? null,
+                        protocol: result.protocol ?? null,
+                    })}`);
+                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+                } else {
+                    const detail = typeof result === 'string'
+                        ? JSON.stringify(result.slice(0, 500))
+                        : (result === null ? 'null' : typeof result);
+                    log(`PORT: privacy retry returned ${detail}`);
+                    _lastForwardingDiagnostic =
+                        _forwardingDiagnostic(result, port) || _lastForwardingDiagnostic;
+                    promotedExternalBase = _publicBaseFromTunnelResult(result, port);
+                }
+                if (promotedExternalBase) {
+                    privacyDone = true;
+                    log(`PORT: changed privacy to public via command (retry)`);
+                    log(`PORT: privacy command returned ${promotedExternalBase}`);
+                }
+            } catch (e2) {
+                log(`PORT: privacy retry failed: ${e2.message || e2}`);
+            }
+        } else {
+            log(`PORT: privacypublic still not available after view load`);
+        }
+        ensureActive();
+    }
+    if (!privacyDone) return false;
+
+    if (promotedExternalBase) {
+        const promotedPingUrl = `${promotedExternalBase}/ping`;
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+            ensureActive();
+            if (await arrayViewStatusOk(promotedPingUrl, expectedServerId)) {
+                _rememberTunnelBase(port, promotedExternalBase);
+                log(`PORT: public route ready for ${promotedExternalBase}`);
+                return promotedExternalBase;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        log(`PORT: returned public route did not become ready for ${promotedExternalBase}`);
+        return false;
+    }
+
+    // A tunnel resolver can return localhost until the forward has been
+    // promoted.  In that case the local /ping says nothing about client
+    // reachability: promotion succeeded, but the caller must resolve again to
+    // obtain and verify the new non-loopback route.
+    if (!hasExternalRoute) {
+        log(`PORT: promoted localhost:${port}; waiting for external URI retry`);
+        return true;
+    }
+
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+        ensureActive();
+        if (await arrayViewStatusOk(publicPingUrl, expectedServerId)) {
+            _rememberTunnelBase(port, externalBase);
+            log(`PORT: public route ready for ${externalBase}`);
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    log(`PORT: public route did not become ready for ${externalBase}`);
+    return false;
+}
+
+
+// Mirrors the tunnel branch of the resolve flow this extension used before the
+// route work: ask VS Code for an external URI, and when it answers loopback —
+// which a desktop tunnel window always does — promote the forward to public
+// and ask again. The waits and the attempt ladder are the measured ones.
+async function resolvePublicTunnelBase(port, expectedServerId) {
+    _lastForwardingDiagnostic = null;
+    const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
+    const deadBases = new Set();
+    const cachedBase = await _usableCachedTunnelBase(
+        port, expectedServerId, () => {}, deadBases
+    );
+    if (cachedBase) {
+        log(`PUBLIC: reusing cached route ${cachedBase}`);
+        return cachedBase;
+    }
+
+    let tunnelPromotionAttempted = false;
+    for (let i = 0; i < EXTERNAL_URI_ATTEMPTS.length; i++) {
+        const attempt = EXTERNAL_URI_ATTEMPTS[i];
+        if (attempt.pauseMs) {
+            await new Promise(resolve => setTimeout(resolve, attempt.pauseMs));
+        }
+        let externalBase;
+        try {
+            log(`PUBLIC: asExternalUri(http://localhost:${port}/) attempt=${i + 1}`);
+            const externalUri = await _withTimeout(
+                _asExternalUriAttempt(baseUri), attempt.timeoutMs, 'asExternalUri'
+            );
+            externalBase = externalUri.toString().replace(/\/$/, '');
+        } catch (error) {
+            log(`PUBLIC: asExternalUri failed: ${error.message || error}`);
+            continue;
+        }
+        log(`PUBLIC: → ${externalBase}`);
+
+        if (isLoopbackUrl(externalBase)) {
+            if (tunnelPromotionAttempted) continue;
+            tunnelPromotionAttempted = true;
+            // Let auto-forwarders in all connected windows finish materializing
+            // their private route. Privacy promotion must be the final
+            // forwarding operation.
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const promoted = await ensurePortPublic(port, externalBase, expectedServerId);
+            if (typeof promoted === 'string') return promoted;
+            continue;
+        }
+
+        const promoted = await ensurePortPublic(port, externalBase, expectedServerId);
+        if (typeof promoted === 'string') return promoted;
+        if (promoted === true) return externalBase;
+    }
+    if (_lastForwardingDiagnostic) log(`PUBLIC: ${_lastForwardingDiagnostic}`);
+    return null;
+}
+
+async function _handlePublicPortRequest(data) {
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : '';
+    const port = Number(data?.port);
+    if (!/^[0-9a-f]{8,64}$/.test(requestId) || !Number.isInteger(port) || port <= 0) return;
+    const ackPath = path.join(SIGNAL_DIR, `${PUBLIC_PORT_ACK_PREFIX}${requestId}.json`);
+    let payload;
+    if (vscode.env.remoteName !== 'tunnel') {
+        payload = { ok: false, error: 'not a tunnel window' };
+    } else {
+        try {
+            const base = await resolvePublicTunnelBase(port, data.expectedServerId || null);
+            // VS Code's own explanation, when it gave one, is far more useful
+            // than ours: it names the port limit and how to clear it.
+            payload = base
+                ? { ok: true, externalBase: base }
+                : {
+                    ok: false,
+                    error: _lastForwardingDiagnostic
+                        || `VS Code could not forward port ${port} on this tunnel`,
+                };
+        } catch (error) {
+            payload = { ok: false, error: String(error.message || error) };
+        }
+    }
+    try {
+        _atomicWriteJson(ackPath, payload);
+        log(`PUBLIC: request ${requestId} port ${port} -> ${JSON.stringify(payload)}`);
+    } catch (error) {
+        log(`PUBLIC: could not write ack: ${error.message || error}`);
+    }
+}
+
+function tryPublicPortRequests() {
+    let names;
+    try {
+        names = fs.readdirSync(SIGNAL_DIR);
+    } catch (_) {
+        return;
+    }
+    for (const name of names) {
+        if (!name.startsWith(PUBLIC_PORT_REQUEST_PREFIX) || !name.endsWith('.json')) continue;
+        const requestPath = path.join(SIGNAL_DIR, name);
+        const claimedPath = `${requestPath}.claimed-${process.pid}`;
+        let data;
+        try {
+            // Atomic claim: every open window sees the file, one wins.
+            fs.renameSync(requestPath, claimedPath);
+            data = JSON.parse(fs.readFileSync(claimedPath, 'utf8'));
+        } catch (_) {
+            continue;
+        }
+        try { fs.unlinkSync(claimedPath); } catch (_) {}
+        void _handlePublicPortRequest(data);
+    }
+}
+
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
 // creating a second panel, avoiding a visible flicker.
@@ -4294,7 +4791,10 @@ function activate(context) {
 
     void tryOpenSignalFile();
 
-    const interval = setInterval(() => void tryOpenSignalFile(), 1000);
+    const interval = setInterval(() => {
+        void tryOpenSignalFile();
+        tryPublicPortRequests();
+    }, 1000);
     context.subscriptions.push({ dispose: () => clearInterval(interval) });
 
     const recoveryInterval = setInterval(() => cleanupStaleFiles(), 5000);

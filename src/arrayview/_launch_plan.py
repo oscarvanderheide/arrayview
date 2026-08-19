@@ -343,20 +343,22 @@ def plan_launch(
         )
 
     environment = facts.environment
+    in_jupyter_kernel = intent.invocation is Invocation.JUPYTER or facts.in_jupyter
     explicit_inline = window == "inline" or (
         intent.inline is True and intent.inline_explicit
     )
-    remote_jupyter = (
-        facts.is_vscode_remote
-        and facts.in_jupyter
-        and intent.inline is not False
-        and not explicit_inline
-    )
-    if remote_jupyter:
-        environment = Environment.VSCODE_REMOTE
-        reasons.append("remote_jupyter_uses_vscode")
-    elif intent.invocation is Invocation.JUPYTER or facts.in_jupyter:
-        environment = Environment.JUPYTER
+    # A VS Code notebook shows the array in the cell, not in a tab. Over a
+    # tunnel the cell's iframe additionally needs the port published, because
+    # its webview runs on the client and cannot reach this host's localhost —
+    # see _inline_url_for_vscode_tunnel and LAUNCH-MATRIX.md row 13. Do not
+    # revert this to the VS Code tab; a black cell means the publish failed,
+    # and the cell now says so.
+    default_inline_ok = in_jupyter_kernel
+    if in_jupyter_kernel:
+        if facts.is_vscode_remote and intent.inline is not False and not explicit_inline:
+            environment = Environment.VSCODE_REMOTE
+        else:
+            environment = Environment.JUPYTER
     elif intent.invocation is Invocation.JULIA or facts.in_julia:
         environment = Environment.JULIA
     elif intent.invocation is Invocation.MATLAB and not facts.is_vscode_remote:
@@ -411,9 +413,10 @@ def plan_launch(
         reasons.append("python_process_owns_session")
 
     display, fallback, fallback_allowed = _display_policy(
-        window=None if remote_jupyter else window,
-        inline=False if remote_jupyter else intent.inline,
+        window=window,
+        inline=intent.inline,
         environment=environment,
+        in_jupyter=default_inline_ok,
         native_available=facts.native_backend is not None,
         in_vscode_tunnel=facts.in_vscode_tunnel,
         reasons=reasons,
@@ -439,6 +442,7 @@ def _display_policy(
     window: str | None,
     inline: bool | None,
     environment: Environment,
+    in_jupyter: bool,
     native_available: bool,
     in_vscode_tunnel: bool,
     reasons: list[str],
@@ -449,11 +453,7 @@ def _display_policy(
     if (
         window == "inline"
         or inline is True
-        or (
-            window is None
-            and inline is None
-            and environment is Environment.JUPYTER
-        )
+        or (window is None and inline is None and in_jupyter)
     ):
         reasons.append("jupyter_inline" if window is None else "explicit_inline")
         return Display.INLINE, None, False

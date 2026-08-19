@@ -3031,6 +3031,16 @@ def _should_use_jupyter_proxy_inline() -> bool:
     if forced:
         return forced not in {"0", "false", "no", "off"}
 
+    # The proxy route rewrites the iframe src to a path relative to the
+    # notebook page's own origin (window.location), which only exists for a
+    # classic Jupyter Notebook/Lab page rendered in a real browser tab. VS
+    # Code's own notebook editor renders cell output in a webview with no
+    # such page origin to resolve against, so the relative URL is guaranteed
+    # broken there even when jupyter_server_proxy happens to be installed —
+    # use the direct-port iframe instead, same as local Jupyter.
+    if _in_vscode_terminal():
+        return False
+
     global _JUPYTER_PROXY_INLINE_CACHE
     if _JUPYTER_PROXY_INLINE_CACHE is not None:
         return _JUPYTER_PROXY_INLINE_CACHE
@@ -3206,6 +3216,75 @@ def _make_jupyter_proxy_inline_html(
     )
 
 
+# One published route per (port, backend) is enough for a whole session: the
+# forward stays up, and re-asking costs a round trip through the extension.
+_INLINE_TUNNEL_ROUTES: dict[tuple[int, str | None], str] = {}
+
+
+def _inline_url_for_vscode_tunnel(
+    viewer_url: str, port: int
+) -> tuple[str, str | None]:
+    """Return ``(url, reason)`` for an inline viewer the notebook cell can load.
+
+    A cell's output renders in a webview on the VS Code client. Over a tunnel
+    that client has nothing on this host's ``localhost``, and it carries no
+    devtunnel cookie, so a private forward answers it with a sign-in redirect
+    and the cell stays black. Publishing the forward is the only address left.
+
+    The viewer tab does not come through here and keeps the private route:
+    VS Code fetches that page itself, on this side.
+    """
+    if not _in_vscode_tunnel():
+        return viewer_url, None
+    from arrayview import _session as _session_mod
+    from arrayview._vscode_signal import _public_tunnel_base
+
+    runtime = _session_mod.SERVER_RUNTIME
+    instance_id = getattr(runtime, "instance_id", None)
+    cache_key = (port, instance_id)
+    base = _INLINE_TUNNEL_ROUTES.get(cache_key)
+    reason = None
+    if base is None:
+        base, reason = _public_tunnel_base(port, instance_id)
+        if base:
+            _INLINE_TUNNEL_ROUTES[cache_key] = base
+    if not base:
+        return viewer_url, reason
+
+    parts = urllib.parse.urlsplit(viewer_url)
+    base_parts = urllib.parse.urlsplit(base)
+    return (
+        urllib.parse.urlunsplit(
+            (
+                base_parts.scheme,
+                base_parts.netloc,
+                parts.path,
+                parts.query,
+                parts.fragment,
+            )
+        ),
+        None,
+    )
+
+
+def _inline_unreachable_html(reason: str):
+    """Say why a cell cannot show the array, instead of rendering black."""
+    import html
+
+    from IPython.display import HTML
+
+    return HTML(
+        '<div style="padding:14px 16px;border-radius:6px;background:#2a1f1f;'
+        'border:1px solid #6b3a3a;color:#e6b8b8;font:13px/1.5 '
+        'ui-monospace,SFMono-Regular,Menlo,monospace">'
+        "<b>ArrayView cannot show this array in the cell.</b><br>"
+        f"{html.escape(reason)}<br>"
+        "<span style=\"color:#c99\">Open it in a tab instead with "
+        "<code>av.view(arr, window=&quot;vscode&quot;)</code>.</span>"
+        "</div>"
+    )
+
+
 def _make_resizable_jupyter_iframe(
     viewer_url: str,
     port: int,
@@ -3216,6 +3295,9 @@ def _make_resizable_jupyter_iframe(
 
     from IPython.display import IFrame
 
+    viewer_url, reason = _inline_url_for_vscode_tunnel(viewer_url, port)
+    if reason:
+        return _inline_unreachable_html(reason)
     iframe = IFrame(src=viewer_url, width="100%", height=height)
 
     def _repr_html_(self):

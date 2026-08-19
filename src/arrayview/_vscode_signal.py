@@ -79,6 +79,67 @@ def _vscode_ack_path(request_id: str) -> Path:
     )
 
 
+def _public_tunnel_base(
+    port: int,
+    expected_server_id: str | None = None,
+    timeout: float = 45.0,
+) -> tuple[str | None, str | None]:
+    """Return ``(base_url, reason)`` for a public route to *port*.
+
+    Exactly one is set: a base URL the VS Code client can load, or the reason
+    it could not be published. The reason is VS Code's own wording where it
+    gave one, because it names the actual obstacle (usually the tunnel's
+    forwarded-port limit) and what to do about it.
+
+    Only inline notebook viewers need this. Their iframe renders in a webview
+    on the VS Code client, which has no route to this host's localhost and no
+    devtunnel cookie, so a private forward answers it with a sign-in redirect
+    and the cell stays black. The viewer tab is unaffected: VS Code fetches
+    that page itself, on this side, over the private route.
+
+    Asking costs one file write and a poll; the extension does the forwarding.
+    """
+    signal_dir = Path(os.path.expanduser("~/.arrayview"))
+    request_id = uuid.uuid4().hex
+    request_path = signal_dir / f"public-port-request-{request_id}.json"
+    ack_path = signal_dir / f"public-port-ack-{request_id}.json"
+    payload = {
+        "port": int(port),
+        "requestId": request_id,
+        "expectedServerId": expected_server_id,
+        "sentAtMs": int(time.time() * 1000),
+    }
+    try:
+        signal_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = request_path.with_suffix(f".tmp-{os.getpid()}")
+        tmp_path.write_text(json.dumps(payload))
+        os.replace(tmp_path, request_path)
+    except OSError as exc:
+        return None, f"could not ask VS Code to publish port {port}: {exc}"
+
+    deadline = time.time() + timeout
+    try:
+        while time.time() < deadline:
+            try:
+                ack = json.loads(ack_path.read_text())
+            except (OSError, ValueError):
+                time.sleep(0.25)
+                continue
+            base = ack.get("externalBase")
+            if ack.get("ok") and isinstance(base, str) and base:
+                return base.rstrip("/"), None
+            return None, str(ack.get("error") or "VS Code gave no reason")
+        return None, (
+            f"VS Code did not answer about port {port} within {timeout:.0f}s"
+        )
+    finally:
+        for path in (request_path, ack_path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
 def _cleanup_stale_vscode_acks(max_age_seconds: float = 300.0) -> int:
     """Remove ACK files older than *max_age_seconds*."""
     signal_dir = Path(os.path.expanduser("~/.arrayview"))
@@ -447,10 +508,21 @@ def _viewer_port_url(
     """
     import json as _json
     import urllib.request
-    from urllib.parse import urlsplit, urlunsplit
+    from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 
     try:
         parts = urlsplit(url)
+        # A cold-start launch is handed the loading-page URL (see
+        # _with_loading): that stub answers every path, /ping included, with
+        # its placeholder HTML rather than proxying to the real backend, so
+        # probing it directly always looks like a non-ArrayView response.
+        # Unwrap to the real target for the probe and re-wrap the leased
+        # result in the same stub so the loading redirect still works.
+        loading_wrapper = None
+        target = parse_qs(parts.query).get("target")
+        if parts.path == "/" and target:
+            loading_wrapper = (parts.scheme, parts.netloc)
+            parts = urlsplit(target[0])
         if parts.hostname != "localhost" or not parts.port:
             raise RuntimeError("the backend URL is not a private localhost route")
         origin = f"http://localhost:{parts.port}"
@@ -479,9 +551,20 @@ def _viewer_port_url(
         if not port:
             raise RuntimeError("the server did not provide a viewer connection")
         _vprint(f"[ArrayView] serving this launch from port {port}")
-        return urlunsplit(
+        leased = urlunsplit(
             (parts.scheme, f"localhost:{port}", parts.path, parts.query, parts.fragment)
         )
+        if loading_wrapper is not None:
+            leased = urlunsplit(
+                (
+                    loading_wrapper[0],
+                    loading_wrapper[1],
+                    "/",
+                    f"target={quote(leased, safe='')}",
+                    "",
+                )
+            )
+        return leased
     except Exception as exc:
         _vprint(f"[ArrayView] private viewer connection unavailable: {exc}")
         if "does not support safe viewer handoff" in str(exc):
@@ -532,6 +615,9 @@ def _open_via_signal_file(
         except RuntimeError as exc:
             from arrayview._vscode_extension import _VSCODE_EXT_VERSION
 
+            detail = str(exc)
+            if exc.__cause__ is not None:
+                detail = f"{detail} ({exc.__cause__!r})"
             return SignalRequest(
                 request_id,
                 window_id,
@@ -539,7 +625,7 @@ def _open_via_signal_file(
                 ack_path,
                 False,
                 _VSCODE_EXT_VERSION,
-                str(exc),
+                detail,
             )
     session_name = _session_name_for_url(url)
     if title is None and session_name:

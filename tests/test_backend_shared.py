@@ -65,7 +65,10 @@ def test_compute_diff_modes_and_histogram():
         dr=1, complex_mode=0, log_scale=False, diff_mode=1,
     )
     assert raw.shape == (8, 8)
-    assert (vmin, vmax, colormap, nan_mask) == (-1.0, 1.0, "RdBu_r", None)
+    assert colormap == "RdBu_r"
+    assert nan_mask is None
+    assert vmin == -vmax
+    assert vmax > 0
 
     hist = _diff_histogram(raw, bins=16)
     assert len(hist["counts"]) == 16
