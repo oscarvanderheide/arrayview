@@ -3607,3 +3607,92 @@ temporary server stopped listening with no ArrayView process left.
 branch, so same-tab re-navigation for a genuinely lost first navigation remains
 row 32 `component` evidence. Rows 2, 4, 19–20, Remote SSH, and local VS Code were
 not exercised and remain at their prior evidence levels.
+
+## 2026-08-19 — the tunnel's own port budget, and what actually needs a forward
+
+Written after fixing inline notebook display (LAUNCH-MATRIX row 13,
+`.mex/handoffs/vscode-jupyter-inline.md`). Recorded here because the findings
+are about tunnel forwarding, not about notebooks, and the next person to debug
+a launch on a tunnel needs them.
+
+### A tunnel has a hard cap of 10 forwarded ports, and the Ports view lies
+
+Measured with Microsoft's `devtunnel` CLI against the maintainer's live tunnel:
+`devtunnel list` reported `Ports 10`, and `devtunnel port list` named all ten.
+The two open VS Code windows between them showed **four**. The other six were
+registrations no window listed and `ss` showed nothing listening on. One was
+identifiable in `extension.log` as `43695/?sid=…  title=ArrayView:
+parameter_maps.nii` — an ArrayView cold-start port whose tunnel registration
+outlived its local socket.
+
+Consequences, all observed:
+
+- Once the cap is reached **no port can be forwarded at all**, and VS Code
+  reports it only as `429 Too Many Requests … "Resource limit exceeded" …
+  'PortsPerTunnel'` deep inside the privacy command's return value.
+- `arrayview --kill` does nothing for this. Those registrations live on
+  Microsoft's side and mostly belong to other programs.
+- The Ports view is **not** a reliable inventory. Debugging this from the view
+  alone produced two wrong conclusions before the CLI was installed.
+
+Inventory and cleanup (`~/bin/devtunnel`, installed without sudo, not on PATH):
+
+```bash
+devtunnel list                                  # tunnel id + port count
+devtunnel port list <tunnel-id>                 # every registration
+ss -ltnp                                        # which are actually live
+devtunnel port delete <tunnel-id> -p <port>     # dead ones only
+```
+
+### What fills it: auto-forwarding, not the launch path
+
+`remote.autoForwardPortsSource` defaults to `process`, which forwards every
+listening port VS Code scans — MATLAB's service host, the notebook kernel's
+zmq ports, VS Code's own server, and **ArrayView's ephemeral cold-start
+ports**, which are `bind(("localhost", 0))` and therefore land in
+32768–60999 where nothing correlates them back to ArrayView. Set to `output`
+on this host, which forwards only when something prints a URL.
+
+The setting must go in `~/.vscode-server/data/Machine/settings.json` — the data
+root a tunnel server actually reads. Writing it to `~/.vscode/data` and
+`~/.vscode/cli/data` (which is what `_configure_vscode_port_preview` touches)
+had **no effect**; ports kept auto-forwarding until it was written to the
+server root.
+
+### The viewer tab does not need a forwarded port at all
+
+This was assumed both ways during the day and is now settled by measurement.
+`resolveRemoteViewerUrl` returns `null` for tunnels, so no forward is ever
+requested; the built-in browser fetches through VS Code's own channel:
+
+```
+REMOTE: desktop integrated-browser proxy uses backend URL directly
+PANEL: integrated browser remoteProxy=true
+PANEL: integrated browser opened http://localhost:38357/?sid=...
+```
+
+**Verified `real host` 2026-08-19 20:15**, `arrayview <file> --window vscode`
+with the tunnel at its cap: signal → `frame-rendered` in 2.4 s, one blank-tab
+retry recovered in the same tab, and `devtunnel port list` afterwards showed
+port 38357 **was never registered**. So the port cap cannot break tab delivery,
+and there is correspondingly no error to surface on that path.
+
+The inline notebook path is the opposite: its iframe runs on the client, so it
+is the *only* surface that needs a real forward, and the only one the cap can
+stop. That asymmetry is the whole reason row 13 behaved differently from every
+other row.
+
+### Do not revisit "reuse one port instead of a fresh one per launch"
+
+Asked again today, and answered from this file's own earlier measurement
+(§"Cold start fixed by serving it from a port VS Code has not forwarded yet"):
+reuse was **0/5 clean with 2/5 producing no viewer at all**, a fresh port
+**5/5**. Warm launches already reuse — the extra port is a singleton per
+server, held while any lease or viewer holds it. The pollution the fresh port
+appeared to cause is auto-forwarding's doing, not the launch path's, and it has
+its own fix above.
+
+If the leak is worth closing at the source later, the shape is: ArrayView knows
+the ephemeral port the moment it binds it, so it could mark that one port
+`onAutoForward: ignore` and the registration would never be created — no
+machine-wide setting, works for every user. Not implemented.
