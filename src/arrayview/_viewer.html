@@ -7072,6 +7072,8 @@
         let _mvCrosshairAlpha = 0;     // current crosshair opacity for regular multiview (0..1)
         let _mvCrosshairTarget = 0;    // target crosshair opacity for regular multiview
         let _mvCrosshairAnim = null;   // animation frame id for crosshair fade
+        let _mvScrollHintActive = false; // transient hint while scrolling a pane in ortho view
+        let _mvScrollHintTimer = null;   // fade-out timer after pane scrolling stops
         let _cmvCrosshairSid = null;   // SID of hovered row in compare-mv (null = hide all)
         let _cmvCrosshairAlpha = 0;    // current crosshair opacity for compare-mv
         let _cmvCrosshairTarget = 0;   // target opacity for compare-mv
@@ -30806,6 +30808,7 @@
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     _mvSetCurrentView(view);
+                    _mvScrollHint();
                     if (obliqueVecs) {
                         // Oblique mode: scroll along the hovered pane normal so the
                         // wheel gesture still feels like "step through slices" even
@@ -31192,6 +31195,8 @@
             mvViews = [];
             _mvCrosshairAlpha = 0; _mvCrosshairTarget = 0;
             if (_mvCrosshairAnim) { cancelAnimationFrame(_mvCrosshairAnim); _mvCrosshairAnim = null; }
+            _mvScrollHintActive = false;
+            if (_mvScrollHintTimer) { clearTimeout(_mvScrollHintTimer); _mvScrollHintTimer = null; }
             obliqueVecs = null; obliqueDrag = null;
             // Reset any lingering flip-state so a mid-flip exit doesn't carry
             // the back-hovered flag into the next entry.
@@ -35638,14 +35643,24 @@
             const mvOrientation = document.getElementById('mv-orientation');
             if (!mvOrientation) return;
             const show = !!((multiViewActive || compareMvActive)
-                && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld));
+                && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive));
             mvOrientation.style.display = show ? 'block' : 'none';
         }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
-            const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld);
+            const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive);
             _mvSetCrosshairTarget(show ? 1 : 0);
             _reconcileMvOrientationVisibility();
+        }
+        function _mvScrollHint() {
+            _mvScrollHintActive = true;
+            _mvSetCrosshairTarget(1);
+            _reconcileMvOrientationVisibility();
+            if (_mvScrollHintTimer) clearTimeout(_mvScrollHintTimer);
+            _mvScrollHintTimer = setTimeout(() => {
+                _mvScrollHintActive = false;
+                _mvRecomputeCrosshairTarget();
+            }, 250);
         }
         function _cmvAnimateCrosshairs() {
             const speed = 0.12;
