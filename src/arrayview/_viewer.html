@@ -4069,10 +4069,11 @@
         .qv-row.qmri-mosaic-row .qv-cb { display: none !important; }
         .qv-row.qmri-mosaic-row .qv-cb-labels { display: none !important; }
         .qmri-mosaic-label { font-size: 13px; font-family: monospace; font-weight: bold; color: var(--muted); width: 28px; text-align: right; flex-shrink: 0; margin-right: 8px; }
-        /* qMRI 3-plane multiview: one map per row (3 planes) + a full-width colorbar */
-        .qmri-mv-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-        .qmri-mv-row > .qv-row { width: 100%; }
-        .qmri-mv-cb { display: flex; justify-content: center; min-height: 33px; }
+        /* qMRI 3-plane multiview: one map per row (3 planes) + a vertical colorbar on the right */
+        .qmri-mv-row { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
+        .qmri-mv-row > .qv-row { flex: 0 1 auto; }
+        .qmri-mv-cb { display: flex; align-items: center; flex-shrink: 0; }
+        .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; }
         .qmri-mosaic-vcb { flex-shrink: 0; border-radius: 3px; display: block; }
         .qmri-mosaic-vcb-island { display: flex; flex-direction: row; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; padding: 4px 6px; }
         /* Mosaic overflow/pan mode */
@@ -34464,7 +34465,7 @@
                 const mapCb = new ColorBar({
                     container: cbHost,
                     id: 'qmri-mv-' + mi,
-                    orientation: 'horizontal',
+                    orientation: 'vertical',
                     interactive: true,
                     getStops: () => COLORMAP_GRADIENT_STOPS[cmap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: anchor.vmin, vmax: anchor.vmax }),
@@ -34505,7 +34506,7 @@
                     onAnimFrame: () => { qmriMvScaleAllCanvases(); },
                 });
                 mapCb._lebesgueView = anchor;
-                mapCb.wrap.classList.add('qv-cb-island');
+                mapCb.wrap.classList.add('qv-cb-island', 'qmri-mv-vcb-island');
                 for (const mv of mapViews) { mv._mapViews = mapViews; mv._mapColorBar = mapCb; }
                 rowBlock.appendChild(cbHost);
                 wrap.appendChild(rowBlock);
@@ -34717,14 +34718,12 @@
             const colGap = 24;
             const rowGap = 14;
             const sidePad = 120;
-            const anyExpanded = ready.some(v => v._mapColorBar && v._mapColorBar._expanded);
-            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
+            const vcbW = 150;  // vertical colorbar island (bar + flanking labels) horizontal footprint
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
-                         - nRows * cbH * (1 - _crossfadeCollapseP)
                          - (nRows - 1) * rowGap
                          - bottomPad * (1 - _crossfadeCollapseP);
-            const absMaxScaleW = (window.innerWidth - sidePad - (nCols - 1) * colGap) / nCols;
+            const absMaxScaleW = (window.innerWidth - sidePad - vcbW - (nCols - 1) * colGap) / nCols;
             const absMaxScaleH = Math.max(10, totalH / nRows);
             const absMaxT = Math.max(10, Math.min(absMaxScaleW, absMaxScaleH));
             const { atMax } = _clampUniformZoom(absMaxT);
@@ -34751,11 +34750,13 @@
             for (const v of ready) {
                 if (v._mapColorBar && !seen.has(v._mapColorBar)) { seen.add(v._mapColorBar); mapCbs.push(v._mapColorBar); }
             }
-            const rowW = Math.round(3 * T + 2 * colGap);
-            const rowCbW = cbTargetWidth(rowW);
             for (const cb of mapCbs) {
-                cb.wrap.style.display = rowCbW == null ? 'none' : '';
-                if (rowCbW != null) cb.wrap.style.width = rowCbW + 'px';
+                cb.wrap.style.display = '';
+                if (cb.colWrap) {
+                    cb.colWrap.style.width = '30px';
+                    cb.colWrap.style.height = T + 'px';
+                }
+                if (cb.canvas) cb.canvas.style.height = T + 'px';
             }
             const wrapEl = document.getElementById('qmri-view-wrap');
             if (wrapEl) wrapEl.style.gap = rowGap + 'px';
