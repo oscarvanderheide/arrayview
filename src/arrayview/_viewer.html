@@ -4071,6 +4071,7 @@
         .qmri-mosaic-label { font-size: 13px; font-family: monospace; font-weight: bold; color: var(--muted); width: 28px; text-align: right; flex-shrink: 0; margin-right: 8px; }
         /* qMRI 3-plane multiview: one map per row (3 planes) + a vertical colorbar on the right */
         .qmri-mv-row { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
+        .qmri-mv-row .qv-canvas-clip { align-items: center; justify-content: center; }
         .qmri-mv-row > .qv-row { flex: 0 1 auto; }
         .qmri-mv-cb { display: flex; align-items: center; flex-shrink: 0; }
         .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; flex-direction: column !important; gap: 3px; }
@@ -7087,7 +7088,6 @@
         let qmriMvActive = false;      // qMRI + 3-plane multiview combined mode (sub-mode of qMRI)
         let qmriMvViews = [];          // flat array of {qmriIdx, qmriRole, colormap, dimX, dimY, sliceDir, canvas, ...}
         let qmriMvDims = [];           // [d0, d1, d2] spatial dims used for the 3 planes
-        let _qmriMvPrevSquareStretch = true;
         // ── Stack mosaic: N arrays side by side along a collection dim ──
         let stackMosaicActive = false; // N-array window view over the collection dim
         let stackMosaicN = 4;          // arrays per window
@@ -13302,6 +13302,7 @@
         }
 
         async function _cycleQmriPaneRangePreset() {
+            if (qmriMvActive) { await _cycleQmriMvRangePreset(); return true; }
             const view = _hoveredQmriView;
             const activeCb = view
                 ? (qmriMosaicActive && view._mosaicColorBar ? view._mosaicColorBar : view._colorBar)
@@ -13335,6 +13336,83 @@
             } else {
                 await Promise.all(qmriViews.map(v => _applyQmriRangePresetToView(v, preset)));
                 qvScaleAllCanvases();
+            }
+            saveState();
+            return true;
+        }
+
+        /** Apply a quantile preset to an entire qmri-mv row (all three planes of
+         *  one parameter map) and refresh that row's vertical colorbar. */
+        async function _applyQmriMvRangePresetToRow(view, preset) {
+            if (!view || !preset) return false;
+            const rowViews = view._mapViews || [view];
+            let win = null;
+            let hist = null;
+            if (view.syntheticId) {
+                const range = { vmin: view.vmin, vmax: view.vmax };
+                const span = Number(range.vmax) - Number(range.vmin);
+                if (Number.isFinite(span) && span > 0) {
+                    win = { vmin: range.vmin + span * preset.lo, vmax: range.vmin + span * preset.hi };
+                }
+            } else {
+                const fixedIndices = `${qmriDim}:${view.qmriIdx}`;
+                hist = await _fetchVolumeHistogram({
+                    dimX: dim_x, dimY: dim_y,
+                    scrollDim: current_slice_dim,
+                    complexMode: complexMode,
+                    fixedIndices,
+                    qmriRole: view.qmriRole,
+                    bins: 128,
+                });
+                win = _quantileWindowFromHistogram(hist, preset);
+            }
+            if (!win) {
+                const range = { vmin: view.vmin, vmax: view.vmax };
+                const span = Number(range.vmax) - Number(range.vmin);
+                if (Number.isFinite(span) && span > 0) {
+                    win = { vmin: range.vmin + span * preset.lo, vmax: range.vmin + span * preset.hi };
+                }
+            }
+            if (!win) return false;
+            const normalized = _normalizeQmriWindowPolicy(view, win);
+            if (!normalized) return false;
+            const lo = normalized.vmin, hi = normalized.vmax;
+            for (const mv of rowViews) {
+                mv.lockedVmin = lo; mv.lockedVmax = hi;
+                mv.vmin = lo; mv.vmax = hi;
+            }
+            const anchor = rowViews[0];
+            const qi = qmriMvViews.indexOf(anchor);
+            const mvd = qi >= 0 ? modeManager.currentViews[qi] : null;
+            if (mvd) { mvd.displayState.vmin = lo; mvd.displayState.vmax = hi; }
+            const mapCb = view._mapColorBar;
+            if (mapCb) {
+                if (hist) {
+                    const oldVersion = mapCb._histVersion;
+                    const normHist = _normalizeQmriHistogramForColorbar(view, hist);
+                    mapCb._histData = normHist;
+                    mapCb._histVersion = mapCb._expectedHistVersion();
+                    mapCb._buildKDE();
+                    if (oldVersion !== mapCb._histVersion) mapCb._syncWindowFractionsToCurrent();
+                }
+                mapCb.draw();
+                mapCb.updateLabels();
+            }
+            for (const mv of rowViews) qmriMvRender(mv);
+            return true;
+        }
+
+        async function _cycleQmriMvRangePreset() {
+            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            const view = _hoveredQmriMvView;
+            if (view) {
+                await _applyQmriMvRangePresetToRow(view, preset);
+            } else {
+                const anchors = new Set();
+                for (const v of qmriMvViews) if (v._mapViews && v._mapViews[0]) anchors.add(v._mapViews[0]);
+                for (const a of anchors) await _applyQmriMvRangePresetToRow(a, preset);
             }
             saveState();
             return true;
@@ -34320,6 +34398,7 @@
         // unit normalization) keeps applying; only the pane layout changes.
 
         let _qmriMvDragView = null;
+        let _hoveredQmriMvView = null; // which qmriMvViews[] entry the mouse is over (null = none)
 
         function defaultQmriMvDims() {
             const spatialLimit = collectionSpatialNdim >= 0 ? collectionSpatialNdim : shape.length;
@@ -34355,8 +34434,6 @@
             }
             _qmriRenderGeneration++;
             _teardownQmriViews();
-            _qmriMvPrevSquareStretch = squareStretch;
-            squareStretch = true;
             qmriMvActive = true;
             qmriMvDims = dims;
 
@@ -34423,13 +34500,15 @@
                         qmriIdx: actualIdx, qmriRole: role, colormap: cmap,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         flipX: def.flipX, flipY: def.flipY,
-                        canvas: cv, ctx: cv.getContext('2d'), area, axesSvg: axDiv, pixelInfoEl: piEl,
+                        canvas: cv, ctx: cv.getContext('2d'), area, clip: cvBox, axesSvg: axDiv, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
                         _mapIndex: mi, _mapViews: null, _mapColorBar: null,
                         _qmriGeneration: _qmriRenderGeneration,
                     };
+                    pane.addEventListener('mouseenter', () => { _hoveredQmriMvView = view; });
+                    pane.addEventListener('mouseleave', () => { if (_hoveredQmriMvView === view) _hoveredQmriMvView = null; });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = _wheelIndexDelta(view.sliceDir, e);
@@ -34575,8 +34654,8 @@
 
         function _teardownQmriMvViews() {
             qmriMvActive = false;
-            squareStretch = _qmriMvPrevSquareStretch;
             _qmriMvDragView = null;
+            _hoveredQmriMvView = null;
             qmriMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriMvViews = [];
             qmriMvDims = [];
@@ -34769,7 +34848,7 @@
             for (const v of ready) {
                 _scalePane(
                     { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: panStub },
-                    null,
+                    v.clip || null,
                     {
                         maxW: T, maxH: T,
                         baseScale: baseScale,
