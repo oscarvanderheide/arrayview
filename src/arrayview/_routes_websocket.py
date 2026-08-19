@@ -14,7 +14,6 @@ from arrayview._render import (
     LUTS,
     _prepare_display,
     _ensure_lut,
-    apply_colormap_rgba,
     extract_projection,
     extract_slice,
     render_mosaic,
@@ -235,6 +234,58 @@ def _render_rgba_from_data(data, colormap, vmin, vmax):
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     return lut[(normalized * 255).astype(np.uint8)]
+
+
+def _render_qmri_rgba(
+    session,
+    dim_x,
+    dim_y,
+    idx_tuple,
+    colormap,
+    dr,
+    complex_mode,
+    log_scale,
+    qmri_role,
+    vmin_override=None,
+    vmax_override=None,
+):
+    """Render a qMRI parameter-map slice to RGBA and return (rgba, vmin, vmax).
+
+    Kept separate from the generic path so the slice read and the window
+    computation happen exactly once, and so multi-pane qMRI/ortho renders run in
+    the render thread pool instead of blocking the event loop serially. The
+    colour map is applied with the unadjusted window (matching the previous
+    synchronous path); the returned window is the qMRI-role-adjusted value sent
+    in the frame header.
+    """
+    raw = qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+    data, vmin, vmax = _prepare_display(
+        session,
+        raw,
+        complex_mode,
+        dr,
+        log_scale,
+        vmin_override=vmin_override,
+        vmax_override=vmax_override,
+    )
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    alpha_on = getattr(session, "alpha_level", 0) > 0
+    if alpha_on:
+        if vmax > vmin:
+            transparent = data < vmin
+        else:
+            transparent = data == np.float32(0)
+        if transparent.any():
+            rgba = rgba.copy()
+            rgba[transparent, 3] = 0
+    vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
+    return rgba, vmin, vmax
 
 
 async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
@@ -566,19 +617,23 @@ def register_websocket_routes(app) -> None:
                     )
                 else:
                     if qmri_role:
-                        raw = qmri_display_slice(
-                            session, dim_x, dim_y, list(idx_tuple), qmri_role
+                        rgba, vmin, vmax = await _render(
+                            loop,
+                            lambda: _render_qmri_rgba(
+                                session,
+                                dim_x,
+                                dim_y,
+                                idx_tuple,
+                                colormap,
+                                dr,
+                                complex_mode,
+                                log_scale,
+                                qmri_role,
+                                vmin_override=vmin_override,
+                                vmax_override=vmax_override,
+                            ),
                         )
-                        rgba = apply_colormap_rgba(
-                            session,
-                            raw,
-                            colormap,
-                            dr,
-                            complex_mode,
-                            log_scale,
-                            vmin_override=vmin_override,
-                            vmax_override=vmax_override,
-                        )
+                        h, w = rgba.shape[:2]
                     else:
                         rgba = await _render(
                             loop,
@@ -598,23 +653,17 @@ def register_websocket_routes(app) -> None:
                                 ),
                             ),
                         )
-                    h, w = rgba.shape[:2]
-                    raw = (
-                        qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
-                        if qmri_role
-                        else extract_slice(session, dim_x, dim_y, list(idx_tuple))
-                    )
-                    _, vmin, vmax = _prepare_display(
-                        session,
-                        raw,
-                        complex_mode,
-                        dr,
-                        log_scale,
-                        vmin_override=vmin_override,
-                        vmax_override=vmax_override,
-                    )
-                    if qmri_role:
-                        vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
+                        h, w = rgba.shape[:2]
+                        raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                        _, vmin, vmax = _prepare_display(
+                            session,
+                            raw,
+                            complex_mode,
+                            dr,
+                            log_scale,
+                            vmin_override=vmin_override,
+                            vmax_override=vmax_override,
+                        )
 
                     overlay_sid = msg.get("overlay_sid")
                     overlay_colors = msg.get("overlay_colors")
