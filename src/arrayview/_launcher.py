@@ -3157,6 +3157,28 @@ def _build_jupyter_inline_html(
     window.removeEventListener('message', onMessage);
     removalObserver.disconnect();
   }};
+  // Nearest ancestor of the host that can actually scroll vertically (JupyterLab
+  // scrolls the notebook pane; classic notebook scrolls the window).
+  const scrollParentOf = (el) => {{
+    let node = el && el.parentElement ? el.parentElement : null;
+    while (node) {{
+      const overflowY = window.getComputedStyle(node).overflowY;
+      const scrollable = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+      if (scrollable && node.scrollHeight > node.clientHeight) return node;
+      node = node.parentElement;
+    }}
+    return null;
+  }};
+  // WheelEvent deltaMode -> pixel delta: 0 = pixels, 1 = lines (~16px),
+  // 2 = pages (use a large step).
+  const wheelPassthroughPx = (detail) => {{
+    const d = detail || {{}};
+    let deltaY = Number.isFinite(Number(d.deltaY)) ? Number(d.deltaY) : 0;
+    const deltaMode = Number.isFinite(Number(d.deltaMode)) ? Number(d.deltaMode) : 0;
+    if (deltaMode === 1) deltaY *= 16;
+    else if (deltaMode === 2) deltaY *= Math.max(1, window.innerHeight || 600);
+    return deltaY;
+  }};
   const onMessage = (event) => {{
     const msg = event && event.data;
     if (!msg || msg.source !== 'arrayview-viewer') return;
@@ -3166,6 +3188,13 @@ def _build_jupyter_inline_html(
         msg.detail && msg.detail.mode,
         msg.detail && msg.detail.preferredHeight,
       );
+      return;
+    }}
+    if (msg.phase === 'wheel-passthrough') {{
+      const deltaY = wheelPassthroughPx(msg.detail);
+      const scroller = scrollParentOf(host);
+      if (scroller) scroller.scrollBy({{ top: deltaY }});
+      else window.scrollBy({{ top: deltaY }});
       return;
     }}
   }};

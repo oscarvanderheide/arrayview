@@ -29762,6 +29762,23 @@
         window.addEventListener('wheel', () => {
             if (_tutorialVisible) _tutorialLastInput = performance.now();
         }, { capture: true, passive: true });
+        // Wheel over the page background (the black space beside/below a pane)
+        // should scroll the hosting notebook, not be swallowed by this iframe.
+        // Over a pane/canvas the existing slice-scroll/zoom handlers own the
+        // wheel, so only forward when the cursor is over plain background.
+        window.addEventListener('wheel', (e) => {
+            const el = e.target;
+            if (el && el.closest) {
+                if (el.closest('#canvas-viewport, .mv-pane, .compare-canvas-wrap, .compare-canvas-clip, .qv-canvas-clip, canvas, #info')) return;
+                let node = el;
+                while (node && node !== document.body && node !== document.documentElement) {
+                    const pos = window.getComputedStyle(node).position;
+                    if (pos === 'fixed' || pos === 'absolute') return;
+                    node = node.parentElement;
+                }
+            }
+            reportParent('wheel-passthrough', { deltaY: e.deltaY, deltaMode: e.deltaMode });
+        }, { capture: true, passive: true });
         window.addEventListener('pointerup', () => {
             if (!_tutorialVisible) return;
             _tutorialLastInput = performance.now();
