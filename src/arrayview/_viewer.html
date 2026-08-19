@@ -4073,7 +4073,7 @@
         .qmri-mv-row { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
         .qmri-mv-row > .qv-row { flex: 0 1 auto; }
         .qmri-mv-cb { display: flex; align-items: center; flex-shrink: 0; }
-        .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; }
+        .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; flex-direction: column !important; gap: 3px; }
         .qmri-mosaic-vcb { flex-shrink: 0; border-radius: 3px; display: block; }
         .qmri-mosaic-vcb-island { display: flex; flex-direction: row; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; padding: 4px 6px; }
         /* Mosaic overflow/pan mode */
@@ -10984,8 +10984,9 @@
                 const aT = this._animT;
 
                 // For vertical: width expands from 8px (collapsed) to 30px (expanded)
-                const collapsedW = 8;
-                const expandedW = 30;
+                const scale = Number(this.opts.barScale) || 1;
+                const collapsedW = 8 * scale;
+                const expandedW = 30 * scale;
                 const cssW = collapsedW + (expandedW - collapsedW) * aT;
                 const cssH = cvs.clientHeight || parseInt(cvs.style.height) || 200;
 
@@ -34483,6 +34484,7 @@
                     container: cbHost,
                     id: 'qmri-mv-' + mi,
                     orientation: 'vertical',
+                    barScale: 1.5,
                     interactive: true,
                     getStops: () => COLORMAP_GRADIENT_STOPS[cmap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: anchor.vmin, vmax: anchor.vmax }),
@@ -34735,7 +34737,7 @@
             const colGap = 24;
             const rowGap = 14;
             const sidePad = 120;
-            const vcbW = 150;  // vertical colorbar island (bar + flanking labels) horizontal footprint
+            const vcbW = 80;  // vertical colorbar island horizontal footprint (bar + padding)
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - (nRows - 1) * rowGap
@@ -34770,7 +34772,7 @@
             for (const cb of mapCbs) {
                 cb.wrap.style.display = '';
                 if (cb.colWrap) {
-                    cb.colWrap.style.width = '30px';
+                    cb.colWrap.style.width = '45px';
                     cb.colWrap.style.height = T + 'px';
                 }
                 if (cb.canvas) cb.canvas.style.height = T + 'px';
