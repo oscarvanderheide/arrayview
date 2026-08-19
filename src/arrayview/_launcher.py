@@ -3031,16 +3031,11 @@ def _should_use_jupyter_proxy_inline() -> bool:
     if forced:
         return forced not in {"0", "false", "no", "off"}
 
-    # The proxy route rewrites the iframe src to a path relative to the
-    # notebook page's own origin (window.location), which only exists for a
-    # classic Jupyter Notebook/Lab page rendered in a real browser tab. VS
-    # Code's own notebook editor renders cell output in a webview with no
-    # such page origin to resolve against, so the relative URL is guaranteed
-    # broken there even when jupyter_server_proxy happens to be installed —
-    # use the direct-port iframe instead, same as local Jupyter.
-    if _in_vscode_terminal():
-        return False
-
+    # Whether the proxy route is *available*, not whether it will be used.
+    # Only the page can decide that — see _build_jupyter_inline_html. Sniffing
+    # the process tree here got it wrong for a Jupyter server started from a
+    # VS Code terminal and opened in an ordinary browser, which looks exactly
+    # like a VS Code notebook kernel from this side.
     global _JUPYTER_PROXY_INLINE_CACHE
     if _JUPYTER_PROXY_INLINE_CACHE is not None:
         return _JUPYTER_PROXY_INLINE_CACHE
@@ -3124,7 +3119,12 @@ def _build_jupyter_inline_html(
   const frame = host.querySelector('iframe');
   if (!frame) return;
   const directSrc = {json.dumps(viewer_url)};
-  const useProxy = {json.dumps(use_proxy)};
+  // The page knows where it is rendering and Python does not. A classic
+  // Jupyter Notebook/Lab page has an http(s) origin for the relative proxy
+  // path to resolve against; a VS Code notebook cell renders in a webview
+  // whose origin is not HTTP at all, so the same path resolves to nothing.
+  const proxyAvailable = {json.dumps(use_proxy)};
+  const useProxy = proxyAvailable && /^https?:$/.test(window.location.protocol);
   const defaultHeight = {height};
   const modeHeights = {_script_json(mode_heights)};
   const modeAliases = {{
@@ -3207,6 +3207,13 @@ def _make_jupyter_proxy_inline_html(
     height: int,
     mode_heights: dict[str, int] | None = None,
 ):
+    # The direct address is the fallback the page uses when its origin cannot
+    # resolve the relative proxy path — which is exactly what a VS Code
+    # notebook cell does — so over a tunnel it has to be one the client can
+    # reach, even though the proxy route is also on offer here.
+    viewer_url, reason = _inline_url_for_vscode_tunnel(viewer_url, port)
+    if reason:
+        return _inline_unreachable_html(reason)
     return _make_jupyter_inline_html(
         viewer_url,
         port,

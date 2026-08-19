@@ -50,8 +50,20 @@ had been covering for it.
   open-preview pipeline** so tab delivery cannot regress.
 - **`_launcher.py`** — `_inline_url_for_vscode_tunnel()` rewrites the inline
   URL onto the published route, memoised per (port, backend) for the process.
-  Only `_in_vscode_tunnel()` reaches it; local Jupyter and the proxy route are
-  untouched.
+  Only `_in_vscode_tunnel()` reaches it.
+- **The proxy-vs-direct choice is made by the page, not by Python.**
+  `_build_jupyter_inline_html` emits both addresses and picks with
+  `/^https?:$/.test(window.location.protocol)`: a classic Notebook/Lab page has
+  an http origin for the relative `/proxy/<port>/` path to resolve against, a
+  VS Code cell's webview does not. `_should_use_jupyter_proxy_inline()` now
+  only reports whether `jupyter_server_proxy` is importable.
+
+  A first attempt gated this in Python on `_in_vscode_terminal()`, which
+  **regressed a real user**: a `jupyter lab` started from a VS Code terminal on
+  a remote and opened in an ordinary browser is indistinguishable from a VS Code
+  notebook kernel by process ancestry, and lost its proxy route. Do not
+  reintroduce an environment sniff here — the page is the only thing that
+  knows. Escape hatch if it is ever needed: `ARRAYVIEW_JUPYTER_PROXY=1|0`.
 - **`_vscode_signal.py`** — `_public_tunnel_base()` returns `(base, reason)`.
 - Failure now renders VS Code's own explanation in the cell instead of black.
 
