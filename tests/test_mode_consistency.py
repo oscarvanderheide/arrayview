@@ -456,6 +456,56 @@ class TestQmriBlocks:
 
 
 # ---------------------------------------------------------------------------
+# ── QMRI MULTIVIEW: ortho view inside qMRI mode ────────────────────────────
+# ---------------------------------------------------------------------------
+
+class TestQmriMultiview:
+    """Pressing v inside qMRI mode shows a 3-plane grid per map (3 maps × 3)."""
+
+    def test_v_toggles_qmri_3x3_and_back(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        _focus_kb(page)
+
+        # v in qMRI -> 3-plane view per map (3 default-visible maps × 3 planes)
+        page.keyboard.press("v")
+        page.wait_for_selector("#qmri-view-wrap.active", timeout=5000)
+        page.wait_for_function(
+            "() => typeof qmriMvViews !== 'undefined' && qmriMvViews.length === 9 "
+            "&& qmriMvViews.every(v => v.lastW && v.lastH)",
+            timeout=10000,
+        )
+        panes = page.evaluate(
+            "() => document.querySelectorAll('#qmri-view-wrap .qv-canvas').length"
+        )
+        assert panes == 9, f"expected 9 qMRI-mv panes, got {panes}"
+        rows = page.evaluate(
+            "() => document.querySelectorAll('#qmri-view-wrap .qmri-mv-row').length"
+        )
+        assert rows == 3, f"expected 3 map rows, got {rows}"
+
+        # v again -> back to single-map qMRI (3 maps in one row)
+        page.keyboard.press("v")
+        page.wait_for_timeout(500)
+        page.wait_for_selector("#qmri-view-wrap.active", timeout=5000)
+        single_panes = page.evaluate(
+            "() => document.querySelectorAll('#qmri-view-wrap .qv-pane').length"
+        )
+        assert single_panes == 3, f"expected 3 qMRI panes after exit, got {single_panes}"
+
+    def test_q_exits_qmri_multiview(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function(
+            "() => typeof qmriMvViews !== 'undefined' && qmriMvViews.length === 9"
+        )
+        # q exits qMRI entirely, even from the multiview sub-mode
+        page.keyboard.press("q")
+        page.wait_for_timeout(600)
+        assert not page.is_visible("#qmri-view-wrap.active")
+
+
+# ---------------------------------------------------------------------------
 # ── COMPACT MODE: correct layout in multiview ──────────────────────────────
 # ---------------------------------------------------------------------------
 
