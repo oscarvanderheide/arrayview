@@ -7075,6 +7075,7 @@
         let _mvCrosshairAnim = null;   // animation frame id for crosshair fade
         let _mvScrollHintActive = false; // transient hint while scrolling a pane in ortho view
         let _mvScrollHintTimer = null;   // fade-out timer after pane scrolling stops
+        let _mvScrollHintView = null;    // pane being scrolled (its own crosshair is hidden)
         let _cmvCrosshairSid = null;   // SID of hovered row in compare-mv (null = hide all)
         let _cmvCrosshairAlpha = 0;    // current crosshair opacity for compare-mv
         let _cmvCrosshairTarget = 0;   // target opacity for compare-mv
@@ -30827,7 +30828,7 @@
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     _mvSetCurrentView(view);
-                    _mvScrollHint();
+                    _mvScrollHint(view);
                     if (obliqueVecs) {
                         // Oblique mode: scroll along the hovered pane normal so the
                         // wheel gesture still feels like "step through slices" even
@@ -31215,6 +31216,7 @@
             _mvCrosshairAlpha = 0; _mvCrosshairTarget = 0;
             if (_mvCrosshairAnim) { cancelAnimationFrame(_mvCrosshairAnim); _mvCrosshairAnim = null; }
             _mvScrollHintActive = false;
+            _mvScrollHintView = null;
             if (_mvScrollHintTimer) { clearTimeout(_mvScrollHintTimer); _mvScrollHintTimer = null; }
             obliqueVecs = null; obliqueDrag = null;
             // Reset any lingering flip-state so a mid-flip exit doesn't carry
@@ -35672,13 +35674,15 @@
             _mvSetCrosshairTarget(show ? 1 : 0);
             _reconcileMvOrientationVisibility();
         }
-        function _mvScrollHint() {
+        function _mvScrollHint(view) {
             _mvScrollHintActive = true;
+            _mvScrollHintView = view || null;
             _mvSetCrosshairTarget(1);
             _reconcileMvOrientationVisibility();
             if (_mvScrollHintTimer) clearTimeout(_mvScrollHintTimer);
             _mvScrollHintTimer = setTimeout(() => {
                 _mvScrollHintActive = false;
+                _mvScrollHintView = null;
                 _mvRecomputeCrosshairTarget();
             }, 250);
         }
@@ -35751,7 +35755,7 @@
             const metrics = _getMvCrosshairMetrics(v);
             if (!metrics) return;
             const { paneW, paneH, offsetX, offsetY, cssW: _cssW, cssH: _cssH, scaleX, scaleY } = metrics;
-            const _chAlpha = _mvCrosshairAlpha;
+            const _chAlpha = (_mvScrollHintActive && v === _mvScrollHintView) ? 0 : _mvCrosshairAlpha;
             const _chOv = _getMvCrosshairOverlay(v);
             if (_chOv) {
                 const dpr = window.devicePixelRatio || 1;
