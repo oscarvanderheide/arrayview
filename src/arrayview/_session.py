@@ -505,44 +505,75 @@ def _startup_dims_for_data(data, shape=None) -> tuple[int, int] | None:
     return _viewer_start_dims_for_shape(target_shape)
 
 
-def upgrade_memmap_in_background(session) -> bool:
-    """Read a memmap-backed session into RAM behind the viewer.
+def _nifti_proxy_nbytes(data) -> int:
+    """Estimate the in-RAM size of a nibabel ArrayProxy."""
+    try:
+        return int(np.prod(data.shape)) * np.dtype(data.dtype).itemsize
+    except Exception:
+        return 0
 
-    ``load_data`` hands back a memmap only when the first frame is cheap to
+
+def upgrade_memmap_in_background(session) -> bool:
+    """Read a lazily-backed session array into RAM behind the viewer.
+
+    ``load_data`` hands back a lazy source — an ``np.memmap`` for .npy, or a
+    nibabel ArrayProxy for uncompressed .nii — when the first frame is cheap to
     fault in, which buys an immediate picture but leaves later orientations
-    paying scattered reads.  The sequential read still has to happen, so run it
-    off the hot path and swap the array in when it lands.
+    (ortho panes, qMRI planes) paying scattered reads.  The sequential read
+    still has to happen, so run it off the hot path and swap the array in when
+    it lands.
 
     Rebinding ``session.data`` is atomic under the GIL and the values are
-    identical, so a render already holding the memmap stays correct and the
+    identical, so a render already holding the lazy array stays correct and the
     slice caches stay valid.
     """
     data = getattr(session, "data", None)
     filepath = getattr(session, "filepath", None)
-    if not isinstance(data, np.memmap) or not filepath:
+    if data is None or not filepath:
         return False
-    if not str(filepath).endswith(".npy"):
+    filepath = str(filepath)
+
+    is_memmap = isinstance(data, np.memmap)
+    is_nifti_proxy = filepath.endswith(".nii") and not isinstance(data, np.ndarray)
+    if not (is_memmap or is_nifti_proxy):
         return False
+
     try:
         from ._io import npy_eager_limit
-
-        if os.path.getsize(filepath) >= npy_eager_limit():
-            return False  # does not fit in RAM — the map is the only option
-    except OSError:
+    except Exception:
         return False
+
+    if is_memmap:
+        if not filepath.endswith(".npy"):
+            return False
+        try:
+            nbytes = os.path.getsize(filepath)
+        except OSError:
+            return False
+    else:
+        nbytes = _nifti_proxy_nbytes(data)
+    if nbytes >= npy_eager_limit():
+        return False  # does not fit in RAM — the lazy source is the only option
 
     expected = data
     version = getattr(session, "data_version", 0)
 
     def _upgrade():
         try:
-            loaded = np.load(filepath)
+            if is_memmap:
+                loaded = np.load(filepath)
+            else:
+                from ._io import _nifti_display_array
+
+                loaded = _nifti_display_array(data)
         except Exception:
-            return  # keep serving from the map
+            return  # keep serving from the lazy source
         # A /reload or a released session must not be clobbered by a read that
         # started against the previous array.
         if session.data is expected and getattr(session, "data_version", 0) == version:
             session.data = loaded
+            if getattr(session, "original_volume", None) is expected:
+                session.original_volume = loaded
 
     threading.Thread(target=_upgrade, daemon=True).start()
     return True
