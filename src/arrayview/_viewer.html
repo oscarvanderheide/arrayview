@@ -4074,6 +4074,8 @@
         .qmri-mv-row > .qv-row { flex: 0 1 auto; }
         .qmri-mv-cb { display: flex; align-items: center; flex-shrink: 0; }
         .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; flex-direction: column !important; gap: 3px; }
+        .qmri-mv-vcb-island .cb-col { flex: 1 1 auto; min-height: 0; }
+        .qmri-mv-vcb-island .cb-canvas { left: 0; right: 0; margin-left: auto; margin-right: auto; }
         .qmri-mosaic-vcb { flex-shrink: 0; border-radius: 3px; display: block; }
         .qmri-mosaic-vcb-island { display: flex; flex-direction: row; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; padding: 4px 6px; }
         /* Mosaic overflow/pan mode */
@@ -18827,6 +18829,12 @@
         function _activeDimScrollFraction() {
             if (activeDim === VFIELD_T_DIM) {
                 return vfieldNTimes > 1 ? vfieldT / Math.max(1, vfieldNTimes - 1) : 0;
+            }
+            // In single-pane views the displayed axes (x/y) are "viewing" dims,
+            // not scrolled through — a selected viewing dim reads as fully filled.
+            if (!multiViewActive && !compareMvActive && !qmriMvActive
+                    && (activeDim === dim_x || activeDim === dim_y)) {
+                return 1;
             }
             const sz = shape[activeDim];
             if (!sz || sz <= 1) return 0;
@@ -34779,11 +34787,11 @@
             }
             for (const cb of mapCbs) {
                 cb.wrap.style.display = '';
+                cb.wrap.style.height = T + 'px';
                 if (cb.colWrap) {
                     cb.colWrap.style.width = '45px';
-                    cb.colWrap.style.height = T + 'px';
                 }
-                if (cb.canvas) cb.canvas.style.height = T + 'px';
+                if (cb.canvas) cb.canvas.style.height = '100%';
             }
             const wrapEl = document.getElementById('qmri-view-wrap');
             if (wrapEl) wrapEl.style.gap = rowGap + 'px';
