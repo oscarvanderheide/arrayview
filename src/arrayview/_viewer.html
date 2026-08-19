@@ -817,8 +817,8 @@
         #hist-tooltip.visible { display: block; }
         .dim-idx { font-variant-numeric: tabular-nums; }
         #info .active-dim.dim-label .dim-idx {
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
         }
         #info .active-dim.dim-label .dim-idx.dim-idx-pending {
             color: var(--muted);
@@ -848,8 +848,8 @@
         }
         #info .active-dim.dim-label {
             font-weight: normal;
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
         }
         #info .playing-dim.dim-label {
             font-weight: normal;
@@ -900,16 +900,16 @@
         }
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
         }
         .active-dim .dim-slash:not([style*="background"]) {
-            color: var(--active-dim) !important;
-            -webkit-text-fill-color: var(--active-dim) !important;
+            color: var(--text) !important;
+            -webkit-text-fill-color: var(--text) !important;
         }
         #info .spatial-dim.active-dim.dim-label {
-            color: var(--active-dim);
-            -webkit-text-fill-color: var(--active-dim);
+            color: var(--text);
+            -webkit-text-fill-color: var(--text);
             font-weight: normal;
         }
         #info .spatial-dim.playing-dim.dim-label {
@@ -18819,6 +18819,16 @@
             const r = label.getBoundingClientRect();
             return { x: r.left, y: r.bottom, w: r.width };
         }
+        function _activeDimScrollFraction() {
+            if (activeDim === VFIELD_T_DIM) {
+                return vfieldNTimes > 1 ? vfieldT / Math.max(1, vfieldNTimes - 1) : 0;
+            }
+            const sz = shape[activeDim];
+            if (!sz || sz <= 1) return 0;
+            const idx = indices[activeDim];
+            if (idx == null) return 0;
+            return idx / Math.max(1, sz - 1);
+        }
         function _ensureDimUnderlineMarker() {
             let marker = document.getElementById('dim-active-underline');
             if (!marker) {
@@ -18831,12 +18841,12 @@
             }
             return marker;
         }
-        function _placeDimUnderline(marker, rect, instant) {
+        function _placeDimUnderline(marker, rect, fraction, instant) {
             if (instant) {
                 marker.style.transition = 'none';
             }
             marker.style.transform = `translate3d(${rect.x}px, ${rect.y}px, 0)`;
-            marker.style.width = `${Math.max(0, rect.w)}px`;
+            marker.style.width = `${Math.max(0, rect.w * (fraction == null ? 1 : fraction))}px`;
             if (instant) {
                 marker.offsetWidth;
                 marker.style.transition = '';
@@ -18855,9 +18865,10 @@
                 _dimUnderlinePlaced = false;
                 return;
             }
-            _placeDimUnderline(marker, toRect, !_dimUnderlinePlaced);
+            const fraction = _activeDimScrollFraction();
+            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced);
             const infoVisible = _dimUnderlineInfoVisible(info);
-            const hidden = true;
+            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
             if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
