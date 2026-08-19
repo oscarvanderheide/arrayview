@@ -18850,8 +18850,14 @@
             if (instant) {
                 marker.style.transition = 'none';
             }
+            const f = Math.max(0, Math.min(1, fraction == null ? 1 : fraction));
+            const cs = getComputedStyle(document.documentElement);
+            const fill = cs.getPropertyValue('--active-dim').trim();
+            const muted = cs.getPropertyValue('--muted').trim();
+            const track = `color-mix(in srgb, ${fill} 32%, ${muted})`;
             marker.style.transform = `translate3d(${rect.x}px, ${rect.y}px, 0)`;
-            marker.style.width = `${Math.max(0, rect.w * (fraction == null ? 1 : fraction))}px`;
+            marker.style.width = `${Math.max(0, rect.w)}px`;
+            marker.style.background = `linear-gradient(to right, ${fill} ${f * 100}%, ${track} ${f * 100}%)`;
             if (instant) {
                 marker.offsetWidth;
                 marker.style.transition = '';
