@@ -50,6 +50,13 @@ window claimed it nor that the forwarded backend is reachable.
 resolved URL. A blocking VS Code launch fails closed unless `backend_ready`
 arrives; local mocks do not replace a real tunnel handoff.
 
+An idle Tunnel can accept an integrated-browser command before its remote
+connection can carry the page, then never replay that first navigation. A real
+host trial proved recovery does not need changing browser addresses: keep one
+request-owned URL and tab, rotate only the fenced readiness token, and show one
+native progress notification until the first rendered frame. Changing retry
+addresses adds visible churn without making VS Code ready sooner.
+
 ## VS Code Tunnel Transport Policy
 
 **Problem:** The fast private integrated-browser route was restricted to an

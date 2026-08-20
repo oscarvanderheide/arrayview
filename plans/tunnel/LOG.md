@@ -3696,3 +3696,43 @@ If the leak is worth closing at the source later, the shape is: ArrayView knows
 the ephemeral port the moment it binds it, so it could mark that one port
 `onAutoForward: ignore` and the registration would never be created — no
 machine-wide setting, works for every user. Not implemented.
+
+## 2026-08-21 — one unchanged retry address and visible opening progress
+
+**Preserved failure (`real host`)**: after more than one minute idle, request
+`9b7b29e6…` opened one active integrated-browser tab at 21:46:41.826 UTC. The
+backend answered every health probe in 9–14 ms, but attempts 0–2 produced no
+page request. Attempt 3 reissued the byte-identical URL in that same tab; the
+route was entered at 21:46:46.845 and the requested array's first frame was
+recorded at 21:46:47.581. All attempts kept tab key `79cf2eaa91f1` and
+navigation key `746a236847c2`; only the fenced readiness token and attempt
+number changed. A separate no-retry measurement had remained blank for 40 s
+without entering the route, so this was recovery caused by re-navigation, not
+an original request that eventually arrived by itself.
+
+**Conclusion**: changing the short address on every attempt was unnecessary.
+It made the one tab's address visibly churn but did not wake VS Code faster.
+The permanent opener now keeps one address and one request-owned tab across the
+bounded retry window, while renewing the control-plane token so a stale page
+cannot complete a newer attempt.
+
+**User feedback during the unavoidable wait**: every Tunnel integrated-browser
+launch now owns one non-cancellable VS Code progress notification. It starts as
+`Opening <array> in ArrayView…`, updates once on the first confirmed blank
+navigation to `VS Code is still connecting. This can take a few seconds.`, and
+ends on the requested array's first rendered frame or terminal failure.
+Explorer's earlier status-bar spinner ends at browser handover so the two
+indicators do not overlap.
+
+**Affected rows**: 1–4, 16, 19–20, 23–26, 29–30, and 32. Tunnel external
+browser, notebook inline, Remote SSH, local VS Code, and no-display policy are
+unchanged and remain sentinels.
+
+**Evidence so far**: `real host` for the byte-identical idle recovery above;
+`component` for the permanent 0.15.59 implementation and notification. The
+readiness test proves one URL/navigation key, fresh tokens, one physical tab,
+no tab closes, and bounded failure. The queue test proves one notification is
+created and dismissed on first frame without affecting the external-browser
+path. The normal pytest wrapper, lifecycle runner, and CI job now all execute
+the readiness, reload, and queue-handoff contracts. Post-install live evidence
+for 0.15.59 remains open until the active Tunnel window reloads.

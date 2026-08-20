@@ -79,6 +79,7 @@ jobs:
           node vscode-extension/test_panel_readiness.js
           node vscode-extension/test_integrated_browser_readiness.js
           node vscode-extension/test_reload_recovery.js
+          node vscode-extension/test_signal_queue_handoff.js
           node vscode-extension/test_request_journal.js
           node vscode-extension/test_request_deadline.js
       - name: VS Code extension syntax

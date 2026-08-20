@@ -19,6 +19,7 @@ let getCommandsCalls = 0;
 const externalOpens = [];
 const editorTabs = [];
 const closedTabs = [];
+const progressNotifications = [];
 class TabInputText {}
 class TabInputTextDiff {}
 class TabInputNotebook {}
@@ -39,6 +40,7 @@ function reusableBrowserTab(args) {
     }) || null;
 }
 const vscodeMock = {
+    ProgressLocation: { Notification: 15 },
     TabInputText,
     TabInputTextDiff,
     TabInputNotebook,
@@ -80,6 +82,19 @@ const vscodeMock = {
         },
     },
     window: {
+        withProgress(options, task) {
+            const notification = {
+                options,
+                reports: [],
+                completed: false,
+            };
+            progressNotifications.push(notification);
+            const result = Promise.resolve(task({
+                report(update) { notification.reports.push(update); },
+            })).then(() => { notification.completed = true; });
+            notification.task = result;
+            return result;
+        },
         tabGroups: {
             all: [{ tabs: editorTabs }],
             async close(tab) {
@@ -207,6 +222,51 @@ Module._load = originalLoad;
     const backendUrl = `http://localhost:${address.port}/?sid=sid-one`;
 
     try {
+        const progressOne = __test._startIntegratedBrowserOpeningProgress(
+            'ArrayView: first-array.npy'
+        );
+        const progressTwo = __test._startIntegratedBrowserOpeningProgress(
+            'second-array.npy'
+        );
+        assert.strictEqual(
+            progressNotifications.length,
+            2,
+            'overlapping launches must each own exactly one progress notification'
+        );
+        assert.deepStrictEqual(progressNotifications.map(item => item.options), [
+            {
+                location: vscodeMock.ProgressLocation.Notification,
+                title: 'Opening first-array.npy in ArrayView…',
+                cancellable: false,
+            },
+            {
+                location: vscodeMock.ProgressLocation.Notification,
+                title: 'Opening second-array.npy in ArrayView…',
+                cancellable: false,
+            },
+        ]);
+        progressOne.stillWaiting();
+        progressOne.stillWaiting();
+        assert.deepStrictEqual(progressNotifications[0].reports, [{
+            message: 'VS Code is still connecting. This can take a few seconds.',
+        }], 'blank recovery must update its one notification exactly once');
+        assert.deepStrictEqual(
+            progressNotifications[1].reports,
+            [],
+            'one launch must not update another launch\'s notification'
+        );
+        progressOne.settle('first frame rendered');
+        await progressOne.task;
+        assert.strictEqual(progressNotifications[0].completed, true);
+        assert.strictEqual(
+            progressNotifications[1].completed,
+            false,
+            'finishing one launch must not dismiss an overlapping launch'
+        );
+        progressTwo.settle('launch failed');
+        await progressTwo.task;
+        assert.strictEqual(progressNotifications[1].completed, true);
+
         assert.strictEqual(
             await __test.integratedBrowserCommandAvailable(10),
             true,
@@ -716,6 +776,7 @@ Module._load = originalLoad;
                 journal.viewer_instance_ids = ['viewer-one'];
             }
         };
+        let blankRecoveryNotices = 0;
         const recovered = await __test.openInIntegratedBrowser(
             'http://localhost:9000/?sid=sid-one',
             backendUrl,
@@ -724,7 +785,10 @@ Module._load = originalLoad;
             'window-one',
             5000,
             () => {},
-            1000
+            1000,
+            false,
+            null,
+            () => { blankRecoveryNotices += 1; }
         );
         assert.strictEqual(await recovered.viewerReady, null);
         assert.strictEqual(
@@ -737,6 +801,38 @@ Module._load = originalLoad;
                 .slice(recoveredPreparedStart)
                 .map(body => body.navigation_attempt),
             [0, 1]
+        );
+        assert.strictEqual(
+            new Set(
+                commandArgsHistory
+                    .slice(recoveredStart)
+                    .map(args => args.url)
+            ).size,
+            1,
+            'blank recovery must retry the byte-identical browser address'
+        );
+        assert.strictEqual(
+            new Set(
+                preparedBodies
+                    .slice(recoveredPreparedStart)
+                    .map(body => body.navigation_key)
+            ).size,
+            1,
+            'fresh readiness tokens must not require a new browser address'
+        );
+        assert.strictEqual(
+            new Set(
+                preparedBodies
+                    .slice(recoveredPreparedStart)
+                    .map(body => body.token)
+            ).size,
+            2,
+            'same-address retries must still rotate their readiness token'
+        );
+        assert.strictEqual(
+            blankRecoveryNotices,
+            1,
+            'the first blank retry must emit one still-waiting update'
         );
         assert.strictEqual(
             closedTabs.length,
@@ -803,6 +899,20 @@ Module._load = originalLoad;
             commandHistory.slice(cappedCommandStart).map(entry => entry.command),
             Array(3).fill('workbench.action.browser.open'),
             'a permanently blank request must use fresh browser navigation only'
+        );
+        assert.strictEqual(
+            new Set(cappedCommands.map(args => args.url)).size,
+            1,
+            'all bounded retries must reuse one unchanged address'
+        );
+        assert.strictEqual(
+            new Set(
+                preparedBodies
+                    .slice(cappedPreparedStart)
+                    .map(body => body.navigation_key)
+            ).size,
+            1,
+            'all bounded attempts must keep one navigation address'
         );
         assert.strictEqual(
             closedTabs.length,

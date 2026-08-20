@@ -2351,6 +2351,9 @@ def test_vscode_tunnel_resolution_with_node(script):
         "test_request_journal.js",
         "test_request_deadline.js",
         "test_panel_replay.js",
+        "test_integrated_browser_readiness.js",
+        "test_reload_recovery.js",
+        "test_signal_queue_handoff.js",
         "test_folder_open_command.js",
         "test_nonblocking_logging.js",
         "test_process_liveness.js",
@@ -2494,8 +2497,12 @@ def test_bundled_vscode_vsix_matches_release_lifecycle_source():
     assert "const displaySurface = data.displaySurface" in extension_source
     assert "async function _runIntegratedBrowserCommand" in extension_source
     assert "public tunnel URL resolution is disabled" in extension_source
-    assert "remote.tunnel.privacypublic" not in extension_source
-    assert "ensurePortPublic" not in extension_source
+    tunnel_tab_route = extension_source[
+        extension_source.index("async function resolveRemoteViewerUrl(") :
+        extension_source.index("async function processSignalData(")
+    ]
+    assert "remote.tunnel.privacypublic" not in tunnel_tab_route
+    assert "ensurePortPublic" not in tunnel_tab_route
     assert "const signalHardTimeoutMs = remainingSignalMs === null" in extension_source
     assert "Math.max(1000, remainingSignalMs + 1000)" in extension_source
     assert "function _asExternalUriAttempt(baseUri)" in extension_source

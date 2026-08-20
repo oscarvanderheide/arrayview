@@ -68,7 +68,7 @@ def test_integrated_browser_reports_navigation_arrival(page, client, server_url,
     assert len(journal["viewer_instance_ids"]) == 1
 
 
-def test_integrated_browser_short_route_survives_refresh(
+def test_integrated_browser_short_route_survives_identical_navigation(
     page, client, server_url, sid_3d
 ):
     request_id = "0123456789abcdef0123456789abcdef"
@@ -98,14 +98,17 @@ def test_integrated_browser_short_route_survives_refresh(
         timeout=15_000,
     )
 
-    assert page.url == short_url
+    # The viewer deliberately hides its request keys after resolving the short
+    # route. Reissuing the original URL is what the VS Code opener does while
+    # recovering a navigation that never reached this page.
+    assert page.url == f"{server_url}/"
 
-    page.reload()
+    page.goto(short_url)
     page.wait_for_function(
         "() => window.currentSid && lastImageData !== null",
         timeout=15_000,
     )
-    assert page.url == short_url
+    assert page.url == f"{server_url}/"
     assert page.evaluate("() => window.currentSid") == sid_3d
 
 

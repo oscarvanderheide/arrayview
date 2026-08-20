@@ -58,6 +58,9 @@ Integrated browser ←VS Code private proxy→ remote localhost FastAPI server
 The extension reads ArrayView's signal file, verifies the exact backend and
 target window, and opens a request-specific loopback URL. Each invocation gets
 its own request identity so multiple ArrayView tabs can remain open at once.
+While VS Code wakes an idle Tunnel connection, one progress notification stays
+visible and the same tab retries one unchanged address; it disappears when the
+array's first frame is on screen.
 Slice requests, metadata, overlays, and compare views use the same
 HTTP/WebSocket routes as local browser mode. If the private proxy or exact
 target cannot be verified, ArrayView fails instead of making the port public.

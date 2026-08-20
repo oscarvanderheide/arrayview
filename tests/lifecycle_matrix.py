@@ -137,6 +137,7 @@ def check_node_extension_helpers() -> CheckResult:
         "test_panel_readiness.js",
         "test_integrated_browser_readiness.js",
         "test_reload_recovery.js",
+        "test_signal_queue_handoff.js",
     ]
     for script in scripts:
         result = _run([node, f"vscode-extension/{script}"], timeout=20.0)

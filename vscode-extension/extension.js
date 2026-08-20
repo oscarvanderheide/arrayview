@@ -1590,6 +1590,65 @@ function _launchWithStatusProgress(sourcePath, title, logTag, handoff = null) {
     );
 }
 
+function _startIntegratedBrowserOpeningProgress(title) {
+    let finish;
+    let reporter = null;
+    let waitingReported = false;
+    let settled = false;
+    const finished = new Promise(resolve => { finish = resolve; });
+    const cleanTitle = String(title || '')
+        .replace(/^ArrayView:\s*/i, '')
+        .trim();
+    const progressTitle = cleanTitle
+        ? `Opening ${cleanTitle} in ArrayView…`
+        : 'Opening ArrayView…';
+
+    let task = Promise.resolve();
+    if (typeof vscode.window?.withProgress === 'function') {
+        try {
+            task = Promise.resolve(vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: progressTitle,
+                    cancellable: false,
+                },
+                async progress => {
+                    reporter = progress;
+                    if (waitingReported && !settled) {
+                        progress.report({
+                            message: 'VS Code is still connecting. This can take a few seconds.',
+                        });
+                    }
+                    await finished;
+                }
+            )).catch(error => {
+                log(`PANEL: opening notification failed: ${error.message || error}`);
+            });
+        } catch (error) {
+            log(`PANEL: opening notification failed: ${error.message || error}`);
+        }
+    }
+
+    return {
+        stillWaiting() {
+            if (settled || waitingReported) return;
+            waitingReported = true;
+            if (reporter) {
+                reporter.report({
+                    message: 'VS Code is still connecting. This can take a few seconds.',
+                });
+            }
+        },
+        settle(reason) {
+            if (settled) return;
+            settled = true;
+            log(`PANEL: opening notification ended (${reason})`);
+            finish();
+        },
+        task,
+    };
+}
+
 // Registers *webviewPanel* as the tab that the eventual signal-file URL should
 // navigate, keyed by the resolved source path. Both entry points need this:
 // resolveCustomEditor for a single array file, and the folder command, which
@@ -3211,24 +3270,13 @@ async function waitForBackendViewerReady(
     let unreachableCount = 0;
     const maxUnreachableAfterScript = 15;
     let navigationAttempt = 0;
-    // Every recovery step is a full fresh navigation.  The relay drops a page
-    // request outright rather than delivering it slowly, so the only useful
-    // response is another independent fetch.  Escalating to a hard reload of
-    // the already-blank tab recovered 0 of 5 observed stalls; a fresh
-    // navigation recovered 2 of 7.  The budget buys repeats of the latter.
-    // A navigation that is going to answer answers quickly, so the wait before
-    // replacing one is a detection delay, not a grace period.  Measured
-    // server-side (2026-08-05): of 213 real navigations, 169 reached the
-    // backend and 44 never arrived at all; of those that arrived, the page
-    // request landed within 398 ms in every single case and the viewer script
-    // reported in by 1.32 s at the very worst, 833 ms at the 99th percentile.
-    // So there is no population of merely-slow pages that a longer wait would
-    // protect: past about 1.5 s the page is not late, it is gone, and every
-    // further millisecond is dead time.  The first attempt gets the same wait
-    // as the rest, because it is no more likely to be merely slow than they
-    // are.  The wait stays a fraction of the budget below that cap so that a
-    // shortened budget still fits a retry inside itself rather than expiring
-    // on the first wait.
+    // VS Code can create the browser editor before its Remote Tunnel path is
+    // ready. In that state a localhost navigation never reaches the backend
+    // and VS Code does not replay it later. A fresh command wakes the same
+    // request-owned tab; the page's arrival marker stops recovery as soon as
+    // one command gets through. Keep attempts spread across the bounded
+    // startup window because the observed wake-up takes about five seconds,
+    // while a request that has actually reached the backend arrives quickly.
     const navigationRetryDelayMs = Math.max(
         50,
         Math.min(1500, Math.floor(preScriptTimeoutMs * 0.4))
@@ -3441,7 +3489,9 @@ async function openInIntegratedBrowser(
     measureNavigation = false,
     // Called once, immediately before the first navigation command. See
     // beforeNavigate below.
-    onBeforeNavigate = null
+    onBeforeNavigate = null,
+    // Called once when the first blank navigation is about to be retried.
+    onBlankRecovery = null
 ) {
     const viewerDeadline = Date.now() + viewerTimeoutMs;
     if (measureNavigation) {
@@ -3485,9 +3535,14 @@ async function openInIntegratedBrowser(
     const browserUrl = remoteProxyEnabled ? backendUrl : url;
     const journalUrl = `${new URL(backendUrl).origin}/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(requestId)}`;
     const tabKey = crypto.randomBytes(12).toString('base64url');
+    // Keep one byte-identical browser address for this launch. The journal
+    // token below is still renewed for every attempt, so stale pages cannot
+    // claim readiness, while VS Code simply wakes the existing request tab
+    // instead of visibly replacing its address on every retry.
+    const navigationKey = crypto.randomBytes(12).toString('base64url');
     // VS Code treats this value as a glob over the parsed URL path. The
-    // trailing wildcard is required to match this launch's changing
-    // navigation key while the unique tab key keeps other launches separate.
+    // unique tab key keeps other launches separate, including simultaneous
+    // arrays whose retries use their own unchanged addresses.
     const reuseUrlFilter = `/_av/${tabKey}/**`;
     let requestTab = null;
     const closeExactRequestTab = async () => {
@@ -3508,7 +3563,6 @@ async function openInIntegratedBrowser(
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
-        const navigationKey = crypto.randomBytes(12).toString('base64url');
         const viewerQuery = new URL(backendUrl).search;
         // A hedge must fit inside the budget it is hedging.  `deadline` is the
         // caller's pre-script deadline; without clamping to it, every attempt
@@ -3691,6 +3745,11 @@ async function openInIntegratedBrowser(
                 if (!requestTab) {
                     log('PANEL: blank-tab recovery unavailable without exact tab handle');
                     return null;
+                }
+                if (onBlankRecovery) {
+                    const notify = onBlankRecovery;
+                    onBlankRecovery = null;
+                    try { notify(); } catch (_) {}
                 }
                 if (
                     !_visibleEditorTabs().includes(requestTab)
@@ -4315,6 +4374,7 @@ async function _processSignalDataBody(
     let closeIntegratedBrowserTab = null;
     let externalBrowserOpened = false;
     let integratedBrowserPlaceholder = null;
+    let integratedBrowserProgress = null;
     // Set when this request has reached a terminal state, so a panel disposal
     // arriving while the request is still running does not release the session
     // out from under it. See the handoff disposal handler below.
@@ -4405,7 +4465,23 @@ async function _processSignalDataBody(
             // claiming the request, preparing the journal — has already
             // happened, so the tab is not thrown away for a launch that then
             // never produces a viewer.
+            const beginOpeningProgress = () => {
+                if (integratedBrowserProgress) return integratedBrowserProgress;
+                // Explorer clicks already have a status-bar spinner while the
+                // backend starts. End it at the handover so only this one
+                // native progress notification remains while the browser tab
+                // is trying to render.
+                _settleLaunchProgress(
+                    data.handoffPath,
+                    'integrated browser handover'
+                );
+                integratedBrowserProgress = _startIntegratedBrowserOpeningProgress(
+                    data.title
+                );
+                return integratedBrowserProgress;
+            };
             const handOverTab = () => {
+                beginOpeningProgress();
                 if (!integratedBrowserPlaceholder) return;
                 const { filePath, placeholder } = integratedBrowserPlaceholder;
                 integratedBrowserPlaceholder = null;
@@ -4419,49 +4495,37 @@ async function _processSignalDataBody(
                     log(`CUSTOM-EDITOR: tab for ${placeholder.basename} already closed at handover: ${error.message}`);
                 }
             };
-            const opened = await openInIntegratedBrowser(
-                openUrl,
-                data.url,
-                requestId,
-                data.serverId || null,
-                data.windowId || logWindowId,
-                viewerTimeoutMs,
-                ensureActive,
-                undefined,
-                data.measureNavigation === true,
-                handOverTab
-            );
+            let opened;
+            try {
+                opened = await openInIntegratedBrowser(
+                    openUrl,
+                    data.url,
+                    requestId,
+                    data.serverId || null,
+                    data.windowId || logWindowId,
+                    viewerTimeoutMs,
+                    ensureActive,
+                    undefined,
+                    data.measureNavigation === true,
+                    handOverTab,
+                    () => beginOpeningProgress().stillWaiting()
+                );
+            } catch (error) {
+                if (integratedBrowserProgress) {
+                    integratedBrowserProgress.settle('launch failed');
+                }
+                throw error;
+            }
             viewerReady = opened.viewerReady;
             closeIntegratedBrowserTab = opened.closeExactRequestTab;
             integratedBrowserOpened = true;
             log('openInIntegratedBrowser done');
-            // The status-bar spinner runs from the click until the viewer page
-            // is actually on screen — the tab is gone by now, so it is the only
-            // thing left saying the launch is still going. The timeout is a
-            // leak guard: a spinner that outlived its request must still stop.
-            {
-                let spinnerStopped = false;
-                const stopSpinner = (reason) => {
-                    if (spinnerStopped) return;
-                    spinnerStopped = true;
-                    // A launch whose tab never closed (the open failed before
-                    // the handover) must not keep a stale tab either.
-                    handOverTab();
-                    _settleLaunchProgress(data.handoffPath, reason);
-                };
-                const guard = setTimeout(
-                    () => stopSpinner('timeout'), HANDOFF_SETTLE_TIMEOUT_MS
-                );
-                // Either signal is enough: the page appearing is the normal
-                // case, and a request that ends without one still has to stop.
-                Promise.race([
-                    Promise.resolve(opened.scriptLoaded),
-                    Promise.resolve(opened.viewerReady).catch(() => {}),
-                ])
-                    .then(() => stopSpinner('viewer page loaded'))
-                    .catch(() => stopSpinner('viewer failed'))
-                    .finally(() => clearTimeout(guard));
-            }
+            Promise.resolve(opened.viewerReady).then(
+                error => integratedBrowserProgress?.settle(
+                    error ? 'launch failed' : 'first frame rendered'
+                ),
+                () => integratedBrowserProgress?.settle('launch failed')
+            );
         } else if (useExternalBrowser) {
             log(`openInExternalBrowser(${data.url})`);
             const opened = await openInExternalBrowser(
@@ -4509,6 +4573,9 @@ async function _processSignalDataBody(
             // exact request loses its claim before panel_opened is persisted,
             // do not leave the process-wide reservation stuck at `pending`
             // and do not leave an unowned backend session behind.
+            if (integratedBrowserProgress) {
+                integratedBrowserProgress.settle('launch failed');
+            }
             if (integratedBrowserOpened || externalBrowserOpened) {
                 releaseUrlSession(openUrl, data.url, data.serverId || null);
             }
@@ -4606,6 +4673,9 @@ async function _processSignalDataBody(
         return;
     } catch (error) {
         requestSettled.done = true;
+        if (integratedBrowserProgress) {
+            integratedBrowserProgress.settle('launch failed');
+        }
         if (
             (integratedBrowserOpened || externalBrowserOpened)
             && !_isIntegratedBrowserNavigationWedge(error)
@@ -4953,6 +5023,7 @@ module.exports = {
         _viewerOpensInBuiltInBrowser,
         _launchWithStatusProgress,
         _settleLaunchProgress,
+        _startIntegratedBrowserOpeningProgress,
         _coldStartPort,
         _fastLoadViaDaemon,
         launchArrayViewFile,

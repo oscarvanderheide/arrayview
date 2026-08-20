@@ -31,6 +31,7 @@ let integratedBrowserAvailable = false;
 let remoteProxyEnabled = false;
 const browserCommandArgs = [];
 const editorTabs = [];
+const progressNotifications = [];
 
 class TabInputWebview {}
 
@@ -63,6 +64,7 @@ function fakePanel(title) {
 }
 
 const vscodeMock = {
+    ProgressLocation: { Notification: 15, Window: 10 },
     env: {
         remoteName: null,
         uiKind: 1,
@@ -78,6 +80,19 @@ const vscodeMock = {
     ViewColumn: { Active: 1, Beside: 2 },
     Uri: { parse: v => v, file: v => ({ fsPath: v, toString: () => `file://${v}` }) },
     window: {
+        withProgress(options, task) {
+            const notification = {
+                options,
+                reports: [],
+                completed: false,
+            };
+            progressNotifications.push(notification);
+            const result = Promise.resolve(task({
+                report(update) { notification.reports.push(update); },
+            })).then(() => { notification.completed = true; });
+            notification.task = result;
+            return result;
+        },
         state: { focused: true },
         activeTextEditor: null,
         tabGroups: {
@@ -312,12 +327,33 @@ async function waitFor(predicate, what, timeoutMs = 5000) {
             'a tab launch behind the pending external-browser handoff'
         );
         assert.strictEqual(
+            progressNotifications.length,
+            1,
+            'one integrated-browser request must create one progress notification'
+        );
+        assert.deepStrictEqual(progressNotifications[0].options, {
+            location: vscodeMock.ProgressLocation.Notification,
+            title: 'Opening after.npy in ArrayView…',
+            cancellable: false,
+        });
+        assert.strictEqual(
             browserCommandArgs.length,
             1,
             'the later launch must use the Tunnel integrated browser while the external call is pending'
         );
         await afterExternalDone;
         assert.strictEqual(ackState(afterExternal), 'backend_ready');
+        await progressNotifications[0].task;
+        assert.strictEqual(
+            progressNotifications[0].completed,
+            true,
+            'the notification must close after the first rendered frame'
+        );
+        assert.deepStrictEqual(
+            progressNotifications[0].reports,
+            [],
+            'a first-navigation success must not claim VS Code is still connecting'
+        );
         assert.strictEqual(editorTabs.length, 1, 'the later launch gets its own browser tab');
         assert.strictEqual(
             externalOpenCount,
