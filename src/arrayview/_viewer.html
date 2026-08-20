@@ -13346,24 +13346,16 @@
         async function _applyQmriMvRangePresetToRow(view, preset) {
             if (!view || !preset) return false;
             const rowViews = view._mapViews || [view];
+            const mapCb = view._mapColorBar;
             let win = null;
-            let hist = null;
             if (view.syntheticId) {
                 const range = { vmin: view.vmin, vmax: view.vmax };
                 const span = Number(range.vmax) - Number(range.vmin);
                 if (Number.isFinite(span) && span > 0) {
                     win = { vmin: range.vmin + span * preset.lo, vmax: range.vmin + span * preset.hi };
                 }
-            } else {
-                const fixedIndices = `${qmriDim}:${view.qmriIdx}`;
-                hist = await _fetchVolumeHistogram({
-                    dimX: dim_x, dimY: dim_y,
-                    scrollDim: current_slice_dim,
-                    complexMode: complexMode,
-                    fixedIndices,
-                    qmriRole: view.qmriRole,
-                    bins: 128,
-                });
+            } else if (mapCb) {
+                const hist = await mapCb.ensureHistogramData();
                 win = _quantileWindowFromHistogram(hist, preset);
             }
             if (!win) {
@@ -13385,16 +13377,8 @@
             const qi = qmriMvViews.indexOf(anchor);
             const mvd = qi >= 0 ? modeManager.currentViews[qi] : null;
             if (mvd) { mvd.displayState.vmin = lo; mvd.displayState.vmax = hi; }
-            const mapCb = view._mapColorBar;
             if (mapCb) {
-                if (hist) {
-                    const oldVersion = mapCb._histVersion;
-                    const normHist = _normalizeQmriHistogramForColorbar(view, hist);
-                    mapCb._histData = normHist;
-                    mapCb._histVersion = mapCb._expectedHistVersion();
-                    mapCb._buildKDE();
-                    if (oldVersion !== mapCb._histVersion) mapCb._syncWindowFractionsToCurrent();
-                }
+                mapCb._syncWindowFractionsToCurrent();
                 mapCb.draw();
                 mapCb.updateLabels();
             }
@@ -13414,6 +13398,7 @@
                 for (const v of qmriMvViews) if (v._mapViews && v._mapViews[0]) anchors.add(v._mapViews[0]);
                 for (const a of anchors) await _applyQmriMvRangePresetToRow(a, preset);
             }
+            showStatus(`range: ${preset.label}`);
             saveState();
             return true;
         }
