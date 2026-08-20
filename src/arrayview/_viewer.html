@@ -34447,6 +34447,12 @@
                 rowLabel.textContent = QMRI_LABELS[cmap] || cmap;
                 rowDiv.appendChild(rowLabel);
                 const mapViews = [];
+                const mapStops = COLORMAP_GRADIENT_STOPS[cmap] || COLORMAP_GRADIENT_STOPS['gray'] || [];
+                let mapBg = '';
+                if (Array.isArray(mapStops) && mapStops.length && Array.isArray(mapStops[0]) && mapStops[0].length >= 3) {
+                    const [mr, mg, mb] = mapStops[0].map(v => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
+                    mapBg = `rgb(${mr}, ${mg}, ${mb})`;
+                }
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];
                     const pane = document.createElement('div');
@@ -34459,6 +34465,7 @@
                     cv.className = 'qv-canvas';
                     const cvBox = document.createElement('div');
                     cvBox.className = 'qv-canvas-clip';
+                    if (mapBg) cvBox.style.background = mapBg;
                     cvBox.appendChild(cv);
                     const _axLetters = ['x', 'y', 'z'];
                     const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
