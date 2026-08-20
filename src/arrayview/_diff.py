@@ -158,7 +158,10 @@ def _compute_diff(
     b = _resize_normalized_like(b, a)
     if diff_mode == 1:
         raw = a - b
-        vmin, vmax = -1.0, 1.0
+        lo = float(np.nanpercentile(raw, 1))
+        hi = float(np.nanpercentile(raw, 99))
+        vmax = max(abs(lo), abs(hi)) or 1.0
+        vmin = -vmax
         colormap = "RdBu_r"
     elif diff_mode == 2:
         raw = np.abs(a - b)
