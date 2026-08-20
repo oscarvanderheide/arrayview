@@ -1041,6 +1041,18 @@
         body.main-loupe-hold #viewer {
             cursor: none !important;
         }
+        /* Window/level drag: the HUD stands in for the cursor, so the real one
+           stays hidden for the whole gesture no matter which element the mouse
+           happens to be over — not just while it is inside the canvas. Killing
+           pointer-events at the same time stops anything the mouse passes over
+           (or is released on) from reacting to a gesture that is not for it;
+           the drag itself is tracked on window, so it keeps updating. */
+        body.bc-drag, body.bc-drag * {
+            cursor: none !important;
+        }
+        body.bc-drag * {
+            pointer-events: none !important;
+        }
         
         
         #preload-status { display: none !important; } /* merged into #toast */
@@ -22074,8 +22086,10 @@
                 vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
             };
-            // The HUD replaces the cursor for the drag, so hide the real one.
+            // The HUD replaces the cursor for the drag, so hide the real one —
+            // document-wide, since the gesture is allowed to leave the canvas.
             canvas.style.cursor = 'none';
+            document.body.classList.add('bc-drag');
             // The colorbar treats an active drag as "snap the window range to
             // the cursor" (see ColorBar.draw). Without this, the histogram
             // range tweens behind the mouse and feels laggy.
@@ -22137,6 +22151,9 @@
         }
         function _bcEndDrag() {
             _bcPendingDrag = null;
+            // Unconditional: the page must never be left with the cursor hidden
+            // and pointer-events off, even if the drag ended some other way.
+            document.body.classList.remove('bc-drag');
             if (!_bcDrag) {
                 // A canvas press deferred the picker close in case it became a
                 // window/level drag; it was only a click, so close the picker now.
@@ -23402,7 +23419,17 @@
         }
         // Old export-btn and roi-content listeners removed — now handled by island actions
         // Brightness/contrast: mousemove updates vmin/vmax
-        canvas.addEventListener('mousemove', e => { _bcMaybePromotePending(e); _bcUpdateDrag(e); });
+        // Only arms the drag; the update itself is left to the window listener
+        // below, which sees this same event as it bubbles — so a move never
+        // gets applied twice.
+        canvas.addEventListener('mousemove', e => { _bcMaybePromotePending(e); });
+        // Once the drag is live the canvas stops receiving pointer events (see
+        // body.bc-drag), so tracking moves to window — which also means the
+        // gesture keeps working when the mouse wanders out of the pane.
+        window.addEventListener('mousemove', e => { if (_bcDrag) _bcUpdateDrag(e); });
+        // A drag interrupted by a window switch would otherwise never see its
+        // mouseup, leaving the cursor hidden and the UI inert.
+        window.addEventListener('blur', () => { if (_bcDrag || _bcPendingDrag) _bcEndDrag(); });
         // Crop drag-handle: while dragging, update the matching edge; otherwise
         // provide hover-cursor feedback when near an edge. Runs even when
         // Alt is held so we still update during an accidental Alt hover,
