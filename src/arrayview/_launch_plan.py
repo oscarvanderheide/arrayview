@@ -360,7 +360,15 @@ def plan_launch(
         else:
             environment = Environment.JUPYTER
     elif intent.invocation is Invocation.JULIA or facts.in_julia:
-        environment = Environment.JULIA
+        # A Julia process embedded in a VS Code window (local, remote, or
+        # tunnel) can still target the VS Code tab — only a standalone Julia
+        # process needs the browser-default fallback below.
+        if facts.is_vscode_remote:
+            environment = Environment.VSCODE_REMOTE
+        elif facts.in_vscode_terminal:
+            environment = Environment.VSCODE_LOCAL
+        else:
+            environment = Environment.JULIA
     elif intent.invocation is Invocation.MATLAB and not facts.is_vscode_remote:
         environment = Environment.MATLAB
 
@@ -395,10 +403,10 @@ def plan_launch(
         owner = ServerOwner.EXISTING
         registration = Registration.HTTP_LOAD
         reasons.append("reuse_compatible_server")
-    elif environment is Environment.JULIA:
+    elif intent.invocation is Invocation.JULIA or facts.in_julia:
         owner = ServerOwner.SPAWNED_DAEMON
         registration = Registration.DAEMON_STARTUP
-        reasons.append(f"{environment.value}_requires_subprocess")
+        reasons.append("julia_requires_subprocess")
     elif intent.invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}:
         owner = (
             ServerOwner.PERSISTENT
