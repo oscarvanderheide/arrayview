@@ -1,12 +1,15 @@
 # Integrated Browser intermittently drops initial localhost navigation in Remote Tunnel after idle
 
 Filed upstream as [microsoft/vscode#331909](https://github.com/microsoft/vscode/issues/331909).
+A draft fix is under review in
+[microsoft/vscode#331912](https://github.com/microsoft/vscode/pull/331912).
 
 ## Environment
 
 - VS Code 1.132.1 (`c2d1b13fdc4a77628e5f3bb70173351c8f2fbad1`)
 - Desktop connected to a Linux host through Remote Tunnel
-- Desktop client OS was not captured; the remote host is Linux
+- Desktop client: macOS, Darwin arm64 25.2.0, Apple M2
+- Remote host: Linux x64
 - `workbench.browser.enableRemoteProxy: true`
 - HTTP server listening only on remote `localhost`
 

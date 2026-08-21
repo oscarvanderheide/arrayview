@@ -3747,3 +3747,18 @@ frame at 06:44:10.909. The native opening notification ended on that first
 frame and the terminal received `backend_ready`. This clean idle run did not
 exercise the permanent retry/update branch; that boundary retains the earlier
 same-address diagnostic `real host` evidence plus 0.15.59 component coverage.
+
+## 2026-08-21 — upstream VS Code fix prepared
+
+VS Code accepted [issue #331909](https://github.com/microsoft/vscode/issues/331909)
+as a browser-integration bug and assigned two maintainers. A narrow draft fix
+is now open as [PR #331912](https://github.com/microsoft/vscode/pull/331912).
+It keeps the initial page queued while VS Code knows remote browsing is enabled
+but is still waiting for the desktop-side connection details, instead of
+treating that period as ordinary direct browsing.
+
+The new VS Code regression suite has 6 passing readiness cases; the nearby
+certificate/session suite has 11 passing cases. Targeted lint and the full
+client type check also pass. This is `component` evidence. A real Tunnel run of
+the custom macOS build is still open and the PR remains a draft until that host
+boundary or maintainer review confirms the fix.
