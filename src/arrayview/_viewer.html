@@ -6173,7 +6173,8 @@
         let _sharedCbVisible = true;
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
         let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
-        let _histFetching = false; // prevents concurrent fetches
+        let _histFetching = false; // deduplicates the merged compare histogram
+        const _volHistInFlight = new Map(); // deduplicate by requested volume/slice
         // primaryCb._dragActive removed (Task 3) — use primaryCb._dragActive instead
         // primaryCb._expanded removed (Task 4) — use primaryCb._expanded
         // _cbHoverTimer removed (Task 4) — class handles auto-dismiss
@@ -10695,6 +10696,7 @@
                 this._histData = null;
                 this._histVersion = null;
                 this._histFetching = false;
+                this._histPromise = null;
                 this._kdeSmooth = null;
 
                 // Sync
@@ -11541,13 +11543,11 @@
 
             /** Re-fetch histogram when data is stale. */
             async refreshHistogram() {
-                if (!this._expanded || this._histFetching || !this.opts.fetchHistogram) return;
-                this._histFetching = true;
-                this._histData = await this.opts.fetchHistogram();
-                this._histVersion = this._expectedHistVersion();
-                this._histFetching = false;
-                this._buildKDE();
-                this.draw();
+                if (!this._expanded || !this.opts.fetchHistogram) return;
+                this._histData = null;
+                this._histVersion = null;
+                this._kdeSmooth = null;
+                await this.ensureHistogramData();
             }
 
             /** Ensure histogram data exists without forcing the bar open. */
@@ -11557,14 +11557,26 @@
                     this._kdeSmooth = null;
                     this._histVersion = null;
                 }
-                if (this._histData || this._histFetching || !this.opts.fetchHistogram) return this._histData;
-                this._histFetching = true;
-                try {
-                    this._histData = await this.opts.fetchHistogram();
-                    this._histVersion = this._expectedHistVersion();
-                } finally {
-                    this._histFetching = false;
+                if (this._histData || !this.opts.fetchHistogram) return this._histData;
+                if (!this._histPromise) {
+                    const requestedVersion = this._expectedHistVersion();
+                    this._histFetching = true;
+                    this._histPromise = Promise.resolve()
+                        .then(() => this.opts.fetchHistogram())
+                        .then(data => {
+                            if (requestedVersion === this._expectedHistVersion()) {
+                                this._histData = data;
+                                this._histVersion = requestedVersion;
+                            }
+                            return data;
+                        })
+                        .finally(() => {
+                            this._histFetching = false;
+                            this._histPromise = null;
+                        });
                 }
+                const requestedData = await this._histPromise;
+                if (!this._histData && requestedData) return this.ensureHistogramData();
                 this._buildKDE();
                 if (this === primaryCb && this._histData) {
                     _histData = this._histData;
@@ -12801,8 +12813,6 @@
         }
 
         async function _fetchVolumeHistogram(opts = {}) {
-            if (_histFetching) return null;
-            _histFetching = true;
             const fetchDimX = opts.dimX ?? dim_x;
             const fetchDimY = opts.dimY ?? dim_y;
             // Aggregation dims (may be empty): sent to server as scroll_dims.
@@ -12835,8 +12845,11 @@
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
-                _histFetching = false;
                 return _volHistCache[cacheKey];
+            }
+
+            if (_volHistInFlight.has(cacheKey)) {
+                return await _volHistInFlight.get(cacheKey);
             }
 
             const params = new URLSearchParams({
@@ -12849,15 +12862,25 @@
             if (fixedIndices) params.set('fixed_indices', fixedIndices);
             if (qmriRole) params.set('qmri_role', qmriRole);
             if (excludeZeros) params.set('exclude_zeros', '1');
+            const request = (async () => {
+                try {
+                    const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    _volHistCache[cacheKey] = data;
+                    return data;
+                } catch (_) { return null; }
+            })();
+            _volHistInFlight.set(cacheKey, request);
             try {
-                const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
-                if (!resp.ok) return null;
-                const data = await resp.json();
-                _volHistCache[cacheKey] = data;
-                _histDataVersion = cacheKey;
+                const data = await request;
+                if (data) _histDataVersion = cacheKey;
                 return data;
-            } catch (_) { return null; }
-            finally { _histFetching = false; }
+            } finally {
+                if (_volHistInFlight.get(cacheKey) === request) {
+                    _volHistInFlight.delete(cacheKey);
+                }
+            }
         }
 
         /** Resolve the picker state for dim `i`. Explicit entries in
@@ -40106,6 +40129,14 @@
             // instead of falling back to the single shared primary path.
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
                 return await _cycleQmriPaneRangePreset();
+            }
+            if (!_dmenuTargetHist()) {
+                const cb = _dmenuActiveColorbar();
+                const hist = cb ? await cb.ensureHistogramData() : null;
+                if (hist && !_dmenuDiffTargetActive()) {
+                    _histData = hist;
+                    _kdeSmooth = cb._kdeSmooth;
+                }
             }
             const preset = _cycleQuantilePreset();
             if (preset) {

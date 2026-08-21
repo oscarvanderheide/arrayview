@@ -1847,6 +1847,57 @@ class TestKeyboard:
         assert after["status"] == ""
         assert after["toast"] == ""
 
+    def test_d_cycles_after_an_older_histogram_request_is_in_flight(
+        self, loaded_viewer, sid_4d
+    ):
+        """A histogram request for an earlier slice must not starve `d`."""
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+
+        def _slow_histogram(route):
+            time.sleep(0.6)
+            route.continue_()
+
+        page.route("**/volume-histogram/**", _slow_histogram)
+        dim = page.evaluate(
+            "() => shape.findIndex((size, i) => i !== dim_x && i !== dim_y && size > 1)"
+        )
+        assert dim >= 0
+        page.evaluate(
+            """() => {
+                _invalidateVolHistCache();
+                primaryCb._histData = null;
+                void _fetchVolumeHistogram(_volHistSpatialOpts());
+            }"""
+        )
+        page.wait_for_function("() => _volHistInFlight.size > 0")
+        page.evaluate(
+            """dim => {
+                indices[dim] = (indices[dim] + 1) % shape[dim];
+                _histData = null;
+                _histDataVersion = null;
+                primaryCb._histData = null;
+                primaryCb._histVersion = null;
+            }""",
+            dim,
+        )
+
+        page.keyboard.press("d")
+        page.wait_for_timeout(1_400)
+        before = page.evaluate(
+            "() => ({ idx: window._dQuantileIdx, vmin: manualVmin, vmax: manualVmax })"
+        )
+        page.keyboard.press("d")
+        page.wait_for_timeout(500)
+        after = page.evaluate(
+            "() => ({ idx: window._dQuantileIdx, vmin: manualVmin, vmax: manualVmax })"
+        )
+
+        assert after["idx"] != before["idx"], (
+            f"repeat d should cycle despite an older histogram request, got {before} then {after}"
+        )
+        assert (after["vmin"], after["vmax"]) != (before["vmin"], before["vmax"])
+
     def test_histogram_scoped_volume_range_stays_fixed_while_scrolling(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
