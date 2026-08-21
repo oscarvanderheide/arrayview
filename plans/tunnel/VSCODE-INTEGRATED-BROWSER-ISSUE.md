@@ -1,5 +1,7 @@
 # Integrated Browser intermittently drops initial localhost navigation in Remote Tunnel after idle
 
+Filed upstream as [microsoft/vscode#331909](https://github.com/microsoft/vscode/issues/331909).
+
 ## Environment
 
 - VS Code 1.132.1 (`c2d1b13fdc4a77628e5f3bb70173351c8f2fbad1`)
