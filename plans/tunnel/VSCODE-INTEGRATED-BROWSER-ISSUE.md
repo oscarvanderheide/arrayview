@@ -4,7 +4,7 @@
 
 - VS Code 1.132.1 (`c2d1b13fdc4a77628e5f3bb70173351c8f2fbad1`)
 - Desktop connected to a Linux host through Remote Tunnel
-- Desktop OS: add from **Help → About** before filing
+- Desktop client OS was not captured; the remote host is Linux
 - `workbench.browser.enableRemoteProxy: true`
 - HTTP server listening only on remote `localhost`
 
@@ -88,5 +88,5 @@ automatic recovery without another user navigation.
 - [#324828 — localhost request fails before reaching backend](https://github.com/microsoft/vscode/issues/324828): similar symptom, but Dev Container/custom `.localhost` hostname and persistent behavior.
 - [#321440 — managed connection proxy support](https://github.com/microsoft/vscode/issues/321440): earlier managed-connection problem, already fixed.
 
-Before filing, attach desktop-side **Extension Host** output around one failed
-attempt if available; that is where the proxy runs.
+Desktop-side **Extension Host** output around a failed attempt can be provided
+in a follow-up if needed; that is where the proxy runs.
