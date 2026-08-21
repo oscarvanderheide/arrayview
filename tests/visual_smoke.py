@@ -462,12 +462,11 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "16_borders_on")
     _press(page, "b")  # off
 
-    # ── 17: histogram toggle (d) ─────────────────────────────────────────────
-    # Tap `d` now toggles the histogram open/closed (quantile cycling was
-    # removed from the `d` key; hold-`d` picks the histogram aggregation dim).
+    # ── 17: histogram open (d) ───────────────────────────────────────────────
+    # First tap opens the histogram; repeated taps cycle percentile presets.
     _press(page, "d")
     _shot(page, "17_histogram_open")
-    _press(page, "d")  # close
+    page.wait_for_timeout(3200)  # let the transient histogram fold away
 
     # ── 18: log scale (L = capital) ──────────────────────────────────────────
     _goto(page, base, sid2d)
@@ -716,21 +715,35 @@ def run_smoke(page, base, client, tmp):
     _press(page, "H", wait=200)  # re-enable
     _shot(page, "43c_hover_tooltip_back_on")
 
-    # ── 44: d — 1st tap opens histogram, 2nd tap cycles percentile; Shift+D opens picker ─
+    # ── 44: d — histogram plus percentile value and preset dots ──────────────
     # Tap `d`: first press opens the histogram colorbar only (no vmin/vmax
     # change). Each subsequent tap cycles percentile preset (full · 0.1–99.9
-    # · 1–99 · 5–95 · 10–90) + toasts. Shift+D opens the participation
-    # picker (outlined-pill dim buttons + lock floater with tooltips).
+    # · 1–99 · 5–95 · 10–90). The percentile appears over the image with its
+    # active dot; the histogram itself has no percentile text or lock controls.
     _goto(page, base, sid4d_varied)
     _focus(page)
     _press(page, "d", wait=600)  # 1st tap → opens histogram only
     _shot(page, "44a_d_first_tap_opens_histogram")
     _press(page, "d", wait=600)  # 2nd tap → cycles to first preset
-    _shot(page, "44b_d_second_tap_cycles_preset")
-    _press(page, "Shift+D", wait=300)  # Shift+D opens picker
-    _shot(page, "44c_picker_open")
-    _press(page, "Shift+D", wait=300)  # Shift+D closes picker
-    _shot(page, "44d_picker_closed")
+    page.wait_for_selector(".percentile-preset-overlay", state="visible", timeout=3000)
+    _shot(page, "44b_d_percentile_dots_first_preset")
+    _press(page, "d", wait=400)
+    _shot(page, "44c_d_percentile_dots_next_preset")
+
+    # The preset selector temporarily replaces persistent mode badges and then
+    # gives their location back after its short timeout.
+    _press(page, "Shift+L", wait=400)
+    _press(page, "d", wait=250)
+    _shot(page, "44d_d_selector_replaces_log_badge")
+    page.wait_for_function(
+        """() => {
+            const overlays = [...document.querySelectorAll('.percentile-preset-overlay')];
+            return overlays.every(el => Number.parseFloat(getComputedStyle(el).opacity || '1') < 0.05);
+        }""",
+        timeout=5000,
+    )
+    _shot(page, "44e_log_badge_restored", wait=200)
+    _press(page, "Shift+L", wait=200)  # restore linear scale
 
     # ── 45: unified picker — Cmd+O/Ctrl+O and P keys open #uni-picker ───────────────────
     # Cycle: open → compare → overlay → open…

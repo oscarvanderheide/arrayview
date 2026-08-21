@@ -469,11 +469,6 @@
             pointer-events: none; white-space: nowrap; z-index: 3;
             text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg);
         }
-        .cb-tooltip.percentile {
-            font-size: 10px;
-            color: var(--muted);
-            letter-spacing: 0.01em;
-        }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; box-shadow: 0 0 0 1px var(--canvas-border); }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
@@ -492,9 +487,26 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: default; display: inline-block; }
+        .slim-cb-val { font-size: 12px; color: var(--text); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
-        :root.light .slim-cb-val { color: #1a1a1a; }
+        .slim-cb-val.is-locked,
+        .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
+
+        #cb-bound-hint {
+            position: fixed; z-index: 15; pointer-events: none;
+            color: var(--muted); opacity: 0;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 10px; line-height: 1.45;
+            text-align: left; white-space: pre;
+            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
+                -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
+            transform: translateX(-50%);
+            transition: opacity 120ms ease;
+        }
+        #cb-bound-hint.visible { opacity: 1; }
+        [data-cb-bound] { cursor: pointer; transition: color 140ms ease, opacity 140ms ease; }
+        [data-cb-bound].is-locked,
+        [data-cb-bound].locked { color: var(--muted) !important; opacity: 0.5; }
 
         .slim-cb-val-input { font-size: 12px; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; width: 52px; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 1px 2px; outline: none; line-height: 1; }
         :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
@@ -508,7 +520,6 @@
         :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
 
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
-        #slim-cb-tooltip.percentile { font-size: 10px; color: var(--muted); letter-spacing: 0.01em; }
         /* Window/level drag readout — replaces the cursor while W/L is live */
         #bc-hud {
             position: fixed; left: 0; top: 0; z-index: 14;
@@ -1923,7 +1934,8 @@
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
         :root.light .mode-badge-mip  { background: rgba(0,180,160,0.1); color: #108080; border-color: rgba(0,180,160,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
-        #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 0.3s ease; }
+        #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 120ms ease; }
+        #mode-eggs.percentile-preset-switching { opacity: 0; }
         #mode-eggs .mode-badge {
             background-color: rgba(30, 30, 30, 0.75);
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -1933,6 +1945,31 @@
         }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
+        .percentile-preset-overlay {
+            display: flex; flex-direction: column; align-items: center; gap: 5px;
+            color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            pointer-events: none;
+            animation: percentile-preset-fade-in 120ms ease-out both;
+            transition: opacity 140ms ease;
+        }
+        .percentile-preset-overlay.fading { animation: none; opacity: 0; }
+        .percentile-preset-value {
+            font-size: 11px; line-height: 1; letter-spacing: 0.01em;
+            font-variant-numeric: tabular-nums;
+            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
+                -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
+        }
+        .percentile-preset-dots { display: flex; align-items: center; gap: 5px; }
+        .percentile-preset-dot {
+            width: 4px; height: 4px; border-radius: 50%;
+            background: var(--muted); opacity: 0.45;
+        }
+        .percentile-preset-dot.active { background: var(--active-dim); opacity: 1; }
+        @keyframes percentile-preset-fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
 
         /* ── help-box ── */
         #help-box {
@@ -6804,6 +6841,11 @@
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
+        let _percentilePresetOverlay = null;
+        let _percentilePresetOverlayTimer = null;
+        let _percentilePresetOverlayFadeTimer = null;
+        let _percentilePresetCrossfadeTimer = null;
+        let _qmriPresetCycleGeneration = 0;
         let _pixelReqSeq = 0;
         let cbMarkerFrac = null;
         let _lastMouseX = 0, _lastMouseY = 0;
@@ -10348,6 +10390,16 @@
                 const fullscreenFmt = formatValueGroup(fullscreenVals);
                 if (_cvmin) { _cvmin.style.display = ''; _cvmin.innerHTML = _cbFmt(fullscreenVals[0], fullscreenVals, fullscreenFmt); _cvmin.style.minWidth = ''; }
                 if (_cvmax) { _cvmax.style.display = ''; _cvmax.innerHTML = _cbFmt(fullscreenVals[1], fullscreenVals, fullscreenFmt); _cvmax.style.minWidth = ''; }
+                if (_cvmin) {
+                    const locked = _cbBoundLocked(primaryCb, 'vmin');
+                    _cvmin.classList.toggle('is-locked', locked);
+                    _cvmin.classList.toggle('locked', locked);
+                }
+                if (_cvmax) {
+                    const locked = _cbBoundLocked(primaryCb, 'vmax');
+                    _cvmax.classList.toggle('is-locked', locked);
+                    _cvmax.classList.toggle('locked', locked);
+                }
                 if (_cvmin && _cvmax) {
                     const _fmw = Math.max(_cvmin.offsetWidth, _cvmax.offsetWidth);
                     if (_fmw > _slimCbLabelHWM) _slimCbLabelHWM = _fmw;
@@ -10362,7 +10414,7 @@
                 const eggsEl = document.getElementById('mode-eggs');
                 if (eggsEl) {
                     const wasHidden = eggsEl.style.display === 'none';
-                    eggsEl.style.display = primaryCb._animT > 0.1 ? 'none' : '';
+                    eggsEl.style.display = primaryCb._animT > 0.1 && !_percentilePresetOverlay ? 'none' : '';
                     eggsEl.style.opacity = '';
                     if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
                 }
@@ -10495,11 +10547,11 @@
             // Draw via morph renderer
             _syncPrimaryCb();
             primaryCb.draw();
-            // Hide mode eggs when histogram is expanded (they sit underneath)
+            // Keep the active transient indicator over the pane while the histogram is open.
             const eggsEl = document.getElementById('mode-eggs');
             if (eggsEl) {
                 const wasHidden = eggsEl.style.display === 'none';
-                eggsEl.style.display = primaryCb._animT > 0.1 ? 'none' : '';
+                eggsEl.style.display = primaryCb._animT > 0.1 && !_percentilePresetOverlay ? 'none' : '';
                 eggsEl.style.opacity = '';
                 if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
             }
@@ -10529,6 +10581,12 @@
                     : formatValueGroup(labelValues);
                 slimVmin.innerHTML = _cbFmt(displayValues[0], labelValues, labelFmt);
                 slimVmax.innerHTML = _cbFmt(displayValues[1], labelValues, labelFmt);
+                const vminIsLocked = _cbBoundLocked(primaryCb, 'vmin');
+                const vmaxIsLocked = _cbBoundLocked(primaryCb, 'vmax');
+                slimVmin.classList.toggle('is-locked', vminIsLocked);
+                slimVmin.classList.toggle('locked', vminIsLocked);
+                slimVmax.classList.toggle('is-locked', vmaxIsLocked);
+                slimVmax.classList.toggle('locked', vmaxIsLocked);
                 // Equalize vmin/vmax span widths so gradient is centered.
                 // Use a session high-water mark so the colorbar doesn't flicker
                 // in width when digit count shifts between slices.
@@ -10623,6 +10681,7 @@
          * @param {Object} opts
          * @param {HTMLElement} opts.container — parent element to append the island into
          * @param {'horizontal'|'vertical'} [opts.orientation='horizontal']
+         * @param {number} [opts.collapsedH] — horizontal collapsed height in CSS pixels
          * @param {string} [opts.id] — unique prefix for element IDs
          * @param {boolean} [opts.interactive=true] — enable wheel/drag/hover
          * @param {function} opts.getStops — returns current colormap gradient stops array
@@ -10966,31 +11025,6 @@
                 return 1;
             }
 
-            /** Show a percentile tooltip above the active drag handle. */
-            _showDragPercentileTooltip(frac, val) {
-                if (!this.tooltip || this.orientation !== 'horizontal') return;
-                if (typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen) {
-                    this.tooltip.classList.remove('percentile');
-                    this.tooltip.style.display = 'none';
-                    return;
-                }
-                const pct = this._percentileAtValue(val);
-                if (pct == null) {
-                    this.tooltip.classList.remove('percentile');
-                    this.tooltip.style.display = 'none';
-                    return;
-                }
-                const cvsRect = this.canvas.getBoundingClientRect();
-                const wrapRect = this.wrap.getBoundingClientRect();
-                const absX = cvsRect.left + frac * cvsRect.width - wrapRect.left;
-                this.tooltip.textContent = `${(pct * 100).toFixed(1)}%`;
-                this.tooltip.classList.add('percentile');
-                this.tooltip.style.display = 'block';
-                this.tooltip.style.left = absX + 'px';
-                this.tooltip.style.transform = 'translateX(-50%)';
-                this.tooltip.style.top = '-18px';
-            }
-
             /** Vertical colorbar renderer for mosaic mode. */
             _drawVertical() {
                 const cvs = this.canvas;
@@ -11145,7 +11179,8 @@
                 const dpr = window.devicePixelRatio || 1;
                 const cssW = cvs.clientWidth || 200;
                 const aT = this._animT;
-                const cssH = CB_COLLAPSED_H + (this._expandedH - CB_COLLAPSED_H) * aT;
+                const collapsedH = Number(this.opts.collapsedH) || CB_COLLAPSED_H;
+                const cssH = collapsedH + (this._expandedH - collapsedH) * aT;
                 cvs.width = Math.round(cssW * dpr);
                 cvs.height = Math.round(cssH * dpr);
                 cvs.style.height = cssH + 'px';
@@ -11252,7 +11287,7 @@
                     let colH;
                     if (hasKDE) {
                         const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
-                        colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                        colH = collapsedH + (kdeH - collapsedH) * aT;
                     } else {
                         colH = histH;
                     }
@@ -11428,10 +11463,18 @@
                 if (this.vminLabel) {
                     this.vminLabel.innerHTML = labelHtml(this._labelVmin, 'vmin');
                     this.vminLabel.style.display = '';
+                    const locked = _cbBoundLocked(this, 'vmin');
+                    this.vminLabel.classList.toggle('is-locked', locked);
+                    this.vminLabel.classList.toggle('locked', locked);
+                    this.vminLabel.setAttribute('aria-label', `vmin${locked ? ', locked' : ''}`);
                 }
                 if (this.vmaxLabel) {
                     this.vmaxLabel.innerHTML = labelHtml(this._labelVmax, 'vmax');
                     this.vmaxLabel.style.display = '';
+                    const locked = _cbBoundLocked(this, 'vmax');
+                    this.vmaxLabel.classList.toggle('is-locked', locked);
+                    this.vmaxLabel.classList.toggle('locked', locked);
+                    this.vmaxLabel.setAttribute('aria-label', `vmax${locked ? ', locked' : ''}`);
                 }
                 if (this.vminLabel && this.vmaxLabel) {
                     const frozenWidth = this._dragLabelWidthPx;
@@ -11688,7 +11731,8 @@
                     }
                 });
 
-                // Dblclick on vmin/vmax labels for inline editing
+                // Range labels share one interaction model in every ColorBar:
+                // one click edits, two clicks toggle the bound lock.
                 const _editLabel = (labelEl, which) => {
                     _showCbValPopup(labelEl, which,
                         () => { const w = this.opts.getWindow(); return which === 'vmin' ? w.vmin : w.vmax; },
@@ -11701,18 +11745,32 @@
                         }
                     );
                 };
-                if (this.vminLabel) {
-                    this.vminLabel.addEventListener('dblclick', (e) => {
+                const _bindLabel = (labelEl, which) => {
+                    if (!labelEl) return;
+                    let clickTimer = null;
+                    labelEl.dataset.cbBound = which;
+                    labelEl.addEventListener('mouseenter', () => _showCbBoundHint(labelEl, which, this));
+                    labelEl.addEventListener('mouseleave', _hideCbBoundHint);
+                    labelEl.addEventListener('click', (e) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        _editLabel(this.vminLabel, 'vmin');
+                        if (clickTimer) clearTimeout(clickTimer);
+                        clickTimer = setTimeout(() => {
+                            clickTimer = null;
+                            _hideCbBoundHint();
+                            _editLabel(labelEl, which);
+                        }, 260);
                     });
-                }
-                if (this.vmaxLabel) {
-                    this.vmaxLabel.addEventListener('dblclick', (e) => {
+                    labelEl.addEventListener('dblclick', (e) => {
+                        e.preventDefault();
                         e.stopPropagation();
-                        _editLabel(this.vmaxLabel, 'vmax');
+                        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+                        _hideCbBoundHint();
+                        _toggleCbBoundLock(this, which);
                     });
-                }
+                };
+                _bindLabel(this.vminLabel, 'vmin');
+                _bindLabel(this.vmaxLabel, 'vmax');
 
                 // Mousedown on tri handles
                 if (this.triVmin) {
@@ -11791,9 +11849,6 @@
                 const win = this.opts.getWindow();
                 const hd = this._histData;
                 if (hd) {
-                    const value = target === 'vmin'
-                        ? (win.vmin != null ? win.vmin : hd.vmin)
-                        : (win.vmax != null ? win.vmax : hd.vmax);
                     this._dragLabelFormatter = formatValueGroup([hd.vmin, hd.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
                     if (this.vminLabel && this.vmaxLabel) {
                         this.vminLabel.style.minWidth = '';
@@ -11804,9 +11859,6 @@
                             this.vmaxLabel.style.minWidth = this._dragLabelWidthPx + 'px';
                         }
                     }
-                    const range = hd.vmax - hd.vmin || 1;
-                    const frac = Math.max(0, Math.min(1, (value - hd.vmin) / range));
-                    this._showDragPercentileTooltip(frac, value);
                 }
             }
 
@@ -11836,8 +11888,6 @@
                     }
                     this.opts.setWindow(newVmin, newVmax);
                     this.draw();
-                    const activeVal = this._dragTarget === 'vmin' ? newVmin : newVmax;
-                    this._showDragPercentileTooltip(frac, activeVal);
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                     this._syncInteraction('drag', { vmin: newVmin, vmax: newVmax });
                 } else if (this._dragX != null) {
@@ -13110,6 +13160,26 @@
             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
         ];
 
+        function _quantileValueFromHistogram(hist, quantile) {
+            if (!hist || !hist.counts || !hist.counts.length || !hist.edges) return null;
+            const q = Math.max(0, Math.min(1, Number(quantile)));
+            if (q <= 0) return hist.vmin;
+            if (q >= 1) return hist.vmax;
+            const total = hist.counts.reduce((sum, count) => sum + count, 0);
+            if (!(total > 0)) return null;
+            const target = q * total;
+            let cumulative = 0;
+            for (let i = 0; i < hist.counts.length; i++) {
+                const count = hist.counts[i] || 0;
+                const previous = cumulative;
+                cumulative += count;
+                if (cumulative < target) continue;
+                const within = count > 0 ? (target - previous) / count : 0;
+                return hist.edges[i] + within * (hist.edges[i + 1] - hist.edges[i]);
+            }
+            return hist.vmax;
+        }
+
         /**
          * Cycle to the next quantile preset and apply it to _histData,
          * setting manualVmin/manualVmax (and per-pane/per-view equivalents).
@@ -13129,7 +13199,7 @@
             const preset = _QUANTILE_PRESETS[_diffPresetIdx.q];
             const win = _quantileWindowFromHistogram(hist, preset);
             if (!win) return null;
-            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
+            const vminEffectivelyLocked = vminLocked || _dmenuQmriPolicyLocksVmin();
             if (!vminEffectivelyLocked) { _diffManualVmin = win.vmin; _diffPresetIdx.vmin = _diffPresetIdx.q; }
             if (!vmaxLocked) { _diffManualVmax = win.vmax; _diffPresetIdx.vmax = _diffPresetIdx.q; }
             if (_dmenuEffectiveSymmetricLocked()) {
@@ -13140,6 +13210,7 @@
             const dv = modeManager.getViewById('compare-diff-center');
             if (dv) { dv.displayState.vmin = _diffManualVmin; dv.displayState.vmax = _diffManualVmax; }
             _updateDmenuPreset();
+            _showPercentilePresetOverlay(preset, _diffPresetIdx.q, dv?.canvas);
             return preset;
         }
 
@@ -13149,25 +13220,15 @@
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
+            const vminEffectivelyLocked = vminLocked || _dmenuQmriPolicyLocksVmin();
             if (preset.lo === 0 && preset.hi === 1) {
                 if (!vminEffectivelyLocked) { manualVmin = _histData.vmin; _dmenuVminPresetIdx = window._dQuantileIdx; }
                 if (!vmaxLocked) { manualVmax = _histData.vmax; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             } else {
-                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                const total = counts.reduce((a, b) => a + b, 0);
-                let cumLo = 0, cumHi = 0;
-                let qLo = dmin, qHi = dmax;
-                for (let i = 0; i < counts.length; i++) {
-                    cumLo += counts[i];
-                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                }
+                let qLo = _quantileValueFromHistogram(_histData, preset.lo);
+                const qHi = _quantileValueFromHistogram(_histData, preset.hi);
                 qLo = _dmenuMaybeLiftUnlockedZeroFloor(_histData, preset, qLo);
-                for (let i = counts.length - 1; i >= 0; i--) {
-                    cumHi += counts[i];
-                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                }
                 if (!vminEffectivelyLocked) { manualVmin = qLo; _dmenuVminPresetIdx = window._dQuantileIdx; }
                 if (!vmaxLocked) { manualVmax = qHi; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
@@ -13180,26 +13241,17 @@
                 if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
             });
             _updateDmenuPreset();
+            _showPercentilePresetOverlay(preset, window._dQuantileIdx);
             return preset;
         }
 
         function _quantileWindowFromHistogram(hist, preset) {
             if (!hist || !hist.counts || !hist.counts.length || !preset) return null;
             if (preset.lo === 0 && preset.hi === 1) return { vmin: hist.vmin, vmax: hist.vmax };
-            const { counts, edges, vmin: dmin, vmax: dmax } = hist;
-            const total = counts.reduce((a, b) => a + b, 0);
-            if (total <= 0) return null;
-            let cumLo = 0, cumHi = 0;
-            let qLo = dmin, qHi = dmax;
-            for (let i = 0; i < counts.length; i++) {
-                cumLo += counts[i];
-                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-            }
+            let qLo = _quantileValueFromHistogram(hist, preset.lo);
+            const qHi = _quantileValueFromHistogram(hist, preset.hi);
+            if (!Number.isFinite(qLo) || !Number.isFinite(qHi)) return null;
             qLo = _dmenuMaybeLiftUnlockedZeroFloor(hist, preset, qLo);
-            for (let i = counts.length - 1; i >= 0; i--) {
-                cumHi += counts[i];
-                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-            }
             return { vmin: qLo, vmax: qHi };
         }
 
@@ -13269,7 +13321,8 @@
             const hi = normalized.vmax;
             view.lockedVmin = lo;
             view.lockedVmax = hi;
-            const idx = qmriViews.indexOf(view);
+            const ownerViews = compareQmriActive ? compareQmriViews : qmriViews;
+            const idx = ownerViews.indexOf(view);
             const qv = idx >= 0 ? modeManager.currentViews[idx] : null;
             if (qv) { qv.displayState.vmin = lo; qv.displayState.vmax = hi; }
             return { vmin: lo, vmax: hi };
@@ -13282,8 +13335,9 @@
             return null;
         }
 
-        async function _applyQmriRangePresetToView(view, preset) {
+        async function _applyQmriRangePresetToView(view, preset, generation) {
             if (!view || !preset) return false;
+            if (generation != null && generation !== _qmriPresetCycleGeneration) return false;
             let win = null;
             let hist = null;
             if (view.syntheticId) {
@@ -13305,6 +13359,7 @@
                     qmriRole: view.qmriRole,
                     bins: 128,
                 });
+                if (generation != null && generation !== _qmriPresetCycleGeneration) return false;
                 win = _quantileWindowFromHistogram(hist, preset);
                 hist = _normalizeQmriHistogramForColorbar(view, hist);
             }
@@ -13332,7 +13387,8 @@
                 });
             }
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
-            qvRender(view);
+            if (compareQmriActive) compareQmriRender(view);
+            else qvRender(view);
             return true;
         }
 
@@ -13366,12 +13422,16 @@
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            const generation = ++_qmriPresetCycleGeneration;
             if (view) {
-                await _applyQmriRangePresetToView(view, preset);
+                await _applyQmriRangePresetToView(view, preset, generation);
             } else {
-                await Promise.all(qmriViews.map(v => _applyQmriRangePresetToView(v, preset)));
-                qvScaleAllCanvases();
+                const paneViews = compareQmriActive ? compareQmriViews : qmriViews;
+                await Promise.all(paneViews.map(v => _applyQmriRangePresetToView(v, preset, generation)));
+                if (!compareQmriActive) qvScaleAllCanvases();
             }
+            if (generation !== _qmriPresetCycleGeneration) return false;
+            _showPercentilePresetOverlay(preset, window._dQuantileIdx, view?.canvas);
             saveState();
             return true;
         }
@@ -13422,10 +13482,34 @@
         }
 
         async function _cycleQmriMvRangePreset() {
+            const view = _hoveredQmriMvView;
+            const activeCb = view ? view._mapColorBar : null;
+            if (activeCb && !activeCb._expanded) {
+                const initialWindow = activeCb.opts.getWindow();
+                if (Number.isFinite(initialWindow?.vmin) && Number.isFinite(initialWindow?.vmax)) {
+                    activeCb.opts.setWindow(initialWindow.vmin, initialWindow.vmax);
+                }
+                activeCb._manualExpand = true;
+                activeCb._expanded = true;
+                activeCb._animating = false;
+                activeCb._animT = 1;
+                activeCb._animTarget = 1;
+                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
+                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
+                activeCb._snapWindowFractionsOnNextDraw();
+                activeCb.updateLabels();
+                activeCb.draw();
+                activeCb.ensureHistogramData().then(() => {
+                    activeCb._snapWindowFractionsOnNextDraw();
+                    activeCb.draw();
+                    activeCb.updateLabels();
+                    _histPickerOpen();
+                }).catch(() => {});
+                return true;
+            }
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-            const view = _hoveredQmriMvView;
             if (view) {
                 await _applyQmriMvRangePresetToRow(view, preset);
             } else {
@@ -13433,6 +13517,7 @@
                 for (const v of qmriMvViews) if (v._mapViews && v._mapViews[0]) anchors.add(v._mapViews[0]);
                 for (const a of anchors) await _applyQmriMvRangePresetToRow(a, preset);
             }
+            _showPercentilePresetOverlay(preset, window._dQuantileIdx, view?.canvas);
             showStatus(`range: ${preset.label}`);
             saveState();
             return true;
@@ -13931,6 +14016,77 @@
                 if (!lebesgueCanvas || !lebesgueCtx || !_lebesgueSlice || !_lebesgueSliceW || !_lebesgueSliceH) return;
                 _drawLebesgueOnCanvas(lebesgueCanvas, canvas, _lebesgueSlice, _lebesgueSliceW, _lebesgueSliceH, binLow, binHigh);
             }
+        }
+
+        function _cbOwningQmriView(cb) {
+            if (!cb) return null;
+            const groups = [qmriViews, compareQmriViews, qmriMvViews];
+            for (const views of groups) {
+                if (!Array.isArray(views)) continue;
+                const owner = views.find(view => view && (
+                    view._colorBar === cb || view._mosaicColorBar === cb || view._mapColorBar === cb
+                ));
+                if (owner) return owner;
+            }
+            return null;
+        }
+
+        function _cbBoundPolicyLocked(cb, which) {
+            if (which !== 'vmin') return false;
+            const owner = _cbOwningQmriView(cb);
+            return owner ? _qmriLocksLowerBound(owner) : false;
+        }
+
+        function _cbBoundLocked(cb, which) {
+            if (which === 'vmax') return !!vmaxLocked;
+            return !!vminLocked || _cbBoundPolicyLocked(cb, which);
+        }
+
+        let _cbBoundHintEl = null;
+        function _showCbBoundHint(anchorEl, which, cb) {
+            if (!anchorEl) return;
+            if (!_cbBoundHintEl) {
+                _cbBoundHintEl = document.createElement('div');
+                _cbBoundHintEl.id = 'cb-bound-hint';
+                document.body.appendChild(_cbBoundHintEl);
+            }
+            const locked = _cbBoundLocked(cb, which);
+            const fixed = _cbBoundPolicyLocked(cb, which);
+            _cbBoundHintEl.textContent = `single click  edit\ndouble click  ${fixed ? 'fixed by mode' : (locked ? 'unlock' : 'lock')}`;
+            _cbBoundHintEl.classList.remove('visible');
+            _cbBoundHintEl.style.visibility = 'hidden';
+            const rect = anchorEl.getBoundingClientRect();
+            _cbBoundHintEl.style.left = `${rect.left + rect.width / 2}px`;
+            _cbBoundHintEl.style.top = '0px';
+            const hintH = _cbBoundHintEl.offsetHeight || 29;
+            const above = rect.top - hintH - 8;
+            _cbBoundHintEl.style.top = `${above >= 4 ? above : rect.bottom + 8}px`;
+            _cbBoundHintEl.style.visibility = 'visible';
+            requestAnimationFrame(() => {
+                if (_cbBoundHintEl) _cbBoundHintEl.classList.add('visible');
+            });
+        }
+
+        function _hideCbBoundHint() {
+            if (_cbBoundHintEl) _cbBoundHintEl.classList.remove('visible');
+        }
+
+        function _toggleCbBoundLock(cb, which) {
+            if (cb === _diffCenterCb) _dmenuSetRangeTarget('diff-center');
+            else if (_dmenuDiffTargetActive()) _dmenuSetRangeTarget('primary');
+            if (which === 'vmin') {
+                if (_cbBoundPolicyLocked(cb, which)) return;
+                vminLocked = !vminLocked;
+                if (vminLocked) _dmenuCaptureBoundLock('vmin');
+                else _dmenuZeroFloorVminUnlocked = true;
+            } else {
+                vmaxLocked = !vmaxLocked;
+                if (vmaxLocked) _dmenuCaptureBoundLock('vmax');
+            }
+            _dmenuRefreshAfterRangeChange();
+            _dmenuPickerRender();
+            saveState();
+            if (cb) cb.updateLabels();
         }
 
         /** Shared popup editor for vmin/vmax labels across all colorbar types.
@@ -16094,9 +16250,126 @@
         }
 
         const MODE_LABEL = { mag: 'MAGNITUDE', phase: 'PHASE', real: 'REAL', imag: 'IMAG' };
+
+        function _percentilePresetAnchorElement() {
+            if (_dmenuDiffTargetActive()) {
+                const diffView = modeManager.getViewById('compare-diff-center');
+                return diffView?.canvas || document.getElementById('compare-diff-pane');
+            }
+            if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
+                return _hoveredQmriView.canvas || null;
+            }
+            if (qmriMvActive && _hoveredQmriMvView) {
+                return _hoveredQmriMvView.canvas || null;
+            }
+            if (compareActive) {
+                const pos = modeManager._lastMouseXY;
+                const pointedPane = pos
+                    ? document.elementFromPoint(pos.x, pos.y)?.closest('.compare-pane')
+                    : null;
+                const pointedCanvas = pointedPane?.querySelector('.compare-canvas');
+                if (pointedCanvas) return pointedCanvas;
+                return modeManager.getFocusedView()?.canvas || compareCanvases[0] || null;
+            }
+            if (multiViewActive || compareMvActive) {
+                const focused = modeManager.getFocusedView();
+                return focused?.canvas || mvViews[0]?.canvas || compareMvViews[0]?.canvas || null;
+            }
+            return null;
+        }
+
+        function _percentilePresetLabel(preset) {
+            if (!preset) return '';
+            return `${_fmtPct(preset.lo * 100)}\u2013${_fmtPct(preset.hi * 100)}%`;
+        }
+
+        function _showPercentilePresetOverlay(preset, index, anchorEl) {
+            if (!preset) return;
+            if (_percentilePresetOverlayTimer) clearTimeout(_percentilePresetOverlayTimer);
+            if (_percentilePresetOverlayFadeTimer) clearTimeout(_percentilePresetOverlayFadeTimer);
+            if (_percentilePresetCrossfadeTimer) clearTimeout(_percentilePresetCrossfadeTimer);
+            const eggs = document.getElementById('mode-eggs');
+            const crossfadeBadges = !_percentilePresetOverlay && !!eggs?.querySelector('.mode-badge');
+            _percentilePresetOverlay = {
+                preset,
+                index: Math.max(0, Math.min(_QUANTILE_PRESETS.length - 1, Number(index) || 0)),
+                anchorEl: anchorEl || _percentilePresetAnchorElement(),
+                fading: false,
+                pending: crossfadeBadges,
+            };
+            if (crossfadeBadges) {
+                eggs.classList.add('percentile-preset-switching');
+                _percentilePresetCrossfadeTimer = setTimeout(() => {
+                    _percentilePresetCrossfadeTimer = null;
+                    if (!_percentilePresetOverlay) return;
+                    _percentilePresetOverlay.pending = false;
+                    renderEggs();
+                    requestAnimationFrame(() => eggs.classList.remove('percentile-preset-switching'));
+                }, 120);
+            } else {
+                if (eggs) eggs.classList.remove('percentile-preset-switching');
+                renderEggs();
+            }
+            if (eggs) eggs.style.display = '';
+            positionEggs();
+            _percentilePresetOverlayTimer = setTimeout(() => {
+                _percentilePresetOverlayTimer = null;
+                if (!_percentilePresetOverlay) return;
+                _percentilePresetOverlay.fading = true;
+                renderEggs();
+                _percentilePresetOverlayFadeTimer = setTimeout(() => {
+                    _percentilePresetOverlayFadeTimer = null;
+                    if (_histPickerActive) _histPickerClose(true);
+                    else _hidePercentilePresetOverlay();
+                }, 150);
+            }, 2400);
+        }
+
+        function _showCurrentPercentilePresetOverlay(anchorEl) {
+            const index = _dmenuCurrentPresetIdx();
+            _showPercentilePresetOverlay(_QUANTILE_PRESETS[index], index, anchorEl);
+        }
+
+        function _hidePercentilePresetOverlay() {
+            if (_percentilePresetOverlayTimer) clearTimeout(_percentilePresetOverlayTimer);
+            if (_percentilePresetOverlayFadeTimer) clearTimeout(_percentilePresetOverlayFadeTimer);
+            if (_percentilePresetCrossfadeTimer) clearTimeout(_percentilePresetCrossfadeTimer);
+            _percentilePresetOverlayTimer = null;
+            _percentilePresetOverlayFadeTimer = null;
+            _percentilePresetCrossfadeTimer = null;
+            const eggs = document.getElementById('mode-eggs');
+            if (eggs) eggs.classList.remove('percentile-preset-switching');
+            if (!_percentilePresetOverlay) return;
+            _percentilePresetOverlay = null;
+            renderEggs();
+        }
+
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
+            if (_percentilePresetOverlay) {
+                if (_percentilePresetOverlay.pending) return;
+                let overlay = el.querySelector('.percentile-preset-overlay');
+                if (!overlay) {
+                    const dots = _QUANTILE_PRESETS.map(() =>
+                        '<span class="percentile-preset-dot"></span>'
+                    ).join('');
+                    el.innerHTML = '<div class="percentile-preset-overlay">'
+                        + '<div class="percentile-preset-value"></div>'
+                        + `<div class="percentile-preset-dots" aria-hidden="true">${dots}</div>`
+                        + '</div>';
+                    overlay = el.querySelector('.percentile-preset-overlay');
+                }
+                overlay.classList.toggle('fading', _percentilePresetOverlay.fading);
+                overlay.querySelector('.percentile-preset-value').textContent =
+                    _percentilePresetLabel(_percentilePresetOverlay.preset);
+                overlay.querySelectorAll('.percentile-preset-dot').forEach((dot, i) => {
+                    dot.classList.toggle('active', i === _percentilePresetOverlay.index);
+                });
+                positionEggs();
+                renderIsland();
+                return;
+            }
             if (!_eggsVisible) { el.innerHTML = ''; return; }
             // Hide eggs during loading / welcome — no data received yet
             if (_isWelcomeScreen) { el.innerHTML = ''; return; }
@@ -16140,7 +16413,8 @@
             if (typeof _cmapHoldAnim !== 'undefined' && _cmapHoldAnim) return;
 
             // Fullscreen normal mode: special inline positioning
-            if (_fullscreenActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
+            if (_fullscreenActive && !_percentilePresetOverlay?.anchorEl &&
+                !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
                 const vpEl = compareActive
                     ? document.getElementById('compare-view-wrap')
                     : document.getElementById('canvas-viewport');
@@ -16164,7 +16438,10 @@
             el.style.flexDirection = '';
             el.style.alignItems    = '';
             el.style.right         = '';
-            const anchorRect = ModeRegistry.getEggsAnchorRect();
+            const explicitAnchor = _percentilePresetOverlay?.anchorEl;
+            const anchorRect = explicitAnchor && explicitAnchor.isConnected
+                ? explicitAnchor.getBoundingClientRect()
+                : ModeRegistry.getEggsAnchorRect();
             if (!anchorRect) return;
             const inset = 8;
             const eggsW = el.offsetWidth || 0;
@@ -25187,12 +25464,12 @@
                 },
             },
             'histogram.openOrCycle': {
-                title: 'Open histogram / range menu / cycle percentile preset',
+                title: 'Open histogram / cycle percentile preset',
                 when: ['!rgbMode'],
                 run: async (ctx, e) => {
                     if (rgbMode) return;
                     if (rectRoiMode) { showStatus('histogram: exit ROI mode first'); return; }
-                    if (qmriActive) { await _cycleQmriPaneRangePreset(); return; }
+                    if (qmriActive || compareQmriActive) { await _cycleQmriPaneRangePreset(); return; }
                     if (compareActive && diffMode > 0 && _diffCenterCb) {
                         const pos = modeManager._lastMouseXY;
                         if (pos) {
@@ -30854,6 +31131,7 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
+                    collapsedH: 8,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => ({ vmin: currentVmin, vmax: currentVmax }),
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
@@ -33474,6 +33752,10 @@
                     view.cbCanvas = _cqCb.canvas;
                     view.cbVmin = _cqCb.vminLabel;
                     view.cbVmax = _cqCb.vmaxLabel;
+                    pane.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
+                    pane.addEventListener('mouseleave', () => {
+                        if (_hoveredQmriView === view) _hoveredQmriView = null;
+                    });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = _wheelIndexDelta(current_slice_dim, e);
@@ -33879,6 +34161,7 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
+                    collapsedH: 8,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => {
                         const v0 = compareMvViews.find(v => v.lastW);
@@ -37907,7 +38190,10 @@
             if (_vEggs && !_fullscreenActive &&
                 _vEggs.style.display !== 'none' && _vEggs.offsetWidth > 0) {
                 const eR = _vEggs.getBoundingClientRect();
-                const aR = ModeRegistry.getEggsAnchorRect();
+                const overlayAnchor = _percentilePresetOverlay?.anchorEl;
+                const aR = overlayAnchor && overlayAnchor.isConnected
+                    ? overlayAnchor.getBoundingClientRect()
+                    : ModeRegistry.getEggsAnchorRect();
                 if (aR) {
                     const inside = eR.left >= aR.left - 1 && eR.right <= aR.right + 1 &&
                                    eR.top >= aR.top - 1 && eR.bottom <= aR.bottom + 1;
@@ -39357,7 +39643,10 @@
             _applyHistPickerClasses();
             _updateDmenuPreset();
             _reconcileRangeToggles();
-            if (!_histPickerActive) _hideHistTooltip();
+            if (!_histPickerActive) {
+                _hideHistTooltip();
+                _hidePercentilePresetOverlay();
+            }
         }
 
         function _reconcileRangeToggles() {
@@ -39638,36 +39927,18 @@
         function _dmenuPickerRender() {
             const list = document.getElementById('dmenu-list');
             if (!list) return;
-            const rows = _dmenuClampSelection();
             list.innerHTML = '';
-            _dmenuRenderRangePanel(rows).forEach(el => list.appendChild(el));
             const box = document.getElementById('dmenu-picker-box');
             if (box) {
                 box.querySelectorAll('.dmenu-percent-label').forEach(el => el.remove());
                 box.querySelectorAll('.dmenu-percent-divider').forEach(el => el.remove());
-                ['vmin', 'vmax'].forEach(kind => {
-                    const el = document.createElement('div');
-                    el.className = `dmenu-percent-label dmenu-percent-${kind}`;
-                    el.dataset.kind = kind;
-                    box.appendChild(el);
-                });
-                const divider = document.createElement('div');
-                divider.className = 'dmenu-percent-divider';
-                divider.setAttribute('aria-hidden', 'true');
-                box.appendChild(divider);
             }
             const mirrorBox = document.getElementById('dmenu-picker-mirror-box');
             const mirrorList = mirrorBox?.querySelector('.dmenu-list');
             if (mirrorBox && mirrorList) {
                 mirrorList.innerHTML = '';
-                _dmenuRenderRangePanel(rows).forEach(el => mirrorList.appendChild(el));
                 mirrorBox.querySelectorAll('.dmenu-percent-label, .dmenu-percent-divider').forEach(el => el.remove());
-                box.querySelectorAll('.dmenu-percent-label, .dmenu-percent-divider').forEach(el => {
-                    mirrorBox.appendChild(el.cloneNode(true));
-                });
             }
-            _dmenuPositionPercentLabels();
-            if (_dmenuPickerOpen) _dmenuPickerPosition();
         }
 
         function _dmenuPositionPercentLabels(targetBox, targetCb) {
@@ -40032,18 +40303,11 @@
             _dmenuSelectCurrentPreset();
             _dmenuPickerRender();
             root.classList.remove('closing');
-            root.classList.add('visible');
-            root.setAttribute('aria-hidden', 'false');
+            root.classList.remove('visible');
+            root.setAttribute('aria-hidden', 'true');
             _dmenuClearHistogramHover();
             _dmenuClearAttachedTargets();
-            _dmenuMarkActiveAttached();
-            _dmenuStartPositionTracking();
-            requestAnimationFrame(() => {
-                const box = document.getElementById('dmenu-picker-box');
-                if (box) {
-                    try { box.focus({ preventScroll: true }); } catch (_) { try { box.focus(); } catch (_) {} }
-                }
-            });
+            try { sink.focus({ preventScroll: true }); } catch (_) { try { sink.focus(); } catch (_) {} }
         }
 
         function closeDmenuPicker() {
@@ -40127,6 +40391,9 @@
             // In qMRI mode each pane owns its own window, so once the picker
             // is already open, repeat `d` must keep following the mouse
             // instead of falling back to the single shared primary path.
+            if (qmriMvActive && _hoveredQmriMvView) {
+                return await _cycleQmriMvRangePreset();
+            }
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
                 return await _cycleQmriPaneRangePreset();
             }
@@ -40318,11 +40585,13 @@
         function _histPickerOpen() {
             if (_histPickerActive) {
                 openDmenuPicker();
+                _showCurrentPercentilePresetOverlay();
                 return;
             }
             _histPickerActive = true;
             _reconcileHistPicker();
             openDmenuPicker();
+            _showCurrentPercentilePresetOverlay();
         }
 
         /** Open histogram colorbar + enter legacy picker mode. */
@@ -40359,6 +40628,7 @@
         function _histPickerClose(silent) {
             if (!_histPickerActive) return;
             _histPickerActive = false;
+            _hidePercentilePresetOverlay();
             closeDmenuPicker();
             _reconcileHistPicker();
             if (!silent) showStatus('');
@@ -40369,6 +40639,7 @@
         }
 
         function _collapseHistogramImmediately() {
+            _hidePercentilePresetOverlay();
             if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
             _histAutoDismissTimer = null;
             lebesgueMode = false;
@@ -40385,8 +40656,32 @@
                 else drawSlimColorbar(cbMarkerFrac);
             }
 
-            if (typeof qmriViews !== 'undefined' && qmriViews) {
-                for (const view of qmriViews) {
+            const mvColorBar = window._mvColorBar;
+            if (mvColorBar && mvColorBar !== primaryCb) {
+                mvColorBar._animT = primaryCb ? primaryCb._animT : mvColorBar._animT;
+                mvColorBar._expanded = false;
+                mvColorBar._manualExpand = false;
+                if (mvColorBar.triZone) mvColorBar.triZone.classList.remove('expanded');
+                mvColorBar.startAnim(false);
+            }
+
+            const compareSourceBars = Array.isArray(window._comparePaneCbs)
+                ? window._comparePaneCbs
+                : [];
+            compareSourceBars.forEach(cb => {
+                if (!cb || !cb._expanded) return;
+                cb._expanded = false;
+                cb._manualExpand = false;
+                if (cb.wrap) cb.wrap.classList.remove('cb-expanded');
+                if (cb.triZone) cb.triZone.classList.remove('expanded');
+                cb.startAnim(false);
+            });
+
+            const qmriPaneViews = [
+                ...(typeof qmriViews !== 'undefined' && qmriViews ? qmriViews : []),
+                ...(typeof compareQmriViews !== 'undefined' && compareQmriViews ? compareQmriViews : []),
+            ];
+            for (const view of qmriPaneViews) {
                     if (view._colorBar && view._colorBar._expanded) {
                         view._colorBar._expanded = false;
                         view._colorBar._manualExpand = false;
@@ -40401,8 +40696,20 @@
                         view._mosaicColorBar.startAnim(false);
                         view._mosaicColorBar.draw();
                     }
-                }
             }
+
+            const qmriMvBars = new Set();
+            if (typeof qmriMvViews !== 'undefined' && qmriMvViews) {
+                qmriMvViews.forEach(view => { if (view && view._mapColorBar) qmriMvBars.add(view._mapColorBar); });
+            }
+            qmriMvBars.forEach(cb => {
+                if (!cb._expanded) return;
+                cb._expanded = false;
+                cb._manualExpand = false;
+                if (cb.wrap) cb.wrap.classList.remove('cb-expanded');
+                if (cb.triZone) cb.triZone.classList.remove('expanded');
+                cb.startAnim(false);
+            });
 
             if (_diffCenterCb && _diffCenterCb._expanded) {
                 _diffCenterCb._expanded = false;
@@ -40480,29 +40787,15 @@
                 _histPickerClose();
                 return false;
             }
-            if (e.key === 'j') {
-                e.preventDefault();
-                e.stopPropagation();
-                _dmenuMoveSelection(1);
-                return true;
-            }
-            if (e.key === 'k') {
-                e.preventDefault();
-                e.stopPropagation();
-                _dmenuMoveSelection(-1);
-                return true;
-            }
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                e.stopPropagation();
-                _dmenuMoveSelection(e.shiftKey ? -1 : 1);
-                return true;
-            }
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
                 _histPickerClose();
                 return true;
+            }
+            if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                _histPickerClose();
+                return false;
             }
             return false;
         }

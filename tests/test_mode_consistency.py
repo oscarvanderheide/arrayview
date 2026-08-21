@@ -12,6 +12,7 @@ Run with:
     uv run pytest tests/test_mode_consistency.py -v
 """
 
+import numpy as np
 import pytest
 
 pytestmark = pytest.mark.browser
@@ -56,6 +57,97 @@ def _enter_qmri(page, sid_4d, loaded_viewer):
     page.wait_for_selector("#qmri-view-wrap.active", timeout=5000)
     page.wait_for_timeout(300)
     return page
+
+
+def _enter_compare(page, partner_sid):
+    page.evaluate(
+        "partner => enterCompareModeBySid(partner)",
+        partner_sid,
+    )
+    page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+    page.wait_for_function("() => compareActive", timeout=5_000)
+
+
+def _wait_for_preset_overlay(page, visible=True, timeout=3000):
+    page.wait_for_function(
+        """expected => {
+            const shown = el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            return [...document.querySelectorAll('.percentile-preset-overlay')].some(shown)
+                === expected;
+        }""",
+        arg=visible,
+        timeout=timeout,
+    )
+
+
+def _show_preset_overlay(page):
+    page.keyboard.press("d")
+    page.wait_for_timeout(400)
+    page.keyboard.press("d")
+    _wait_for_preset_overlay(page)
+
+
+def _wait_for_preset_change(page, previous_text, timeout=3000):
+    page.wait_for_function(
+        """before => {
+            const shown = el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            const overlay = [...document.querySelectorAll('.percentile-preset-overlay')]
+                .find(shown);
+            return !!overlay
+                && overlay.querySelector('.percentile-preset-value')?.textContent?.trim() !== before;
+        }""",
+        arg=previous_text,
+        timeout=timeout,
+    )
+
+
+def _preset_overlay_state(page, pane_selector, colorbar_selector):
+    return page.evaluate(
+        """([paneSelector, colorbarSelector]) => {
+            const shown = el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            const visible = [...document.querySelectorAll('.percentile-preset-overlay')]
+                .filter(shown);
+            const overlay = visible.at(-1) || null;
+            const dots = overlay
+                ? [...overlay.querySelectorAll('.percentile-preset-dots .percentile-preset-dot')]
+                : [];
+            const rect = overlay?.getBoundingClientRect() || null;
+            const pane = document.querySelector(paneSelector)?.getBoundingClientRect() || null;
+            const colorbar = document.querySelector(colorbarSelector)?.getBoundingClientRect() || null;
+            return {
+                visibleCount: visible.length,
+                text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
+                dotCount: dots.length,
+                activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                withinPane: !!(rect && pane
+                    && rect.left >= pane.left - 1 && rect.right <= pane.right + 1
+                    && rect.top >= pane.top - 1 && rect.bottom <= pane.bottom + 1),
+                aboveColorbar: !!(rect && colorbar && rect.bottom <= colorbar.top + 2),
+            };
+        }""",
+        [pane_selector, colorbar_selector],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +319,9 @@ class TestMultiviewWorks:
         """Pressing d in multiview should expand the mv colorbar to show histogram."""
         page = loaded_viewer(sid_3d)
         _enter_multiview(page)
+        page.locator(".mv-canvas").first.hover()
         _focus_kb(page)
-        page.keyboard.press("d")
-        page.wait_for_timeout(1500)
+        _show_preset_overlay(page)
         # mv-cb canvas should be expanded (height > 8px)
         cb_height = page.evaluate(
             "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
@@ -237,8 +329,22 @@ class TestMultiviewWorks:
         assert cb_height > 8, (
             f"Expected mv colorbar to expand for histogram, got height={cb_height}px"
         )
+        before = _preset_overlay_state(page, ".mv-pane", "#mv-cb-wrap")
+        assert before["visibleCount"] == 1
+        assert before["text"] and before["dotCount"] > 1 and before["activeIndex"] >= 0
+        assert before["withinPane"] and before["aboveColorbar"]
+
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, before["text"])
+        after = _preset_overlay_state(page, ".mv-pane", "#mv-cb-wrap")
+        assert after["activeIndex"] != before["activeIndex"]
+        assert after["dotCount"] == before["dotCount"]
         # Wait for auto-dismiss (3s)
-        page.wait_for_timeout(3000)
+        _wait_for_preset_overlay(page, visible=False, timeout=5_000)
+        page.wait_for_function(
+            "() => parseInt(document.getElementById('mv-cb')?.style.height || '0') <= 15",
+            timeout=5_000,
+        )
         cb_height_after = page.evaluate(
             "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
         )
@@ -414,8 +520,155 @@ class TestMultiviewStateRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# ── QMRI MODE: keys that must be blocked ───────────────────────────────────
+# ── QMRI MODE: shared range interaction and blocked keys ───────────────────
 # ---------------------------------------------------------------------------
+
+class TestQmriWorks:
+    def test_d_cycles_percentile_overlay_on_hovered_map(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        first_canvas = page.locator("#qmri-view-wrap .qv-canvas:visible").first
+        first_canvas.hover()
+        _focus_kb(page)
+        _show_preset_overlay(page)
+
+        before = _preset_overlay_state(
+            page,
+            "#qmri-view-wrap.active .qv-pane",
+            "#qmri-view-wrap.active .qv-cb-island",
+        )
+        assert before["visibleCount"] == 1
+        assert before["text"] and before["dotCount"] > 1 and before["activeIndex"] >= 0
+        assert before["withinPane"] and before["aboveColorbar"]
+
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, before["text"])
+        after = _preset_overlay_state(
+            page,
+            "#qmri-view-wrap.active .qv-pane",
+            "#qmri-view-wrap.active .qv-cb-island",
+        )
+        assert after["activeIndex"] != before["activeIndex"]
+        assert after["dotCount"] == before["dotCount"]
+
+        second_canvas = page.locator("#qmri-view-wrap .qv-canvas:visible").nth(1)
+        second_canvas.hover()
+        _show_preset_overlay(page)
+        overlay_box = page.locator(".percentile-preset-overlay").bounding_box()
+        second_box = second_canvas.bounding_box()
+        assert overlay_box and second_box
+        assert overlay_box["x"] >= second_box["x"] - 1
+        assert overlay_box["x"] + overlay_box["width"] <= second_box["x"] + second_box["width"] + 1
+        assert overlay_box["y"] >= second_box["y"] - 1
+        assert overlay_box["y"] + overlay_box["height"] <= second_box["y"] + second_box["height"] + 1
+
+
+class TestCompareQmriRangeSelector:
+    def test_d_cycles_only_hovered_map_and_updates_selector(
+        self, loaded_viewer, sid_4d, arr_4d, client, tmp_path
+    ):
+        partner_path = tmp_path / "arr4d_compare_qmri.npy"
+        np.save(partner_path, arr_4d * 0.65 + 0.2)
+        partner_sid = client.post(
+            "/load",
+            json={"filepath": str(partner_path), "name": "arr4d_compare_qmri"},
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_4d)
+        _enter_compare(page, partner_sid)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_function(
+            "() => compareQmriActive && compareQmriViews.length >= 2 "
+            "&& compareQmriViews.every(v => v.lastW && v.lastH)",
+            timeout=15_000,
+        )
+
+        # Use the B1 map: unlike T1/T2, it is not rounded to an integer policy
+        # window, so adjacent percentile presets must visibly change its range.
+        target_canvas = page.locator("#qmri-view-wrap .qv-canvas:visible").nth(2)
+        target_canvas.hover()
+        page.wait_for_function("() => !!_hoveredQmriView", timeout=3_000)
+        before = page.evaluate(
+            """() => ({
+                target: compareQmriViews.indexOf(_hoveredQmriView),
+                windows: compareQmriViews.map(v => ({
+                    vmin: v.lockedVmin ?? v.vmin,
+                    vmax: v.lockedVmax ?? v.vmax,
+                })),
+            })"""
+        )
+        assert before["target"] >= 0
+
+        _focus_kb(page)
+        _show_preset_overlay(page)
+        first_cycle = page.evaluate(
+            """before => {
+                const overlay = document.querySelector('.percentile-preset-overlay');
+                const dots = [...(overlay?.querySelectorAll('.percentile-preset-dot') || [])];
+                const rect = overlay?.getBoundingClientRect();
+                const pane = compareQmriViews[before.target].canvas.getBoundingClientRect();
+                return {
+                    windows: compareQmriViews.map(v => ({
+                        vmin: v.lockedVmin ?? v.vmin,
+                        vmax: v.lockedVmax ?? v.vmax,
+                    })),
+                    text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
+                    activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                    dotCount: dots.length,
+                    withinTarget: !!(rect
+                        && rect.left >= pane.left - 1 && rect.right <= pane.right + 1
+                        && rect.top >= pane.top - 1 && rect.bottom <= pane.bottom + 1),
+                };
+            }""",
+            before,
+        )
+        assert first_cycle["text"]
+        assert first_cycle["dotCount"] > 1 and first_cycle["activeIndex"] >= 0
+        assert first_cycle["withinTarget"]
+        for index, old_window in enumerate(before["windows"]):
+            if index == before["target"]:
+                continue
+            assert first_cycle["windows"][index] == pytest.approx(old_window)
+
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, first_cycle["text"], timeout=10_000)
+        page.wait_for_function(
+            """before => {
+                const v = compareQmriViews[before.target];
+                const lo = v.lockedVmin ?? v.vmin;
+                const hi = v.lockedVmax ?? v.vmax;
+                return Math.abs(lo - before.windows[before.target].vmin) > 1e-9
+                    || Math.abs(hi - before.windows[before.target].vmax) > 1e-9;
+            }""",
+            arg=before,
+            timeout=10_000,
+        )
+        second_cycle = page.evaluate(
+            """() => {
+                const overlay = document.querySelector('.percentile-preset-overlay');
+                const dots = [...overlay.querySelectorAll('.percentile-preset-dot')];
+                return {
+                    windows: compareQmriViews.map(v => ({
+                        vmin: v.lockedVmin ?? v.vmin,
+                        vmax: v.lockedVmax ?? v.vmax,
+                    })),
+                    text: overlay.querySelector('.percentile-preset-value').textContent.trim(),
+                    activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                    dotCount: dots.length,
+                };
+            }"""
+        )
+        assert second_cycle["text"] != first_cycle["text"]
+        assert second_cycle["activeIndex"] != first_cycle["activeIndex"]
+        assert second_cycle["dotCount"] == first_cycle["dotCount"]
+        assert second_cycle["windows"][before["target"]] != pytest.approx(
+            before["windows"][before["target"]]
+        )
+        for index, old_window in enumerate(before["windows"]):
+            if index == before["target"]:
+                continue
+            assert second_cycle["windows"][index] == pytest.approx(old_window)
+
 
 class TestQmriBlocks:
     """Regression tests for qMRI mode key guards."""
@@ -503,6 +756,157 @@ class TestQmriMultiview:
         page.keyboard.press("q")
         page.wait_for_timeout(600)
         assert not page.is_visible("#qmri-view-wrap.active")
+
+    def test_d_opens_then_cycles_hovered_row_and_dismisses_cleanly(
+        self, loaded_viewer, sid_4d
+    ):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function(
+            "() => qmriMvActive && qmriMvViews.length === 9 "
+            "&& qmriMvViews.every(v => v.lastW && v.lastH)",
+            timeout=15_000,
+        )
+
+        # Use the B1 row so adjacent percentile presets cannot collapse to the
+        # same integer-rounded T1/T2 window.
+        target_canvas = page.locator("#qmri-view-wrap .qmri-mv-row").nth(2).locator(".qv-canvas").first
+        target_canvas.hover()
+        page.wait_for_function("() => !!_hoveredQmriMvView", timeout=3_000)
+        before = page.evaluate(
+            """() => {
+                const view = _hoveredQmriMvView;
+                const cb = view._mapColorBar;
+                return {
+                    row: view._mapIndex,
+                    preset: window._dQuantileIdx ?? 0,
+                    window: cb.opts.getWindow(),
+                };
+            }"""
+        )
+
+        _focus_kb(page)
+        page.keyboard.press("d")
+        page.wait_for_function(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                const cb = view?._mapColorBar;
+                return !!(cb?._expanded && cb._histData?.counts?.length);
+            }""",
+            arg=before["row"],
+            timeout=10_000,
+        )
+        _wait_for_preset_overlay(page)
+        opened = page.evaluate(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                const cb = view._mapColorBar;
+                const current = cb.opts.getWindow();
+                const overlay = document.querySelector('.percentile-preset-overlay');
+                const rect = overlay?.getBoundingClientRect();
+                const pane = view.canvas.getBoundingClientRect();
+                const ctx = cb.canvas.getContext('2d');
+                const {width, height} = cb.canvas;
+                const pixels = ctx.getImageData(0, 0, width, height).data;
+                let widestYellowRow = 0;
+                for (let y = 0; y < height; y++) {
+                    let yellow = 0;
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        if (pixels[i] > 220 && pixels[i + 1] > 210 && pixels[i + 2] < 170) yellow++;
+                    }
+                    widestYellowRow = Math.max(widestYellowRow, yellow);
+                }
+                const dots = [...(overlay?.querySelectorAll('.percentile-preset-dot') || [])];
+                return {
+                    preset: window._dQuantileIdx ?? 0,
+                    window: current,
+                    text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
+                    activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                    dotCount: dots.length,
+                    withinTarget: !!(rect
+                        && rect.left >= pane.left - 1 && rect.right <= pane.right + 1
+                        && rect.top >= pane.top - 1 && rect.bottom <= pane.bottom + 1),
+                    hasYellowLimits: widestYellowRow >= Math.max(2, width * 0.6),
+                };
+            }""",
+            before["row"],
+        )
+        assert opened["preset"] == before["preset"], "first d must open, not cycle"
+        assert opened["window"] == pytest.approx(before["window"])
+        assert opened["text"] and opened["dotCount"] > 1 and opened["activeIndex"] >= 0
+        assert opened["withinTarget"]
+        assert opened["hasYellowLimits"]
+
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, opened["text"], timeout=10_000)
+        cycled = page.evaluate(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                const cb = view._mapColorBar;
+                const overlay = document.querySelector('.percentile-preset-overlay');
+                const dots = [...overlay.querySelectorAll('.percentile-preset-dot')];
+                return {
+                    preset: window._dQuantileIdx ?? 0,
+                    window: cb.opts.getWindow(),
+                    text: overlay.querySelector('.percentile-preset-value').textContent.trim(),
+                    activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                };
+            }""",
+            before["row"],
+        )
+        assert cycled["preset"] != opened["preset"]
+        assert cycled["text"] != opened["text"]
+        assert cycled["activeIndex"] != opened["activeIndex"]
+
+        # With a coarse histogram, the 0.1–99.9% bracket can share the full
+        # range's outer bins. The next discrete preset must move the bounds.
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, cycled["text"], timeout=10_000)
+        ranged = page.evaluate(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                const overlay = document.querySelector('.percentile-preset-overlay');
+                const dots = [...overlay.querySelectorAll('.percentile-preset-dot')];
+                return {
+                    window: view._mapColorBar.opts.getWindow(),
+                    text: overlay.querySelector('.percentile-preset-value').textContent.trim(),
+                    activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                };
+            }""",
+            before["row"],
+        )
+        assert ranged["window"] != pytest.approx(opened["window"])
+        assert ranged["text"] != cycled["text"]
+        assert ranged["activeIndex"] != cycled["activeIndex"]
+
+        _wait_for_preset_overlay(page, visible=False, timeout=5_000)
+        page.wait_for_function(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                return !view?._mapColorBar?._expanded;
+            }""",
+            arg=before["row"],
+            timeout=6_000,
+        )
+
+        target_canvas.hover()
+        _focus_kb(page)
+        page.keyboard.press("d")
+        page.wait_for_function(
+            """row => qmriMvViews.find(v => v._mapIndex === row)?._mapColorBar?._expanded""",
+            arg=before["row"],
+            timeout=10_000,
+        )
+        _wait_for_preset_overlay(page)
+        page.keyboard.press("ArrowRight")
+        _wait_for_preset_overlay(page, visible=False)
+        page.wait_for_function(
+            """row => !qmriMvViews.find(v => v._mapIndex === row)?._mapColorBar?._expanded""",
+            arg=before["row"],
+            timeout=3_000,
+        )
 
 
 # ---------------------------------------------------------------------------

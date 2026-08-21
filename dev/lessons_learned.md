@@ -90,6 +90,16 @@ promote the port as a fallback.
 **Problem:** Colorbar, eggs, and info elements use `position: fixed` and must be repositioned when switching modes (normal, multi-view, immersive, compare).
 **Key insight:** Each mode has its own positioning logic. When adding features that affect layout, check all modes — not just the one being developed. Use `/ui-consistency-audit` skill.
 
+## Shared Pane-Transient Ownership
+
+**Problem:** A histogram-range cue needs to replace other temporary pane badges,
+target the correct pane, and restore prior badges across normal, multiview,
+compare, difference, and qMRI layouts.
+**Solution:** Give pane-transient content one shared owner, pass an explicit pane
+anchor for pane-specific ranges, and restore badges by rendering from their
+existing state after dismissal. Test asynchronous range cycling with rapid key
+presses so stale requests cannot update the wrong pane.
+
 ## Auto-fit and Zoom State
 
 **Problem:** `_fitZoom`, `userZoom`, `_zoomAdjustedByUser`, and `_autoFitPending` interact in subtle ways.

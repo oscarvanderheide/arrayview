@@ -236,6 +236,131 @@ def _focus_kb(page):
     page.focus("#keyboard-sink")
 
 
+def _preset_overlay_state(page, pane_selector=None, colorbar_selector=None):
+    """Read the visible percentile selector and its placement."""
+    return page.evaluate(
+        """([paneSelector, colorbarSelector]) => {
+            const shown = el => {
+                if (!el) return false;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            const overlays = [...document.querySelectorAll('.percentile-preset-overlay')];
+            const visible = overlays.filter(shown);
+            const overlay = visible.at(-1) || null;
+            const dots = overlay
+                ? [...overlay.querySelectorAll('.percentile-preset-dots .percentile-preset-dot')]
+                : [];
+            const rect = overlay?.getBoundingClientRect() || null;
+            const paneRect = paneSelector
+                ? document.querySelector(paneSelector)?.getBoundingClientRect() || null
+                : null;
+            const colorbarRect = colorbarSelector
+                ? document.querySelector(colorbarSelector)?.getBoundingClientRect() || null
+                : null;
+            const oldPercentVisible = [...document.querySelectorAll(
+                '.dmenu-percent-vmin, .dmenu-percent-vmax'
+            )].filter(shown).length;
+            const oldLocksVisible = [...document.querySelectorAll(
+                '.dmenu-lock-vmin, .dmenu-lock-vmax'
+            )].filter(shown).length;
+            const eggs = document.getElementById('mode-eggs');
+            const eggsStyle = eggs ? getComputedStyle(eggs) : null;
+            return {
+                visibleCount: visible.length,
+                text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
+                dotCount: dots.length,
+                activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                oldPercentVisible,
+                oldLocksVisible,
+                rect,
+                paneRect,
+                colorbarRect,
+                withinPane: !!(rect && paneRect
+                    && rect.left >= paneRect.left - 1
+                    && rect.right <= paneRect.right + 1
+                    && rect.top >= paneRect.top - 1
+                    && rect.bottom <= paneRect.bottom + 1),
+                aboveColorbar: !!(rect && colorbarRect && rect.bottom <= colorbarRect.top + 2),
+                eggsVisible: !!(eggs && [...eggs.querySelectorAll('.mode-badge')].some(shown)),
+                eggsOpacity: eggsStyle ? Number.parseFloat(eggsStyle.opacity || '1') : 0,
+            };
+        }""",
+        [pane_selector, colorbar_selector],
+    )
+
+
+def _wait_for_preset_overlay(page, visible=True, timeout=3000):
+    page.wait_for_function(
+        """expected => {
+            const shown = el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            return [...document.querySelectorAll('.percentile-preset-overlay')].some(shown)
+                === expected;
+        }""",
+        arg=visible,
+        timeout=timeout,
+    )
+
+
+def _wait_for_preset_change(page, previous_text, timeout=3000):
+    page.wait_for_function(
+        """before => {
+            const shown = el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            const overlay = [...document.querySelectorAll('.percentile-preset-overlay')]
+                .find(shown);
+            return !!overlay
+                && overlay.querySelector('.percentile-preset-value')?.textContent?.trim() !== before;
+        }""",
+        arg=previous_text,
+        timeout=timeout,
+    )
+
+
+def _wait_for_mode_badge(page, visible=True, timeout=2000):
+    page.wait_for_function(
+        """expected => {
+            const badges = [...document.querySelectorAll('#mode-eggs .mode-badge')];
+            const shown = badges.some(el => {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            });
+            return shown === expected;
+        }""",
+        arg=visible,
+        timeout=timeout,
+    )
+
+
+def _show_preset_overlay(page):
+    """Open the histogram, cycle once, and wait through the overlay fade-in."""
+    page.keyboard.press("d")
+    page.wait_for_timeout(400)
+    page.keyboard.press("d")
+    _wait_for_preset_overlay(page)
+
+
 def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_path):
     base = np.zeros((8, 32, 32), dtype=np.float32)
     mask_a = np.zeros((8, 32, 32), dtype=np.uint8)
@@ -1833,19 +1958,102 @@ class TestKeyboard:
         assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceBottomClipRect"]["height"] - early["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
 
-    def test_d_first_opens_second_cycles_without_status_text(self, loaded_viewer, sid_2d):
-        # First tap `d` opens the histogram only. Second tap cycles quietly.
+    def test_d_cycles_percentile_overlay_without_histogram_percent_labels(
+        self, loaded_viewer, sid_2d
+    ):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
+        _show_preset_overlay(page)
+        before = {
+            **_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"),
+            **page.evaluate(
+                "() => ({ manualVmin, manualVmax, "
+                "status: document.getElementById('status')?.textContent || '', "
+                "toast: document.getElementById('toast')?.textContent || '' })"
+            ),
+        }
         page.keyboard.press("d")
-        page.wait_for_timeout(400)
-        before = page.evaluate("() => ({ manualVmin, manualVmax, status: document.getElementById('status')?.textContent || '', toast: document.getElementById('toast')?.textContent || '' })")
-        page.keyboard.press("d")
-        page.wait_for_timeout(500)
-        after = page.evaluate("() => ({ manualVmin, manualVmax, status: document.getElementById('status')?.textContent || '', toast: document.getElementById('toast')?.textContent || '' })")
-        assert after["manualVmax"] != before["manualVmax"]
+        _wait_for_preset_change(page, before["text"])
+        after = {
+            **_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"),
+            **page.evaluate(
+                "() => ({ manualVmin, manualVmax, "
+                "status: document.getElementById('status')?.textContent || '', "
+                "toast: document.getElementById('toast')?.textContent || '' })"
+            ),
+        }
+
+        assert before["visibleCount"] == after["visibleCount"] == 1
+        assert before["text"] and after["text"] != before["text"]
+        assert before["dotCount"] == after["dotCount"] and after["dotCount"] > 1
+        assert before["activeIndex"] >= 0 and after["activeIndex"] != before["activeIndex"]
+        assert (after["manualVmin"], after["manualVmax"]) != (
+            before["manualVmin"], before["manualVmax"]
+        )
+        assert after["oldPercentVisible"] == 0
+        assert after["oldLocksVisible"] == 0
+        assert after["withinPane"] and after["aboveColorbar"]
         assert after["status"] == ""
         assert after["toast"] == ""
+
+    def test_percentile_overlay_replaces_mode_badges_and_dismisses_on_context_change(
+        self, loaded_viewer, sid_4d
+    ):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+L")
+        page.wait_for_function(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                return eggs?.children.length > 0
+                    && Number.parseFloat(getComputedStyle(eggs).opacity || '1') > 0.5;
+            }""",
+            timeout=3_000,
+        )
+
+        _show_preset_overlay(page)
+        page.wait_for_function(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                return !eggs?.querySelector('.mode-badge');
+            }""",
+            timeout=2_000,
+        )
+        during = _preset_overlay_state(page, "#viewer", "#slim-cb-wrap")
+        assert during["visibleCount"] == 1 and not during["eggsVisible"]
+
+        _wait_for_preset_overlay(page, visible=False, timeout=5_000)
+        page.wait_for_function(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                return eggs?.children.length > 0
+                    && Number.parseFloat(getComputedStyle(eggs).opacity || '1') > 0.5;
+            }""",
+            timeout=2_000,
+        )
+
+        _show_preset_overlay(page)
+        before_index = page.evaluate("() => indices[activeDim]")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function(
+            "before => indices[activeDim] !== before", arg=before_index, timeout=3_000
+        )
+        _wait_for_preset_overlay(page, visible=False, timeout=2_000)
+        _wait_for_mode_badge(page)
+        assert _preset_overlay_state(page)["eggsVisible"]
+
+        _show_preset_overlay(page)
+        before_dim = page.evaluate("() => activeDim")
+        page.keyboard.press("l")
+        page.wait_for_function("before => activeDim !== before", arg=before_dim, timeout=2_000)
+        _wait_for_preset_overlay(page, visible=False, timeout=2_000)
+        _wait_for_mode_badge(page)
+        assert _preset_overlay_state(page)["eggsVisible"]
+
+        _show_preset_overlay(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        _wait_for_preset_overlay(page, visible=False, timeout=2_000)
 
     def test_d_cycles_after_an_older_histogram_request_is_in_flight(
         self, loaded_viewer, sid_4d
@@ -2391,29 +2599,37 @@ class TestKeyboard:
             left_box["y"] + left_box["height"] / 2,
         )
         page.keyboard.press("d")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(400)
+        page.keyboard.press("d")
+        _wait_for_preset_overlay(page)
+        preset_before = _preset_overlay_state(
+            page, "#compare-left-canvas", "#compare-left-pane-cb"
+        )
         histogram_state = page.evaluate(
             """() => ({
                 leftExpanded: !!window._comparePaneCbs?.[0]?._expanded,
                 rightExpanded: !!window._comparePaneCbs?.[1]?._expanded,
-                pickerVisible: !!document.querySelector('#dmenu-picker.visible'),
-                mirrorVisible: getComputedStyle(document.querySelector('#dmenu-picker-mirror-box')).display !== 'none',
-                leftPercentVmin: document.querySelector('#dmenu-picker-box .dmenu-percent-vmin')?.textContent || '',
-                leftPercentVmax: document.querySelector('#dmenu-picker-box .dmenu-percent-vmax')?.textContent || '',
-                rightPercentVmin: document.querySelector('#dmenu-picker-mirror-box .dmenu-percent-vmin')?.textContent || '',
-                rightPercentVmax: document.querySelector('#dmenu-picker-mirror-box .dmenu-percent-vmax')?.textContent || '',
                 histogramsMatch: JSON.stringify(window._comparePaneCbs?.[0]?._histData)
                     === JSON.stringify(window._comparePaneCbs?.[1]?._histData),
                 target: _dmenuRangeTarget,
             })"""
         )
         assert histogram_state["leftExpanded"] and histogram_state["rightExpanded"], f"source d should expand both synchronized histograms, got: {histogram_state}"
-        assert histogram_state["pickerVisible"], f"source d should expose the modern range menu, got: {histogram_state}"
-        assert histogram_state["mirrorVisible"], f"source range controls should be mirrored over the right histogram, got: {histogram_state}"
-        assert histogram_state["leftPercentVmin"].endswith("%") and histogram_state["rightPercentVmin"].endswith("%"), f"both source histograms should show the vmin percentile, got: {histogram_state}"
-        assert histogram_state["leftPercentVmax"].endswith("%") and histogram_state["rightPercentVmax"].endswith("%"), f"both source histograms should show the vmax percentile, got: {histogram_state}"
         assert histogram_state["histogramsMatch"], f"both source histograms should render identical merged data, got: {histogram_state}"
         assert histogram_state["target"] == "primary", f"source histogram should own the shared source range, got: {histogram_state}"
+        assert preset_before["visibleCount"] == 1
+        assert preset_before["text"] and preset_before["activeIndex"] >= 0
+        assert preset_before["oldPercentVisible"] == 0
+        assert preset_before["oldLocksVisible"] == 0
+        assert preset_before["withinPane"] and preset_before["aboveColorbar"]
+
+        page.keyboard.press("d")
+        _wait_for_preset_change(page, preset_before["text"])
+        preset_after = _preset_overlay_state(
+            page, "#compare-left-canvas", "#compare-left-pane-cb"
+        )
+        assert preset_after["activeIndex"] != preset_before["activeIndex"]
+        assert preset_after["dotCount"] == preset_before["dotCount"]
 
     def test_big_left_center_mode_handoffs_never_expose_a_blank_pane(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
@@ -4351,14 +4567,11 @@ class TestCompareBigLeftZoomGeometry:
 
 
 class TestDiffPaneRangeMenu:
-    """`d` over the compare centre pane gets the same range menu as anywhere else."""
+    """`d` over the compare centre pane gets the shared percentile selector."""
 
     STATE = """
         () => ({
             expanded: !!(_diffCenterCb && _diffCenterCb._expanded),
-            pickerVisible: !!document.querySelector('#dmenu-picker.visible'),
-            lockRows: document.querySelectorAll('#dmenu-list .dmenu-bound-label').length,
-            symmetryControls: document.querySelectorAll('#dmenu-list .dmenu-symmetry-toggle').length,
             target: _dmenuRangeTarget,
             diffVmin: _diffManualVmin,
             diffVmax: _diffManualVmax,
@@ -4386,7 +4599,7 @@ class TestDiffPaneRangeMenu:
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.wait_for_timeout(150)
 
-    def test_d_opens_the_real_range_menu_over_the_diff_pane(
+    def test_d_opens_the_percentile_selector_over_the_diff_pane(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):
         page = self._diff_compare(
@@ -4394,22 +4607,25 @@ class TestDiffPaneRangeMenu:
         )
         self._hover_diff_pane(page)
         page.keyboard.press("d")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(400)
+        page.keyboard.press("d")
+        _wait_for_preset_overlay(page)
 
         state = page.evaluate(self.STATE)
+        preset = _preset_overlay_state(
+            page, "#compare-diff-canvas", "#compare-diff-pane-cb"
+        )
         assert state["expanded"], f"d should expand the diff histogram, got {state}"
         assert state["target"] == "diff-center", (
-            f"the range menu should be pointed at the centre pane, got {state}"
+            f"the percentile selector should be pointed at the centre pane, got {state}"
         )
-        assert state["pickerVisible"], (
-            f"d should bring up the range menu, not just the histogram, got {state}"
-        )
-        assert state["lockRows"] == 2 and state["symmetryControls"] == 1, (
-            f"the range menu should offer two bound locks and one distinct ± modifier, got {state}"
-        )
+        assert preset["visibleCount"] == 1
+        assert preset["text"] and preset["activeIndex"] >= 0
+        assert preset["oldPercentVisible"] == 0 and preset["oldLocksVisible"] == 0
+        assert preset["withinPane"] and preset["aboveColorbar"]
 
     @pytest.mark.parametrize("layout", ["horizontal", "big-left"])
-    def test_diff_range_locks_anchor_to_the_diff_colorbar(
+    def test_diff_percentile_selector_stays_inside_the_diff_pane(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path, layout
     ):
         page = self._diff_compare(
@@ -4427,35 +4643,16 @@ class TestDiffPaneRangeMenu:
         page.wait_for_timeout(350)
         self._hover_diff_pane(page)
         page.keyboard.press("d")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(400)
+        page.keyboard.press("d")
+        _wait_for_preset_overlay(page)
 
-        geometry = page.evaluate(
-            """() => {
-                const rect = selector => document.querySelector(selector)?.getBoundingClientRect() || null;
-                const centerX = r => r ? r.left + r.width / 2 : null;
-                const vminLock = rect('.dmenu-lock-vmin');
-                const vmaxLock = rect('.dmenu-lock-vmax');
-                const symmetryToggle = rect('.dmenu-symmetry-toggle');
-                const vminLabel = rect('#compare-diff-pane-cb-vmin');
-                const vmaxLabel = rect('#compare-diff-pane-cb-vmax');
-                const diffCb = rect('#compare-diff-pane-cb');
-                const sourceCb = rect('#compare-left-pane-cb');
-                return {
-                    activeIsDiff: _dmenuActiveColorbar() === _diffCenterCb,
-                    vminDx: vminLock && vminLabel ? Math.abs(centerX(vminLock) - centerX(vminLabel)) : null,
-                    vmaxDx: vmaxLock && vmaxLabel ? Math.abs(centerX(vmaxLock) - centerX(vmaxLabel)) : null,
-                    symmetricDx: symmetryToggle && diffCb ? Math.abs(centerX(symmetryToggle) - centerX(diffCb)) : null,
-                    baselineDy: sourceCb && diffCb ? Math.abs(sourceCb.bottom - diffCb.bottom) : null,
-                    layout: _resolvedCompareLayoutMode(),
-                };
-            }"""
+        preset = _preset_overlay_state(
+            page, "#compare-diff-canvas", "#compare-diff-pane-cb"
         )
-        assert geometry["activeIsDiff"], f"range menu should be owned by the diff ColorBar, got: {geometry}"
-        assert geometry["vminDx"] is not None and geometry["vminDx"] <= 1, f"vmin lock should anchor to the diff vmin label, got: {geometry}"
-        assert geometry["vmaxDx"] is not None and geometry["vmaxDx"] <= 1, f"vmax lock should anchor to the diff vmax label, got: {geometry}"
-        assert geometry["symmetricDx"] is not None and geometry["symmetricDx"] <= 1, f"± modifier should center on the diff colorbar, got: {geometry}"
-        if layout == "horizontal":
-            assert geometry["baselineDy"] is not None and geometry["baselineDy"] <= 1, f"horizontal source and diff colorbar strips should align, got: {geometry}"
+        assert preset["visibleCount"] == 1, f"expected one diff selector in {layout}, got {preset}"
+        assert preset["withinPane"], f"selector escaped the diff pane in {layout}: {preset}"
+        assert preset["aboveColorbar"], f"selector fell below the diff colorbar in {layout}: {preset}"
 
     def test_repeat_d_cycles_the_diff_window_only(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
@@ -4467,12 +4664,20 @@ class TestDiffPaneRangeMenu:
         )
         self._hover_diff_pane(page)
         page.keyboard.press("d")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(400)
+        page.keyboard.press("d")
+        _wait_for_preset_overlay(page)
         before = page.evaluate(self.STATE)
+        preset_before = _preset_overlay_state(
+            page, "#compare-diff-canvas", "#compare-diff-pane-cb"
+        )
 
         page.keyboard.press("d")
-        page.wait_for_timeout(600)
+        _wait_for_preset_change(page, preset_before["text"])
         after = page.evaluate(self.STATE)
+        preset_after = _preset_overlay_state(
+            page, "#compare-diff-canvas", "#compare-diff-pane-cb"
+        )
 
         assert (after["diffVmin"], after["diffVmax"]) != (
             before["diffVmin"],
@@ -4482,8 +4687,10 @@ class TestDiffPaneRangeMenu:
             before["manualVmin"],
             before["manualVmax"],
         ), f"the source-pane window must be left alone, got {before} then {after}"
+        assert preset_after["text"] != preset_before["text"]
+        assert preset_after["activeIndex"] != preset_before["activeIndex"]
 
-    def test_vmin_lock_is_reachable_and_pins_the_diff_bound(
+    def test_diff_vmin_single_click_edits_and_double_click_locks(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):
         page = self._diff_compare(
@@ -4491,22 +4698,41 @@ class TestDiffPaneRangeMenu:
         )
         self._hover_diff_pane(page)
         page.keyboard.press("d")
-        page.wait_for_timeout(800)
+        page.wait_for_function("() => !!(_diffCenterCb && _diffCenterCb._expanded)")
 
-        locked = page.evaluate(
+        page.click("#compare-diff-pane-cb-vmin")
+        page.wait_for_selector(".cb-val-popup-wrap", timeout=2_000)
+        popup_input = page.locator(".cb-val-popup .slim-cb-val-input")
+        popup_input.fill("-0.2")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => _diffManualVmin !== null", timeout=2_000)
+        assert page.evaluate("() => _diffManualVmin") == pytest.approx(-0.2)
+
+        page.dblclick("#compare-diff-pane-cb-vmin")
+        page.wait_for_function("() => vminLocked", timeout=2_000)
+        locked_style = page.evaluate(
             """() => {
-                const btn = document.querySelector('#dmenu-list .dmenu-lock-vmin');
-                if (!btn) return null;
-                btn.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
-                return { vminLocked, pinned: _diffManualVmin };
+                const lo = document.querySelector('#compare-diff-pane-cb-vmin');
+                const hi = document.querySelector('#compare-diff-pane-cb-vmax');
+                const a = getComputedStyle(lo);
+                const b = getComputedStyle(hi);
+                return {
+                    opacity: Number.parseFloat(a.opacity || '1'),
+                    peerOpacity: Number.parseFloat(b.opacity || '1'),
+                    color: a.color,
+                    peerColor: b.color,
+                    lockedClass: lo.classList.contains('locked'),
+                };
             }"""
         )
-        page.wait_for_timeout(400)
-        assert locked is not None, "the range menu should render a vmin lock row"
-        after = page.evaluate(self.STATE)
-        assert after["vminLocked"] or after["diffVmin"] is not None, (
-            f"activating the vmin lock should pin the diff's lower bound, got {after}"
-        )
+        assert (
+            locked_style["lockedClass"]
+            or locked_style["opacity"] < locked_style["peerOpacity"]
+            or locked_style["color"] != locked_style["peerColor"]
+        ), f"locked diff value should look dimmed, got {locked_style}"
+
+        page.dblclick("#compare-diff-pane-cb-vmin")
+        page.wait_for_function("() => !vminLocked", timeout=2_000)
 
 
 class TestWindowLevelHistogramHold:
@@ -4783,16 +5009,16 @@ class TestWheelSensitivity:
 
 
 class TestColorbarWindowLevel:
-    def test_dblclick_vmin_label_opens_value_popup_and_commits(
+    def test_single_click_vmin_label_opens_value_popup_and_commits(
         self, loaded_viewer, sid_2d
     ):
         page = loaded_viewer(sid_2d)
         page.wait_for_timeout(400)
 
-        page.dblclick("#slim-cb-vmin")
+        page.click("#slim-cb-vmin")
         page.wait_for_selector(".cb-val-popup-wrap", timeout=2_000)
         popup_input = page.locator(".cb-val-popup .slim-cb-val-input")
-        assert popup_input.count() == 1, "double-click on vmin should open the entry popup"
+        assert popup_input.count() == 1, "single-click on vmin should open the entry popup"
 
         popup_input.fill("0.25")
         page.keyboard.press("Enter")
@@ -4803,6 +5029,40 @@ class TestColorbarWindowLevel:
             f"committing the popup should set manualVmin, got {state}"
         )
         assert not state["popup"], "popup should close after Enter"
+
+    def test_double_click_vmin_label_toggles_lock_and_dims_the_value(
+        self, loaded_viewer, sid_2d
+    ):
+        page = loaded_viewer(sid_2d)
+        page.wait_for_timeout(400)
+
+        page.dblclick("#slim-cb-vmin")
+        page.wait_for_function("() => vminLocked", timeout=2_000)
+        locked = page.evaluate(
+            """() => {
+                const lo = document.getElementById('slim-cb-vmin');
+                const hi = document.getElementById('slim-cb-vmax');
+                const a = getComputedStyle(lo);
+                const b = getComputedStyle(hi);
+                return {
+                    popup: !!document.querySelector('.cb-val-popup-wrap'),
+                    opacity: Number.parseFloat(a.opacity || '1'),
+                    peerOpacity: Number.parseFloat(b.opacity || '1'),
+                    color: a.color,
+                    peerColor: b.color,
+                    lockedClass: lo.classList.contains('locked'),
+                };
+            }"""
+        )
+        assert not locked["popup"], "double-click should lock without opening the editor"
+        assert (
+            locked["lockedClass"]
+            or locked["opacity"] < locked["peerOpacity"]
+            or locked["color"] != locked["peerColor"]
+        ), f"locked vmin should look dimmed, got {locked}"
+
+        page.dblclick("#slim-cb-vmin")
+        page.wait_for_function("() => !vminLocked", timeout=2_000)
 
     def test_dimbar_still_swallows_its_own_dblclick(self, loaded_viewer, sid_3d):
         """The guard added for the vmin popup must not un-suppress the dimbar."""
@@ -4835,8 +5095,10 @@ class TestColorbarWindowLevel:
         # Colorbar should be horizontal: wider than tall
         assert box["width"] > box["height"], "Colorbar should be horizontal"
         # Labels should show vmin on left, vmax on right
-        labels_text = page.inner_text("#slim-cb-labels")
-        assert labels_text.strip(), "Colorbar labels should have content"
+        labels_text = page.locator("#slim-cb-vmin, #slim-cb-vmax").all_inner_texts()
+        assert len(labels_text) == 2 and all(text.strip() for text in labels_text), (
+            "Colorbar vmin/vmax labels should have content"
+        )
 
 
 class TestCustomColormap:

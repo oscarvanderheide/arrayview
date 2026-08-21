@@ -7,7 +7,7 @@
 
 ## Dynamic range
 
-`d` cycles quantile presets: 0–100%, 1–99%, 5–95%, 10–90%. Expands the colorbar into a histogram.
+`d` opens the histogram and cycles the 0–100%, 0.1–99.9%, 1–99%, 5–95%, and 10–90% range presets. The active range and preset dots appear briefly over the image.
 `D` opens a histogram dim picker (3-state toggle for which dimensions participate).
 
 ## Window / level
