@@ -256,6 +256,10 @@ def _preset_overlay_state(page, pane_selector=None, colorbar_selector=None):
                 ? [...overlay.querySelectorAll('.percentile-preset-dots .percentile-preset-dot')]
                 : [];
             const rect = overlay?.getBoundingClientRect() || null;
+            const valueRect = overlay?.querySelector('.percentile-preset-value')
+                ?.getBoundingClientRect() || null;
+            const dotsRect = overlay?.querySelector('.percentile-preset-dots')
+                ?.getBoundingClientRect() || null;
             const paneRect = paneSelector
                 ? document.querySelector(paneSelector)?.getBoundingClientRect() || null
                 : null;
@@ -274,7 +278,16 @@ def _preset_overlay_state(page, pane_selector=None, colorbar_selector=None):
                 visibleCount: visible.length,
                 text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
                 dotCount: dots.length,
+                minDotSize: dots.length ? Math.min(...dots.map(dot => {
+                    const style = getComputedStyle(dot);
+                    return Math.min(
+                        Number.parseFloat(style.width),
+                        Number.parseFloat(style.height),
+                    );
+                })) : 0,
                 activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
+                valueRect,
+                dotsRect,
                 oldPercentVisible,
                 oldLocksVisible,
                 rect,
@@ -1958,43 +1971,74 @@ class TestKeyboard:
         assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceBottomClipRect"]["height"] - early["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
 
-    def test_d_cycles_percentile_overlay_without_histogram_percent_labels(
+    def test_d_opens_without_selector_then_cycles_a_stable_percentile_overlay(
         self, loaded_viewer, sid_2d
     ):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        _show_preset_overlay(page)
-        before = {
-            **_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"),
-            **page.evaluate(
-                "() => ({ manualVmin, manualVmax, "
-                "status: document.getElementById('status')?.textContent || '', "
-                "toast: document.getElementById('toast')?.textContent || '' })"
-            ),
-        }
-        page.keyboard.press("d")
-        _wait_for_preset_change(page, before["text"])
-        after = {
-            **_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"),
-            **page.evaluate(
-                "() => ({ manualVmin, manualVmax, "
-                "status: document.getElementById('status')?.textContent || '', "
-                "toast: document.getElementById('toast')?.textContent || '' })"
-            ),
-        }
+        page.keyboard.press("Shift+L")
+        _wait_for_mode_badge(page)
+        initial_range = page.evaluate("() => [manualVmin, manualVmax]")
 
-        assert before["visibleCount"] == after["visibleCount"] == 1
-        assert before["text"] and after["text"] != before["text"]
-        assert before["dotCount"] == after["dotCount"] and after["dotCount"] > 1
-        assert before["activeIndex"] >= 0 and after["activeIndex"] != before["activeIndex"]
-        assert (after["manualVmin"], after["manualVmax"]) != (
-            before["manualVmin"], before["manualVmax"]
+        page.keyboard.press("d")
+        page.wait_for_timeout(450)
+        opened = _preset_overlay_state(page, "#viewer", "#slim-cb-wrap")
+        assert opened["visibleCount"] == 0
+        assert opened["eggsVisible"], "opening the histogram must preserve the active mode badge"
+        assert page.evaluate("() => [manualVmin, manualVmax]") == pytest.approx(initial_range)
+
+        page.keyboard.press("d")
+        _wait_for_preset_overlay(page)
+        page.wait_for_function(
+            """before => Math.abs(manualVmin - before[0]) > 1e-9
+                || Math.abs(manualVmax - before[1]) > 1e-9""",
+            arg=initial_range,
+            timeout=3_000,
         )
-        assert after["oldPercentVisible"] == 0
-        assert after["oldLocksVisible"] == 0
-        assert after["withinPane"] and after["aboveColorbar"]
-        assert after["status"] == ""
-        assert after["toast"] == ""
+        first = {
+            **_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"),
+            **page.evaluate(
+                "() => ({ manualVmin, manualVmax, "
+                "status: document.getElementById('status')?.textContent || '', "
+                "toast: document.getElementById('toast')?.textContent || '' })"
+            ),
+        }
+        states = [first]
+        for _ in range(first["dotCount"] - 1):
+            page.keyboard.press("d")
+            _wait_for_preset_change(page, states[-1]["text"])
+            states.append(_preset_overlay_state(page, "#viewer", "#slim-cb-wrap"))
+
+        assert first["visibleCount"] == 1
+        assert first["text"] and len({state["text"] for state in states}) == first["dotCount"]
+        assert first["dotCount"] > 1 and first["activeIndex"] >= 0
+        assert first["minDotSize"] >= 5
+        assert (first["manualVmin"], first["manualVmax"]) != pytest.approx(initial_range)
+        assert first["oldPercentVisible"] == 0
+        assert first["oldLocksVisible"] == 0
+        assert first["withinPane"] and first["aboveColorbar"]
+        assert first["status"] == ""
+        assert first["toast"] == ""
+
+        for rect_name in ("valueRect", "dotsRect"):
+            baseline = first[rect_name]
+            assert baseline
+            baseline_points = (
+                baseline["x"],
+                baseline["x"] + baseline["width"] / 2,
+                baseline["x"] + baseline["width"],
+            )
+            for state in states[1:]:
+                rect = state[rect_name]
+                assert rect
+                points = (
+                    rect["x"],
+                    rect["x"] + rect["width"] / 2,
+                    rect["x"] + rect["width"],
+                )
+                assert max(abs(a - b) for a, b in zip(points, baseline_points)) <= 1, (
+                    f"{rect_name} moved while cycling labels: {baseline} then {rect}"
+                )
 
     def test_percentile_overlay_replaces_mode_badges_and_dismisses_on_context_change(
         self, loaded_viewer, sid_4d
@@ -4621,6 +4665,7 @@ class TestDiffPaneRangeMenu:
         )
         assert preset["visibleCount"] == 1
         assert preset["text"] and preset["activeIndex"] >= 0
+        assert preset["minDotSize"] >= 5
         assert preset["oldPercentVisible"] == 0 and preset["oldLocksVisible"] == 0
         assert preset["withinPane"] and preset["aboveColorbar"]
 

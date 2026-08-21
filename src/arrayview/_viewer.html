@@ -1955,6 +1955,7 @@
         }
         .percentile-preset-overlay.fading { animation: none; opacity: 0; }
         .percentile-preset-value {
+            width: 9ch; text-align: center; white-space: nowrap;
             font-size: 11px; line-height: 1; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums;
             text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
@@ -1962,7 +1963,7 @@
         }
         .percentile-preset-dots { display: flex; align-items: center; gap: 5px; }
         .percentile-preset-dot {
-            width: 4px; height: 4px; border-radius: 50%;
+            width: 5px; height: 5px; border-radius: 50%;
             background: var(--muted); opacity: 0.45;
         }
         .percentile-preset-dot.active { background: var(--active-dim); opacity: 1; }
@@ -10411,13 +10412,7 @@
                 _syncPrimaryCb();
                 primaryCb.draw();
                 // Eggs
-                const eggsEl = document.getElementById('mode-eggs');
-                if (eggsEl) {
-                    const wasHidden = eggsEl.style.display === 'none';
-                    eggsEl.style.display = primaryCb._animT > 0.1 && !_percentilePresetOverlay ? 'none' : '';
-                    eggsEl.style.opacity = '';
-                    if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
-                }
+                _reconcileHistogramEggsVisibility();
                 // Triangle zone
                 const triZone = document.getElementById('slim-cb-tri-zone');
                 if (triZone) triZone.classList.toggle('expanded', primaryCb._expanded);
@@ -10548,13 +10543,7 @@
             _syncPrimaryCb();
             primaryCb.draw();
             // Keep the active transient indicator over the pane while the histogram is open.
-            const eggsEl = document.getElementById('mode-eggs');
-            if (eggsEl) {
-                const wasHidden = eggsEl.style.display === 'none';
-                eggsEl.style.display = primaryCb._animT > 0.1 && !_percentilePresetOverlay ? 'none' : '';
-                eggsEl.style.opacity = '';
-                if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
-            }
+            _reconcileHistogramEggsVisibility();
             // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
             if (triZone) triZone.classList.toggle('expanded', primaryCb._expanded);
@@ -16398,6 +16387,17 @@
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
             renderIsland();
+        }
+
+        function _reconcileHistogramEggsVisibility() {
+            const eggsEl = document.getElementById('mode-eggs');
+            if (!eggsEl) return;
+            const wasHidden = eggsEl.style.display === 'none';
+            // Preset cycling replaces the badge contents in renderEggs(); opening
+            // the histogram alone must leave the normal transient badges visible.
+            eggsEl.style.display = '';
+            eggsEl.style.opacity = '';
+            if (wasHidden) positionEggs();
         }
 
         function positionEggs() {
@@ -40591,7 +40591,6 @@
             _histPickerActive = true;
             _reconcileHistPicker();
             openDmenuPicker();
-            _showCurrentPercentilePresetOverlay();
         }
 
         /** Open histogram colorbar + enter legacy picker mode. */

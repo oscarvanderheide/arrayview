@@ -722,17 +722,45 @@ def run_smoke(page, base, client, tmp):
     # active dot; the histogram itself has no percentile text or lock controls.
     _goto(page, base, sid4d_varied)
     _focus(page)
+    _press(page, "Shift+L", wait=300)  # keep a normal mode badge visible
     _press(page, "d", wait=600)  # 1st tap → opens histogram only
+    first_tap = page.evaluate(
+        """() => {
+            const shown = el => {
+                if (!el) return false;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && Number.parseFloat(style.opacity || '1') > 0.05
+                    && rect.width > 0 && rect.height > 0;
+            };
+            return {
+                selectorVisible: [...document.querySelectorAll('.percentile-preset-overlay')]
+                    .some(shown),
+                logBadgeVisible: shown(document.querySelector('#mode-eggs .mode-badge-log')),
+            };
+        }"""
+    )
+    assert not first_tap["selectorVisible"], "first d should not claim a percentile preset"
+    assert first_tap["logBadgeVisible"], "first d should preserve the active mode badge"
     _shot(page, "44a_d_first_tap_opens_histogram")
     _press(page, "d", wait=600)  # 2nd tap → cycles to first preset
     page.wait_for_selector(".percentile-preset-overlay", state="visible", timeout=3000)
+    min_dot_size = page.evaluate(
+        """() => Math.min(...[...document.querySelectorAll(
+            '.percentile-preset-overlay .percentile-preset-dot'
+        )].map(dot => {
+            const style = getComputedStyle(dot);
+            return Math.min(parseFloat(style.width), parseFloat(style.height));
+        }))"""
+    )
+    assert min_dot_size >= 5, f"preset dots should be at least 5px, got {min_dot_size}px"
     _shot(page, "44b_d_percentile_dots_first_preset")
     _press(page, "d", wait=400)
     _shot(page, "44c_d_percentile_dots_next_preset")
 
     # The preset selector temporarily replaces persistent mode badges and then
     # gives their location back after its short timeout.
-    _press(page, "Shift+L", wait=400)
     _press(page, "d", wait=250)
     _shot(page, "44d_d_selector_replaces_log_badge")
     page.wait_for_function(

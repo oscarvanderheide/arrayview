@@ -7,7 +7,7 @@
 
 ## Dynamic range
 
-`d` opens the histogram and cycles the 0–100%, 0.1–99.9%, 1–99%, 5–95%, and 10–90% range presets. The active range and preset dots appear briefly over the image.
+The first `d` press opens the histogram without changing or classifying the current range. Further presses cycle the 0–100%, 0.1–99.9%, 1–99%, 5–95%, and 10–90% presets and briefly show the active range and preset dots over the image.
 `D` opens a histogram dim picker (3-state toggle for which dimensions participate).
 
 ## Window / level

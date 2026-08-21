@@ -139,6 +139,13 @@ def _preset_overlay_state(page, pane_selector, colorbar_selector):
                 visibleCount: visible.length,
                 text: overlay?.querySelector('.percentile-preset-value')?.textContent?.trim() || '',
                 dotCount: dots.length,
+                minDotSize: dots.length ? Math.min(...dots.map(dot => {
+                    const style = getComputedStyle(dot);
+                    return Math.min(
+                        Number.parseFloat(style.width),
+                        Number.parseFloat(style.height),
+                    );
+                })) : 0,
                 activeIndex: dots.findIndex(dot => dot.classList.contains('active')),
                 withinPane: !!(rect && pane
                     && rect.left >= pane.left - 1 && rect.right <= pane.right + 1
@@ -332,6 +339,7 @@ class TestMultiviewWorks:
         before = _preset_overlay_state(page, ".mv-pane", "#mv-cb-wrap")
         assert before["visibleCount"] == 1
         assert before["text"] and before["dotCount"] > 1 and before["activeIndex"] >= 0
+        assert before["minDotSize"] >= 5
         assert before["withinPane"] and before["aboveColorbar"]
 
         page.keyboard.press("d")
@@ -538,6 +546,7 @@ class TestQmriWorks:
         )
         assert before["visibleCount"] == 1
         assert before["text"] and before["dotCount"] > 1 and before["activeIndex"] >= 0
+        assert before["minDotSize"] >= 5
         assert before["withinPane"] and before["aboveColorbar"]
 
         page.keyboard.press("d")
@@ -797,7 +806,7 @@ class TestQmriMultiview:
             arg=before["row"],
             timeout=10_000,
         )
-        _wait_for_preset_overlay(page)
+        _wait_for_preset_overlay(page, visible=False)
         opened = page.evaluate(
             """row => {
                 const view = qmriMvViews.find(v => v._mapIndex === row);
@@ -835,12 +844,12 @@ class TestQmriMultiview:
         )
         assert opened["preset"] == before["preset"], "first d must open, not cycle"
         assert opened["window"] == pytest.approx(before["window"])
-        assert opened["text"] and opened["dotCount"] > 1 and opened["activeIndex"] >= 0
-        assert opened["withinTarget"]
+        assert opened["text"] == "" and opened["dotCount"] == 0
+        assert opened["activeIndex"] == -1
         assert opened["hasYellowLimits"]
 
         page.keyboard.press("d")
-        _wait_for_preset_change(page, opened["text"], timeout=10_000)
+        _wait_for_preset_overlay(page, timeout=10_000)
         cycled = page.evaluate(
             """row => {
                 const view = qmriMvViews.find(v => v._mapIndex === row);
@@ -857,8 +866,8 @@ class TestQmriMultiview:
             before["row"],
         )
         assert cycled["preset"] != opened["preset"]
-        assert cycled["text"] != opened["text"]
-        assert cycled["activeIndex"] != opened["activeIndex"]
+        assert cycled["text"]
+        assert cycled["activeIndex"] >= 0
 
         # With a coarse histogram, the 0.1–99.9% bracket can share the full
         # range's outer bins. The next discrete preset must move the bounds.
@@ -899,6 +908,7 @@ class TestQmriMultiview:
             arg=before["row"],
             timeout=10_000,
         )
+        page.keyboard.press("d")
         _wait_for_preset_overlay(page)
         page.keyboard.press("ArrowRight")
         _wait_for_preset_overlay(page, visible=False)
