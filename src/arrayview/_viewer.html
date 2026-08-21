@@ -13389,15 +13389,8 @@
                 : null;
             if (view && activeCb && !activeCb._expanded) {
                 activeCb._manualExpand = true;
-                activeCb._expanded = true;
-                activeCb._animating = false;
-                activeCb._animT = 1;
-                activeCb._animTarget = 1;
-                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
-                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
                 activeCb._snapWindowFractionsOnNextDraw();
-                activeCb.updateLabels();
-                activeCb.draw();
+                activeCb.expand();
                 activeCb.ensureHistogramData().then(() => {
                     activeCb._snapWindowFractionsOnNextDraw();
                     activeCb.draw();
@@ -13479,15 +13472,8 @@
                     activeCb.opts.setWindow(initialWindow.vmin, initialWindow.vmax);
                 }
                 activeCb._manualExpand = true;
-                activeCb._expanded = true;
-                activeCb._animating = false;
-                activeCb._animT = 1;
-                activeCb._animTarget = 1;
-                if (activeCb.wrap) activeCb.wrap.classList.add('cb-expanded');
-                if (activeCb.triZone) activeCb.triZone.classList.add('expanded');
                 activeCb._snapWindowFractionsOnNextDraw();
-                activeCb.updateLabels();
-                activeCb.draw();
+                activeCb.expand();
                 activeCb.ensureHistogramData().then(() => {
                     activeCb._snapWindowFractionsOnNextDraw();
                     activeCb.draw();
@@ -16308,8 +16294,11 @@
                 renderEggs();
                 _percentilePresetOverlayFadeTimer = setTimeout(() => {
                     _percentilePresetOverlayFadeTimer = null;
-                    if (_histPickerActive) _histPickerClose(true);
-                    else _hidePercentilePresetOverlay();
+                    // Only the little preset badge times out here. The picker
+                    // itself stays open — it closes through the same explicit
+                    // exits as a single `d` press (Enter, Escape, or any other
+                    // key), never on a clock.
+                    _hidePercentilePresetOverlay();
                 }, 150);
             }, 2400);
         }
@@ -25484,15 +25473,9 @@
                                 // like an older build of the same feature.
                                 _dmenuSetRangeTarget('diff-center');
                                 if (!_diffCenterCb._expanded) {
-                                    _diffCenterCb._expanded = true;
                                     _diffCenterCb._manualExpand = true;
-                                    _diffCenterCb._animating = false;
-                                    _diffCenterCb._animT = 1;
-                                    _diffCenterCb._animTarget = 1;
-                                    if (_diffCenterCb.wrap) _diffCenterCb.wrap.classList.add('cb-expanded');
                                     _diffCenterCb._snapWindowFractionsOnNextDraw();
-                                    _diffCenterCb.updateLabels();
-                                    _diffCenterCb.draw();
+                                    _diffCenterCb.expand();
                                     _diffCenterCb.ensureHistogramData().then(() => {
                                         _diffCenterCb._snapWindowFractionsOnNextDraw();
                                         _diffCenterCb.draw();
@@ -25562,22 +25545,13 @@
                         _stopColorbarLebesgueHover();
                         _computeCbExpandedH();
                         primaryCb._manualExpand = true;
-                        primaryCb._expanded = true;
-                        primaryCb._animating = false;
-                        primaryCb._animT = 1;
-                        primaryCb._animTarget = 1;
-                        if (primaryCb.wrap) primaryCb.wrap.classList.add('cb-expanded');
-                        if (primaryCb.triZone) primaryCb.triZone.classList.add('expanded');
                         primaryCb._snapWindowFractionsOnNextDraw();
-                        primaryCb.updateLabels();
-                        primaryCb.draw();
+                        primaryCb.expand();
                         if (multiViewActive || compareMvActive) {
                             if (window._mvColorBar) {
                                 window._mvColorBar._manualExpand = true;
-                                window._mvColorBar._expanded = true;
-                                window._mvColorBar._animating = false;
-                                window._mvColorBar._animT = 1;
-                                window._mvColorBar._animTarget = 1;
+                                window._mvColorBar._snapWindowFractionsOnNextDraw();
+                                window._mvColorBar.expand();
                             }
                             drawMvColorbar();
                         } else drawSlimColorbar(cbMarkerFrac);
@@ -25596,13 +25570,6 @@
                             }
                             primaryCb._snapWindowFractionsOnNextDraw();
                             if (multiViewActive || compareMvActive) {
-                                if (window._mvColorBar) {
-                                    window._mvColorBar._manualExpand = true;
-                                    window._mvColorBar._expanded = true;
-                                    window._mvColorBar._animating = false;
-                                    window._mvColorBar._animT = 1;
-                                    window._mvColorBar._animTarget = 1;
-                                }
                                 drawMvColorbar();
                             } else drawSlimColorbar(cbMarkerFrac);
                             const q = _currentQuantileFromHist(
@@ -40214,21 +40181,19 @@
                 cb._histVersion = null;
                 cb._kdeSmooth = null;
                 cb._buildKDE();
-                cb._expanded = true;
-                cb._manualExpand = true;
-                cb._animating = false;
-                cb._animT = 1;
-                cb._animTarget = 1;
                 cb._snapWindowFractionsOnNextDraw();
-                if (cb.wrap) cb.wrap.classList.add('cb-expanded');
                 cb.draw();
                 cb.updateLabels();
             });
         }
 
         async function _openCompareSourcePairHistogram(sourcePair) {
+            sourcePair.forEach(cb => {
+                cb._manualExpand = true;
+                cb.expand();
+            });
             _syncCompareSourcePairHistogram(sourcePair, _histData);
-            const hist = await _fetchHistogramCompare();
+            const hist = await sourcePair[0].ensureHistogramData();
             if (hist) {
                 primaryCb._histData = hist;
                 _syncCompareSourcePairHistogram(sourcePair, hist);

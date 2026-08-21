@@ -347,8 +347,18 @@ class TestMultiviewWorks:
         after = _preset_overlay_state(page, ".mv-pane", "#mv-cb-wrap")
         assert after["activeIndex"] != before["activeIndex"]
         assert after["dotCount"] == before["dotCount"]
-        # Wait for auto-dismiss (3s)
+        # The little preset badge fades on its own, but the histogram itself
+        # must not follow it back to a colorbar on a timer — only an explicit
+        # dismissal (Enter, Escape, or any other key) closes it.
         _wait_for_preset_overlay(page, visible=False, timeout=5_000)
+        cb_height_after_fade = page.evaluate(
+            "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
+        )
+        assert cb_height_after_fade > 15, (
+            "mv colorbar must stay expanded after the preset badge fades, "
+            f"got height={cb_height_after_fade}px"
+        )
+        page.keyboard.press("Enter")
         page.wait_for_function(
             "() => parseInt(document.getElementById('mv-cb')?.style.height || '0') <= 15",
             timeout=5_000,
@@ -357,7 +367,7 @@ class TestMultiviewWorks:
             "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
         )
         assert cb_height_after <= 15, (
-            f"Expected mv colorbar to collapse after 3s, got height={cb_height_after}px"
+            f"Expected mv colorbar to collapse after Enter, got height={cb_height_after}px"
         )
         _exit_multiview(page)
 
@@ -774,7 +784,7 @@ class TestQmriMultiview:
         page.keyboard.press("v")
         page.wait_for_function(
             "() => qmriMvActive && qmriMvViews.length === 9 "
-            "&& qmriMvViews.every(v => v.lastW && v.lastH)",
+            "&& qmriMvViews.every(v => v.lastW && v.lastH && !v.rendering && !v.pending)",
             timeout=15_000,
         )
 
@@ -801,7 +811,8 @@ class TestQmriMultiview:
             """row => {
                 const view = qmriMvViews.find(v => v._mapIndex === row);
                 const cb = view?._mapColorBar;
-                return !!(cb?._expanded && cb._histData?.counts?.length);
+                return !!(cb?._expanded && cb._histData?.counts?.length
+                    && !cb._animating && cb._animT === 1);
             }""",
             arg=before["row"],
             timeout=10_000,
@@ -890,7 +901,19 @@ class TestQmriMultiview:
         assert ranged["text"] != cycled["text"]
         assert ranged["activeIndex"] != cycled["activeIndex"]
 
+        # The little preset badge fades on its own, but the row histogram must
+        # not follow it back to a colorbar on a timer — only an explicit
+        # dismissal (Enter, Escape, or any other key) closes it.
         _wait_for_preset_overlay(page, visible=False, timeout=5_000)
+        still_open = page.evaluate(
+            """row => {
+                const view = qmriMvViews.find(v => v._mapIndex === row);
+                return !!view?._mapColorBar?._expanded;
+            }""",
+            before["row"],
+        )
+        assert still_open, "row histogram must stay open after the preset badge fades"
+        page.keyboard.press("Enter")
         page.wait_for_function(
             """row => {
                 const view = qmriMvViews.find(v => v._mapIndex === row);

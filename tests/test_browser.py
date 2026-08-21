@@ -1971,6 +1971,92 @@ class TestKeyboard:
         assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceBottomClipRect"]["height"] - early["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
 
+    def test_d_morphs_colorbar_into_histogram_over_multiple_frames(
+        self, loaded_viewer, sid_2d
+    ):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+
+        # Keep the histogram response pending beyond the 350 ms morph.  The
+        # bar should start moving immediately rather than waiting for data.
+        def _slow_histogram(route):
+            time.sleep(0.6)
+            route.continue_()
+
+        page.route("**/histogram/**", _slow_histogram)
+        page.evaluate(
+            """() => {
+                primaryCb._histData = null;
+                primaryCb._histVersion = null;
+                primaryCb._kdeSmooth = null;
+                primaryCb._histPromise = null;
+            }"""
+        )
+
+        def _capture_d_morph():
+            page.evaluate(
+                """() => {
+                    const capture = window.__dHistogramMorph = {
+                        pressedAt: null,
+                        samples: [],
+                        done: false,
+                    };
+                    const onKeydown = event => {
+                        if (event.key.toLowerCase() !== 'd') return;
+                        capture.pressedAt = performance.now();
+                        window.removeEventListener('keydown', onKeydown, true);
+                    };
+                    window.addEventListener('keydown', onKeydown, true);
+                    const sample = now => {
+                        if (capture.pressedAt !== null) {
+                            capture.samples.push({
+                                elapsed: now - capture.pressedAt,
+                                progress: primaryCb._animT,
+                                target: primaryCb._animTarget,
+                            });
+                            if (now - capture.pressedAt >= 450) {
+                                capture.done = true;
+                                return;
+                            }
+                        }
+                        requestAnimationFrame(sample);
+                    };
+                    requestAnimationFrame(sample);
+                }"""
+            )
+            page.keyboard.press("d")
+            page.wait_for_function("() => window.__dHistogramMorph?.done", timeout=2_000)
+            return page.evaluate("() => window.__dHistogramMorph.samples")
+
+        def _assert_smooth_expansion(samples):
+            progress = [sample["progress"] for sample in samples]
+            assert samples and all(sample["target"] == 1 for sample in samples)
+            assert progress[0] < 0.99, (
+                f"d must begin below the finished histogram state, got {progress}"
+            )
+            assert any(0 < value < 0.99 for value in progress), (
+                f"d must render intermediate morph frames, got {progress}"
+            )
+            assert all(
+                current + 1e-6 >= previous
+                for previous, current in zip(progress, progress[1:])
+            ), f"histogram morph progress must increase monotonically, got {progress}"
+            assert progress[-1] == pytest.approx(1), (
+                f"histogram morph must reach its final state, got {progress}"
+            )
+
+        _assert_smooth_expansion(_capture_d_morph())
+
+        # Once the menu closes and the bar collapses, the next d press must
+        # replay the morph instead of retaining a finished state.
+        page.wait_for_function("() => primaryCb._histData !== null", timeout=2_000)
+        page.evaluate("() => _histPickerClose()")
+        page.wait_for_function(
+            "() => !primaryCb._animating && primaryCb._animT === 0",
+            timeout=2_000,
+        )
+        _assert_smooth_expansion(_capture_d_morph())
+
     def test_d_opens_without_selector_then_cycles_a_stable_percentile_overlay(
         self, loaded_viewer, sid_2d
     ):
