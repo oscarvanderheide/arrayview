@@ -3736,3 +3736,14 @@ created and dismissed on first frame without affecting the external-browser
 path. The normal pytest wrapper, lifecycle runner, and CI job now all execute
 the readiness, reload, and queue-handoff contracts. Post-install live evidence
 for 0.15.59 remains open until the active Tunnel window reloads.
+
+**0.15.59 install and first live gate (`real host`)**: the exact Tunnel profile,
+installed extension directory, bundled VSIX, and working source all report
+0.15.59 with byte-identical extension code. The active window registered
+0.15.59 at 06:27:54 UTC. Its first controlled public CLI launch followed at
+06:44:09, after about 16 minutes idle, opened only the intended integrated tab,
+reached `navigation-arrived` on attempt 0, and recorded the requested first
+frame at 06:44:10.909. The native opening notification ended on that first
+frame and the terminal received `backend_ready`. This clean idle run did not
+exercise the permanent retry/update branch; that boundary retains the earlier
+same-address diagnostic `real host` evidence plus 0.15.59 component coverage.

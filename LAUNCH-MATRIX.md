@@ -58,8 +58,8 @@ Status is **`never verified`** unless a dated entry says otherwise.
 
 | # | Environment | Window | Array / storage | Status |
 |---|-------------|--------|-----------------|--------|
-| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **0.15.53: verified 2026-08-18 `real host`** — repeated public CLI launches rendered on their first navigation with no tab replacement |
-| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **0.15.58 diagnostic: verified 2026-08-20 `real host`** — after more than one minute idle, attempts 0–2 never reached the backend; attempt 3 reused the byte-identical address in the same tab and rendered at 5.76 s. The permanent 0.15.59 behavior has `component` evidence pending its live reload. |
+| 1 | VS Code tunnel, Linux | vscode tab | small, fast local | **0.15.59: verified 2026-08-21 `real host`** — the public CLI launch rendered on navigation attempt 0 in the intended tab; the opening notification ended on the correlated first frame. |
+| 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **0.15.59: verified 2026-08-21 `real host`** — the first launch after about 16 minutes idle rendered on attempt 0. Separately, the 0.15.58 diagnostic reproduced a lost idle navigation and proved attempt 3 could recover with the byte-identical address in the same tab at 5.76 s. |
 | 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **0.15.53: verified 2026-08-18 `real host`** — four large-array launches across two five-launch batches rendered on their first navigation; a ~3.25 s load was retained without replacement |
 | 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **0.15.53: 2026-08-18 `component`; no network-mount launch was exercised**. Previous design verified 2026-08-11 `real host`, by the user |
 | 5 | VS Code tunnel, Linux | browser | any | never verified |
