@@ -215,15 +215,23 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        .axes-indicator {
-            position: absolute; bottom: 6px; left: 6px; width: 48px; height: 48px;
-            pointer-events: none; overflow: visible; z-index: 2;
-            opacity: 0; transition: opacity 0.6s ease;
-            color: rgba(190, 190, 190, 0.8);
+        /* Orientation arrow — hovering a dim label in the DimBar shows a
+           small arrow near that dimension's zero point, pointing toward
+           increasing values. See _showOrientEdgeHighlight(). */
+        .orient-arrow {
+            position: absolute; width: 32px; height: 32px;
+            pointer-events: none; z-index: 5;
+            opacity: 0; transition: opacity 0.15s ease;
         }
-        .axes-lbl-x, .axes-lbl-y { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
-        .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
-        .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
+        .orient-arrow.showing { opacity: 0.9; }
+        /* Dark halo so the arrow reads against bright/washed-out image content
+           regardless of the active colormap (same technique used elsewhere
+           for on-canvas markers). A single polygon (not a separate shaft +
+           head) so the outline wraps one shape with no seam down the middle. */
+        .orient-arrow polygon {
+            paint-order: stroke;
+            stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round;
+        }
         #slim-cb-wrap {
             text-align: center;
             /* Horizontal padding fixed; top padding grows via --cb-extra-top
@@ -5319,14 +5327,6 @@
                 <div id="line-profile-overlay"></div>
             </div>
             <div id="overlay-palette" aria-hidden="true"></div>
-            <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                <text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>
-                <text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>
-            </svg>
             <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
@@ -5372,14 +5372,6 @@
                                 <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
                                 <div class="compare-source-pane-badge source-a">A</div>
                                 <div class="cv-pixel-info" id="compare-left-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-left-pane-cb-vmin"></span>
@@ -5444,14 +5436,6 @@
                                 <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
                                 <div class="compare-source-pane-badge source-b">B</div>
                                 <div class="cv-pixel-info" id="compare-right-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-right-pane-cb-vmin"></span>
@@ -5471,14 +5455,6 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-third-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-third-pane-cb-vmin"></span>
@@ -5498,14 +5474,6 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-fourth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-fourth-pane-cb-vmin"></span>
@@ -5525,14 +5493,6 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-fifth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-fifth-pane-cb-vmin"></span>
@@ -5552,14 +5512,6 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-sixth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-sixth-pane-cb-vmin"></span>
@@ -6679,7 +6631,6 @@
         let preloadActiveDim = -1;
         let statusFadeTimer = null;
         let dataInfoTimer = null;
-        let axesFlashTimer = null;
 
         let userZoom = 1.0;
         let _zoomSensitivity = 0.014; // scroll-zoom exponent multiplier
@@ -7874,8 +7825,6 @@
             apply: (x, y) => {
                 const tx = (x || y) ? `translate(${x}px,${y}px)` : '';
                 document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
-                const atx = (x || y) ? `translate(${-x}px,${-y}px)` : '';
-                document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
             },
         });
 
@@ -19487,50 +19436,6 @@
             });
         }
 
-        // Lookup table: colormap name → a Nord/pastel color NOT present in that colormap.
-        // For 'gray': use the theme active-dim yellow (CSS var).
-        // For custom/unknown: white.
-        const _AXES_COLORMAP_COLORS = {
-            'gray':     null,           // sentinel: use var(--active-dim)
-            'viridis':  '#ebcb8b',      // Nord warm sand — not in blue/green/yellow viridis
-            'plasma':   '#a3be8c',      // Nord green — not in purple/orange plasma
-            'magma':    '#88c0d0',      // Nord frost blue — not in dark/purple magma
-            'inferno':  '#88c0d0',      // Nord frost blue — not in dark/red inferno
-            'hot':      '#81a1c1',      // Nord steel blue — not in black/red/yellow hot
-            'cool':     '#d08770',      // Nord orange — not in cyan/magenta cool
-            'RdBu_r':   '#a3be8c',      // Nord green — not in red/white/blue
-            'RdBu':     '#a3be8c',
-            'bwr':      '#a3be8c',
-            'seismic':  '#a3be8c',
-            'coolwarm': '#a3be8c',
-            'jet':      '#ebcb8b',      // Nord sand — readable over jet's rainbow
-            'turbo':    '#ebcb8b',
-            'PiYG':     '#88c0d0',      // Nord frost blue — not in pink/green
-            'PRGn':     '#d08770',      // Nord orange — not in purple/green
-        };
-
-        function _axesColorForColormap() {
-            const name = colormap_idx === -1 ? null : COLORMAPS[colormap_idx];
-            if (name === null || name === undefined) return 'rgba(255,255,255,0.85)'; // custom
-            if (name === 'gray') {
-                // Use CSS var — read computed value from :root
-                const v = getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim();
-                return v || '#f5c842';
-            }
-            return _AXES_COLORMAP_COLORS[name] || 'rgba(255,255,255,0.85)';
-        }
-
-        function refreshAxesColor() {
-            const color = _axesColorForColormap();
-            document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
-            _updateMvPaneFill();
-        }
-
-        // Gnomon visibility: shown while a dim-bar token is hovered, or flashed
-        // briefly when activeDim changes via h/l/←/→. Hidden otherwise.
-        // In oblique mode the x/y labels no longer name axis-aligned directions,
-        // so the gnomon is suppressed.
-        let _dimBarHovering = false;
         let _dimbarExtentPinned = __DEFAULT_DIMBAR_MODE__ === 'extended';
         let _dimUnderlineTimer = 0;
         let _dimbarDblClickWired = false;
@@ -19626,34 +19531,69 @@
             showStatus(_dimbarExtentPinned ? 'dimbar extents on' : 'dimbar extents off');
         }
 
-        function _gnomonAllowed() {
+        // Orientation arrow: hovering a dim label in the DimBar shows a small
+        // arrow near that dimension's zero point, pointing toward increasing
+        // values (no arrow otherwise). In oblique mode the x/y labels no
+        // longer name axis-aligned directions, so the arrow is suppressed.
+        function _orientEdgeAllowed() {
             if (_pixelInfoActive()) return false;
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
             return true;
         }
-        function _showAxesGnomon() {
-            if (!_gnomonAllowed()) return;
-            refreshAxesColor();
-            document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.transition = 'none';
-                el.style.opacity = '1';
-            });
-            if (axesFlashTimer) { clearTimeout(axesFlashTimer); axesFlashTimer = null; }
-        }
-        function _hideAxesGnomon() {
-            document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.transition = 'opacity 0.6s ease';
-                el.style.opacity = '0';
+        function _clearOrientEdgeHighlight() {
+            document.querySelectorAll('.orient-arrow.showing').forEach(el => {
+                el.classList.remove('showing');
             });
         }
-        function flashAxesIndicators() {
-            if (!_gnomonAllowed()) return;
-            _showAxesGnomon();
-            if (axesFlashTimer) clearTimeout(axesFlashTimer);
-            axesFlashTimer = setTimeout(() => {
-                axesFlashTimer = null;
-                if (!_dimBarHovering) _hideAxesGnomon();
-            }, 1500);
+        const _ORIENT_ARROW_MARGIN = 10;
+        function _orientArrowEl(container) {
+            if (!container) return null;
+            let el = container.querySelector(':scope > .orient-arrow');
+            if (!el) {
+                const NS = 'http://www.w3.org/2000/svg';
+                el = document.createElementNS(NS, 'svg');
+                el.setAttribute('class', 'orient-arrow');
+                el.setAttribute('viewBox', '0 0 32 32');
+                el.innerHTML = '<polygon points="3,14.5 21,14.5 21,10 31,16 21,22 21,17.5 3,17.5" fill="var(--active-dim)"/>';
+                container.appendChild(el);
+            }
+            return el;
+        }
+        // Places a small arrow near the (flipX, flipY) origin corner of `container`,
+        // pointing along `axis` ('x' or 'y') in the direction that dim increases.
+        // `flipOwn` is the flip of `axis` itself (picks the arrow's direction and
+        // which edge it hugs along that axis); `flipOther` is the flip of the
+        // perpendicular axis (picks where along that axis the arrow sits).
+        function _placeOrientArrow(container, axis, flipOwn, flipOther) {
+            const el = _orientArrowEl(container);
+            if (!el) return;
+            const m = _ORIENT_ARROW_MARGIN + 'px';
+            el.style.left = el.style.right = el.style.top = el.style.bottom = '';
+            if (axis === 'x') {
+                if (flipOwn) el.style.right = m; else el.style.left = m;
+                if (flipOther) el.style.bottom = m; else el.style.top = m;
+                el.style.transform = flipOwn ? 'rotate(180deg)' : 'rotate(0deg)';
+            } else {
+                if (flipOwn) el.style.bottom = m; else el.style.top = m;
+                if (flipOther) el.style.right = m; else el.style.left = m;
+                el.style.transform = flipOwn ? 'rotate(-90deg)' : 'rotate(90deg)';
+            }
+            el.classList.add('showing');
+        }
+        function _showOrientEdgeHighlight(dim) {
+            _clearOrientEdgeHighlight();
+            if (!_orientEdgeAllowed() || dim == null || dim < 0) return;
+            if (multiViewActive) {
+                if (!Array.isArray(mvViews)) return;
+                mvViews.forEach(v => {
+                    if (v.dimX === dim) _placeOrientArrow(v.cvBox, 'x', _mvFlipX(v), _mvFlipY(v));
+                    else if (v.dimY === dim) _placeOrientArrow(v.cvBox, 'y', _mvFlipY(v), _mvFlipX(v));
+                });
+                return;
+            }
+            const viewport = document.getElementById('canvas-viewport');
+            if (dim === dim_x) _placeOrientArrow(viewport, 'x', flip_x, flip_y);
+            else if (dim === dim_y) _placeOrientArrow(viewport, 'y', flip_y, flip_x);
         }
 
         function setStatus(msg) {
@@ -24666,7 +24606,7 @@
                     colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                     modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });  // Phase 12: dual-write
                     proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                    refreshAxesColor();
+                    _updateMvPaneFill();
                     _mipOnColormapChange();
                     _cutawayOnColormapChange();
                     // When histogram is open, skip the previewer — just update the colorbar display
@@ -24903,22 +24843,6 @@
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
-                        const axEl = document.getElementById('main-axes-svg');
-                        if (axEl) {
-                            axEl.querySelector('.axes-lbl-x').textContent = 'x';
-                            axEl.querySelector('.axes-lbl-y').textContent = 'y';
-                        }
-                        // Restore multiview per-pane axes labels
-                        if (multiViewActive) mvViews.forEach(v => {
-                            if (v.axesSvg) {
-                                v.axesSvg.querySelector('.axes-lbl-x').textContent = v.axLblX;
-                                v.axesSvg.querySelector('.axes-lbl-y').textContent = v.axLblY;
-                            }
-                        });
-                        document.querySelectorAll('.axes-indicator').forEach(el => {
-                            el.style.transition = 'opacity 0.6s ease';
-                            el.style.opacity = '0';
-                        });
                     } else {
                         // Pre-fetch raw slice(s) for instant local lookups
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
@@ -25042,7 +24966,6 @@
                             const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
                             [v.dimX, v.dimY] = [v.dimY, v.dimX];
                             v.flipX = ofy; v.flipY = ofx;
-                            _orthoT.updateLabels(v);
                             _orthoT.renderOne(v);
                         }
                         showStatus('transposed pane x/y');
@@ -25077,7 +25000,6 @@
                             const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
                             [v.dimX, v.dimY] = [v.dimY, v.dimX];
                             v.flipX = ofy; v.flipY = !ofx;
-                            _orthoR.updateLabels(v);
                             _orthoR.renderOne(v);
                         }
                         showStatus('rotated pane 90°');
@@ -26119,7 +26041,7 @@
                             colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
                             customColormap = null; customGradientStops = null;
                             proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                            refreshAxesColor();
+                            _updateMvPaneFill();
                             const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
                             const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
                             showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
@@ -26128,13 +26050,12 @@
                             colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
                             customColormap = null; customGradientStops = null;
                             proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                            refreshAxesColor(); showColormapStrip(); saveState();
+                            _updateMvPaneFill(); showColormapStrip(); saveState();
                         }
                         return;
                     }
                     if (multiViewActive) {
                         activeDim = (activeDim - 1 + shape.length) % shape.length;
-                        flashAxesIndicators();
                         renderInfo();
                     } else {
                         const previousSliceDim = current_slice_dim;
@@ -26150,7 +26071,6 @@
                         if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
-                        flashAxesIndicators();
                         renderInfo();
                         if (cutawayActive && current_slice_dim !== previousSliceDim) _cutawayReloadForNormalView(true);
                     }
@@ -26183,7 +26103,7 @@
                             customColormap = null; customGradientStops = null;
                             colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                             proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                            refreshAxesColor();
+                            _updateMvPaneFill();
                             const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
                             const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
                             showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
@@ -26192,13 +26112,12 @@
                             customColormap = null; customGradientStops = null;
                             colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                             proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                            refreshAxesColor(); showColormapStrip(); saveState();
+                            _updateMvPaneFill(); showColormapStrip(); saveState();
                         }
                         return;
                     }
                     if (multiViewActive) {
                         activeDim = (activeDim + 1) % shape.length;
-                        flashAxesIndicators();
                         renderInfo();
                     } else {
                         const previousSliceDim = current_slice_dim;
@@ -26214,7 +26133,6 @@
                         if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
-                        flashAxesIndicators();
                         renderInfo();
                         if (cutawayActive && current_slice_dim !== previousSliceDim) _cutawayReloadForNormalView(true);
                     }
@@ -28058,7 +27976,7 @@
             modeManager.forEachView(v => { v.displayState.cmapIdx = -1; });
             proxyFetch(`/clearcache/${sid}`);
             updateView();
-            refreshAxesColor();
+            _updateMvPaneFill();
             _mipOnColormapChange();
             if (!_cmapPickerGradStops[name]) {
                 _fetchNamedColormapStops(name).then(stops => {
@@ -28067,7 +27985,7 @@
                     customGradientStops = stops;
                     proxyFetch(`/clearcache/${sid}`);
                     updateView();
-                    refreshAxesColor();
+                    _updateMvPaneFill();
                     _mipOnColormapChange();
                 });
             }
@@ -30932,19 +30850,6 @@
             return _orthoCurrentPane(mvViews, _mvCurrentView);
         }
 
-        function _mvUpdatePaneAxisLabels(v) {
-            const _axLetters = ['x', 'y', 'z'];
-            const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
-            const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
-            v.axLblX = newX; v.axLblY = newY;
-            if (v.axesSvg) {
-                const xEl = v.axesSvg.querySelector('.axes-lbl-x');
-                const yEl = v.axesSvg.querySelector('.axes-lbl-y');
-                if (xEl) xEl.textContent = newX;
-                if (yEl) yEl.textContent = newY;
-            }
-        }
-
         function _mvRenderPaneOnly(v) {
             v.seq++;
             v.lastImageData = null;
@@ -30977,8 +30882,6 @@
             document.querySelectorAll('.compare-canvas-inner').forEach(el => {
                 el.style.transform = '';
                 delete el.dataset.vpW; delete el.dataset.vpH;
-                const ax = el.querySelector('.axes-indicator');
-                if (ax) ax.style.transform = '';
             });
             document.querySelectorAll('.compare-canvas-clip').forEach(el => {
                 el.style.width = ''; el.style.height = '';
@@ -31098,7 +31001,6 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
-                    collapsedH: 8,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => ({ vmin: currentVmin, vmax: currentVmax }),
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
@@ -31150,25 +31052,10 @@
                 cv.className = 'mv-canvas';
                 const cutawayCv = document.createElement('canvas');
                 cutawayCv.className = 'mv-cutaway-canvas';
-                // Tight container so axes indicator is positioned relative to canvas
                 const cvBox = document.createElement('div');
                 cvBox.className = 'mv-canvas-box';
                 cvBox.appendChild(cv);
                 cvBox.appendChild(cutawayCv);
-                const _axLetters = ['x', 'y', 'z'];
-                const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
-                const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
-                const NS = 'http://www.w3.org/2000/svg';
-                const axDiv = document.createElementNS(NS, 'svg');
-                axDiv.setAttribute('class', 'axes-indicator');
-                axDiv.setAttribute('viewBox', '0 0 48 48');
-                axDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
-                    + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
-                    + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
-                    + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
-                    + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axX}</text>`
-                    + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
-                pane.appendChild(axDiv);
                 const piEl = document.createElement('div');
                 piEl.className = 'cv-pixel-info';
                 cvBox.appendChild(piEl);
@@ -31191,7 +31078,7 @@
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null,
                     cutawayCanvas: cutawayCv, cutaway: null,
-                    pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
+                    pixelInfoEl: piEl,
                     flipX: def.flipX, flipY: def.flipY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
@@ -31522,7 +31409,6 @@
                 current_slice_dim = _isCollectionDim(_firstNonSpatial) ? dims[2] : _firstNonSpatial;
             }
             renderInfo();
-            flashAxesIndicators(); // Show axes indicators in multi-view mode
             if (_pixelInfoActive()) _prefetchHoverSlices();
             _reconcileUI();
             if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
@@ -31602,10 +31488,6 @@
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
-            // Hide axes indicators when exiting multi-view
-            document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.opacity = '0';
-            });
             _reconcileUI();
             if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
             updateView();
@@ -32634,25 +32516,12 @@
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    // Tight box so axes-indicator's bottom:6px measures from the
-                    // canvas, not from below the colorbar sibling in cvWrap.
                     const qvCvBox = document.createElement('div');
                     qvCvBox.className = 'qv-canvas-clip';
                     qvCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     qvCvBox.appendChild(qvPiEl);
-                    const _qvNS = 'http://www.w3.org/2000/svg';
-                    const qvAxDiv = document.createElementNS(_qvNS, 'svg');
-                    qvAxDiv.setAttribute('class', 'axes-indicator');
-                    qvAxDiv.setAttribute('viewBox', '0 0 48 48');
-                    qvAxDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
-                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
-                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
-                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
-                    qvCvBox.appendChild(qvAxDiv);
                     cvWrap.appendChild(qvCvBox);
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
@@ -33640,25 +33509,12 @@
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    // Tight box so axes-indicator's bottom:6px measures from the
-                    // canvas, not from below the colorbar sibling in cvWrap.
                     const cqCvBox = document.createElement('div');
                     cqCvBox.className = 'qv-canvas-clip';
                     cqCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cqCvBox.appendChild(qvPiEl);
-                    const _qvNS = 'http://www.w3.org/2000/svg';
-                    const qvAxDiv = document.createElementNS(_qvNS, 'svg');
-                    qvAxDiv.setAttribute('class', 'axes-indicator');
-                    qvAxDiv.setAttribute('viewBox', '0 0 48 48');
-                    qvAxDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
-                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
-                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
-                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
-                    cqCvBox.appendChild(qvAxDiv);
                     cvWrap.appendChild(cqCvBox);
                     area.appendChild(cvWrap);
                     pane.appendChild(area);
@@ -34049,8 +33905,8 @@
         // Layout: rows = compared arrays (up to 4), columns = 3 planes (axial, coronal, sagittal)
 
         // Per-pane helpers mirroring the single-array ortho ones (_mvCurrentPane,
-        // _mvUpdatePaneAxisLabels, _mvRenderPaneOnly) so keyboard shortcuts like
-        // transpose/rotate can target compare-mode ortho panes the same way.
+        // _mvRenderPaneOnly) so keyboard shortcuts like transpose/rotate can
+        // target compare-mode ortho panes the same way.
         let _cmvCurrentView = null;
 
         function _cmvSetCurrentView(view) {
@@ -34059,19 +33915,6 @@
 
         function _cmvCurrentPane() {
             return _orthoCurrentPane(compareMvViews, _cmvCurrentView);
-        }
-
-        function _cmvUpdatePaneAxisLabels(v) {
-            const _axLetters = ['x', 'y', 'z'];
-            const newX = _axLetters[compareMvDims.indexOf(v.dimX)] || '?';
-            const newY = _axLetters[compareMvDims.indexOf(v.dimY)] || '?';
-            v.axLblX = newX; v.axLblY = newY;
-            if (v.axesSvg) {
-                const xEl = v.axesSvg.querySelector('.axes-lbl-x');
-                const yEl = v.axesSvg.querySelector('.axes-lbl-y');
-                if (xEl) xEl.textContent = newX;
-                if (yEl) yEl.textContent = newY;
-            }
         }
 
         function _cmvRenderPaneOnly(v) {
@@ -34093,14 +33936,14 @@
         function _orthoTransposeTargets() {
             if (multiViewActive) {
                 const v = _mvCurrentPane();
-                return v ? { views: [v], updateLabels: _mvUpdatePaneAxisLabels, renderOne: _mvRenderPaneOnly } : null;
+                return v ? { views: [v], renderOne: _mvRenderPaneOnly } : null;
             }
             if (compareMvActive) {
                 const v = _cmvCurrentPane();
                 if (!v) return null;
                 const pi = compareMvViews.indexOf(v) % 3;
                 const views = compareMvViews.filter((_, idx) => idx % 3 === pi);
-                return { views, updateLabels: _cmvUpdatePaneAxisLabels, renderOne: _cmvRenderPaneOnly };
+                return { views, renderOne: _cmvRenderPaneOnly };
             }
             return null;
         }
@@ -34128,7 +33971,6 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
-                    collapsedH: 8,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => {
                         const v0 = compareMvViews.find(v => v.lastW);
@@ -34187,25 +34029,9 @@
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    // Tight box: canvas + axes-indicator positioned relative to canvas
                     const cvBox = document.createElement('div');
                     cvBox.className = 'qv-canvas-clip';
                     cvBox.appendChild(cv);
-                    // Axes indicator (same style as regular 3-plane view)
-                    const _axLetters = ['x', 'y', 'z'];
-                    const _axX = _axLetters[compareMvDims.indexOf(def.dimX)] || '?';
-                    const _axY = _axLetters[compareMvDims.indexOf(def.dimY)] || '?';
-                    const _NS = 'http://www.w3.org/2000/svg';
-                    const axDiv = document.createElementNS(_NS, 'svg');
-                    axDiv.setAttribute('class', 'axes-indicator');
-                    axDiv.setAttribute('viewBox', '0 0 48 48');
-                    axDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
-                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
-                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axX}</text>`
-                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
-                    cvBox.appendChild(axDiv);
                     cvWrap.appendChild(cvBox);
                     const piEl = document.createElement('div');
                     piEl.className = 'cv-pixel-info';
@@ -34217,7 +34043,7 @@
                         sid: sidVal,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         flipX: def.flipX, flipY: def.flipY,
-                        canvas: cv, ctx: cv.getContext('2d'), area, axesSvg: axDiv,
+                        canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
@@ -34352,7 +34178,6 @@
             }
             wrap.appendChild(window._mvColorBar.wrap);
             _kickInitialRenders(compareMvViews, compareMvRender);
-            flashAxesIndicators();
             renderInfo();
             _reconcileUI();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
@@ -34767,20 +34592,6 @@
                     cvBox.className = 'qv-canvas-clip';
                     if (mapBg) cvBox.style.background = mapBg;
                     cvBox.appendChild(cv);
-                    const _axLetters = ['x', 'y', 'z'];
-                    const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
-                    const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
-                    const _NS = 'http://www.w3.org/2000/svg';
-                    const axDiv = document.createElementNS(_NS, 'svg');
-                    axDiv.setAttribute('class', 'axes-indicator');
-                    axDiv.setAttribute('viewBox', '0 0 48 48');
-                    axDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
-                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
-                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axX}</text>`
-                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
-                    cvBox.appendChild(axDiv);
                     cvWrap.appendChild(cvBox);
                     const piEl = document.createElement('div');
                     piEl.className = 'cv-pixel-info';
@@ -34792,7 +34603,7 @@
                         qmriIdx: actualIdx, qmriRole: role, colormap: cmap,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         flipX: def.flipX, flipY: def.flipY,
-                        canvas: cv, ctx: cv.getContext('2d'), area, clip: cvBox, axesSvg: axDiv, pixelInfoEl: piEl,
+                        canvas: cv, ctx: cv.getContext('2d'), area, clip: cvBox, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
@@ -36690,7 +36501,6 @@
             if ((qmriActive && d === qmriDim) || (compareQmriActive && d === compareQmriDim)) return;
             activeDim = d;
             if (d === VFIELD_T_DIM) {
-                flashAxesIndicators();
                 renderInfo();
                 return;
             }
@@ -36700,14 +36510,13 @@
                     [dim_x, dim_y] = [dim_y, dim_x];
                     dim_z = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
-                    updateView(); _roiClearOnDimChange(); triggerPreload(); flashAxesIndicators(); return;
+                    updateView(); _roiClearOnDimChange(); triggerPreload(); return;
                 }
             }
             if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z
                     && !(stackMosaicActive && _isCollectionDim(d))) {
                 current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
-            flashAxesIndicators();
             renderInfo();
         }
 
@@ -36765,7 +36574,7 @@
             const span = e.target.closest('[data-dim]');
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
-                _showAxesGnomon();
+                _showOrientEdgeHighlight(hoveredDim);
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_tooltipTextForDim(hoveredDim), infoEl.getBoundingClientRect());
@@ -36777,12 +36586,11 @@
                 hoveredDim = -1;
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
-                    _showAxesGnomon();
                     _showHistTooltip(_tooltipTextForDim(null), infoEl.getBoundingClientRect());
                     return;
                 }
                 _histDimHovering = false;
-                if (!axesFlashTimer) _hideAxesGnomon();
+                _clearOrientEdgeHighlight();
                 _hideHistTooltip();
                 if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
                     _restartHistAutoDismiss();
@@ -36792,7 +36600,7 @@
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
             _histDimHovering = false;
-            if (!axesFlashTimer) _hideAxesGnomon();
+            _clearOrientEdgeHighlight();
             _hideHistTooltip();
             if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
                 _restartHistAutoDismiss();
@@ -38702,7 +38510,7 @@
             modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
             proxyFetch(`/clearcache/${sid}`);
             updateView();
-            refreshAxesColor();
+            _updateMvPaneFill();
             _mipOnColormapChange();
         }
 
@@ -38722,7 +38530,7 @@
             }
             proxyFetch(`/clearcache/${sid}`);
             updateView();
-            refreshAxesColor();
+            _updateMvPaneFill();
             _mipOnColormapChange();
         }
 
@@ -39574,7 +39382,7 @@
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
                         '#help-hint', '#tool-hint', '#ras-hint',
-                        '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
+                        '.cb-island', '.cv-pixel-info', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
                     return Array.from(set);
