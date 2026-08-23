@@ -6265,6 +6265,9 @@
             const canvasInner = document.getElementById('canvas-inner');
             if (canvasInner) canvasInner.classList.toggle('loupe-pane-dimmed', inspecting);
             document.body.classList.toggle('main-loupe-hold', inspecting);
+            // The loupe shows its own value card next to itself — don't also
+            // leave the fixed-spot pill sitting there with a stale reading.
+            if (inspecting) _setEggsValuePill(null);
         }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
@@ -19745,13 +19748,12 @@
             _setEggsValuePill(null);
         }
 
-        /** Double-click on any image pane turns hover-info mode on (one-way —
-         *  it won't fight a double-click already used to drop two pins while
-         *  hover-info is on; 'i' remains the way to turn it back off). */
+        /** Double-click on any image pane toggles hover-info mode, same as
+         *  pressing i. Pins need Alt+click while hover-info is on, so a plain
+         *  double-click is free to mean toggle in both directions. */
         function _wireHoverInfoDblClick(el) {
             if (!el) return;
             el.addEventListener('dblclick', (e) => {
-                if (_pixelInfoVisible) return;
                 if (rectRoiMode || _segMode || _segActivating || _rulerMode || _cropActive) return;
                 if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
                 _runCommand('hoverinfo.toggle');
@@ -24671,7 +24673,7 @@
                 _segClick(px, py, !e.shiftKey);
                 return;
             }
-            if (_mainHoverPinEligible()) {
+            if (e.altKey && _mainHoverPinEligible()) {
                 _placeHoverPinFromEvent(e);
                 showStatus('hover info: pinned readout · esc clears all');
                 return;
@@ -25036,7 +25038,7 @@
                         _prefetchHoverSlices();
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
-                    showStatus(`hover info: ${_pixelInfoVisible ? 'on · click adds pins' : 'off'}`);
+                    showStatus(`hover info: ${_pixelInfoVisible ? 'on · alt+click adds pins' : 'off'}`);
                     saveState();
                 },
             },
@@ -26778,7 +26780,7 @@
                     {
                         title: 'Info & Modes',
                         entries: [
-                            { key: 'i', action: 'Toggle hover pixel info', hint: 'shows value under cursor; click adds pins; Esc clears all pins' },
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value under cursor; alt+click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
                             { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
                         ]

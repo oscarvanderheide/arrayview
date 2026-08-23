@@ -5783,14 +5783,18 @@ class TestNormalInspectInteractions:
         assert "x=" in hover_state["coordsText"] and "y=" in hover_state["coordsText"], "pill should include coordinates"
         assert hover_state["valueText"].strip(), "pill should show a numeric value before pinning"
 
+        page.keyboard.down("Alt")
         page.mouse.click(pin_x, pin_y)
+        page.keyboard.up("Alt")
         page.evaluate(
             """async () => {
                 for (const key of Object.keys(_hoverSliceCache)) delete _hoverSliceCache[key];
                 await _refreshHoverPins(true);
             }"""
         )
+        page.keyboard.down("Alt")
         page.mouse.click(cx + 80, cy + 30)
+        page.keyboard.up("Alt")
         page.wait_for_timeout(240)
 
         pin_count = page.evaluate(
