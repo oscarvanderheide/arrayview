@@ -24667,6 +24667,7 @@
             const dx = e.clientX - _clickCopyDown.x, dy = e.clientY - _clickCopyDown.y;
             _clickCopyDown = null;
             if (Math.hypot(dx, dy) >= 3) return; // was a drag, not a click
+            if (e.detail > 1) return; // part of a double-click — let dblclick own it
             // Skip if a mode consumed this click
             if (rectRoiMode || _rulerMode || _zoomSelectDrag) return;
             if (multiViewActive || compareActive) return;
@@ -31459,7 +31460,10 @@
                         }
                         mvDraggingView = view;
                         _reconcileMvOrientationVisibility();
-                        _mvSetCrosshairTarget(1);
+                        // Skip the crosshair flash on the second click of a
+                        // double-click (e.g. toggling hover-info) — it still
+                        // navigates, just without the flash.
+                        if (e.detail <= 1) _mvSetCrosshairTarget(1);
                         handleMvPointer(view, e);
                     }
                 });
