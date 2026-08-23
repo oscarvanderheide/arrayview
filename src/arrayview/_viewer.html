@@ -1981,9 +1981,10 @@
             to { opacity: 1; }
         }
         .eggs-value-pill {
-            display: inline-block; color: var(--active-dim);
+            display: flex; flex-direction: column; align-items: center; gap: 1px;
+            color: var(--active-dim);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 11px; line-height: 1; letter-spacing: 0.01em;
+            font-size: 11px; line-height: 1.3; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums; white-space: nowrap;
             padding: 4px 8px; border-radius: 9px;
             background-color: rgba(30, 30, 30, 0.75);
@@ -1992,6 +1993,7 @@
             pointer-events: none;
             animation: percentile-preset-fade-in 120ms ease-out both;
         }
+        .eggs-pill-coords { color: var(--muted); font-size: 10px; }
         :root.light .eggs-value-pill { background-color: rgba(240, 240, 240, 0.8); }
         /* Per-pane pixel-value pill (compare / qMRI): sits at a fixed spot
            inside its own pane instead of following the cursor, so several
@@ -6817,11 +6819,11 @@
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
         let _percentilePresetCrossfadeTimer = null;
-        let _eggsValuePill = null; // colorbar/pixel hover value text, shown in the fixed dots spot
+        let _eggsValuePill = null; // { value, coords } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
         let _eggsValuePillFadeTimer = null;
-        function _setEggsValuePill(text, anchorEl) {
-            if (text == null) {
+        function _setEggsValuePill(value, coordText, anchorEl) {
+            if (value == null) {
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
                 _eggsValuePillAnchor = null;
@@ -6830,9 +6832,10 @@
                 return;
             }
             _eggsValuePillAnchor = anchorEl || null;
-            if (_eggsValuePill === text) return;
+            const coords = coordText || '';
+            if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.coords === coords) return;
             const entering = _eggsValuePill === null;
-            _eggsValuePill = text;
+            _eggsValuePill = { value, coords };
             if (_percentilePresetOverlay) return; // picker owns the spot
             const eggs = document.getElementById('mode-eggs');
             // Crossfade past any mode pills (FFT/LOG/...) the first time hover
@@ -8253,6 +8256,14 @@
                 { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
             ];
+        }
+
+        /** x/y/z letter for one of the current multiview's 3 spatial dims,
+         *  by its position in mvDims — a pane's two screen axes aren't always
+         *  literally x/y (e.g. a sagittal pane is y/z). */
+        function _mvAxisLabel(dimIdx) {
+            const pos = Array.isArray(mvDims) ? mvDims.indexOf(dimIdx) : -1;
+            return pos >= 0 ? ['x', 'y', 'z'][pos] : '?';
         }
 
         function currentViewMode() {
@@ -11944,6 +11955,7 @@
                                     ]);
                                 _setEggsValuePill(
                                     _cbFmtPlain(hoverVal, null, hoverFormatter),
+                                    '',
                                     this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null
                                 );
                             } else {
@@ -16402,10 +16414,16 @@
             if (_eggsValuePill != null) {
                 let pill = el.querySelector('.eggs-value-pill');
                 if (!pill) {
-                    el.innerHTML = '<div class="eggs-value-pill"></div>';
+                    el.innerHTML = '<div class="eggs-value-pill">'
+                        + '<div class="eggs-pill-value"></div>'
+                        + '<div class="eggs-pill-coords"></div>'
+                        + '</div>';
                     pill = el.querySelector('.eggs-value-pill');
                 }
-                pill.textContent = _eggsValuePill;
+                pill.querySelector('.eggs-pill-value').textContent = _eggsValuePill.value;
+                const coordsEl = pill.querySelector('.eggs-pill-coords');
+                coordsEl.textContent = _eggsValuePill.coords;
+                coordsEl.style.display = _eggsValuePill.coords ? '' : 'none';
                 positionEggs();
                 renderIsland();
                 return;
@@ -20356,11 +20374,13 @@
             if (el === mainLoupeInfo) _positionMainLoupeInfo(cx, cy);
             else _positionPixelInfo(el, cx, cy);
         }
-        /** Combine a formatted value with its pixel coordinates into one pill
-         *  line, matching what the old near-cursor hover card showed. */
-        function _pixelPillText(valueText, rawX, rawY) {
-            if (Number.isFinite(rawX) && Number.isFinite(rawY)) return `${valueText}  x=${rawX} y=${rawY}`;
-            return valueText;
+        /** Format a pixel's coordinates as a pill's dimmed second line,
+         *  matching what the old near-cursor hover card showed. Pass explicit
+         *  axis letters for orthoview, where a pane's two screen axes aren't
+         *  always literally x/y. */
+        function _coordText(rawX, rawY, xLabel, yLabel) {
+            if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return '';
+            return `${xLabel || 'x'}=${rawX} ${yLabel || 'y'}=${rawY}`;
         }
 
         /** Route a hovered pixel value to the loupe's own card while the loupe
@@ -20374,22 +20394,26 @@
             const valueText = (payload && typeof payload === 'object') ? String(payload.valueText ?? '') : String(payload ?? '');
             const rawX = payload && typeof payload === 'object' ? payload.rawX : undefined;
             const rawY = payload && typeof payload === 'object' ? payload.rawY : undefined;
-            _setEggsValuePill(_pixelPillText(valueText, rawX, rawY), null);
+            _setEggsValuePill(valueText, _coordText(rawX, rawY), null);
         }
 
         /** Per-pane pixel value, fixed at a stable spot inside `el`'s own pane
          *  (compare / qMRI) instead of following the cursor — several panes
          *  can each show their own pill at once. */
-        function _showPanePixelPill(el, text) {
+        function _showPanePixelPill(el, value, coordText) {
             if (!el) return;
-            if (!_pixelInfoActive() || text == null) {
+            if (!_pixelInfoActive() || value == null) {
                 el.style.display = 'none';
                 delete el.dataset.pixelInfoKey;
                 return;
             }
-            const key = String(text);
+            const coords = coordText || '';
+            const key = value + '|' + coords;
             if (el.dataset.pixelInfoKey !== key) {
-                el.innerHTML = `<div class="eggs-value-pill">${key}</div>`;
+                el.innerHTML = '<div class="eggs-value-pill">'
+                    + `<div class="eggs-pill-value">${value}</div>`
+                    + (coords ? `<div class="eggs-pill-coords">${coords}</div>` : '')
+                    + '</div>';
                 el.dataset.pixelInfoKey = key;
             }
             el.classList.add('pane-pixel-pill');
@@ -20403,6 +20427,7 @@
 
         let _pixelHoverThrottle = false;
         let _mainPixelInfoGen = 0;
+        let _qmriMirrorGen = 0;
         let _roiSuppressPixelInfo = false;
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
@@ -31496,7 +31521,14 @@
                         displayEl: null,
                         onResult: (d, rawX, rawY) => {
                             if (!_pixelInfoActive()) return;
-                            _setEggsValuePill(_pixelPillText(_pixelFmt(d.value, _activeNumericContext(view)), rawX, rawY), null);
+                            // Anchor to the pane actually being hovered rather
+                            // than the mode's default pane, so the pill tracks
+                            // the cursor instead of appearing in another pane.
+                            _setEggsValuePill(
+                                _pixelFmt(d.value, _activeNumericContext(view)),
+                                _coordText(rawX, rawY, _mvAxisLabel(view.dimX), _mvAxisLabel(view.dimY)),
+                                cv
+                            );
                         },
                     });
                 });
@@ -32779,8 +32811,14 @@
                             view,
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
-                                _showPanePixelPill(view.pixelInfoEl, _pixelPillText(_pixelFmt(d.value, _activeNumericContext(view)), px, py));
+                                _showPanePixelPill(view.pixelInfoEl, _pixelFmt(d.value, _activeNumericContext(view)), _coordText(px, py));
                                 // Mirror the same voxel's value onto every other visible map.
+                                // Guarded by generation: these fetches aren't throttled the
+                                // way the hovered map's own value is, so a burst of mousemoves
+                                // can leave several in flight — without this, a slower, older
+                                // reply could land after a newer one and flicker the pill back
+                                // to a stale value.
+                                const gen = ++_qmriMirrorGen;
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
                                     if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
@@ -32796,8 +32834,8 @@
                                     if (logScale) params.set('log_scale', '1');
                                     proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
-                                            if (!rd || !_pixelInfoActive()) return;
-                                            _showPanePixelPill(v.pixelInfoEl, _pixelPillText(_pixelFmt(rd.value, _activeNumericContext(v)), px, py));
+                                            if (!rd || !_pixelInfoActive() || gen !== _qmriMirrorGen) return;
+                                            _showPanePixelPill(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), _coordText(px, py));
                                         });
                                 });
                             },
@@ -37162,7 +37200,7 @@
 
         /** Show a mirrored readout in `piEl`'s own fixed pane-pill spot. */
         function _showComparePaneInfo(piEl, sample, contextValues) {
-            _showPanePixelPill(piEl, _pixelPillText(_pixelFmt(sample.value, contextValues), sample.rawX, sample.rawY));
+            _showPanePixelPill(piEl, _pixelFmt(sample.value, contextValues), _coordText(sample.rawX, sample.rawY));
         }
 
         function _compareCenterContext() {
@@ -37222,8 +37260,9 @@
                     contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
                     displayEl: null,
                     onResult: (d, rawX, rawY) => {
-                        _showPanePixelPill(piEl, _pixelPillText(_pixelFmt(d.value,
-                            [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite)), rawX, rawY));
+                        _showPanePixelPill(piEl, _pixelFmt(d.value,
+                            [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite)),
+                            _coordText(rawX, rawY));
                         // Show the value on every other pane — including the
                         // centre diff pane — at the same image fraction.
                         const at = _compareHoverFraction(cv, e);

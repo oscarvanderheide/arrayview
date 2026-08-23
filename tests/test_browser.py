@@ -5772,12 +5772,10 @@ class TestNormalInspectInteractions:
         hover_state = page.evaluate(
             """() => {
                 const pill = document.querySelector('#mode-eggs .eggs-value-pill');
-                const text = pill?.textContent || '';
-                const m = text.match(/^(.*?)\\s\\s(x=.*)$/);
                 return {
                     visible: !!pill,
-                    valueText: m ? m[1] : text,
-                    coordsText: m ? m[2] : '',
+                    valueText: pill?.querySelector('.eggs-pill-value')?.textContent || '',
+                    coordsText: pill?.querySelector('.eggs-pill-coords')?.textContent || '',
                 };
             }"""
         )
