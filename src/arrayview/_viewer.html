@@ -19756,6 +19756,12 @@
             el.addEventListener('dblclick', (e) => {
                 if (rectRoiMode || _segMode || _segActivating || _rulerMode || _cropActive) return;
                 if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+                // Cut the crosshair flash the two clicks just started — its
+                // fade-in ramps over several frames, so catching it here keeps
+                // it to a faint blip instead of a full flash-then-fade.
+                if (multiViewActive && typeof _mvSetCrosshairTarget === 'function') {
+                    _mvSetCrosshairTarget(0);
+                }
                 _runCommand('hoverinfo.toggle');
             });
         }
@@ -24638,6 +24644,7 @@
 
         // Click-to-copy: main canvas — track mousedown position
         let _clickCopyDown = null; // {x, y} client coords at mousedown
+        let _clickCopyTimer = null; // pending delayed copy, cancelable by a following double-click
         canvas.addEventListener('mousedown', (e) => {
             if (e.button === 0) _clickCopyDown = { x: e.clientX, y: e.clientY };
             // Segmentation drawing start
@@ -24667,7 +24674,12 @@
             const dx = e.clientX - _clickCopyDown.x, dy = e.clientY - _clickCopyDown.y;
             _clickCopyDown = null;
             if (Math.hypot(dx, dy) >= 3) return; // was a drag, not a click
-            if (e.detail > 1) return; // part of a double-click — let dblclick own it
+            if (e.detail > 1) {
+                // Second click of a double-click (e.g. toggling hover-info) —
+                // cancel the first click's pending copy so neither fires.
+                if (_clickCopyTimer) { clearTimeout(_clickCopyTimer); _clickCopyTimer = null; }
+                return;
+            }
             // Skip if a mode consumed this click
             if (rectRoiMode || _rulerMode || _zoomSelectDrag) return;
             if (multiViewActive || compareActive) return;
@@ -24684,7 +24696,14 @@
                 showStatus('hover info: pinned readout · esc clears all');
                 return;
             }
-            _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
+            // Delay the copy briefly so a following second click (recognized
+            // as a double-click only once it happens) can still cancel it —
+            // e.detail on this first click can't know that in advance.
+            if (_clickCopyTimer) clearTimeout(_clickCopyTimer);
+            _clickCopyTimer = setTimeout(() => {
+                _clickCopyTimer = null;
+                _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
+            }, 350);
         });
 
         /* ── JS: Command Registry (Pillar C Phase 1) ──────────────── */
