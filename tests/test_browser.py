@@ -5770,15 +5770,20 @@ class TestNormalInspectInteractions:
         page.wait_for_timeout(180)
 
         hover_state = page.evaluate(
-            """() => ({
-                visible: !!document.querySelector('#main-pixel-info .pixel-hover-card'),
-                valueText: (document.querySelector('#main-pixel-info .pixel-hover-value') || {}).textContent || '',
-                coordsText: (document.querySelector('#main-pixel-info .pixel-hover-coords') || {}).textContent || '',
-            })"""
+            """() => {
+                const pill = document.querySelector('#mode-eggs .eggs-value-pill');
+                const text = pill?.textContent || '';
+                const m = text.match(/^(.*?)\\s\\s(x=.*)$/);
+                return {
+                    visible: !!pill,
+                    valueText: m ? m[1] : text,
+                    coordsText: m ? m[2] : '',
+                };
+            }"""
         )
-        assert hover_state["visible"], "hover-info mode should show the pinned-style hover card"
-        assert "x=" in hover_state["coordsText"] and "y=" in hover_state["coordsText"], "hover card should include coordinates"
-        assert hover_state["valueText"].strip(), "hover card should show a numeric value before pinning"
+        assert hover_state["visible"], "hover-info mode should show the value pill in the fixed dots spot"
+        assert "x=" in hover_state["coordsText"] and "y=" in hover_state["coordsText"], "pill should include coordinates"
+        assert hover_state["valueText"].strip(), "pill should show a numeric value before pinning"
 
         page.mouse.click(pin_x, pin_y)
         page.evaluate(

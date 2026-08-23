@@ -1980,7 +1980,7 @@
             from { opacity: 0; }
             to { opacity: 1; }
         }
-        .cb-hover-egg-value {
+        .eggs-value-pill {
             display: inline-block; color: var(--active-dim);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-size: 11px; line-height: 1; letter-spacing: 0.01em;
@@ -1992,7 +1992,13 @@
             pointer-events: none;
             animation: percentile-preset-fade-in 120ms ease-out both;
         }
-        :root.light .cb-hover-egg-value { background-color: rgba(240, 240, 240, 0.8); }
+        :root.light .eggs-value-pill { background-color: rgba(240, 240, 240, 0.8); }
+        /* Per-pane pixel-value pill (compare / qMRI): sits at a fixed spot
+           inside its own pane instead of following the cursor, so several
+           panes can show their own value at once. */
+        .cv-pixel-info.pane-pixel-pill {
+            left: 50%; top: auto; bottom: 10px; transform: translateX(-50%);
+        }
 
         /* ── help-box ── */
         #help-box {
@@ -6811,31 +6817,31 @@
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
         let _percentilePresetCrossfadeTimer = null;
-        let _cbHoverEggValue = null; // colorbar hover value text, shown in the fixed dots spot
-        let _cbHoverEggAnchorEl = null; // which pane's canvas to anchor the pill to, if not the mode default
-        let _cbHoverEggFadeTimer = null;
-        function _setCbHoverEggValue(text, anchorEl) {
+        let _eggsValuePill = null; // colorbar/pixel hover value text, shown in the fixed dots spot
+        let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
+        let _eggsValuePillFadeTimer = null;
+        function _setEggsValuePill(text, anchorEl) {
             if (text == null) {
-                if (_cbHoverEggValue === null) return;
-                _cbHoverEggValue = null;
-                _cbHoverEggAnchorEl = null;
-                if (_cbHoverEggFadeTimer) { clearTimeout(_cbHoverEggFadeTimer); _cbHoverEggFadeTimer = null; }
+                if (_eggsValuePill === null) return;
+                _eggsValuePill = null;
+                _eggsValuePillAnchor = null;
+                if (_eggsValuePillFadeTimer) { clearTimeout(_eggsValuePillFadeTimer); _eggsValuePillFadeTimer = null; }
                 renderEggs();
                 return;
             }
-            _cbHoverEggAnchorEl = anchorEl || null;
-            if (_cbHoverEggValue === text) return;
-            const entering = _cbHoverEggValue === null;
-            _cbHoverEggValue = text;
+            _eggsValuePillAnchor = anchorEl || null;
+            if (_eggsValuePill === text) return;
+            const entering = _eggsValuePill === null;
+            _eggsValuePill = text;
             if (_percentilePresetOverlay) return; // picker owns the spot
             const eggs = document.getElementById('mode-eggs');
             // Crossfade past any mode pills (FFT/LOG/...) the first time hover
             // starts, same as the percentile-dots overlay does.
             if (entering && eggs?.querySelector('.mode-badge')) {
                 eggs.classList.add('percentile-preset-switching');
-                if (_cbHoverEggFadeTimer) clearTimeout(_cbHoverEggFadeTimer);
-                _cbHoverEggFadeTimer = setTimeout(() => {
-                    _cbHoverEggFadeTimer = null;
+                if (_eggsValuePillFadeTimer) clearTimeout(_eggsValuePillFadeTimer);
+                _eggsValuePillFadeTimer = setTimeout(() => {
+                    _eggsValuePillFadeTimer = null;
                     renderEggs();
                     requestAnimationFrame(() => eggs.classList.remove('percentile-preset-switching'));
                 }, 120);
@@ -11572,7 +11578,7 @@
                 this._manualExpand = false;
                 this._hitVminX = null;
                 this._hitVmaxX = null;
-                if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                 else if (this.tooltip) this.tooltip.style.display = 'none';
                 if (this.triZone) this.triZone.classList.remove('expanded');
                 this.startAnim(false);
@@ -11802,7 +11808,7 @@
                         this._hoverFrac = -1;
                         this._hoverY = -1;
                         this.draw();
-                        if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                        if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                         else if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
@@ -11936,12 +11942,12 @@
                                         this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
                                         this.opts.getWindow ? this.opts.getWindow()?.vmax : null,
                                     ]);
-                                _setCbHoverEggValue(
+                                _setEggsValuePill(
                                     _cbFmtPlain(hoverVal, null, hoverFormatter),
                                     this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null
                                 );
                             } else {
-                                _setCbHoverEggValue(null);
+                                _setEggsValuePill(null);
                             }
                         } else if (this.tooltip && hoverVal != null && !dmenuOpen) {
                             const hoverFormatter = this._dragLabelFormatter
@@ -11979,7 +11985,7 @@
                         this._hoverY = -1;
                         this.canvas.style.cursor = '';
                         this.draw();
-                        if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                        if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                         else if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
@@ -12000,7 +12006,7 @@
                     this._dragLabelFormatter = null;
                     this._dragLabelWidthPx = null;
                     document.body.style.cursor = '';
-                    if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                    if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                     else if (this.tooltip) this.tooltip.style.display = 'none';
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                 }
@@ -16393,13 +16399,13 @@
                 renderIsland();
                 return;
             }
-            if (_cbHoverEggValue != null) {
-                let pill = el.querySelector('.cb-hover-egg-value');
+            if (_eggsValuePill != null) {
+                let pill = el.querySelector('.eggs-value-pill');
                 if (!pill) {
-                    el.innerHTML = '<div class="cb-hover-egg-value"></div>';
-                    pill = el.querySelector('.cb-hover-egg-value');
+                    el.innerHTML = '<div class="eggs-value-pill"></div>';
+                    pill = el.querySelector('.eggs-value-pill');
                 }
-                pill.textContent = _cbHoverEggValue;
+                pill.textContent = _eggsValuePill;
                 positionEggs();
                 renderIsland();
                 return;
@@ -16458,7 +16464,7 @@
             if (typeof _cmapHoldAnim !== 'undefined' && _cmapHoldAnim) return;
 
             // Fullscreen normal mode: special inline positioning
-            if (_fullscreenActive && !_percentilePresetOverlay?.anchorEl && !_cbHoverEggAnchorEl &&
+            if (_fullscreenActive && !_percentilePresetOverlay?.anchorEl && !_eggsValuePillAnchor &&
                 !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
                 const vpEl = compareActive
                     ? document.getElementById('compare-view-wrap')
@@ -16483,7 +16489,7 @@
             el.style.flexDirection = '';
             el.style.alignItems    = '';
             el.style.right         = '';
-            const explicitAnchor = _percentilePresetOverlay?.anchorEl || _cbHoverEggAnchorEl;
+            const explicitAnchor = _percentilePresetOverlay?.anchorEl || _eggsValuePillAnchor;
             const anchorRect = explicitAnchor && explicitAnchor.isConnected
                 ? explicitAnchor.getBoundingClientRect()
                 : ModeRegistry.getEggsAnchorRect();
@@ -19717,6 +19723,7 @@
                 delete el.dataset.pixelInfoKey;
                 el.style.display = 'none';
             });
+            _setEggsValuePill(null);
         }
         function _mainInspectEligible() {
             return !compareActive && !multiViewActive && !qmriActive && !compareMvActive
@@ -20349,24 +20356,53 @@
             if (el === mainLoupeInfo) _positionMainLoupeInfo(cx, cy);
             else _positionPixelInfo(el, cx, cy);
         }
-        function _mainPixelInfoDisplayEl(e = null) {
-            const normalEl = document.getElementById('main-pixel-info');
+        /** Combine a formatted value with its pixel coordinates into one pill
+         *  line, matching what the old near-cursor hover card showed. */
+        function _pixelPillText(valueText, rawX, rawY) {
+            if (Number.isFinite(rawX) && Number.isFinite(rawY)) return `${valueText}  x=${rawX} y=${rawY}`;
+            return valueText;
+        }
+
+        /** Route a hovered pixel value to the loupe's own card while the loupe
+         *  is active, or to the fixed dots-spot pill otherwise. */
+        function _showMainPixelValue(payload, cx, cy) {
             if (_mainLoupeInspecting() && mainLoupeInfo && _mainLoupeEligible()) {
-                if (normalEl && normalEl.innerHTML && mainLoupeInfo.innerHTML !== normalEl.innerHTML) {
-                    mainLoupeInfo.innerHTML = normalEl.innerHTML;
-                    if (normalEl.dataset.pixelInfoKey) {
-                        mainLoupeInfo.dataset.pixelInfoKey = normalEl.dataset.pixelInfoKey;
-                    }
-                    mainLoupeInfo.style.display = 'block';
-                    if (e) _positionMainLoupeInfo(e.clientX, e.clientY);
-                }
-                if (normalEl) normalEl.style.display = 'none';
-                return mainLoupeInfo;
+                showPixelInfo(mainLoupeInfo, payload, cx, cy);
+                return;
             }
-            return normalEl;
+            if (!_pixelInfoActive()) return;
+            const valueText = (payload && typeof payload === 'object') ? String(payload.valueText ?? '') : String(payload ?? '');
+            const rawX = payload && typeof payload === 'object' ? payload.rawX : undefined;
+            const rawY = payload && typeof payload === 'object' ? payload.rawY : undefined;
+            _setEggsValuePill(_pixelPillText(valueText, rawX, rawY), null);
+        }
+
+        /** Per-pane pixel value, fixed at a stable spot inside `el`'s own pane
+         *  (compare / qMRI) instead of following the cursor — several panes
+         *  can each show their own pill at once. */
+        function _showPanePixelPill(el, text) {
+            if (!el) return;
+            if (!_pixelInfoActive() || text == null) {
+                el.style.display = 'none';
+                delete el.dataset.pixelInfoKey;
+                return;
+            }
+            const key = String(text);
+            if (el.dataset.pixelInfoKey !== key) {
+                el.innerHTML = `<div class="eggs-value-pill">${key}</div>`;
+                el.dataset.pixelInfoKey = key;
+            }
+            el.classList.add('pane-pixel-pill');
+            el.style.display = 'block';
+        }
+        function _hidePanePixelPill(el) {
+            if (!el) return;
+            el.style.display = 'none';
+            delete el.dataset.pixelInfoKey;
         }
 
         let _pixelHoverThrottle = false;
+        let _mainPixelInfoGen = 0;
         let _roiSuppressPixelInfo = false;
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
@@ -24107,7 +24143,7 @@
                     if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
                         const val = cached.slice[rawY * cached.w + rawX];
                         if (Number.isFinite(val)) {
-                            showPixelInfo(_mainPixelInfoDisplayEl(e), { valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
+                            _showMainPixelValue({ valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -24124,17 +24160,15 @@
                     // See fetchPixelInfo: guard against a slow/reordered reply
                     // clobbering a fresher one, and draw at the live cursor
                     // position rather than the stale one from request time.
-                    const _mpEl = _mainPixelInfoDisplayEl(e);
-                    const _mpGen = _mpEl ? ((_mpEl._pixelInfoGen || 0) + 1) : null;
-                    if (_mpEl) _mpEl._pixelInfoGen = _mpGen;
+                    const _mpGen = ++_mainPixelInfoGen;
                     proxyFetch('/pixel/' + sid + '?' + params)
                         .then(r => r.ok ? r.json() : null)
                         .then(d => {
                             if (!d) return;
-                            if (_mpEl && _mpEl._pixelInfoGen !== _mpGen) return;
+                            if (_mpGen !== _mainPixelInfoGen) return;
                             const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
-                            showPixelInfo(_mainPixelInfoDisplayEl({ clientX: _lastMouseX, clientY: _lastMouseY }), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
+                            _showMainPixelValue({ valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
                         }).catch(() => {});
                 }
                 return;
@@ -24149,7 +24183,10 @@
                 indices: indices,
                 imgW: canvas.width,
                 imgH: canvas.height,
-                displayEl: _mainPixelInfoDisplayEl(e),
+                displayEl: null,
+                onResult: (d, rawX, rawY) => {
+                    _showMainPixelValue({ valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
+                },
             });
         }
         canvas.addEventListener('mousemove', _updateMainPixelInfo);
@@ -24164,6 +24201,7 @@
             _hideRoiRowTooltip();
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
+            _setEggsValuePill(null);
         });
         document.addEventListener('mouseup', () => {
             if (_pixelInfoHeld) {
@@ -31455,7 +31493,11 @@
                         imgW: view.lastW,
                         imgH: view.lastH,
                         view,
-                        displayEl: view.pixelInfoEl,
+                        displayEl: null,
+                        onResult: (d, rawX, rawY) => {
+                            if (!_pixelInfoActive()) return;
+                            _setEggsValuePill(_pixelPillText(_pixelFmt(d.value, _activeNumericContext(view)), rawX, rawY), null);
+                        },
                     });
                 });
                 cv.addEventListener('mouseleave', () => {
@@ -31466,6 +31508,7 @@
                     if (tq) tq.classList.remove('visible');
                     _roiSuppressPixelInfo = false;
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                    if (!mvDraggingView) _setEggsValuePill(null);
                 });
                 // Click-to-copy: multiview canvases
                 let _mvClickDown = null;
@@ -32731,14 +32774,13 @@
                             indices: qIdx0,
                             imgW: view.lastW,
                             imgH: view.lastH,
-                            displayEl: view.pixelInfoEl,
+                            displayEl: null,
                             qmriRole: view.qmriRole,
                             view,
                             onResult: (d, px, py) => {
-                                if (_pixelInfoActive()) {
-                                    return; // hover mode: only show hovered pane's value
-                                }
-                                // Non-hover: fetch for all other qmri views at same pixel
+                                if (!_pixelInfoActive()) return;
+                                _showPanePixelPill(view.pixelInfoEl, _pixelPillText(_pixelFmt(d.value, _activeNumericContext(view)), px, py));
+                                // Mirror the same voxel's value onto every other visible map.
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
                                     if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
@@ -32754,8 +32796,8 @@
                                     if (logScale) params.set('log_scale', '1');
                                     proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
-                                            if (!rd) return;
-                                            showPixelInfo(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), e.clientX, e.clientY);
+                                            if (!rd || !_pixelInfoActive()) return;
+                                            _showPanePixelPill(v.pixelInfoEl, _pixelPillText(_pixelFmt(rd.value, _activeNumericContext(v)), px, py));
                                         });
                                 });
                             },
@@ -32763,7 +32805,7 @@
                     });
                     cv.addEventListener('mouseleave', () => {
                     if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
-                    qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                    qmriViews.forEach(v => _hidePanePixelPill(v.pixelInfoEl));
                 });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
@@ -37074,8 +37116,8 @@
         const _compareDiffPiEl = document.getElementById('compare-diff-pi');
 
         function _hideComparePaneInfo() {
-            _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
-            if (_compareDiffPiEl) _compareDiffPiEl.style.display = 'none';
+            _comparePiEls.forEach(p => _hidePanePixelPill(p));
+            _hidePanePixelPill(_compareDiffPiEl);
         }
 
         /**
@@ -37118,15 +37160,9 @@
             return Number.isFinite(value) ? { value, rawX: a.rawX, rawY: a.rawY } : null;
         }
 
-        /** Draw a readout on `cv` at the hovered fraction of that canvas. */
-        function _showComparePaneInfo(piEl, cv, fx, fy, sample, contextValues) {
-            const rect = cv.getBoundingClientRect();
-            showPixelInfo(
-                piEl,
-                { valueText: _pixelFmt(sample.value, contextValues), rawX: sample.rawX, rawY: sample.rawY },
-                rect.left + fx * rect.width,
-                rect.top + fy * rect.height,
-            );
+        /** Show a mirrored readout in `piEl`'s own fixed pane-pill spot. */
+        function _showComparePaneInfo(piEl, sample, contextValues) {
+            _showPanePixelPill(piEl, _pixelPillText(_pixelFmt(sample.value, contextValues), sample.rawX, sample.rawY));
         }
 
         function _compareCenterContext() {
@@ -37149,14 +37185,14 @@
                 if (!cached) { missing = true; return; }
                 const sample = _compareSliceSample(cached, fx, fy);
                 if (!sample) return;
-                _showComparePaneInfo(oPi, ocv, fx, fy, sample,
+                _showComparePaneInfo(oPi, sample,
                     [cmpManualVmin[j] ?? compareFrames[j]?.vmin, cmpManualVmax[j] ?? compareFrames[j]?.vmax].filter(Number.isFinite));
             });
             const diffCv = document.getElementById('compare-diff-canvas');
             if (_compareDiffPiEl && diffCv && skipIdx !== -1) {
                 const centerSample = _compareCenterSample(fx, fy);
                 if (centerSample) {
-                    _showComparePaneInfo(_compareDiffPiEl, diffCv, fx, fy, centerSample, _compareCenterContext());
+                    _showComparePaneInfo(_compareDiffPiEl, centerSample, _compareCenterContext());
                 } else if (diffMode > 0) {
                     missing = true;
                 }
@@ -37184,8 +37220,10 @@
                     imgW: cv.width,
                     imgH: cv.height,
                     contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
-                    displayEl: piEl,
-                    onResult: () => {
+                    displayEl: null,
+                    onResult: (d, rawX, rawY) => {
+                        _showPanePixelPill(piEl, _pixelPillText(_pixelFmt(d.value,
+                            [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite)), rawX, rawY));
                         // Show the value on every other pane — including the
                         // centre diff pane — at the same image fraction.
                         const at = _compareHoverFraction(cv, e);
