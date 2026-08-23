@@ -141,7 +141,8 @@
             transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             --fly-y: 0px;
             --compare-center-info-x: 0px;
-            transform: translateX(var(--compare-center-info-x, 0px)) translateY(var(--fly-y, 0px));
+            --mv-center-info-x: 0px;
+            transform: translateX(calc(var(--compare-center-info-x, 0px) + var(--mv-center-info-x, 0px))) translateY(var(--fly-y, 0px));
         }
         /* Param-flash edge layer: a colored border overlay clipped to the
            left --av-fill-px portion of the pill. Sits on top of the existing
@@ -1979,6 +1980,19 @@
             from { opacity: 0; }
             to { opacity: 1; }
         }
+        .cb-hover-egg-value {
+            display: inline-block; color: var(--active-dim);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 11px; line-height: 1; letter-spacing: 0.01em;
+            font-variant-numeric: tabular-nums; white-space: nowrap;
+            padding: 4px 8px; border-radius: 9px;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            pointer-events: none;
+            animation: percentile-preset-fade-in 120ms ease-out both;
+        }
+        :root.light .cb-hover-egg-value { background-color: rgba(240, 240, 240, 0.8); }
 
         /* ── help-box ── */
         #help-box {
@@ -6797,6 +6811,38 @@
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
         let _percentilePresetCrossfadeTimer = null;
+        let _cbHoverEggValue = null; // colorbar hover value text, shown in the fixed dots spot
+        let _cbHoverEggAnchorEl = null; // which pane's canvas to anchor the pill to, if not the mode default
+        let _cbHoverEggFadeTimer = null;
+        function _setCbHoverEggValue(text, anchorEl) {
+            if (text == null) {
+                if (_cbHoverEggValue === null) return;
+                _cbHoverEggValue = null;
+                _cbHoverEggAnchorEl = null;
+                if (_cbHoverEggFadeTimer) { clearTimeout(_cbHoverEggFadeTimer); _cbHoverEggFadeTimer = null; }
+                renderEggs();
+                return;
+            }
+            _cbHoverEggAnchorEl = anchorEl || null;
+            if (_cbHoverEggValue === text) return;
+            const entering = _cbHoverEggValue === null;
+            _cbHoverEggValue = text;
+            if (_percentilePresetOverlay) return; // picker owns the spot
+            const eggs = document.getElementById('mode-eggs');
+            // Crossfade past any mode pills (FFT/LOG/...) the first time hover
+            // starts, same as the percentile-dots overlay does.
+            if (entering && eggs?.querySelector('.mode-badge')) {
+                eggs.classList.add('percentile-preset-switching');
+                if (_cbHoverEggFadeTimer) clearTimeout(_cbHoverEggFadeTimer);
+                _cbHoverEggFadeTimer = setTimeout(() => {
+                    _cbHoverEggFadeTimer = null;
+                    renderEggs();
+                    requestAnimationFrame(() => eggs.classList.remove('percentile-preset-switching'));
+                }, 120);
+                return;
+            }
+            renderEggs();
+        }
         let _qmriPresetCycleGeneration = 0;
         let _pixelReqSeq = 0;
         let cbMarkerFrac = null;
@@ -7724,6 +7770,22 @@
                     return _unionVisibleRects(stackMosaicViews.map(v => v.canvas));
                 }
                 if (multiViewActive) {
+                    // Horizontal grid: pin to the middle pane so badges, the
+                    // percentile dots, and the colorbar hover value all land
+                    // in the same spot instead of jumping between the union
+                    // of all three panes and a single-pane anchor.
+                    const resolvedLayout = _resolvedOrthoLayoutMode();
+                    if (resolvedLayout === 'horizontal') {
+                        const midCanvas = mvViews[1]?.canvas;
+                        if (midCanvas) return _unionVisibleRects([midCanvas]);
+                    } else if (_getOrthoPreset(resolvedLayout)) {
+                        // Grid presets (e.g. big-left) treat pane 0 as the
+                        // primary pane — anchor there instead of the union of
+                        // the whole cluster, which skews off-center when the
+                        // other panes are a different size.
+                        const primaryCanvas = mvViews[0]?.canvas;
+                        if (primaryCanvas) return _unionVisibleRects([primaryCanvas]);
+                    }
                     return _unionVisibleRects(document.querySelectorAll('#mv-panes .mv-canvas'));
                 }
                 if (qmriActive || compareQmriActive || compareMvActive || qmriMvActive) {
@@ -9342,6 +9404,8 @@
                         tooltip: null,
                     },
                     interactive: true,
+                    hoverValueInEggs: true,
+                    hoverValueAnchor: () => compareCanvases[idx],
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => {
                         if (idx < 2 && _compareCenterLayoutEligible()) {
@@ -9440,6 +9504,9 @@
                         tooltip: null,
                     },
                     interactive: true,
+                    hoverValueInEggs: true,
+                    hoverValueAnchor: () => modeManager.getViewById('compare-diff-center')?.canvas
+                        || document.getElementById('compare-diff-pane'),
                     getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
                     getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
@@ -11505,7 +11572,8 @@
                 this._manualExpand = false;
                 this._hitVminX = null;
                 this._hitVmaxX = null;
-                if (this.tooltip) this.tooltip.style.display = 'none';
+                if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                else if (this.tooltip) this.tooltip.style.display = 'none';
                 if (this.triZone) this.triZone.classList.remove('expanded');
                 this.startAnim(false);
                 this.updateLabels();
@@ -11734,7 +11802,8 @@
                         this._hoverFrac = -1;
                         this._hoverY = -1;
                         this.draw();
-                        if (this.tooltip) this.tooltip.style.display = 'none';
+                        if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                        else if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
                     if (this._autoDismissPending && !this._dragActive) {
@@ -11852,10 +11921,29 @@
                         const hit = this._expanded ? this._hitTest(x) : null;
                         this.canvas.style.cursor = hit ? 'ew-resize' : 'crosshair';
                         this.draw();
-                        // Show floating tooltip with value above the colorbar,
-                        // even when the histogram is collapsed.
+                        // Report the hovered value — either the fixed spot the
+                        // percentile dots use, or the floating tooltip above
+                        // the colorbar, even when the histogram is collapsed.
                         const hoverVal = this._hoverBarValueAt(frac);
-                        if (this.tooltip && hoverVal != null && !(typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen)) {
+                        const dmenuOpen = typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen;
+                        if (this.opts.hoverValueInEggs) {
+                            if (hoverVal != null && !dmenuOpen) {
+                                const hoverFormatter = this._dragLabelFormatter
+                                    || formatValueGroup([
+                                        hoverVal,
+                                        this._histData?.vmin,
+                                        this._histData?.vmax,
+                                        this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
+                                        this.opts.getWindow ? this.opts.getWindow()?.vmax : null,
+                                    ]);
+                                _setCbHoverEggValue(
+                                    _cbFmtPlain(hoverVal, null, hoverFormatter),
+                                    this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null
+                                );
+                            } else {
+                                _setCbHoverEggValue(null);
+                            }
+                        } else if (this.tooltip && hoverVal != null && !dmenuOpen) {
                             const hoverFormatter = this._dragLabelFormatter
                                 || formatValueGroup([
                                     hoverVal,
@@ -11864,7 +11952,6 @@
                                     this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
                                     this.opts.getWindow ? this.opts.getWindow()?.vmax : null,
                                 ]);
-                            this.tooltip.classList.remove('percentile');
                             this.tooltip.textContent = _cbFmtPlain(hoverVal, null, hoverFormatter);
                             this.tooltip.style.display = 'block';
                             // Position relative to the canvas within the wrap
@@ -11875,10 +11962,8 @@
                             this.tooltip.style.transform = 'translateX(-50%)';
                             this.tooltip.style.top = '-18px';
                         } else if (this.tooltip) {
-                            this.tooltip.classList.remove('percentile');
                             this.tooltip.style.display = 'none';
                         }
-                        const dmenuOpen = typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen;
                         if (this._onBinHover && this._histData && this._hoverFrac >= 0 && !dmenuOpen) {
                             const binIdx = this._hoverBinIndexForPoint(
                                 this._hoverFrac,
@@ -11894,10 +11979,8 @@
                         this._hoverY = -1;
                         this.canvas.style.cursor = '';
                         this.draw();
-                        if (this.tooltip) {
-                            this.tooltip.classList.remove('percentile');
-                            this.tooltip.style.display = 'none';
-                        }
+                        if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                        else if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
                 } else if (this._hoverFrac >= 0) {
@@ -11917,10 +12000,8 @@
                     this._dragLabelFormatter = null;
                     this._dragLabelWidthPx = null;
                     document.body.style.cursor = '';
-                    if (this.tooltip) {
-                        this.tooltip.classList.remove('percentile');
-                        this.tooltip.style.display = 'none';
-                    }
+                    if (this.opts.hoverValueInEggs) _setCbHoverEggValue(null);
+                    else if (this.tooltip) this.tooltip.style.display = 'none';
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                 }
                 this._dragX = null;
@@ -12692,6 +12773,7 @@
                 tooltip:   document.getElementById('slim-cb-tooltip'),
             },
             interactive: true,
+            hoverValueInEggs: true,
             getStops:  () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
             getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
@@ -13963,7 +14045,13 @@
 
         function _cbBoundLocked(cb, which) {
             if (which === 'vmax') return !!vmaxLocked;
-            return !!vminLocked || _cbBoundPolicyLocked(cb, which);
+            if (vminLocked) return true;
+            // Policy locks (e.g. a qMRI map's lower bound fixed by its map
+            // type) are structural, not a user choice — every T1/T2/PD map
+            // would sit permanently dimmed otherwise. Only surface that look
+            // while the range editor is open, where the lock is relevant.
+            if (!cb || !cb._expanded) return false;
+            return _cbBoundPolicyLocked(cb, which);
         }
 
         let _cbBoundHintEl = null;
@@ -16195,9 +16283,17 @@
                 if (pointedCanvas) return pointedCanvas;
                 return modeManager.getFocusedView()?.canvas || compareCanvases[0] || null;
             }
-            if (multiViewActive || compareMvActive) {
-                const focused = modeManager.getFocusedView();
-                return focused?.canvas || mvViews[0]?.canvas || compareMvViews[0]?.canvas || null;
+            if (multiViewActive) {
+                // Horizontal grid: always anchor to the middle pane, regardless
+                // of which pane is focused/hovered — a single consistent spot
+                // for the dots to land in a 3-equal-pane row.
+                if (_resolvedOrthoLayoutMode() === 'horizontal') {
+                    return mvViews[1]?.canvas || mvViews[0]?.canvas || null;
+                }
+                return modeManager.getFocusedView()?.canvas || mvViews[0]?.canvas || null;
+            }
+            if (compareMvActive) {
+                return modeManager.getFocusedView()?.canvas || compareMvViews[0]?.canvas || null;
             }
             return null;
         }
@@ -16297,6 +16393,17 @@
                 renderIsland();
                 return;
             }
+            if (_cbHoverEggValue != null) {
+                let pill = el.querySelector('.cb-hover-egg-value');
+                if (!pill) {
+                    el.innerHTML = '<div class="cb-hover-egg-value"></div>';
+                    pill = el.querySelector('.cb-hover-egg-value');
+                }
+                pill.textContent = _cbHoverEggValue;
+                positionEggs();
+                renderIsland();
+                return;
+            }
             if (!_eggsVisible) { el.innerHTML = ''; return; }
             // Hide eggs during loading / welcome — no data received yet
             if (_isWelcomeScreen) { el.innerHTML = ''; return; }
@@ -16351,7 +16458,7 @@
             if (typeof _cmapHoldAnim !== 'undefined' && _cmapHoldAnim) return;
 
             // Fullscreen normal mode: special inline positioning
-            if (_fullscreenActive && !_percentilePresetOverlay?.anchorEl &&
+            if (_fullscreenActive && !_percentilePresetOverlay?.anchorEl && !_cbHoverEggAnchorEl &&
                 !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
                 const vpEl = compareActive
                     ? document.getElementById('compare-view-wrap')
@@ -16376,7 +16483,7 @@
             el.style.flexDirection = '';
             el.style.alignItems    = '';
             el.style.right         = '';
-            const explicitAnchor = _percentilePresetOverlay?.anchorEl;
+            const explicitAnchor = _percentilePresetOverlay?.anchorEl || _cbHoverEggAnchorEl;
             const anchorRect = explicitAnchor && explicitAnchor.isConnected
                 ? explicitAnchor.getBoundingClientRect()
                 : ModeRegistry.getEggsAnchorRect();
@@ -31001,6 +31108,7 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
+                    hoverValueInEggs: true,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => ({ vmin: currentVmin, vmax: currentVmax }),
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
@@ -31488,6 +31596,8 @@
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
+            const _exitInfo = document.getElementById('info');
+            if (_exitInfo) _exitInfo.style.removeProperty('--mv-center-info-x');
             _reconcileUI();
             if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
             updateView();
@@ -32547,6 +32657,8 @@
                         id: 'qv-' + viewIdx,
                         orientation: 'horizontal',
                         interactive: true,
+                        hoverValueInEggs: true,
+                        hoverValueAnchor: () => view.canvas,
                         getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
@@ -33535,6 +33647,8 @@
                         id: 'cq-' + si + '-' + mi,
                         orientation: 'horizontal',
                         interactive: true,
+                        hoverValueInEggs: true,
+                        hoverValueAnchor: () => view.canvas,
                         getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
@@ -33971,6 +34085,7 @@
                     container: wrap,
                     id: 'mv',
                     orientation: 'horizontal',
+                    hoverValueInEggs: true,
                     getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
                     getRange: () => {
                         const v0 = compareMvViews.find(v => v.lastW);
@@ -36221,6 +36336,11 @@
                     v.pane.style.removeProperty('width');
                     v.pane.style.removeProperty('height');
                 });
+                // Leaving big-left drops its dimbar/colorbar recentering.
+                const _leftInfo = document.getElementById('info');
+                if (_leftInfo) _leftInfo.style.removeProperty('--mv-center-info-x');
+                const _leftCbWp = document.getElementById('mv-cb-wrap');
+                if (_leftCbWp) _leftCbWp.style.removeProperty('transform');
             }
             if (_activePreset) {
                 const paneCount = ready.length;
@@ -36288,6 +36408,29 @@
                             mvCbWp.style.display = '';
                             mvCbWp.style.width = mvCbTarget + 'px';
                         }
+                    }
+                    // Big-left: the small panes on the right pull the shared
+                    // colorbar/dimbar off-center if they're centered on the
+                    // whole three-pane cluster. Recenter both under the big
+                    // pane (index 0) instead.
+                    const info = document.getElementById('info');
+                    if (_activePreset.id === 'big-left' && _mvPanesEl) {
+                        const bigRect = rects[0];
+                        const panesRect = _mvPanesEl.getBoundingClientRect();
+                        const bigCenterX = panesRect.left + (bigRect.x - minX) + bigRect.w / 2;
+                        if (info && !_infoDragPos) {
+                            const parentRect = info.offsetParent?.getBoundingClientRect();
+                            const baseCenter = (parentRect ? parentRect.left : 0) + info.offsetLeft + info.offsetWidth / 2;
+                            info.style.setProperty('--mv-center-info-x', (bigCenterX - baseCenter) + 'px');
+                        }
+                        if (mvCbWp) {
+                            const cbParentRect = mvCbWp.offsetParent?.getBoundingClientRect();
+                            const cbBaseCenter = (cbParentRect ? cbParentRect.left : 0) + mvCbWp.offsetLeft + mvCbWp.offsetWidth / 2;
+                            mvCbWp.style.transform = `translateX(${bigCenterX - cbBaseCenter}px)`;
+                        }
+                    } else {
+                        if (info) info.style.removeProperty('--mv-center-info-x');
+                        if (mvCbWp) mvCbWp.style.removeProperty('transform');
                     }
                     fixWrapperAlignment();
                     positionEggs();
