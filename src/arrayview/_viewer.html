@@ -20420,25 +20420,30 @@
             if (!el) return;
             if (!_pixelInfoActive() || value == null) {
                 el.style.display = 'none';
-                delete el.dataset.pixelInfoKey;
                 return;
             }
             const coords = coordText || '';
-            const key = value + '|' + coords;
-            if (el.dataset.pixelInfoKey !== key) {
+            // Update the existing pill's text in place rather than rebuilding
+            // it — replacing the node on every value restarts its fade-in
+            // animation, which is what was flickering on every mousemove.
+            let pill = el.querySelector('.eggs-value-pill');
+            if (!pill) {
                 el.innerHTML = '<div class="eggs-value-pill">'
-                    + `<div class="eggs-pill-value">${value}</div>`
-                    + (coords ? `<div class="eggs-pill-coords">${coords}</div>` : '')
+                    + '<div class="eggs-pill-value"></div>'
+                    + '<div class="eggs-pill-coords"></div>'
                     + '</div>';
-                el.dataset.pixelInfoKey = key;
+                pill = el.querySelector('.eggs-value-pill');
             }
+            pill.querySelector('.eggs-pill-value').textContent = value;
+            const coordsEl = pill.querySelector('.eggs-pill-coords');
+            coordsEl.textContent = coords;
+            coordsEl.style.display = coords ? '' : 'none';
             el.classList.add('pane-pixel-pill');
             el.style.display = 'block';
         }
         function _hidePanePixelPill(el) {
             if (!el) return;
             el.style.display = 'none';
-            delete el.dataset.pixelInfoKey;
         }
 
         let _pixelHoverThrottle = false;
