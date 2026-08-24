@@ -109,6 +109,7 @@ Run `_composite_overlay_mask(rgba, ov_raw, is_label=True)` on a test RGBA and ma
 - **Cache stale after data change** — if `session.data` is modified without calling `session.reset_caches()`, stale slices will be served. Always call `reset_caches()` after modifying session data.
 - **Complex dtype from `.mat`** — scipy structured dtypes with `real`/`imag` fields are converted in `_io.load_data()` (via `_fix_mat_complex()`), not in `extract_slice`. If you bypass `load_data()`, you must call `_fix_mat_complex()` yourself.
 - **RGB arrays skip colormap** — `render_rgb_rgba` does NOT call `apply_colormap_rgba`. If your code assumes all renders go through colormap, it breaks for RGB sessions.
+- **NIfTI collections keep non-spatial axes** — canonical orientation reorders only the first three shape entries. Append every later axis unchanged or the renderer receives an array instead of a 2-D slice.
 - **Mosaic gap pixels** — the grid is filled with `np.nan` first, then NaN pixels are colored `[22, 22, 22, 255]`. A NaN in actual data will look like a grid gap — use `extract_slice` which calls `nan_to_num`.
 - **Colormap not in LUTS** — custom colormaps added after `_init_luts()` go through `_ensure_lut()`. Never access `LUTS[name]` without calling `_ensure_lut(name)` first.
 - **`visual_smoke.py` uses Playwright** — requires `uv run playwright install chromium`. A missing browser causes a confusing import error, not a clear "browser not found" message.

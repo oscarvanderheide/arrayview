@@ -172,7 +172,9 @@ def _nifti_header_with_meta(filepath, *, native=False):
         (abs(norm_rot[i, j]) for i in range(3) for j in range(3) if i != j),
         default=0.0,
     )
-    canonical_shape = tuple(int(img.shape[int(axis)]) for axis in transform[:, 0])
+    canonical_shape = tuple(
+        int(img.shape[int(axis)]) for axis in transform[:, 0]
+    ) + tuple(int(size) for size in img.shape[3:])
     meta = {
         "affine": original_affine,
         "affine_canonical": affine_canonical,

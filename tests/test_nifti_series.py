@@ -678,6 +678,37 @@ class TestFileSeries:
 
 
 class TestDirCollection:
+    def test_nifti_collection_preserves_nonspatial_dimensions(self, tmp_path):
+        import arrayview._io as _io
+        from arrayview._analysis import _build_metadata
+        from arrayview._session import Session
+
+        shape = (3, 4, 5, 2, 2)
+        affine = np.diag([-1.0, 1.0, 1.0, 1.0])
+        paths = []
+        for channel in range(4):
+            channel_dir = tmp_path / f"channel-{channel}"
+            channel_dir.mkdir()
+            source = (
+                np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+                + channel * 1000
+            )
+            paths.append(
+                _save_nifti(channel_dir / "parameter_maps.nii", source, affine)
+            )
+
+        data, spatial_meta, _overlays, summary = _io.load_dir_collection(paths)
+
+        assert data.shape == (3, 4, 5, 2, 2, 1, 4)
+        assert summary["spatial_shape"] == (3, 4, 5, 2, 2)
+        expected = np.asarray(nib.as_closest_canonical(nib.load(paths[2])).dataobj)
+        assert np.array_equal(data[:, :, 1, 1, 0, 0, 2], expected[:, :, 1, 1, 0])
+
+        session = Session(data, filepath=None, name="matched parameters")
+        session.spatial_meta = spatial_meta
+        session.collection_spatial_ndim = len(summary["spatial_shape"])
+        assert _build_metadata(session)["default_dims"] == [1, 2]
+
     def test_image_patterns_stack_channels_and_overlay_roles(self, tmp_path):
         import arrayview._io as _io
 

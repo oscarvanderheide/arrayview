@@ -42,6 +42,11 @@ def _build_metadata(session) -> dict:
             # Collection axes are appended after the image dimensions. They
             # select a case; they must not influence the startup plane.
             default_shape = target_shape[:spatial_ndim]
+            # NIfTI metadata identifies the first three axes as anatomical.
+            # Later axes may be echoes, parameters, or time points, so they
+            # must not change which anatomical plane opens first.
+            if getattr(session, "spatial_meta", None) is not None:
+                default_shape = default_shape[:3]
     default_dims = _session_mod._startup_dims_for_data(session.data, default_shape)
     if default_dims is not None:
         meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
