@@ -6823,10 +6823,17 @@
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
         let _percentilePresetCrossfadeTimer = null;
+        // Reserve the sign's width so a value flipping between positive and
+        // negative doesn't change the pill's width — a leading space is the
+        // same advance width as '-' in the monospace stack already in use.
+        function _signPad(text) {
+            return (typeof text === 'string' && text && text[0] !== '-') ? ' ' + text : text;
+        }
         let _eggsValuePill = null; // { value, coords } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
         let _eggsValuePillFadeTimer = null;
         function _setEggsValuePill(value, coordText, anchorEl) {
+            value = _signPad(value);
             if (value == null) {
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
@@ -20423,6 +20430,7 @@
                 el.style.display = 'none';
                 return;
             }
+            value = _signPad(value);
             const coords = coordText || '';
             // Update the existing pill's text in place rather than rebuilding
             // it — replacing the node on every value restarts its fade-in
