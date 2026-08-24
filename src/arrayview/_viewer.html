@@ -6888,6 +6888,7 @@
         let mvDims = [];
         let mvDraggingView = null;
         let cmvDraggingView = null;
+        let _mvClickFlashTimer = null; // pending crosshair flash, cancelable by a following double-click
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
@@ -19447,8 +19448,8 @@
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     return `<span class="${cls}" ${d} style="color:${pColor}">p<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
-                if (multiViewActive || compareMvActive) {
-                    const activeDims = multiViewActive ? mvDims : compareMvDims;
+                if (multiViewActive || compareMvActive || qmriMvActive) {
+                    const activeDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : qmriMvDims);
                     const isSpatial = activeDims.includes(i);
                     if (isSpatial) {
                         const pos = activeDims.indexOf(i);
@@ -19756,12 +19757,6 @@
             el.addEventListener('dblclick', (e) => {
                 if (rectRoiMode || _segMode || _segActivating || _rulerMode || _cropActive) return;
                 if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
-                // Cut the crosshair flash the two clicks just started — its
-                // fade-in ramps over several frames, so catching it here keeps
-                // it to a faint blip instead of a full flash-then-fade.
-                if (multiViewActive && typeof _mvSetCrosshairTarget === 'function') {
-                    _mvSetCrosshairTarget(0);
-                }
                 _runCommand('hoverinfo.toggle');
             });
         }
@@ -20452,10 +20447,57 @@
             el.style.display = 'none';
         }
 
+        /** Mirror a hovered qMRI voxel's value onto every other visible map
+         *  at the same plane (dimX/dimY) — a different map is a different
+         *  parameter at the same location, worth comparing; a different
+         *  plane of the SAME map would just repeat the same value. */
+        function _mirrorQmriPixelHover(views, hoveredView, qmriDim, indices, px, py, dimX, dimY, sidForFetch) {
+            views.forEach(v => {
+                if (v === hoveredView) return;
+                if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
+                // Plain qMRI views have no dimX/dimY of their own — every view
+                // shares the one global plane, so there's nothing to filter.
+                // qmriMv views each have their own plane; only mirror within it.
+                if (v.dimX !== undefined && (v.dimX !== dimX || v.dimY !== dimY)) return;
+                const qIndices = [...indices];
+                qIndices[qmriDim] = v.qmriIdx;
+                const params = new URLSearchParams({
+                    dim_x: String(dimX), dim_y: String(dimY),
+                    indices: qIndices.join(','),
+                    px: String(px), py: String(py),
+                    complex_mode: complexMode,
+                });
+                if (v.qmriRole) params.set('qmri_role', v.qmriRole);
+                if (logScale) params.set('log_scale', '1');
+                const seq = _nextPixelSeq(v);
+                proxyFetch('/pixel/' + sidForFetch + '?' + params)
+                    .then(r => r.ok ? r.json() : null).then(rd => {
+                        if (!rd || !_pixelInfoActive() || !_acceptPixelReply(v, seq)) return;
+                        _showPanePixelPill(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), _coordText(px, py));
+                    });
+            });
+        }
+
         let _pixelHoverThrottle = false;
         let _mainPixelInfoGen = 0;
-        let _qmriMirrorGen = 0;
         let _roiSuppressPixelInfo = false;
+        // Monotonic per-key reply ordering: issue a sequence number when a
+        // request is sent, accept a reply only if a later one for the same
+        // key hasn't already been shown. Unlike "must match the very latest
+        // dispatched request", this lets every still-relevant reply update
+        // the display as it arrives instead of every hover position waiting
+        // for the whole in-flight batch to settle before showing anything.
+        function _nextPixelSeq(key) {
+            if (!key) return 0;
+            key._pixelSeq = (key._pixelSeq || 0) + 1;
+            return key._pixelSeq;
+        }
+        function _acceptPixelReply(key, seq) {
+            if (!key) return true;
+            if (seq < (key._pixelSeqShown || 0)) return false;
+            key._pixelSeqShown = seq;
+            return true;
+        }
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
             const vals = view && view.displayState
@@ -20537,17 +20579,17 @@
 
             // A slower or reordered reply must not clobber a fresher one, and
             // must not snap the card back to the cursor position at request
-            // time — track the latest request per display element and always
-            // draw at the current cursor position.
-            const _fpEl = opts.displayEl;
-            const _fpGen = _fpEl ? ((_fpEl._pixelInfoGen || 0) + 1) : null;
-            if (_fpEl) _fpEl._pixelInfoGen = _fpGen;
+            // time — track requests per pane canvas (stable and always
+            // present, unlike displayEl which several callers pass as null)
+            // and always draw at the current cursor position.
+            const _fpKey = opts.canvas || opts.displayEl;
+            const _fpSeq = _nextPixelSeq(_fpKey);
 
             proxyFetch('/pixel/' + opts.sid + '?' + params)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    if (_fpEl && _fpEl._pixelInfoGen !== _fpGen) return;
+                    if (!_acceptPixelReply(_fpKey, _fpSeq)) return;
                     showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, _lastMouseX, _lastMouseY);
                     if (opts.onResult) opts.onResult(d, rawX, rawY);
                 })
@@ -24703,7 +24745,7 @@
             _clickCopyTimer = setTimeout(() => {
                 _clickCopyTimer = null;
                 _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
-            }, 350);
+            }, 500);
         });
 
         /* ── JS: Command Registry (Pillar C Phase 1) ──────────────── */
@@ -31479,10 +31521,18 @@
                         }
                         mvDraggingView = view;
                         _reconcileMvOrientationVisibility();
-                        // Skip the crosshair flash on the second click of a
-                        // double-click (e.g. toggling hover-info) — it still
-                        // navigates, just without the flash.
-                        if (e.detail <= 1) _mvSetCrosshairTarget(1);
+                        // Navigation itself stays instant; only the decorative
+                        // flash is delayed, so a following second click (e.g.
+                        // toggling hover-info) can cancel it before it shows.
+                        if (e.detail > 1) {
+                            if (_mvClickFlashTimer) { clearTimeout(_mvClickFlashTimer); _mvClickFlashTimer = null; }
+                        } else {
+                            if (_mvClickFlashTimer) clearTimeout(_mvClickFlashTimer);
+                            _mvClickFlashTimer = setTimeout(() => {
+                                _mvClickFlashTimer = null;
+                                _mvSetCrosshairTarget(1);
+                            }, 500);
+                        }
                         handleMvPointer(view, e);
                     }
                 });
@@ -32858,32 +32908,7 @@
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
                                 _showPanePixelPill(view.pixelInfoEl, _pixelFmt(d.value, _activeNumericContext(view)), _coordText(px, py));
-                                // Mirror the same voxel's value onto every other visible map.
-                                // Guarded by generation: these fetches aren't throttled the
-                                // way the hovered map's own value is, so a burst of mousemoves
-                                // can leave several in flight — without this, a slower, older
-                                // reply could land after a newer one and flicker the pill back
-                                // to a stale value.
-                                const gen = ++_qmriMirrorGen;
-                                qmriViews.forEach(v => {
-                                    if (v === view) return;
-                                    if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
-                                    const qIndices = [...indices];
-                                    qIndices[qmriDim] = v.qmriIdx;
-                                    const params = new URLSearchParams({
-                                        dim_x: String(dim_x), dim_y: String(dim_y),
-                                        indices: qIndices.join(','),
-                                        px: String(px), py: String(py),
-                                        complex_mode: complexMode,
-                                    });
-                                    if (v.qmriRole) params.set('qmri_role', v.qmriRole);
-                                    if (logScale) params.set('log_scale', '1');
-                                    proxyFetch('/pixel/' + sid + '?' + params)
-                                        .then(r => r.ok ? r.json() : null).then(rd => {
-                                            if (!rd || !_pixelInfoActive() || gen !== _qmriMirrorGen) return;
-                                            _showPanePixelPill(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), _coordText(px, py));
-                                        });
-                                });
+                                _mirrorQmriPixelHover(qmriViews, view, qmriDim, indices, px, py, dim_x, dim_y, sid);
                             },
                         });
                     });
@@ -34899,8 +34924,13 @@
                             imgW: view.lastW,
                             imgH: view.lastH,
                             view,
-                            displayEl: view.pixelInfoEl,
+                            displayEl: null,
                             qmriRole: view.qmriRole,
+                            onResult: (d, px, py) => {
+                                if (!_pixelInfoActive()) return;
+                                _showPanePixelPill(view.pixelInfoEl, _pixelFmt(d.value, _activeNumericContext(view)), _coordText(px, py));
+                                _mirrorQmriPixelHover(qmriMvViews, view, qmriDim, indices, px, py, view.dimX, view.dimY, sid);
+                            },
                         });
                     });
                     _wireHoverInfoDblClick(cv);
