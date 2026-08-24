@@ -31528,16 +31528,17 @@
                             mvNavDragPrev.depthOff = _mvDepthOffsetForView(view);
                         }
                         mvDraggingView = view;
-                        _reconcileMvOrientationVisibility();
                         // Navigation itself stays instant; only the decorative
-                        // flash is delayed, so a following second click (e.g.
-                        // toggling hover-info) can cancel it before it shows.
+                        // flash and orientation HUD are delayed, so a following
+                        // second click (e.g. toggling hover-info) can cancel
+                        // them before they show.
                         if (e.detail > 1) {
                             if (_mvClickFlashTimer) { clearTimeout(_mvClickFlashTimer); _mvClickFlashTimer = null; }
                         } else {
                             if (_mvClickFlashTimer) clearTimeout(_mvClickFlashTimer);
                             _mvClickFlashTimer = setTimeout(() => {
                                 _mvClickFlashTimer = null;
+                                _reconcileMvOrientationVisibility();
                                 _mvSetCrosshairTarget(1);
                             }, 500);
                         }
