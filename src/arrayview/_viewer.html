@@ -501,19 +501,16 @@
         .slim-cb-val.is-locked,
         .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
 
-        #cb-bound-hint {
-            position: fixed; z-index: 15; pointer-events: none;
-            color: var(--muted); opacity: 0;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 10px; line-height: 1.45;
-            text-align: left; white-space: pre;
-            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
-                -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
-            transform: translateX(-50%);
-            transition: opacity 120ms ease;
+        [data-cb-bound] {
+            cursor: pointer; box-sizing: border-box;
+            display: inline-flex; align-items: center; justify-content: center;
+            height: 18px; /* matches .cb-col — the colorbar's own height */
+            border-radius: 9px;
+            padding: 0 6px; margin: 0 -6px;
+            transition: color 140ms ease, opacity 140ms ease, background 120ms ease;
         }
-        #cb-bound-hint.visible { opacity: 1; }
-        [data-cb-bound] { cursor: pointer; transition: color 140ms ease, opacity 140ms ease; }
+        [data-cb-bound]:hover { background: rgba(255,255,255,0.06); }
+        :root.light [data-cb-bound]:hover { background: rgba(0,0,0,0.045); }
         [data-cb-bound].is-locked,
         [data-cb-bound].locked { color: var(--muted) !important; opacity: 0.5; }
 
@@ -527,6 +524,39 @@
         :root.light .cb-val-popup-wrap { filter: drop-shadow(0 0 0.5px rgba(0,0,0,0.3)) drop-shadow(0 0 1px rgba(0,0,0,0.15)) drop-shadow(0 4px 12px rgba(0,0,0,0.2)); }
         :root.light .cb-val-popup { background: rgba(245,245,245,0.92); }
         :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
+
+        .cb-val-lock-btn {
+            position: relative; flex: 0 0 auto;
+            width: 18px; height: 18px; padding: 0; margin: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: none; border: none; border-radius: 4px;
+            color: rgba(255,255,255,0.4); cursor: pointer;
+            transition: color 140ms ease, background 120ms ease;
+        }
+        .cb-val-lock-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+        .cb-val-lock-btn.locked { color: var(--active-dim); }
+        .cb-val-lock-btn.fixed { cursor: default; color: rgba(255,255,255,0.25); }
+        .cb-val-lock-btn.fixed:hover { background: none; color: rgba(255,255,255,0.25); }
+        :root.light .cb-val-lock-btn { color: rgba(0,0,0,0.35); }
+        :root.light .cb-val-lock-btn:hover { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.65); }
+        :root.light .cb-val-lock-btn.fixed { color: rgba(0,0,0,0.22); }
+        :root.light .cb-val-lock-btn.fixed:hover { background: none; color: rgba(0,0,0,0.22); }
+
+        /* Tooltip for the lock icon. Rendered as a floating element (not a
+         * ::after on the button) because the popup's balloon clip-path would
+         * otherwise clip anything overflowing above the button's own box. */
+        #cb-lock-tip {
+            position: fixed; z-index: 15; pointer-events: none;
+            background: rgba(10, 10, 10, 0.96); color: #ddd;
+            font-family: system-ui, -apple-system, sans-serif; font-size: 10px; font-weight: 400;
+            padding: 4px 7px; border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap;
+            transform: translateX(-50%);
+            opacity: 0; transition: opacity 120ms ease;
+        }
+        #cb-lock-tip.visible { opacity: 1; }
+        :root.light #cb-lock-tip { background: rgba(245,245,245,0.97); color: #222; border-color: rgba(0,0,0,0.12); }
 
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
         /* Window/level drag readout — replaces the cursor while W/L is live */
@@ -1956,19 +1986,26 @@
         .mode-badge-complex.fading { opacity: 0; }
         .percentile-preset-overlay {
             display: flex; flex-direction: column; align-items: center; gap: 5px;
+            box-sizing: border-box;
             color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             pointer-events: none;
             animation: percentile-preset-fade-in 120ms ease-out both;
             transition: opacity 140ms ease;
+            /* Same translucent pill as the pixel-value hover readout
+             * (.eggs-value-pill) — the dots need it even more, since a bare
+             * 5px circle disappears against busy image content. */
+            padding: 6px 10px; border-radius: 9px;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
         }
+        :root.light .percentile-preset-overlay { background-color: rgba(240, 240, 240, 0.8); }
         .percentile-preset-overlay.fading { animation: none; opacity: 0; }
         .percentile-preset-value {
             width: 9ch; text-align: center; white-space: nowrap;
             font-size: 11px; line-height: 1; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums;
-            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
-                -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
         }
         .percentile-preset-dots { display: flex; align-items: center; gap: 5px; }
         .percentile-preset-dot {
@@ -11767,8 +11804,12 @@
                 });
 
                 // Range labels share one interaction model in every ColorBar:
-                // one click edits, two clicks toggle the bound lock.
+                // hover shows it's interactive, one click edits (with a lock
+                // toggle in the editor), two clicks is a shortcut straight
+                // to the lock toggle.
                 const _editLabel = (labelEl, which) => {
+                    const otherWhich = which === 'vmin' ? 'vmax' : 'vmin';
+                    const otherLabelEl = which === 'vmin' ? this.vmaxLabel : this.vminLabel;
                     _showCbValPopup(labelEl, which,
                         () => { const w = this.opts.getWindow(); return which === 'vmin' ? w.vmin : w.vmax; },
                         (v) => {
@@ -11777,22 +11818,22 @@
                             else this.opts.setWindow(w.vmin, v);
                             this.draw();
                             if (this.opts.onWindowChange) this.opts.onWindowChange();
-                        }
+                        },
+                        this,
+                        // Tab jumps straight to editing the other bound.
+                        otherLabelEl ? () => _editLabel(otherLabelEl, otherWhich) : null
                     );
                 };
                 const _bindLabel = (labelEl, which) => {
                     if (!labelEl) return;
                     let clickTimer = null;
                     labelEl.dataset.cbBound = which;
-                    labelEl.addEventListener('mouseenter', () => _showCbBoundHint(labelEl, which, this));
-                    labelEl.addEventListener('mouseleave', _hideCbBoundHint);
                     labelEl.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         if (clickTimer) clearTimeout(clickTimer);
                         clickTimer = setTimeout(() => {
                             clickTimer = null;
-                            _hideCbBoundHint();
                             _editLabel(labelEl, which);
                         }, 260);
                     });
@@ -11800,7 +11841,6 @@
                         e.preventDefault();
                         e.stopPropagation();
                         if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                        _hideCbBoundHint();
                         _toggleCbBoundLock(this, which);
                     });
                 };
@@ -14084,35 +14124,6 @@
             return _cbBoundPolicyLocked(cb, which);
         }
 
-        let _cbBoundHintEl = null;
-        function _showCbBoundHint(anchorEl, which, cb) {
-            if (!anchorEl) return;
-            if (!_cbBoundHintEl) {
-                _cbBoundHintEl = document.createElement('div');
-                _cbBoundHintEl.id = 'cb-bound-hint';
-                document.body.appendChild(_cbBoundHintEl);
-            }
-            const locked = _cbBoundLocked(cb, which);
-            const fixed = _cbBoundPolicyLocked(cb, which);
-            _cbBoundHintEl.textContent = `single click  edit\ndouble click  ${fixed ? 'fixed by mode' : (locked ? 'unlock' : 'lock')}`;
-            _cbBoundHintEl.classList.remove('visible');
-            _cbBoundHintEl.style.visibility = 'hidden';
-            const rect = anchorEl.getBoundingClientRect();
-            _cbBoundHintEl.style.left = `${rect.left + rect.width / 2}px`;
-            _cbBoundHintEl.style.top = '0px';
-            const hintH = _cbBoundHintEl.offsetHeight || 29;
-            const above = rect.top - hintH - 8;
-            _cbBoundHintEl.style.top = `${above >= 4 ? above : rect.bottom + 8}px`;
-            _cbBoundHintEl.style.visibility = 'visible';
-            requestAnimationFrame(() => {
-                if (_cbBoundHintEl) _cbBoundHintEl.classList.add('visible');
-            });
-        }
-
-        function _hideCbBoundHint() {
-            if (_cbBoundHintEl) _cbBoundHintEl.classList.remove('visible');
-        }
-
         function _toggleCbBoundLock(cb, which) {
             if (cb === _diffCenterCb) _dmenuSetRangeTarget('diff-center');
             else if (_dmenuDiffTargetActive()) _dmenuSetRangeTarget('primary');
@@ -14131,13 +14142,49 @@
             if (cb) cb.updateLabels();
         }
 
+        let _cbLockTipEl = null;
+        function _showCbLockTip(btn) {
+            if (!btn || !btn.dataset.tip) return;
+            if (!_cbLockTipEl) {
+                _cbLockTipEl = document.createElement('div');
+                _cbLockTipEl.id = 'cb-lock-tip';
+                document.body.appendChild(_cbLockTipEl);
+            }
+            _cbLockTipEl.textContent = btn.dataset.tip;
+            if (_cbLockTipEl.classList.contains('visible')) {
+                // Already showing for this hover (e.g. its lock state just
+                // changed under the cursor) — update text/position in place
+                // instead of replaying the fade.
+                const rect = btn.getBoundingClientRect();
+                _cbLockTipEl.style.left = `${rect.left + rect.width / 2}px`;
+                _cbLockTipEl.style.top = `${rect.top - _cbLockTipEl.offsetHeight - 8}px`;
+                return;
+            }
+            _cbLockTipEl.classList.remove('visible');
+            _cbLockTipEl.style.visibility = 'hidden';
+            const rect = btn.getBoundingClientRect();
+            _cbLockTipEl.style.left = `${rect.left + rect.width / 2}px`;
+            _cbLockTipEl.style.top = '0px';
+            const tipH = _cbLockTipEl.offsetHeight || 22;
+            _cbLockTipEl.style.top = `${rect.top - tipH - 8}px`;
+            _cbLockTipEl.style.visibility = 'visible';
+            requestAnimationFrame(() => {
+                if (_cbLockTipEl) _cbLockTipEl.classList.add('visible');
+            });
+        }
+        function _hideCbLockTip() {
+            if (_cbLockTipEl) _cbLockTipEl.classList.remove('visible');
+        }
+
         /** Shared popup editor for vmin/vmax labels across all colorbar types.
          *  @param {Element} anchorEl — the label element to anchor the popup to
          *  @param {string} which — 'vmin' or 'vmax'
          *  @param {function} getValue — () => current value
          *  @param {function} onCommit — (newValue) => apply the value
+         *  @param {object} cb — owning ColorBar instance, for the lock toggle
+         *  @param {function} [onTab] — called after committing, to open the editor for the other bound
          */
-        function _showCbValPopup(anchorEl, which, getValue, onCommit) {
+        function _showCbValPopup(anchorEl, which, getValue, onCommit, cb, onTab) {
             const curVal = getValue();
             if (curVal == null) return;
             // Remove any existing popup
@@ -14157,7 +14204,51 @@
             input.className = 'slim-cb-val-input';
             input.value = parseFloat(curVal.toPrecision(6));
             popup.appendChild(label);
+            const lockBtn = document.createElement('button');
+            lockBtn.type = 'button';
+            lockBtn.className = 'cb-val-lock-btn';
+            // Same padlock glyph as the range menu's bound-lock control
+            // (.dmenu-bound-lock) — open/closed shackle drawn per state
+            // rather than faked with a CSS transform.
+            const _lockIconHtml = (locked) => '<span class="dmenu-bound-lock" aria-hidden="true">'
+                + '<svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect>'
+                + `<path d="${locked ? 'M7 11V7a5 5 0 0 1 10 0v4' : 'M7 11V7a5 5 0 0 1 9.9-1'}"></path></svg></span>`;
+            const fixed = _cbBoundPolicyLocked(cb, which);
+            const _syncLockBtn = () => {
+                const locked = _cbBoundLocked(cb, which);
+                lockBtn.innerHTML = _lockIconHtml(locked);
+                lockBtn.classList.toggle('locked', locked);
+                lockBtn.setAttribute('aria-pressed', String(locked));
+                lockBtn.dataset.tip = fixed ? 'Fixed by mode' : `Click to ${locked ? 'unlock' : 'lock'} (or double-click the value)`;
+                lockBtn.setAttribute('aria-label', `${which}${locked ? ', locked' : ''}`);
+            };
+            _syncLockBtn();
+            if (fixed) {
+                lockBtn.classList.add('fixed');
+                lockBtn.disabled = true;
+            } else {
+                // Prevent the mousedown from blurring (and thus committing/
+                // closing) the input before the click can toggle the lock.
+                lockBtn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+                lockBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _toggleCbBoundLock(cb, which);
+                    _syncLockBtn();
+                    _showCbLockTip(lockBtn); // refresh tooltip text if already showing
+                });
+            }
+            let _lockTipTimer = null;
+            lockBtn.addEventListener('mouseenter', () => {
+                if (_lockTipTimer) clearTimeout(_lockTipTimer);
+                _lockTipTimer = setTimeout(() => _showCbLockTip(lockBtn), 300);
+            });
+            lockBtn.addEventListener('mouseleave', () => {
+                if (_lockTipTimer) { clearTimeout(_lockTipTimer); _lockTipTimer = null; }
+                _hideCbLockTip();
+            });
             popup.appendChild(input);
+            popup.appendChild(lockBtn);
             wrap.appendChild(popup);
             document.body.appendChild(wrap);
             // Measure natural size, then apply balloon clip-path
@@ -14196,9 +14287,12 @@
             function _cleanup() {
                 if (_done) return;
                 _done = true;
+                if (_lockTipTimer) clearTimeout(_lockTipTimer);
+                _hideCbLockTip();
                 wrap.remove();
             }
             function _commit() {
+                if (_done) return;
                 const v = parseFloat(input.value);
                 if (!isNaN(v)) onCommit(v);
                 _cleanup();
@@ -14207,6 +14301,13 @@
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') { e.preventDefault(); _commit(); }
                 else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
+                else if (e.key === 'Tab' && onTab) {
+                    // Jump straight to the other bound's editor instead of
+                    // tabbing out of the popup into the page.
+                    e.preventDefault();
+                    _commit();
+                    onTab();
+                }
                 e.stopPropagation();
             });
             input.addEventListener('blur', _commit);
