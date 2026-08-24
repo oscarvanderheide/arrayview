@@ -37388,12 +37388,13 @@
                 if (!at) return;
                 const sample = _compareCenterSample(at.fx, at.fy);
                 if (sample && _compareDiffPiEl) {
-                    _showComparePaneInfo(_compareDiffPiEl, _diffCvForXhair, at.fx, at.fy, sample, _compareCenterContext());
+                    _showComparePaneInfo(_compareDiffPiEl, sample, _compareCenterContext());
                 } else if (diffMode > 0) {
                     _debouncedHoverPrefetch();
                 }
                 _mirrorCompareHover(at.fx, at.fy, -1);
             });
+            _wireHoverInfoDblClick(_diffCvForXhair);
             _diffCvForXhair.addEventListener('mouseleave', () => {
                 hideCompareCrosshairs();
                 _hideComparePaneInfo();
