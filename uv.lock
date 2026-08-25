@@ -198,7 +198,7 @@ wheels = [
 
 [[package]]
 name = "arrayview"
-version = "0.43.4"
+version = "0.44.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
