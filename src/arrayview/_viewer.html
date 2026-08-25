@@ -10842,6 +10842,30 @@
          * @param {Object} [opts.adoptDOM] — reuse existing DOM elements instead of creating new ones
          *     { wrap, canvas, vminLabel, vmaxLabel, triZone, triVmin, triVmax, colWrap, tooltip }
          */
+        /** Window bounds as fractions of the histogram's own data range, for
+         *  drawing the window indicator on the colorbar. Clamped to [0,1] —
+         *  but when the window has slid entirely off one side (both bounds
+         *  would clamp to the same point), that collapses the indicator to
+         *  a 0-width sliver, which reads as "the window shrank" rather than
+         *  "it's still full width, just off to the side." Pin a small
+         *  fixed-size marker at that edge instead. */
+        function _bcWindowFractions(histData, win) {
+            if (!histData || !win) return { vminFrac: 0, vmaxFrac: 1 };
+            const { vmin: dmin, vmax: dmax } = histData;
+            const range = dmax - dmin || 1;
+            let vminFrac = (win.vmin - dmin) / range;
+            let vmaxFrac = (win.vmax - dmin) / range;
+            const OFFSCREEN_MARKER = 0.03;
+            if (vmaxFrac <= 0) {
+                vminFrac = 0; vmaxFrac = OFFSCREEN_MARKER;
+            } else if (vminFrac >= 1) {
+                vminFrac = 1 - OFFSCREEN_MARKER; vmaxFrac = 1;
+            } else {
+                vminFrac = Math.max(0, Math.min(1, vminFrac));
+                vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
+            }
+            return { vminFrac, vmaxFrac };
+        }
         class ColorBar {
             constructor(opts) {
                 this.opts = opts;
@@ -11201,18 +11225,7 @@
                 ctx.scale(dpr, dpr);
 
                 // Compute animated window fractions (same logic as horizontal draw)
-                let vminFrac = 0, vmaxFrac = 1;
-                if (this._histData) {
-                    const { vmin: dmin, vmax: dmax } = this._histData;
-                    const range = dmax - dmin || 1;
-                    const win = this.opts.getWindow();
-                    vminFrac = (win.vmin - dmin) / range;
-                    vmaxFrac = (win.vmax - dmin) / range;
-                    // Snap to the data extrema so the dim check doesn't flag a
-                    // 1-pixel sliver when the window sits at full range.
-                    vminFrac = Math.max(0, Math.min(1, vminFrac));
-                    vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
-                }
+                const { vminFrac, vmaxFrac } = _bcWindowFractions(this._histData, this._histData ? this.opts.getWindow() : null);
                 if (this._dragActive) {
                     this._winVminF = vminFrac;
                     this._winVmaxF = vmaxFrac;
@@ -11342,18 +11355,7 @@
                 ctx.scale(dpr, dpr);
 
                 // Compute target window fractions in data range
-                let vminFrac = 0, vmaxFrac = 1;
-                if (this._histData) {
-                    const { vmin: dmin, vmax: dmax } = this._histData;
-                    const range = dmax - dmin || 1;
-                    const win = this.opts.getWindow();
-                    vminFrac = (win.vmin - dmin) / range;
-                    vmaxFrac = (win.vmax - dmin) / range;
-                    // Snap to the data extrema so the dim check doesn't flag a
-                    // 1-pixel sliver when the window sits at full range.
-                    vminFrac = Math.max(0, Math.min(1, vminFrac));
-                    vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
-                }
+                const { vminFrac, vmaxFrac } = _bcWindowFractions(this._histData, this._histData ? this.opts.getWindow() : null);
 
                 if (this._snapWindowFractions) {
                     this._snapWindowFractions = false;
