@@ -593,6 +593,11 @@
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
+        .dim-hover-idx {
+            font-size: 0.68em; font-weight: normal; opacity: 1;
+            color: var(--dim-hover, #777);
+            -webkit-text-fill-color: var(--dim-hover, #777);
+        }
         .active-dim { font-weight: bold; }
         .playing-dim { font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
@@ -944,9 +949,18 @@
             opacity: 1;
             transform: translateY(0);
         }
-        #info.dimbar-expanded .spatial-dim.dim-label {
+        /* Only the axis letter (x/y/z) itself is purple — the slash and
+         * size/hover-position after it dim the same way as any other dim's
+         * does, not tinted purple (a plain color on .dim-hover-idx wouldn't
+         * be enough to override an inherited -webkit-text-fill-color). */
+        #info .dim-axis-letter {
             color: var(--spatial-dim);
             -webkit-text-fill-color: var(--spatial-dim);
+        }
+        #info .active-dim .dim-axis-letter,
+        #info .playing-dim .dim-axis-letter {
+            color: inherit;
+            -webkit-text-fill-color: inherit;
         }
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
@@ -2017,29 +2031,36 @@
             from { opacity: 0; }
             to { opacity: 1; }
         }
+        /* Single-line readout, sized to the colorbar strip (18px, matches
+         * CB_COLLAPSED_H) — shared by the pixel-info and colorbar hovers. */
         .eggs-value-pill {
-            display: flex; flex-direction: column; align-items: center; gap: 1px;
-            box-sizing: border-box; min-width: 16ch;
+            display: flex; flex-direction: row; align-items: center; gap: 5px;
+            box-sizing: border-box; height: 18px; padding: 0 7px;
+            justify-content: center; border-radius: 4px;
             color: var(--active-dim);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 11px; line-height: 1.3; letter-spacing: 0.01em;
+            font-size: 11px; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums; white-space: nowrap;
-            padding: 4px 8px; border-radius: 9px;
             background-color: rgba(30, 30, 30, 0.75);
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
             border: 1px solid rgba(255, 255, 255, 0.08);
             pointer-events: none;
             animation: percentile-preset-fade-in 120ms ease-out both;
         }
-        .eggs-pill-coords { color: var(--muted); font-size: 10px; }
+        /* Icon disambiguates which readout this is — pixel-info vs colorbar
+         * hover — since both share this same pill. Both icon spans are
+         * always in the markup; the "hist" kind class swaps which one
+         * shows, so no JS DOM surgery is needed. */
+        .eggs-pill-icon { display: flex; flex: 0 0 auto; color: var(--muted); opacity: 0.85; }
+        /* The crosshair's sparse shape (thin ticks, small dot) reads much
+         * fainter than the histogram's solid bars at the same color/opacity
+         * even though both are filled shapes — so it gets a brighter color
+         * of its own instead of the shared muted tone. */
+        .eggs-pill-icon-info { color: var(--text); opacity: 1; }
+        .eggs-pill-icon-hist { display: none; }
+        .eggs-value-pill.eggs-pill-hist .eggs-pill-icon-info { display: none; }
+        .eggs-value-pill.eggs-pill-hist .eggs-pill-icon-hist { display: flex; }
         .eggs-pill-value { text-align: center; }
-        /* Colorbar hover-value readout: same pill, but single-line (no coords
-         * row) — size it to the colorbar strip (18px, matches CB_COLLAPSED_H)
-         * and its corner radius instead of the two-line pixel-info sizing. */
-        .eggs-value-pill.eggs-pill-compact {
-            min-width: 0; height: 18px; padding: 0 7px;
-            justify-content: center; border-radius: 4px;
-        }
         :root.light .eggs-value-pill { background-color: rgba(240, 240, 240, 0.8); }
         /* Per-pane pixel-value pill (compare / qMRI): sits at a fixed spot
            inside its own pane instead of following the cursor, so several
@@ -6874,10 +6895,28 @@
         function _signPad(text) {
             return (typeof text === 'string' && text && text[0] !== '-') ? ' ' + text : text;
         }
-        let _eggsValuePill = null; // { value, coords } | null — colorbar/pixel hover, shown in the fixed dots spot
+        // Simple geometric glyphs (not freehand line art) so they stay legible at 10px:
+        // a crosshair for the pixel-value readout, ascending bars for the colorbar
+        // readout. Solid filled shapes, not thin outline strokes — a stroked
+        // circle at this size read as almost invisible, so this uses the same
+        // filled-shape weight as the histogram icon's bars.
+        const EGGS_ICON_INFO = '<svg viewBox="0 0 12 12" width="10" height="10">'
+            + '<rect x="5.2" y="0.4" width="1.6" height="3" fill="currentColor"/>'
+            + '<rect x="5.2" y="8.6" width="1.6" height="3" fill="currentColor"/>'
+            + '<rect x="0.4" y="5.2" width="3" height="1.6" fill="currentColor"/>'
+            + '<rect x="8.6" y="5.2" width="3" height="1.6" fill="currentColor"/>'
+            + '<circle cx="6" cy="6" r="1.1" fill="currentColor"/>'
+            + '</svg>';
+        const EGGS_ICON_HIST = '<svg viewBox="0 0 12 12" width="10" height="10">'
+            + '<rect x="0.6" y="7.2" width="2.1" height="4.2" fill="currentColor"/>'
+            + '<rect x="3.7" y="4.6" width="2.1" height="6.8" fill="currentColor"/>'
+            + '<rect x="6.8" y="1.6" width="2.1" height="9.8" fill="currentColor"/>'
+            + '<rect x="9.9" y="5.6" width="2.1" height="5.8" fill="currentColor"/>'
+            + '</svg>';
+        let _eggsValuePill = null; // { value, kind } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
         let _eggsValuePillFadeTimer = null;
-        function _setEggsValuePill(value, coordText, anchorEl, minWidthCh) {
+        function _setEggsValuePill(value, kind, anchorEl, minWidthCh) {
             // The leading-space sign pad exists to keep width stable when the
             // sign flips — not needed (and actively off-centering) once the
             // width is already pinned to minWidthCh; text-align does the
@@ -6892,11 +6931,11 @@
                 return;
             }
             _eggsValuePillAnchor = anchorEl || null;
-            const coords = coordText || '';
-            if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.coords === coords
+            kind = kind || 'info';
+            if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.kind === kind
                 && _eggsValuePill.minWidthCh === minWidthCh) return;
             const entering = _eggsValuePill === null;
-            _eggsValuePill = { value, coords, minWidthCh: minWidthCh || null };
+            _eggsValuePill = { value, kind, minWidthCh: minWidthCh || null };
             if (_percentilePresetOverlay) return; // picker owns the spot
             const eggs = document.getElementById('mode-eggs');
             // Crossfade past any mode pills (FFT/LOG/...) the first time hover
@@ -8325,6 +8364,12 @@
          *  literally x/y (e.g. a sagittal pane is y/z). */
         function _mvAxisLabel(dimIdx) {
             const pos = Array.isArray(mvDims) ? mvDims.indexOf(dimIdx) : -1;
+            return pos >= 0 ? ['x', 'y', 'z'][pos] : '?';
+        }
+        /** Same as _mvAxisLabel, for a qMRI+orthoview pane — each pane has its
+         *  own dimX/dimY, but the dimbar's x/y/z labels come from qmriMvDims. */
+        function _qmriMvAxisLabel(dimIdx) {
+            const pos = Array.isArray(qmriMvDims) ? qmriMvDims.indexOf(dimIdx) : -1;
             return pos >= 0 ? ['x', 'y', 'z'][pos] : '?';
         }
 
@@ -12035,7 +12080,7 @@
                                 const stableCh = boundChars.length ? Math.max(...boundChars) : null;
                                 _setEggsValuePill(
                                     _cbFmtPlain(hoverVal, null, hoverFormatter),
-                                    '',
+                                    'hist',
                                     this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null,
                                     stableCh
                                 );
@@ -16564,8 +16609,9 @@
                 let pill = el.querySelector('.eggs-value-pill');
                 if (!pill) {
                     el.innerHTML = '<div class="eggs-value-pill">'
+                        + '<span class="eggs-pill-icon eggs-pill-icon-info">' + EGGS_ICON_INFO + '</span>'
+                        + '<span class="eggs-pill-icon eggs-pill-icon-hist">' + EGGS_ICON_HIST + '</span>'
                         + '<div class="eggs-pill-value"></div>'
-                        + '<div class="eggs-pill-coords"></div>'
                         + '</div>';
                     pill = el.querySelector('.eggs-value-pill');
                 }
@@ -16575,10 +16621,7 @@
                 // pill's own padding — so the padding stays constant and only
                 // the text column grows to fit the widest bound.
                 valueEl.style.minWidth = _eggsValuePill.minWidthCh ? _eggsValuePill.minWidthCh + 'ch' : '';
-                const coordsEl = pill.querySelector('.eggs-pill-coords');
-                coordsEl.textContent = _eggsValuePill.coords;
-                coordsEl.style.display = _eggsValuePill.coords ? '' : 'none';
-                pill.classList.toggle('eggs-pill-compact', !_eggsValuePill.coords);
+                pill.classList.toggle('eggs-pill-hist', _eggsValuePill.kind === 'hist');
                 positionEggs();
                 renderIsland();
                 return;
@@ -16864,6 +16907,7 @@
             if (!['circle', 'rect', 'freehand', 'floodfill'].includes(_roiShape)) _roiShape = 'circle';
             _roiVisible = true;
             hideAllPixelInfo();
+            _resetDimbarHover();
             canvas.style.cursor = 'crosshair';
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
             if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
@@ -19608,7 +19652,7 @@
                         const sizeId = label === 'x' ? ' id="dim-x-size"' : label === 'y' ? ' id="dim-y-size"' : label === 'z' ? ' id="dim-z-size"' : '';
                         const prefix = flipDims[i] ? '<span class="dim-flip-sign">-</span>' : '';
                         const cls = (active || playing) ? `spatial-dim ${dimCls} dim-label` : 'spatial-dim dim-label';
-                        return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
+                        return `<span class="${cls}" ${d}>${prefix}<span class="dim-axis-letter">${label}</span><span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
@@ -19618,18 +19662,18 @@
                 }
                 if (i === dim_x) {
                     const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + 'x' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
+                    const inner = sign + '<span class="dim-axis-letter">x</span>' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + 'y' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
+                    const inner = sign + '<span class="dim-axis-letter">y</span>' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
-                    const inner = `z<span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${sizeOf(i)}</span>`;
+                    const inner = `<span class="dim-axis-letter">z</span><span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
@@ -20541,61 +20585,95 @@
             if (el === mainLoupeInfo) _positionMainLoupeInfo(cx, cy);
             else _positionPixelInfo(el, cx, cy);
         }
-        /** Format a pixel's coordinates as a pill's dimmed second line,
-         *  matching what the old near-cursor hover card showed. Pass explicit
-         *  axis letters for orthoview, where a pane's two screen axes aren't
-         *  always literally x/y. */
-        function _coordText(rawX, rawY, xLabel, yLabel) {
-            if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return '';
-            return `${xLabel || 'x'}=${rawX} ${yLabel || 'y'}=${rawY}`;
-        }
-
         /** Route a hovered pixel value to the loupe's own card while the loupe
          *  is active, or to the fixed dots-spot pill otherwise. */
-        function _showMainPixelValue(payload, cx, cy) {
+        function _showMainPixelValue(payload, cx, cy, minWidthCh) {
             if (_mainLoupeInspecting() && mainLoupeInfo && _mainLoupeEligible()) {
                 showPixelInfo(mainLoupeInfo, payload, cx, cy);
                 return;
             }
             if (!_pixelInfoActive()) return;
             const valueText = (payload && typeof payload === 'object') ? String(payload.valueText ?? '') : String(payload ?? '');
-            const rawX = payload && typeof payload === 'object' ? payload.rawX : undefined;
-            const rawY = payload && typeof payload === 'object' ? payload.rawY : undefined;
-            _setEggsValuePill(valueText, _coordText(rawX, rawY), null);
+            _setEggsValuePill(valueText, 'info', null, minWidthCh);
         }
 
         /** Per-pane pixel value, fixed at a stable spot inside `el`'s own pane
          *  (compare / qMRI) instead of following the cursor — several panes
          *  can each show their own pill at once. */
-        function _showPanePixelPill(el, value, coordText) {
+        function _showPanePixelPill(el, value, minWidthCh) {
             if (!el) return;
             if (!_pixelInfoActive() || value == null) {
                 el.style.display = 'none';
                 return;
             }
-            value = _signPad(value);
-            const coords = coordText || '';
+            // See _setEggsValuePill: skip the sign pad once width is pinned —
+            // text-align does the centering instead.
+            value = minWidthCh ? value : _signPad(value);
             // Update the existing pill's text in place rather than rebuilding
             // it — replacing the node on every value restarts its fade-in
             // animation, which is what was flickering on every mousemove.
             let pill = el.querySelector('.eggs-value-pill');
             if (!pill) {
                 el.innerHTML = '<div class="eggs-value-pill">'
+                    + '<span class="eggs-pill-icon eggs-pill-icon-info">' + EGGS_ICON_INFO + '</span>'
                     + '<div class="eggs-pill-value"></div>'
-                    + '<div class="eggs-pill-coords"></div>'
                     + '</div>';
                 pill = el.querySelector('.eggs-value-pill');
             }
-            pill.querySelector('.eggs-pill-value').textContent = value;
-            const coordsEl = pill.querySelector('.eggs-pill-coords');
-            coordsEl.textContent = coords;
-            coordsEl.style.display = coords ? '' : 'none';
+            const valueEl = pill.querySelector('.eggs-pill-value');
+            valueEl.textContent = value;
+            valueEl.style.minWidth = minWidthCh ? minWidthCh + 'ch' : '';
             el.classList.add('pane-pixel-pill');
             el.style.display = 'block';
         }
         function _hidePanePixelPill(el) {
             if (!el) return;
             el.style.display = 'none';
+        }
+
+        /** Show the hovered pixel's x/y position in place of the dimbar's
+         *  normal max-size readout (right of the "/"), so the position is
+         *  visible there instead of repeated in every pane's pill. */
+        function _dimHoverPadded(val, maxVal, withSlash) {
+            const maxStr = String(maxVal);
+            const valStr = String(val);
+            const padLen = maxStr.length - valStr.length;
+            const slash = withSlash ? '/' : '';
+            if (padLen <= 0) return slash + valStr;
+            return slash + '<span style="opacity:0.28">' + '0'.repeat(padLen) + '</span>' + valStr;
+        }
+        function _updateDimbarHover(px, py, xLabel, yLabel, pz) {
+            // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
+            // pz: optional z index (for mosaic mode)
+            const xl = xLabel || 'x', yl = yLabel || 'y';
+            const xEl = document.getElementById('dim-' + xl + '-size');
+            const yEl = document.getElementById('dim-' + yl + '-size');
+            const zEl = document.getElementById('dim-z-size');
+            // Resolve label to shape dim index for padding width
+            const activeDims = multiViewActive ? mvDims
+                : compareMvActive ? compareMvDims
+                : qmriMvActive ? qmriMvDims
+                : null;
+            const labelToDim = activeDims
+                ? { x: activeDims[0], y: activeDims[1], z: activeDims[2] }
+                : { x: dim_x, y: dim_y, z: dim_z };
+            const xMax = labelToDim[xl] >= 0 ? shape[labelToDim[xl]] : 1;
+            const yMax = labelToDim[yl] >= 0 ? shape[labelToDim[yl]] : 1;
+            // In expanded mode the normal .dim-slash sibling is already
+            // visible, so the hover text only needs its own "/" in compact
+            // mode, where that sibling is collapsed.
+            const info = document.getElementById('info');
+            const withSlash = !info || !info.classList.contains('dimbar-expanded');
+            if (xEl) { xEl.innerHTML = _dimHoverPadded(px, xMax, withSlash); xEl.className = 'dim-hover-idx'; }
+            if (yEl) { yEl.innerHTML = _dimHoverPadded(py, yMax, withSlash); yEl.className = 'dim-hover-idx'; }
+            if (zEl && pz != null) {
+                const zMax = dim_z >= 0 ? shape[dim_z] : 1;
+                zEl.innerHTML = _dimHoverPadded(pz + 1, zMax, withSlash); zEl.className = 'dim-hover-idx';
+            }
+        }
+        function _resetDimbarHover() {
+            // Re-render dimbar to restore correct max sizes for all modes
+            renderInfo();
         }
 
         /** Mirror a hovered qMRI voxel's value onto every other visible map
@@ -20617,10 +20695,12 @@
                 // pane per mousemove, matching how compare mode's own pane
                 // mirroring (_mirrorCompareHover) reads its cache.
                 const cached = _getCachedHoverSlice(sidForFetch, dimX, dimY, qIndices, v.qmriRole);
+                const vCtx = _activeNumericContext(v);
                 if (cached && cached.w > 0 && cached.h > 0 && px < cached.w && py < cached.h) {
                     const value = cached.slice[py * cached.w + px];
                     if (Number.isFinite(value)) {
-                        _showPanePixelPill(v.pixelInfoEl, _pixelFmt(value, _activeNumericContext(v)), _coordText(px, py));
+                        const fmt = _pixelHoverFormat(value, vCtx);
+                        _showPanePixelPill(v.pixelInfoEl, fmt.text, fmt.stableCh);
                         return;
                     }
                 }
@@ -20636,7 +20716,8 @@
                 proxyFetch('/pixel/' + sidForFetch + '?' + params)
                     .then(r => r.ok ? r.json() : null).then(rd => {
                         if (!rd || !_pixelInfoActive() || !_acceptPixelReply(v, seq)) return;
-                        _showPanePixelPill(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), _coordText(px, py));
+                        const fmt = _pixelHoverFormat(rd.value, vCtx);
+                        _showPanePixelPill(v.pixelInfoEl, fmt.text, fmt.stableCh);
                     });
             });
         }
@@ -20674,6 +20755,20 @@
                 ? [view.displayState.vmin, view.displayState.vmax]
                 : [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
             return vals.filter(Number.isFinite);
+        }
+        /** Format a hovered pixel value with decimals fixed by the numeric
+         *  context (the display range's bounds) alone, not the hovered value
+         *  itself — same technique as the colorbar hover's own formatter —
+         *  so the pill's width and precision are known upfront instead of
+         *  discovered pixel by pixel as the cursor moves. Also returns the
+         *  widest either bound could print, to reserve the pill's width. */
+        function _pixelHoverFormat(value, contextValues) {
+            const ctx = Array.isArray(contextValues) ? contextValues.filter(Number.isFinite) : [];
+            if (!ctx.length) return { text: _pixelFmt(value), stableCh: null };
+            const formatter = formatValueGroup(ctx, { maxDecimals: 7, minDecimals: 3 });
+            const text = formatter.format(value);
+            const stableCh = Math.max(...ctx.map(v => _signPad(formatter.format(v)).length));
+            return { text, stableCh };
         }
         function fetchPixelInfo(opts) {
             if (rectRoiMode) {
@@ -24410,7 +24505,9 @@
                     if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
                         const val = cached.slice[rawY * cached.w + rawX];
                         if (Number.isFinite(val)) {
-                            _showMainPixelValue({ valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
+                            const fmt = _pixelHoverFormat(val, _activeNumericContext());
+                            _showMainPixelValue({ valueText: fmt.text, rawX, rawY }, e.clientX, e.clientY, fmt.stableCh);
+                            _updateDimbarHover(localX, localY, null, null, zIdx);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -24435,7 +24532,9 @@
                             if (_mpGen !== _mainPixelInfoGen) return;
                             const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
-                            _showMainPixelValue({ valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
+                            const fmt = _pixelHoverFormat(d.value, _activeNumericContext());
+                            _showMainPixelValue({ valueText: fmt.text, rawX, rawY }, _lastMouseX, _lastMouseY, fmt.stableCh);
+                            _updateDimbarHover(localX, localY, null, null, zIdx);
                         }).catch(() => {});
                 }
                 return;
@@ -24452,7 +24551,9 @@
                 imgH: canvas.height,
                 displayEl: null,
                 onResult: (d, rawX, rawY) => {
-                    _showMainPixelValue({ valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, _lastMouseX, _lastMouseY);
+                    const fmt = _pixelHoverFormat(d.value, _activeNumericContext());
+                    _showMainPixelValue({ valueText: fmt.text, rawX, rawY }, _lastMouseX, _lastMouseY, fmt.stableCh);
+                    if (_pixelInfoActive() && !multiViewActive && !compareActive) _updateDimbarHover(rawX, rawY);
                 },
             });
         }
@@ -25270,6 +25371,7 @@
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
+                        _resetDimbarHover();
                     } else {
                         // Pre-fetch raw slice(s) for instant local lookups
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
@@ -31793,11 +31895,14 @@
                             // Anchor to the pane actually being hovered rather
                             // than the mode's default pane, so the pill tracks
                             // the cursor instead of appearing in another pane.
+                            const mvFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
                             _setEggsValuePill(
-                                _pixelFmt(d.value, _activeNumericContext(view)),
-                                _coordText(rawX, rawY, _mvAxisLabel(view.dimX), _mvAxisLabel(view.dimY)),
-                                cv
+                                mvFmt.text,
+                                'info',
+                                cv,
+                                mvFmt.stableCh
                             );
+                            _updateDimbarHover(rawX, rawY, _mvAxisLabel(view.dimX), _mvAxisLabel(view.dimY));
                         },
                     });
                 });
@@ -31811,6 +31916,7 @@
                     _roiSuppressPixelInfo = false;
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                     if (!mvDraggingView) _setEggsValuePill(null);
+                    if (_pixelInfoActive()) _resetDimbarHover();
                 });
                 // Click-to-copy: multiview canvases
                 let _mvClickDown = null;
@@ -33081,8 +33187,10 @@
                             view,
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
-                                _showPanePixelPill(view.pixelInfoEl, _pixelFmt(d.value, _activeNumericContext(view)), _coordText(px, py));
+                                const qFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
+                                _showPanePixelPill(view.pixelInfoEl, qFmt.text, qFmt.stableCh);
                                 _mirrorQmriPixelHover(qmriViews, view, qmriDim, indices, px, py, dim_x, dim_y, sid);
+                                _updateDimbarHover(px, py);
                             },
                         });
                     });
@@ -33096,6 +33204,7 @@
                     // were hidden and shows them again with nothing hovered.
                     _invalidatePixelKey(cv);
                     qmriViews.forEach(v => { _invalidatePixelKey(v); _hidePanePixelPill(v.pixelInfoEl); });
+                    if (_pixelInfoActive()) _resetDimbarHover();
                 });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
@@ -35112,8 +35221,10 @@
                             qmriRole: view.qmriRole,
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
-                                _showPanePixelPill(view.pixelInfoEl, _pixelFmt(d.value, _activeNumericContext(view)), _coordText(px, py));
+                                const qmFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
+                                _showPanePixelPill(view.pixelInfoEl, qmFmt.text, qmFmt.stableCh);
                                 _mirrorQmriPixelHover(qmriMvViews, view, qmriDim, indices, px, py, view.dimX, view.dimY, sid);
+                                _updateDimbarHover(px, py, _qmriMvAxisLabel(view.dimX), _qmriMvAxisLabel(view.dimY));
                             },
                         });
                     });
@@ -35124,7 +35235,8 @@
                         // a server round-trip, so a late reply can reopen a pill
                         // after the cursor has already left unless invalidated.
                         _invalidatePixelKey(cv);
-                        qmriMvViews.forEach(v => { _invalidatePixelKey(v); if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        qmriMvViews.forEach(v => { _invalidatePixelKey(v); _hidePanePixelPill(v.pixelInfoEl); });
+                        if (_pixelInfoActive()) _resetDimbarHover();
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
@@ -37468,7 +37580,8 @@
 
         /** Show a mirrored readout in `piEl`'s own fixed pane-pill spot. */
         function _showComparePaneInfo(piEl, sample, contextValues) {
-            _showPanePixelPill(piEl, _pixelFmt(sample.value, contextValues), _coordText(sample.rawX, sample.rawY));
+            const fmt = _pixelHoverFormat(sample.value, contextValues);
+            _showPanePixelPill(piEl, fmt.text, fmt.stableCh);
         }
 
         function _compareCenterContext() {
@@ -37528,9 +37641,10 @@
                     contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
                     displayEl: null,
                     onResult: (d, rawX, rawY) => {
-                        _showPanePixelPill(piEl, _pixelFmt(d.value,
-                            [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite)),
-                            _coordText(rawX, rawY));
+                        const cmpCtx = [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite);
+                        const cmpFmt = _pixelHoverFormat(d.value, cmpCtx);
+                        _showPanePixelPill(piEl, cmpFmt.text, cmpFmt.stableCh);
+                        if (_pixelInfoActive()) _updateDimbarHover(rawX, rawY);
                         // Show the value on every other pane — including the
                         // centre diff pane — at the same image fraction.
                         const at = _compareHoverFraction(cv, e);
@@ -37542,6 +37656,7 @@
             cv.addEventListener('mouseleave', () => {
                 _hideComparePaneInfo();
                 hideCompareCrosshairs();
+                if (_pixelInfoActive()) _resetDimbarHover();
             });
          });
         // Click-to-copy: compare canvases
