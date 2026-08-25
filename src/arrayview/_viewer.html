@@ -505,7 +505,7 @@
             cursor: pointer; box-sizing: border-box;
             display: inline-flex; align-items: center; justify-content: center;
             height: 18px; /* matches .cb-col — the colorbar's own height */
-            border-radius: 9px;
+            border-radius: 4px; /* matches .cb-canvas's own corner radius (3px) */
             padding: 0 6px; margin: 0 -6px;
             transition: color 140ms ease, opacity 140ms ease, background 120ms ease;
         }
@@ -2032,6 +2032,14 @@
             animation: percentile-preset-fade-in 120ms ease-out both;
         }
         .eggs-pill-coords { color: var(--muted); font-size: 10px; }
+        .eggs-pill-value { text-align: center; }
+        /* Colorbar hover-value readout: same pill, but single-line (no coords
+         * row) — size it to the colorbar strip (18px, matches CB_COLLAPSED_H)
+         * and its corner radius instead of the two-line pixel-info sizing. */
+        .eggs-value-pill.eggs-pill-compact {
+            min-width: 0; height: 18px; padding: 0 7px;
+            justify-content: center; border-radius: 4px;
+        }
         :root.light .eggs-value-pill { background-color: rgba(240, 240, 240, 0.8); }
         /* Per-pane pixel-value pill (compare / qMRI): sits at a fixed spot
            inside its own pane instead of following the cursor, so several
@@ -6869,8 +6877,12 @@
         let _eggsValuePill = null; // { value, coords } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
         let _eggsValuePillFadeTimer = null;
-        function _setEggsValuePill(value, coordText, anchorEl) {
-            value = _signPad(value);
+        function _setEggsValuePill(value, coordText, anchorEl, minWidthCh) {
+            // The leading-space sign pad exists to keep width stable when the
+            // sign flips — not needed (and actively off-centering) once the
+            // width is already pinned to minWidthCh; text-align does the
+            // centering instead, so skip it in that case.
+            value = minWidthCh ? value : _signPad(value);
             if (value == null) {
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
@@ -6881,9 +6893,10 @@
             }
             _eggsValuePillAnchor = anchorEl || null;
             const coords = coordText || '';
-            if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.coords === coords) return;
+            if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.coords === coords
+                && _eggsValuePill.minWidthCh === minWidthCh) return;
             const entering = _eggsValuePill === null;
-            _eggsValuePill = { value, coords };
+            _eggsValuePill = { value, coords, minWidthCh: minWidthCh || null };
             if (_percentilePresetOverlay) return; // picker owns the spot
             const eggs = document.getElementById('mode-eggs');
             // Crossfade past any mode pills (FFT/LOG/...) the first time hover
@@ -11997,18 +12010,34 @@
                         const dmenuOpen = typeof _dmenuPickerOpen !== 'undefined' && _dmenuPickerOpen;
                         if (this.opts.hoverValueInEggs) {
                             if (hoverVal != null && !dmenuOpen) {
+                                // Precision is picked from the bounds alone, not the
+                                // hovered value — otherwise the decimal count (and so
+                                // the pill's width) shifts as the cursor moves, even
+                                // between two points that round to the same digits.
                                 const hoverFormatter = this._dragLabelFormatter
                                     || formatValueGroup([
-                                        hoverVal,
                                         this._histData?.vmin,
                                         this._histData?.vmax,
                                         this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
                                         this.opts.getWindow ? this.opts.getWindow()?.vmax : null,
                                     ]);
+                                // Reserve width for the widest value this pill could
+                                // ever show while hovering this bar: the two bounds,
+                                // formatted the same way as the hovered value itself.
+                                // (The vmin/vmax labels' own rendered width can't be
+                                // used here — they carry their own min-width floor,
+                                // so a short bound like "1" reports the same width as
+                                // a long one like "9100" and hides the real spread.)
+                                const win = this.opts.getWindow ? this.opts.getWindow() : null;
+                                const boundChars = [win?.vmin, win?.vmax]
+                                    .filter(Number.isFinite)
+                                    .map(v => _signPad(_cbFmtPlain(v, null, hoverFormatter)).length);
+                                const stableCh = boundChars.length ? Math.max(...boundChars) : null;
                                 _setEggsValuePill(
                                     _cbFmtPlain(hoverVal, null, hoverFormatter),
                                     '',
-                                    this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null
+                                    this.opts.hoverValueAnchor ? this.opts.hoverValueAnchor() : null,
+                                    stableCh
                                 );
                             } else {
                                 _setEggsValuePill(null);
@@ -12016,7 +12045,6 @@
                         } else if (this.tooltip && hoverVal != null && !dmenuOpen) {
                             const hoverFormatter = this._dragLabelFormatter
                                 || formatValueGroup([
-                                    hoverVal,
                                     this._histData?.vmin,
                                     this._histData?.vmax,
                                     this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
@@ -16533,10 +16561,16 @@
                         + '</div>';
                     pill = el.querySelector('.eggs-value-pill');
                 }
-                pill.querySelector('.eggs-pill-value').textContent = _eggsValuePill.value;
+                const valueEl = pill.querySelector('.eggs-pill-value');
+                valueEl.textContent = _eggsValuePill.value;
+                // Reserved in characters (content-box), separately from the
+                // pill's own padding — so the padding stays constant and only
+                // the text column grows to fit the widest bound.
+                valueEl.style.minWidth = _eggsValuePill.minWidthCh ? _eggsValuePill.minWidthCh + 'ch' : '';
                 const coordsEl = pill.querySelector('.eggs-pill-coords');
                 coordsEl.textContent = _eggsValuePill.coords;
                 coordsEl.style.display = _eggsValuePill.coords ? '' : 'none';
+                pill.classList.toggle('eggs-pill-compact', !_eggsValuePill.coords);
                 positionEggs();
                 renderIsland();
                 return;
@@ -20606,6 +20640,13 @@
             if (seq < (key._pixelSeqShown || 0)) return false;
             key._pixelSeqShown = seq;
             return true;
+        }
+        // Reject any reply still in flight for this key — for a mouseleave,
+        // so a slow qMRI pixel fetch that resolves after the cursor is
+        // already gone can't reopen the pill it was hidden alongside.
+        function _invalidatePixelKey(key) {
+            if (!key) return;
+            key._pixelSeqShown = _nextPixelSeq(key);
         }
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
@@ -33025,7 +33066,13 @@
                     _wireHoverInfoDblClick(cv);
                     cv.addEventListener('mouseleave', () => {
                     if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
-                    qmriViews.forEach(v => _hidePanePixelPill(v.pixelInfoEl));
+                    // Every qMRI pixel-value hover is a server round-trip (the
+                    // fast local-cache path is skipped for qmriRole fetches),
+                    // so one can easily still be in flight when the cursor
+                    // leaves. Without this, its reply lands after the pills
+                    // were hidden and shows them again with nothing hovered.
+                    _invalidatePixelKey(cv);
+                    qmriViews.forEach(v => { _invalidatePixelKey(v); _hidePanePixelPill(v.pixelInfoEl); });
                 });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
@@ -33993,6 +34040,10 @@
                     _wireHoverInfoDblClick(cv);
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
+                        // See the plain-qMRI mouseleave above: every hover here is
+                        // a server round-trip, so a late reply can reopen a pill
+                        // after the cursor has already left unless invalidated.
+                        _invalidatePixelKey(cv);
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                     });
                     if (!httpTransport) {
@@ -35046,7 +35097,11 @@
                     _wireHoverInfoDblClick(cv);
                     cv.addEventListener('mouseleave', () => {
                         if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
-                        qmriMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        // See the plain-qMRI mouseleave above: every hover here is
+                        // a server round-trip, so a late reply can reopen a pill
+                        // after the cursor has already left unless invalidated.
+                        _invalidatePixelKey(cv);
+                        qmriMvViews.forEach(v => { _invalidatePixelKey(v); if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
