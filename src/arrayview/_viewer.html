@@ -957,11 +957,6 @@
             color: var(--spatial-dim);
             -webkit-text-fill-color: var(--spatial-dim);
         }
-        #info .active-dim .dim-axis-letter,
-        #info .playing-dim .dim-axis-letter {
-            color: inherit;
-            -webkit-text-fill-color: inherit;
-        }
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
             color: var(--text);
@@ -19705,6 +19700,14 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
+            // A fresh render always starts from plain sizes — if a hover
+            // position was showing, put it right back so scrolling another
+            // dim (or any other reason this re-rendered) doesn't make it
+            // blink away.
+            if (_dimbarHoverState && _pixelInfoActive()) {
+                const s = _dimbarHoverState;
+                _updateDimbarHover(s.px, s.py, s.xLabel, s.yLabel, s.pz);
+            }
             _wireDimbarDblClick(_info);
             _wireQmriHintAnchor();
             _scheduleActiveDimUnderline(_info, 240);
@@ -20631,6 +20634,11 @@
             el.style.display = 'none';
         }
 
+        // Last position shown via _updateDimbarHover, so renderInfo() (called
+        // for unrelated reasons — scrolling another dim, navigation, etc.)
+        // can restore it instead of the dimbar reverting to plain sizes for
+        // one render. Cleared by _resetDimbarHover.
+        let _dimbarHoverState = null;
         /** Show the hovered pixel's x/y position in place of the dimbar's
          *  normal max-size readout (right of the "/"), so the position is
          *  visible there instead of repeated in every pane's pill. */
@@ -20645,6 +20653,7 @@
         function _updateDimbarHover(px, py, xLabel, yLabel, pz) {
             // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
             // pz: optional z index (for mosaic mode)
+            _dimbarHoverState = { px, py, xLabel, yLabel, pz };
             const xl = xLabel || 'x', yl = yLabel || 'y';
             const xEl = document.getElementById('dim-' + xl + '-size');
             const yEl = document.getElementById('dim-' + yl + '-size');
@@ -20673,6 +20682,7 @@
         }
         function _resetDimbarHover() {
             // Re-render dimbar to restore correct max sizes for all modes
+            _dimbarHoverState = null;
             renderInfo();
         }
 
@@ -22872,16 +22882,20 @@
         // Past the deadzone it becomes window/level — the PACS convention for a
         // single 2D view. Ortho and the other multi-view panes have their own
         // canvases and keep left-drag for crosshair navigation.
+        function _bcPromoteToDrag(origin) {
+            _bcPendingDrag = null;
+            if (_pixelInfoHeld) { _pixelInfoHeld = false; hideAllPixelInfo(); }
+            // Anchor to the press origin, not to here, so the window doesn't
+            // jump by the deadzone distance (or, for the hold-still timer
+            // below, not at all) on the first frame.
+            _bcStartDrag({ clientX: origin.startX, clientY: origin.startY });
+        }
         function _bcMaybePromotePending(e) {
             if (!_bcPendingDrag || _bcDrag) return;
             if (!(e.buttons & 1)) { _bcPendingDrag = null; return; }
             const origin = _bcPendingDrag;
             if (Math.hypot(e.clientX - origin.startX, e.clientY - origin.startY) < _BC_DRAG_DEADZONE) return;
-            _bcPendingDrag = null;
-            if (_pixelInfoHeld) { _pixelInfoHeld = false; hideAllPixelInfo(); }
-            // Anchor to the press origin, not to here, so the window doesn't
-            // jump by the deadzone distance on the first frame.
-            _bcStartDrag({ clientX: origin.startX, clientY: origin.startY });
+            _bcPromoteToDrag(origin);
         }
         function _bcEndDrag() {
             _bcPendingDrag = null;
@@ -23024,7 +23038,17 @@
             // Hold left mouse button to activate pixel info readout
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
-                if (_bcCanDrag()) _bcPendingDrag = { startX: e.clientX, startY: e.clientY };
+                if (_bcCanDrag()) {
+                    const pending = _bcPendingDrag = { startX: e.clientX, startY: e.clientY };
+                    // A press held still (never crossing the deadzone) still
+                    // becomes window/level once it's clearly a hold and not a
+                    // quick click — otherwise the HUD only ever showed up
+                    // once the cursor had actually moved.
+                    setTimeout(() => {
+                        if (_bcPendingDrag !== pending || _bcDrag) return;
+                        _bcPromoteToDrag(pending);
+                    }, 150);
+                }
                 // A plain (unmodified) left press is the opening of a
                 // window/level gesture, so the press itself has to clear the
                 // pixel-info hover — waiting until the pointer crosses the
