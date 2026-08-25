@@ -10313,6 +10313,31 @@
                 });
             }, 150);
         }
+        // Same technique as crossfade(), scoped to just the dimbar and its
+        // underline — toggling hover info swaps the dimbar between plain
+        // sizes and hover positions, which can shift layout in compact mode;
+        // fading only the dimbar avoids flashing the whole array view for
+        // what is a frequent, lightweight toggle.
+        let _dimbarFading = false;
+        function _dimbarFadeSwap(fn) {
+            const info = document.getElementById('info');
+            if (!info || _dimbarFading) { fn(); return; }
+            _dimbarFading = true;
+            info.classList.add('mode-fade');
+            const marker = document.getElementById('dim-active-underline');
+            if (marker) marker.classList.add('mode-fade');
+            setTimeout(() => {
+                try { fn(); } catch (e) { console.error(e); }
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        info.classList.remove('mode-fade');
+                        const m = document.getElementById('dim-active-underline');
+                        if (m) m.classList.remove('mode-fade');
+                        _dimbarFading = false;
+                    });
+                });
+            }, 150);
+        }
 
         let _toastTimer = null;
         let _preloadMsg = null; // stashed preload message (restored after regular toast)
@@ -22804,9 +22829,26 @@
             if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
             const dot = _bcHudEl.querySelector('.bc-hud-dot');
             if (!dot) return;
-            const maxPx = 120, travel = 6;
-            const nx = _bcHudEl.classList.contains('vertical-only') ? 0 : Math.max(-1, Math.min(1, dx / maxPx));
-            const ny = Math.max(-1, Math.min(1, dy / maxPx));
+            const maxPxX = 120, travel = 6;
+            const nx = _bcHudEl.classList.contains('vertical-only') ? 0 : Math.max(-1, Math.min(1, dx / maxPxX));
+            // Vertical travel is asymmetric, tied to what the drag actually
+            // does to the window — not a flat pixel distance — so the dot
+            // hitting the edge means something instead of just "you dragged
+            // ~120px". Narrowing (drag down) always collapses the window to
+            // zero at a fixed 150px, from the sens formula in _bcUpdateDrag
+            // (initWidth cancels out: newWidth = initWidth - dy*(initWidth/300)*2,
+            // which is 0 at dy=150 regardless of initWidth). Widening (drag
+            // up) grows the window toward the full histogram range, so how
+            // far that takes depends on how much room is left to grow.
+            const initWidth = _bcDrag ? Math.abs(_bcDrag.initWidth) : 0;
+            const fullRange = _histData && Number.isFinite(_histData.vmin) && Number.isFinite(_histData.vmax)
+                ? Math.abs(_histData.vmax - _histData.vmin) : null;
+            const maxPxDown = 150;
+            const maxPxUp = (fullRange && fullRange > initWidth && initWidth > 0)
+                ? 300 * (fullRange - initWidth) / (2 * initWidth)
+                : maxPxDown; // no known data range yet — fall back to a symmetric feel
+            const maxPxY = dy < 0 ? maxPxUp : maxPxDown;
+            const ny = Math.max(-1, Math.min(1, dy / maxPxY));
             dot.setAttribute('cx', 13 + nx * travel);
             dot.setAttribute('cy', 13 + ny * travel);
         }
@@ -25395,14 +25437,16 @@
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
-                        _resetDimbarHover();
+                        _dimbarFadeSwap(() => _resetDimbarHover());
                     } else {
                         // Pre-fetch raw slice(s) for instant local lookups
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
                             _fetchLebesgueSlice();
                         }
                         _prefetchHoverSlices();
-                        canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                        _dimbarFadeSwap(() => {
+                            canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                        });
                     }
                     showStatus(`hover info: ${_pixelInfoVisible ? 'on · alt+click adds pins' : 'off'}`);
                     saveState();
