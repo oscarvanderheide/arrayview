@@ -13803,7 +13803,15 @@
         }
 
         function _prefetchHoverSlices() {
-            if (qmriActive) {
+            if (qmriMvActive) {
+                // qmriMvActive is a sub-state of qmriActive (entering it never
+                // clears qmriActive) — must be checked first, or this branch
+                // is unreachable and qmriMvViews never gets prefetched.
+                qmriMvViews.forEach(v => {
+                    const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
+                    _fetchHoverSlice(sid, v.dimX, v.dimY, qi, v.qmriRole);
+                });
+            } else if (qmriActive) {
                 qmriViews.forEach(v => {
                     const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
                     _fetchHoverSlice(sid, dim_x, dim_y, qi, v.qmriRole);
@@ -20604,6 +20612,18 @@
                 if (v.dimX !== undefined && (v.dimX !== dimX || v.dimY !== dimY)) return;
                 const qIndices = [...indices];
                 qIndices[qmriDim] = v.qmriIdx;
+                // Same slice _prefetchHoverSlices already keeps warm for every
+                // qMRI pane — read it directly instead of a fresh request per
+                // pane per mousemove, matching how compare mode's own pane
+                // mirroring (_mirrorCompareHover) reads its cache.
+                const cached = _getCachedHoverSlice(sidForFetch, dimX, dimY, qIndices, v.qmriRole);
+                if (cached && cached.w > 0 && cached.h > 0 && px < cached.w && py < cached.h) {
+                    const value = cached.slice[py * cached.w + px];
+                    if (Number.isFinite(value)) {
+                        _showPanePixelPill(v.pixelInfoEl, _pixelFmt(value, _activeNumericContext(v)), _coordText(px, py));
+                        return;
+                    }
+                }
                 const params = new URLSearchParams({
                     dim_x: String(dimX), dim_y: String(dimY),
                     indices: qIndices.join(','),
@@ -20688,8 +20708,11 @@
             const ver = indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale + ':' + (opts.qmriRole || '');
             let _fpSlice = null, _fpW = 0, _fpH = 0;
             if (!opts.qmriRole && _lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
+                // _lebesgueSlice is a single global slice, not per-qMRI-view —
+                // stays off-limits for qmriRole hovers, unlike the per-key
+                // cache below which _prefetchHoverSlices already keys by role.
                 _fpSlice = _lebesgueSlice; _fpW = _lebesgueSliceW; _fpH = _lebesgueSliceH;
-            } else if (!opts.qmriRole) {
+            } else {
                 const hkey = (opts.sid || sid) + ':' + ver;
                 const cached = _hoverSliceCache[hkey];
                 if (cached && cached.w > 0 && cached.h > 0) { _fpSlice = cached.slice; _fpW = cached.w; _fpH = cached.h; }
