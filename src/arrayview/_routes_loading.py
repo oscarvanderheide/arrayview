@@ -401,148 +401,162 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 "pending": True,
             }
         signature_before_load = file_signature(abs_path) if not dir_patterns else None
+        # A collection scan+load runs synchronously on this request (no
+        # "background" fast path — see the `not dir_patterns` guard above),
+        # but the caller already navigates the browser to `requested_sid`
+        # before this returns. Without marking the sid pending here, the
+        # viewer's very first phase report can 404 (sid known to neither
+        # SESSIONS nor PENDING_SESSIONS yet) and the opener misreports launch
+        # as failed even though the load goes on to succeed.
+        dir_pending_sid = requested_sid if (dir_patterns and requested_sid) else None
+        if dir_pending_sid:
+            PENDING_SESSIONS.add(dir_pending_sid)
         try:
-            from ._io import load_data_with_meta, load_dir_collection, list_array_keys
+            try:
+                from ._io import load_data_with_meta, load_dir_collection, list_array_keys
 
-            # Multi-array .npz/.mat: if no key provided, return the key list so
-            # the client can show a picker instead of blocking on terminal input.
-            _key = body.get("key")
-            _array_keys = None
-            if dir_patterns:
-                data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
-                    load_dir_collection,
-                    list(dir_patterns),
-                    overlays=[tuple(item) for item in body.get("dir_overlay_specs", [])],
-                    case_regex=body.get("dir_case_regex"),
-                    exclude_cases=body.get("dir_exclude_cases", []),
-                    load=body.get("load", "lazy"),
-                    stack=body.get("stack", "auto"),
+                # Multi-array .npz/.mat: if no key provided, return the key list so
+                # the client can show a picker instead of blocking on terminal input.
+                _key = body.get("key")
+                _array_keys = None
+                if dir_patterns:
+                    data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
+                        load_dir_collection,
+                        list(dir_patterns),
+                        overlays=[tuple(item) for item in body.get("dir_overlay_specs", [])],
+                        case_regex=body.get("dir_case_regex"),
+                        exclude_cases=body.get("dir_exclude_cases", []),
+                        load=body.get("load", "lazy"),
+                        stack=body.get("stack", "auto"),
+                    )
+                elif filepath.endswith(".npz") or filepath.endswith(".mat"):
+                    _array_keys = await asyncio.to_thread(list_array_keys, filepath)
+                    if len(_array_keys) > 1 and not _key:
+                        return {"array_keys": _array_keys, "filepath": filepath}
+                    if len(_array_keys) == 1 and not _key:
+                        _key = _array_keys[0]["key"]
+
+                data, spatial_meta = await asyncio.to_thread(
+                    load_data_with_meta,
+                    filepath,
+                    key=_key,
+                    select=body.get("select"),
+                ) if not dir_patterns else (data, spatial_meta)
+            except Exception as e:
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
+                return {"error": str(e)}
+            try:
+                session = await asyncio.to_thread(
+                    Session, data, filepath=None if dir_patterns else filepath, name=name
                 )
-            elif filepath.endswith(".npz") or filepath.endswith(".mat"):
-                _array_keys = await asyncio.to_thread(list_array_keys, filepath)
-                if len(_array_keys) > 1 and not _key:
-                    return {"array_keys": _array_keys, "filepath": filepath}
-                if len(_array_keys) == 1 and not _key:
-                    _key = _array_keys[0]["key"]
-
-            data, spatial_meta = await asyncio.to_thread(
-                load_data_with_meta,
-                filepath,
-                key=_key,
-                select=body.get("select"),
-            ) if not dir_patterns else (data, spatial_meta)
-        except Exception as e:
-            if staging_dir:
-                cleanup_staging_directory(staging_dir)
-            return {"error": str(e)}
-        try:
-            session = await asyncio.to_thread(
-                Session, data, filepath=None if dir_patterns else filepath, name=name
+            except Exception as e:
+                if staging_dir:
+                    cleanup_staging_directory(staging_dir)
+                return {"error": str(e)}
+            if requested_sid:
+                session.sid = requested_sid
+            session.release_on_disconnect = bool(
+                body.get("release_on_disconnect", False)
             )
-        except Exception as e:
+            session.related_release_sids = [
+                str(value) for value in body.get("related_sids", [])
+            ]
             if staging_dir:
-                cleanup_staging_directory(staging_dir)
-            return {"error": str(e)}
-        if requested_sid:
-            session.sid = requested_sid
-        session.release_on_disconnect = bool(
-            body.get("release_on_disconnect", False)
-        )
-        session.related_release_sids = [
-            str(value) for value in body.get("related_sids", [])
-        ]
-        if staging_dir:
-            session._source_staging_dirs = [str(staging_dir)]
-        if not dir_patterns:
-            try:
-                signature_after_load = file_signature(abs_path)
-            except Exception as e:
-                if staging_dir:
-                    cleanup_staging_directory(staging_dir)
-                return {"error": str(e)}
-            if signature_before_load == signature_after_load:
-                session.file_signature = signature_after_load
-        if dir_patterns:
-            session.collection_spatial_ndim = len(summary["spatial_shape"])
-            session.collection_identity = collection_identity
-        if spatial_meta is not None:
-            session.spatial_meta = spatial_meta
-            session.original_volume = data
-        if _array_keys and len(_array_keys) > 1:
-            session.array_keys = _array_keys
-            session.array_filepath = filepath
-        if body.get("rgb"):
-            try:
-                await asyncio.to_thread(setup_rgb, session)
-            except ValueError as e:
-                if staging_dir:
-                    cleanup_staging_directory(staging_dir)
-                return {"error": str(e)}
-        overlay_sids = []
-        overlay_names = []
-        overlay_sessions = []
-        for item in dir_overlay_items if dir_patterns else []:
-            try:
-                overlay_session = await asyncio.to_thread(
-                    Session, item["data"], filepath=None, name=item["name"]
-                )
-            except Exception as e:
-                if staging_dir:
-                    cleanup_staging_directory(staging_dir)
-                return {"error": str(e)}
-            overlay_sessions.append(overlay_session)
-            overlay_sids.append(overlay_session.sid)
-            overlay_names.append(item["name"])
-        if dir_patterns:
-            session.collection_overlay_sids = list(overlay_sids)
-            session.collection_overlay_names = list(overlay_names)
-        if requested_sid:
-            if not commit_session_group_unless_cancelled(
-                session.sid,
-                [session, *overlay_sessions],
-            ):
-                CANCELLED_PENDING_SESSIONS.discard(session.sid)
-                if staging_dir:
-                    cleanup_staging_directory(staging_dir)
-                return {"error": "load request was cancelled"}
-        else:
-            SESSIONS[session.sid] = session
-            for overlay_session in overlay_sessions:
-                SESSIONS[overlay_session.sid] = overlay_session
-        if body.get("watch"):
-            import arrayview._session as _session_mod
-            from ._watch import attach_file_watch
+                session._source_staging_dirs = [str(staging_dir)]
+            if not dir_patterns:
+                try:
+                    signature_after_load = file_signature(abs_path)
+                except Exception as e:
+                    if staging_dir:
+                        cleanup_staging_directory(staging_dir)
+                    return {"error": str(e)}
+                if signature_before_load == signature_after_load:
+                    session.file_signature = signature_after_load
+            if dir_patterns:
+                session.collection_spatial_ndim = len(summary["spatial_shape"])
+                session.collection_identity = collection_identity
+            if spatial_meta is not None:
+                session.spatial_meta = spatial_meta
+                session.original_volume = data
+            if _array_keys and len(_array_keys) > 1:
+                session.array_keys = _array_keys
+                session.array_filepath = filepath
+            if body.get("rgb"):
+                try:
+                    await asyncio.to_thread(setup_rgb, session)
+                except ValueError as e:
+                    if staging_dir:
+                        cleanup_staging_directory(staging_dir)
+                    return {"error": str(e)}
+            overlay_sids = []
+            overlay_names = []
+            overlay_sessions = []
+            for item in dir_overlay_items if dir_patterns else []:
+                try:
+                    overlay_session = await asyncio.to_thread(
+                        Session, item["data"], filepath=None, name=item["name"]
+                    )
+                except Exception as e:
+                    if staging_dir:
+                        cleanup_staging_directory(staging_dir)
+                    return {"error": str(e)}
+                overlay_sessions.append(overlay_session)
+                overlay_sids.append(overlay_session.sid)
+                overlay_names.append(item["name"])
+            if dir_patterns:
+                session.collection_overlay_sids = list(overlay_sids)
+                session.collection_overlay_names = list(overlay_names)
+            if requested_sid:
+                if not commit_session_group_unless_cancelled(
+                    session.sid,
+                    [session, *overlay_sessions],
+                ):
+                    CANCELLED_PENDING_SESSIONS.discard(session.sid)
+                    if staging_dir:
+                        cleanup_staging_directory(staging_dir)
+                    return {"error": "load request was cancelled"}
+            else:
+                SESSIONS[session.sid] = session
+                for overlay_session in overlay_sessions:
+                    SESSIONS[overlay_session.sid] = overlay_session
+            if body.get("watch"):
+                import arrayview._session as _session_mod
+                from ._watch import attach_file_watch
 
-            attach_file_watch(session, filepath, _session_mod.SERVER_PORT or 8000)
-        notified = False
-        if notify:
-            tab_url = None
-            if body.get("compare_sids"):
-                tab_url = (
-                    f"/?sid={session.sid}"
-                    f"&compare_sid={body['compare_sid']}"
-                    f"&compare_sids={body['compare_sids']}"
-                )
-            if overlay_sids:
-                tab_url = (
-                    f"/?sid={session.sid}"
-                    f"&overlay_sid={','.join(overlay_sids)}"
-                    f"&overlay_names={urllib.parse.quote(','.join(overlay_names))}"
-                )
-            if native_request_id:
-                tab_url = tab_url or f"/?sid={session.sid}"
-                tab_url += (
-                    "&native_request_id="
-                    + urllib.parse.quote(native_request_id)
-                )
-            notified = await notify_shells(session.sid, name, url=tab_url, wait=False)
-        return {
-            "sid": session.sid,
-            "name": name,
-            "notified": notified,
-            "overlay_sids": overlay_sids,
-            "overlay_names": overlay_names,
-        }
+                attach_file_watch(session, filepath, _session_mod.SERVER_PORT or 8000)
+            notified = False
+            if notify:
+                tab_url = None
+                if body.get("compare_sids"):
+                    tab_url = (
+                        f"/?sid={session.sid}"
+                        f"&compare_sid={body['compare_sid']}"
+                        f"&compare_sids={body['compare_sids']}"
+                    )
+                if overlay_sids:
+                    tab_url = (
+                        f"/?sid={session.sid}"
+                        f"&overlay_sid={','.join(overlay_sids)}"
+                        f"&overlay_names={urllib.parse.quote(','.join(overlay_names))}"
+                    )
+                if native_request_id:
+                    tab_url = tab_url or f"/?sid={session.sid}"
+                    tab_url += (
+                        "&native_request_id="
+                        + urllib.parse.quote(native_request_id)
+                    )
+                notified = await notify_shells(session.sid, name, url=tab_url, wait=False)
+            return {
+                "sid": session.sid,
+                "name": name,
+                "notified": notified,
+                "overlay_sids": overlay_sids,
+                "overlay_names": overlay_names,
+            }
+        finally:
+            if dir_pending_sid:
+                PENDING_SESSIONS.discard(dir_pending_sid)
 
     @app.post("/notify/{sid}")
     async def notify_existing_session(sid: str, request: Request):
