@@ -34037,9 +34037,15 @@
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
             const baseScale = cappedScale / Math.max(0.0001, userZoom);
             for (const v of ready) {
+                // Pass v.clip as the viewport so _scalePane sizes it (and clamps
+                // pan against that fresh size) in one pass. Sizing the clip
+                // afterward instead left pan.clamp() reading last pass's
+                // (stale) clip size whenever the pane count changed between
+                // renders, cropping panes into a corner until an identical
+                // follow-up pass caught the size up.
                 _scalePane(
                     { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: v.pan },
-                    null,
+                    v.clip,
                     {
                         maxW: Math.round(cellW),
                         maxH: Math.round(cellH),
@@ -34049,8 +34055,6 @@
                         allowOverflowRecalc: false,
                     }
                 );
-                v.clip.style.width = Math.min(parseInt(v.canvas.style.width) || v.lastW, Math.round(cellW)) + 'px';
-                v.clip.style.height = Math.min(parseInt(v.canvas.style.height) || v.lastH, Math.round(cellH)) + 'px';
             }
             fixWrapperAlignment();
             requestAnimationFrame(() => {
