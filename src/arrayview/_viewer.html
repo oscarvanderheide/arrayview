@@ -6647,7 +6647,7 @@
         // just barely crosses it. This should only catch renders that are
         // actually stalled, not ordinary slow-drive catch-up.
         const WS_SLOW_THRESHOLD_MS = 500;
-        const PATIENT_LOADING_THRESHOLD_MS = 80;
+        const PATIENT_LOADING_THRESHOLD_MS = 250;
         let _displayedPatientIndex = null;
         let _patientLoadingIndex = null;
         // Two independent sources can want the busy panel: a slow render of any
