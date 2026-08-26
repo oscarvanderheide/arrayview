@@ -6166,23 +6166,40 @@
                 && _launchPhaseNames.has(phase)
             ) {
                 const phasePath = `/viewer-phase/${encodeURIComponent(sid)}/${encodeURIComponent(_launchPhaseRequestId)}`;
-                _launchPhaseTail = _launchPhaseTail.then(() => proxyFetch(phasePath, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        phase,
-                        detail: detail || null,
-                        server_id: _launchPhaseServerId,
-                        window_id: _launchPhaseWindowId,
-                        token: _launchPhaseToken,
-                        viewer_instance_id: _launchViewerInstanceId,
-                        release_on_disconnect: true,
-                        sid: urlParams.get('sid'),
-                        compare_sid: urlParams.get('compare_sid'),
-                        compare_sids: urlParams.get('compare_sids'),
-                        overlay_sid: urlParams.get('overlay_sid'),
-                    }),
-                })).catch(() => {});
+                const phaseBody = JSON.stringify({
+                    phase,
+                    detail: detail || null,
+                    server_id: _launchPhaseServerId,
+                    window_id: _launchPhaseWindowId,
+                    token: _launchPhaseToken,
+                    viewer_instance_id: _launchViewerInstanceId,
+                    release_on_disconnect: true,
+                    sid: urlParams.get('sid'),
+                    compare_sid: urlParams.get('compare_sid'),
+                    compare_sids: urlParams.get('compare_sids'),
+                    overlay_sid: urlParams.get('overlay_sid'),
+                });
+                _launchPhaseTail = _launchPhaseTail.then(async () => {
+                    // A remote-tunnel browser proxy can drop the first request
+                    // right after navigation while its upstream connection is
+                    // still opening (idle-connection reset on first use), so
+                    // this phase report — most often the very first one this
+                    // page sends — can silently vanish. Re-send is cheap and
+                    // idempotent (the backend journal dedupes by phase name);
+                    // a short retry survives that cold-start drop instead of
+                    // permanently losing the phase and failing the launch.
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            const res = await proxyFetch(phasePath, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: phaseBody,
+                            });
+                            if (res.ok) return;
+                        } catch (_) {}
+                        if (attempt < 2) await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+                    }
+                }).catch(() => {});
             }
         }
 
