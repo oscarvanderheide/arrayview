@@ -508,11 +508,12 @@ class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
 
     _av_lazy = True
 
-    def __init__(self, file_matrix, vol_shape, dtype, spatial_meta=None):
+    def __init__(self, file_matrix, vol_shape, dtype, spatial_meta=None, spacing_matrix=None):
         self._file_matrix = file_matrix
         self._vol_shape = tuple(vol_shape)
         self._dtype = np.dtype(dtype)
         self._spatial_meta = spatial_meta
+        self._spacing_matrix = spacing_matrix
         n_patients = len(file_matrix)
         n_modalities = len(file_matrix[0]) if file_matrix else 0
         if n_modalities <= 1:
@@ -534,6 +535,10 @@ class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
     @property
     def dtype(self):
         return self._dtype
+
+    @property
+    def case_voxel_spacings(self):
+        return self._spacing_matrix
 
     def _get_volume(self, p_idx, m_idx):
         cache_key = (p_idx, m_idx)
@@ -728,7 +733,10 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
     _av_lazy = True
     _av_ragged = True
 
-    def __init__(self, file_matrix, spatial_shapes, dtype, spatial_meta=None, all_nifti=False):
+    def __init__(
+        self, file_matrix, spatial_shapes, dtype, spatial_meta=None, all_nifti=False,
+        spacing_matrix=None,
+    ):
         self._file_matrix = file_matrix
         self._spatial_shapes = [
             [tuple(int(s) for s in shape) for shape in row]
@@ -736,6 +744,7 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
         ]
         self._dtype = np.dtype(dtype)
         self._spatial_meta = spatial_meta
+        self._spacing_matrix = spacing_matrix
         self._all_nifti = bool(all_nifti)
         self._spatial_ndim = len(self._spatial_shapes[0][0])
         self._vol_shape = tuple(
@@ -771,6 +780,10 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
     @property
     def ragged_spatial_shapes(self):
         return self._spatial_shapes
+
+    @property
+    def case_voxel_spacings(self):
+        return self._spacing_matrix
 
     def _normalize_collection_indices(self, idx_list):
         n_p = len(self._file_matrix)
@@ -1009,12 +1022,14 @@ def _series_from_file_matrix(
 
     if all_nifti:
         spatial_shapes = []
+        voxel_sizes_list = []
         for fpath, img, item_meta in _iter_nifti_headers(
             all_paths, scan_progress=scan_progress, scan_label=scan_label
         ):
             shape = tuple(item_meta["canonical_shape"])
             dtype = img.get_data_dtype()
             spatial_shapes.append(shape)
+            voxel_sizes_list.append(tuple(item_meta["voxel_sizes"]))
             if ref_shape is None:
                 ref_shape = shape
                 ref_dtype = dtype
@@ -1030,16 +1045,21 @@ def _series_from_file_matrix(
                     f"{dtype}, expected {ref_dtype}."
                 )
         shape_matrix = []
+        spacing_matrix = []
         pos = 0
         for row in file_matrix:
             row_shapes = []
+            row_spacings = []
             for path in row:
                 if path is None:
                     row_shapes.append(ref_shape)
+                    row_spacings.append(voxel_sizes_list[0] if voxel_sizes_list else (1.0, 1.0, 1.0))
                 else:
                     row_shapes.append(spatial_shapes[pos])
+                    row_spacings.append(voxel_sizes_list[pos])
                     pos += 1
             shape_matrix.append(row_shapes)
+            spacing_matrix.append(row_spacings)
         shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
         if stack == "dense" and shapes_differ:
             raise ValueError("Dense stacking requires every file to have the same shape.")
@@ -1050,9 +1070,13 @@ def _series_from_file_matrix(
                     ref_dtype,
                     spatial_meta=spatial_meta,
                     all_nifti=True,
+                    spacing_matrix=spacing_matrix,
             )
         else:
-            series = _NiftiSeries(file_matrix, ref_shape, ref_dtype, spatial_meta)
+            series = _NiftiSeries(
+                file_matrix, ref_shape, ref_dtype, spatial_meta,
+                spacing_matrix=spacing_matrix,
+            )
         if load == "eager":
             for p, row in enumerate(file_matrix):
                 for m, path in enumerate(row):

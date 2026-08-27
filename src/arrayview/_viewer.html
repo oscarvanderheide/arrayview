@@ -6234,6 +6234,7 @@
         let shape = [];
         let collectionSpatialNdim = -1;
         let raggedSpatialShapes = null;
+        let caseVoxelSpacings = null; // per-case [x,y,z] mm spacing, or null when unknown
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
         let indices = [];
@@ -16353,6 +16354,9 @@
                 : -1;
             raggedSpatialShapes = Array.isArray(data.ragged_spatial_shapes)
                 ? data.ragged_spatial_shapes
+                : null;
+            caseVoxelSpacings = Array.isArray(data.case_voxel_spacings)
+                ? data.case_voxel_spacings
                 : null;
             isComplex = data.is_complex || false;
             _resetSlimCbLabelHWM();
@@ -34034,6 +34038,25 @@
             _refreshLoupeFromLastMouse();
         }
 
+        // mm-per-pixel along the displayed axes for one stack-mosaic case, or 1
+        // when spacing isn't known (non-NIfTI files, or files without headers).
+        // A collection can mix cases with different resolution *and* different
+        // real-world field of view (e.g. one scan protocol among several), so
+        // sizing purely by pixel count would make that case's box a different
+        // size from its neighbors for no reason visible to the viewer.
+        function _stackMosaicCaseSpacing(colIdx) {
+            if (!Array.isArray(caseVoxelSpacings) || collectionSpatialNdim < 0) return 1;
+            const row = caseVoxelSpacings[colIdx] || [];
+            const channelDim = collectionSpatialNdim + 1;
+            const channelIdx = shape.length > channelDim
+                ? Math.max(0, Math.min(row.length - 1, indices[channelDim] || 0))
+                : 0;
+            const spacing = row[channelIdx] || row[0];
+            if (!Array.isArray(spacing)) return 1;
+            const sx = Number(spacing[dim_x]), sy = Number(spacing[dim_y]);
+            return Number.isFinite(sx) && sx > 0 ? sx : (Number.isFinite(sy) && sy > 0 ? sy : 1);
+        }
+
         function smScaleAllCanvases() {
             const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
@@ -34049,11 +34072,18 @@
             const availH = Math.max(50, window.innerHeight - uiReserveH);
             const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
             const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
-            const absMaxScale = Math.min(...ready.map(v =>
-                Math.min(cellW / v.lastW, cellH / v.lastH)));
+            const spacings = ready.map(v => _stackMosaicCaseSpacing(v.colIdx));
+            // absMaxScale is mm-of-real-world-size per screen pixel: computing it
+            // from each pane's physical extent (native pixels × its own spacing)
+            // instead of raw pixel count keeps every pane's box the same size
+            // and each case's content at its true relative physical scale, so a
+            // case scanned with a different field of view just fills less of
+            // its box instead of getting a differently sized box.
+            const absMaxScale = Math.min(...ready.map((v, i) =>
+                Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
-            const baseScale = cappedScale / Math.max(0.0001, userZoom);
-            for (const v of ready) {
+            ready.forEach((v, i) => {
+                const baseScale = cappedScale * spacings[i] / Math.max(0.0001, userZoom);
                 // Pass v.clip as the viewport so _scalePane sizes it (and clamps
                 // pan against that fresh size) in one pass. Sizing the clip
                 // afterward instead left pan.clamp() reading last pass's
@@ -34070,9 +34100,25 @@
                         squareStretch: squareStretch,
                         updateAutoFit: false,
                         allowOverflowRecalc: false,
+                        // Without this the box shrinks to match content
+                        // whenever content is smaller than the cell, so a
+                        // case with a smaller physical field of view ends up
+                        // with a smaller box instead of a smaller image
+                        // inside a same-size box.
+                        forceViewport: { w: cellW, h: cellH },
                     }
                 );
-            }
+                // A case with a smaller physical field of view now renders
+                // smaller than its (uniformly sized) box; pan.clamp() pins
+                // underfilled content to the bottom-right corner since that's
+                // just where its 0/0 default lands once clamped, so center it
+                // instead of leaving it looking adrift from its label.
+                if (v.lastW * baseScale <= cellW + 1 && v.lastH * baseScale <= cellH + 1) {
+                    v.pan.x = (cellW - v.lastW * baseScale) / 2;
+                    v.pan.y = (cellH - v.lastH * baseScale) / 2;
+                    v.pan.apply();
+                }
+            });
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (stackMosaicActive) positionEggs();
