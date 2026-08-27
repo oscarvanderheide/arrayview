@@ -26,7 +26,7 @@ Hover over the image to see coordinates and value reflected on the colorbar.
 
 Click the colorbar to copy that value to the clipboard.
 
-`i` — toggle a persistent hover tooltip that follows the cursor.
+`i` — keep the pixel value visible in the pane pill. Hold `Ctrl` for the loupe; its value uses the same pill and moves to the opposite edge when needed.
 
 `I` — show a data info overlay: shape, dtype, size, file path.
 

@@ -1983,6 +1983,8 @@
         :root.light .mode-badge-mip  { background: rgba(0,180,160,0.1); color: #108080; border-color: rgba(0,180,160,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 120ms ease; }
+        body.loupe-value-pill #mode-eggs { z-index: 101; }
+        body.loupe-value-pill .cv-pixel-info { display: none !important; }
         #mode-eggs.percentile-preset-switching { opacity: 0; }
         #mode-eggs .mode-badge {
             background-color: rgba(30, 30, 30, 0.75);
@@ -6335,7 +6337,7 @@
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
         let _pixelInfoHeld = false;
-        function _pixelInfoActive() { return _pixelInfoVisible || _pixelInfoHeld || _mainLoupeInspecting(); }
+        function _pixelInfoActive() { return _pixelInfoVisible || _pixelInfoHeld || _loupeInspecting(); }
         let _hoverPins = []; // [{id, rawX, rawY, valueText, version}]
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
@@ -6352,14 +6354,23 @@
         function _mainLoupeInspecting() {
             return !!(_mainLoupeDrag && _mainLoupeDrag.active);
         }
+        function _paneLoupeInspecting() {
+            return !!(_qmriLoupeDrag && _qmriLoupeDrag.active);
+        }
+        function _loupeInspecting() {
+            return _mainLoupeInspecting() || _paneLoupeInspecting();
+        }
+        function _activeLoupeValueContext() {
+            if (_mainLoupeInspecting()) return { canvas, loupe: mainLoupe };
+            if (_paneLoupeInspecting()) return { canvas: _qmriLoupeDrag.canvas, loupe: _qmriLoupeEl };
+            return null;
+        }
         function _reconcileMainLoupeState() {
             const inspecting = _mainLoupeInspecting();
             const canvasInner = document.getElementById('canvas-inner');
             if (canvasInner) canvasInner.classList.toggle('loupe-pane-dimmed', inspecting);
             document.body.classList.toggle('main-loupe-hold', inspecting);
-            // The loupe shows its own value card next to itself — don't also
-            // leave the fixed-spot pill sitting there with a stale reading.
-            if (inspecting) _setEggsValuePill(null);
+            _reconcileLoupeValuePill();
         }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
@@ -6968,6 +6979,7 @@
         let _eggsValuePill = null; // { value, kind } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
         let _eggsValuePillFadeTimer = null;
+        let _loupeValuePillOwned = false;
         function _setEggsValuePill(value, kind, anchorEl, minWidthCh) {
             // The leading-space sign pad exists to keep width stable when the
             // sign flips — not needed (and actively off-centering) once the
@@ -6982,10 +6994,15 @@
                 renderEggs();
                 return;
             }
-            _eggsValuePillAnchor = anchorEl || null;
+            const nextAnchor = anchorEl || null;
+            const anchorChanged = _eggsValuePillAnchor !== nextAnchor;
+            _eggsValuePillAnchor = nextAnchor;
             kind = kind || 'info';
             if (_eggsValuePill && _eggsValuePill.value === value && _eggsValuePill.kind === kind
-                && _eggsValuePill.minWidthCh === minWidthCh) return;
+                && _eggsValuePill.minWidthCh === minWidthCh) {
+                if (anchorChanged || _loupeInspecting()) positionEggs();
+                return;
+            }
             const entering = _eggsValuePill === null;
             _eggsValuePill = { value, kind, minWidthCh: minWidthCh || null };
             if (_percentilePresetOverlay) return; // picker owns the spot
@@ -7003,6 +7020,49 @@
                 return;
             }
             renderEggs();
+        }
+        function _setLoupeValuePill(payload, minWidthCh) {
+            const active = _activeLoupeValueContext();
+            if (!active || !active.canvas) return false;
+            const valueText = (payload && typeof payload === 'object')
+                ? String(payload.valueText ?? '')
+                : String(payload ?? '');
+            _loupeValuePillOwned = true;
+            _setEggsValuePill(valueText, 'info', active.canvas, minWidthCh);
+            _reconcileLoupeValuePill();
+            return true;
+        }
+        function _refreshPixelInfoAfterLoupe() {
+            if (!_pixelInfoVisible) return;
+            const target = document.elementFromPoint(_lastMouseX, _lastMouseY);
+            const paneCanvas = target && target.closest ? target.closest(_INFO_CURSOR_CANVAS_SELECTOR) : null;
+            if (!paneCanvas || !_loupeClientInsideCanvas(_lastMouseX, _lastMouseY, paneCanvas)) return;
+            requestAnimationFrame(() => {
+                paneCanvas.dispatchEvent(new MouseEvent('mousemove', {
+                    clientX: _lastMouseX,
+                    clientY: _lastMouseY,
+                    buttons: 0,
+                    bubbles: true,
+                }));
+            });
+        }
+        function _reconcileLoupeValuePill() {
+            const active = _activeLoupeValueContext();
+            document.body.classList.toggle('loupe-value-pill', !!active);
+            if (active) {
+                if (_eggsValuePill != null) {
+                    _eggsValuePillAnchor = active.canvas;
+                    positionEggs();
+                }
+                return;
+            }
+            if (!_loupeValuePillOwned) {
+                if (_eggsValuePill != null) positionEggs();
+                return;
+            }
+            _loupeValuePillOwned = false;
+            _setEggsValuePill(null);
+            _refreshPixelInfoAfterLoupe();
         }
         let _qmriPresetCycleGeneration = 0;
         let _pixelReqSeq = 0;
@@ -16800,11 +16860,32 @@
             const eggsLeft = Math.max(minLeft, Math.min(maxLeft, anchorRect.left + anchorRect.width / 2));
             const minTop = anchorRect.top + inset;
             const maxTop = Math.max(minTop, Math.min(window.innerHeight - eggsH - inset, anchorRect.bottom - eggsH - inset));
-            const eggsTop = Math.max(minTop, maxTop);
+            let eggsTop = Math.max(minTop, maxTop);
+            let placement = 'bottom';
+            const loupeContext = _activeLoupeValueContext();
+            if (loupeContext && loupeContext.canvas === explicitAnchor && loupeContext.loupe) {
+                const northTop = Math.max(inset, Math.min(window.innerHeight - eggsH - inset, minTop));
+                const loupeRect = loupeContext.loupe.getBoundingClientRect();
+                const northRect = {
+                    left: eggsLeft - eggsW / 2,
+                    right: eggsLeft + eggsW / 2,
+                    top: northTop,
+                    bottom: northTop + eggsH,
+                };
+                const covered = northRect.left < loupeRect.right
+                    && northRect.right > loupeRect.left
+                    && northRect.top < loupeRect.bottom
+                    && northRect.bottom > loupeRect.top;
+                if (!covered) {
+                    eggsTop = northTop;
+                    placement = 'top';
+                }
+            }
             el.style.top       = eggsTop + 'px';
             el.style.bottom    = '';
             el.style.left      = eggsLeft + 'px';
             el.style.transform = 'translateX(-50%)';
+            el.dataset.pillPlacement = placement;
             _validateUIState();
         }
 
@@ -20369,6 +20450,7 @@
                 || compareMvViews.find(v => v.canvas === paneCanvas)
                 || qmriViews.find(v => v.canvas === paneCanvas)
                 || compareQmriViews.find(v => v.canvas === paneCanvas)
+                || qmriMvViews.find(v => v.canvas === paneCanvas)
                 || null;
         }
         function _refreshLoupeFromLastMouse() {
@@ -20391,6 +20473,7 @@
             const paneView = _loupePaneViewForCanvas(hoveredCanvas);
             if (paneView && _seedPaneLoupeDrag(hoverEvent, hoveredCanvas, paneView)) {
                 _updateQmriLoupe(hoverEvent);
+                hoveredCanvas.dispatchEvent(new MouseEvent('mousemove', { ...hoverEvent, bubbles: true }));
                 return;
             }
             _endMainLoupe();
@@ -20473,9 +20556,7 @@
             } else {
                 mainLoupe.style.transform = `translate(${targetX}px, ${targetY}px)`;
             }
-            if (mainLoupeInfo && mainLoupeInfo.style.display === 'block') {
-                _positionMainLoupeInfo(loupeClientX, loupeClientY);
-            }
+            _reconcileLoupeValuePill();
         }
         function _maybeActivateMainLoupe(e) {
             if (_mainLoupeDrag && _mainLoupeDrag.active) return;
@@ -20564,6 +20645,7 @@
             } else {
                 _qmriLoupeEl.style.transform = `translate(${latest.clientX + 18}px, ${latest.clientY - 109}px)`;
             }
+            _reconcileLoupeValuePill();
         }
         function _updateQmriLoupe(e) {
             if (!_qmriLoupeDrag || !_qmriLoupeDrag.active || !_qmriLoupeEl) return;
@@ -20584,6 +20666,7 @@
                 _qmriLoupeEl.style.transform = `translate(${e.clientX + 18}px, ${e.clientY - 109}px)`;
             }
             _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
+            _reconcileLoupeValuePill();
         }
         function _maybeActivateQmriLoupe(e) {
             if (_qmriLoupeDrag && _qmriLoupeDrag.active) return;
@@ -20592,6 +20675,7 @@
             if (_qmriLoupeDrag && _qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
             _qmriLoupeDrag = null;
             _qmriLoupeLatest = null;
+            _reconcileLoupeValuePill();
             if (_qmriLoupeRaf !== null) {
                 cancelAnimationFrame(_qmriLoupeRaf);
                 _qmriLoupeRaf = null;
@@ -20659,6 +20743,10 @@
         }
         function showPixelInfo(el, payload, cx, cy) {
             if (!el || !_pixelInfoActive()) return;
+            if (_paneLoupeInspecting() && _qmriLoupeDrag.view?.pixelInfoEl === el) {
+                _setLoupeValuePill(payload, null);
+                return;
+            }
             if (rectRoiMode && _roiSuppressPixelInfo) {
                 el.style.display = 'none';
                 delete el.dataset.pixelInfoKey;
@@ -20675,14 +20763,13 @@
             if (el === mainLoupeInfo) _positionMainLoupeInfo(cx, cy);
             else _positionPixelInfo(el, cx, cy);
         }
-        /** Route a hovered pixel value to the loupe's own card while the loupe
-         *  is active, or to the fixed dots-spot pill otherwise. */
+        /** Route the main-view value to the shared fixed-position info pill. */
         function _showMainPixelValue(payload, cx, cy, minWidthCh) {
-            if (_mainLoupeInspecting() && mainLoupeInfo && _mainLoupeEligible()) {
-                showPixelInfo(mainLoupeInfo, payload, cx, cy);
+            if (!_pixelInfoActive()) return;
+            if (_mainLoupeInspecting() && _mainLoupeEligible()) {
+                _setLoupeValuePill(payload, minWidthCh);
                 return;
             }
-            if (!_pixelInfoActive()) return;
             const valueText = (payload && typeof payload === 'object') ? String(payload.valueText ?? '') : String(payload ?? '');
             _setEggsValuePill(valueText, 'info', null, minWidthCh);
         }
@@ -20692,6 +20779,7 @@
          *  can each show their own pill at once. */
         function _showPanePixelPill(el, value, minWidthCh) {
             if (!el) return;
+            if (_paneLoupeInspecting()) return;
             if (!_pixelInfoActive() || value == null) {
                 el.style.display = 'none';
                 return;
@@ -20778,6 +20866,7 @@
          *  parameter at the same location, worth comparing; a different
          *  plane of the SAME map would just repeat the same value. */
         function _mirrorQmriPixelHover(views, hoveredView, qmriDim, indices, px, py, dimX, dimY, sidForFetch) {
+            if (_paneLoupeInspecting()) return;
             views.forEach(v => {
                 if (v === hoveredView) return;
                 if (v.syntheticId || !Number.isFinite(v.qmriIdx)) return;
@@ -27253,7 +27342,7 @@
                     {
                         title: 'Info & Modes',
                         entries: [
-                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value under cursor; alt+click adds pins; Esc clears all pins' },
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value in the pane pill; hold Ctrl for the loupe; alt+click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
                             { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
                         ]
@@ -32027,6 +32116,11 @@
                             // than the mode's default pane, so the pill tracks
                             // the cursor instead of appearing in another pane.
                             const mvFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
+                            if (_paneLoupeInspecting() && _qmriLoupeDrag.canvas === cv) {
+                                _setLoupeValuePill({ valueText: mvFmt.text, rawX, rawY }, mvFmt.stableCh);
+                                _updateDimbarHover(rawX, rawY, _mvAxisLabel(view.dimX), _mvAxisLabel(view.dimY));
+                                return;
+                            }
                             _setEggsValuePill(
                                 mvFmt.text,
                                 'info',
@@ -33319,6 +33413,11 @@
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
                                 const qFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
+                                if (_paneLoupeInspecting() && _qmriLoupeDrag.canvas === cv) {
+                                    _setLoupeValuePill({ valueText: qFmt.text, rawX: px, rawY: py }, qFmt.stableCh);
+                                    _updateDimbarHover(px, py);
+                                    return;
+                                }
                                 _showPanePixelPill(view.pixelInfoEl, qFmt.text, qFmt.stableCh);
                                 _mirrorQmriPixelHover(qmriViews, view, qmriDim, indices, px, py, dim_x, dim_y, sid);
                                 _updateDimbarHover(px, py);
@@ -35427,6 +35526,11 @@
                             onResult: (d, px, py) => {
                                 if (!_pixelInfoActive()) return;
                                 const qmFmt = _pixelHoverFormat(d.value, _activeNumericContext(view));
+                                if (_paneLoupeInspecting() && _qmriLoupeDrag.canvas === cv) {
+                                    _setLoupeValuePill({ valueText: qmFmt.text, rawX: px, rawY: py }, qmFmt.stableCh);
+                                    _updateDimbarHover(px, py, _qmriMvAxisLabel(view.dimX), _qmriMvAxisLabel(view.dimY));
+                                    return;
+                                }
                                 _showPanePixelPill(view.pixelInfoEl, qmFmt.text, qmFmt.stableCh);
                                 _mirrorQmriPixelHover(qmriMvViews, view, qmriDim, indices, px, py, view.dimX, view.dimY, sid);
                                 _updateDimbarHover(px, py, _qmriMvAxisLabel(view.dimX), _qmriMvAxisLabel(view.dimY));

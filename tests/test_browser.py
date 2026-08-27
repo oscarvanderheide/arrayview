@@ -5413,6 +5413,47 @@ class TestNormalInspectInteractions:
         assert abs(state["centerX"] - cx) < 1
         assert abs(state["centerY"] - cy) < 1
 
+    @staticmethod
+    def _assert_ctrl_loupe_uses_shared_pill(page, canvas_selector, loupe_selector):
+        canvas = page.locator(canvas_selector).first
+        box = canvas.bounding_box()
+        px = box["x"] + box["width"] / 2
+        py = box["y"] + box["height"] - 12
+        page.mouse.move(px, py)
+        page.keyboard.down("Control")
+        page.evaluate(
+            """({ selector, x, y }) => document.querySelector(selector).dispatchEvent(
+                new MouseEvent('mousemove', { clientX: x, clientY: y, ctrlKey: true, bubbles: true })
+            )""",
+            {"selector": canvas_selector, "x": px, "y": py},
+        )
+        page.wait_for_selector("#mode-eggs .eggs-value-pill", timeout=5_000)
+        state = page.evaluate(
+            """({ canvasSelector, loupeSelector }) => {
+                const canvas = document.querySelector(canvasSelector);
+                const pane = canvas.getBoundingClientRect();
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill').getBoundingClientRect();
+                const loupe = document.querySelector(loupeSelector).getBoundingClientRect();
+                return {
+                    placement: eggs.dataset.pillPlacement,
+                    centered: Math.abs((pill.left + pill.right) / 2 - (pane.left + pane.right) / 2) < 1,
+                    overlaps: pill.left < loupe.right && pill.right > loupe.left
+                        && pill.top < loupe.bottom && pill.bottom > loupe.top,
+                    legacyVisible: Array.from(document.querySelectorAll('.cv-pixel-info'))
+                        .some(el => getComputedStyle(el).display !== 'none'),
+                };
+            }""",
+            {"canvasSelector": canvas_selector, "loupeSelector": loupe_selector},
+        )
+        assert state["placement"] in {"top", "bottom"}
+        assert state["centered"]
+        assert not state["overlaps"]
+        assert not state["legacyVisible"]
+        page.keyboard.up("Control")
+        page.wait_for_timeout(220)
+        assert not page.locator("#mode-eggs .eggs-value-pill").count()
+
     def test_info_hover_cursor_matches_pill_across_themes(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
@@ -5538,24 +5579,25 @@ class TestNormalInspectInteractions:
 
         page.keyboard.down("Control")
         page.mouse.down()
-        page.wait_for_timeout(160)
+        page.wait_for_selector("#mode-eggs .eggs-value-pill", timeout=2_000)
 
         ctrl_held = page.evaluate(
             """() => {
                 const pane = document.getElementById('canvas-inner');
                 const dim = getComputedStyle(pane, '::after');
                 const loupe = getComputedStyle(document.getElementById('main-loupe'));
-                const infoEl = document.getElementById('main-loupe-info');
-                const info = getComputedStyle(infoEl);
+                const pill = document.querySelector('#mode-eggs .eggs-value-pill');
+                const pillStyle = pill ? getComputedStyle(document.getElementById('mode-eggs')) : null;
                 return {
                     dimmed: pane.classList.contains('loupe-pane-dimmed'),
                     dimColor: dim.backgroundColor,
                     dimZ: Number(dim.zIndex),
                     loupeVisible: loupe.display !== 'none',
                     loupeZ: Number(loupe.zIndex),
-                    infoZ: Number(info.zIndex),
-                    infoVisible: info.display !== 'none',
-                    infoText: infoEl.textContent.trim(),
+                    pillZ: Number(pillStyle?.zIndex || 0),
+                    pillVisible: !!pill,
+                    pillValue: pill?.querySelector('.eggs-pill-value')?.textContent.trim() || '',
+                    pillPlacement: document.getElementById('mode-eggs').dataset.pillPlacement,
                 };
             }"""
         )
@@ -5567,11 +5609,10 @@ class TestNormalInspectInteractions:
         assert ctrl_held["dimColor"] == "rgba(0, 0, 0, 0.38)", "the pane dimmer should subtly darken both themes"
         assert ctrl_held["loupeVisible"], "Control mouse hold should show the loupe"
         assert ctrl_held["loupeZ"] > ctrl_held["dimZ"], "the loupe should stay bright above the pane dimmer"
-        assert ctrl_held["infoZ"] > ctrl_held["dimZ"], "the loupe value label should stay bright above the pane dimmer"
-        assert ctrl_held["infoVisible"], "Control mouse hold should show the loupe value label"
-        assert "x=" in ctrl_held["infoText"] and "y=" in ctrl_held["infoText"], (
-            "Control mouse hold label should include coordinates"
-        )
+        assert ctrl_held["pillZ"] > ctrl_held["dimZ"], "the shared value pill should stay bright above the pane dimmer"
+        assert ctrl_held["pillVisible"], "Control mouse hold should show the shared value pill"
+        assert ctrl_held["pillValue"], "Control mouse hold should show a numeric value"
+        assert ctrl_held["pillPlacement"] == "top"
 
     def test_plain_press_hides_pixel_info_before_any_move(self, loaded_viewer, sid_2d):
         """A plain left press opens the window/level gesture, so the pixel-info
@@ -5668,12 +5709,35 @@ class TestNormalInspectInteractions:
         assert dimmed, "Control-hover should dim the viewed pane just like a mouse-held loupe"
         ctrl_info = page.evaluate(
             """() => {
-                const info = document.getElementById('main-loupe-info');
-                return { visible: getComputedStyle(info).display !== 'none', text: info.textContent.trim() };
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill');
+                return {
+                    visible: !!pill,
+                    value: pill?.querySelector('.eggs-pill-value')?.textContent.trim() || '',
+                    placement: eggs.dataset.pillPlacement,
+                };
             }"""
         )
-        assert ctrl_info["visible"], "Control-hover should show the loupe value label"
-        assert "x=" in ctrl_info["text"] and "y=" in ctrl_info["text"], "Control-hover label should include coordinates"
+        assert ctrl_info["visible"], "Control-hover should show the shared value pill"
+        assert ctrl_info["value"], "Control-hover should show a numeric value"
+        assert ctrl_info["placement"] == "top"
+
+        canvas_box = canvas.bounding_box()
+        page.mouse.move(cx, canvas_box["y"] + 12)
+        page.wait_for_timeout(120)
+        collision = page.evaluate(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill')?.getBoundingClientRect();
+                const loupe = document.getElementById('main-loupe').getBoundingClientRect();
+                return {
+                    placement: eggs.dataset.pillPlacement,
+                    overlaps: !!pill && pill.left < loupe.right && pill.right > loupe.left
+                        && pill.top < loupe.bottom && pill.bottom > loupe.top,
+                };
+            }"""
+        )
+        assert collision == {"placement": "bottom", "overlaps": False}
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)
@@ -5682,6 +5746,20 @@ class TestNormalInspectInteractions:
             "() => getComputedStyle(document.getElementById('main-loupe')).display === 'none'"
         )
         assert hidden, "loupe should collapse after Control is released"
+        assert not page.locator("#mode-eggs .eggs-value-pill").count(), (
+            "the temporary value pill should clear when hover info is off"
+        )
+
+        page.keyboard.press("i")
+        page.mouse.move(cx, canvas_box["y"] + canvas_box["height"] - 20)
+        page.wait_for_timeout(120)
+        page.keyboard.down("Control")
+        page.wait_for_timeout(120)
+        assert page.locator("#mode-eggs .eggs-value-pill").count() == 1
+        page.keyboard.up("Control")
+        page.wait_for_timeout(220)
+        assert page.locator("#mode-eggs .eggs-value-pill").count() == 1
+        assert page.get_attribute("#mode-eggs", "data-pill-placement") == "bottom"
 
     def test_ctrl_hover_shows_loupe_in_multiview(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -5691,8 +5769,9 @@ class TestNormalInspectInteractions:
 
         canvas = page.locator(".mv-canvas").first
         cx, cy = _center_of(canvas)
+        canvas_box = canvas.bounding_box()
 
-        page.mouse.move(cx, cy)
+        page.mouse.move(cx, canvas_box["y"] + canvas_box["height"] - 12)
         page.wait_for_timeout(120)
         page.keyboard.down("Control")
         page.wait_for_timeout(120)
@@ -5708,6 +5787,20 @@ class TestNormalInspectInteractions:
             }"""
         )
         assert loupe_size == {"width": "200px", "height": "200px"}
+        pane_pill = page.evaluate(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill');
+                const pane = document.querySelector('.mv-canvas').getBoundingClientRect();
+                const box = pill?.getBoundingClientRect();
+                return {
+                    visible: !!pill,
+                    placement: eggs.dataset.pillPlacement,
+                    centered: !!box && Math.abs((box.left + box.right) / 2 - (pane.left + pane.right) / 2) < 1,
+                };
+            }"""
+        )
+        assert pane_pill == {"visible": True, "placement": "top", "centered": True}
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)
@@ -5716,6 +5809,50 @@ class TestNormalInspectInteractions:
             "() => getComputedStyle(document.getElementById('qmri-loupe')).display === 'none'"
         )
         assert hidden, "multiview loupe should collapse after Control is released"
+        assert not page.locator("#mode-eggs .eggs-value-pill").count()
+
+    def test_ctrl_loupe_shared_pill_in_mosaic(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        page.evaluate("() => _runCommand('slice.toggleMosaic')")
+        page.wait_for_function("() => dim_z >= 0")
+        self._assert_ctrl_loupe_uses_shared_pill(page, "#viewer", "#main-loupe")
+
+    def test_ctrl_loupe_shared_pill_across_multi_pane_modes(
+        self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, arr_4d, tmp_path
+    ):
+        partner_3d_path = tmp_path / "loupe_partner_3d.npy"
+        partner_4d_path = tmp_path / "loupe_partner_4d.npy"
+        np.save(partner_3d_path, np.flipud(arr_3d))
+        np.save(partner_4d_path, np.flipud(arr_4d))
+        partner_3d_sid = client.post(
+            "/load", json={"filepath": str(partner_3d_path), "name": "loupe_partner_3d"}
+        ).json()["sid"]
+        partner_4d_sid = client.post(
+            "/load", json={"filepath": str(partner_4d_path), "name": "loupe_partner_4d"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive")
+        self._assert_ctrl_loupe_uses_shared_pill(page, ".qv-canvas", "#qmri-loupe")
+
+        page = loaded_viewer(sid_3d)
+        _enter_compare(page, partner_3d_sid)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function("() => compareMvActive")
+        page.evaluate("() => { compareMvViews[0].canvas.dataset.loupeTest = 'compare-mv'; }")
+        self._assert_ctrl_loupe_uses_shared_pill(page, "[data-loupe-test='compare-mv']", "#qmri-loupe")
+
+        page = loaded_viewer(sid_4d)
+        _enter_compare(page, partner_4d_sid)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_function("() => compareQmriActive")
+        page.wait_for_function("() => compareQmriViews[0]?.lastW > 0")
+        page.evaluate("() => { compareQmriViews[0].canvas.dataset.loupeTest = 'compare-qmri'; }")
+        self._assert_ctrl_loupe_uses_shared_pill(page, "[data-loupe-test='compare-qmri']", "#qmri-loupe")
 
     def test_ctrl_wheel_still_scrolls_main_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -5887,12 +6024,10 @@ class TestNormalInspectInteractions:
                 return {
                     visible: !!pill,
                     valueText: pill?.querySelector('.eggs-pill-value')?.textContent || '',
-                    coordsText: pill?.querySelector('.eggs-pill-coords')?.textContent || '',
                 };
             }"""
         )
         assert hover_state["visible"], "hover-info mode should show the value pill in the fixed dots spot"
-        assert "x=" in hover_state["coordsText"] and "y=" in hover_state["coordsText"], "pill should include coordinates"
         assert hover_state["valueText"].strip(), "pill should show a numeric value before pinning"
 
         page.keyboard.down("Alt")
@@ -5923,9 +6058,7 @@ class TestNormalInspectInteractions:
         )
         assert pin_count == 2, "clicking twice in hover-info mode should create two pins"
         assert pin_state["valueText"].strip(), "pinned readout should show a numeric value"
-        assert pin_state["coordsText"] == hover_state["coordsText"], (
-            f"pinned hover coords should match the live hover coords, got {pin_state['coordsText']} vs {hover_state['coordsText']}"
-        )
+        assert "x=" in pin_state["coordsText"] and "y=" in pin_state["coordsText"]
         actual = float(pin_state["valueText"])
         expected = float(hover_state["valueText"])
         assert np.isclose(actual, expected, atol=5e-4), (

@@ -499,3 +499,11 @@ bounded budget after that marker, and model the host's real glob semantics in
 tests. Give each launch a unique path prefix and use a trailing `/**`, so only
 that launch's retries navigate its existing tab while separate arrays retain
 separate tabs.
+
+## Transient Overlays Must Reposition Even When Their Value Does Not Change
+
+**Problem:** A fixed pixel-value pill skipped rendering when the formatted value
+was unchanged, so moving a loupe between panes or across the pill's reserved
+slot could leave the pill anchored to the wrong edge.
+**Fix:** Treat anchor and collision placement as independent state. Reconcile
+position on every loupe move, while keeping value updates deduplicated.
