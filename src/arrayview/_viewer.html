@@ -5358,9 +5358,22 @@
         .cmp-xhair-h, .cmp-xhair-v { position:absolute; pointer-events:none; z-index:5; display:none; }
         .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
         .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
+
+        /* The info-hover pointer uses the exact reticle from its value pill.
+           Keeping it as live SVG lets currentColor follow every theme. */
+        #info-hover-cursor {
+            position: fixed; left: 0; top: 0; z-index: 120;
+            width: 10px; height: 10px;
+            pointer-events: none;
+            opacity: 0; visibility: hidden;
+        }
+        #info-hover-cursor.visible { opacity: 1; visibility: visible; }
+        #info-hover-cursor svg { display: block; width: 10px; height: 10px; }
+        canvas.info-hover-cursor-source { cursor: none !important; }
     </style>
 </head>
 <body class="__BODY_CLASS__">
+<div id="info-hover-cursor" class="eggs-pill-icon eggs-pill-icon-info" aria-hidden="true"></div>
 <div id="wrapper">
     <div id="array-name">
         <svg id="av-logo-svg" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
@@ -6920,6 +6933,32 @@
             + '<rect x="8.6" y="5.2" width="3" height="1.6" fill="currentColor"/>'
             + '<circle cx="6" cy="6" r="1.1" fill="currentColor"/>'
             + '</svg>';
+        const _INFO_CURSOR_CANVAS_SELECTOR = '#viewer, .mv-canvas, .qv-canvas, .compare-canvas';
+        let _infoCursorPointerTarget = null;
+        let _infoCursorStyledTarget = null;
+        let _infoCursorClientX = 0;
+        let _infoCursorClientY = 0;
+        document.addEventListener('pointermove', e => {
+            const nextTarget = e.target instanceof Element
+                ? e.target.closest(_INFO_CURSOR_CANVAS_SELECTOR)
+                : null;
+            _infoCursorClientX = e.clientX;
+            _infoCursorClientY = e.clientY;
+            if (nextTarget === _infoCursorPointerTarget && nextTarget === _infoCursorStyledTarget) {
+                _positionInfoCursor();
+                return;
+            }
+            _infoCursorPointerTarget = nextTarget;
+            _reconcileInfoCursor();
+        }, { passive: true });
+        document.addEventListener('pointerleave', () => {
+            _infoCursorPointerTarget = null;
+            _reconcileInfoCursor();
+        });
+        window.addEventListener('blur', () => {
+            _infoCursorPointerTarget = null;
+            _reconcileInfoCursor();
+        });
         const EGGS_ICON_HIST = '<svg viewBox="0 0 12 12" width="10" height="10">'
             + '<rect x="0.6" y="7.2" width="2.1" height="4.2" fill="currentColor"/>'
             + '<rect x="3.7" y="4.6" width="2.1" height="6.8" fill="currentColor"/>'
@@ -25471,6 +25510,7 @@
                             canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                         });
                     }
+                    _reconcileInfoCursor();
                     showStatus(`hover info: ${_pixelInfoVisible ? 'on · alt+click adds pins' : 'off'}`);
                     saveState();
                 },
@@ -38916,6 +38956,7 @@
             _reconcileDimbarExtent();
             _reconcileRoiColorbarControls();
             _reconcileMainLoupeState();
+            _reconcileInfoCursor();
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
                 const busy = _patientLoadingVisible || _slowRenderBusyVisible;
@@ -38947,6 +38988,40 @@
             const info = document.getElementById('info');
             if (info) _scheduleActiveDimUnderline(info, 320);
             _reconcileTutorial();
+        }
+
+        function _reconcileInfoCursor() {
+            if (_infoCursorStyledTarget) {
+                _infoCursorStyledTarget.classList.remove('info-hover-cursor-source');
+                _infoCursorStyledTarget = null;
+            }
+            const cursor = document.getElementById('info-hover-cursor');
+            if (!cursor) return;
+            if (!cursor.firstElementChild) cursor.innerHTML = EGGS_ICON_INFO;
+
+            const target = _infoCursorPointerTarget;
+            const targetIsLive = !!(target && document.documentElement.contains(target));
+            const toolOwnsCursor = rectRoiMode || document.body.classList.contains('ruler-mode');
+            const targetCursor = targetIsLive ? getComputedStyle(target).cursor : '';
+            const visible = !!(
+                _pixelInfoVisible
+                && targetIsLive
+                && !toolOwnsCursor
+                && targetCursor === 'crosshair'
+            );
+
+            if (visible) {
+                target.classList.add('info-hover-cursor-source');
+                _infoCursorStyledTarget = target;
+                _positionInfoCursor();
+            }
+            cursor.classList.toggle('visible', visible);
+        }
+
+        function _positionInfoCursor() {
+            const cursor = document.getElementById('info-hover-cursor');
+            if (!cursor) return;
+            cursor.style.transform = `translate(${_infoCursorClientX - 5}px, ${_infoCursorClientY - 5}px)`;
         }
 
         // ── Layout container visibility reconciler ───────────────────

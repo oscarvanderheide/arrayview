@@ -5380,6 +5380,118 @@ class TestMinimapCursor:
 
 
 class TestNormalInspectInteractions:
+    @staticmethod
+    def _assert_info_cursor_active(page, selector):
+        canvas = page.locator(selector).first
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.wait_for_function(
+            """selector => {
+                const canvas = document.querySelector(selector);
+                const cursor = document.getElementById('info-hover-cursor');
+                return canvas?.classList.contains('info-hover-cursor-source')
+                    && cursor?.classList.contains('visible');
+            }""",
+            arg=selector,
+        )
+        state = page.evaluate(
+            """({ selector, cx, cy }) => {
+                const canvas = document.querySelector(selector);
+                const cursor = document.getElementById('info-hover-cursor');
+                const box = cursor.getBoundingClientRect();
+                return {
+                    canvasCursor: getComputedStyle(canvas).cursor,
+                    cursorVisible: getComputedStyle(cursor).visibility,
+                    centerX: box.left + box.width / 2,
+                    centerY: box.top + box.height / 2,
+                };
+            }""",
+            {"selector": selector, "cx": cx, "cy": cy},
+        )
+        assert state["canvasCursor"] == "none"
+        assert state["cursorVisible"] == "visible"
+        assert abs(state["centerX"] - cx) < 1
+        assert abs(state["centerY"] - cy) < 1
+
+    def test_info_hover_cursor_matches_pill_across_themes(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+
+        off = page.evaluate(
+            """() => ({
+                canvasCursor: getComputedStyle(document.getElementById('viewer')).cursor,
+                cursorVisible: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
+            })"""
+        )
+        assert off == {"canvasCursor": "crosshair", "cursorVisible": "hidden"}
+
+        page.keyboard.press("i")
+        for _ in range(4):
+            self._assert_info_cursor_active(page, "#viewer")
+            appearance = page.evaluate(
+                """() => {
+                    const cursor = document.getElementById('info-hover-cursor');
+                    const pillIcon = document.querySelector('#mode-eggs .eggs-pill-icon-info');
+                    return {
+                        cursorMarkup: cursor.innerHTML,
+                        pillMarkup: pillIcon?.innerHTML || '',
+                        cursorColor: getComputedStyle(cursor).color,
+                        pillColor: pillIcon ? getComputedStyle(pillIcon).color : '',
+                    };
+                }"""
+            )
+            assert appearance["cursorMarkup"] == appearance["pillMarkup"]
+            assert appearance["cursorColor"] == appearance["pillColor"]
+            page.keyboard.press("T")
+            page.wait_for_timeout(80)
+
+        page.keyboard.press("Shift+R")
+        page.mouse.move(cx + 1, cy + 1)
+        page.wait_for_timeout(80)
+        tool_state = page.evaluate(
+            """() => ({
+                roi: rectRoiMode,
+                canvasCursor: getComputedStyle(document.getElementById('viewer')).cursor,
+                cursorVisible: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
+            })"""
+        )
+        assert tool_state == {"roi": True, "canvasCursor": "crosshair", "cursorVisible": "hidden"}
+        page.keyboard.press("Shift+R")
+        page.keyboard.press("i")
+
+    def test_info_hover_cursor_follows_dynamic_mode_canvases(
+        self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, tmp_path
+    ):
+        partner_path = tmp_path / "cursor_partner.npy"
+        np.save(partner_path, np.flipud(arr_3d))
+        partner_sid = client.post(
+            "/load", json={"filepath": str(partner_path), "name": "cursor_partner"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_3d)
+        page.keyboard.press("i")
+        self._assert_info_cursor_active(page, "#viewer")
+
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        self._assert_info_cursor_active(page, ".mv-canvas")
+        page.keyboard.press("v")
+
+        _enter_compare(page, partner_sid)
+        self._assert_info_cursor_active(page, "#compare-left-canvas")
+        _exit_compare(page)
+
+        page = loaded_viewer(sid_4d)
+        if not page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.keyboard.press("q")
+        page.wait_for_selector("#qmri-view-wrap.active .qv-canvas", timeout=5_000)
+        self._assert_info_cursor_active(page, "#qmri-view-wrap.active .qv-canvas")
+        page.keyboard.press("q")
+        page.keyboard.press("i")
+
     def test_mouse_hold_info_only_ctrl_hold_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
