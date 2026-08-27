@@ -34061,13 +34061,20 @@
             const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
             const n = ready.length;
-            const cols = Math.ceil(Math.sqrt(n));
+            // sqrt(3) rounds up to 2 columns, splitting 3 panes into a lone
+            // centered item under a row of 2 instead of one row of 3.
+            const cols = n <= 3 ? n : Math.ceil(Math.sqrt(n));
             const rows = Math.ceil(n / cols);
             const colGap = 16, rowGap = 16;
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 4 + 8;
             const cbH = document.getElementById('slim-cb-wrap')
                 && getComputedStyle(document.getElementById('slim-cb-wrap')).display !== 'none' ? 30 : 0;
-            const uiReserveH = uiReserveV() + (cbH + labelH) * (1 - _crossfadeCollapseP);
+            // Every row carries its own label strip above it (each .sm-pane is
+            // label + canvas stacked), not just one for the whole mosaic —
+            // reserving a single labelH here under-budgeted multi-row windows,
+            // so the panes grid ran taller than planned and pushed the
+            // colorbar (docked to its bottom edge) below the viewport.
+            const uiReserveH = uiReserveV() + (cbH + labelH * rows) * (1 - _crossfadeCollapseP);
             const availW = Math.max(50, window.innerWidth - 80);
             const availH = Math.max(50, window.innerHeight - uiReserveH);
             const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
@@ -34075,13 +34082,25 @@
             const spacings = ready.map(v => _stackMosaicCaseSpacing(v.colIdx));
             // absMaxScale is mm-of-real-world-size per screen pixel: computing it
             // from each pane's physical extent (native pixels × its own spacing)
-            // instead of raw pixel count keeps every pane's box the same size
-            // and each case's content at its true relative physical scale, so a
-            // case scanned with a different field of view just fills less of
-            // its box instead of getting a differently sized box.
+            // instead of raw pixel count keeps every case at its true relative
+            // physical scale, so a case scanned with a different field of view
+            // fills less of the shared box instead of getting its own,
+            // differently sized one.
             const absMaxScale = Math.min(...ready.map((v, i) =>
                 Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
+            // The shared box is the largest content actually renders at, not the
+            // full cell: cellW/cellH is only a target aspect ratio (usually not
+            // square) that content of a different aspect can't fill on both
+            // axes at once, so forcing every box to the raw cell added slack
+            // around every pane — even ones with identical, unremarkable
+            // spacing — throwing off the mosaic's measured size and, with it,
+            // the fixed-position colorbar anchored below it.
+            let refW = 0, refH = 0;
+            ready.forEach((v, i) => {
+                refW = Math.max(refW, v.lastW * spacings[i] * cappedScale);
+                refH = Math.max(refH, v.lastH * spacings[i] * cappedScale);
+            });
             ready.forEach((v, i) => {
                 const baseScale = cappedScale * spacings[i] / Math.max(0.0001, userZoom);
                 // Pass v.clip as the viewport so _scalePane sizes it (and clamps
@@ -34101,11 +34120,11 @@
                         updateAutoFit: false,
                         allowOverflowRecalc: false,
                         // Without this the box shrinks to match content
-                        // whenever content is smaller than the cell, so a
+                        // whenever content is smaller than the shared box, so a
                         // case with a smaller physical field of view ends up
-                        // with a smaller box instead of a smaller image
-                        // inside a same-size box.
-                        forceViewport: { w: cellW, h: cellH },
+                        // with a smaller box instead of a smaller image inside
+                        // a same-size box.
+                        forceViewport: { w: refW, h: refH },
                     }
                 );
                 // A case with a smaller physical field of view now renders
@@ -34113,13 +34132,22 @@
                 // underfilled content to the bottom-right corner since that's
                 // just where its 0/0 default lands once clamped, so center it
                 // instead of leaving it looking adrift from its label.
-                if (v.lastW * baseScale <= cellW + 1 && v.lastH * baseScale <= cellH + 1) {
-                    v.pan.x = (cellW - v.lastW * baseScale) / 2;
-                    v.pan.y = (cellH - v.lastH * baseScale) / 2;
+                if (v.lastW * baseScale <= refW + 1 && v.lastH * baseScale <= refH + 1) {
+                    v.pan.x = (refW - v.lastW * baseScale) / 2;
+                    v.pan.y = (refH - v.lastH * baseScale) / 2;
                     v.pan.apply();
                 }
             });
             fixWrapperAlignment();
+            // The colorbar docks to this grid's bottom edge, but normally
+            // only repositions when the focused pane's own frame lands
+            // (_stackMosaicSyncSharedRange). If a different pane's frame is
+            // what changed the layout just now — the common case, since
+            // frames from a whole window of cases arrive independently —
+            // that edge moves without anything telling the colorbar to
+            // follow, leaving it docked to a stale position (once offscreen
+            // if this pass shrank the grid from an earlier, larger one).
+            if (_sharedCbVisible) drawSlimColorbar();
             requestAnimationFrame(() => {
                 if (stackMosaicActive) positionEggs();
             });
