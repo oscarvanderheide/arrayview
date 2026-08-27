@@ -5533,6 +5533,181 @@ class TestNormalInspectInteractions:
         page.keyboard.press("q")
         page.keyboard.press("i")
 
+    def test_info_hover_drag_is_temporary_region_inspection(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        box = canvas.bounding_box()
+        x0, y0 = box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.25
+        x1, y1 = box["x"] + box["width"] * 0.65, box["y"] + box["height"] * 0.65
+        if not page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.mouse.move(x0, y0)
+        page.wait_for_selector("#mode-eggs .eggs-value-pill", timeout=5_000)
+        before = page.evaluate(
+            "() => ({ range: [manualVmin ?? currentVmin, manualVmax ?? currentVmax], rois: _rois.length })"
+        )
+
+        # A click-sized move remains point inspection and never flashes a rectangle.
+        page.mouse.down()
+        page.mouse.move(x0 + 2, y0 + 2)
+        page.mouse.up()
+        tiny = page.evaluate(
+            "() => ({ active: document.getElementById('canvas-inner').classList.contains('info-region-active'), result: _infoRegionResult })"
+        )
+        assert tiny == {"active": False, "result": False}
+
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        during = page.evaluate(
+            """() => {
+                const el = document.getElementById('info-region-rect');
+                const r = el.getBoundingClientRect();
+                return {
+                    active: document.getElementById('canvas-inner').classList.contains('info-region-active'),
+                    opacity: getComputedStyle(el).opacity,
+                    width: r.width,
+                    height: r.height,
+                    bc: !!_bcDrag,
+                };
+            }"""
+        )
+        assert during["active"] and during["opacity"] == "1"
+        assert during["width"] > 10 and during["height"] > 10
+        assert not during["bc"]
+        page.mouse.up()
+        page.wait_for_function(
+            "() => _infoRegionResult && (document.querySelector('#mode-eggs .eggs-pill-value')?.textContent || '').includes('· n ')",
+            timeout=5_000,
+        )
+        released = page.evaluate(
+            """() => ({
+                range: [manualVmin ?? currentVmin, manualVmax ?? currentVmax],
+                roiMode: rectRoiMode,
+                rois: _rois.length,
+                active: document.getElementById('canvas-inner').classList.contains('info-region-active'),
+                snapshotHasTemporaryState: Object.keys(collectStateSnapshot()).some(k => k.includes('infoRegion')),
+            })"""
+        )
+        assert released["range"] == before["range"]
+        assert not released["roiMode"] and released["rois"] == before["rois"]
+        assert released["active"]
+        assert not released["snapshotHasTemporaryState"]
+
+        # Leaving the image clears both the rectangle and its regional result.
+        page.mouse.move(1, 1)
+        page.wait_for_function(
+            "() => !_infoRegionResult && !document.getElementById('canvas-inner').classList.contains('info-region-active')"
+        )
+
+        # Persistent info mode still gives Control priority to the loupe.
+        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        page.keyboard.down("Control")
+        page.mouse.move((x0 + x1) / 2 + 1, (y0 + y1) / 2 + 1)
+        page.wait_for_function(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
+        )
+        assert not page.evaluate(
+            "() => document.getElementById('canvas-inner').classList.contains('info-region-active')"
+        )
+        page.keyboard.up("Control")
+
+    def test_info_hover_preserves_explicit_windowing_and_zoom_pan(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        if not page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        before_range = page.evaluate("() => [manualVmin ?? currentVmin, manualVmax ?? currentVmax]")
+        page.mouse.move(cx, cy)
+        page.keyboard.down("Control")
+        page.keyboard.down("Shift")
+        page.mouse.down()
+        page.mouse.move(cx + 70, cy + 45, steps=8)
+        page.mouse.up()
+        page.keyboard.up("Shift")
+        page.keyboard.up("Control")
+        page.wait_for_timeout(200)
+        after_range = page.evaluate("() => [manualVmin ?? currentVmin, manualVmax ?? currentVmax]")
+        assert after_range != before_range, "Control+Shift drag should keep explicit window/level available"
+        assert not page.evaluate("() => _infoRegionResult || !!_infoRegionDrag")
+
+        before_middle = after_range
+        page.mouse.move(cx, cy)
+        page.mouse.down(button="middle")
+        page.mouse.move(cx - 55, cy - 35, steps=6)
+        page.mouse.up(button="middle")
+        page.wait_for_timeout(200)
+        after_middle = page.evaluate("() => [manualVmin ?? currentVmin, manualVmax ?? currentVmax]")
+        assert after_middle != before_middle, "middle drag should keep explicit window/level available"
+        assert not page.evaluate("() => _infoRegionResult || !!_infoRegionDrag")
+
+        page.evaluate(
+            """() => {
+                userZoom = 3;
+                _zoomAdjustedByUser = true;
+                scaleCanvas(canvas.width, canvas.height);
+            }"""
+        )
+        page.wait_for_function("() => mainPan.overflows")
+        before_pan = page.evaluate("() => ({ x: mainPan.x, y: mainPan.y })")
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx - 45, cy - 30, steps=6)
+        page.mouse.up()
+        after_pan = page.evaluate("() => ({ x: mainPan.x, y: mainPan.y, region: !!_infoRegionDrag })")
+        assert (after_pan["x"], after_pan["y"]) != (before_pan["x"], before_pan["y"])
+        assert not after_pan["region"]
+
+    def test_info_hover_mosaic_region_stays_in_start_tile(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        page.evaluate("() => _runCommand('slice.toggleMosaic')")
+        page.wait_for_function("() => dim_z >= 0")
+        page.wait_for_timeout(250)
+        if not page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        coords = page.evaluate(
+            """() => {
+                const r = canvas.getBoundingClientRect();
+                const g = _mosaicGridInfo();
+                const sx = r.width / canvas.width, sy = r.height / canvas.height;
+                const horizontal = g.cols > 1;
+                return {
+                    x0: r.left + g.tileW * 0.25 * sx,
+                    y0: r.top + g.tileH * 0.25 * sy,
+                    x1: r.left + (horizontal ? g.tileW + g.GAP + g.tileW * 0.8 : g.tileW * 0.8) * sx,
+                    y1: r.top + (horizontal ? g.tileH * 0.8 : g.tileH + g.GAP + g.tileH * 0.8) * sy,
+                    horizontal,
+                };
+            }"""
+        )
+        page.mouse.move(coords["x0"], coords["y0"])
+        page.mouse.down()
+        page.mouse.move(coords["x1"], coords["y1"], steps=8)
+        clamped = page.evaluate(
+            """() => ({
+                z: _infoRegionDrag.tile.zIdx,
+                currentX: _infoRegionDrag.current.displayX,
+                tileRight: _infoRegionDrag.tile.x0 + _infoRegionDrag.tile.w - 1,
+                currentY: _infoRegionDrag.current.displayY,
+                tileBottom: _infoRegionDrag.tile.y0 + _infoRegionDrag.tile.h - 1,
+                localX: _infoRegionDrag.current.localX,
+                localY: _infoRegionDrag.current.localY,
+                tileWidth: _infoRegionDrag.tile.w,
+                tileHeight: _infoRegionDrag.tile.h,
+            })"""
+        )
+        assert clamped["z"] == 0
+        if coords["horizontal"]:
+            assert clamped["currentX"] == clamped["tileRight"]
+            assert clamped["localX"] == clamped["tileWidth"] - 1
+        else:
+            assert clamped["currentY"] == clamped["tileBottom"]
+            assert clamped["localY"] == clamped["tileHeight"] - 1
+        page.mouse.up()
+        page.wait_for_function("() => _infoRegionResult", timeout=5_000)
+        assert page.evaluate("() => !rectRoiMode && _rois.length === 0")
+
     def test_mouse_hold_info_only_ctrl_hold_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
