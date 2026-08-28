@@ -5379,12 +5379,23 @@
            Keeping it as live SVG lets currentColor follow every theme. */
         #info-hover-cursor {
             position: fixed; left: 0; top: 0; z-index: 120;
-            width: 10px; height: 10px;
+            width: 18px; height: 18px;
             pointer-events: none;
             opacity: 0; visibility: hidden;
         }
         #info-hover-cursor.visible { opacity: 1; visibility: visible; }
-        #info-hover-cursor svg { display: block; width: 10px; height: 10px; }
+        #info-hover-cursor svg {
+            position: absolute; inset: 0;
+            display: block; width: 18px; height: 18px;
+        }
+        #info-hover-cursor .info-hover-cursor-contrast * {
+            fill: var(--bg);
+            stroke: var(--bg);
+            stroke-width: 0.9px;
+            stroke-linejoin: round;
+            paint-order: stroke fill;
+        }
+        #info-hover-cursor .info-hover-cursor-glyph { color: var(--text); }
         canvas.info-hover-cursor-source { cursor: none !important; }
     </style>
 </head>
@@ -39290,7 +39301,11 @@
             }
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
-            if (!cursor.firstElementChild) cursor.innerHTML = EGGS_ICON_INFO;
+            if (!cursor.firstElementChild) {
+                cursor.innerHTML = EGGS_ICON_INFO + EGGS_ICON_INFO;
+                cursor.children[0].classList.add('info-hover-cursor-contrast');
+                cursor.children[1].classList.add('info-hover-cursor-glyph');
+            }
 
             const target = _infoCursorPointerTarget;
             const targetIsLive = !!(target && document.documentElement.contains(target));
@@ -39314,7 +39329,7 @@
         function _positionInfoCursor() {
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
-            cursor.style.transform = `translate(${_infoCursorClientX - 5}px, ${_infoCursorClientY - 5}px)`;
+            cursor.style.transform = `translate(${_infoCursorClientX - 9}px, ${_infoCursorClientY - 9}px)`;
         }
 
         // ── Layout container visibility reconciler ───────────────────

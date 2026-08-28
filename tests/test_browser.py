@@ -5402,6 +5402,8 @@ class TestNormalInspectInteractions:
                 return {
                     canvasCursor: getComputedStyle(canvas).cursor,
                     cursorVisible: getComputedStyle(cursor).visibility,
+                    width: box.width,
+                    height: box.height,
                     centerX: box.left + box.width / 2,
                     centerY: box.top + box.height / 2,
                 };
@@ -5410,6 +5412,8 @@ class TestNormalInspectInteractions:
         )
         assert state["canvasCursor"] == "none"
         assert state["cursorVisible"] == "visible"
+        assert state["width"] == 18
+        assert state["height"] == 18
         assert abs(state["centerX"] - cx) < 1
         assert abs(state["centerY"] - cy) < 1
 
@@ -5475,16 +5479,39 @@ class TestNormalInspectInteractions:
                 """() => {
                     const cursor = document.getElementById('info-hover-cursor');
                     const pillIcon = document.querySelector('#mode-eggs .eggs-pill-icon-info');
+                    const layers = [...cursor.querySelectorAll('svg')];
+                    const geometry = svg => [...svg.querySelectorAll('rect, circle')].map(el => ({
+                        tag: el.tagName,
+                        x: el.getAttribute('x'), y: el.getAttribute('y'),
+                        width: el.getAttribute('width'), height: el.getAttribute('height'),
+                        cx: el.getAttribute('cx'), cy: el.getAttribute('cy'), r: el.getAttribute('r'),
+                    }));
+                    const probe = document.createElement('span');
+                    probe.style.color = 'var(--text)';
+                    document.body.appendChild(probe);
+                    const textColor = getComputedStyle(probe).color;
+                    probe.style.color = 'var(--bg)';
+                    const bgColor = getComputedStyle(probe).color;
+                    probe.remove();
                     return {
-                        cursorMarkup: cursor.innerHTML,
-                        pillMarkup: pillIcon?.innerHTML || '',
-                        cursorColor: getComputedStyle(cursor).color,
-                        pillColor: pillIcon ? getComputedStyle(pillIcon).color : '',
+                        layerCount: layers.length,
+                        cursorGeometry: layers.map(geometry),
+                        pillGeometry: geometry(pillIcon.querySelector('svg')),
+                        glyphFill: getComputedStyle(layers[1].querySelector('rect')).fill,
+                        contrastFill: getComputedStyle(layers[0].querySelector('rect')).fill,
+                        contrastStroke: getComputedStyle(layers[0].querySelector('rect')).stroke,
+                        contrastStrokeWidth: getComputedStyle(layers[0].querySelector('rect')).strokeWidth,
+                        pillFill: getComputedStyle(pillIcon.querySelector('rect')).fill,
+                        textColor, bgColor,
                     };
                 }"""
             )
-            assert appearance["cursorMarkup"] == appearance["pillMarkup"]
-            assert appearance["cursorColor"] == appearance["pillColor"]
+            assert appearance["layerCount"] == 2
+            assert appearance["cursorGeometry"] == [appearance["pillGeometry"]] * 2
+            assert appearance["glyphFill"] == appearance["pillFill"] == appearance["textColor"]
+            assert appearance["contrastFill"] == appearance["bgColor"]
+            assert appearance["contrastStroke"] == appearance["bgColor"]
+            assert appearance["contrastStrokeWidth"] == "0.9px"
             page.keyboard.press("T")
             page.wait_for_timeout(80)
 
