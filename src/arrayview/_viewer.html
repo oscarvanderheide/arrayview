@@ -16899,17 +16899,18 @@
             if (loupeContext && loupeContext.canvas === explicitAnchor && loupeContext.loupe) {
                 const northTop = Math.max(inset, Math.min(window.innerHeight - eggsH - inset, minTop));
                 const loupeRect = loupeContext.loupe.getBoundingClientRect();
-                const northRect = {
+                const southRect = {
                     left: eggsLeft - eggsW / 2,
                     right: eggsLeft + eggsW / 2,
-                    top: northTop,
-                    bottom: northTop + eggsH,
+                    top: eggsTop,
+                    bottom: eggsTop + eggsH,
                 };
-                const covered = northRect.left < loupeRect.right
-                    && northRect.right > loupeRect.left
-                    && northRect.top < loupeRect.bottom
-                    && northRect.bottom > loupeRect.top;
-                if (!covered) {
+                const collisionGap = 8;
+                const covered = southRect.left < loupeRect.right + collisionGap
+                    && southRect.right > loupeRect.left - collisionGap
+                    && southRect.top < loupeRect.bottom + collisionGap
+                    && southRect.bottom > loupeRect.top - collisionGap;
+                if (covered) {
                     eggsTop = northTop;
                     placement = 'top';
                 }

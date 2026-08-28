@@ -5422,7 +5422,7 @@ class TestNormalInspectInteractions:
         canvas = page.locator(canvas_selector).first
         box = canvas.bounding_box()
         px = box["x"] + box["width"] / 2
-        py = box["y"] + box["height"] - 12
+        py = box["y"] + 12
         page.mouse.move(px, py)
         page.keyboard.down("Control")
         page.evaluate(
@@ -5450,7 +5450,7 @@ class TestNormalInspectInteractions:
             }""",
             {"canvasSelector": canvas_selector, "loupeSelector": loupe_selector},
         )
-        assert state["placement"] in {"top", "bottom"}
+        assert state["placement"] == "bottom"
         assert state["centered"]
         assert not state["overlaps"]
         assert not state["legacyVisible"]
@@ -5863,7 +5863,7 @@ class TestNormalInspectInteractions:
         assert ctrl_held["pillZ"] > ctrl_held["dimZ"], "the shared value pill should stay bright above the pane dimmer"
         assert ctrl_held["pillVisible"], "Control mouse hold should show the shared value pill"
         assert ctrl_held["pillValue"], "Control mouse hold should show a numeric value"
-        assert ctrl_held["pillPlacement"] == "top"
+        assert ctrl_held["pillPlacement"] == "bottom"
 
     def test_plain_press_hides_pixel_info_before_any_move(self, loaded_viewer, sid_2d):
         """A plain left press opens the window/level gesture, so the pixel-info
@@ -5971,10 +5971,10 @@ class TestNormalInspectInteractions:
         )
         assert ctrl_info["visible"], "Control-hover should show the shared value pill"
         assert ctrl_info["value"], "Control-hover should show a numeric value"
-        assert ctrl_info["placement"] == "top"
+        assert ctrl_info["placement"] == "bottom"
 
         canvas_box = canvas.bounding_box()
-        page.mouse.move(cx, canvas_box["y"] + 12)
+        page.mouse.move(cx, canvas_box["y"] + canvas_box["height"] - 12)
         page.wait_for_timeout(120)
         collision = page.evaluate(
             """() => {
@@ -5988,7 +5988,23 @@ class TestNormalInspectInteractions:
                 };
             }"""
         )
-        assert collision == {"placement": "bottom", "overlaps": False}
+        assert collision == {"placement": "top", "overlaps": False}
+
+        page.mouse.move(cx, cy)
+        page.wait_for_timeout(120)
+        cleared = page.evaluate(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill')?.getBoundingClientRect();
+                const loupe = document.getElementById('main-loupe').getBoundingClientRect();
+                return {
+                    placement: eggs.dataset.pillPlacement,
+                    overlaps: !!pill && pill.left < loupe.right && pill.right > loupe.left
+                        && pill.top < loupe.bottom && pill.bottom > loupe.top,
+                };
+            }"""
+        )
+        assert cleared == {"placement": "bottom", "overlaps": False}
 
         page.keyboard.up("Control")
         page.wait_for_timeout(220)
@@ -6061,12 +6077,16 @@ class TestNormalInspectInteractions:
         )
         assert hidden, "multiview loupe should collapse after Control is released"
         assert not page.locator("#mode-eggs .eggs-value-pill").count()
+        page.keyboard.press("v")
+        page.wait_for_function("() => !multiViewActive")
 
     def test_ctrl_loupe_shared_pill_in_mosaic(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         page.evaluate("() => _runCommand('slice.toggleMosaic')")
         page.wait_for_function("() => dim_z >= 0")
         self._assert_ctrl_loupe_uses_shared_pill(page, "#viewer", "#main-loupe")
+        page.evaluate("() => _runCommand('slice.toggleMosaic')")
+        page.wait_for_function("() => dim_z < 0")
 
     def test_ctrl_loupe_shared_pill_across_multi_pane_modes(
         self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, arr_4d, tmp_path
@@ -6087,6 +6107,8 @@ class TestNormalInspectInteractions:
         page.keyboard.press("q")
         page.wait_for_function("() => qmriActive")
         self._assert_ctrl_loupe_uses_shared_pill(page, ".qv-canvas", "#qmri-loupe")
+        page.keyboard.press("q")
+        page.wait_for_function("() => !qmriActive")
 
         page = loaded_viewer(sid_3d)
         _enter_compare(page, partner_3d_sid)
@@ -6095,6 +6117,9 @@ class TestNormalInspectInteractions:
         page.wait_for_function("() => compareMvActive")
         page.evaluate("() => { compareMvViews[0].canvas.dataset.loupeTest = 'compare-mv'; }")
         self._assert_ctrl_loupe_uses_shared_pill(page, "[data-loupe-test='compare-mv']", "#qmri-loupe")
+        page.keyboard.press("v")
+        page.wait_for_function("() => !compareMvActive")
+        _exit_compare(page)
 
         page = loaded_viewer(sid_4d)
         _enter_compare(page, partner_4d_sid)
@@ -6104,6 +6129,9 @@ class TestNormalInspectInteractions:
         page.wait_for_function("() => compareQmriViews[0]?.lastW > 0")
         page.evaluate("() => { compareQmriViews[0].canvas.dataset.loupeTest = 'compare-qmri'; }")
         self._assert_ctrl_loupe_uses_shared_pill(page, "[data-loupe-test='compare-qmri']", "#qmri-loupe")
+        page.keyboard.press("q")
+        page.wait_for_function("() => !compareQmriActive")
+        _exit_compare(page)
 
     def test_ctrl_wheel_still_scrolls_main_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
