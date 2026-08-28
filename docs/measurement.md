@@ -26,7 +26,7 @@ Hover over the image to see coordinates and value reflected on the colorbar.
 
 Click the colorbar to copy that value to the clipboard.
 
-`i` — keep the pixel value visible in the pane pill. Drag a rectangle to inspect its mean, standard deviation, and pixel count without creating a saved ROI. Hold `Ctrl` for the loupe; its value uses the same pill and moves to the opposite edge when needed.
+`i` — keep the pixel value visible in the pane pill. Draw a freehand outline to inspect its mean, standard deviation, and pixel count without creating a saved ROI. The outline and result remain until you draw another or turn pixel info off. Hold `Ctrl` for the loupe; its value uses the same pill and moves to the opposite edge when needed.
 
 While pixel info is on, use middle-drag or `Ctrl`/`Cmd`+`Shift`-drag to adjust the display range explicitly. When zoomed in, plain drag still pans.
 

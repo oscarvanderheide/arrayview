@@ -5560,7 +5560,7 @@ class TestNormalInspectInteractions:
         page.keyboard.press("q")
         page.keyboard.press("i")
 
-    def test_info_hover_drag_is_temporary_region_inspection(self, loaded_viewer, sid_2d):
+    def test_info_hover_drag_is_persistent_freehand_inspection(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
         box = canvas.bounding_box()
@@ -5585,22 +5585,32 @@ class TestNormalInspectInteractions:
 
         page.mouse.move(x0, y0)
         page.mouse.down()
-        page.mouse.move(x1, y1, steps=8)
+        for x, y in [
+            (x1, y0),
+            (x1, y1),
+            (x0, y1),
+            (x0, y0),
+        ]:
+            page.mouse.move(x, y, steps=5)
         during = page.evaluate(
             """() => {
-                const el = document.getElementById('info-region-rect');
-                const r = el.getBoundingClientRect();
+                const el = document.getElementById('info-region-outline');
+                const path = el.querySelector('path');
                 return {
                     active: document.getElementById('canvas-inner').classList.contains('info-region-active'),
                     opacity: getComputedStyle(el).opacity,
-                    width: r.width,
-                    height: r.height,
+                    path: path.getAttribute('d'),
+                    fill: getComputedStyle(path).fill,
+                    stroke: getComputedStyle(path).stroke,
+                    points: _infoRegionDrag.points.length,
                     bc: !!_bcDrag,
                 };
             }"""
         )
         assert during["active"] and during["opacity"] == "1"
-        assert during["width"] > 10 and during["height"] > 10
+        assert during["path"].startswith("M ") and during["path"].endswith(" Z")
+        assert during["points"] >= 12
+        assert during["fill"] != "none" and during["stroke"] != "none"
         assert not during["bc"]
         page.mouse.up()
         page.wait_for_function(
@@ -5621,23 +5631,62 @@ class TestNormalInspectInteractions:
         assert released["active"]
         assert not released["snapshotHasTemporaryState"]
 
-        # Leaving the image clears both the rectangle and its regional result.
-        page.mouse.move(1, 1)
-        page.wait_for_function(
-            "() => !_infoRegionResult && !document.getElementById('canvas-inner').classList.contains('info-region-active')"
+        completed = page.evaluate(
+            """() => ({
+                path: document.querySelector('#info-region-outline path').getAttribute('d'),
+                stats: document.querySelector('#mode-eggs .eggs-pill-value').textContent,
+            })"""
         )
 
-        # Persistent info mode still gives Control priority to the loupe.
+        # The completed outline and statistics survive mouse leave.
+        page.mouse.move(1, 1)
+        page.wait_for_timeout(120)
+        after_leave = page.evaluate(
+            """() => ({
+                result: _infoRegionResult,
+                active: document.getElementById('canvas-inner').classList.contains('info-region-active'),
+                path: document.querySelector('#info-region-outline path').getAttribute('d'),
+                stats: document.querySelector('#mode-eggs .eggs-pill-value')?.textContent || '',
+            })"""
+        )
+        assert after_leave == {"result": True, "active": True, **completed}
+
+        # Control gives the loupe temporary priority, then restores region stats.
         page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
         page.keyboard.down("Control")
         page.mouse.move((x0 + x1) / 2 + 1, (y0 + y1) / 2 + 1)
         page.wait_for_function(
             "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
         )
-        assert not page.evaluate(
+        assert page.evaluate(
             "() => document.getElementById('canvas-inner').classList.contains('info-region-active')"
         )
         page.keyboard.up("Control")
+        page.wait_for_function(
+            "expected => (document.querySelector('#mode-eggs .eggs-pill-value')?.textContent || '') === expected",
+            arg=completed["stats"],
+        )
+
+        # A new freehand drag replaces the old result; turning info off clears it.
+        page.mouse.move(x0 + 20, y0 + 20)
+        page.mouse.down()
+        for x, y in [(x1 - 20, y0 + 20), (x1 - 20, y1 - 20), (x0 + 20, y1 - 20), (x0 + 20, y0 + 20)]:
+            page.mouse.move(x, y, steps=4)
+        page.mouse.up()
+        page.wait_for_function("() => _infoRegionResult", timeout=5_000)
+        replacement_path = page.evaluate(
+            "() => document.querySelector('#info-region-outline path').getAttribute('d')"
+        )
+        assert replacement_path != completed["path"]
+        page.keyboard.press("i")
+        cleared = page.evaluate(
+            """() => ({
+                result: _infoRegionResult,
+                active: document.getElementById('canvas-inner').classList.contains('info-region-active'),
+                pill: !!document.querySelector('#mode-eggs .eggs-value-pill'),
+            })"""
+        )
+        assert cleared == {"result": False, "active": False, "pill": False}
 
     def test_info_hover_preserves_explicit_windowing_and_zoom_pan(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

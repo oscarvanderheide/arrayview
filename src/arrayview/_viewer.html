@@ -195,20 +195,24 @@
             pointer-events: none;
             z-index: 50;
         }
-        #info-region-rect {
+        #info-region-outline {
             position: absolute;
-            left: var(--info-region-left, 0);
-            top: var(--info-region-top, 0);
-            width: var(--info-region-width, 0);
-            height: var(--info-region-height, 0);
-            box-sizing: border-box;
-            border: 1px solid var(--active-dim);
-            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+            inset: 0;
+            width: 100%;
+            height: 100%;
             opacity: 0;
             pointer-events: none;
             z-index: 49;
         }
-        #canvas-inner.info-region-active #info-region-rect { opacity: 1; }
+        #info-region-outline path {
+            fill: color-mix(in srgb, var(--active-dim) 8%, transparent);
+            stroke: var(--active-dim);
+            stroke-width: 1.5;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+            vector-effect: non-scaling-stroke;
+        }
+        #canvas-inner.info-region-active #info-region-outline { opacity: 1; }
         canvas {
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
@@ -5432,7 +5436,7 @@
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
                 <canvas id="cutaway-canvas" aria-label="3D cutaway volume"></canvas>
-                <div id="info-region-rect" aria-hidden="true"></div>
+                <svg id="info-region-outline" aria-hidden="true" preserveAspectRatio="none"><path></path></svg>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <div id="main-pixel-pins"></div>
                 <div id="main-loupe">
@@ -20600,8 +20604,8 @@
                 mainLoupeInfo.style.display = 'none';
             }
             _reconcileMainLoupeState();
-            if (!mainLoupe) return;
-            if (mainLoupe.style.display === 'none') return;
+            if (!mainLoupe) { _restoreInfoRegionResultPill(); return; }
+            if (mainLoupe.style.display === 'none') { _restoreInfoRegionResultPill(); return; }
             if (typeof gsap !== 'undefined') {
                 gsap.killTweensOf(mainLoupe);
                 gsap.to(mainLoupe, {
@@ -20612,11 +20616,13 @@
                         if (!mainLoupe) return;
                         mainLoupe.style.display = 'none';
                         gsap.set(mainLoupe, { clearProps: 'opacity' });
+                        _restoreInfoRegionResultPill();
                     },
                 });
             } else {
                 mainLoupe.style.display = 'none';
                 mainLoupe.style.transform = '';
+                _restoreInfoRegionResultPill();
             }
         }
         let _qmriLoupeEl = null;
@@ -22725,19 +22731,23 @@
 
         function _reconcileInfoRegion() {
             const inner = document.getElementById('canvas-inner');
-            const el = document.getElementById('info-region-rect');
-            const active = !!(_infoRegionDrag && _infoRegionDrag.active);
+            const el = document.getElementById('info-region-outline');
+            const visibleDrag = (_infoRegionDrag && _infoRegionDrag.active)
+                ? _infoRegionDrag
+                : (_infoRegionResult && _infoRegionDrag && _infoRegionDrag.previous)
+                    ? _infoRegionDrag.previous
+                    : (_infoRegionResult ? _infoRegionDrag : null);
+            const active = !!visibleDrag;
             if (inner) inner.classList.toggle('info-region-active', active);
             if (!el || !active) return;
-            const a = _infoRegionDrag.start;
-            const b = _infoRegionDrag.current;
-            const rect = canvas.getBoundingClientRect();
-            const sx = rect.width / canvas.width;
-            const sy = rect.height / canvas.height;
-            el.style.setProperty('--info-region-left', `${Math.min(a.displayX, b.displayX) * sx}px`);
-            el.style.setProperty('--info-region-top', `${Math.min(a.displayY, b.displayY) * sy}px`);
-            el.style.setProperty('--info-region-width', `${Math.max(1, Math.abs(b.displayX - a.displayX) * sx)}px`);
-            el.style.setProperty('--info-region-height', `${Math.max(1, Math.abs(b.displayY - a.displayY) * sy)}px`);
+            el.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
+            const path = el.querySelector('path');
+            const points = visibleDrag.points || [];
+            if (path) {
+                path.setAttribute('d', points.length
+                    ? `M ${points.map(p => `${p.displayX} ${p.displayY}`).join(' L ')} Z`
+                    : '');
+            }
         }
 
         function _clearInfoRegionInspection({ clearPill = true } = {}) {
@@ -22747,6 +22757,13 @@
             _infoRegionRequestGen++;
             _reconcileInfoRegion();
             if (hadResult && clearPill) _setEggsValuePill(null);
+        }
+
+        function _restoreInfoRegionResultPill() {
+            const text = _infoRegionDrag && _infoRegionDrag.statsText;
+            if (_infoRegionResult && text && !_mainLoupeInspecting()) {
+                _setEggsValuePill(text, 'info', canvas);
+            }
         }
 
         function _infoRegionEligible(e) {
@@ -22792,12 +22809,14 @@
         }
 
         function _startInfoRegionInspection(e) {
-            _clearInfoRegionInspection();
             const start = _infoRegionPoint(e.clientX, e.clientY);
             if (!start) return false;
+            const previous = _infoRegionResult ? _infoRegionDrag : null;
             _infoRegionDrag = {
                 start,
                 current: start,
+                points: [start],
+                previous,
                 tile: start.tile,
                 startClientX: e.clientX,
                 startClientY: e.clientY,
@@ -22814,8 +22833,19 @@
             if (!_infoRegionDrag || !(e.buttons & 1)) return;
             const drag = _infoRegionDrag;
             if (!drag.active && Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) < _BC_DRAG_DEADZONE) return;
+            if (!drag.active && _infoRegionResult) {
+                _infoRegionResult = false;
+                _infoRegionRequestGen++;
+                _setEggsValuePill(null);
+            }
             drag.active = true;
-            drag.current = _infoRegionPoint(e.clientX, e.clientY, drag.tile) || drag.current;
+            drag.previous = null;
+            const next = _infoRegionPoint(e.clientX, e.clientY, drag.tile) || drag.current;
+            drag.current = next;
+            const last = drag.points[drag.points.length - 1];
+            if (!last || Math.hypot(next.displayX - last.displayX, next.displayY - last.displayY) >= 1) {
+                drag.points.push(next);
+            }
             _reconcileInfoRegion();
         }
 
@@ -22824,19 +22854,17 @@
             if (!drag) return false;
             if (drag.finished) return true;
             if (!drag.active) {
-                _infoRegionDrag = null;
+                _infoRegionDrag = drag.previous || null;
                 _reconcileInfoRegion();
+                _restoreInfoRegionResultPill();
                 return false;
             }
             drag.finished = true;
             const statsIndices = indices.slice();
             if (drag.tile) statsIndices[dim_z] = drag.tile.zIdx;
-            const x0 = Math.min(drag.start.localX, drag.current.localX);
-            const y0 = Math.min(drag.start.localY, drag.current.localY);
-            const x1 = Math.max(drag.start.localX, drag.current.localX);
-            const y1 = Math.max(drag.start.localY, drag.current.localY);
             const roi = {
-                id: 'info-region', name: 'selection', type: 'rect', x0, y0, x1, y1,
+                id: 'info-region', name: 'selection', type: 'freehand',
+                points: drag.points.map(p => [p.localX, p.localY]),
                 scope: { indices: statsIndices.slice(), broadcast_dims: [], values: {} },
             };
             const generation = ++_infoRegionRequestGen;
@@ -22857,28 +22885,14 @@
                 if (generation !== _infoRegionRequestGen || !_infoRegionResult) return true;
                 const stats = data.results && data.results[0] && data.results[0].stats;
                 if (stats) {
-                    _setEggsValuePill(
-                        `${_roiStatsFmt(stats.mean)} ± ${_roiStatsFmt(stats.std)} · n ${stats.n}`,
-                        'info', canvas
-                    );
+                    drag.statsText = `${_roiStatsFmt(stats.mean)} ± ${_roiStatsFmt(stats.std)} · n ${stats.n}`;
+                    _restoreInfoRegionResultPill();
                 }
             } catch (_err) {
                 if (generation === _infoRegionRequestGen) _clearInfoRegionInspection();
             }
             return true;
         }
-
-        document.addEventListener('pointerdown', e => {
-            if (_infoRegionResult && e.target !== canvas) _clearInfoRegionInspection();
-        });
-        document.addEventListener('wheel', () => {
-            if (_infoRegionResult) _clearInfoRegionInspection();
-        }, { passive: true });
-        document.addEventListener('keydown', e => {
-            if (_infoRegionResult && !['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-                _clearInfoRegionInspection();
-            }
-        });
 
         // ── Brightness/Contrast drag (Cmd+Shift+drag) and scroll ─────────
         let _bcDrag = null; // { startX, startY, initCenter, initWidth }
@@ -23309,7 +23323,6 @@
         canvas.addEventListener('contextmenu', e => e.preventDefault());
         canvas.addEventListener('mousedown', e => {
             sink.focus();
-            if (_infoRegionResult) _clearInfoRegionInspection();
             // Cmd/Ctrl+Shift+drag or middle-click: brightness/contrast
             if ((e.button === 1 || (e.button === 0 && e.shiftKey && (e.metaKey || e.ctrlKey))) && _bcCanDrag()) {
                 e.preventDefault();
@@ -24891,7 +24904,7 @@
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
             if (_infoRegionDrag && _infoRegionDrag.active && !_infoRegionDrag.finished) return;
-            if (_infoRegionResult) _clearInfoRegionInspection();
+            if (_infoRegionResult) return;
 
             // Mosaic mode: compute tile and local coordinates
             if (dim_z >= 0) {
@@ -24975,7 +24988,6 @@
         canvas.addEventListener('mousemove', _updateMainPixelInfo);
         _wireHoverInfoDblClick(canvas);
         canvas.addEventListener('mouseleave', () => {
-            if (_infoRegionDrag || _infoRegionResult) _clearInfoRegionInspection();
             if (roiDragging) {
                 roiDragging = false;
                 _drawAllRois(); // clear in-progress preview
@@ -24986,7 +24998,7 @@
             _hideRoiRowTooltip();
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
-            _setEggsValuePill(null);
+            if (!_infoRegionResult) _setEggsValuePill(null);
         });
         document.addEventListener('mouseup', () => {
             if (_pixelInfoHeld) {
