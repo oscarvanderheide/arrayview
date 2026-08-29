@@ -19661,7 +19661,12 @@
         let _dimUnderlineRaf = 0;
         let _dimUnderlineTrackUntil = 0;
         function _activeDimUnderlineViewportRect(info) {
-            const label = info?.querySelector('.active-dim.dim-label, .playing-dim.dim-label, .active-vfield-t.dim-label');
+            // Selector lists return the first matching element in document
+            // order, not the first selector's match. Query active labels
+            // separately so a playing dim to their left cannot steal the
+            // underline; use playback only when it is also the active dim.
+            const label = info?.querySelector('.active-dim.dim-label, .active-vfield-t.dim-label')
+                || info?.querySelector('.playing-dim.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
             return { x: r.left, y: r.bottom, w: r.width };
@@ -19820,7 +19825,7 @@
                 if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
-                const dimCls = playing ? 'playing-dim active-dim' : 'active-dim';
+                const dimCls = playing ? 'playing-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
                 if (stackMosaicActive && i === _stackMosaicColDim()) {
                     const total = shape[i];

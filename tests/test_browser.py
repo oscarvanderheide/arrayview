@@ -2340,10 +2340,20 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("Space")
         page.wait_for_timeout(300)
-        has_playing = page.evaluate("""
-            () => document.querySelector('#info .playing-dim') !== null
+        classes = page.evaluate("""
+            () => ({
+                hasPlaying: document.querySelector('#info .playing-dim') !== null,
+                activeDims: [...document.querySelectorAll('#info .active-dim')]
+                    .map(el => Number(el.dataset.dim)),
+                playingIsActive: document.querySelector('#info .playing-dim')
+                    ?.classList.contains('active-dim') ?? false,
+            })
         """)
-        assert has_playing, "playing dim should have .playing-dim class during playback"
+        assert classes["hasPlaying"], "playing dim should have .playing-dim class during playback"
+        assert classes["activeDims"] == [], (
+            "the playing marker should replace the active marker while both refer to the same dim"
+        )
+        assert classes["playingIsActive"] is False
         page.keyboard.press("Space")  # stop
 
     def test_play_allows_independent_dim_navigation(self, loaded_viewer, sid_3d):
@@ -2389,6 +2399,108 @@ class TestKeyboard:
         assert "playing" in page.inner_text("#status").lower(), \
             "should still be playing after changing activeDim"
         page.keyboard.press("Space")  # stop
+
+    def test_compact_dimbar_crosses_playing_dim_in_4d(
+        self, loaded_viewer, sid_4d
+    ):
+        """h/l and arrows independently select a dim while another dim plays."""
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+
+        def reset_on_third_dim():
+            page.evaluate(
+                """() => {
+                    if (isPlaying) stopPlay();
+                    _dimbarExtentPinned = false;
+                    dim_x = 0;
+                    dim_y = 1;
+                    dim_z = -1;
+                    current_slice_dim = 2;
+                    activeDim = 2;
+                    renderInfo();
+                }"""
+            )
+
+        def dimbar_state():
+            return page.evaluate(
+                """() => ({
+                    activeDim,
+                    playingDim,
+                    isPlaying,
+                    pinned: _dimbarExtentPinned,
+                    fourthIndex: indices[3],
+                    activeMarkers: [...document.querySelectorAll('#info .active-dim')]
+                        .map(el => Number(el.dataset.dim)),
+                    playingMarkers: [...document.querySelectorAll('#info .playing-dim')]
+                        .map(el => Number(el.dataset.dim)),
+                    playingIsActive: document.querySelector('#info .playing-dim')
+                        ?.classList.contains('active-dim') ?? false,
+                })"""
+            )
+
+        def wait_for_underline_on(selector):
+            page.wait_for_function(
+                """selector => {
+                    const marker = document.getElementById('dim-active-underline');
+                    const label = document.querySelector(selector);
+                    if (!marker || !label) return false;
+                    const m = marker.getBoundingClientRect();
+                    const l = label.getBoundingClientRect();
+                    return Math.abs((m.left + m.right) / 2 - (l.left + l.right) / 2) < 1
+                        && Math.abs(m.width - l.width) < 1;
+                }""",
+                arg=selector,
+            )
+
+        for forward, reverse in (("l", "h"), ("ArrowRight", "ArrowLeft")):
+            reset_on_third_dim()
+            assert dimbar_state()["pinned"] is False
+            page.keyboard.press("Space")
+            page.wait_for_timeout(150)
+            page.keyboard.press(forward)
+            page.wait_for_timeout(100)
+
+            moved = dimbar_state()
+            assert moved["activeDim"] == 3
+            assert moved["playingDim"] == 2
+            assert moved["isPlaying"] is True
+            assert moved["activeMarkers"] == [3]
+            assert moved["playingMarkers"] == [2]
+            assert moved["playingIsActive"] is False
+            wait_for_underline_on("#info .active-dim[data-dim='3']")
+
+            page.keyboard.press("ArrowUp")
+            page.wait_for_timeout(100)
+            stepped = dimbar_state()
+            assert stepped["fourthIndex"] != moved["fourthIndex"]
+            assert stepped["isPlaying"] is True
+
+            page.keyboard.press(reverse)
+            page.wait_for_timeout(100)
+            returned = dimbar_state()
+            assert returned["activeDim"] == 2
+            assert returned["playingDim"] == 2
+            assert returned["activeMarkers"] == []
+            assert returned["playingMarkers"] == [2]
+            assert returned["playingIsActive"] is False
+            wait_for_underline_on("#info .playing-dim[data-dim='2']")
+
+        reset_on_third_dim()
+        page.keyboard.press("Space")
+        page.wait_for_timeout(150)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(100)
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(100)
+        expanded = dimbar_state()
+        assert expanded["pinned"] is True
+        assert expanded["activeDim"] == 3
+        assert expanded["playingDim"] == 2
+        assert expanded["isPlaying"] is True
+        assert expanded["activeMarkers"] == [3]
+        assert expanded["playingMarkers"] == [2]
+        assert expanded["playingIsActive"] is False
+        page.keyboard.press("Space")
 
     def test_jk_on_playing_dim_stops_playback(self, loaded_viewer, sid_3d):
         """Pressing j/k on the actively playing dim should stop playback."""
