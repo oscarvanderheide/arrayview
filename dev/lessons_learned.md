@@ -507,3 +507,12 @@ was unchanged, so moving a loupe between panes or across the pill's reserved
 slot could leave the pill anchored to the wrong edge.
 **Fix:** Treat anchor and collision placement as independent state. Reconcile
 position on every loupe move, while keeping value updates deduplicated.
+
+## Readout Modes Must Not Secretly Become Drawing Tools
+
+**Problem:** Turning on persistent pixel information also changed a plain drag
+into a temporary freehand measurement, so the same gesture meant windowing,
+panning, or drawing according to state that was easy to miss.
+**Fix:** Keep inspection display-only. Region drawing belongs exclusively to
+the visible ROI tools, while inspection and window/level retain distinct,
+testable gestures.

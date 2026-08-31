@@ -26,7 +26,9 @@ Hover over the image to see coordinates and value reflected on the colorbar.
 
 Click the colorbar to copy that value to the clipboard.
 
-`i` — keep the pixel value visible in the pane pill. Draw a freehand outline to inspect its mean, standard deviation, and pixel count without creating a saved ROI. The outline and result remain until you draw another or turn pixel info off. Hold `Ctrl` for the loupe; its value stays at the bottom unless the loupe gets close, then moves to the top.
+`i` — keep the pixel value visible in the pane pill. The cursor's center turns yellow while this inspection mode is active. Hold `Ctrl` for the loupe; its value stays at the bottom unless the loupe gets close, then moves to the top.
+
+Inspection mode does not draw regions. Enter ROI mode when you want measurements or region statistics.
 
 While pixel info is on, use middle-drag or `Ctrl`/`Cmd`+`Shift`-drag to adjust the display range explicitly. When zoomed in, plain drag still pans.
 
