@@ -4,6 +4,7 @@ Run with:
     pytest tests/test_browser.py
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -5949,6 +5950,41 @@ class TestNormalInspectInteractions:
         page.mouse.up()
         page.wait_for_timeout(120)
         page.keyboard.press("v")
+
+    def test_ortho_hover_dimbar_reads_out_all_three_axes(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        if not page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        pane = page.locator(".mv-canvas").first
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.mouse.move(cx + 3, cy + 2)
+        page.wait_for_timeout(200)
+
+        readout = page.evaluate(
+            """() => ['x', 'y', 'z'].map(l => {
+                const el = document.getElementById('dim-' + l + '-size');
+                return el ? { cls: el.className, html: el.innerHTML } : null;
+            })"""
+        )
+        assert all(part and part["cls"] == "dim-hover-idx" for part in readout), (
+            f"every ortho axis should show its hovered position, got: {readout}"
+        )
+        assert all("opacity" not in part["html"] for part in readout), (
+            f"leading zeros must not be dimmed, got: {readout}"
+        )
+        assert all(
+            re.fullmatch(r"/?\d+", part["html"]) for part in readout
+        ), f"axis readouts should be plain digits, got: {readout}"
+
+        assert page.evaluate("() => _dimHoverPadded(5, 128, true)") == "/005"
+
+        page.keyboard.press("v")
+        page.keyboard.press("i")
 
     def test_info_hover_drag_only_inspects(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

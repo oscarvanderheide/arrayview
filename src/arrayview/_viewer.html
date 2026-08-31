@@ -20854,8 +20854,10 @@
             const valStr = String(val);
             const padLen = maxStr.length - valStr.length;
             const slash = withSlash ? '/' : '';
+            // Leading zeros only keep the digits from shifting — they read as
+            // part of the same number, so they are not dimmed.
             if (padLen <= 0) return slash + valStr;
-            return slash + '<span style="opacity:0.28">' + '0'.repeat(padLen) + '</span>' + valStr;
+            return slash + '0'.repeat(padLen) + valStr;
         }
         function _updateDimbarHover(px, py, xLabel, yLabel, pz) {
             // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
@@ -20885,6 +20887,18 @@
             if (zEl && pz != null) {
                 const zMax = dim_z >= 0 ? shape[dim_z] : 1;
                 zEl.innerHTML = _dimHoverPadded(pz + 1, zMax, withSlash); zEl.className = 'dim-hover-idx';
+            }
+            // A pane only carries two of the three spatial axes, but the third
+            // one has a position too — the slice the pane is cut at — so the
+            // readout covers all three rather than two at a time.
+            if (activeDims) {
+                const other = ['x', 'y', 'z'].find(l => l !== xl && l !== yl);
+                const otherDim = other ? labelToDim[other] : -1;
+                const otherEl = other ? document.getElementById('dim-' + other + '-size') : null;
+                if (otherEl && otherDim >= 0) {
+                    otherEl.innerHTML = _dimHoverPadded(indices[otherDim], shape[otherDim], withSlash);
+                    otherEl.className = 'dim-hover-idx';
+                }
             }
         }
         function _resetDimbarHover() {
