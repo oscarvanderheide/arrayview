@@ -7988,6 +7988,7 @@
                 else if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
                 else if (canvas.width && canvas.height) scaleCanvas(canvas.width, canvas.height);
                 else _reconcileCbVisibility();
+                _reconcileZoomCursor();
             },
             scaleAllAutoFit() {
                 const scaler = this.getScaler();
@@ -42326,6 +42327,17 @@
             mainPan.y += anchor.clientY - currentY;
             mainPan.clamp();
             mainPan.apply();
+        }
+        function _reconcileZoomCursor() {
+            const normalNavigationOwnsCursor = !compareActive && !multiViewActive && !qmriActive
+                && !compareQmriActive && !compareMvActive && !stackMosaicActive
+                && !cutawayActive && !_bcDrag && !rectRoiMode && !_cropActive
+                && !document.body.classList.contains('ruler-mode')
+                && !mainPan.dragging;
+            if (normalNavigationOwnsCursor) {
+                canvas.style.cursor = mainPan.overflows ? 'grab' : '';
+            }
+            _reconcileInfoCursor();
         }
         function _onTouchStart(e) {
             if (e.touches.length === 2) {

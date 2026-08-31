@@ -5831,6 +5831,64 @@ class TestNormalInspectInteractions:
         page.keyboard.press("q")
         page.keyboard.press("i")
 
+    def test_pinch_zoom_updates_cursor_without_mouse_reentry(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+
+        def _gesture(event_type, scale):
+            page.evaluate(
+                """([eventType, scale, x, y]) => {
+                    const event = new Event(eventType, { bubbles: true, cancelable: true });
+                    Object.defineProperties(event, {
+                        scale: { value: scale },
+                        clientX: { value: x },
+                        clientY: { value: y },
+                    });
+                    document.getElementById('viewer').dispatchEvent(event);
+                }""",
+                [event_type, scale, cx, cy],
+            )
+
+        def _cursor_state():
+            return page.evaluate(
+                """() => {
+                    const canvas = document.getElementById('viewer');
+                    const custom = document.getElementById('info-hover-cursor');
+                    return {
+                        overflows: mainPan.overflows,
+                        inlineCursor: canvas.style.cursor,
+                        computedCursor: getComputedStyle(canvas).cursor,
+                        customVisible: getComputedStyle(custom).visibility,
+                        customOwnsPointer: canvas.classList.contains('info-hover-cursor-source'),
+                    };
+                }"""
+            )
+
+        initial = _cursor_state()
+        assert not initial["overflows"]
+        assert initial["customVisible"] == "visible" and initial["customOwnsPointer"]
+
+        _gesture("gesturestart", 1)
+        _gesture("gesturechange", 2)
+        zoomed = _cursor_state()
+        assert zoomed == {
+            "overflows": True,
+            "inlineCursor": "grab",
+            "computedCursor": "grab",
+            "customVisible": "hidden",
+            "customOwnsPointer": False,
+        }
+
+        _gesture("gesturechange", 1)
+        fitted = _cursor_state()
+        assert not fitted["overflows"]
+        assert fitted["inlineCursor"] == ""
+        assert fitted["computedCursor"] == "none"
+        assert fitted["customVisible"] == "visible" and fitted["customOwnsPointer"]
+        _gesture("gestureend", 1)
+
     def test_info_hover_drag_only_inspects(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
