@@ -5889,6 +5889,48 @@ class TestNormalInspectInteractions:
         assert fitted["customVisible"] == "visible" and fitted["customOwnsPointer"]
         _gesture("gestureend", 1)
 
+    def test_ortho_hover_info_pill_appears_without_moving_the_mouse(
+        self, loaded_viewer, sid_3d
+    ):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        pane = page.locator(".mv-canvas").first
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.wait_for_timeout(120)
+        assert page.locator("#mode-eggs .eggs-value-pill").count() == 0
+
+        # A real double-click never moves the pointer, so the readout has to be
+        # seeded from where it already sits — not by a follow-up mousemove.
+        pane.dispatch_event("dblclick")
+        page.wait_for_function("() => _pixelInfoVisible", timeout=5_000)
+        page.wait_for_timeout(420)
+
+        seeded = page.evaluate(
+            """() => {
+                const eggs = document.getElementById('mode-eggs');
+                const pill = eggs.querySelector('.eggs-value-pill');
+                const pane = document.querySelector('.mv-canvas').getBoundingClientRect();
+                const box = pill?.getBoundingClientRect();
+                return {
+                    text: (pill?.textContent || '').trim(),
+                    placement: eggs.dataset.pillPlacement,
+                    centered: !!box && Math.abs((box.left + box.right) / 2 - (pane.left + pane.right) / 2) < 2,
+                };
+            }"""
+        )
+        assert seeded["text"], "ortho hover info must read out on the double-click itself"
+        assert seeded["placement"] == "bottom"
+        assert seeded["centered"]
+
+        pane.dispatch_event("dblclick")
+        page.keyboard.press("v")
+
     def test_info_hover_drag_only_inspects(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")

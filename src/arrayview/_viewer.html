@@ -25545,7 +25545,12 @@
                         }
                         _prefetchHoverSlices();
                         _dimbarFadeSwap(() => {
-                            canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                            // Seed the readout from wherever the pointer already is —
+                            // in ortho/compare the hovered pane owns the hover, not #viewer.
+                            const hoveredEl = document.elementFromPoint(_lastMouseX, _lastMouseY);
+                            const hoveredCanvas = (hoveredEl && hoveredEl.closest
+                                ? hoveredEl.closest(_INFO_CURSOR_CANVAS_SELECTOR) : null) || canvas;
+                            hoveredCanvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                         });
                     }
                     _reconcileInfoCursor();
