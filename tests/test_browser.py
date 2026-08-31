@@ -5931,6 +5931,25 @@ class TestNormalInspectInteractions:
         pane.dispatch_event("dblclick")
         page.keyboard.press("v")
 
+    def test_ortho_drag_shows_crosshair_without_waiting(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        pane = page.locator(".mv-canvas").first
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 14, cy + 10, steps=2)
+        dragging = page.evaluate("() => ({ target: _mvCrosshairTarget, dragging: !!mvDraggingView })")
+        assert dragging == {"target": 1, "dragging": True}, (
+            f"ortho crosshair must show as soon as the drag starts, got: {dragging}"
+        )
+        page.mouse.up()
+        page.wait_for_timeout(120)
+        page.keyboard.press("v")
+
     def test_info_hover_drag_only_inspects(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")

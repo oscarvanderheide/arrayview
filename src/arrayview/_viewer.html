@@ -7122,6 +7122,7 @@
         let mvDraggingView = null;
         let cmvDraggingView = null;
         let _mvClickFlashTimer = null; // pending crosshair flash, cancelable by a following double-click
+        let _mvHoldFlashTimer = null;  // shows the crosshair once a press is clearly a hold, not a click
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
@@ -31974,13 +31975,20 @@
                         // second click (e.g. toggling hover-info) can cancel
                         // them before they show.
                         if (e.detail > 1) {
-                            if (_mvClickFlashTimer) { clearTimeout(_mvClickFlashTimer); _mvClickFlashTimer = null; }
+                            _mvCancelPressCrosshair();
                         } else {
-                            if (_mvClickFlashTimer) clearTimeout(_mvClickFlashTimer);
+                            _mvCancelPressCrosshair();
+                            // A press that is held (or dragged) is navigation, and the
+                            // crosshair is its feedback — so it must not wait on the
+                            // double-click flash timer, which only exists to keep a
+                            // quick double-click from flashing the lines.
+                            _mvHoldFlashTimer = setTimeout(() => {
+                                _mvHoldFlashTimer = null;
+                                if (mvDraggingView) _mvShowPressCrosshair();
+                            }, 150);
                             _mvClickFlashTimer = setTimeout(() => {
                                 _mvClickFlashTimer = null;
-                                _reconcileMvOrientationVisibility();
-                                _mvSetCrosshairTarget(1);
+                                _mvShowPressCrosshair();
                             }, 500);
                         }
                         handleMvPointer(view, e);
@@ -36702,6 +36710,15 @@
                 && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive));
             mvOrientation.style.display = show ? 'block' : 'none';
         }
+        function _mvCancelPressCrosshair() {
+            if (_mvClickFlashTimer) { clearTimeout(_mvClickFlashTimer); _mvClickFlashTimer = null; }
+            if (_mvHoldFlashTimer) { clearTimeout(_mvHoldFlashTimer); _mvHoldFlashTimer = null; }
+        }
+        function _mvShowPressCrosshair() {
+            _mvCancelPressCrosshair();
+            _reconcileMvOrientationVisibility();
+            _mvSetCrosshairTarget(1);
+        }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
             const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive);
@@ -37266,7 +37283,11 @@
                 }
                 return;
             }
-            if (mvDraggingView) handleMvPointer(mvDraggingView, e);
+            if (mvDraggingView) {
+                // The press has become a drag — show the lines it is moving.
+                if (_mvCrosshairTarget < 1) _mvShowPressCrosshair();
+                handleMvPointer(mvDraggingView, e);
+            }
             if (cmvDraggingView) handleCmvPointer(cmvDraggingView, e);
         });
         document.addEventListener('mouseup', () => {
@@ -37289,6 +37310,7 @@
             mvNavDragPrev = null;
             mvDraggingView = null;
             cmvDraggingView = null;
+            if (_mvHoldFlashTimer) { clearTimeout(_mvHoldFlashTimer); _mvHoldFlashTimer = null; }
             _reconcileMvOrientationVisibility();
             // Sync crosshair visibility after drag ends: the pane mouseleave was
             // suppressed during drag, so restore the correct state now.
