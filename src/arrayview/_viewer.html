@@ -577,37 +577,6 @@
         :root.light #cb-lock-tip { background: rgba(245,245,245,0.97); color: #222; border-color: rgba(0,0,0,0.12); }
 
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
-        /* Window/level drag readout — replaces the cursor while W/L is live */
-        #bc-hud {
-            position: fixed; left: 0; top: 0; z-index: 14;
-            display: inline-grid;
-            grid-template-columns: auto auto;
-            grid-template-rows: auto auto;
-            align-items: center;
-            column-gap: 9px; row-gap: 4px;
-            padding: 9px 13px;
-            background: color-mix(in srgb, var(--surface) 92%, transparent);
-            border: 1px solid var(--border); border-radius: 18px;
-            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-            box-shadow: 0 10px 31px color-mix(in srgb, var(--bg) 82%, transparent);
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            font-size: 11px; line-height: 1; color: var(--text);
-            white-space: nowrap; pointer-events: none;
-            opacity: 0; transition: opacity 140ms ease;
-        }
-        #bc-hud.visible { opacity: 1; }
-        #bc-hud .bc-hud-icon { grid-column: 1; grid-row: 1; color: var(--muted); }
-        #bc-hud .bc-hud-icon svg { display: block; }
-        #bc-hud .bc-hud-dot { fill: var(--active-dim); }
-        #bc-hud .bc-hud-label { color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; }
-        /* "level" sits beside the flat (horizontal) line, "window" sits under the
-           tall (vertical) one, so each word is where its own motion happens. */
-        #bc-hud .bc-hud-level-label { grid-column: 2; grid-row: 1; align-self: center; }
-        #bc-hud .bc-hud-window-label { grid-column: 1; grid-row: 2; justify-self: center; }
-        /* A locked vmin / symmetric window collapses the drag to vertical-only:
-           the horizontal axis has nothing to move, so dim it and its label. */
-        #bc-hud.vertical-only .bc-hud-level-label,
-        #bc-hud.vertical-only .bc-hud-arm-h { opacity: 0.35; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -1118,9 +1087,8 @@
         body.main-loupe-hold #viewer {
             cursor: none !important;
         }
-        /* Window/level drag: the HUD stands in for the cursor, so the real one
-           stays hidden for the whole gesture no matter which element the mouse
-           happens to be over — not just while it is inside the canvas. Killing
+        /* Window/level drag: the enlarged reticle stands in for the native
+           cursor no matter which element the mouse happens to be over. Killing
            pointer-events at the same time stops anything the mouse passes over
            (or is released on) from reacting to a gesture that is not for it;
            the drag itself is tracked on window, so it keeps updating. */
@@ -5379,18 +5347,23 @@
         .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
         .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
 
-        /* The info-hover pointer uses the exact reticle from its value pill.
+        /* The image pointer uses the exact reticle from the value pill.
            Keeping it as live SVG lets currentColor follow every theme. */
         #info-hover-cursor {
             position: fixed; left: 0; top: 0; z-index: 120;
             width: 18px; height: 18px;
             pointer-events: none;
             opacity: 0; visibility: hidden;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            font-size: 9px; line-height: 1; letter-spacing: 0.06em;
+            text-transform: uppercase; white-space: nowrap;
         }
         #info-hover-cursor.visible { opacity: 1; visibility: visible; }
         #info-hover-cursor svg {
             position: absolute; inset: 0;
             display: block; width: 18px; height: 18px;
+            transform-origin: 50% 50%;
+            transition: transform 140ms ease;
         }
         #info-hover-cursor .info-hover-cursor-contrast * {
             fill: var(--bg);
@@ -5400,6 +5373,37 @@
             paint-order: stroke fill;
         }
         #info-hover-cursor .info-hover-cursor-glyph { color: var(--text); }
+        #info-hover-cursor .info-hover-cursor-glyph circle {
+            transition: fill 120ms ease;
+        }
+        #info-hover-cursor.info-active .info-hover-cursor-glyph circle,
+        #info-hover-cursor.bc-active .info-hover-cursor-glyph circle {
+            fill: var(--active-dim);
+        }
+        #info-hover-cursor.bc-active svg { transform: scale(1.72); }
+        #info-hover-cursor .info-cursor-label {
+            position: absolute;
+            color: var(--muted);
+            opacity: 0;
+            transition: opacity 100ms ease;
+            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
+                         -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
+        }
+        #info-hover-cursor.bc-active .info-cursor-label { opacity: 1; }
+        #info-hover-cursor .info-cursor-level { left: 25px; top: 5px; }
+        #info-hover-cursor.labels-left .info-cursor-level { left: auto; right: 25px; }
+        #info-hover-cursor.labels-above .info-cursor-level { top: auto; bottom: 9px; }
+        #info-hover-cursor .info-cursor-window {
+            left: 50%; top: 25px; transform: translateX(-50%);
+        }
+        #info-hover-cursor.labels-left .info-cursor-window {
+            left: auto; right: 9px; transform: none;
+        }
+        #info-hover-cursor.labels-right .info-cursor-window {
+            left: 9px; transform: none;
+        }
+        #info-hover-cursor.labels-above .info-cursor-window { top: auto; bottom: 25px; }
+        #info-hover-cursor.vertical-only .info-cursor-level { opacity: 0.35; }
         canvas.info-hover-cursor-source { cursor: none !important; }
     </style>
 </head>
@@ -23124,97 +23128,6 @@
                 }
             }, 3000);
         }
-        // ── Window/level drag readout ────────────────────────────────
-        // Replaces the cursor for the duration of a window/level drag: it
-        // appears once, centered exactly where the cursor was, and then stays
-        // put — only the dot inside it travels, tracing the actual drag (flat
-        // line = level/left-right, tall line = window/up-down), so the
-        // gesture explains itself without the panel itself moving around.
-        // Lock state is shown by the range picker itself, which stays open
-        // for the gesture.
-        let _bcHudEl = null;
-        function _bcHudEnsure() {
-            if (_bcHudEl) return _bcHudEl;
-            _bcHudEl = document.createElement('div');
-            _bcHudEl.id = 'bc-hud';
-            _bcHudEl.innerHTML =
-                '<span class="bc-hud-icon">' +
-                    '<svg width="31" height="31" viewBox="0 0 26 26">' +
-                        '<g class="bc-hud-arm-h">' +
-                            '<polyline points="4,10 1.5,13 4,16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
-                            '<polyline points="22,10 24.5,13 22,16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
-                            '<line x1="5" y1="13" x2="21" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
-                        '</g>' +
-                        '<g class="bc-hud-arm-v">' +
-                            '<polyline points="10,4 13,1.5 16,4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
-                            '<polyline points="10,22 13,24.5 16,22" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
-                            '<line x1="13" y1="5" x2="13" y2="21" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
-                        '</g>' +
-                        '<circle class="bc-hud-dot" cx="13" cy="13" r="2.8"/>' +
-                    '</svg>' +
-                '</span>' +
-                '<span class="bc-hud-label bc-hud-level-label">level</span>' +
-                '<span class="bc-hud-label bc-hud-window-label">window</span>';
-            document.body.appendChild(_bcHudEl);
-            return _bcHudEl;
-        }
-        // Shows the HUD centered exactly on the cursor — so it reads as the
-        // cursor's replacement — and freezes it there for the whole drag.
-        function _bcHudShow(e) {
-            const hud = _bcHudEnsure();
-            const dot = hud.querySelector('.bc-hud-dot');
-            dot.setAttribute('cx', 13);
-            dot.setAttribute('cy', 13);
-            // A locked vmin or symmetric window removes the horizontal degree
-            // of freedom for this whole drag, so decide it once up front.
-            hud.classList.toggle('vertical-only', !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric)));
-            hud.classList.add('visible');
-            // Measure where the icon's center sits inside the pill, then place
-            // the pill so that point lands exactly on the cursor.
-            const pillRect = hud.getBoundingClientRect();
-            const iconRect = hud.querySelector('.bc-hud-icon').getBoundingClientRect();
-            const cx = iconRect.left - pillRect.left + iconRect.width / 2;
-            const cy = iconRect.top - pillRect.top + iconRect.height / 2;
-            const m = 8;
-            const x = Math.max(m, Math.min(e.clientX - cx, window.innerWidth - pillRect.width - m));
-            const y = Math.max(m, Math.min(e.clientY - cy, window.innerHeight - pillRect.height - m));
-            hud.style.left = x + 'px';
-            hud.style.top = y + 'px';
-        }
-        // Moves only the dot, tracing the raw drag distance — the pill itself
-        // never moves once _bcHudShow has placed it.
-        function _bcHudUpdateDot(dx, dy) {
-            if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
-            const dot = _bcHudEl.querySelector('.bc-hud-dot');
-            if (!dot) return;
-            const maxPxX = 120, travel = 6;
-            const nx = _bcHudEl.classList.contains('vertical-only') ? 0 : Math.max(-1, Math.min(1, dx / maxPxX));
-            // Vertical travel is asymmetric, tied to what the drag actually
-            // does to the window — not a flat pixel distance — so the dot
-            // hitting the edge means something instead of just "you dragged
-            // ~120px". Narrowing (drag down) always collapses the window to
-            // zero at a fixed 150px, from the sens formula in _bcUpdateDrag
-            // (initWidth cancels out: newWidth = initWidth - dy*(initWidth/300)*2,
-            // which is 0 at dy=150 regardless of initWidth). Widening (drag
-            // up) grows the window toward the full histogram range, so how
-            // far that takes depends on how much room is left to grow.
-            const initWidth = _bcDrag ? Math.abs(_bcDrag.initWidth) : 0;
-            const fullRange = _histData && Number.isFinite(_histData.vmin) && Number.isFinite(_histData.vmax)
-                ? Math.abs(_histData.vmax - _histData.vmin) : null;
-            const maxPxDown = 150;
-            const maxPxUp = (fullRange && fullRange > initWidth && initWidth > 0)
-                ? 300 * (fullRange - initWidth) / (2 * initWidth)
-                : maxPxDown; // no known data range yet — fall back to a symmetric feel
-            const maxPxY = dy < 0 ? maxPxUp : maxPxDown;
-            const ny = Math.max(-1, Math.min(1, dy / maxPxY));
-            dot.setAttribute('cx', 13 + nx * travel);
-            dot.setAttribute('cy', 13 + ny * travel);
-        }
-        function _bcHudHide() {
-            if (!_bcHudEl) return;
-            _bcHudEl.classList.remove('visible');
-        }
-
         async function _bcStartDrag(e) {
             const vmin = manualVmin ?? currentVmin;
             const vmax = manualVmax ?? currentVmax;
@@ -23230,9 +23143,8 @@
                 vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
             };
-            // The HUD replaces the cursor for the drag, so hide the real one —
-            // document-wide, since the gesture is allowed to leave the canvas.
-            canvas.style.cursor = 'none';
+            _infoCursorClientX = e.clientX;
+            _infoCursorClientY = e.clientY;
             document.body.classList.add('bc-drag');
             // The colorbar treats an active drag as "snap the window range to
             // the cursor" (see ColorBar.draw). Without this, the histogram
@@ -23244,10 +23156,12 @@
             _restartHistAutoDismiss();
             _bcExpandHist();
             _bcPreviewInit();
-            _bcHudShow(e);
+            _reconcileInfoCursor();
         }
         function _bcUpdateDrag(e) {
             if (!_bcDrag) return;
+            _infoCursorClientX = e.clientX;
+            _infoCursorClientY = e.clientY;
             const dx = e.clientX - _bcDrag.startX;
             const dy = e.clientY - _bcDrag.startY;
             // Sensitivity: scale by initial width so drag feels proportional
@@ -23275,7 +23189,7 @@
             // The local preview already repainted inside _bcApplyWindow;
             // only fall back to the server round-trip when there is none.
             if (!_bcPreview && !_bcPreviewPending) _bcThrottledUpdate();
-            _bcHudUpdateDot(dx, dy);
+            _positionInfoCursor();
         }
         // A plain left press arms a pending drag rather than starting one, so a
         // press that never travels stays a click-to-copy / pixel-info hold.
@@ -23313,14 +23227,17 @@
             }
             _dmenuDeferCloseOnCanvas = false;
             _bcDrag = null;
-            canvas.style.cursor = '';
             primaryCb._dragActive = false;
             if (_bcUpdateTimer) { clearTimeout(_bcUpdateTimer); _bcUpdateTimer = null; }
             // Drop the preview first: this updateView() is the authoritative
             // render, and the committed frame must be the server's bytes.
             _bcPreview = null;
             _bcPreviewPending = false;
-            _bcHudHide();
+            const under = document.elementFromPoint(_infoCursorClientX, _infoCursorClientY);
+            _infoCursorPointerTarget = under instanceof Element
+                ? under.closest(_INFO_CURSOR_CANVAS_SELECTOR)
+                : null;
+            _reconcileInfoCursor();
             updateView();
             saveState();
             _bcAutoDismiss();
@@ -39320,20 +39237,23 @@
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
             if (!cursor.firstElementChild) {
-                cursor.innerHTML = EGGS_ICON_INFO + EGGS_ICON_INFO;
+                cursor.innerHTML = EGGS_ICON_INFO + EGGS_ICON_INFO
+                    + '<span class="info-cursor-label info-cursor-level">level</span>'
+                    + '<span class="info-cursor-label info-cursor-window">window</span>';
                 cursor.children[0].classList.add('info-hover-cursor-contrast');
                 cursor.children[1].classList.add('info-hover-cursor-glyph');
             }
 
-            const target = _infoCursorPointerTarget;
+            const windowing = !!_bcDrag;
+            const target = windowing ? canvas : _infoCursorPointerTarget;
             const targetIsLive = !!(target && document.documentElement.contains(target));
-            const toolOwnsCursor = rectRoiMode || document.body.classList.contains('ruler-mode');
+            const toolOwnsCursor = !windowing
+                && (rectRoiMode || document.body.classList.contains('ruler-mode'));
             const targetCursor = targetIsLive ? getComputedStyle(target).cursor : '';
             const visible = !!(
-                _pixelInfoVisible
-                && targetIsLive
+                targetIsLive
                 && !toolOwnsCursor
-                && targetCursor === 'crosshair'
+                && (windowing || targetCursor === 'crosshair')
             );
 
             if (visible) {
@@ -39342,12 +39262,20 @@
                 _positionInfoCursor();
             }
             cursor.classList.toggle('visible', visible);
+            cursor.classList.toggle('info-active', !!_pixelInfoVisible);
+            cursor.classList.toggle('bc-active', windowing);
+            cursor.classList.toggle('vertical-only', !!(
+                windowing && (_bcDrag.vminLocked || _bcDrag.symmetric)
+            ));
         }
 
         function _positionInfoCursor() {
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
             cursor.style.transform = `translate(${_infoCursorClientX - 9}px, ${_infoCursorClientY - 9}px)`;
+            cursor.classList.toggle('labels-left', _infoCursorClientX > window.innerWidth - 70);
+            cursor.classList.toggle('labels-right', _infoCursorClientX < 45);
+            cursor.classList.toggle('labels-above', _infoCursorClientY > window.innerHeight - 45);
         }
 
         // ── Layout container visibility reconciler ───────────────────

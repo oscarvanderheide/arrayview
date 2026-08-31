@@ -5577,16 +5577,36 @@ class TestNormalInspectInteractions:
         page.mouse.move(cx, cy)
 
         off = page.evaluate(
-            """() => ({
-                canvasCursor: getComputedStyle(document.getElementById('viewer')).cursor,
-                cursorVisible: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
-            })"""
+            """() => {
+                const canvas = document.getElementById('viewer');
+                const cursor = document.getElementById('info-hover-cursor');
+                const dot = cursor.querySelector('.info-hover-cursor-glyph circle');
+                const probe = document.createElement('span');
+                probe.style.color = 'var(--text)';
+                document.body.appendChild(probe);
+                const textColor = getComputedStyle(probe).color;
+                probe.remove();
+                return {
+                    canvasCursor: getComputedStyle(canvas).cursor,
+                    cursorVisible: getComputedStyle(cursor).visibility,
+                    infoActive: cursor.classList.contains('info-active'),
+                    dotFill: getComputedStyle(dot).fill,
+                    textColor,
+                };
+            }"""
         )
-        assert off == {"canvasCursor": "crosshair", "cursorVisible": "hidden"}
+        assert off == {
+            "canvasCursor": "none",
+            "cursorVisible": "visible",
+            "infoActive": False,
+            "dotFill": off["textColor"],
+            "textColor": off["textColor"],
+        }
 
         page.keyboard.press("i")
         for _ in range(4):
             self._assert_info_cursor_active(page, "#viewer")
+            page.wait_for_timeout(150)
             appearance = page.evaluate(
                 """() => {
                     const cursor = document.getElementById('info-hover-cursor');
@@ -5604,6 +5624,8 @@ class TestNormalInspectInteractions:
                     const textColor = getComputedStyle(probe).color;
                     probe.style.color = 'var(--bg)';
                     const bgColor = getComputedStyle(probe).color;
+                    probe.style.color = 'var(--active-dim)';
+                    const activeColor = getComputedStyle(probe).color;
                     probe.remove();
                     return {
                         layerCount: layers.length,
@@ -5613,7 +5635,10 @@ class TestNormalInspectInteractions:
                         contrastFill: getComputedStyle(layers[0].querySelector('rect')).fill,
                         contrastStroke: getComputedStyle(layers[0].querySelector('rect')).stroke,
                         contrastStrokeWidth: getComputedStyle(layers[0].querySelector('rect')).strokeWidth,
+                        dotFill: getComputedStyle(layers[1].querySelector('circle')).fill,
                         pillFill: getComputedStyle(pillIcon.querySelector('rect')).fill,
+                        infoActive: cursor.classList.contains('info-active'),
+                        activeColor,
                         textColor, bgColor,
                     };
                 }"""
@@ -5624,6 +5649,8 @@ class TestNormalInspectInteractions:
             assert appearance["contrastFill"] == appearance["bgColor"]
             assert appearance["contrastStroke"] == appearance["bgColor"]
             assert appearance["contrastStrokeWidth"] == "0.9px"
+            assert appearance["infoActive"]
+            assert appearance["dotFill"] == appearance["activeColor"]
             page.keyboard.press("T")
             page.wait_for_timeout(80)
 
@@ -5640,6 +5667,104 @@ class TestNormalInspectInteractions:
         assert tool_state == {"roi": True, "canvasCursor": "crosshair", "cursorVisible": "hidden"}
         page.keyboard.press("Shift+R")
         page.keyboard.press("i")
+
+    def test_window_level_uses_enlarged_cursor_and_bare_labels(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+        page.mouse.move(cx + 32, cy + 24, steps=4)
+        page.wait_for_timeout(180)
+
+        active = page.evaluate(
+            """() => {
+                const cursor = document.getElementById('info-hover-cursor');
+                const glyph = cursor.querySelector('.info-hover-cursor-glyph');
+                const dot = glyph.querySelector('circle');
+                const labels = [...cursor.querySelectorAll('.info-cursor-label')];
+                const box = cursor.getBoundingClientRect();
+                const probe = document.createElement('span');
+                probe.style.color = 'var(--active-dim)';
+                document.body.appendChild(probe);
+                const activeColor = getComputedStyle(probe).color;
+                probe.remove();
+                return {
+                    dragging: !!_bcDrag,
+                    cursorVisible: getComputedStyle(cursor).visibility,
+                    cursorActive: cursor.classList.contains('bc-active'),
+                    infoActive: cursor.classList.contains('info-active'),
+                    glyphWidth: glyph.getBoundingClientRect().width,
+                    centerX: box.left + box.width / 2,
+                    centerY: box.top + box.height / 2,
+                    dotFill: getComputedStyle(dot).fill,
+                    activeColor,
+                    labels: labels.map(el => ({
+                        text: el.textContent,
+                        opacity: getComputedStyle(el).opacity,
+                        background: getComputedStyle(el).backgroundColor,
+                        border: getComputedStyle(el).borderStyle,
+                        shadow: getComputedStyle(el).boxShadow,
+                    })),
+                    legacyHud: !!document.getElementById('bc-hud'),
+                };
+            }"""
+        )
+        assert active["dragging"] and active["cursorActive"]
+        assert active["cursorVisible"] == "visible"
+        assert not active["infoActive"]
+        assert active["glyphWidth"] > 28
+        assert abs(active["centerX"] - (cx + 32)) < 1
+        assert abs(active["centerY"] - (cy + 24)) < 1
+        assert active["dotFill"] == active["activeColor"]
+        assert [label["text"] for label in active["labels"]] == ["level", "window"]
+        assert all(label["opacity"] == "1" for label in active["labels"])
+        assert all(label["background"] == "rgba(0, 0, 0, 0)" for label in active["labels"])
+        assert all(label["border"] == "none" for label in active["labels"])
+        assert all(label["shadow"] == "none" for label in active["labels"])
+        assert not active["legacyHud"]
+
+        viewport = page.viewport_size
+        page.mouse.move(viewport["width"] - 4, viewport["height"] - 4, steps=2)
+        edge_safe = page.evaluate(
+            """() => {
+                const cursor = document.getElementById('info-hover-cursor');
+                return {
+                    flippedLeft: cursor.classList.contains('labels-left'),
+                    flippedAbove: cursor.classList.contains('labels-above'),
+                    labelsInside: [...cursor.querySelectorAll('.info-cursor-label')].every(el => {
+                        const r = el.getBoundingClientRect();
+                        return r.left >= 0 && r.top >= 0
+                            && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
+                    }),
+                    rects: [...cursor.querySelectorAll('.info-cursor-label')].map(el => {
+                        const r = el.getBoundingClientRect();
+                        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+                    }),
+                };
+            }"""
+        )
+        assert edge_safe["flippedLeft"] and edge_safe["flippedAbove"]
+        assert edge_safe["labelsInside"], edge_safe["rects"]
+
+        page.mouse.up()
+        page.wait_for_function("() => !_bcDrag")
+        page.wait_for_timeout(180)
+        released = page.evaluate(
+            """() => {
+                const cursor = document.getElementById('info-hover-cursor');
+                return {
+                    cursorActive: cursor.classList.contains('bc-active'),
+                    glyphWidth: cursor.querySelector('.info-hover-cursor-glyph').getBoundingClientRect().width,
+                    labelsHidden: [...cursor.querySelectorAll('.info-cursor-label')]
+                        .every(el => getComputedStyle(el).opacity === '0'),
+                };
+            }"""
+        )
+        assert released == {"cursorActive": False, "glyphWidth": 18, "labelsHidden": True}
 
     def test_info_hover_cursor_follows_dynamic_mode_canvases(
         self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, tmp_path

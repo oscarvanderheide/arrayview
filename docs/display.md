@@ -12,6 +12,8 @@ The first `d` press opens the histogram without changing or classifying the curr
 
 ## Window / level
 
+With pixel inspection off, hold and drag on the image to adjust window/level. The cursor grows and labels the two drag directions while the adjustment is active.
+
 Drag the colorbar to shift the window. Scroll on the colorbar to narrow or widen the range. Double-click to reset.
 
 ## Log scale
