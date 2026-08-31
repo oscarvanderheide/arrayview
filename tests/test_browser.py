@@ -5721,7 +5721,7 @@ class TestNormalInspectInteractions:
         assert abs(active["centerY"] - (cy + 24)) < 1
         assert active["dotFill"] == active["activeColor"]
         assert [label["text"] for label in active["labels"]] == ["level", "window"]
-        assert all(label["opacity"] == "1" for label in active["labels"])
+        assert all(label["opacity"] == "0.9" for label in active["labels"])
         assert all(label["background"] == "rgba(0, 0, 0, 0)" for label in active["labels"])
         assert all(label["border"] == "none" for label in active["labels"])
         assert all(label["shadow"] == "none" for label in active["labels"])

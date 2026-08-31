@@ -5337,7 +5337,7 @@
             pointer-events: none;
             opacity: 0; visibility: hidden;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            font-size: 9px; line-height: 1; letter-spacing: 0.06em;
+            font-size: 10px; line-height: 1; letter-spacing: 0.08em;
             text-transform: uppercase; white-space: nowrap;
         }
         #info-hover-cursor.visible { opacity: 1; visibility: visible; }
@@ -5345,7 +5345,6 @@
             position: absolute; inset: 0;
             display: block; width: 18px; height: 18px;
             transform-origin: 50% 50%;
-            transition: transform 140ms ease;
         }
         #info-hover-cursor .info-hover-cursor-contrast * {
             fill: var(--bg);
@@ -5355,9 +5354,6 @@
             paint-order: stroke fill;
         }
         #info-hover-cursor .info-hover-cursor-glyph { color: var(--text); }
-        #info-hover-cursor .info-hover-cursor-glyph circle {
-            transition: fill 120ms ease;
-        }
         #info-hover-cursor.info-active .info-hover-cursor-glyph circle,
         #info-hover-cursor.bc-active .info-hover-cursor-glyph circle {
             fill: var(--active-dim);
@@ -5365,18 +5361,16 @@
         #info-hover-cursor.bc-active svg { transform: scale(1.72); }
         #info-hover-cursor .info-cursor-label {
             position: absolute;
-            color: var(--muted);
+            color: var(--text);
             opacity: 0;
-            transition: opacity 100ms ease;
-            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg),
-                         -1px 1px 0 var(--bg), 1px 1px 0 var(--bg);
+            text-shadow: 0 1px 1px var(--bg);
         }
-        #info-hover-cursor.bc-active .info-cursor-label { opacity: 1; }
-        #info-hover-cursor .info-cursor-level { left: 25px; top: 5px; }
-        #info-hover-cursor.labels-left .info-cursor-level { left: auto; right: 25px; }
+        #info-hover-cursor.bc-active .info-cursor-label { opacity: 0.9; }
+        #info-hover-cursor .info-cursor-level { left: 32px; top: 4px; }
+        #info-hover-cursor.labels-left .info-cursor-level { left: auto; right: 32px; }
         #info-hover-cursor.labels-above .info-cursor-level { top: auto; bottom: 9px; }
         #info-hover-cursor .info-cursor-window {
-            left: 50%; top: 25px; transform: translateX(-50%);
+            left: 50%; top: 32px; transform: translateX(-50%);
         }
         #info-hover-cursor.labels-left .info-cursor-window {
             left: auto; right: 9px; transform: none;
