@@ -5675,6 +5675,15 @@ class TestNormalInspectInteractions:
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
         page.mouse.move(cx, cy)
+        baseline = page.evaluate(
+            """() => {
+                const glyph = document.querySelector('#info-hover-cursor .info-hover-cursor-glyph');
+                return [...glyph.querySelectorAll('rect')].map(el => {
+                    const r = el.getBoundingClientRect();
+                    return { left: r.left, top: r.top, width: r.width, height: r.height };
+                });
+            }"""
+        )
         page.mouse.down()
         page.wait_for_function("() => !!_bcDrag")
         page.mouse.move(cx + 32, cy + 24, steps=4)
@@ -5687,6 +5696,11 @@ class TestNormalInspectInteractions:
                 const dot = glyph.querySelector('circle');
                 const labels = [...cursor.querySelectorAll('.info-cursor-label')];
                 const box = cursor.getBoundingClientRect();
+                const dotBox = dot.getBoundingClientRect();
+                const arms = [...glyph.querySelectorAll('rect')].map(el => {
+                    const r = el.getBoundingClientRect();
+                    return { left: r.left, top: r.top, width: r.width, height: r.height };
+                });
                 const probe = document.createElement('span');
                 probe.style.color = 'var(--active-dim)';
                 document.body.appendChild(probe);
@@ -5697,9 +5711,11 @@ class TestNormalInspectInteractions:
                     cursorVisible: getComputedStyle(cursor).visibility,
                     cursorActive: cursor.classList.contains('bc-active'),
                     infoActive: cursor.classList.contains('info-active'),
-                    glyphWidth: glyph.getBoundingClientRect().width,
                     centerX: box.left + box.width / 2,
                     centerY: box.top + box.height / 2,
+                    dotX: dotBox.left + dotBox.width / 2,
+                    dotY: dotBox.top + dotBox.height / 2,
+                    arms,
                     dotFill: getComputedStyle(dot).fill,
                     activeColor,
                     labels: labels.map(el => ({
@@ -5708,6 +5724,7 @@ class TestNormalInspectInteractions:
                         background: getComputedStyle(el).backgroundColor,
                         border: getComputedStyle(el).borderStyle,
                         shadow: getComputedStyle(el).boxShadow,
+                        strokeWidth: getComputedStyle(el).webkitTextStrokeWidth,
                     })),
                     legacyHud: !!document.getElementById('bc-hud'),
                 };
@@ -5716,15 +5733,22 @@ class TestNormalInspectInteractions:
         assert active["dragging"] and active["cursorActive"]
         assert active["cursorVisible"] == "visible"
         assert not active["infoActive"]
-        assert active["glyphWidth"] > 28
-        assert abs(active["centerX"] - (cx + 32)) < 1
-        assert abs(active["centerY"] - (cy + 24)) < 1
+        assert abs(active["centerX"] - cx) < 1
+        assert abs(active["centerY"] - cy) < 1
+        assert active["dotX"] > cx and active["dotY"] > cy
+        for index in (0, 1):
+            assert abs(active["arms"][index]["width"] - baseline[index]["width"]) < 0.2
+            assert active["arms"][index]["height"] > baseline[index]["height"] * 2.4
+        for index in (2, 3):
+            assert active["arms"][index]["width"] > baseline[index]["width"] * 2.4
+            assert abs(active["arms"][index]["height"] - baseline[index]["height"]) < 0.2
         assert active["dotFill"] == active["activeColor"]
         assert [label["text"] for label in active["labels"]] == ["level", "window"]
-        assert all(label["opacity"] == "0.9" for label in active["labels"])
+        assert all(label["opacity"] == "1" for label in active["labels"])
         assert all(label["background"] == "rgba(0, 0, 0, 0)" for label in active["labels"])
         assert all(label["border"] == "none" for label in active["labels"])
         assert all(label["shadow"] == "none" for label in active["labels"])
+        assert all(label["strokeWidth"] == "1.5px" for label in active["labels"])
         assert not active["legacyHud"]
 
         viewport = page.viewport_size
@@ -5733,8 +5757,8 @@ class TestNormalInspectInteractions:
             """() => {
                 const cursor = document.getElementById('info-hover-cursor');
                 return {
-                    flippedLeft: cursor.classList.contains('labels-left'),
-                    flippedAbove: cursor.classList.contains('labels-above'),
+                    centerX: cursor.getBoundingClientRect().left + 9,
+                    centerY: cursor.getBoundingClientRect().top + 9,
                     labelsInside: [...cursor.querySelectorAll('.info-cursor-label')].every(el => {
                         const r = el.getBoundingClientRect();
                         return r.left >= 0 && r.top >= 0
@@ -5747,9 +5771,11 @@ class TestNormalInspectInteractions:
                 };
             }"""
         )
-        assert edge_safe["flippedLeft"] and edge_safe["flippedAbove"]
+        assert abs(edge_safe["centerX"] - cx) < 1
+        assert abs(edge_safe["centerY"] - cy) < 1
         assert edge_safe["labelsInside"], edge_safe["rects"]
 
+        page.mouse.move(cx + 50, cy + 50, steps=2)
         page.mouse.up()
         page.wait_for_function("() => !_bcDrag")
         page.wait_for_timeout(180)
@@ -5758,13 +5784,21 @@ class TestNormalInspectInteractions:
                 const cursor = document.getElementById('info-hover-cursor');
                 return {
                     cursorActive: cursor.classList.contains('bc-active'),
-                    glyphWidth: cursor.querySelector('.info-hover-cursor-glyph').getBoundingClientRect().width,
+                    centerX: cursor.getBoundingClientRect().left + 9,
+                    centerY: cursor.getBoundingClientRect().top + 9,
+                    armRects: [...cursor.querySelector('.info-hover-cursor-glyph').querySelectorAll('rect')]
+                        .map(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })),
                     labelsHidden: [...cursor.querySelectorAll('.info-cursor-label')]
                         .every(el => getComputedStyle(el).opacity === '0'),
                 };
             }"""
         )
-        assert released == {"cursorActive": False, "glyphWidth": 18, "labelsHidden": True}
+        assert not released["cursorActive"] and released["labelsHidden"]
+        assert abs(released["centerX"] - (cx + 50)) < 1
+        assert abs(released["centerY"] - (cy + 50)) < 1
+        for index, rect in enumerate(released["armRects"]):
+            assert abs(rect["width"] - baseline[index]["width"]) < 0.2
+            assert abs(rect["height"] - baseline[index]["height"]) < 0.2
 
     def test_info_hover_cursor_follows_dynamic_mode_canvases(
         self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, tmp_path

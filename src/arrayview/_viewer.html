@@ -5344,7 +5344,7 @@
         #info-hover-cursor svg {
             position: absolute; inset: 0;
             display: block; width: 18px; height: 18px;
-            transform-origin: 50% 50%;
+            overflow: visible;
         }
         #info-hover-cursor .info-hover-cursor-contrast * {
             fill: var(--bg);
@@ -5358,14 +5358,30 @@
         #info-hover-cursor.bc-active .info-hover-cursor-glyph circle {
             fill: var(--active-dim);
         }
-        #info-hover-cursor.bc-active svg { transform: scale(1.72); }
+        #info-hover-cursor.bc-active svg rect {
+            transform-box: fill-box;
+        }
+        #info-hover-cursor.bc-active svg rect:nth-of-type(1) {
+            transform: scaleY(2.5); transform-origin: center bottom;
+        }
+        #info-hover-cursor.bc-active svg rect:nth-of-type(2) {
+            transform: scaleY(2.5); transform-origin: center top;
+        }
+        #info-hover-cursor.bc-active svg rect:nth-of-type(3) {
+            transform: scaleX(2.5); transform-origin: right center;
+        }
+        #info-hover-cursor.bc-active svg rect:nth-of-type(4) {
+            transform: scaleX(2.5); transform-origin: left center;
+        }
         #info-hover-cursor .info-cursor-label {
             position: absolute;
             color: var(--text);
             opacity: 0;
-            text-shadow: 0 1px 1px var(--bg);
+            font-weight: 700;
+            -webkit-text-stroke: 1.5px var(--bg);
+            paint-order: stroke fill;
         }
-        #info-hover-cursor.bc-active .info-cursor-label { opacity: 0.9; }
+        #info-hover-cursor.bc-active .info-cursor-label { opacity: 1; }
         #info-hover-cursor .info-cursor-level { left: 32px; top: 4px; }
         #info-hover-cursor.labels-left .info-cursor-level { left: auto; right: 32px; }
         #info-hover-cursor.labels-above .info-cursor-level { top: auto; bottom: 9px; }
@@ -22967,6 +22983,7 @@
             _infoCursorClientY = e.clientY;
             const dx = e.clientX - _bcDrag.startX;
             const dy = e.clientY - _bcDrag.startY;
+            _positionInfoCursorDot(dx, dy);
             // Sensitivity: scale by initial width so drag feels proportional
             const sens = _bcDrag.initWidth / 300;
             let newWidth = _bcDrag.initWidth - dy * sens * 2;
@@ -39063,15 +39080,30 @@
             cursor.classList.toggle('vertical-only', !!(
                 windowing && (_bcDrag.vminLocked || _bcDrag.symmetric)
             ));
+            if (!windowing) _positionInfoCursorDot(0, 0);
         }
 
         function _positionInfoCursor() {
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
-            cursor.style.transform = `translate(${_infoCursorClientX - 9}px, ${_infoCursorClientY - 9}px)`;
-            cursor.classList.toggle('labels-left', _infoCursorClientX > window.innerWidth - 70);
-            cursor.classList.toggle('labels-right', _infoCursorClientX < 45);
-            cursor.classList.toggle('labels-above', _infoCursorClientY > window.innerHeight - 45);
+            const anchorX = _bcDrag ? _bcDrag.startX : _infoCursorClientX;
+            const anchorY = _bcDrag ? _bcDrag.startY : _infoCursorClientY;
+            cursor.style.transform = `translate(${anchorX - 9}px, ${anchorY - 9}px)`;
+            cursor.classList.toggle('labels-left', anchorX > window.innerWidth - 70);
+            cursor.classList.toggle('labels-right', anchorX < 45);
+            cursor.classList.toggle('labels-above', anchorY > window.innerHeight - 45);
+        }
+
+        function _positionInfoCursorDot(dx, dy) {
+            const cursor = document.getElementById('info-hover-cursor');
+            if (!cursor) return;
+            const verticalOnly = !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric));
+            const nx = verticalOnly ? 0 : Math.max(-1, Math.min(1, dx / 120));
+            const maxY = dy < 0 ? 300 : 150;
+            const ny = Math.max(-1, Math.min(1, dy / maxY));
+            cursor.querySelectorAll('circle').forEach(dot => {
+                dot.style.transform = `translate(${nx * 6}px, ${ny * 6}px)`;
+            });
         }
 
         // ── Layout container visibility reconciler ───────────────────
