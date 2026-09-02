@@ -5355,49 +5355,59 @@
             paint-order: stroke fill;
         }
         #info-hover-cursor .info-hover-cursor-glyph { color: var(--text); }
-        #info-hover-cursor.info-active .info-hover-cursor-glyph circle,
-        #info-hover-cursor.bc-active .info-hover-cursor-glyph circle {
-            fill: var(--active-dim);
+        #info-hover-cursor.info-active .info-hover-cursor-glyph {
+            color: var(--active-dim);
         }
-        #info-hover-cursor.bc-active svg rect {
-            transform-box: fill-box;
-        }
-        #info-hover-cursor.bc-active svg rect:nth-of-type(1) {
-            transform: scaleY(2.5); transform-origin: center bottom;
-        }
-        #info-hover-cursor.bc-active svg rect:nth-of-type(2) {
-            transform: scaleY(2.5); transform-origin: center top;
-        }
-        #info-hover-cursor.bc-active svg rect:nth-of-type(3) {
-            transform: scaleX(2.5); transform-origin: right center;
-        }
-        #info-hover-cursor.bc-active svg rect:nth-of-type(4) {
-            transform: scaleX(2.5); transform-origin: left center;
-        }
-        #info-hover-cursor .info-cursor-label {
-            position: absolute;
-            color: var(--text);
-            opacity: 0;
-            font-weight: 700;
-            -webkit-text-stroke: 1.5px var(--bg);
-            paint-order: stroke fill;
-        }
-        #info-hover-cursor.bc-active .info-cursor-label { opacity: 1; }
-        #info-hover-cursor .info-cursor-level { left: 32px; top: 4px; }
-        #info-hover-cursor.labels-left .info-cursor-level { left: auto; right: 32px; }
-        #info-hover-cursor.labels-above .info-cursor-level { top: auto; bottom: 9px; }
-        #info-hover-cursor .info-cursor-window {
-            left: 50%; top: 32px; transform: translateX(-50%);
-        }
-        #info-hover-cursor.labels-left .info-cursor-window {
-            left: auto; right: 9px; transform: none;
-        }
-        #info-hover-cursor.labels-right .info-cursor-window {
-            left: 9px; transform: none;
-        }
-        #info-hover-cursor.labels-above .info-cursor-window { top: auto; bottom: 25px; }
-        #info-hover-cursor.vertical-only .info-cursor-level { opacity: 0.35; }
         canvas.info-hover-cursor-source { cursor: none !important; }
+
+        /* Window/level drag readout — replaces the cursor while W/L is live.
+           No background pill any more: the triangle and its chevron hints
+           float directly over the image, so every mark needs its own
+           legibility treatment (bright fill/stroke + a dark halo) rather
+           than relying on a dark card behind them for contrast.
+           The icon is an absolute (level, window) map: a triangle, apex up.
+           Horizontal = level (data min..max); vertical = window width, from
+           the full data range at the apex down to a thin sliver at the base.
+           The dim outline is the full valid range; the bright wedge inside
+           it is the current window (apex at the dot, base on the outline's
+           bottom edge) — self-explaining, plus a chevron hint row above
+           (window: up/down) and below (level: left/right). */
+        #bc-hud {
+            position: fixed; left: 0; top: 0; z-index: 14;
+            display: flex; flex-direction: column; align-items: center;
+            gap: 2px;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            font-size: 11px; line-height: 1; color: var(--text);
+            white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 140ms ease;
+        }
+        #bc-hud.visible { opacity: 1; }
+        #bc-hud .bc-hud-icon { display: block; }
+        #bc-hud .bc-hud-icon svg {
+            display: block;
+            filter: drop-shadow(0 0 1px rgba(0,0,0,0.75)) drop-shadow(0 0 2.5px rgba(0,0,0,0.5));
+        }
+        #bc-hud .bc-hud-tri {
+            fill: rgba(0,0,0,0.32);
+            stroke: rgba(255,255,255,0.65); stroke-width: 1.1;
+        }
+        #bc-hud .bc-hud-wedge {
+            fill: color-mix(in srgb, var(--active-dim) 45%, transparent);
+            stroke: none;
+        }
+        #bc-hud .bc-hud-wedge-base {
+            stroke: var(--active-dim); stroke-width: 2; stroke-linecap: round;
+        }
+        #bc-hud .bc-hud-dot { fill: var(--active-dim); }
+        #bc-hud .bc-hud-hint {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+            color: rgba(255,255,255,0.88);
+            -webkit-text-stroke: 1px rgba(0,0,0,0.6);
+            paint-order: stroke fill;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+        }
+        #bc-hud .bc-hud-arrow { font-size: 1.15em; opacity: 0.85; }
     </style>
 </head>
 <body class="__BODY_CLASS__">
@@ -22741,7 +22751,9 @@
         }
 
         // ── Brightness/Contrast drag (Cmd+Shift+drag) and scroll ─────────
-        let _bcDrag = null; // { startX, startY, initCenter, initWidth }
+        let _bcDrag = null; // { startX, startY, initCenter, initWidth, vminLocked, symmetric,
+                             //   vmaxLocked, lockedLo, dataMin, dataMax, fullRange, minWindow,
+                             //   centerData, s, dot0 } — see _bcTriGeom.
         let _bcPendingDrag = null; // { startX, startY } — armed plain-left press, not yet a drag
         const _BC_DRAG_DEADZONE = 5; // CSS px a press must travel before it counts as windowing
         let _bcScrollTimer = null; // debounce timer for scroll-based BC
@@ -22929,48 +22941,198 @@
             if (_bcUpdateTimer) return;
             _bcUpdateTimer = setTimeout(() => { _bcUpdateTimer = null; updateView(); }, 80);
         }
+        /** Collapse the histogram-as-colorbar back to the normal colorbar
+         *  right now, honoring the same "something still needs it open"
+         *  guards _bcAutoDismiss's timer uses. Call this when a gesture has
+         *  just definitively ended (e.g. mouseup on a window/level drag) —
+         *  there's no hover-ambiguity left to wait out, so collapsing on a
+         *  timer would just be a pointless multi-second lag. */
+        function _bcCollapseHistNow() {
+            if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
+            if (_dmenuPickerOpen || _bcDrag || _bcScrollAnchor || (primaryCb && primaryCb._dragActive)) {
+                // Still busy for some other reason — fall back to the
+                // regular grace-period dismiss rather than forcing it
+                // closed out from under whatever's still using it.
+                _bcAutoDismiss();
+                return;
+            }
+            if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
+                lebesgueMode = false;
+                primaryCb._expanded = false;
+                primaryCb._manualExpand = false;
+                renderInfo();
+                _clearLebesgueOverlay();
+                const tz = document.getElementById('slim-cb-tri-zone');
+                if (tz) tz.classList.remove('expanded');
+                primaryCb.startAnim(false);
+                _bcRedrawCb();
+            }
+            if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+                _histPickerActive = false;
+                closeDmenuPicker();
+                _reconcileHistPicker();
+            }
+        }
         function _bcAutoDismiss() {
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
-                if (_dmenuPickerOpen) {
-                    _bcAutoDismiss();
-                    return;
-                }
-                // A gesture that is still running owns the histogram. The
-                // cursor is over the image, not the bar, so `_mouseOver` is
-                // false and a timer armed by an *earlier* interaction used to
-                // fire straight through and fold the histogram back into a
-                // colorbar while the button was still held. Wait it out.
-                if (_bcDrag || _bcScrollAnchor || (primaryCb && primaryCb._dragActive)) {
-                    _bcAutoDismiss();
-                    return;
-                }
-                if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
-                    lebesgueMode = false;
-                    primaryCb._expanded = false;
-                    primaryCb._manualExpand = false;
-                    renderInfo();
-                    _clearLebesgueOverlay();
-                    const tz = document.getElementById('slim-cb-tri-zone');
-                    if (tz) tz.classList.remove('expanded');
-                    primaryCb.startAnim(false);
-                    _bcRedrawCb();
-                }
-                if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
-                    _histPickerActive = false;
-                    closeDmenuPicker();
-                    _reconcileHistPicker();
-                }
+                _bcCollapseHistNow();
             }, 3000);
         }
+        // ── Window/level drag readout ────────────────────────────────
+        // The pill stays at the press point; its dot is an absolute map of
+        // valid (level, window) values, not a relative joystick — dot
+        // position and applied vmin/vmax are always the same computation,
+        // so neither can run out of sync with the other.
+        //
+        // Triangle, apex up: x = level (data min at the left edge, data max
+        // at the right), y = window (full data range at the apex, a thin
+        // sliver at the base). vmin = level - window/2 >= dataMin and
+        // vmax = level + window/2 <= dataMax carve out exactly a triangle:
+        // at full window only the centre level is valid (a point at the
+        // apex); at minimum window the level can be anywhere (the full base).
+        const BC_TRI_BASE = 70;    // triangle base width, px — full level sweep
+        const BC_TRI_H = 60;       // apex-to-base height, px — full window sweep
+        const BC_TRI_MX = 6;       // side margin (keeps the dot off the stroke)
+        const BC_TRI_MT = 6;
+        const BC_TRI_MB = 6;
+        const BC_TRI_VBW = BC_TRI_BASE + 2 * BC_TRI_MX;
+        const BC_TRI_VBH = BC_TRI_MT + BC_TRI_H + BC_TRI_MB;
+
+        /** Fixed per-drag geometry: the data range and the level<->px, window<->px
+         *  scale factors, computed once at drag start (the data range does not
+         *  move mid-drag). minWindow is the base-edge floor — a 256th of the
+         *  data range, same "small sliver" a manual window can already reach. */
+        function _bcTriGeom(initCenter, initWidth) {
+            let dataMin = _histData && Number.isFinite(_histData.vmin) ? _histData.vmin : null;
+            let dataMax = _histData && Number.isFinite(_histData.vmax) ? _histData.vmax : null;
+            if (dataMin == null || dataMax == null || !(dataMax > dataMin)) {
+                // No histogram range yet (or a degenerate one) — synthesize a
+                // generous range around the current window so the triangle
+                // still has something to map, rather than collapsing to a point.
+                const pad = Math.abs(initWidth) || 1;
+                dataMin = initCenter - pad;
+                dataMax = initCenter + pad;
+            }
+            const fullRange = dataMax - dataMin;
+            const minWindow = Math.max(fullRange / 256, 1e-9);
+            const centerData = (dataMin + dataMax) / 2;
+            const s = BC_TRI_BASE / Math.max(fullRange - minWindow, 1e-9); // px per level unit
+            const g = { dataMin, dataMax, fullRange, minWindow, centerData, s };
+            g.dot0 = _bcTriValueToLocal(g, initCenter, Math.max(Math.abs(initWidth), minWindow));
+            return g;
+        }
+        /** (level, window) -> local triangle px, clamped to the triangle
+         *  (x relative to the centreline, y from 0 at the apex to BC_TRI_H
+         *  at the base). Used both to seed the dot and to redraw it once a
+         *  locked mode has derived level/window some other way. */
+        function _bcTriValueToLocal(g, level, win) {
+            const t = Math.max(0, Math.min(1, (g.fullRange - win) / (g.fullRange - g.minWindow)));
+            const halfW = (BC_TRI_BASE / 2) * t;
+            const x = Math.max(-halfW, Math.min(halfW, (level - g.centerData) * g.s));
+            return { x, y: t * BC_TRI_H };
+        }
+        /** Local triangle px -> (level, window), clamping first to the nearest
+         *  point on/in the triangle. This is the single source of truth for
+         *  values during an unlocked drag: whatever the (clamped) dot lands
+         *  on is exactly what gets applied, so dot and values can't disagree. */
+        function _bcTriLocalToValue(g, x, y) {
+            const t = Math.max(0, Math.min(1, y / BC_TRI_H));
+            const halfW = (BC_TRI_BASE / 2) * t;
+            const xc = Math.max(-halfW, Math.min(halfW, x));
+            const win = g.fullRange - t * (g.fullRange - g.minWindow);
+            const level = g.centerData + xc / g.s;
+            return { level, window: win, x: xc, y: t * BC_TRI_H };
+        }
+
+        let _bcHudEl = null;
+        function _bcHudEnsure() {
+            if (_bcHudEl) return _bcHudEl;
+            _bcHudEl = document.createElement('div');
+            _bcHudEl.id = 'bc-hud';
+            const apexX = BC_TRI_MX + BC_TRI_BASE / 2;
+            const baseY = BC_TRI_MT + BC_TRI_H;
+            // One bidirectional arrow per axis reads as "this word, both
+            // ways" without the busier double-chevron-on-both-sides look.
+            _bcHudEl.innerHTML =
+                '<span class="bc-hud-hint bc-hud-hint-window">' +
+                    'WINDOW<span class="bc-hud-arrow">\u2195</span>' +
+                '</span>' +
+                '<span class="bc-hud-icon">' +
+                    `<svg width="${BC_TRI_VBW}" height="${BC_TRI_VBH}" viewBox="0 0 ${BC_TRI_VBW} ${BC_TRI_VBH}">` +
+                        `<polygon class="bc-hud-tri" points="${apexX},${BC_TRI_MT} ${BC_TRI_VBW - BC_TRI_MX},${baseY} ${BC_TRI_MX},${baseY}"/>` +
+                        `<polygon class="bc-hud-wedge" points="${apexX},${BC_TRI_MT} ${apexX},${baseY} ${apexX},${baseY}"/>` +
+                        `<line class="bc-hud-wedge-base" x1="${apexX}" y1="${baseY}" x2="${apexX}" y2="${baseY}"/>` +
+                        `<circle class="bc-hud-dot" cx="${apexX}" cy="${BC_TRI_MT}" r="2.5"/>` +
+                    '</svg>' +
+                '</span>' +
+                '<span class="bc-hud-hint bc-hud-hint-level">' +
+                    'LEVEL<span class="bc-hud-arrow">\u2194</span>' +
+                '</span>';
+            document.body.appendChild(_bcHudEl);
+            return _bcHudEl;
+        }
+        /** Move the dot to a local triangle coordinate ({x,y} — see
+         *  _bcTriValueToLocal / _bcTriLocalToValue). */
+        function _bcHudUpdateDot(local) {
+            if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
+            const dot = _bcHudEl.querySelector('.bc-hud-dot');
+            if (!dot) return;
+            dot.setAttribute('cx', BC_TRI_MX + BC_TRI_BASE / 2 + local.x);
+            dot.setAttribute('cy', BC_TRI_MT + local.y);
+        }
+        /** Draw the current-window wedge: apex at the dot, base on the
+         *  outline's bottom edge spanning x(vmin)..x(vmax) — the same
+         *  level<->px mapping used everywhere else, so the wedge always
+         *  agrees with the dot/values without any extra bookkeeping. */
+        function _bcHudUpdateWedge(g, level, win, dotLocal) {
+            if (!_bcHudEl || !_bcHudEl.classList.contains('visible')) return;
+            const wedge = _bcHudEl.querySelector('.bc-hud-wedge');
+            const base = _bcHudEl.querySelector('.bc-hud-wedge-base');
+            if (!wedge || !base) return;
+            const halfBase = BC_TRI_BASE / 2;
+            const xLeft = Math.max(-halfBase, Math.min(halfBase, (level - win / 2 - g.centerData) * g.s));
+            const xRight = Math.max(-halfBase, Math.min(halfBase, (level + win / 2 - g.centerData) * g.s));
+            const originX = BC_TRI_MX + BC_TRI_BASE / 2;
+            const apexX = originX + dotLocal.x, apexY = BC_TRI_MT + dotLocal.y;
+            const baseY = BC_TRI_MT + BC_TRI_H;
+            const leftX = originX + xLeft, rightX = originX + xRight;
+            wedge.setAttribute('points', `${apexX},${apexY} ${rightX},${baseY} ${leftX},${baseY}`);
+            base.setAttribute('x1', leftX); base.setAttribute('y1', baseY);
+            base.setAttribute('x2', rightX); base.setAttribute('y2', baseY);
+        }
+        function _bcHudShow(e) {
+            const hud = _bcHudEnsure();
+            hud.classList.add('visible');
+            const dot0 = _bcDrag ? _bcDrag.dot0 : { x: 0, y: 0 };
+            _bcHudUpdateDot(dot0);
+            if (_bcDrag) {
+                const win0 = Math.max(Math.abs(_bcDrag.initWidth), _bcDrag.minWindow);
+                _bcHudUpdateWedge(_bcDrag, _bcDrag.initCenter, win0, dot0);
+            }
+            const pillRect = hud.getBoundingClientRect();
+            const iconRect = hud.querySelector('.bc-hud-icon').getBoundingClientRect();
+            const cx = iconRect.left - pillRect.left + iconRect.width / 2;
+            const cy = iconRect.top - pillRect.top + iconRect.height / 2;
+            const m = 8;
+            const x = Math.max(m, Math.min(e.clientX - cx, window.innerWidth - pillRect.width - m));
+            const y = Math.max(m, Math.min(e.clientY - cy, window.innerHeight - pillRect.height - m));
+            hud.style.left = x + 'px';
+            hud.style.top = y + 'px';
+        }
+        function _bcHudHide() {
+            if (_bcHudEl) _bcHudEl.classList.remove('visible');
+        }
+
         async function _bcStartDrag(e) {
             const vmin = manualVmin ?? currentVmin;
             const vmax = manualVmax ?? currentVmax;
+            const initCenter = (vmin + vmax) / 2;
+            const initWidth = vmax - vmin;
             _bcDrag = {
                 startX: e.clientX, startY: e.clientY,
-                initCenter: (vmin + vmax) / 2,
-                initWidth: vmax - vmin,
+                initCenter, initWidth,
                 // A locked vmin or a symmetric lock removes a degree of
                 // freedom, so the drag has to collapse to one axis — see
                 // _bcUpdateDrag.
@@ -22978,6 +23140,21 @@
                 symmetric: _dmenuEffectiveSymmetricLocked(),
                 vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
+                // Fixed for the life of the drag: the data range and the
+                // triangle's scale factors, plus the dot's starting spot —
+                // clamped onto the triangle if the current window/level
+                // happens to lie outside it (e.g. a clip range wider than
+                // the data). Movement is relative to this clamped start.
+                ..._bcTriGeom(initCenter, initWidth),
+            };
+            // Mutable drag-position anchor — see _bcUpdateDrag. Starts at
+            // the drag-start mouse/dot pair; re-based to the current
+            // mouse position whenever an axis is pinned at a triangle edge,
+            // so a reversal is never more than one event away from moving
+            // the dot again (never has to retrace the full overshoot).
+            _bcDrag.anchor = {
+                mouseX: e.clientX, mouseY: e.clientY,
+                localX: _bcDrag.dot0.x, localY: _bcDrag.dot0.y,
             };
             _infoCursorClientX = e.clientX;
             _infoCursorClientY = e.clientY;
@@ -22993,40 +23170,59 @@
             _bcExpandHist();
             _bcPreviewInit();
             _reconcileInfoCursor();
+            _bcHudShow(e);
         }
         function _bcUpdateDrag(e) {
             if (!_bcDrag) return;
             _infoCursorClientX = e.clientX;
             _infoCursorClientY = e.clientY;
-            const dx = e.clientX - _bcDrag.startX;
-            const dy = e.clientY - _bcDrag.startY;
-            _positionInfoCursorDot(dx, dy);
-            // Sensitivity: scale by initial width so drag feels proportional
-            const sens = _bcDrag.initWidth / 300;
-            let newWidth = _bcDrag.initWidth - dy * sens * 2;
-            let newCenter;
-            if (_bcDrag.symmetric) {
-                // Bounds are tied to ±half-width, so the centre is fixed at
-                // zero and only the width is free — vertical-only, same shape
-                // as the pinned-vmin case below but anchored differently.
-                newWidth = Math.max(newWidth, Math.abs(_bcDrag.initWidth) * 1e-3 || 1e-9);
-                newCenter = 0;
-            } else if (_bcDrag.vminLocked) {
-                // vmin is pinned (manual lock, qMRI role, or zero floor), so
-                // vmax is the only free bound and centre/width are no longer
-                // independent. The horizontal axis has nothing to move: the
-                // drag collapses to vertical-only, growing the window upward
-                // from the pinned vmin. Clamped so vmax can never cross it.
-                newWidth = Math.max(newWidth, Math.abs(_bcDrag.initWidth) * 1e-3 || 1e-9);
-                newCenter = _bcDrag.lockedLo + newWidth / 2;
+            const g = _bcDrag;
+            const a = g.anchor;
+            let newCenter, newWidth, dotLocal;
+            if (g.symmetric || g.vminLocked) {
+                // A locked vmin or a symmetric lock removes level as a free
+                // input — it becomes a function of window instead (pinned
+                // vmin: level = lockedLo + window/2; symmetric: level is
+                // always 0) — so only vertical mouse movement drives the
+                // drag, same "vertical-only" convention as before. The dot
+                // still moves both ways: as window changes, its dependent
+                // level shifts the dot sideways too, tracing the one path
+                // through the triangle that satisfies the lock.
+                const rawY = a.localY + (e.clientY - a.mouseY);
+                const clampedRawY = Math.max(0, Math.min(BC_TRI_H, rawY));
+                const t = clampedRawY / BC_TRI_H;
+                const win = g.fullRange - t * (g.fullRange - g.minWindow);
+                const maxWindow = g.symmetric
+                    ? Math.max(g.minWindow, 2 * Math.min(g.dataMax, -g.dataMin))
+                    : Math.max(g.minWindow, g.dataMax - g.lockedLo);
+                const winClamped = Math.min(Math.max(win, g.minWindow), maxWindow);
+                const finalT = (g.fullRange - winClamped) / (g.fullRange - g.minWindow);
+                const finalY = Math.max(0, Math.min(BC_TRI_H, finalT * BC_TRI_H));
+                // Re-anchor the instant this axis is pinned (by either the
+                // apex/base bound above or the lock's own window cap) so a
+                // reversal is read against *this* mouse position next time,
+                // not the mouse position from when the drag started.
+                if (finalY !== rawY) { a.mouseY = e.clientY; a.localY = finalY; }
+                newWidth = winClamped;
+                newCenter = g.symmetric ? 0 : (g.lockedLo + winClamped / 2);
+                dotLocal = _bcTriValueToLocal(g, newCenter, newWidth);
             } else {
-                newCenter = _bcDrag.initCenter - dx * sens;
+                const rawX = a.localX + (e.clientX - a.mouseX);
+                const rawY = a.localY + (e.clientY - a.mouseY);
+                const v = _bcTriLocalToValue(g, rawX, rawY);
+                // Same re-anchoring, independently per axis: the moment an
+                // axis is clamped, its next delta is measured from here.
+                if (v.x !== rawX) { a.mouseX = e.clientX; a.localX = v.x; }
+                if (v.y !== rawY) { a.mouseY = e.clientY; a.localY = v.y; }
+                newCenter = v.level; newWidth = v.window;
+                dotLocal = { x: v.x, y: v.y };
             }
             _bcApplyWindow(newCenter, newWidth);
             // The local preview already repainted inside _bcApplyWindow;
             // only fall back to the server round-trip when there is none.
             if (!_bcPreview && !_bcPreviewPending) _bcThrottledUpdate();
-            _positionInfoCursor();
+            _bcHudUpdateDot(dotLocal);
+            _bcHudUpdateWedge(g, newCenter, newWidth, dotLocal);
         }
         // A plain left press arms a pending drag rather than starting one, so a
         // press that never travels stays a click-to-copy / pixel-info hold.
@@ -23070,6 +23266,7 @@
             // render, and the committed frame must be the server's bytes.
             _bcPreview = null;
             _bcPreviewPending = false;
+            _bcHudHide();
             const under = document.elementFromPoint(_infoCursorClientX, _infoCursorClientY);
             _infoCursorPointerTarget = under instanceof Element
                 ? under.closest(_INFO_CURSOR_CANVAS_SELECTOR)
@@ -23077,7 +23274,10 @@
             _reconcileInfoCursor();
             updateView();
             saveState();
-            _bcAutoDismiss();
+            // The drag has definitively ended (this is mouseup, not a hover
+            // guess) — collapse the histogram-as-colorbar right away rather
+            // than through the multi-second hover-dismiss grace timer.
+            _bcCollapseHistNow();
         }
 
         canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -36736,12 +36936,19 @@
         function _mvShowPressCrosshair() {
             _mvCancelPressCrosshair();
             _reconcileMvOrientationVisibility();
+            const row = document.getElementById('mv-panes');
+            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', !!mvDraggingView);
+            if (mvDraggingView && mvDraggingView.canvas) mvDraggingView.canvas.style.cursor = 'none';
+            _reconcileInfoCursor();
             _mvSetCrosshairTarget(1);
         }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
             const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive);
+            const row = document.getElementById('mv-panes');
+            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', false);
             _mvSetCrosshairTarget(show ? 1 : 0);
+            _reconcileInfoCursor();
             _reconcileMvOrientationVisibility();
         }
         function _mvScrollHint(view) {
@@ -36936,19 +37143,12 @@
                     height,
                     payload_bytes: buf.byteLength,
                     perfKey,
-            const row = document.getElementById('mv-panes');
-            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', !!mvDraggingView);
-            if (mvDraggingView && mvDraggingView.canvas) mvDraggingView.canvas.style.cursor = 'none';
-            _reconcileInfoCursor();
                     server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
                 });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
-            const row = document.getElementById('mv-panes');
-            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', false);
             else if (isPlaying && mvViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
-            _reconcileInfoCursor();
         }
 
         function drawMvColorbar() {
@@ -37317,6 +37517,7 @@
             if (cmvDraggingView) handleCmvPointer(cmvDraggingView, e);
         });
         document.addEventListener('mouseup', () => {
+            const releasedMvView = mvDraggingView;
             if (obliqueDrag) {
                 if (obliqueDrag._renderTimer) {
                     clearTimeout(obliqueDrag._renderTimer);
@@ -37336,6 +37537,7 @@
             mvNavDragPrev = null;
             mvDraggingView = null;
             cmvDraggingView = null;
+            if (releasedMvView && releasedMvView.canvas) releasedMvView.canvas.style.cursor = '';
             if (_mvHoldFlashTimer) { clearTimeout(_mvHoldFlashTimer); _mvHoldFlashTimer = null; }
             _reconcileMvOrientationVisibility();
             // Sync crosshair visibility after drag ends: the pane mouseleave was
@@ -37517,7 +37719,6 @@
             _clearOrientEdgeHighlight();
             _hideHistTooltip();
             if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
-            const releasedMvView = mvDraggingView;
                 _restartHistAutoDismiss();
             }
         });
@@ -37537,7 +37738,6 @@
             const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
             const isSpatialCmv = compareMvActive && compareMvDims.includes(hoveredDim);
             const isSpatialQmriMv = qmriMvActive && qmriMvDims.includes(hoveredDim);
-            if (releasedMvView && releasedMvView.canvas) releasedMvView.canvas.style.cursor = '';
             const isQmriDim = (qmriActive && hoveredDim === qmriDim) || (compareQmriActive && hoveredDim === compareQmriDim);
             if (isSpatialNormal || isSpatialMv || isSpatialCmv || isSpatialQmriMv || isQmriDim) return;
             e.preventDefault();
@@ -39132,11 +39332,6 @@
             }
             cursor.classList.toggle('visible', visible);
             cursor.classList.toggle('info-active', !!_pixelInfoVisible);
-            cursor.classList.toggle('bc-active', windowing);
-            cursor.classList.toggle('vertical-only', !!(
-                windowing && (_bcDrag.vminLocked || _bcDrag.symmetric)
-            ));
-            if (!windowing) _positionInfoCursorDot(0, 0);
         }
 
         function _positionInfoCursor() {
@@ -39145,21 +39340,6 @@
             const anchorX = _bcDrag ? _bcDrag.startX : _infoCursorClientX;
             const anchorY = _bcDrag ? _bcDrag.startY : _infoCursorClientY;
             cursor.style.transform = `translate(${anchorX - 9}px, ${anchorY - 9}px)`;
-            cursor.classList.toggle('labels-left', anchorX > window.innerWidth - 70);
-            cursor.classList.toggle('labels-right', anchorX < 45);
-            cursor.classList.toggle('labels-above', anchorY > window.innerHeight - 45);
-        }
-
-        function _positionInfoCursorDot(dx, dy) {
-            const cursor = document.getElementById('info-hover-cursor');
-            if (!cursor) return;
-            const verticalOnly = !!(_bcDrag && (_bcDrag.vminLocked || _bcDrag.symmetric));
-            const nx = verticalOnly ? 0 : Math.max(-1, Math.min(1, dx / 120));
-            const maxY = dy < 0 ? 300 : 150;
-            const ny = Math.max(-1, Math.min(1, dy / maxY));
-            cursor.querySelectorAll('circle').forEach(dot => {
-                dot.style.transform = `translate(${nx * 6}px, ${ny * 6}px)`;
-            });
         }
 
         // ── Layout container visibility reconciler ───────────────────

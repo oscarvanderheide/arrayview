@@ -5038,6 +5038,31 @@ class TestWindowLevelHistogramHold:
             "the histogram should still fold away a few seconds after release"
         )
 
+    def test_histogram_dismisses_immediately_on_mouseup_not_after_a_delay(
+        self, loaded_viewer, sid_2d
+    ):
+        """Releasing the button is an unambiguous "gesture is over" signal —
+        unlike the hover case, there's no ambiguity left to wait out, so the
+        histogram-as-colorbar must fold back right away. This used to run
+        through the same 3s hover-dismiss grace timer as an idle hover,
+        leaving the histogram visibly stuck open for seconds after release."""
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        self._window_level_drag(page, cx, cy)
+        page.wait_for_timeout(200)
+        assert page.evaluate(self.EXPANDED), (
+            "window/level drag should show the histogram"
+        )
+        page.mouse.up()
+        # Well under the old 3s grace timer, but generous for a repaint.
+        page.wait_for_timeout(200)
+        assert not page.evaluate(self.EXPANDED), (
+            "the histogram should fold back into the normal colorbar within "
+            "~200ms of mouseup, not after a multi-second delay"
+        )
+
 
 class TestSplitViewIndexLabel:
     """Stepping the split index must not resize the title above the pane."""
@@ -5571,7 +5596,7 @@ class TestNormalInspectInteractions:
         page.wait_for_timeout(220)
         assert not page.locator("#mode-eggs .eggs-value-pill").count()
 
-    def test_info_hover_cursor_matches_pill_across_themes(self, loaded_viewer, sid_2d):
+    def test_info_hover_cursor_uses_active_color_across_themes(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
@@ -5604,7 +5629,7 @@ class TestNormalInspectInteractions:
             "textColor": off["textColor"],
         }
 
-        page.keyboard.press("i")
+        page.mouse.dblclick(cx, cy)
         for _ in range(4):
             self._assert_info_cursor_active(page, "#viewer")
             page.wait_for_timeout(150)
@@ -5646,12 +5671,12 @@ class TestNormalInspectInteractions:
             )
             assert appearance["layerCount"] == 2
             assert appearance["cursorGeometry"] == [appearance["pillGeometry"]] * 2
-            assert appearance["glyphFill"] == appearance["pillFill"] == appearance["textColor"]
+            assert appearance["glyphFill"] == appearance["dotFill"] == appearance["activeColor"]
+            assert appearance["pillFill"] == appearance["textColor"]
             assert appearance["contrastFill"] == appearance["bgColor"]
             assert appearance["contrastStroke"] == appearance["bgColor"]
             assert appearance["contrastStrokeWidth"] == "0.9px"
             assert appearance["infoActive"]
-            assert appearance["dotFill"] == appearance["activeColor"]
             page.keyboard.press("T")
             page.wait_for_timeout(80)
 
@@ -5669,39 +5694,33 @@ class TestNormalInspectInteractions:
         page.keyboard.press("Shift+R")
         page.keyboard.press("i")
 
-    def test_window_level_uses_enlarged_cursor_and_bare_labels(self, loaded_viewer, sid_2d):
+    def test_window_level_uses_yesterday_hud(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         if page.evaluate("() => _pixelInfoVisible"):
             page.keyboard.press("i")
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
         page.mouse.move(cx, cy)
-        baseline = page.evaluate(
-            """() => {
-                const glyph = document.querySelector('#info-hover-cursor .info-hover-cursor-glyph');
-                return [...glyph.querySelectorAll('rect')].map(el => {
-                    const r = el.getBoundingClientRect();
-                    return { left: r.left, top: r.top, width: r.width, height: r.height };
-                });
-            }"""
-        )
         page.mouse.down()
         page.wait_for_function("() => !!_bcDrag")
+        start_dot = page.evaluate(
+            """() => {
+                const dot = document.getElementById('bc-hud').querySelector('.bc-hud-dot');
+                return { x: Number(dot.getAttribute('cx')), y: Number(dot.getAttribute('cy')) };
+            }"""
+        )
         page.mouse.move(cx + 32, cy + 24, steps=4)
         page.wait_for_timeout(180)
 
         active = page.evaluate(
             """() => {
                 const cursor = document.getElementById('info-hover-cursor');
-                const glyph = cursor.querySelector('.info-hover-cursor-glyph');
-                const dot = glyph.querySelector('circle');
-                const labels = [...cursor.querySelectorAll('.info-cursor-label')];
-                const box = cursor.getBoundingClientRect();
-                const dotBox = dot.getBoundingClientRect();
-                const arms = [...glyph.querySelectorAll('rect')].map(el => {
-                    const r = el.getBoundingClientRect();
-                    return { left: r.left, top: r.top, width: r.width, height: r.height };
-                });
+                const hud = document.getElementById('bc-hud');
+                const icon = hud.querySelector('.bc-hud-icon').getBoundingClientRect();
+                const dot = hud.querySelector('.bc-hud-dot');
+                const tri = hud.querySelector('.bc-hud-tri');
+                const wedge = hud.querySelector('.bc-hud-wedge');
+                const wedgeBase = hud.querySelector('.bc-hud-wedge-base');
                 const probe = document.createElement('span');
                 probe.style.color = 'var(--active-dim)';
                 document.body.appendChild(probe);
@@ -5710,96 +5729,283 @@ class TestNormalInspectInteractions:
                 return {
                     dragging: !!_bcDrag,
                     cursorVisible: getComputedStyle(cursor).visibility,
-                    cursorActive: cursor.classList.contains('bc-active'),
-                    infoActive: cursor.classList.contains('info-active'),
-                    centerX: box.left + box.width / 2,
-                    centerY: box.top + box.height / 2,
-                    dotX: dotBox.left + dotBox.width / 2,
-                    dotY: dotBox.top + dotBox.height / 2,
-                    arms,
+                    hudVisible: hud.classList.contains('visible'),
+                    hudOpacity: getComputedStyle(hud).opacity,
+                    iconCenterX: icon.left + icon.width / 2,
+                    iconCenterY: icon.top + icon.height / 2,
+                    dotX: Number(dot.getAttribute('cx')),
+                    dotY: Number(dot.getAttribute('cy')),
                     dotFill: getComputedStyle(dot).fill,
+                    triStroked: getComputedStyle(tri).stroke !== 'none',
                     activeColor,
-                    labels: labels.map(el => ({
-                        text: el.textContent,
-                        opacity: getComputedStyle(el).opacity,
-                        background: getComputedStyle(el).backgroundColor,
-                        border: getComputedStyle(el).borderStyle,
-                        shadow: getComputedStyle(el).boxShadow,
-                        strokeWidth: getComputedStyle(el).webkitTextStrokeWidth,
-                    })),
-                    legacyHud: !!document.getElementById('bc-hud'),
+                    // No text labels any more — the wedge is the
+                    // self-explaining stand-in for them.
+                    hasTextLabels: hud.querySelectorAll('.bc-hud-label').length > 0,
+                    wedgePoints: wedge.getAttribute('points'),
+                    wedgeBaseStroke: getComputedStyle(wedgeBase).stroke,
                 };
             }"""
         )
-        assert active["dragging"] and active["cursorActive"]
-        assert active["cursorVisible"] == "visible"
-        assert not active["infoActive"]
-        assert abs(active["centerX"] - cx) < 1
-        assert abs(active["centerY"] - cy) < 1
-        assert active["dotX"] > cx and active["dotY"] > cy
-        for index in (0, 1):
-            assert abs(active["arms"][index]["width"] - baseline[index]["width"]) < 0.2
-            assert active["arms"][index]["height"] > baseline[index]["height"] * 2.4
-        for index in (2, 3):
-            assert active["arms"][index]["width"] > baseline[index]["width"] * 2.4
-            assert abs(active["arms"][index]["height"] - baseline[index]["height"]) < 0.2
+        assert active["dragging"] and active["hudVisible"]
+        assert active["hudOpacity"] == "1"
+        assert active["cursorVisible"] == "hidden"
+        assert abs(active["iconCenterX"] - cx) < 1
+        assert abs(active["iconCenterY"] - cy) < 1
+        # Dragging right + down moved the dot right (higher level) and down
+        # (narrower window) from wherever it started.
+        assert active["dotX"] > start_dot["x"]
+        assert active["dotY"] > start_dot["y"]
         assert active["dotFill"] == active["activeColor"]
-        assert [label["text"] for label in active["labels"]] == ["level", "window"]
-        assert all(label["opacity"] == "1" for label in active["labels"])
-        assert all(label["background"] == "rgba(0, 0, 0, 0)" for label in active["labels"])
-        assert all(label["border"] == "none" for label in active["labels"])
-        assert all(label["shadow"] == "none" for label in active["labels"])
-        assert all(label["strokeWidth"] == "1.5px" for label in active["labels"])
-        assert not active["legacyHud"]
+        assert active["triStroked"]
+        assert not active["hasTextLabels"]
+        # The wedge's apex must sit exactly on the dot (same accent colour
+        # on its base as the dot itself).
+        apex_x, apex_y = (float(v) for v in active["wedgePoints"].split()[0].split(","))
+        assert apex_x == pytest.approx(active["dotX"], abs=0.05)
+        assert apex_y == pytest.approx(active["dotY"], abs=0.05)
+        assert active["wedgeBaseStroke"] == active["activeColor"]
 
         viewport = page.viewport_size
         page.mouse.move(viewport["width"] - 4, viewport["height"] - 4, steps=2)
-        edge_safe = page.evaluate(
+        anchored = page.evaluate(
             """() => {
-                const cursor = document.getElementById('info-hover-cursor');
+                const hud = document.getElementById('bc-hud');
+                const icon = hud.querySelector('.bc-hud-icon').getBoundingClientRect();
+                const box = hud.getBoundingClientRect();
                 return {
-                    centerX: cursor.getBoundingClientRect().left + 9,
-                    centerY: cursor.getBoundingClientRect().top + 9,
-                    labelsInside: [...cursor.querySelectorAll('.info-cursor-label')].every(el => {
-                        const r = el.getBoundingClientRect();
-                        return r.left >= 0 && r.top >= 0
-                            && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
-                    }),
-                    rects: [...cursor.querySelectorAll('.info-cursor-label')].map(el => {
-                        const r = el.getBoundingClientRect();
-                        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
-                    }),
+                    iconCenterX: icon.left + icon.width / 2,
+                    iconCenterY: icon.top + icon.height / 2,
+                    inside: box.left >= 0 && box.top >= 0
+                        && box.right <= window.innerWidth && box.bottom <= window.innerHeight,
                 };
             }"""
         )
-        assert abs(edge_safe["centerX"] - cx) < 1
-        assert abs(edge_safe["centerY"] - cy) < 1
-        assert edge_safe["labelsInside"], edge_safe["rects"]
+        assert abs(anchored["iconCenterX"] - cx) < 1
+        assert abs(anchored["iconCenterY"] - cy) < 1
+        assert anchored["inside"]
 
         page.mouse.move(cx + 50, cy + 50, steps=2)
         page.mouse.up()
         page.wait_for_function("() => !_bcDrag")
         page.wait_for_timeout(180)
         released = page.evaluate(
+            """() => ({
+                hudVisible: document.getElementById('bc-hud').classList.contains('visible'),
+                hudOpacity: getComputedStyle(document.getElementById('bc-hud')).opacity,
+                cursorVisible: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
+            })"""
+        )
+        assert not released["hudVisible"]
+        assert released["hudOpacity"] == "0"
+        assert released["cursorVisible"] == "visible"
+
+    def test_window_level_dot_starts_at_current_values(self, loaded_viewer, sid_3d):
+        """The triangle HUD's dot is an absolute (level, window) map, not a
+        relative joystick: at the moment a drag begins, the dot must sit at
+        the exact point that the *current* vmin/vmax maps to.
+
+        Uses a 3-D array (random, symmetric-ish about zero) rather than the
+        2-D gradient fixture: that gradient's true min is exactly 0, which
+        trips the viewer's separate "zero floor locks vmin" policy and would
+        exercise the locked drag path instead of the general one this test
+        targets."""
+        page = loaded_viewer(sid_3d)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        # The triangle needs the data's true min/max, which the viewer only
+        # knows once a histogram has been fetched at least once — pre-warm
+        # that cache so this test reflects the (common) case where it's
+        # already known, same as opening the histogram with `d` would do.
+        page.evaluate("() => primaryCb.ensureHistogramData()")
+        page.wait_for_function("() => _histData !== null", timeout=2_000)
+        assert not page.evaluate("() => _dmenuEffectiveVminLocked()"), (
+            "fixture must exercise the general (unlocked) triangle drag"
+        )
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+
+        result = page.evaluate(
             """() => {
-                const cursor = document.getElementById('info-hover-cursor');
+                const dot = document.getElementById('bc-hud').querySelector('.bc-hud-dot');
+                const vmin = manualVmin ?? currentVmin;
+                const vmax = manualVmax ?? currentVmax;
+                const level = (vmin + vmax) / 2;
+                const win = Math.max(vmax - vmin, _bcDrag.minWindow);
+                const expected = _bcTriValueToLocal(_bcDrag, level, win);
                 return {
-                    cursorActive: cursor.classList.contains('bc-active'),
-                    centerX: cursor.getBoundingClientRect().left + 9,
-                    centerY: cursor.getBoundingClientRect().top + 9,
-                    armRects: [...cursor.querySelector('.info-hover-cursor-glyph').querySelectorAll('rect')]
-                        .map(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })),
-                    labelsHidden: [...cursor.querySelectorAll('.info-cursor-label')]
-                        .every(el => getComputedStyle(el).opacity === '0'),
+                    dotX: Number(dot.getAttribute('cx')),
+                    dotY: Number(dot.getAttribute('cy')),
+                    expectedX: BC_TRI_MX + BC_TRI_BASE / 2 + expected.x,
+                    expectedY: BC_TRI_MT + expected.y,
+                    dataMin: _bcDrag.dataMin,
+                    dataMax: _bcDrag.dataMax,
                 };
             }"""
         )
-        assert not released["cursorActive"] and released["labelsHidden"]
-        assert abs(released["centerX"] - (cx + 50)) < 1
-        assert abs(released["centerY"] - (cy + 50)) < 1
-        for index, rect in enumerate(released["armRects"]):
-            assert abs(rect["width"] - baseline[index]["width"]) < 0.2
-            assert abs(rect["height"] - baseline[index]["height"]) < 0.2
+        page.mouse.up()
+
+        assert result["dataMin"] < result["dataMax"]
+        assert result["dotX"] == pytest.approx(result["expectedX"], abs=0.1)
+        assert result["dotY"] == pytest.approx(result["expectedY"], abs=0.1)
+
+    def test_window_level_drag_to_apex_hits_full_data_range_and_clamps(self, loaded_viewer, sid_3d):
+        """Dragging the dot to the triangle's apex must land exactly on
+        vmin=data-min, vmax=data-max — and dragging further past the apex
+        must not move the values any further (a hard clamp, not just a slow
+        one). See test_window_level_dot_starts_at_current_values for why
+        this uses the 3-D fixture rather than the 2-D gradient."""
+        page = loaded_viewer(sid_3d)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.evaluate("() => primaryCb.ensureHistogramData()")
+        page.wait_for_function("() => _histData !== null", timeout=2_000)
+        assert not page.evaluate("() => _dmenuEffectiveVminLocked()"), (
+            "fixture must exercise the general (unlocked) triangle drag"
+        )
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+        geom = page.evaluate(
+            """() => ({
+                dot0y: _bcDrag.dot0.y,
+                dataMin: _bcDrag.dataMin,
+                dataMax: _bcDrag.dataMax,
+                triMarginTop: BC_TRI_MT,
+            })"""
+        )
+
+        # Move well past the amount needed to reach y=0 (the apex).
+        page.mouse.move(cx, cy - geom["dot0y"] - 40, steps=6)
+        page.wait_for_timeout(120)
+        at_apex = page.evaluate(
+            """() => {
+                const dot = document.getElementById('bc-hud').querySelector('.bc-hud-dot');
+                return { vmin: manualVmin, vmax: manualVmax, dotY: Number(dot.getAttribute('cy')) };
+            }"""
+        )
+        assert at_apex["vmin"] == pytest.approx(geom["dataMin"], abs=1e-4)
+        assert at_apex["vmax"] == pytest.approx(geom["dataMax"], abs=1e-4)
+        assert at_apex["dotY"] == pytest.approx(geom["triMarginTop"], abs=0.5)
+
+        # Keep dragging further up — values must stay put, clamped at the edge.
+        page.mouse.move(cx, cy - geom["dot0y"] - 200, steps=4)
+        page.wait_for_timeout(120)
+        beyond = page.evaluate("() => ({ vmin: manualVmin, vmax: manualVmax })")
+        page.mouse.up()
+        assert beyond["vmin"] == pytest.approx(at_apex["vmin"], abs=1e-9)
+        assert beyond["vmax"] == pytest.approx(at_apex["vmax"], abs=1e-9)
+
+    def test_window_level_dot_and_values_always_agree(self, loaded_viewer, sid_2d):
+        """Whatever the dot's clamped position is, the applied vmin/vmax must
+        be exactly the values that position maps to — they can never drift
+        apart the way the old relative joystick could."""
+        page = loaded_viewer(sid_2d)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+        # A generous, arbitrary drag — including well past an edge, so the
+        # dot is clamped when this is sampled.
+        page.mouse.move(cx + 300, cy + 15, steps=6)
+        page.wait_for_timeout(120)
+
+        agree = page.evaluate(
+            """() => {
+                const hud = document.getElementById('bc-hud');
+                const dot = hud.querySelector('.bc-hud-dot');
+                const wedge = hud.querySelector('.bc-hud-wedge');
+                const wedgeBase = hud.querySelector('.bc-hud-wedge-base');
+                const localX = Number(dot.getAttribute('cx')) - (BC_TRI_MX + BC_TRI_BASE / 2);
+                const localY = Number(dot.getAttribute('cy')) - BC_TRI_MT;
+                const v = _bcTriLocalToValue(_bcDrag, localX, localY);
+                const originX = BC_TRI_MX + BC_TRI_BASE / 2;
+                const halfBase = BC_TRI_BASE / 2;
+                const g = _bcDrag;
+                const [apexXStr, apexYStr] = wedge.getAttribute('points').split(' ')[0].split(',');
+                // Same clamp _bcHudUpdateWedge applies: x(dataMin)/x(dataMax)
+                // can fall a hair outside the base corners (the continuous
+                // level<->px mapping is only exact for windows > minWindow),
+                // so the drawn wedge — like the app — clamps to the triangle.
+                const clamp = (v) => Math.max(-halfBase, Math.min(halfBase, v));
+                return {
+                    fromDotVmin: v.level - v.window / 2,
+                    fromDotVmax: v.level + v.window / 2,
+                    actualVmin: manualVmin,
+                    actualVmax: manualVmax,
+                    dotX: Number(dot.getAttribute('cx')),
+                    dotY: Number(dot.getAttribute('cy')),
+                    wedgeApexX: Number(apexXStr),
+                    wedgeApexY: Number(apexYStr),
+                    wedgeBaseX1: Number(wedgeBase.getAttribute('x1')),
+                    wedgeBaseX2: Number(wedgeBase.getAttribute('x2')),
+                    expectedBaseX1: originX + clamp((manualVmin - g.centerData) * g.s),
+                    expectedBaseX2: originX + clamp((manualVmax - g.centerData) * g.s),
+                };
+            }"""
+        )
+        page.mouse.up()
+        assert agree["fromDotVmin"] == pytest.approx(agree["actualVmin"], abs=1e-9)
+        assert agree["fromDotVmax"] == pytest.approx(agree["actualVmax"], abs=1e-9)
+        # The wedge's apex sits on the dot, and its base spans x(vmin)..x(vmax).
+        assert agree["wedgeApexX"] == pytest.approx(agree["dotX"], abs=1e-6)
+        assert agree["wedgeApexY"] == pytest.approx(agree["dotY"], abs=1e-6)
+        assert agree["wedgeBaseX1"] == pytest.approx(agree["expectedBaseX1"], abs=1e-6)
+        assert agree["wedgeBaseX2"] == pytest.approx(agree["expectedBaseX2"], abs=1e-6)
+
+    def test_window_level_reversal_after_overshoot_moves_immediately(self, loaded_viewer, sid_3d):
+        """Dragging past the triangle's left edge pins the dot there, as
+        expected. But reversing direction must move the dot on the very
+        next move event -- it must NOT require retracing the whole overshoot
+        distance before it responds again. This was a real bug: the dot's
+        target was computed by clamping (anchorLocal + (mouse - anchorMouse))
+        against a single fixed drag-start anchor, so any reversal smaller
+        than the accumulated overshoot produced no visible movement at all."""
+        page = loaded_viewer(sid_3d)
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.evaluate("() => primaryCb.ensureHistogramData()")
+        page.wait_for_function("() => _histData !== null", timeout=2_000)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+
+        def dot_x():
+            return page.evaluate(
+                "() => Number(document.getElementById('bc-hud')"
+                ".querySelector('.bc-hud-dot').getAttribute('cx'))"
+            )
+
+        # Drag far past the left edge (pure horizontal, so only x is
+        # affected) -- the dot pins at the left corner of the triangle.
+        page.mouse.move(cx - 200, cy, steps=1)
+        page.wait_for_timeout(80)
+        pinned_x = dot_x()
+
+        # Reverse by a small amount -- far less than the ~200px overshoot.
+        # A correct implementation moves the dot right away; the buggy one
+        # keeps it frozen at pinned_x until the mouse retraces the full 200px.
+        page.mouse.move(cx - 195, cy, steps=1)
+        page.wait_for_timeout(80)
+        after_small_reversal_x = dot_x()
+        page.mouse.up()
+
+        assert after_small_reversal_x > pinned_x, (
+            f"dot did not move on the very next event after reversal "
+            f"(pinned at {pinned_x}, still at {after_small_reversal_x} after "
+            f"a 5px reversal out of a 200px overshoot) -- looks like the dot "
+            f"is waiting to retrace the full overshoot instead of reacting "
+            f"immediately"
+        )
 
     def test_info_hover_cursor_follows_dynamic_mode_canvases(
         self, loaded_viewer, sid_3d, sid_4d, client, arr_3d, tmp_path
@@ -5947,6 +6153,43 @@ class TestNormalInspectInteractions:
         assert dragging == {"target": 1, "dragging": True}, (
             f"ortho crosshair must show as soon as the drag starts, got: {dragging}"
         )
+        page.mouse.up()
+        page.wait_for_timeout(120)
+        page.keyboard.press("v")
+
+    def test_ortho_hold_hides_cursor_while_crosshair_lines_are_visible(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        pane = page.locator(".mv-canvas").first
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_timeout(220)
+
+        state = page.evaluate("""() => {
+            const canvas = document.querySelector('.mv-canvas');
+            return {
+                target: _mvCrosshairTarget,
+                cursor: getComputedStyle(canvas).cursor,
+                reticle: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
+                dragging: !!mvDraggingView,
+            };
+        }""")
+        assert state == {"target": 1, "cursor": "none", "reticle": "hidden", "dragging": True}, (
+            f"ortho hold should hide the cursor while the crosshair lines are visible, got: {state}"
+        )
+
+        page.mouse.move(cx + 30, cy + 20, steps=2)
+        moved_state = page.evaluate(
+            """() => getComputedStyle(document.querySelector('.mv-canvas')).cursor"""
+        )
+        assert moved_state == "none", (
+            f"ortho hold should keep the cursor hidden while moving, got: {moved_state}"
+        )
+
         page.mouse.up()
         page.wait_for_timeout(120)
         page.keyboard.press("v")
@@ -6157,43 +6400,6 @@ class TestNormalInspectInteractions:
         # A plain hold in the single 2D view opens a window/level gesture, so the
         # pixel-info readout is suppressed; only Ctrl+hold inspects.
         assert not plain_held["pixelInfoVisible"], (
-    def test_ortho_hold_hides_cursor_while_crosshair_lines_are_visible(self, loaded_viewer, sid_3d):
-        page = loaded_viewer(sid_3d)
-        _focus_kb(page)
-        page.keyboard.press("v")
-        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-
-        pane = page.locator(".mv-canvas").first
-        cx, cy = _center_of(pane)
-        page.mouse.move(cx, cy)
-        page.mouse.down()
-        page.wait_for_timeout(220)
-
-        state = page.evaluate("""() => {
-            const canvas = document.querySelector('.mv-canvas');
-            return {
-                target: _mvCrosshairTarget,
-                cursor: getComputedStyle(canvas).cursor,
-                reticle: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
-                dragging: !!mvDraggingView,
-            };
-        }""")
-        assert state == {"target": 1, "cursor": "none", "reticle": "hidden", "dragging": True}, (
-            f"ortho hold should hide the cursor while the crosshair lines are visible, got: {state}"
-        )
-
-        page.mouse.move(cx + 30, cy + 20, steps=2)
-        moved_state = page.evaluate(
-            """() => getComputedStyle(document.querySelector('.mv-canvas')).cursor"""
-        )
-        assert moved_state == "none", (
-            f"ortho hold should keep the cursor hidden while moving, got: {moved_state}"
-        )
-
-        page.mouse.up()
-        page.wait_for_timeout(120)
-        page.keyboard.press("v")
-
             "plain mouse hold arms window/level, so it should not show the pixel info label"
         )
         assert not released, "the pane dimming should end immediately on mouse release"
