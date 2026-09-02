@@ -6157,6 +6157,43 @@ class TestNormalInspectInteractions:
         # A plain hold in the single 2D view opens a window/level gesture, so the
         # pixel-info readout is suppressed; only Ctrl+hold inspects.
         assert not plain_held["pixelInfoVisible"], (
+    def test_ortho_hold_hides_cursor_while_crosshair_lines_are_visible(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        pane = page.locator(".mv-canvas").first
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_timeout(220)
+
+        state = page.evaluate("""() => {
+            const canvas = document.querySelector('.mv-canvas');
+            return {
+                target: _mvCrosshairTarget,
+                cursor: getComputedStyle(canvas).cursor,
+                reticle: getComputedStyle(document.getElementById('info-hover-cursor')).visibility,
+                dragging: !!mvDraggingView,
+            };
+        }""")
+        assert state == {"target": 1, "cursor": "none", "reticle": "hidden", "dragging": True}, (
+            f"ortho hold should hide the cursor while the crosshair lines are visible, got: {state}"
+        )
+
+        page.mouse.move(cx + 30, cy + 20, steps=2)
+        moved_state = page.evaluate(
+            """() => getComputedStyle(document.querySelector('.mv-canvas')).cursor"""
+        )
+        assert moved_state == "none", (
+            f"ortho hold should keep the cursor hidden while moving, got: {moved_state}"
+        )
+
+        page.mouse.up()
+        page.wait_for_timeout(120)
+        page.keyboard.press("v")
+
             "plain mouse hold arms window/level, so it should not show the pixel info label"
         )
         assert not released, "the pane dimming should end immediately on mouse release"

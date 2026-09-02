@@ -164,6 +164,7 @@ last_updated: 2026-08-03
 
 ## Recently Completed
 
+- Ortho click-hold crosshair reveal hides the canvas cursor until navigation is released.
 - Persistent preferences menu: the lower-right gear edits allowlisted
   `~/.arrayview/config.toml` values through a session- and server-fenced API.
   Viewer theme, rounded panes, ortho layout, and dimbar mode apply immediately;

@@ -3863,6 +3863,7 @@
             border-radius: inherit; box-sizing: border-box;
             pointer-events: none;
         }
+        #mv-panes.mv-crosshair-cursor-hidden .mv-canvas { cursor: none; }
         .mv-pane.canvas-bordered .mv-canvas { outline: none; }
         .mv-promote-btn {
             position: absolute; top: 8px; right: 8px; z-index: 5;
@@ -32061,9 +32062,13 @@
                     // Cursor feedback: only show the rotate cursor when the Alt
                     // modifier is held, so plain hover over a line still reads as
                     // "drag to scrub".
-                    const hj = mvCrossHairHit(view, px, py);
-                    const wantsRotate = hj >= 0 && e.altKey;
-                    cv.style.cursor = obliqueDrag ? 'grabbing' : (wantsRotate ? 'grab' : 'crosshair');
+                    if (mvDraggingView === view) {
+                        cv.style.cursor = 'none';
+                    } else {
+                        const hj = mvCrossHairHit(view, px, py);
+                        const wantsRotate = hj >= 0 && e.altKey;
+                        cv.style.cursor = obliqueDrag ? 'grabbing' : (wantsRotate ? 'grab' : 'crosshair');
+                    }
                     // Crop-handle hover cursor (non-Alt, registered, visible).
                     if (!e.altKey && _cropActive && _crop.registered && _crop.overlayVisible) {
                         const aff = _cropMvAffine(view);
@@ -36931,12 +36936,19 @@
                     height,
                     payload_bytes: buf.byteLength,
                     perfKey,
+            const row = document.getElementById('mv-panes');
+            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', !!mvDraggingView);
+            if (mvDraggingView && mvDraggingView.canvas) mvDraggingView.canvas.style.cursor = 'none';
+            _reconcileInfoCursor();
                     server: _perfServerTimings.get(`${perfKey}:${h32[0]}`) || null,
                 });
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
+            const row = document.getElementById('mv-panes');
+            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', false);
             else if (isPlaying && mvViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            _reconcileInfoCursor();
         }
 
         function drawMvColorbar() {
@@ -37505,6 +37517,7 @@
             _clearOrientEdgeHighlight();
             _hideHistTooltip();
             if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
+            const releasedMvView = mvDraggingView;
                 _restartHistAutoDismiss();
             }
         });
@@ -37524,6 +37537,7 @@
             const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
             const isSpatialCmv = compareMvActive && compareMvDims.includes(hoveredDim);
             const isSpatialQmriMv = qmriMvActive && qmriMvDims.includes(hoveredDim);
+            if (releasedMvView && releasedMvView.canvas) releasedMvView.canvas.style.cursor = '';
             const isQmriDim = (qmriActive && hoveredDim === qmriDim) || (compareQmriActive && hoveredDim === compareQmriDim);
             if (isSpatialNormal || isSpatialMv || isSpatialCmv || isSpatialQmriMv || isQmriDim) return;
             e.preventDefault();
@@ -39092,23 +39106,23 @@
             const cursor = document.getElementById('info-hover-cursor');
             if (!cursor) return;
             if (!cursor.firstElementChild) {
-                cursor.innerHTML = EGGS_ICON_INFO + EGGS_ICON_INFO
-                    + '<span class="info-cursor-label info-cursor-level">level</span>'
-                    + '<span class="info-cursor-label info-cursor-window">window</span>';
+                cursor.innerHTML = EGGS_ICON_INFO + EGGS_ICON_INFO;
                 cursor.children[0].classList.add('info-hover-cursor-contrast');
                 cursor.children[1].classList.add('info-hover-cursor-glyph');
             }
 
             const windowing = !!_bcDrag;
-            const target = windowing ? canvas : _infoCursorPointerTarget;
+            const target = windowing ? null : _infoCursorPointerTarget;
             const targetIsLive = !!(target && document.documentElement.contains(target));
+            const orthoHold = !!(multiViewActive && mvDraggingView);
             const toolOwnsCursor = !windowing
                 && (rectRoiMode || document.body.classList.contains('ruler-mode'));
             const targetCursor = targetIsLive ? getComputedStyle(target).cursor : '';
             const visible = !!(
                 targetIsLive
+                && !orthoHold
                 && !toolOwnsCursor
-                && (windowing || targetCursor === 'crosshair')
+                && targetCursor === 'crosshair'
             );
 
             if (visible) {
