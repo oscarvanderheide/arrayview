@@ -5851,6 +5851,19 @@ class TestNormalInspectInteractions:
         assert result["dotX"] == pytest.approx(result["expectedX"], abs=0.1)
         assert result["dotY"] == pytest.approx(result["expectedY"], abs=0.1)
 
+    def test_zero_floor_vmin_lock_matches_colorbar_label(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        page.evaluate("() => primaryCb.ensureHistogramData()")
+        page.wait_for_function("() => _histData !== null", timeout=2_000)
+        state = page.evaluate(
+            """() => ({
+                effective: _dmenuEffectiveVminLocked(),
+                labelLocked: document.getElementById('slim-cb-vmin').classList.contains('locked'),
+            })"""
+        )
+        assert state["effective"]
+        assert state["labelLocked"]
+
     def test_window_level_drag_to_apex_hits_full_data_range_and_clamps(self, loaded_viewer, sid_3d):
         """Dragging the dot to the triangle's apex must land exactly on
         vmin=data-min, vmax=data-max — and dragging further past the apex

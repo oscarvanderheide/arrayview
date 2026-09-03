@@ -542,6 +542,49 @@ class TestMultiviewStateRoundTrip:
 # ---------------------------------------------------------------------------
 
 class TestQmriWorks:
+    def test_qmri_map_dimension_is_not_in_histogram_scope(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        state = page.evaluate(
+            """() => ({
+                qmriDim,
+                scope: [..._histScopeDims()],
+            })"""
+        )
+        assert state["qmriDim"] not in state["scope"]
+
+    def test_window_level_drag_changes_only_hovered_map(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        canvases = page.locator("#qmri-view-wrap .qv-canvas:visible")
+        target = canvases.first
+        box = target.bounding_box()
+        assert box is not None
+        before = page.evaluate(
+            """() => qmriViews.map(v => ({
+                vmin: v.lockedVmin ?? v.vmin,
+                vmax: v.lockedVmax ?? v.vmax,
+            }))"""
+        )
+        cx = box["x"] + box["width"] / 2
+        cy = box["y"] + box["height"] / 2
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.wait_for_function("() => !!_bcDrag")
+        page.mouse.move(cx, cy + 24, steps=3)
+        page.wait_for_timeout(250)
+        during = page.evaluate(
+            """() => ({
+                target: qmriViews.indexOf(_bcTargetView),
+                windows: qmriViews.map(v => ({
+                    vmin: v.lockedVmin ?? v.vmin,
+                    vmax: v.lockedVmax ?? v.vmax,
+                })),
+            })"""
+        )
+        page.mouse.up()
+        assert during["target"] == 0
+        assert during["windows"][0] != before[0]
+        assert during["windows"][1:] == before[1:]
+
     def test_d_cycles_percentile_overlay_on_hovered_map(self, loaded_viewer, sid_4d):
         page = _enter_qmri(None, sid_4d, loaded_viewer)
         first_canvas = page.locator("#qmri-view-wrap .qv-canvas:visible").first

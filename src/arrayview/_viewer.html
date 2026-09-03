@@ -13305,14 +13305,17 @@
         }
 
         /** Dims currently in 'scope' (feed the histogram). x/y are always
-         *  in scope regardless of entry. */
+         *  in scope, except the qMRI map dimension, which is always fixed per
+         *  pane rather than aggregated across maps. */
         function _histScopeDims() {
             const out = new Set();
             if (!Array.isArray(shape)) return out;
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
+            const excludedQmriDim = qmriActive ? qmriDim : compareQmriActive ? compareQmriDim : -1;
             for (let i = 0; i < shape.length; i++) {
+                if (i === excludedQmriDim) continue;
                 if (i === dx || i === dy || _dimStateFor(i) === 'scope') out.add(i);
             }
             return out;
@@ -14377,13 +14380,7 @@
 
         function _cbBoundLocked(cb, which) {
             if (which === 'vmax') return !!vmaxLocked;
-            if (vminLocked) return true;
-            // Policy locks (e.g. a qMRI map's lower bound fixed by its map
-            // type) are structural, not a user choice — every T1/T2/PD map
-            // would sit permanently dimmed otherwise. Only surface that look
-            // while the range editor is open, where the lock is relevant.
-            if (!cb || !cb._expanded) return false;
-            return _cbBoundPolicyLocked(cb, which);
+            return _dmenuEffectiveVminLocked();
         }
 
         function _toggleCbBoundLock(cb, which) {
@@ -22758,6 +22755,8 @@
         let _bcDrag = null; // { startX, startY, initCenter, initWidth, vminLocked, symmetric,
                              //   vmaxLocked, lockedLo, dataMin, dataMax, fullRange, minWindow,
                              //   centerData, s, dot0 } — see _bcTriGeom.
+        let _bcTargetView = null;
+        let _bcTargetCb = null;
         let _bcPendingDrag = null; // { startX, startY } — armed plain-left press, not yet a drag
         const _BC_DRAG_DEADZONE = 5; // CSS px a press must travel before it counts as windowing
         let _bcScrollTimer = null; // debounce timer for scroll-based BC
@@ -22767,17 +22766,18 @@
             return !rectRoiMode && !_rulerMode && !rgbMode;
         }
         function _bcExpandHist() {
-            if (primaryCb._expanded) return;
+            const cb = _bcTargetCb || primaryCb;
+            if (cb._expanded) return;
             _lebesgueManual = false;
             _computeCbExpandedH();
-            primaryCb._expanded = true;
-            const triZone = document.getElementById('slim-cb-tri-zone');
+            cb._expanded = true;
+            const triZone = cb === primaryCb ? document.getElementById('slim-cb-tri-zone') : null;
             if (triZone) triZone.classList.add('expanded');
-            (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
-                .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); primaryCb.startAnim(true); _bcRedrawCb(); });
+            cb.ensureHistogramData().then(() => { cb.startAnim(true); _bcRedrawCb(); });
         }
         function _bcRedrawCb() {
-            if (multiViewActive || compareMvActive) drawMvColorbar();
+            if (_bcTargetCb && _bcTargetCb !== primaryCb) _bcTargetCb.draw();
+            else if (multiViewActive || compareMvActive) drawMvColorbar();
             else drawSlimColorbar(cbMarkerFrac);
         }
 
@@ -22933,10 +22933,20 @@
 
         function _bcApplyWindow(center, width) {
             const w = Math.max(width * 0.001, width);
-            manualVmin = center - w / 2;
-            manualVmax = center + w / 2;
-            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
-            primaryCb.ensureAnimating();
+            const nextVmin = center - w / 2;
+            const nextVmax = center + w / 2;
+            if (_bcTargetView) {
+                _bcTargetView.lockedVmin = nextVmin;
+                _bcTargetView.lockedVmax = nextVmax;
+                const _qv = modeManager.currentViews.find(v => v && v.qmriIdx === _bcTargetView.qmriIdx);
+                if (_qv) { _qv.displayState.vmin = nextVmin; _qv.displayState.vmax = nextVmax; }
+                qvRender(_bcTargetView);
+            } else {
+                manualVmin = nextVmin;
+                manualVmax = nextVmax;
+                const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
+            }
+            (_bcTargetCb || primaryCb).ensureAnimating();
             _bcRedrawCb();
             // Same call as the histogram redraw — the image cannot lag it.
             if (_bcPreview) _bcRenderPreview();
@@ -22952,26 +22962,26 @@
          *  there's no hover-ambiguity left to wait out, so collapsing on a
          *  timer would just be a pointless multi-second lag. */
         function _bcCollapseHistNow() {
+            const cb = _bcTargetCb || primaryCb;
             if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
-            if (_dmenuPickerOpen || _bcDrag || _bcScrollAnchor || (primaryCb && primaryCb._dragActive)) {
+            if (_dmenuPickerOpen || _bcDrag || _bcScrollAnchor || cb._dragActive) {
                 // Still busy for some other reason — fall back to the
                 // regular grace-period dismiss rather than forcing it
                 // closed out from under whatever's still using it.
                 _bcAutoDismiss();
                 return;
             }
-            if (!primaryCb._mouseOver && !_histDimHovering && primaryCb._expanded) {
+            if (!cb._mouseOver && !_histDimHovering && cb._expanded) {
                 lebesgueMode = false;
-                primaryCb._expanded = false;
-                primaryCb._manualExpand = false;
-                renderInfo();
-                _clearLebesgueOverlay();
-                const tz = document.getElementById('slim-cb-tri-zone');
+                cb._expanded = false;
+                cb._manualExpand = false;
+                if (cb === primaryCb) { renderInfo(); _clearLebesgueOverlay(); }
+                const tz = cb === primaryCb ? document.getElementById('slim-cb-tri-zone') : null;
                 if (tz) tz.classList.remove('expanded');
-                primaryCb.startAnim(false);
+                cb.startAnim(false);
                 _bcRedrawCb();
             }
-            if (_histPickerActive && !(primaryCb && primaryCb._dragActive)) {
+            if (_histPickerActive && !cb._dragActive) {
                 _histPickerActive = false;
                 closeDmenuPicker();
                 _reconcileHistPicker();
@@ -23009,8 +23019,9 @@
          *  move mid-drag). minWindow is the base-edge floor — a 256th of the
          *  data range, same "small sliver" a manual window can already reach. */
         function _bcTriGeom(initCenter, initWidth) {
-            let dataMin = _histData && Number.isFinite(_histData.vmin) ? _histData.vmin : null;
-            let dataMax = _histData && Number.isFinite(_histData.vmax) ? _histData.vmax : null;
+            const hist = (_bcTargetCb && _bcTargetCb._histData) || _histData;
+            let dataMin = hist && Number.isFinite(hist.vmin) ? hist.vmin : null;
+            let dataMax = hist && Number.isFinite(hist.vmax) ? hist.vmax : null;
             if (dataMin == null || dataMax == null || !(dataMax > dataMin)) {
                 // No histogram range yet (or a degenerate one) — synthesize a
                 // generous range around the current window so the triangle
@@ -23129,9 +23140,14 @@
             if (_bcHudEl) _bcHudEl.classList.remove('visible');
         }
 
-        async function _bcStartDrag(e) {
-            const vmin = manualVmin ?? currentVmin;
-            const vmax = manualVmax ?? currentVmax;
+        async function _bcStartDrag(e, targetView = null, targetCb = null) {
+            _bcTargetView = targetView;
+            _bcTargetCb = targetCb;
+            const targetWindow = targetView && targetCb
+                ? targetCb.opts.getWindow()
+                : { vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax };
+            const vmin = targetWindow.vmin;
+            const vmax = targetWindow.vmax;
             const initCenter = (vmin + vmax) / 2;
             const initWidth = vmax - vmin;
             _bcDrag = {
@@ -23140,9 +23156,9 @@
                 // A locked vmin or a symmetric lock removes a degree of
                 // freedom, so the drag has to collapse to one axis — see
                 // _bcUpdateDrag.
-                vminLocked: _dmenuEffectiveVminLocked(),
+                vminLocked: targetView ? _qmriLocksLowerBound(targetView) : _dmenuEffectiveVminLocked(),
                 symmetric: _dmenuEffectiveSymmetricLocked(),
-                vmaxLocked: vmaxLocked,
+                vmaxLocked: targetView ? false : vmaxLocked,
                 lockedLo: vmin,
                 lockedHi: vmax,
                 // Fixed for the life of the drag: the data range and the
@@ -23167,7 +23183,7 @@
             // The colorbar treats an active drag as "snap the window range to
             // the cursor" (see ColorBar.draw). Without this, the histogram
             // range tweens behind the mouse and feels laggy.
-            primaryCb._dragActive = true;
+            (_bcTargetCb || primaryCb)._dragActive = true;
             // Drop any dismissal armed by whatever happened before this drag —
             // a `d` press, or a previous window/level gesture. The countdown
             // was started for a histogram nobody was using; this one is in use.
@@ -23256,7 +23272,22 @@
             // Anchor to the press origin, not to here, so the window doesn't
             // jump by the deadzone distance (or, for the hold-still timer
             // below, not at all) on the first frame.
-            _bcStartDrag({ clientX: origin.startX, clientY: origin.startY });
+            _bcStartDrag(
+                { clientX: origin.startX, clientY: origin.startY },
+                origin.targetView,
+                origin.targetCb,
+            );
+        }
+        function _qmriArmWindowLevel(view, e) {
+            if (_pixelInfoHeld) { _pixelInfoHeld = false; hideAllPixelInfo(); }
+            const pending = _bcPendingDrag = {
+                startX: e.clientX, startY: e.clientY,
+                targetView: view, targetCb: view._colorBar,
+            };
+            setTimeout(() => {
+                if (_bcPendingDrag !== pending || _bcDrag) return;
+                _bcPromoteToDrag(pending);
+            }, 150);
         }
         function _bcMaybePromotePending(e) {
             if (!_bcPendingDrag || _bcDrag) return;
@@ -23280,8 +23311,10 @@
                 return;
             }
             _dmenuDeferCloseOnCanvas = false;
+            const targetView = _bcTargetView;
+            const targetCb = _bcTargetCb || primaryCb;
             _bcDrag = null;
-            primaryCb._dragActive = false;
+            targetCb._dragActive = false;
             if (_bcUpdateTimer) { clearTimeout(_bcUpdateTimer); _bcUpdateTimer = null; }
             // Drop the preview first: this updateView() is the authoritative
             // render, and the committed frame must be the server's bytes.
@@ -23293,12 +23326,15 @@
                 ? under.closest(_INFO_CURSOR_CANVAS_SELECTOR)
                 : null;
             _reconcileInfoCursor();
-            updateView();
+            if (targetView) qvRender(targetView);
+            else updateView();
             saveState();
             // The drag has definitively ended (this is mouseup, not a hover
             // guess) — collapse the histogram-as-colorbar right away rather
             // than through the multi-second hover-dismiss grace timer.
             _bcCollapseHistNow();
+            _bcTargetView = null;
+            _bcTargetCb = null;
         }
 
         canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -23414,7 +23450,7 @@
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                 && !_cropActive && !_segMode && !_rulerMode) {
                 if (!_pixelInfoVisible && _bcCanDrag()) {
-                    const pending = _bcPendingDrag = { startX: e.clientX, startY: e.clientY };
+                    const pending = _bcPendingDrag = { startX: e.clientX, startY: e.clientY, targetView: null, targetCb: null };
                     // A press held still (never crossing the deadzone) still
                     // becomes window/level once it's clearly a hold and not a
                     // quick click — otherwise the HUD only ever showed up
@@ -33594,6 +33630,7 @@
                         saveState();
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
+                        _bcMaybePromotePending(e);
                         if (!view.lastW || !view.lastH) return;
                         _seedPaneLoupeDrag(e, cv, view);
                         // Use the hovered view's indices for fetchPixelInfo (throttle + coord calc),
@@ -33703,8 +33740,11 @@
                     cv.addEventListener('mousedown', (e) => {
                         if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                             && !_cropActive && !_segMode && !_rulerMode) {
-                            _pixelInfoHeld = true;
-                            cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
+                            if (!e.ctrlKey && _bcCanDrag()) _qmriArmWindowLevel(view, e);
+                            else {
+                                _pixelInfoHeld = true;
+                                cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
+                            }
                         }
                         if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey) return;
                         e.preventDefault(); sink.focus();
@@ -34651,6 +34691,7 @@
                         saveState();
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
+                        _bcMaybePromotePending(e);
                         if (!view.lastW || !view.lastH) return;
                         _seedPaneLoupeDrag(e, cv, view);
                         const qIndices = [...indices];
@@ -34672,8 +34713,11 @@
                     cv.addEventListener('mousedown', (e) => {
                         if (e.button !== 0 || e.shiftKey || e.metaKey || e.altKey
                             || _cropActive || _segMode || _rulerMode) return;
-                        _pixelInfoHeld = true;
-                        cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
+                        if (!e.ctrlKey && _bcCanDrag()) _qmriArmWindowLevel(view, e);
+                        else {
+                            _pixelInfoHeld = true;
+                            cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
+                        }
                     });
                     _wireHoverInfoDblClick(cv);
                     cv.addEventListener('mouseleave', () => {

@@ -1,7 +1,7 @@
 ---
 name: router
 description: Entry point for task routing, project non-negotiables, and behavioral guardrails. Start here, then load only the minimum extra context a task needs.
-last_updated: 2026-07-22
+last_updated: 2026-09-03
 ---
 
 # arrayview — Router
