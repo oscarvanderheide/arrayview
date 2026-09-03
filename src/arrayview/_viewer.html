@@ -23144,6 +23144,7 @@
                 symmetric: _dmenuEffectiveSymmetricLocked(),
                 vmaxLocked: vmaxLocked,
                 lockedLo: vmin,
+                lockedHi: vmax,
                 // Fixed for the life of the drag: the data range and the
                 // triangle's scale factors, plus the dot's starting spot —
                 // clamped onto the triangle if the current window/level
@@ -23183,22 +23184,34 @@
             const g = _bcDrag;
             const a = g.anchor;
             let newCenter, newWidth, dotLocal;
-            if (g.symmetric || g.vminLocked) {
-                // A locked vmin or a symmetric lock removes level as a free
+            if (g.symmetric || g.vminLocked || g.vmaxLocked) {
+                // A bound lock or a symmetric lock removes level as a free
                 // input — it becomes a function of window instead (pinned
                 // vmin: level = lockedLo + window/2; symmetric: level is
-                // always 0) — so only vertical mouse movement drives the
+                // always 0; pinned vmax: level = lockedHi - window/2) — so
+                // only vertical mouse movement drives the
                 // drag, same "vertical-only" convention as before. The dot
                 // still moves both ways: as window changes, its dependent
                 // level shifts the dot sideways too, tracing the one path
                 // through the triangle that satisfies the lock.
+                if (g.vminLocked && g.vmaxLocked) {
+                    newWidth = g.initWidth;
+                    newCenter = g.initCenter;
+                    dotLocal = g.dot0;
+                    _bcApplyWindow(newCenter, newWidth);
+                    _bcHudUpdateDot(dotLocal);
+                    _bcHudUpdateWedge(g, newCenter, newWidth, dotLocal);
+                    return;
+                }
                 const rawY = a.localY + (e.clientY - a.mouseY);
                 const clampedRawY = Math.max(0, Math.min(BC_TRI_H, rawY));
                 const t = clampedRawY / BC_TRI_H;
                 const win = g.fullRange - t * (g.fullRange - g.minWindow);
                 const maxWindow = g.symmetric
                     ? Math.max(g.minWindow, 2 * Math.min(g.dataMax, -g.dataMin))
-                    : Math.max(g.minWindow, g.dataMax - g.lockedLo);
+                    : g.vminLocked
+                        ? Math.max(g.minWindow, g.dataMax - g.lockedLo)
+                        : Math.max(g.minWindow, g.lockedHi - g.dataMin);
                 const winClamped = Math.min(Math.max(win, g.minWindow), maxWindow);
                 const finalT = (g.fullRange - winClamped) / (g.fullRange - g.minWindow);
                 const finalY = Math.max(0, Math.min(BC_TRI_H, finalT * BC_TRI_H));
@@ -23208,7 +23221,11 @@
                 // not the mouse position from when the drag started.
                 if (finalY !== rawY) { a.mouseY = e.clientY; a.localY = finalY; }
                 newWidth = winClamped;
-                newCenter = g.symmetric ? 0 : (g.lockedLo + winClamped / 2);
+                newCenter = g.symmetric
+                    ? 0
+                    : g.vminLocked
+                        ? g.lockedLo + winClamped / 2
+                        : g.lockedHi - winClamped / 2;
                 dotLocal = _bcTriValueToLocal(g, newCenter, newWidth);
             } else {
                 const rawX = a.localX + (e.clientX - a.mouseX);
