@@ -17,7 +17,7 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --bump {major,minor,patch}   Version bump type (default: minor)
-  --ai {claude,codex,opencode} AI tool for release notes (default: codex)
+    --ai {claude,codex,copilot,opencode} AI tool for release notes (default: codex)
   --opencode-model MODEL       Model for opencode (default: deepseek/deepseek-v4-flash)
   --execute                    Actually run (default is dry-run)
   --no-ai                      Skip AI release notes, use GitHub's --generate-notes
@@ -42,8 +42,8 @@ if [[ ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
     exit 1
 fi
 
-if [[ ! "$AI_TOOL" =~ ^(claude|codex|opencode)$ ]]; then
-    echo "Error: --ai must be claude, codex, or opencode (got '$AI_TOOL')"
+if [[ ! "$AI_TOOL" =~ ^(claude|codex|copilot|opencode)$ ]]; then
+    echo "Error: --ai must be claude, codex, copilot, or opencode (got '$AI_TOOL')"
     exit 1
 fi
 
@@ -79,6 +79,7 @@ run() {
 # --- Generate release notes ---
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || echo claude)}"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || echo codex)}"
+COPILOT_BIN="${COPILOT_BIN:-$(command -v copilot 2>/dev/null || echo copilot)}"
 OPENCODE_BIN="${OPENCODE_BIN:-$(command -v opencode 2>/dev/null || echo opencode)}"
 PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
 NOTES=""
@@ -128,6 +129,12 @@ Rules:
                     echo "Codex release notes failed:"
                     sed 's/^/  /' "$errfile"
                 fi
+            fi
+            ;;
+        copilot)
+            if command -v "$COPILOT_BIN" &>/dev/null; then
+                echo "Generating release notes with GitHub Copilot..."
+                NOTES=$("$COPILOT_BIN" -p "$PROMPT" --silent --no-ask-user 2>/dev/null) || true
             fi
             ;;
         opencode)
