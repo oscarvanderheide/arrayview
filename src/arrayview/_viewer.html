@@ -5836,6 +5836,15 @@
         // inject it from a short backend route, so SIDs and readiness tokens
         // never need to appear in the browser toolbar.
         const _arrayViewLaunchSearch = __ARRAYVIEW_QUERY__ || window.location.search;
+        // Per-launch defaults from the user's config. They live up here, with
+        // the other substituted values, so that everything below the marker
+        // is byte-identical on every launch and the server can hand it to the
+        // browser as one cacheable script instead of re-sending ~2 MB each time.
+        const DEFAULT_THEME_IDX = __DEFAULT_THEME_IDX__;
+        const DEFAULT_ROUNDED_PANES = __DEFAULT_ROUNDED_PANES__;
+        const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
+        const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
+        /* __AV_STATIC_SCRIPT_BELOW__ — nothing after this line is substituted at serve time. */
         const urlParams = new URLSearchParams(_arrayViewLaunchSearch);
         const _isIntegratedBrowserViewer = (
             urlParams.get('_av_integrated_browser') === '1'
@@ -6309,7 +6318,7 @@
             document.documentElement.classList.remove('light');
             if (t !== 'dark') document.documentElement.classList.add(t);
         }
-        applyTheme(__DEFAULT_THEME_IDX__);
+        applyTheme(DEFAULT_THEME_IDX);
         let isComplex = false;
         let complexMode = 0;
         let complexModeEverUsed = false;
@@ -7145,7 +7154,7 @@
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = true; // toggled by 'b' key
-        let roundedPanes = __DEFAULT_ROUNDED_PANES__; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
+        let roundedPanes = DEFAULT_ROUNDED_PANES; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -7187,7 +7196,7 @@
         // Ortho-view grid layout. null/'horizontal' keep the legacy flex-row
         // path; other values switch #mv-panes to absolute positioning driven
         // by the matching ORTHO_PRESETS entry.
-        let orthoLayoutMode = __DEFAULT_ORTHO_LAYOUT__; // null=auto, explicit values use ORTHO_PRESETS ids
+        let orthoLayoutMode = DEFAULT_ORTHO_LAYOUT; // null=auto, explicit values use ORTHO_PRESETS ids
         let _orthoAutoLayoutMode = null; // resolved once per ortho entry when orthoLayoutMode === null
         let _orthoLayoutPicker = null;   // populated by _initOrthoLayoutPicker()
         let compareOverflowNotified = false;
@@ -19982,7 +19991,7 @@
             });
         }
 
-        let _dimbarExtentPinned = __DEFAULT_DIMBAR_MODE__ === 'extended';
+        let _dimbarExtentPinned = DEFAULT_DIMBAR_MODE === 'extended';
         let _dimUnderlineTimer = 0;
         let _dimbarDblClickWired = false;
         let _dimbarLastToggleAt = 0;

@@ -23,6 +23,25 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 
 
+def _viewer_page_with_script(client, url: str, **kwargs) -> str:
+    """Return the viewer page plus the static script it references.
+
+    The launch-independent part of the viewer is served as a separate,
+    immutable ``viewer-<hash>.js`` so browsers can cache it across launches;
+    tests that look for viewer JavaScript need both halves.
+    """
+    import re
+
+    r = client.get(url, **kwargs)
+    assert r.status_code == 200
+    match = re.search(r'<script src="(viewer-[0-9a-f]+\.js)"></script>', r.text)
+    assert match, "page does not reference the static viewer script"
+    js = client.get(f"/{match.group(1)}")
+    assert js.status_code == 200
+    assert js.headers["cache-control"] == "public, max-age=31536000, immutable"
+    return r.text + js.text
+
+
 class TestHealth:
     def test_ping(self, client):
         r = client.get("/ping")
@@ -45,8 +64,10 @@ class TestHealth:
         assert "text/html" in r.headers["content-type"]
 
     def test_root_with_sid_includes_proxy_base_support(self, client, sid_2d):
-        r = client.get(f"/?sid={sid_2d}")
-        assert r.status_code == 200
+        class _R:
+            text = _viewer_page_with_script(client, f"/?sid={sid_2d}")
+
+        r = _R()
         assert "resolveServerPath(path)" in r.text
         assert "window.location.pathname.match(/^(.*\\/proxy\\/\\d+)(?:\\/|$)/)" in r.text
         assert '<script src="gsap.min.js"></script>' in r.text
@@ -222,9 +243,12 @@ class TestHealth:
         assert script_loaded.json()["viewer_instance_ids"] == ["viewer-one"]
 
     def test_startup_overlay_has_no_artificial_dwell(self, client, sid_2d):
-        r = client.get(f"/?sid={sid_2d}")
-        assert r.status_code == 200
-        assert "const _MIN_SPINNER_MS = 0" in r.text
+        text = _viewer_page_with_script(client, f"/?sid={sid_2d}")
+        assert "const _MIN_SPINNER_MS = 0" in text
+
+    def test_static_viewer_script_unknown_hash_is_404(self, client):
+        r = client.get("/viewer-0000000000000000.js")
+        assert r.status_code == 404
 
     def test_shell_returns_html(self, client):
         r = client.get("/shell")
@@ -6816,13 +6840,14 @@ class TestPreferences:
         )
         monkeypatch.setattr(config, "CONFIG_PATH", str(config_path))
 
-        response = client.get("/", params={"sid": sid_3d})
+        text = _viewer_page_with_script(client, "/", params={"sid": sid_3d})
 
-        assert response.status_code == 200
-        assert 'let orthoLayoutMode = "big-left";' in response.text
-        assert "let _dimbarExtentPinned = \"extended\" === 'extended';" in response.text
-        assert "__DEFAULT_ORTHO_LAYOUT__" not in response.text
-        assert "__DEFAULT_DIMBAR_MODE__" not in response.text
+        assert 'const DEFAULT_ORTHO_LAYOUT = "big-left";' in text
+        assert 'const DEFAULT_DIMBAR_MODE = "extended";' in text
+        assert "let orthoLayoutMode = DEFAULT_ORTHO_LAYOUT;" in text
+        assert "let _dimbarExtentPinned = DEFAULT_DIMBAR_MODE === 'extended';" in text
+        assert "__DEFAULT_ORTHO_LAYOUT__" not in text
+        assert "__DEFAULT_DIMBAR_MODE__" not in text
 
     def test_rejects_invalid_preference(self, client, sid_3d, tmp_path, monkeypatch):
         import arrayview._config as config

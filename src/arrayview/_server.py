@@ -164,6 +164,42 @@ _GSAP_JS: str = (
     _pkg_files("arrayview").joinpath("gsap.min.js").read_text(encoding="utf-8")
 )
 
+
+def _split_viewer_template(template: str) -> tuple[str, str, str]:
+    """Split the viewer into a per-launch page and one static script.
+
+    Everything in the main script below ``__AV_STATIC_SCRIPT_BELOW__`` is
+    byte-identical on every launch (all substituted values sit above the
+    marker), so it is served as ``viewer-<hash>.js`` with an immutable cache
+    header instead of being re-sent inside every page. On a VS Code tunnel
+    that is ~400 KB gzipped per open that the browser now keeps. The source
+    file stays one self-contained HTML document; the split happens here.
+    Returns ``(page_template, static_js, static_hash)``; without the marker
+    the whole file is served inline exactly as before.
+    """
+    marker = "__AV_STATIC_SCRIPT_BELOW__"
+    marker_at = template.find(marker)
+    if marker_at < 0:
+        return template, "", ""
+    script_start = template.index("\n", marker_at) + 1
+    script_end = template.index("</script>", script_start)
+    static_js = template[script_start:script_end]
+    import hashlib
+
+    digest = hashlib.sha256(static_js.encode("utf-8")).hexdigest()[:16]
+    page = (
+        template[:script_start]
+        + f'    </script>\n    <script src="viewer-{digest}.js">'
+        + template[script_end:]
+    )
+    return page, static_js, digest
+
+
+_VIEWER_PAGE_TEMPLATE, _VIEWER_STATIC_JS, _VIEWER_STATIC_JS_HASH = (
+    _split_viewer_template(_VIEWER_HTML_TEMPLATE)
+)
+_VIEWER_STATIC_JS_GZIP: bytes | None = None
+
 # The viewer page is ~2 MB of single-file HTML. On loopback that is free, but a
 # VS Code tunnel relays every byte through a cloud endpoint, where the same
 # payload has been observed taking 8-18 s. gzip cuts it to ~380 KB (5x), so the
@@ -207,11 +243,53 @@ def _text_response(
     return Response(content=packed, media_type=media_type, headers=out)
 
 
+@app.get("/viewer-{digest}.js")
+def serve_viewer_static_js(digest: str, request: Request):
+    """Serve the launch-independent part of the viewer script.
+
+    The digest is in the URL, so a changed viewer gets a new address and the
+    browser may keep this one forever; a stale address is simply unknown.
+    """
+    if not _VIEWER_STATIC_JS or digest != _VIEWER_STATIC_JS_HASH:
+        return Response(status_code=404)
+    headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+    if not _accepts_gzip(request):
+        return Response(
+            content=_VIEWER_STATIC_JS,
+            media_type="application/javascript",
+            headers=headers,
+        )
+    global _VIEWER_STATIC_JS_GZIP
+    if _VIEWER_STATIC_JS_GZIP is None:
+        import gzip
+
+        _VIEWER_STATIC_JS_GZIP = gzip.compress(_VIEWER_STATIC_JS.encode("utf-8"), 6)
+    headers["Content-Encoding"] = "gzip"
+    headers["Vary"] = "Accept-Encoding"
+    return Response(
+        content=_VIEWER_STATIC_JS_GZIP,
+        media_type="application/javascript",
+        headers=headers,
+    )
+
+
+_GSAP_ETAG = '"' + __import__("hashlib").sha256(_GSAP_JS.encode("utf-8")).hexdigest()[:16] + '"'
+
+
 @app.get("/gsap.min.js")
 def serve_gsap(request: Request):
-    """Serve vendored GSAP library (browser caches via ETag)."""
+    """Serve the vendored GSAP library.
+
+    Cached for a day and revalidated by ETag after that, so a repeat launch
+    costs one small round trip instead of another 28 KB through the tunnel.
+    """
+    if request.headers.get("if-none-match") == _GSAP_ETAG:
+        return Response(status_code=304, headers={"ETag": _GSAP_ETAG})
     return _text_response(
-        _GSAP_JS, request=request, media_type="application/javascript"
+        _GSAP_JS,
+        request=request,
+        media_type="application/javascript",
+        headers={"Cache-Control": "max-age=86400", "ETag": _GSAP_ETAG},
     )
 
 
@@ -451,7 +529,7 @@ def _viewer_ui_response(
     _default_ortho_layout = json.dumps(get_viewer_ortho_layout())
     _default_dimbar_mode = json.dumps(get_viewer_dimbar_mode())
     html = (
-        _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
+        _VIEWER_PAGE_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__LABEL_COLORS__", json.dumps(LABEL_COLORS.astype(int).tolist()))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
@@ -479,6 +557,15 @@ def get_short_viewer_ui(
     navigation_key: str,
 ):
     """Resolve a private integrated-browser launch without exposing its query."""
+    # The page's script tags use relative addresses so they also work behind
+    # a Jupyter proxy prefix. Under this nested route the browser resolves
+    # them to /_av/<tab_key>/<asset>, so the assets are answered here too.
+    # (Before this, gsap.min.js silently 404'd on every tunnel launch and the
+    # viewer ran without its animation library.)
+    if navigation_key == "gsap.min.js":
+        return serve_gsap(request)
+    if navigation_key.startswith("viewer-") and navigation_key.endswith(".js"):
+        return serve_viewer_static_js(navigation_key[len("viewer-"):-3], request)
     try:
         from arrayview._launch_trace import emit_route_launch_event
 
