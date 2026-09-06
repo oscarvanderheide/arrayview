@@ -9,7 +9,6 @@ import json
 import os
 import time
 import uuid
-from dataclasses import dataclass, replace
 from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -25,7 +24,6 @@ from arrayview._session import (
     COLORMAPS,
 )
 from arrayview import __version__ as _av_version
-from arrayview._instance_registry import process_start_identity
 import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
 
 from arrayview._render import (
@@ -68,73 +66,15 @@ from arrayview._imaging import ensure_image as _pil_image, ensure_imageops as _p
 app = FastAPI()
 
 
-SERVER_PROTOCOL_VERSION = "1"
-SERVER_CAPABILITIES = (
-    "health-status",
-    "session-registration",
-    "identity-fenced-load",
-    "identity-fenced-mutations",
-    "transactional-relay-display",
-    "viewer-websocket",
-    "viewer-phase-journal",
-    "shell-websocket",
-    "dir-collection-case-inference",
-    "staged-drop-import",
+# Identity, capabilities and the /ping contract are owned by _session.py so a
+# booting daemon can answer /ping before this module has imported. Re-exported
+# here so callers and tests keep addressing them through the server module.
+from arrayview._session import (  # noqa: E402
+    SERVER_CAPABILITIES,
+    SERVER_PROTOCOL_VERSION,
+    ServerRuntimeState,
+    configure_server_runtime,
 )
-
-
-def _environment_port() -> int | None:
-    value = os.environ.get("ARRAYVIEW_SERVER_PORT")
-    if not value:
-        return None
-    try:
-        port = int(value)
-    except ValueError:
-        return None
-    return port if 0 < port < 65536 else None
-
-
-def _environment_started_at() -> float:
-    value = os.environ.get("ARRAYVIEW_STARTED_AT")
-    if value:
-        try:
-            return float(value)
-        except ValueError:
-            pass
-    return time.time()
-
-
-@dataclass(frozen=True)
-class ServerRuntimeState:
-    """Stable identity and ownership metadata for this server process."""
-
-    instance_id: str
-    process_start: str
-    owner_mode: str
-    started_at: float
-    port: int | None
-    protocol_version: str = SERVER_PROTOCOL_VERSION
-    capabilities: tuple[str, ...] = SERVER_CAPABILITIES
-
-
-if _session_mod.SERVER_RUNTIME is None:
-    _session_mod.SERVER_RUNTIME = ServerRuntimeState(
-        instance_id=os.environ.get("ARRAYVIEW_INSTANCE_ID") or str(uuid.uuid4()),
-        process_start=(
-            os.environ.get("ARRAYVIEW_PROCESS_START")
-            or process_start_identity(os.getpid())
-            or f"pid-only:{os.getpid()}"
-        ),
-        owner_mode=os.environ.get("ARRAYVIEW_OWNER_MODE", "unknown"),
-        started_at=_environment_started_at(),
-        port=_environment_port(),
-    )
-
-
-def configure_server_runtime(**changes) -> ServerRuntimeState:
-    """Set launch metadata once the listener's final ownership/port is known."""
-    _session_mod.SERVER_RUNTIME = replace(_session_mod.SERVER_RUNTIME, **changes)
-    return _session_mod.SERVER_RUNTIME
 
 
 @app.exception_handler(Exception)
@@ -425,40 +365,7 @@ async def cold_start_port(payload: dict):
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
-    import socket
-
-    runtime = _session_mod.SERVER_RUNTIME
-    return {
-        "ok": True,
-        "service": "arrayview",
-        "pid": os.getpid(),
-        "uid": os.geteuid() if hasattr(os, "geteuid") else None,
-        "hostname": socket.gethostname(),
-        "protocol_version": runtime.protocol_version,
-        "package_version": _av_version,
-        "instance_id": runtime.instance_id,
-        "process_start": runtime.process_start,
-        "owner_mode": runtime.owner_mode,
-        "started_at": runtime.started_at,
-        "port": runtime.port,
-        "capabilities": list(runtime.capabilities),
-        "active_sessions": len(SESSIONS),
-        "active_viewer_sockets": _session_mod.VIEWER_SOCKETS,
-        "active_shell_sockets": len(_session_mod.SHELL_SOCKETS),
-        "viewer_sockets": _session_mod.VIEWER_SOCKETS,
-        "viewer_connections_seen": _session_mod.VIEWER_CONNECTIONS_SEEN,
-        "shell_sockets": len(_session_mod.SHELL_SOCKETS),
-        "shell_request_ids": sorted(_session_mod.SHELL_REQUEST_IDS),
-        "active_viewer_requests": sorted(
-            f"{sid}:{request_id}"
-            for (sid, request_id), count in _session_mod.VIEWER_REQUEST_COUNTS.items()
-            if count > 0
-        ),
-        "native_ready_requests": sorted(
-            f"{sid}:{request_id}"
-            for sid, request_id in _session_mod.NATIVE_READY_REQUESTS
-        ),
-    }
+    return _session_mod.ping_payload(active_sessions=len(SESSIONS))
 
 
 @app.get("/status")

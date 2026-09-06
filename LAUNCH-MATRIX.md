@@ -52,6 +52,41 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-09-07 launch-speed changes — rows touched
+
+Three changes on branch `perf/faster-launch` touch every row that starts a
+server process or loads the viewer page; none changes *what* opens or *when*
+in the launch order, only how soon each step can happen:
+
+- **Terminal launch no longer imports IPython to ask "am I in a notebook?"**
+  and no longer retries a health ping on a port nobody listens on. Rows 1-11,
+  19-24. Evidence: `real process` (traced CLI launches on this host; the time
+  before the launch plan exists fell from ~400-500 ms to ~165 ms).
+- **The viewer page is served in two parts**: a ~48 KB (gzipped) per-launch
+  page and one immutable `viewer-<hash>.js` the browser keeps across launches.
+  Every row that shows the page: 1-10, 12-22, 34. Evidence: `real process`
+  (headless Chromium: first load 400 KB, second load 0 bytes for the script,
+  first frame rendered both times); `component` for the private tunnel route
+  `/_av/<tab>/<nav>` (browser tests). Rows 1-4 need a `real host` re-check —
+  that route is the one desktop-tunnel launches actually use, and the same
+  check will show whether the page's animation library now loads there (it
+  404'd under that route before this change).
+- **A spawned server answers `/ping` before its web framework has imported**
+  (`_bootstrap_app.py`); other requests wait in line and are served the moment
+  the real app attaches. Rows 1-11, 19-24 (every spawned daemon; `--serve` and
+  in-process `view()` servers are unchanged). Evidence: `real process` — traced
+  spawns answered `/ping` at ~180-350 ms instead of ~600-670 ms, a page request
+  sent during boot was served 0.6 s after spawn, and a forced framework-import
+  failure still answered `/ping` and then exited with code 1 (so the launcher
+  reports the failure as before). Row 11 (`--window none`) re-verified
+  `real process` 2026-09-07 with the full load-register-release cycle.
+
+Rows that could plausibly break and are **not yet re-checked on a real host**:
+1-4 (tunnel tab: extension pings `/ping` with a 750 ms limit before opening —
+it now gets an earlier answer, never a later one), 8-10 (native window waits
+on the same daemon), 23-24 (cold start / warm repeat). Run the public gate
+(`arrayview <file>` from a tunnel terminal) and update the rows above.
+
 Status is **`never verified`** unless a dated entry says otherwise.
 
 ### CLI

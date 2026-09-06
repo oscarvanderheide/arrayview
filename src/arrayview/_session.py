@@ -4,8 +4,11 @@ import asyncio
 import os
 import queue as _queue
 import threading
+import socket as _socket
+import time as _time
 import uuid
 from collections import OrderedDict
+from dataclasses import dataclass, replace as _dc_replace
 
 import numpy as np
 
@@ -26,7 +29,7 @@ def _vprint(*args, **kwargs) -> None:
 # ---------------------------------------------------------------------------
 SERVER_LOOP = None
 SERVER_PORT: int | None = None  # actual port the uvicorn server is bound to
-SERVER_RUNTIME = None  # configured by _server when launch identity is known
+SERVER_RUNTIME = None  # ServerRuntimeState; initialised below, updated by configure_server_runtime
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 VIEWER_SID_COUNTS: dict[str, int] = {}  # active viewer WS count per session ID
@@ -63,6 +66,123 @@ FAILED_PENDING_SESSIONS: dict[str, str] = {}
 # progress here and the viewer's websocket picks it up while it waits.
 LOAD_PROGRESS: dict[str, tuple[int, int]] = {}
 
+
+
+# ── Server identity and health payload ───────────────────────────────
+# These live here, not in _server.py, so a starting daemon can answer /ping
+# with its real identity before the web framework has finished importing
+# (see _bootstrap_app.py). _server.py re-exports them unchanged.
+
+SERVER_PROTOCOL_VERSION = "1"
+SERVER_CAPABILITIES = (
+    "health-status",
+    "session-registration",
+    "identity-fenced-load",
+    "identity-fenced-mutations",
+    "transactional-relay-display",
+    "viewer-websocket",
+    "viewer-phase-journal",
+    "shell-websocket",
+    "dir-collection-case-inference",
+    "staged-drop-import",
+)
+
+
+def _environment_port() -> int | None:
+    value = os.environ.get("ARRAYVIEW_SERVER_PORT")
+    if not value:
+        return None
+    try:
+        port = int(value)
+    except ValueError:
+        return None
+    return port if 0 < port < 65536 else None
+
+
+def _environment_started_at() -> float:
+    value = os.environ.get("ARRAYVIEW_STARTED_AT")
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return _time.time()
+
+
+@dataclass(frozen=True)
+class ServerRuntimeState:
+    """Stable identity and ownership metadata for this server process."""
+
+    instance_id: str
+    process_start: str
+    owner_mode: str
+    started_at: float
+    port: int | None
+    protocol_version: str = SERVER_PROTOCOL_VERSION
+    capabilities: tuple[str, ...] = SERVER_CAPABILITIES
+
+
+def _default_server_runtime() -> ServerRuntimeState:
+    from arrayview._instance_registry import process_start_identity
+
+    return ServerRuntimeState(
+        instance_id=os.environ.get("ARRAYVIEW_INSTANCE_ID") or str(uuid.uuid4()),
+        process_start=(
+            os.environ.get("ARRAYVIEW_PROCESS_START")
+            or process_start_identity(os.getpid())
+            or f"pid-only:{os.getpid()}"
+        ),
+        owner_mode=os.environ.get("ARRAYVIEW_OWNER_MODE", "unknown"),
+        started_at=_environment_started_at(),
+        port=_environment_port(),
+    )
+
+
+SERVER_RUNTIME = _default_server_runtime()
+
+
+def configure_server_runtime(**changes) -> ServerRuntimeState:
+    """Set launch metadata once the listener's final ownership/port is known."""
+    global SERVER_RUNTIME
+    SERVER_RUNTIME = _dc_replace(SERVER_RUNTIME, **changes)
+    return SERVER_RUNTIME
+
+
+def ping_payload(*, active_sessions: int) -> dict:
+    """The /ping health contract. Shared by the real route and the bootstrap."""
+    from arrayview import __version__ as package_version
+
+    runtime = SERVER_RUNTIME
+    return {
+        "ok": True,
+        "service": "arrayview",
+        "pid": os.getpid(),
+        "uid": os.geteuid() if hasattr(os, "geteuid") else None,
+        "hostname": _socket.gethostname(),
+        "protocol_version": runtime.protocol_version,
+        "package_version": package_version,
+        "instance_id": runtime.instance_id,
+        "process_start": runtime.process_start,
+        "owner_mode": runtime.owner_mode,
+        "started_at": runtime.started_at,
+        "port": runtime.port,
+        "capabilities": list(runtime.capabilities),
+        "active_sessions": active_sessions,
+        "active_viewer_sockets": VIEWER_SOCKETS,
+        "active_shell_sockets": len(SHELL_SOCKETS),
+        "viewer_sockets": VIEWER_SOCKETS,
+        "viewer_connections_seen": VIEWER_CONNECTIONS_SEEN,
+        "shell_sockets": len(SHELL_SOCKETS),
+        "shell_request_ids": sorted(SHELL_REQUEST_IDS),
+        "active_viewer_requests": sorted(
+            f"{sid}:{request_id}"
+            for (sid, request_id), count in VIEWER_REQUEST_COUNTS.items()
+            if count > 0
+        ),
+        "native_ready_requests": sorted(
+            f"{sid}:{request_id}" for sid, request_id in NATIVE_READY_REQUESTS
+        ),
+    }
 
 def file_signature(filepath: str):
     """Return the cheap identity used to decide whether a file session is reusable."""

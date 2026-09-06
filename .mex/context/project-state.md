@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-08-03
+last_updated: 2026-09-07
 ---
 
 # Project State
@@ -198,6 +198,15 @@ last_updated: 2026-08-03
 - Focused API coverage now directly guards segmentation activate/scribble/click-accept/export paths, export/preload/vectorfield routes, slice/projection/diff/grid/gif rendering, large-array grid/gif guardrails, and websocket metadata plus shell-close cleanup.
 
 ## In Progress
+
+- **Faster launch (branch `perf/faster-launch`, 2026-09-07).** Three commits:
+  terminal launches skip the IPython probe and dead-port ping retries (~0.3 s);
+  the viewer page is split into a small per-launch page plus one immutable
+  cached script (~0.3-0.7 s per tunnel launch after the first); a spawned
+  daemon answers `/ping` from a bootstrap app before the framework imports
+  (~0.4 s earlier tab). Measured `real process` on this host; the real tunnel
+  gate (`LAUNCH-MATRIX.md` rows 1-4) still needs the user's re-check, which
+  will also confirm the animation library now loads under the private route.
 
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
   implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`

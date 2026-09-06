@@ -16,7 +16,7 @@ edges:
     condition: when component boundaries or display routing need broader context
   - target: context/stack.md
     condition: when VS Code, FastAPI, WebSocket, or packaging details are needed
-last_updated: 2026-08-05
+last_updated: 2026-09-07
 ---
 
 # Lifecycle
@@ -115,6 +115,29 @@ proxy carries both privately.
 - Protocol request claims are atomic across extension hosts. Compatibility queue copies with the same request ID must never open in a sibling window or overwrite a terminal ACK.
 - A tunnel may use a loopback backend URL only through VS Code's enabled integrated-browser remote proxy. If that private route, the exact backend, or the exact target window cannot be verified, delivery fails closed; it never promotes or falls back to a public tunnel URL. Remote-SSH remains separate and may legitimately resolve to a local forwarded URL. First-frame proof from the correlated backend phase journal remains the acceptance gate.
 - Plain SSH should use `localhost` forwarding guidance and stay transient unless a shared server was explicitly requested.
+
+
+## Startup Order Inside A Spawned Daemon
+
+- The listener is bound and registered first, and uvicorn serves
+  `_bootstrap_app.BootstrapApp` from that moment: it answers `GET /ping` with
+  the daemon's real identity (built by `_session.ping_payload`, the same
+  contract the real route returns) while the web framework is still
+  importing, and holds every other request until the real app is attached.
+  Nothing heavy starts until the listener reports it is serving, because
+  the framework import, the colormap warm-up and the data load together
+  starved uvicorn's own startup (~0.6 s instead of ~0.03 s).
+- Identity, capabilities, the protocol version and `configure_server_runtime`
+  live in `_session.py` so that registering a server never imports
+  `_server.py`. `_server.py` re-exports them.
+- If the framework import fails, waiting requests get a 503 and the daemon
+  exits with code 1, which the launcher reports exactly as a daemon that never
+  claimed its port.
+- The viewer page is split at serve time: every substituted value sits above
+  the `__AV_STATIC_SCRIPT_BELOW__` marker in `_viewer.html`; everything below
+  it is served as immutable `viewer-<hash>.js`. A new placeholder must go
+  above the marker or the split is refused for that value. Relative script
+  addresses are answered under the private `/_av/<tab>/<nav>/` route too.
 
 ## Shared Rules
 

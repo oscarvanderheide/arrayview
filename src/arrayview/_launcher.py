@@ -155,15 +155,17 @@ def _register_server_runtime(port: int, owner_mode: str):
         os.chmod(log_directory, 0o700)
     except OSError:
         pass
+    # Identity lives in _session, not _server, so registering does not pull in
+    # the web framework: the daemon can answer /ping before that import runs.
     record = InstanceRecord.create(
         port=port,
-        protocol_version=_server_mod().SERVER_PROTOCOL_VERSION,
+        protocol_version=_session_mod.SERVER_PROTOCOL_VERSION,
         package_version=__version__,
         owner_mode=owner_mode,
         log_path=str(log_directory / f"server-{os.getpid()}.log"),
     )
     registry.write(record)
-    _server_mod().configure_server_runtime(
+    _session_mod.configure_server_runtime(
         instance_id=record.instance_id,
         process_start=record.process_start,
         owner_mode=record.owner_mode,
@@ -4622,13 +4624,24 @@ def _serve_daemon(
         port=record.port,
     )
 
+    # Serve from the bootstrap app right away: /ping answers with this
+    # daemon's identity while the web framework is still importing, so the
+    # launcher and the opener can open the tab ~0.4 s sooner and the page
+    # download overlaps the import. Every other request waits in line and is
+    # served by the real app the moment it is attached.
+    from arrayview._bootstrap_app import BootstrapApp
+
+    bootstrap = BootstrapApp()
+    uvicorn_server: list = []
+
     def _run_uvicorn_on_socket():
         config = _uvicorn().Config(
-            _server_mod().app,
+            bootstrap,
             log_level="error",
             timeout_keep_alive=30,
         )
         server = _uvicorn().Server(config)
+        uvicorn_server.append(server)
         asyncio.run(server.serve(sockets=sock))
 
     # Start uvicorn immediately — the window can open before data is ready.
@@ -4638,14 +4651,43 @@ def _serve_daemon(
     ).start()
     _trace_launch_event("backend.http_thread_started", port=port)
 
-    # Pre-warm colormap LUTs in background (saves ~200 ms on first frame render).
-    def _warm_luts():
+    # Let the listener come up before any CPU-heavy import starts: with the
+    # framework import, the colormap warm-up and the data load all competing
+    # for the interpreter, uvicorn's own startup was measured taking ~0.6 s
+    # instead of ~0.03 s, which delayed the first /ping answer by the same.
+    serving_deadline = time.monotonic() + 5.0
+    while time.monotonic() < serving_deadline:
+        if uvicorn_server and getattr(uvicorn_server[0], "started", False):
+            break
+        time.sleep(0.002)
+    _trace_launch_event("backend.serving", port=port)
+
+    def _attach_full_app():
+        try:
+            bootstrap.attach(_server_mod().app)
+        except BaseException as exc:  # noqa: BLE001 — any failure here is fatal
+            bootstrap.fail(exc)
+            _trace_launch_event("daemon.exiting", reason="server_import_failed")
+            _vprint(f"[ArrayView] server failed to start: {exc!r}", flush=True)
+            try:
+                registry.remove(record.instance_id)
+            except Exception:
+                pass
+            _cleanup_source_staging_dirs(source_staging_dirs)
+            os._exit(1)
+        _trace_launch_event("backend.app_attached", port=port)
+        # Pre-warm colormap LUTs (the page and the first frame both need
+        # them). Sequenced after the framework import rather than alongside
+        # it: run together they contend for the interpreter and both finish
+        # later than they do one after the other.
         try:
             from arrayview._render import _init_luts
             _init_luts()
         except Exception:
             pass
-    threading.Thread(target=_warm_luts, daemon=True).start()
+        _trace_launch_event("backend.luts_ready", port=port)
+
+    threading.Thread(target=_attach_full_app, daemon=True).start()
 
     def _load():
         from arrayview._io import (
