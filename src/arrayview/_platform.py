@@ -102,6 +102,12 @@ def _in_jupyter() -> bool:
     global _JUPYTER_CACHE
     if _JUPYTER_CACHE is not None:
         return _JUPYTER_CACHE
+    # A notebook kernel has IPython loaded before any user code runs, so a
+    # process without it cannot be one. Importing IPython just to ask costs
+    # ~250 ms on every terminal launch; skip it when it is not already there.
+    if "IPython" not in sys.modules:
+        _JUPYTER_CACHE = False
+        return False
     try:
         from IPython import get_ipython
 

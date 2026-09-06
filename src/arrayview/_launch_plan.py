@@ -9,6 +9,7 @@ import os
 import socket
 import sys
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -710,6 +711,11 @@ def _ping_arrayview_server(port: int) -> dict | None:
                 payload = json.loads(resp.read().decode("utf-8"))
             if payload.get("ok") is True and payload.get("service") == "arrayview":
                 return payload
+        except urllib.error.URLError as exc:
+            # Nobody is listening on the port: retrying cannot change that,
+            # and the two 50 ms pauses were paid on every fresh launch.
+            if isinstance(exc.reason, ConnectionRefusedError):
+                return None
         except Exception:
             pass
         if attempt < 2:
