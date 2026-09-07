@@ -204,9 +204,9 @@ last_updated: 2026-09-07
   the viewer page is split into a small per-launch page plus one immutable
   cached script (~0.3-0.7 s per tunnel launch after the first); a spawned
   daemon answers `/ping` from a bootstrap app before the framework imports
-  (~0.4 s earlier tab). Measured `real process` on this host; the real tunnel
-  gate (`LAUNCH-MATRIX.md` rows 1-4) still needs the user's re-check, which
-  will also confirm the animation library now loads under the private route.
+  (~0.4 s earlier tab). Measured `real process` on this host; the user
+  re-checked the tunnel CLI launch 2026-09-07 (`real host`, works, "maybe a
+  bit faster"). Merged to main.
 
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
   implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`

@@ -81,11 +81,10 @@ in the launch order, only how soon each step can happen:
   reports the failure as before). Row 11 (`--window none`) re-verified
   `real process` 2026-09-07 with the full load-register-release cycle.
 
-Rows that could plausibly break and are **not yet re-checked on a real host**:
-1-4 (tunnel tab: extension pings `/ping` with a 750 ms limit before opening —
-it now gets an earlier answer, never a later one), 8-10 (native window waits
-on the same daemon), 23-24 (cold start / warm repeat). Run the public gate
-(`arrayview <file>` from a tunnel terminal) and update the rows above.
+Re-checked 2026-09-07 `real host` by the user: rows 1 and 24 (public CLI
+launch from a tunnel terminal, twice in a row) work; reported as "maybe a bit
+faster", not instant. Still not re-checked on a real host after these changes:
+rows 2-4, 8-10 (native window waits on the same daemon), 23 (cold start).
 
 Status is **`never verified`** unless a dated entry says otherwise.
 
