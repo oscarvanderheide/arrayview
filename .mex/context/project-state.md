@@ -211,6 +211,13 @@ last_updated: 2026-09-07
   real host showed the script being re-downloaded every launch under the
   per-tab relative path; verified `real host` (second launch fetched no
   script).
+- **Fewer launch round trips (2026-09-07, merged).** The page carries the
+  array's description, so the viewer waits only for its socket to open and
+  not for the description to arrive over it. Warm cached launch through a
+  120 ms latency proxy: first pixels ~535 ms -> ~475 ms. Verified `real
+  host` by the user (warm launch, `--kill`, cold launch). Note for future
+  measuring: the viewer's phase journal cannot be used for a per-step
+  breakdown, see `LAUNCH-MATRIX.md`.
 
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
   implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`

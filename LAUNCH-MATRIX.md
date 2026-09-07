@@ -114,6 +114,11 @@ in the launch order, only how soon each step can happen:
   first render fire later from the socket's own open handler interleaved it
   with compare-mode entry and left an invalid-compare launch stuck with no
   visible canvas (1 in 6 runs; main 0 in 6). Boot therefore waits for the open.
+  Re-checked 2026-09-07 `real host` by the user on a desktop tunnel: a warm
+  CLI launch, `--kill`, and a cold CLI launch after that kill all rendered
+  their first frame and reported ready (rows 1, 23, 24, 27, 28). The
+  invalid-compare path was **not** re-checked on a real host; it is covered
+  by `test_invalid_compare_url_falls_back_to_base_view` (10/10 after the fix).
 
 Re-checked 2026-09-07 `real host` by the user: rows 1 and 24 (public CLI
 launch from a tunnel terminal, twice in a row) work; reported as "maybe a bit
