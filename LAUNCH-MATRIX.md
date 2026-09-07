@@ -52,6 +52,26 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### Measuring a launch: do not trust the phase journal for a breakdown
+
+The viewer's `navigation-arrived` / `script-loaded` / `ws-open` /
+`metadata-loaded` / `frame-rendered` phases are reported to the backend
+through **one serialized chain** (`_launchPhaseTail` in `_viewer.html`): each
+report waits for the previous report's HTTP round trip. Over a tunnel that is
+~100-150 ms per link, so the recorded phases are spaced roughly one round trip
+apart **no matter when the events actually happened**. The totals are real; the
+gaps between phases are an artifact, and a 2026-09-07 breakdown built from them
+was wrong.
+
+To measure for real, drive the page with a browser and read client-side
+`performance.now()` marks, and put a latency proxy in front of the server to
+imitate the tunnel. Both helper scripts are in the 2026-09-07 work: a TCP relay
+adding a fixed one-way delay, plus a Playwright script recording page arrival,
+socket creation, socket open, first send, first frame bytes, and first painted
+pixels. At a 120 ms round trip a warm cached launch paints ~475 ms after
+navigation starts, of which ~3 round trips are network and ~100 ms is the
+client.
+
 ### 2026-09-07 launch-speed changes — rows touched
 
 Three changes on branch `perf/faster-launch` touch every row that starts a
@@ -80,6 +100,20 @@ in the launch order, only how soon each step can happen:
   failure still answered `/ping` and then exited with code 1 (so the launcher
   reports the failure as before). Row 11 (`--window none`) re-verified
   `real process` 2026-09-07 with the full load-register-release cycle.
+
+- **The page carries the array's description** (`BOOT_METADATA`), so the viewer
+  no longer waits for the server to push the same thing over the socket it has
+  just opened. It waits only for the socket to open, which it must do anyway.
+  Every row that shows the viewer page. Evidence: `component` (browser through
+  a 120 ms latency proxy: first painted pixels ~535 ms → ~475 ms warm). Falls
+  back to the push whenever the description is not already known — a
+  still-loading session, an unknown sid, no sid — because that path is also the
+  only one that can report read progress while a file loads.
+  **Ordering constraint, learned by breaking it:** everything after the first
+  render in the viewer's boot assumes the socket is already open. Letting the
+  first render fire later from the socket's own open handler interleaved it
+  with compare-mode entry and left an invalid-compare launch stuck with no
+  visible canvas (1 in 6 runs; main 0 in 6). Boot therefore waits for the open.
 
 Re-checked 2026-09-07 `real host` by the user: rows 1 and 24 (public CLI
 launch from a tunnel terminal, twice in a row) work; reported as "maybe a bit

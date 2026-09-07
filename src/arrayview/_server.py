@@ -413,6 +413,34 @@ def _trace_page_request(
         pass
 
 
+def _boot_metadata_json(sid: str | None) -> str:
+    """The array's description, for the page to carry instead of asking.
+
+    The viewer otherwise waits for the server to push this over the freshly
+    opened WebSocket, which costs half a round trip before it can request its
+    first frame — noticeable over a VS Code tunnel. The server already knows
+    which session the page is for, so it writes the description into the page.
+
+    Returns ``"null"`` whenever the answer is not already known (no sid, still
+    loading, or anything unexpected); the viewer then asks the way it always
+    has. This must never wait for a session: a pending one is exactly the case
+    the WebSocket push handles better.
+    """
+    if not sid:
+        return "null"
+    try:
+        if sid in _session_mod.PENDING_SESSIONS:
+            return "null"
+        session = SESSIONS.get(sid)
+        if session is None:
+            return "null"
+        from arrayview._analysis import _build_metadata
+
+        return json.dumps(_build_metadata(session))
+    except Exception:
+        return "null"
+
+
 def _viewer_ui_response(
     request: Request,
     *,
@@ -451,6 +479,7 @@ def _viewer_ui_response(
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
+        .replace("__ARRAYVIEW_BOOT_METADATA__", _boot_metadata_json(sid))
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
         .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__DEFAULT_ORTHO_LAYOUT__", _default_ortho_layout)

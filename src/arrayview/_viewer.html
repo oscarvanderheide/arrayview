@@ -5844,6 +5844,12 @@
         const DEFAULT_ROUNDED_PANES = __DEFAULT_ROUNDED_PANES__;
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
+        // The array's description, written into the page by the server when it
+        // already knew it. Saves waiting for the same thing to arrive over the
+        // WebSocket before the first frame can be requested. null whenever the
+        // server could not answer immediately (still loading), in which case
+        // the viewer asks over the socket exactly as it always has.
+        const BOOT_METADATA = __ARRAYVIEW_BOOT_METADATA__;
         /* __AV_STATIC_SCRIPT_BELOW__ — nothing after this line is substituted at serve time. */
         const urlParams = new URLSearchParams(_arrayViewLaunchSearch);
         const _isIntegratedBrowserViewer = (
@@ -6004,6 +6010,14 @@
 
         let _metadataResolve = null;
         const _metadataFromWs = new Promise(r => { _metadataResolve = r; });
+        // Resolves the first time the viewer socket opens. Boot waits on this
+        // when the page already carries the array's description: everything
+        // below the render point assumes an open socket — compare-mode entry
+        // in particular interleaves badly with a render that fires in the
+        // middle of it — and waiting for the open alone still skips the
+        // metadata push that used to be waited for here.
+        let _wsOpenedResolve = null;
+        const _wsOpened = new Promise(r => { _wsOpenedResolve = r; });
         let _metadataProcessed = false;
 
         let _qmriRenderGeneration = 0;
@@ -15314,6 +15328,7 @@
                 reportParent('ws-open', { host: location.host });
                 _wsEverConnected = true;
                 wsReady = true;
+                if (_wsOpenedResolve) { _wsOpenedResolve(); _wsOpenedResolve = null; }
                 setStatus('');
                 sink.focus();
                 if (_metadataProcessed) updateView();  // reconnect: metadata already known
@@ -16462,7 +16477,18 @@
 
             // Race: WS metadata push vs HTTP fallback (2 s timeout for WS).
             let data;
-            if (_useWsMeta) {
+            if (BOOT_METADATA && _useWsMeta) {
+                // The page already carries it, so the only thing still worth
+                // waiting for is the socket itself. That is one round trip
+                // instead of the one-and-a-half the metadata push cost, and it
+                // keeps the invariant the rest of boot relies on: the socket is
+                // open by the time the first frame is requested.
+                data = BOOT_METADATA;
+                await Promise.race([
+                    _wsOpened,
+                    new Promise(r => setTimeout(r, WS_OPEN_TIMEOUT_MS)),
+                ]);
+            } else if (_useWsMeta) {
                 const httpFallback = new Promise(r => setTimeout(r, 2000)).then(() =>
                     proxyFetch(`/metadata/${sid}`).then(res => res.ok ? res.json() : null)
                 );

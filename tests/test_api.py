@@ -250,6 +250,31 @@ class TestHealth:
         r = client.get("/viewer-0000000000000000.js")
         assert r.status_code == 404
 
+    def test_page_carries_the_array_description(self, client, sid_2d):
+        """The page embeds the metadata so the viewer need not wait for the
+        server to push the same thing over the freshly opened WebSocket."""
+        import json as _json
+
+        r = client.get(f"/?sid={sid_2d}")
+        assert r.status_code == 200
+        marker = "const BOOT_METADATA = "
+        start = r.text.index(marker) + len(marker)
+        embedded = _json.loads(r.text[start:r.text.index("\n", start)].rstrip(";"))
+        assert embedded == client.get(f"/metadata/{sid_2d}").json()
+
+    def test_page_omits_the_description_when_it_is_not_known_yet(
+        self, client, sid_2d, monkeypatch
+    ):
+        """A still-loading session must fall back to the WebSocket push: it is
+        the only path that can report read progress while the file loads."""
+        import arrayview._session as session_mod
+
+        monkeypatch.setattr(session_mod, "PENDING_SESSIONS", {sid_2d})
+        assert "const BOOT_METADATA = null;" in client.get(f"/?sid={sid_2d}").text
+        # And with no session at all, or no sid.
+        assert "const BOOT_METADATA = null;" in client.get("/?sid=nosuchsid").text
+        assert "const BOOT_METADATA = null;" in client.get("/").text
+
     def test_private_launch_route_uses_stable_script_addresses(self, client, sid_2d):
         """Under /_av/<tab>/<nav> the script addresses must not contain the
         per-launch tab key, or the browser downloads the 400 KB script on

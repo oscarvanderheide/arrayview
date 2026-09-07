@@ -133,6 +133,13 @@ proxy carries both privately.
 - If the framework import fails, waiting requests get a 503 and the daemon
   exits with code 1, which the launcher reports exactly as a daemon that never
   claimed its port.
+- The page carries the array's description when the server already knows it
+  (`_boot_metadata_json`), so the viewer skips waiting for the socket's
+  metadata push. It still waits for the socket to **open** before its first
+  render: the rest of boot assumes an open socket, and a render firing in the
+  middle of compare-mode entry leaves the viewer with no visible canvas.
+  A pending or unknown session embeds `null` and uses the push, which is also
+  what reports read progress during a slow load.
 - The viewer page is split at serve time: every substituted value sits above
   the `__AV_STATIC_SCRIPT_BELOW__` marker in `_viewer.html`; everything below
   it is served as immutable `viewer-<hash>.js`. A new placeholder must go
