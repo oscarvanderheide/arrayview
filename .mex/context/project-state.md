@@ -206,7 +206,11 @@ last_updated: 2026-09-07
   daemon answers `/ping` from a bootstrap app before the framework imports
   (~0.4 s earlier tab). Measured `real process` on this host; the user
   re-checked the tunnel CLI launch 2026-09-07 (`real host`, works, "maybe a
-  bit faster"). Merged to main.
+  bit faster"). Merged to main. Follow-up the same day: the private tunnel
+  route now emits absolute script addresses, because a request log on the
+  real host showed the script being re-downloaded every launch under the
+  per-tab relative path; verified `real host` (second launch fetched no
+  script).
 
 - VS Code tunnel private-only delivery and short integrated-browser URLs are
   implemented. A real v0.15.14 desktop-tunnel launch reached `frame-rendered`

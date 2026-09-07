@@ -83,7 +83,11 @@ in the launch order, only how soon each step can happen:
 
 Re-checked 2026-09-07 `real host` by the user: rows 1 and 24 (public CLI
 launch from a tunnel terminal, twice in a row) work; reported as "maybe a bit
-faster", not instant. Still not re-checked on a real host after these changes:
+faster", not instant. A request log on the real host then showed the built-in
+browser re-downloading the script on every launch, because under the private
+route its relative address contained the per-launch tab key. With absolute
+addresses on that route (same day, `real host`): the second launch fetched
+the page only, no script and no animation library. Still not re-checked on a real host after these changes:
 rows 2-4, 8-10 (native window waits on the same daemon), 23 (cold start).
 
 Status is **`never verified`** unless a dated entry says otherwise.

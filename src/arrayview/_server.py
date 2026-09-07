@@ -418,8 +418,17 @@ def _viewer_ui_response(
     *,
     sid: str | None,
     query_val: str,
+    asset_base: str = "",
 ):
-    """Render one viewer page with its launch query already chosen."""
+    """Render one viewer page with its launch query already chosen.
+
+    ``asset_base`` is prepended to the page's script addresses. The plain
+    route keeps them relative so the page also works behind a Jupyter proxy
+    prefix; the private tunnel route passes "/" so the addresses are the
+    same on every launch and the browser can reuse the cached script
+    (relative addresses under /_av/<tab>/... change with every tab key, which
+    made the built-in browser download the 400 KB script on every open).
+    """
     _init_luts()
     _cfg_colormaps = get_viewer_colormaps()
     _valid_cfg_colormaps = (
@@ -449,6 +458,9 @@ def _viewer_ui_response(
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )
+    if asset_base:
+        html = html.replace('<script src="gsap.min.js">', f'<script src="{asset_base}gsap.min.js">')
+        html = html.replace('<script src="viewer-', f'<script src="{asset_base}viewer-')
     return _text_response(
         html,
         request=request,
@@ -529,6 +541,7 @@ def get_short_viewer_ui(
         request,
         sid=sid,
         query_val=json.dumps(bootstrap_query),
+        asset_base="/",
     )
 
 

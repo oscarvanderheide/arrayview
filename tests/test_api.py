@@ -250,6 +250,36 @@ class TestHealth:
         r = client.get("/viewer-0000000000000000.js")
         assert r.status_code == 404
 
+    def test_private_launch_route_uses_stable_script_addresses(self, client, sid_2d):
+        """Under /_av/<tab>/<nav> the script addresses must not contain the
+        per-launch tab key, or the browser downloads the 400 KB script on
+        every open (seen on the real tunnel: relative addresses resolved to a
+        new path each launch, so nothing was ever reused)."""
+        server_id = client.get("/ping").json()["instance_id"]
+        prepared = client.post(
+            f"/viewer-phase/{sid_2d}/abcdefabcdefabcdefabcdefabcdefab",
+            json={
+                "phase": "launch-prepared",
+                "server_id": server_id,
+                "window_id": "window-one",
+                "token": "abcdefabcdefabcdefabcdefabcdefab",
+                "viewer_query": f"?sid={sid_2d}",
+                "tab_key": "tabkeyABCDEF0123",
+                "navigation_key": "navkeyABCDEF0123",
+                "navigation_attempt": 0,
+            },
+        )
+        assert prepared.status_code == 200
+        r = client.get("/_av/tabkeyABCDEF0123/navkeyABCDEF0123")
+        assert r.status_code == 200
+        assert '<script src="/gsap.min.js"></script>' in r.text
+        assert '<script src="/viewer-' in r.text
+        assert 'src="viewer-' not in r.text
+        # The plain route stays relative so a Jupyter proxy prefix keeps working.
+        plain = client.get(f"/?sid={sid_2d}")
+        assert '<script src="gsap.min.js"></script>' in plain.text
+        assert '<script src="viewer-' in plain.text
+
     def test_shell_returns_html(self, client):
         r = client.get("/shell")
         assert r.status_code == 200
