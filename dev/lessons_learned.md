@@ -523,3 +523,10 @@ A fixed-position HUD still disappears when its parent is hidden by a viewing
 mode. Mount shared HUDs outside those containers and anchor them to the active
 canvas, not to a wider layout container that includes empty gutters. Verify
 real pointer highlighting in normal, multiview, and qMRI views.
+
+## Outside-Image HUD Placement Must Account for Pane Chrome
+
+A gap below a canvas can already contain its colorbar. Place floating controls
+using the visible pane bounds and exclude adjacent chrome, then fall back to a
+draggable in-pane position. An unclipped canvas rectangle can extend beyond
+its pane during zoom and is not a safe placement boundary.

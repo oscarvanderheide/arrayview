@@ -47,11 +47,13 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         return s ? [_roiStatsFmt(s.mean), _roiStatsFmt(s.std)] : null;
     }""")
     assert expected is not None, "Real ROI measurements should reach the HUD"
-    assert row.locator("td").all_text_contents()[1:] == expected
+    assert row.locator("td").all_text_contents()[1:3] == expected
     selected = page.evaluate("() => _selectedRoiIdx")
 
     page.mouse.move((x0+x1)/2, (y0+y1)/2)
     page.wait_for_function("() => document.querySelector('.roi-hud-row.focused')?.dataset.roiIdx === '0'")
+    assert not page.locator("#roi-hover-tooltip").is_visible()
+    assert not page.locator("#roi-stats-tooltip").is_visible()
     page.mouse.move(2, 2)
     row.hover()
     page.wait_for_function("() => _roiHudHoverIdx === 0")
@@ -63,6 +65,15 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
     hud_box = page.locator("#roi-stats-hud").bounding_box()
     assert hud_box and hud_box["x"] >= 0 and hud_box["y"] >= 0
     assert hud_box["x"] + hud_box["width"] <= page.viewport_size["width"]
+    if mode == "normal":
+        assert hud_box["x"] >= box["x"] + box["width"], "HUD should use available space outside the image"
+    else:
+        pane_boxes = page.locator(".mv-pane" if mode == "multiview" else ".qv-pane").all()
+        pane_top = min(p.bounding_box()["y"] for p in pane_boxes if p.is_visible())
+        if mode == "qmri":
+            assert hud_box["y"] + hud_box["height"] <= pane_top, "HUD should sit above the complete panes, clear of their colorbars"
+        else:
+            assert hud_box["y"] >= pane_top or hud_box["y"] + hud_box["height"] <= pane_top
     page.mouse.move(2, 2)
     page.wait_for_function("() => _roiHudHoverIdx === -1")
     page.focus("#keyboard-sink")
@@ -100,4 +111,23 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
             const s = _rois[0].qmriStats.find(q => q.qmriIdx === qmriViews[1].qmriIdx).stats;
             return [_roiStatsFmt(s.mean), _roiStatsFmt(s.std)];
         }""")
-        assert row.locator("td").all_text_contents()[1:] == expected
+        assert row.locator("td").all_text_contents()[1:3] == expected
+
+    # The header can relocate the HUD, and resize keeps it in the viewport.
+    grip = page.locator(".roi-hud-grip")
+    grip_box = grip.bounding_box()
+    page.mouse.move(grip_box["x"] + 10, grip_box["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(10, 10, steps=10)
+    page.mouse.up()
+    moved = page.locator("#roi-stats-hud").bounding_box()
+    assert moved["x"] == 10 and moved["y"] == 10
+    page.set_viewport_size({"width": 640, "height": 480})
+    moved = page.locator("#roi-stats-hud").bounding_box()
+    assert moved["x"] + moved["width"] <= 640
+    assert moved["y"] + moved["height"] <= 480
+    while page.evaluate("() => _rois.length"):
+        count = page.locator(".roi-hud-row").count()
+        page.locator(".roi-hud-delete").first.click()
+        page.wait_for_function("count => _rois.length === count - 1", arg=count)
+    page.locator("#roi-stats-hud").wait_for(state="hidden")

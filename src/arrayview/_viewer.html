@@ -1336,6 +1336,12 @@
             opacity: 0.9;
         }
         #roi-stats-hud.visible { display: block; }
+        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; padding: 3px 7px 6px; color: var(--muted); }
+        #roi-stats-hud .roi-hud-grip:active { cursor: grabbing; }
+        #roi-stats-hud .roi-hud-delete { display: grid; place-items: center; width: 22px; height: 22px; padding: 3px; border: 0; border-radius: 4px; color: var(--text); background: transparent; cursor: pointer; opacity: 0.65; }
+        #roi-stats-hud .roi-hud-delete:hover { color: var(--text); background: var(--surface-hover); }
+        #roi-stats-hud .roi-hud-row.focused .roi-hud-delete { opacity: 1; }
+        #roi-stats-hud .roi-hud-delete svg { width: 13px; height: 13px; }
         #roi-stats-hud table { border-collapse: collapse; width: 100%; }
         #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; }
         #roi-stats-hud th { color: var(--muted); font-weight: normal; font-size: 10px; }
@@ -17250,6 +17256,8 @@
         // The HUD shares one transient hover with every ROI drawing surface.
         let _roiHudHoverIdx = -1;
         let _roiHudMapIdx = null;
+        let _roiHudPosition = null;
+        let _roiHudDrag = null;
         function _setRoiHudHover(idx, mapIdx = _roiHudMapIdx) {
             idx = rectRoiMode && _rois[idx] && _rois[idx].visible !== false ? idx : -1;
             if (idx === _roiHudHoverIdx && mapIdx === _roiHudMapIdx) return;
@@ -17268,11 +17276,11 @@
             if (!visible) { _roiHudHoverIdx = -1; return; }
             const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
             const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI';
-            let html = `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col">${_roiHtmlEscape(heading)}</th><th scope="col">mean</th><th scope="col">std</th></tr></thead><tbody>`;
+            let html = `<div class="roi-hud-grip" title="Drag to move">${_roiHtmlEscape(heading)}</div><table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col" aria-label="ROI"></th><th scope="col">mean</th><th scope="col">std</th><th scope="col" aria-label="Delete"></th></tr></thead><tbody>`;
             _rois.forEach((r, i) => {
                 const stats = map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
                 const name = _roiName(i);
-                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td>${_roiStatsFmt(stats?.mean)}</td><td>${_roiStatsFmt(stats?.std)}</td></tr>`;
+                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td>${_roiStatsFmt(stats?.mean)}</td><td>${_roiStatsFmt(stats?.std)}</td><td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
             });
             html += '</tbody></table>';
             if (hud._content !== html) {
@@ -17283,17 +17291,52 @@
                     row.addEventListener('pointerenter', () => _setRoiHudHover(idx));
                     row.addEventListener('focus', () => _setRoiHudHover(idx));
                     row.addEventListener('blur', () => _setRoiHudHover(-1));
+                    row.querySelector('.roi-hud-delete').addEventListener('click', e => {
+                        e.stopPropagation();
+                        _roiHudHoverIdx = -1;
+                        _islandDeleteRoi(idx);
+                    });
                 });
                 hud.onpointerleave = () => _setRoiHudHover(-1);
             }
             hud.querySelectorAll('.roi-hud-row').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
-            const anchor = multiViewActive ? mvViews[0]?.canvas : qmriActive ? qmriViews[0]?.canvas : _overlayPaletteAnchor();
-            const rect = anchor?.getBoundingClientRect();
-            if (rect) {
-                hud.style.left = `${Math.max(10, Math.min(window.innerWidth - hud.offsetWidth - 10, rect.left + 10))}px`;
-                hud.style.top = `${Math.max(10, Math.min(window.innerHeight - hud.offsetHeight - 10, rect.top + 10))}px`;
+            const canvases = multiViewActive ? mvViews.map(v => v.pane) : qmriActive ? qmriViews.map(v => v.canvas.closest('.qv-pane')) : [_overlayPaletteAnchor()];
+            const rects = canvases.filter(Boolean).map(c => c.getBoundingClientRect()).filter(r => r.width && r.height);
+            const gap = 10, width = hud.offsetWidth, height = hud.offsetHeight;
+            let position = _roiHudPosition;
+            if (!position && rects.length) {
+                const rect = { left: Math.min(...rects.map(r => r.left)), top: Math.min(...rects.map(r => r.top)), right: Math.max(...rects.map(r => r.right)), bottom: Math.max(...rects.map(r => r.bottom)) };
+                const candidates = [
+                    { x: rect.right + gap, y: rect.top },
+                    { x: rect.left - width - gap, y: rect.top },
+                    { x: rect.left, y: rect.top - height - gap },
+                    { x: rect.left, y: rect.bottom + gap },
+                ];
+                position = candidates.find(p => p.x >= gap && p.y >= gap && p.x + width <= innerWidth - gap && p.y + height <= innerHeight - gap) || { x: rect.left + gap, y: rect.top + gap };
             }
+            if (position) {
+                hud.style.left = `${Math.max(gap, Math.min(innerWidth - width - gap, position.x))}px`;
+                hud.style.top = `${Math.max(gap, Math.min(innerHeight - height - gap, position.y))}px`;
+            }
+            hud.onpointerdown = e => {
+                if (e.button !== 0 || !e.target.closest('.roi-hud-grip')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = hud.getBoundingClientRect();
+                _roiHudDrag = { x: e.clientX - rect.left, y: e.clientY - rect.top, pointerId: e.pointerId };
+                hud.setPointerCapture(e.pointerId);
+            };
         }
+        document.addEventListener('pointermove', e => {
+            if (!_roiHudDrag || e.pointerId !== _roiHudDrag.pointerId) return;
+            _roiHudPosition = { x: e.clientX - _roiHudDrag.x, y: e.clientY - _roiHudDrag.y };
+            _reconcileRoiHud();
+        });
+        function _endRoiHudDrag(e) {
+            if (_roiHudDrag?.pointerId === e.pointerId) _roiHudDrag = null;
+        }
+        document.addEventListener('pointerup', _endRoiHudDrag);
+        document.addEventListener('pointercancel', _endRoiHudDrag);
         document.addEventListener('pointermove', e => {
             if (!rectRoiMode || roiDragging) { _setRoiHudHover(-1); return; }
             if (e.target.closest?.('#roi-stats-hud')) return;
@@ -24993,46 +25036,11 @@
                 }
             }
         });
-        // ROI hover: show stats tooltip over active ROI
+        // Measurements live in the HUD; keep cursor pixel values suppressed on ROIs.
         canvas.addEventListener('mousemove', e => {
-            if (!rectRoiMode || roiDragging) return;
-            if (_roiTooltipEdit) return;
-            const rect = canvas.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) * canvas.width / rect.width;
-            const cy = (e.clientY - rect.top) * canvas.height / rect.height;
-            const ttip = document.getElementById('roi-hover-tooltip');
-            if (!ttip) return;
-            let hitIdx = -1;
-            const fi = { fx: flip_x, fy: flip_y, w: canvas.width, h: canvas.height };
-            for (let i = _rois.length - 1; i >= 0; i--) {
-                const ffi = (_rois[i].type === 'floodfill') ? fi : null;
-                if (_rois[i].visible !== false && _pointInRoi(_rois[i], cx, cy, null, ffi)) { hitIdx = i; break; }
-            }
-            _roiSuppressPixelInfo = _roiHasStats(hitIdx);
-            if (!_roiSuppressPixelInfo) { ttip.style.display = 'none'; return; }
-            const s = _rois[hitIdx].stats;
-            const q = _rois[hitIdx].qmriStats;
-            const c = _roiColors[hitIdx % _roiColors.length];
-            if (Array.isArray(q) && q.length && q[0].stats) {
-                const ttipQ = _getRoiRowTooltip();
-                if (ttipQ) {
-                    ttipQ.style.setProperty('--roi-tip-color', c.stroke);
-                    ttipQ.innerHTML = _buildRoiTooltipContent(hitIdx);
-                    _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
-                    ttipQ.classList.add('visible');
-                }
-                const piEl = document.getElementById('main-pixel-info');
-                if (_pixelInfoActive() && piEl) piEl.style.display = 'none';
-                return;
-            }
-            const fmt = _roiStatsFmt;
-            ttip.classList.remove('editing');
-            ttip.style.setProperty('--roi-tip-color', c.stroke);
-            ttip.innerHTML = `${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
-            ttip.style.display = 'block';
-            const piEl = document.getElementById('main-pixel-info');
-            if (_pixelInfoActive() && piEl) piEl.style.display = 'none';
-            _positionRoiTooltipAtClient(ttip, e.clientX, e.clientY);
+            if (!rectRoiMode || roiDragging || _roiTooltipEdit) return;
+            _roiSuppressPixelInfo = _roiHasStats(_roiHitIndexForCanvasEvent(e, canvas, canvas.width, canvas.height));
+            if (_roiSuppressPixelInfo) hideAllPixelInfo();
         });
         // ROI right-click: delete the ROI under the cursor
         canvas.addEventListener('contextmenu', e => {
@@ -32454,40 +32462,11 @@
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
-                    // ROI hover tooltip: when ROI mode is active, hit-test ROIs
-                    // on this pane and show mean ± std. Takes priority over
-                    // crop/crosshair/pixel-info, matching the mousedown handler.
+                    // ROI measurements are shown in the shared HUD.
                     if (rectRoiMode && !roiDragging && !_roiTooltipEdit) {
-                        const ttip = document.getElementById('roi-hover-tooltip');
                         const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
-                        const hitIdx = hit ? hit.idx : -1;
-                        _roiSuppressPixelInfo = _roiHasStats(hitIdx);
-                        if (!_roiSuppressPixelInfo) {
-                            if (ttip) ttip.style.display = 'none';
-                            const tq = _getRoiRowTooltip();
-                            if (tq) tq.classList.remove('visible');
-                            if (view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                        } else {
-                            const r = _rois[hitIdx];
-                            const c = _roiColors[hitIdx % _roiColors.length];
-                            if (Array.isArray(r.qmriStats) && r.qmriStats.length && r.qmriStats[0].stats) {
-                                const tq = _getRoiRowTooltip();
-                                if (tq) {
-                                    tq.style.setProperty('--roi-tip-color', c.stroke);
-                                    tq.innerHTML = _buildRoiTooltipContent(hitIdx);
-                                    _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
-                                    tq.classList.add('visible');
-                                }
-                            } else if (ttip) {
-                                ttip.classList.remove('editing');
-                                ttip.style.setProperty('--roi-tip-color', c.stroke);
-                                ttip.innerHTML = `${_roiStatsFmt(r.stats.mean)} \u00B1 ${_roiStatsFmt(r.stats.std)}`;
-                                ttip.style.display = 'block';
-                                _positionRoiTooltipAtClient(ttip, e.clientX, e.clientY);
-                            }
-                            if (view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                            return;
-                        }
+                        _roiSuppressPixelInfo = _roiHasStats(hit ? hit.idx : -1);
+                        if (_roiSuppressPixelInfo) { hideAllPixelInfo(); return; }
                     }
                     // Crop-drag in progress: update this pane's edge.
                     if (_cropDrag && _cropDrag.pane === view) {
@@ -33860,43 +33839,9 @@
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
                     cv.addEventListener('mousemove', (e) => {
-                        if (!rectRoiMode || roiDragging) return;
-                        const rect = cv.getBoundingClientRect();
-                        const cx = (e.clientX - rect.left) * view.lastW / rect.width;
-                        const cy = (e.clientY - rect.top) * view.lastH / rect.height;
-                        let hitIdx = -1;
-                        for (let ii = _rois.length - 1; ii >= 0; ii--) {
-                            if (_rois[ii].visible !== false && _pointInRoi(_rois[ii], cx, cy)) { hitIdx = ii; break; }
-                        }
-                        _roiSuppressPixelInfo = _roiHasStats(hitIdx);
-                        if (!_roiSuppressPixelInfo) {
-                            const t = document.getElementById('roi-hover-tooltip');
-                            if (t) t.style.display = 'none';
-                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                            return;
-                        }
-                        const q = _rois[hitIdx].qmriStats;
-                        const c = _roiColors[hitIdx % _roiColors.length];
-                        if (Array.isArray(q) && q.length && q[0].stats) {
-                            const tq = _getRoiRowTooltip();
-                            if (tq) {
-                                tq.style.setProperty('--roi-tip-color', c.stroke);
-                                tq.innerHTML = _buildRoiTooltipContent(hitIdx);
-                                _positionRoiRowTooltip({clientX: e.clientX, clientY: e.clientY});
-                                tq.classList.add('visible');
-                            }
-                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                            return;
-                        }
-                        const s = _rois[hitIdx].stats;
-                        const fmt = _roiStatsFmt;
-                        const t = document.getElementById('roi-hover-tooltip');
-                        if (t) {
-                            t.style.setProperty('--roi-tip-color', c.stroke);
-                            t.innerHTML = fmt(s.mean) + ' +/- ' + fmt(s.std);
-                            t.style.display = 'block';
-                            if (_pixelInfoActive() && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                        }
+                        if (!rectRoiMode || roiDragging || _roiTooltipEdit) return;
+                        _roiSuppressPixelInfo = _roiHasStats(_roiHitIndexForCanvasEvent(e, cv, view.lastW, view.lastH));
+                        if (_roiSuppressPixelInfo) hideAllPixelInfo();
                     });
                     cv.addEventListener('mouseleave', () => {
                         _roiSuppressPixelInfo = false;

@@ -4551,8 +4551,8 @@ class TestROIDrag:
         )
 
         assert state["mean"] == 5, f"ROI stats should refresh to the new slice after scrolling settles, got: {state}"
-        assert state["display"] != "none", f"ROI hover tooltip should reappear after refreshed stats arrive, got: {state}"
-        assert "5 ± 0" in state["tooltip"], f"hover tooltip should show refreshed ROI stats, got: {state}"
+        assert state["display"] == "none", "ROI measurements stay in the HUD"
+        assert page.locator(".roi-hud-row td").all_text_contents()[1:3] == ["5", "0"]
 
     def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -4573,17 +4573,14 @@ class TestROIDrag:
         assert not page.locator("#roi-hover-tooltip").evaluate("el => el.classList.contains('pinned')")
         assert page.evaluate("() => _roiCanvasLabel(0)") == "1"
         assert not page.locator("#export-overlay").is_visible()
-        hover_text = page.locator("#roi-hover-tooltip").inner_text()
-        assert "±" in hover_text
-        assert "n =" not in hover_text
-        assert "count" not in hover_text.lower()
-        hover_height = page.locator("#roi-hover-tooltip").evaluate("el => el.getBoundingClientRect().height")
+        assert not page.locator("#roi-hover-tooltip").is_visible()
+        assert page.locator("#roi-stats-hud").is_visible()
 
         roi_pt = {"x": (x0 + x1) / 2, "y": (y0 + y1) / 2}
         page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
         page.wait_for_selector("#roi-label-editor.editing .roi-tip-name-input", timeout=2_000)
         edit_height = page.locator("#roi-label-editor").evaluate("el => el.getBoundingClientRect().height")
-        assert edit_height <= hover_height + 1
+        assert edit_height <= 40
         assert page.locator("#roi-label-editor .roi-tip-edit").evaluate("el => getComputedStyle(el).flexDirection") == "row"
         assert page.locator("#roi-label-editor .roi-tip-name-input").evaluate("el => getComputedStyle(el).borderBottomWidth") == "0px"
         assert "n =" not in page.locator("#roi-label-editor").inner_text()

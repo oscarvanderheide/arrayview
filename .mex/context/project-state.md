@@ -20,7 +20,9 @@ last_updated: 2026-09-07
 
 - ROI analysis has an automatic compact mean/std HUD with one row per region
   and bidirectional transient hover highlighting in normal, multiview, and
-  qMRI views. qMRI values follow the hovered map. Compare retains its existing
+  qMRI views. The HUD prefers room outside the panes, can be dragged within
+  the viewport, and provides per-row deletion. It replaces cursor-side ROI
+  statistics. qMRI values follow the hovered map. Compare retains its existing
   ROI guard. Served-browser coverage lives in `tests/test_roi_hud.py`.
 
 - No-argument CLI startup opens a generated, action-gated interactive tutorial.
