@@ -14,6 +14,11 @@ last_updated: 2026-09-07
 
 ## Working
 
+- ROI analysis has an automatic compact mean/std HUD with one row per region
+  and bidirectional transient hover highlighting in normal, multiview, and
+  qMRI views. qMRI values follow the hovered map. Compare retains its existing
+  ROI guard. Served-browser coverage lives in `tests/test_roi_hud.py`.
+
 - No-argument CLI startup opens a generated, action-gated interactive tutorial.
   It presents as a single whisper line — one key named at a time, with no panel,
   counter, or progress bar — and never says what a key does before it is

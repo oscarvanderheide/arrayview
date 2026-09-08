@@ -1313,6 +1313,34 @@
         #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
+        #roi-stats-hud {
+            position: fixed;
+            z-index: 7;
+            display: none;
+            width: max-content;
+            max-width: min(320px, calc(100vw - 20px));
+            max-height: min(280px, 40vh);
+            overflow: auto;
+            padding: 7px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            color: var(--text);
+            font: 11px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            backdrop-filter: var(--blur);
+            opacity: 0.9;
+        }
+        #roi-stats-hud.visible { display: block; }
+        #roi-stats-hud table { border-collapse: collapse; width: 100%; }
+        #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; }
+        #roi-stats-hud th { color: var(--muted); font-weight: normal; font-size: 10px; }
+        #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; }
+        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+        #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
+        #roi-stats-hud .roi-hud-row.focused { background: color-mix(in srgb, var(--active-dim) 18%, var(--surface)); box-shadow: inset 2px 0 var(--roi-color); }
+        #roi-stats-hud .roi-hud-row.off { opacity: 0.45; }
+        #roi-stats-hud .roi-hud-row:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+
         #overlay-palette {
             position: absolute;
             top: 10px;
@@ -5465,6 +5493,7 @@
                 <svg id="ruler-svg" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
                 <div id="line-profile-overlay"></div>
             </div>
+            <div id="roi-stats-hud" role="region" aria-label="ROI statistics" aria-hidden="true"></div>
             <div id="overlay-palette" aria-hidden="true"></div>
             <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
@@ -17213,6 +17242,76 @@
             return v.toLocaleString('en-US', { maximumSignificantDigits: 4, useGrouping: false });
         }
 
+        // The HUD shares one transient hover with every ROI drawing surface.
+        let _roiHudHoverIdx = -1;
+        let _roiHudMapIdx = null;
+        function _setRoiHudHover(idx, mapIdx = _roiHudMapIdx) {
+            idx = rectRoiMode && _rois[idx] && _rois[idx].visible !== false ? idx : -1;
+            if (idx === _roiHudHoverIdx && mapIdx === _roiHudMapIdx) return;
+            _roiHudHoverIdx = idx;
+            _roiHudMapIdx = mapIdx;
+            _redrawRoiOverlays();
+            document.querySelector('#roi-stats-hud .roi-hud-row.focused')?.scrollIntoView({ block: 'nearest' });
+        }
+        function _reconcileRoiHud() {
+            const hud = document.getElementById('roi-stats-hud');
+            if (!hud) return;
+            if (hud.parentElement !== document.body) document.body.appendChild(hud);
+            const visible = rectRoiMode && _roiVisible && _rois.length > 0 && !compareActive && !compareMvActive;
+            hud.classList.toggle('visible', !!visible);
+            hud.setAttribute('aria-hidden', String(!visible));
+            if (!visible) { _roiHudHoverIdx = -1; return; }
+            const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
+            const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI';
+            let html = `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col">${_roiHtmlEscape(heading)}</th><th scope="col">mean</th><th scope="col">std</th></tr></thead><tbody>`;
+            _rois.forEach((r, i) => {
+                const stats = map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
+                const name = _roiName(i);
+                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td>${_roiStatsFmt(stats?.mean)}</td><td>${_roiStatsFmt(stats?.std)}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            if (hud._content !== html) {
+                hud._content = html;
+                hud.innerHTML = html;
+                hud.querySelectorAll('.roi-hud-row').forEach(row => {
+                    const idx = Number(row.dataset.roiIdx);
+                    row.addEventListener('pointerenter', () => _setRoiHudHover(idx));
+                    row.addEventListener('focus', () => _setRoiHudHover(idx));
+                    row.addEventListener('blur', () => _setRoiHudHover(-1));
+                });
+                hud.onpointerleave = () => _setRoiHudHover(-1);
+            }
+            hud.querySelectorAll('.roi-hud-row').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
+            const anchor = multiViewActive ? mvViews[0]?.canvas : qmriActive ? qmriViews[0]?.canvas : _overlayPaletteAnchor();
+            const rect = anchor?.getBoundingClientRect();
+            if (rect) {
+                hud.style.left = `${Math.max(10, Math.min(window.innerWidth - hud.offsetWidth - 10, rect.left + 10))}px`;
+                hud.style.top = `${Math.max(10, Math.min(window.innerHeight - hud.offsetHeight - 10, rect.top + 10))}px`;
+            }
+        }
+        document.addEventListener('pointermove', e => {
+            if (!rectRoiMode || roiDragging) { _setRoiHudHover(-1); return; }
+            if (e.target.closest?.('#roi-stats-hud')) return;
+            if (multiViewActive) {
+                const view = mvViews.find(v => v.canvas === e.target);
+                if (view && view.lastW && view.lastH) {
+                    const rect = view.canvas.getBoundingClientRect();
+                    const hit = _roiHitTestMvView(view, Math.round((e.clientX - rect.left) * view.lastW / rect.width), Math.round((e.clientY - rect.top) * view.lastH / rect.height));
+                    _setRoiHudHover(hit ? hit.idx : -1);
+                    return;
+                }
+            } else if (qmriActive) {
+                const view = qmriViews.find(v => v.canvas === e.target);
+                if (view) { _setRoiHudHover(_roiHitIndexForCanvasEvent(e, view.canvas, view.lastW, view.lastH), view.qmriIdx); return; }
+            } else if (e.target === canvas) {
+                _setRoiHudHover(_roiHitIndexForCanvasEvent(e, canvas, canvas.width, canvas.height));
+                return;
+            }
+            _setRoiHudHover(-1);
+        });
+        document.addEventListener('pointerout', e => { if (!e.relatedTarget) _setRoiHudHover(-1); });
+        window.addEventListener('resize', _reconcileRoiHud);
+
         function _roiCurrentScope() {
             const scope = { indices: indices.slice(), broadcast_dims: [], values: {} };
             if (qmriActive && typeof qmriDim === 'number' && qmriDim >= 0 && Array.isArray(qmriViews) && qmriViews.length) {
@@ -17393,6 +17492,7 @@
         function _roiAdd(r, opts = {}) {
             const roi = _roiNormalize(r, opts);
             _rois.push(roi);
+            _reconcileRoiHud();
             _roiSelect(_rois.length - 1, { render: false });
             return _rois.length - 1;
         }
@@ -17476,6 +17576,7 @@
 
         function _roiDelete(idx) {
             if (idx < 0 || idx >= _rois.length) return;
+            _roiHudHoverIdx = -1;
             _rois.splice(idx, 1);
             const nextNames = {};
             for (const [k, v] of Object.entries(_roiNames)) {
@@ -24086,7 +24187,8 @@
             }
         }
         function _roiDrawVisibleShape(rctx, r, sx, sy, color, selected) {
-            const baseWidth = selected ? 1.7 : 1.2;
+            const hovered = _rois[_roiHudHoverIdx] === r;
+            const baseWidth = hovered ? 3 : selected ? 1.7 : 1.2;
             rctx.save();
             rctx.lineJoin = 'round';
             rctx.lineCap = 'round';
@@ -24347,6 +24449,7 @@
             }
         }
         function _redrawRoiOverlays(previewRoi) {
+            _reconcileRoiHud();
             if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
             else if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
             else _drawAllRois(previewRoi);
@@ -24490,6 +24593,7 @@
             return -1;
         }
         function _updateRoiPanel() {
+            _reconcileRoiHud();
             renderIsland();
             _reconcileRoiColorbarControls();
             const ov = document.getElementById('export-overlay');
@@ -39363,6 +39467,7 @@
             _reconcileCbVisibility();
             _reconcileDimbarExtent();
             _reconcileRoiColorbarControls();
+            _reconcileRoiHud();
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
             const busyOverlay = document.getElementById('busy-overlay');

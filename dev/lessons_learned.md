@@ -516,3 +516,10 @@ panning, or drawing according to state that was easy to miss.
 **Fix:** Keep inspection display-only. Region drawing belongs exclusively to
 the visible ROI tools, while inspection and window/level retain distinct,
 testable gestures.
+
+## Shared HUDs Must Live Outside Mode-Hidden Containers
+
+A fixed-position HUD still disappears when its parent is hidden by a viewing
+mode. Mount shared HUDs outside those containers and anchor them to the active
+canvas, not to a wider layout container that includes empty gutters. Verify
+real pointer highlighting in normal, multiview, and qMRI views.
