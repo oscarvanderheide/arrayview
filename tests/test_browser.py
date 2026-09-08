@@ -4330,54 +4330,71 @@ class TestROIDrag:
         # Controls fit inside the island back face vertically.
         assert geom["controls"]["h"] <= geom["back"]["h"] + 2, f"controls ({geom['controls']['h']}px) should fit inside island back ({geom['back']['h']}px)"
 
-    @pytest.mark.parametrize("multiview", [False, True])
-    def test_floodfill_cursor_gauge(self, page, server_url, client, tmp_path, multiview):
-        from urllib.parse import urlsplit
+    def test_vmode_floodfill_hold_updates_toolbar_sensitivity_line(self, loaded_viewer, client, tmp_path):
         arr = np.zeros((12, 12, 12), dtype=np.float32)
         arr[4:8, 4:8, 4:8] = 5.0
-        path = tmp_path / "roi_fill_gauge.npy"
+        path = tmp_path / "roi_vmode_sensitivity_line.npy"
         np.save(path, arr)
-        sid = client.post("/load", json={"filepath": str(path), "name": "roi_fill_gauge"}).json()["sid"]
-        page.goto(f"http://localhost:{urlsplit(server_url).port}/?sid={sid}")
-        page.wait_for_function("() => lastImageData !== null")
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_sensitivity_line"}).json()["sid"]
+        page = loaded_viewer(sid)
         _focus_kb(page)
-        if multiview:
-            page.keyboard.press("v")
-        page.wait_for_timeout(600)
+        page.keyboard.press("v")
+        page.wait_for_timeout(900)
         page.keyboard.press("Shift+R")
-        page.wait_for_function("() => rectRoiMode")
+        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
         page.evaluate("_roiSetShape('floodfill')")
-        box = page.locator('.mv-canvas' if multiview else 'canvas#viewer').first.bounding_box()
-        x, y = box['x'] + box['width']/2, box['y'] + box['height']/2
-        page.mouse.move(x, y)
+        page.wait_for_timeout(150)
+        placement = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                const flood = ctrls.querySelector('button[aria-label="flood fill"]');
+                const shapes = flood ? flood.closest('.roi-cb-shapes') : null;
+                const stats = ctrls.querySelector('button[aria-label="ROI stats"]');
+                return {
+                    lineAfterFloodfillGroup: shapes && shapes.nextElementSibling === line,
+                    lineBeforeStats: stats && stats.previousElementSibling === line,
+                };
+            }"""
+        )
+        assert placement == {"lineAfterFloodfillGroup": True, "lineBeforeStats": True}, f"sensitivity line should reuse the separator between floodfill and stats, got {placement}"
+        pane = page.evaluate("() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }")
+        page.mouse.move(pane["x"], pane["y"])
         page.mouse.down()
-        gauge = page.locator('#roi-fill-gauge')
-        gauge.wait_for(state='visible')
-        assert gauge.locator('.fill-value').text_content() == '10%'
-        initial_bounds = gauge.bounding_box()
-        output = Path('tests/smoke_output'); output.mkdir(exist_ok=True)
-        for frame, delta in enumerate([0, -80, -180, 0, 180]):
-            page.mouse.move(x, y + delta, steps=5)
-            page.screenshot(path=str(output / f'fill_gauge_{multiview}_{frame}.png'))
-            bounds = gauge.bounding_box()
-            assert bounds == initial_bounds, 'Only the marker should move during sensitivity adjustment'
-            assert page.evaluate('([x, y]) => getComputedStyle(document.elementFromPoint(x, y)).cursor', [x, y + delta]) == 'none'
-            assert bounds['x'] >= 0 and bounds['y'] >= 0
-            assert bounds['x'] + bounds['width'] <= page.viewport_size['width']
-            assert bounds['y'] + bounds['height'] <= page.viewport_size['height']
-            if delta == -180:
-                assert gauge.locator('.fill-value').text_content() == '100%'
-            if delta == 180:
-                assert gauge.locator('.fill-value').text_content() == '1%'
-        page.mouse.move(page.viewport_size['width'] - 2, y + 180)
-        assert gauge.bounding_box()['x'] + gauge.bounding_box()['width'] < page.viewport_size['width']
-        page.focus('#keyboard-sink')
-        page.keyboard.press('T')
-        page.screenshot(path=str(output / f'fill_gauge_{multiview}_light.png'))
+        page.wait_for_timeout(120)
+        during = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                return {
+                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
+                    height: line.getBoundingClientRect().height,
+                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
+                };
+            }"""
+        )
+        page.mouse.move(pane["x"], pane["y"] - 160, steps=8)
+        page.wait_for_timeout(180)
+        moved = page.evaluate(
+            """() => {
+                const ctrls = document.getElementById('roi-cb-controls-mv');
+                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
+                return {
+                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
+                    height: line.getBoundingClientRect().height,
+                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
+                };
+            }"""
+        )
         page.mouse.up()
-        gauge.wait_for(state='hidden')
-        assert page.evaluate('() => getComputedStyle(document.body).cursor') != 'none'
-        page.wait_for_function("() => _rois.length === 1")
+        page.wait_for_timeout(120)
+        after = page.evaluate("() => document.getElementById('roi-cb-controls-mv').classList.contains('floodfill-sensitivity-active')")
+
+        assert during["active"], f"sensitivity line should activate while holding floodfill, got {during}"
+        assert moved["active"], f"sensitivity line should stay active while dragging sensitivity, got {moved}"
+        assert moved["value"] > during["value"], f"dragging upward should increase sensitivity value, got before={during}, after={moved}"
+        assert moved["height"] > during["height"], f"line height should increase with sensitivity, got before={during}, after={moved}"
+        assert not after, "sensitivity line should deactivate after mouseup"
 
     def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -4555,8 +4572,8 @@ class TestROIDrag:
         )
 
         assert state["mean"] == 5, f"ROI stats should refresh to the new slice after scrolling settles, got: {state}"
-        assert state["display"] == "none", "ROI measurements stay in the HUD"
-        assert page.locator(".roi-hud-row td").all_text_contents()[1:3] == ["5", "0"]
+        assert state["display"] != "none", f"ROI hover tooltip should reappear after refreshed stats arrive, got: {state}"
+        assert "5 ± 0" in state["tooltip"], f"hover tooltip should show refreshed ROI stats, got: {state}"
 
     def test_default_circle_drawing_and_delete_key(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -4577,14 +4594,17 @@ class TestROIDrag:
         assert not page.locator("#roi-hover-tooltip").evaluate("el => el.classList.contains('pinned')")
         assert page.evaluate("() => _roiCanvasLabel(0)") == "1"
         assert not page.locator("#export-overlay").is_visible()
-        assert not page.locator("#roi-hover-tooltip").is_visible()
-        assert page.locator("#roi-stats-hud").is_visible()
+        hover_text = page.locator("#roi-hover-tooltip").inner_text()
+        assert "±" in hover_text
+        assert "n =" not in hover_text
+        assert "count" not in hover_text.lower()
+        hover_height = page.locator("#roi-hover-tooltip").evaluate("el => el.getBoundingClientRect().height")
 
         roi_pt = {"x": (x0 + x1) / 2, "y": (y0 + y1) / 2}
         page.mouse.dblclick(roi_pt["x"], roi_pt["y"])
         page.wait_for_selector("#roi-label-editor.editing .roi-tip-name-input", timeout=2_000)
         edit_height = page.locator("#roi-label-editor").evaluate("el => el.getBoundingClientRect().height")
-        assert edit_height <= 40
+        assert edit_height <= hover_height + 1
         assert page.locator("#roi-label-editor .roi-tip-edit").evaluate("el => getComputedStyle(el).flexDirection") == "row"
         assert page.locator("#roi-label-editor .roi-tip-name-input").evaluate("el => getComputedStyle(el).borderBottomWidth") == "0px"
         assert "n =" not in page.locator("#roi-label-editor").inner_text()

@@ -1323,8 +1323,9 @@
             position: fixed;
             z-index: 7;
             display: none;
-            width: max-content;
-            max-width: min(320px, calc(100vw - 20px));
+            box-sizing: border-box;
+            width: 280px;
+            max-width: calc(100vw - 20px);
             max-height: min(280px, 40vh);
             overflow: auto;
             padding: 7px;
@@ -1343,11 +1344,12 @@
         #roi-stats-hud .roi-hud-delete:hover { color: var(--text); background: var(--surface-hover); }
         #roi-stats-hud .roi-hud-row.focused .roi-hud-delete { opacity: 1; }
         #roi-stats-hud .roi-hud-delete svg { width: 13px; height: 13px; }
-        #roi-stats-hud table { border-collapse: collapse; width: 100%; }
-        #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; }
+        #roi-stats-hud table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+        #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         #roi-stats-hud th { color: var(--muted); font-weight: normal; font-size: 10px; }
         #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; }
-        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+        #roi-stats-hud th:last-child { width: 22px; }
+        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: calc(100% - 13px); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
         #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
         #roi-stats-hud .roi-hud-row.focused { background: color-mix(in srgb, var(--active-dim) 18%, var(--surface)); box-shadow: inset 2px 0 var(--roi-color); }
         #roi-stats-hud .roi-hud-row.off { opacity: 0.45; }
@@ -17281,7 +17283,7 @@
             _rois.forEach((r, i) => {
                 const stats = map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
                 const name = _roiName(i);
-                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td>${_roiStatsFmt(stats?.mean)}</td><td>${_roiStatsFmt(stats?.std)}</td><td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td title="${_roiStatsFmt(stats?.mean)}">${_roiStatsFmt(stats?.mean)}</td><td title="${_roiStatsFmt(stats?.std)}">${_roiStatsFmt(stats?.std)}</td><td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
             });
             html += '</tbody></table>';
             if (hud._content !== html) {
