@@ -15,8 +15,9 @@ last_updated: 2026-09-07
 ## Working
 
 - Flood-fill hold/drag shows a cursor-side tapered sensitivity gauge with
-  1%, 10%, and 100% reference marks; bounded to the viewport and hidden on
-  release. Verified real browser gestures in single and multiview.
+  1%, 10%, and 100% reference marks; fixed at the initial pointer location,
+  bounded to the viewport, and hidden on release. The pointer hides during
+  adjustment and returns on release. Verified real browser gestures in single and multiview.
 
 - ROI analysis has an automatic compact mean/std HUD with one row per region
   and bidirectional transient hover highlighting in normal, multiview, and

@@ -421,6 +421,7 @@
             color: var(--text); font: 10px ui-monospace, monospace;
         }
         #roi-fill-gauge.visible { display: block; }
+        html.roi-fill-adjusting, html.roi-fill-adjusting * { cursor: none !important; }
         #roi-fill-gauge svg { width: 100%; height: 100%; overflow: visible; }
         #roi-fill-gauge .fill-scale { fill: var(--active-dim); fill-opacity: .18; stroke: var(--muted); }
         #roi-fill-gauge .fill-tick { stroke: var(--muted); }
@@ -23799,6 +23800,7 @@
             let hud = document.getElementById('roi-fill-gauge');
             const drag = _roiFloodFillDrag;
             const active = _roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released;
+            document.documentElement.classList.toggle('roi-fill-adjusting', !!active);
             if (!hud && !active) return;
             if (!hud) {
                 hud = document.createElement('div');
@@ -23980,9 +23982,6 @@
             _requestFloodFillPreview(drag);
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
-                drag.clientX = me.clientX;
-                drag.clientY = me.clientY;
-                _reconcileFloodfillSensitivityHud();
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
                 if (Math.abs(next - drag.tolerance) < 0.005) return;
                 drag.tolerance = next;

@@ -4354,11 +4354,14 @@ class TestROIDrag:
         gauge = page.locator('#roi-fill-gauge')
         gauge.wait_for(state='visible')
         assert gauge.locator('.fill-value').text_content() == '10%'
+        initial_bounds = gauge.bounding_box()
         output = Path('tests/smoke_output'); output.mkdir(exist_ok=True)
         for frame, delta in enumerate([0, -80, -180, 0, 180]):
             page.mouse.move(x, y + delta, steps=5)
             page.screenshot(path=str(output / f'fill_gauge_{multiview}_{frame}.png'))
             bounds = gauge.bounding_box()
+            assert bounds == initial_bounds, 'Only the marker should move during sensitivity adjustment'
+            assert page.evaluate('([x, y]) => getComputedStyle(document.elementFromPoint(x, y)).cursor', [x, y + delta]) == 'none'
             assert bounds['x'] >= 0 and bounds['y'] >= 0
             assert bounds['x'] + bounds['width'] <= page.viewport_size['width']
             assert bounds['y'] + bounds['height'] <= page.viewport_size['height']
@@ -4373,6 +4376,7 @@ class TestROIDrag:
         page.screenshot(path=str(output / f'fill_gauge_{multiview}_light.png'))
         page.mouse.up()
         gauge.wait_for(state='hidden')
+        assert page.evaluate('() => getComputedStyle(document.body).cursor') != 'none'
         page.wait_for_function("() => _rois.length === 1")
 
     def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):

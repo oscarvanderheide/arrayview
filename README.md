@@ -27,7 +27,8 @@ deviation. The HUD sits beside the image when space allows; drag its header
 to move it. Hover a row or region to highlight its counterpart, and use each
 row's trash icon to delete that region.
 Hold a flood-fill seed and drag up/down to adjust sensitivity; a tapered gauge
-beside the cursor shows the current value and the 1%–100% range.
+at the starting point shows the current value and the 1%–100% range. The
+pointer hides while adjusting; only the gauge marker moves.
 
 
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
