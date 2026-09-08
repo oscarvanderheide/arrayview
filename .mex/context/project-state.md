@@ -14,6 +14,10 @@ last_updated: 2026-09-07
 
 ## Working
 
+- Flood-fill hold/drag shows a cursor-side tapered sensitivity gauge with
+  1%, 10%, and 100% reference marks; bounded to the viewport and hidden on
+  release. Verified real browser gestures in single and multiview.
+
 - ROI analysis has an automatic compact mean/std HUD with one row per region
   and bidirectional transient hover highlighting in normal, multiview, and
   qMRI views. qMRI values follow the hovered map. Compare retains its existing

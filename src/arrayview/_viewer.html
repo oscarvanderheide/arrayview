@@ -414,14 +414,19 @@
             background: var(--border);
             opacity: 0.9;
         }
-        .roi-floodfill-sensitivity {
-            transition: height 0.08s ease, background 0.08s ease, opacity 0.08s ease;
+        #roi-fill-gauge {
+            position: fixed; z-index: 100; display: none; pointer-events: none;
+            width: 108px; height: 132px; border-radius: var(--radius-lg);
+            background: var(--surface); border: 1px solid var(--border);
+            color: var(--text); font: 10px ui-monospace, monospace;
         }
-        .roi-cb-controls.floodfill-sensitivity-active .roi-floodfill-sensitivity {
-            height: calc(6px + (var(--roi-ff-sensitivity, 0.1) * 18px));
-            background: var(--active-dim);
-            opacity: 1;
-        }
+        #roi-fill-gauge.visible { display: block; }
+        #roi-fill-gauge svg { width: 100%; height: 100%; overflow: visible; }
+        #roi-fill-gauge .fill-scale { fill: var(--active-dim); fill-opacity: .18; stroke: var(--muted); }
+        #roi-fill-gauge .fill-tick { stroke: var(--muted); }
+        #roi-fill-gauge .fill-label { fill: var(--text); }
+        #roi-fill-gauge .fill-marker { stroke: var(--active-dim); stroke-width: 2; }
+        #roi-fill-gauge .fill-value { fill: var(--text); font-weight: bold; }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
             --cb-extra-top: 0px;
@@ -23746,13 +23751,46 @@
             return Math.max(0.01, Math.min(1.0, baseTolerance * factor));
         }
 
-        function _updateRoiFloodfillSensitivityIndicator(tolerance = _floodFillTolerance, active = false) {
-            const value = Math.max(0.01, Math.min(1.0, Number(tolerance) || 0.1));
-            document.querySelectorAll('.roi-cb-controls').forEach(el => {
-                el.style.setProperty('--roi-ff-sensitivity', value.toFixed(3));
-                el.classList.toggle('floodfill-sensitivity-active', !!active);
-            });
+        let _roiFillGaugeActive = false;
+        function _reconcileFloodfillSensitivityHud() {
+            let hud = document.getElementById('roi-fill-gauge');
+            const drag = _roiFloodFillDrag;
+            const active = _roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released;
+            if (!hud && !active) return;
+            if (!hud) {
+                hud = document.createElement('div');
+                hud.id = 'roi-fill-gauge';
+                hud.setAttribute('role', 'img');
+                hud.innerHTML = `<svg viewBox="0 0 108 132" aria-hidden="true">
+                    <path class="fill-scale" d="M44 18 H64 L54 114 Z"/>
+                    <path class="fill-tick" d="M66 18 h5 M60 66 h11 M56 114 h15"/>
+                    <text class="fill-label" x="75" y="21">100%</text>
+                    <text class="fill-label" x="75" y="69">10%</text>
+                    <text class="fill-label" x="75" y="117">1%</text>
+                    <g class="fill-cursor"><path class="fill-marker" d="M43 0 H65"/>
+                    <text class="fill-value" x="39" y="3" text-anchor="end"></text></g>
+                </svg>`;
+                document.body.appendChild(hud);
+            }
+            hud.classList.toggle('visible', !!active);
+            hud.setAttribute('aria-hidden', String(!active));
+            if (!active) return;
+            const value = Math.max(.01, Math.min(1, drag.tolerance));
+            const fraction = Math.log(value / .01) / Math.log(100);
+            hud.querySelector('.fill-cursor').setAttribute('transform', `translate(0 ${114 - fraction * 96})`);
+            hud.querySelector('.fill-value').textContent = `${Math.round(value * 100)}%`;
+            hud.setAttribute('aria-label', `Flood fill sensitivity ${Math.round(value * 100)}%, minimum 1%, maximum 100%`);
+            const width = hud.offsetWidth, height = hud.offsetHeight;
+            const x = drag.clientX + 20 + width <= window.innerWidth - 8 ? drag.clientX + 20 : drag.clientX - width - 20;
+            hud.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, x))}px`;
+            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, drag.clientY - height / 2))}px`;
         }
+        function _updateRoiFloodfillSensitivityIndicator(tolerance = _floodFillTolerance, active = false) {
+            _roiFillGaugeActive = active;
+            _reconcileFloodfillSensitivityHud();
+        }
+        window.addEventListener('resize', _reconcileFloodfillSensitivityHud);
+        window.addEventListener('blur', () => _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false));
 
         function _requestFloodFillPreview(drag) {
             if (!drag) return;
@@ -23884,6 +23922,8 @@
                 view: vd,
                 scopeDim,
                 startY: e.clientY,
+                clientX: e.clientX,
+                clientY: e.clientY,
                 baseTolerance: _floodFillTolerance,
                 tolerance: _floodFillTolerance,
                 data: null,
@@ -23897,6 +23937,9 @@
             _requestFloodFillPreview(drag);
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
+                drag.clientX = me.clientX;
+                drag.clientY = me.clientY;
+                _reconcileFloodfillSensitivityHud();
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
                 if (Math.abs(next - drag.tolerance) < 0.005) return;
                 drag.tolerance = next;
@@ -39468,6 +39511,7 @@
             _reconcileDimbarExtent();
             _reconcileRoiColorbarControls();
             _reconcileRoiHud();
+            _reconcileFloodfillSensitivityHud();
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
             const busyOverlay = document.getElementById('busy-overlay');

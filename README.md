@@ -24,6 +24,8 @@ or all three ortho panes, with interactive 3D cutaway renders.
 Drop another file onto an open viewer to compare, open separately, or overlay it.
 Press `Shift+R` for ROI analysis: a compact HUD lists each region's mean and standard
 deviation. Hover a row or a region to highlight its counterpart.
+Hold a flood-fill seed and drag up/down to adjust sensitivity; a tapered gauge
+beside the cursor shows the current value and the 1%–100% range.
 
 
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 

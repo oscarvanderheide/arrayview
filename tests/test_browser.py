@@ -4330,71 +4330,50 @@ class TestROIDrag:
         # Controls fit inside the island back face vertically.
         assert geom["controls"]["h"] <= geom["back"]["h"] + 2, f"controls ({geom['controls']['h']}px) should fit inside island back ({geom['back']['h']}px)"
 
-    def test_vmode_floodfill_hold_updates_toolbar_sensitivity_line(self, loaded_viewer, client, tmp_path):
+    @pytest.mark.parametrize("multiview", [False, True])
+    def test_floodfill_cursor_gauge(self, page, server_url, client, tmp_path, multiview):
+        from urllib.parse import urlsplit
         arr = np.zeros((12, 12, 12), dtype=np.float32)
         arr[4:8, 4:8, 4:8] = 5.0
-        path = tmp_path / "roi_vmode_sensitivity_line.npy"
+        path = tmp_path / "roi_fill_gauge.npy"
         np.save(path, arr)
-        sid = client.post("/load", json={"filepath": str(path), "name": "roi_vmode_sensitivity_line"}).json()["sid"]
-        page = loaded_viewer(sid)
+        sid = client.post("/load", json={"filepath": str(path), "name": "roi_fill_gauge"}).json()["sid"]
+        page.goto(f"http://localhost:{urlsplit(server_url).port}/?sid={sid}")
+        page.wait_for_function("() => lastImageData !== null")
         _focus_kb(page)
-        page.keyboard.press("v")
-        page.wait_for_timeout(900)
+        if multiview:
+            page.keyboard.press("v")
+        page.wait_for_timeout(600)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-cb-controls-mv", state="visible", timeout=3_000)
+        page.wait_for_function("() => rectRoiMode")
         page.evaluate("_roiSetShape('floodfill')")
-        page.wait_for_timeout(150)
-        placement = page.evaluate(
-            """() => {
-                const ctrls = document.getElementById('roi-cb-controls-mv');
-                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
-                const flood = ctrls.querySelector('button[aria-label="flood fill"]');
-                const shapes = flood ? flood.closest('.roi-cb-shapes') : null;
-                const stats = ctrls.querySelector('button[aria-label="ROI stats"]');
-                return {
-                    lineAfterFloodfillGroup: shapes && shapes.nextElementSibling === line,
-                    lineBeforeStats: stats && stats.previousElementSibling === line,
-                };
-            }"""
-        )
-        assert placement == {"lineAfterFloodfillGroup": True, "lineBeforeStats": True}, f"sensitivity line should reuse the separator between floodfill and stats, got {placement}"
-        pane = page.evaluate("() => { const v = mvViews[0]; const r = v.canvas.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }")
-        page.mouse.move(pane["x"], pane["y"])
+        box = page.locator('.mv-canvas' if multiview else 'canvas#viewer').first.bounding_box()
+        x, y = box['x'] + box['width']/2, box['y'] + box['height']/2
+        page.mouse.move(x, y)
         page.mouse.down()
-        page.wait_for_timeout(120)
-        during = page.evaluate(
-            """() => {
-                const ctrls = document.getElementById('roi-cb-controls-mv');
-                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
-                return {
-                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
-                    height: line.getBoundingClientRect().height,
-                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
-                };
-            }"""
-        )
-        page.mouse.move(pane["x"], pane["y"] - 160, steps=8)
-        page.wait_for_timeout(180)
-        moved = page.evaluate(
-            """() => {
-                const ctrls = document.getElementById('roi-cb-controls-mv');
-                const line = ctrls.querySelector('.roi-floodfill-sensitivity');
-                return {
-                    active: ctrls.classList.contains('floodfill-sensitivity-active'),
-                    height: line.getBoundingClientRect().height,
-                    value: Number(getComputedStyle(ctrls).getPropertyValue('--roi-ff-sensitivity')),
-                };
-            }"""
-        )
+        gauge = page.locator('#roi-fill-gauge')
+        gauge.wait_for(state='visible')
+        assert gauge.locator('.fill-value').text_content() == '10%'
+        output = Path('tests/smoke_output'); output.mkdir(exist_ok=True)
+        for frame, delta in enumerate([0, -80, -180, 0, 180]):
+            page.mouse.move(x, y + delta, steps=5)
+            page.screenshot(path=str(output / f'fill_gauge_{multiview}_{frame}.png'))
+            bounds = gauge.bounding_box()
+            assert bounds['x'] >= 0 and bounds['y'] >= 0
+            assert bounds['x'] + bounds['width'] <= page.viewport_size['width']
+            assert bounds['y'] + bounds['height'] <= page.viewport_size['height']
+            if delta == -180:
+                assert gauge.locator('.fill-value').text_content() == '100%'
+            if delta == 180:
+                assert gauge.locator('.fill-value').text_content() == '1%'
+        page.mouse.move(page.viewport_size['width'] - 2, y + 180)
+        assert gauge.bounding_box()['x'] + gauge.bounding_box()['width'] < page.viewport_size['width']
+        page.focus('#keyboard-sink')
+        page.keyboard.press('T')
+        page.screenshot(path=str(output / f'fill_gauge_{multiview}_light.png'))
         page.mouse.up()
-        page.wait_for_timeout(120)
-        after = page.evaluate("() => document.getElementById('roi-cb-controls-mv').classList.contains('floodfill-sensitivity-active')")
-
-        assert during["active"], f"sensitivity line should activate while holding floodfill, got {during}"
-        assert moved["active"], f"sensitivity line should stay active while dragging sensitivity, got {moved}"
-        assert moved["value"] > during["value"], f"dragging upward should increase sensitivity value, got before={during}, after={moved}"
-        assert moved["height"] > during["height"], f"line height should increase with sensitivity, got before={during}, after={moved}"
-        assert not after, "sensitivity line should deactivate after mouseup"
+        gauge.wait_for(state='hidden')
+        page.wait_for_function("() => _rois.length === 1")
 
     def test_rois_cleared_on_axis_reassignment(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
