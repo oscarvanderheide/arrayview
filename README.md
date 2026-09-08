@@ -27,7 +27,7 @@ deviation. The HUD sits beside the image when space allows; drag its header
 to move it. Hover a row or region to highlight its counterpart, and use each
 row's trash icon to delete that region. Open the detailed analysis with the
 button beside the HUD's column headings.
-Hold a flood-fill seed and drag up/down to adjust sensitivity; a tapered gauge
+Hold a flood-fill seed and drag up/down to adjust sensitivity; a translucent tapered gauge
 at the starting point shows the current value and the 1%–100% range. The
 pointer hides while adjusting; only the gauge marker moves.
 

@@ -142,3 +142,42 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         page.wait_for_function("count => _rois.length === count - 1", arg=count)
     page.locator("#roi-stats-hud").wait_for(state="hidden")
 
+
+@pytest.mark.parametrize("mode", ["normal", "multiview"])
+def test_flood_fill_gauge_translucent(page, server_url, sid_3d, mode):
+    sid = sid_3d
+    page.goto(f"http://localhost:{urlsplit(server_url).port}/?sid={sid}")
+    page.wait_for_function("() => lastImageData !== null")
+    page.focus("#keyboard-sink")
+    selector = "canvas#viewer"
+    if mode == "multiview":
+        page.keyboard.press("v")
+        selector = ".mv-canvas"
+    page.locator(selector).first.wait_for(state="visible")
+    page.wait_for_timeout(500)
+    page.keyboard.press("Shift+R")
+    page.evaluate("() => _roiSetShape('floodfill')")
+    box = page.locator(selector).first.bounding_box()
+    page.mouse.move(box["x"] + box["width"] * .6, box["y"] + box["height"] * .6)
+    page.mouse.down()
+    try:
+        gauge = page.locator("#roi-fill-gauge")
+        gauge.wait_for(state="visible")
+        for theme in range(4):
+            if theme:
+                page.keyboard.press("Shift+T")
+            page.wait_for_timeout(100)
+            alpha = gauge.evaluate("""el => {
+                const cv = document.createElement('canvas');
+                cv.width = cv.height = 1;
+                const ctx = cv.getContext('2d');
+                ctx.fillStyle = getComputedStyle(el).backgroundColor;
+                ctx.fillRect(0, 0, 1, 1);
+                return ctx.getImageData(0, 0, 1, 1).data[3] / 255;
+            }""")
+            assert .2 < alpha < .8, f"Gauge should let the image show through, got alpha={alpha}"
+            assert gauge.evaluate("el => getComputedStyle(el).opacity") == "1"
+            page.screenshot(path=f"tests/smoke_output/roi_flood_gauge_{mode}_{theme}.png")
+    finally:
+        page.mouse.up()
+    gauge.wait_for(state="hidden")

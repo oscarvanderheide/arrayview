@@ -417,7 +417,8 @@
         #roi-fill-gauge {
             position: fixed; z-index: 100; display: none; pointer-events: none;
             width: 108px; height: 132px; border-radius: var(--radius-lg);
-            background: var(--surface); border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--surface) 55%, transparent);
+            border: 1px solid var(--border);
             color: var(--text); font: 10px ui-monospace, monospace;
         }
         #roi-fill-gauge.visible { display: block; }

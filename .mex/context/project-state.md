@@ -14,7 +14,7 @@ last_updated: 2026-09-08
 
 ## Working
 
-- Flood-fill hold/drag shows a cursor-side tapered sensitivity gauge with
+- Flood-fill hold/drag shows a translucent cursor-side tapered sensitivity gauge with
   1%, 10%, and 100% reference marks; fixed at the initial pointer location,
   bounded to the viewport, and hidden on release. The pointer hides during
   adjustment and returns on release. Verified real browser gestures in single and multiview.
