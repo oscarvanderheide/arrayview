@@ -3595,7 +3595,7 @@ class TestROIDrag:
         assert state["rectRoiMode"], f"ROI mode should activate in v-mode, got: {state}"
         assert state["roiBackDisplay"] == "flex", f"ROI back face should show, got: {state}"
         assert state["obBackDisplay"] == "none", f"oblique back face should hide, got: {state}"
-        assert state["mvControlsBtns"] == 6, f"ROI toolbar should render 6 buttons (4 shapes + stats + clear), got: {state}"
+        assert state["mvControlsBtns"] == 4, f"ROI toolbar should render the four shape buttons, got: {state}"
         assert state["mvControlsVisible"], f"mv ROI controls should be visible, got: {state}"
         assert state["slimDisplay"] == "none", f"slim-cb-wrap should stay hidden in v-mode, got: {state}"
 
@@ -4634,7 +4634,7 @@ class TestROIDrag:
         page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         self._draw_roi(page)
 
-        page.locator("#roi-cb-controls").get_by_label("ROI stats").click()
+        page.locator(".roi-hud-details").click()
         page.wait_for_selector("#export-overlay.visible", timeout=2_000)
         assert page.locator("#export-title").inner_text() == "ROI stats"
         assert page.locator(".roi-manager-row, .roi-manager-row-compact").count() == 2

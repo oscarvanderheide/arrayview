@@ -1324,7 +1324,7 @@
             z-index: 7;
             display: none;
             box-sizing: border-box;
-            width: 280px;
+            width: max-content;
             max-width: calc(100vw - 20px);
             max-height: min(280px, 40vh);
             overflow: auto;
@@ -1338,18 +1338,18 @@
             opacity: 0.9;
         }
         #roi-stats-hud.visible { display: block; }
-        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; padding: 3px 7px 6px; color: var(--muted); }
+        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; color: var(--muted); }
         #roi-stats-hud .roi-hud-grip:active { cursor: grabbing; }
-        #roi-stats-hud .roi-hud-delete { display: grid; place-items: center; width: 22px; height: 22px; padding: 3px; border: 0; border-radius: 4px; color: var(--text); background: transparent; cursor: pointer; opacity: 0.65; }
-        #roi-stats-hud .roi-hud-delete:hover { color: var(--text); background: var(--surface-hover); }
+        #roi-stats-hud .roi-hud-delete, #roi-stats-hud .roi-hud-details { display: grid; place-items: center; width: 22px; height: 22px; padding: 3px; border: 0; border-radius: 4px; color: var(--text); background: transparent; cursor: pointer; opacity: 0.65; }
+        #roi-stats-hud .roi-hud-delete:hover, #roi-stats-hud .roi-hud-details:hover { color: var(--text); background: var(--surface-hover); }
         #roi-stats-hud .roi-hud-row.focused .roi-hud-delete { opacity: 1; }
-        #roi-stats-hud .roi-hud-delete svg { width: 13px; height: 13px; }
-        #roi-stats-hud table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+        #roi-stats-hud .roi-hud-delete svg, #roi-stats-hud .roi-hud-details svg { width: 13px; height: 13px; }
+        #roi-stats-hud table { border-collapse: collapse; table-layout: auto; width: 100%; }
         #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         #roi-stats-hud th { color: var(--muted); font-weight: normal; font-size: 10px; }
         #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; }
         #roi-stats-hud th:last-child { width: 22px; }
-        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: calc(100% - 13px); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: 12ch; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
         #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
         #roi-stats-hud .roi-hud-row.focused { background: color-mix(in srgb, var(--active-dim) 18%, var(--surface)); box-shadow: inset 2px 0 var(--roi-color); }
         #roi-stats-hud .roi-hud-row.off { opacity: 0.45; }
@@ -17279,7 +17279,7 @@
             if (!visible) { _roiHudHoverIdx = -1; return; }
             const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
             const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI';
-            let html = `<div class="roi-hud-grip" title="Drag to move">${_roiHtmlEscape(heading)}</div><table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col" aria-label="ROI"></th><th scope="col">mean</th><th scope="col">std</th><th scope="col" aria-label="Delete"></th></tr></thead><tbody>`;
+            let html = `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col" class="roi-hud-grip" title="Drag to move">${_roiHtmlEscape(heading)}</th><th scope="col" class="roi-hud-grip" title="Drag to move">mean</th><th scope="col" class="roi-hud-grip" title="Drag to move">std</th><th scope="col"><button type="button" class="roi-hud-details" title="ROI details" aria-label="ROI details">${_ROI_ACTION_ICONS.stats}</button></th></tr></thead><tbody>`;
             _rois.forEach((r, i) => {
                 const stats = map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
                 const name = _roiName(i);
@@ -17289,6 +17289,7 @@
             if (hud._content !== html) {
                 hud._content = html;
                 hud.innerHTML = html;
+                hud.querySelector('.roi-hud-details').addEventListener('click', () => _roiOpenManager());
                 hud.querySelectorAll('.roi-hud-row').forEach(row => {
                     const idx = Number(row.dataset.roiIdx);
                     row.addEventListener('pointerenter', () => _setRoiHudHover(idx));
@@ -39426,9 +39427,6 @@
                 html += `<button type="button" class="roi-cb-btn icon${active}" title="${_roiShapeLabel(shapeName)}" aria-label="${_roiShapeLabel(shapeName)}" onclick="event.stopPropagation(); _roiSetShape('${shapeName}')">${icon}</button>`;
             }
             html += '</div>';
-            html += '<div class="roi-cb-sep roi-floodfill-sensitivity" aria-hidden="true"></div>';
-            html += `<button type="button" class="roi-cb-btn icon" title="ROI stats" aria-label="ROI stats" onclick="event.stopPropagation(); _roiOpenManager()">${_ROI_ACTION_ICONS.stats}</button>`;
-            html += `<button type="button" class="roi-cb-btn icon" title="Clear ROIs" aria-label="Clear ROIs" ${_rois.length ? '' : 'disabled'} onclick="event.stopPropagation(); if (_rois.length) _roiClearAll()">${_ROI_ACTION_ICONS.clear}</button>`;
             containers.forEach(el => { el.innerHTML = html; });
         }
 

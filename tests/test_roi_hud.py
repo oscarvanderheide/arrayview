@@ -64,16 +64,15 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
     page.screenshot(path=str(output / f"roi_hud_{mode}.png"))
     hud_box = page.locator("#roi-stats-hud").bounding_box()
     assert hud_box and hud_box["x"] >= 0 and hud_box["y"] >= 0
-    # Stress the real rendered table with short/long measurements; columns and
-    # the floating panel must stay put while values change.
-    original_cells = row.locator("td").all_text_contents()[1:3]
-    column_bounds = [cell.bounding_box() for cell in row.locator("td").all()]
-    for values in (["0", "1"], ["-123456789.1234", "0.0000000000001234"]):
-        row.evaluate("(row, values) => values.forEach((value, i) => row.cells[i + 1].textContent = value)", values)
-        page.screenshot(path=str(output / f"roi_hud_width_{mode}_{len(values[0])}.png"))
-        assert page.locator("#roi-stats-hud").bounding_box()["width"] == hud_box["width"]
-        assert [cell.bounding_box()["width"] for cell in row.locator("td").all()] == [cell["width"] for cell in column_bounds]
-    row.evaluate("(row, values) => values.forEach((value, i) => row.cells[i + 1].textContent = value)", original_cells)
+    # The ROI identifier should occupy a compact column next to its measurements.
+    columns = [cell.bounding_box() for cell in row.locator("td").all()]
+    assert columns[0]["width"] < 65
+    assert hud_box["width"] < 300
+    page.locator(".roi-hud-details").click()
+    page.locator("#export-overlay.visible").wait_for(state="visible")
+    assert page.locator("#export-title").inner_text() == "ROI stats"
+    page.keyboard.press("Escape")
+    page.locator("#export-overlay").wait_for(state="hidden")
     assert hud_box["x"] + hud_box["width"] <= page.viewport_size["width"]
     if mode == "normal":
         assert hud_box["x"] >= box["x"] + box["width"], "HUD should use available space outside the image"
@@ -98,14 +97,14 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         page.mouse.move(box["x"] + box["width"] * .35, box["y"] + box["height"] * .78, steps=10)
         page.mouse.up()
         page.wait_for_function("() => document.querySelectorAll('.roi-hud-row').length === 2")
-        assert page.locator("#roi-stats-hud").bounding_box()["width"] == hud_box["width"]
+        assert page.locator("#roi-stats-hud").bounding_box()["width"] < 300
         selected = page.evaluate("() => _selectedRoiIdx")
         row.hover()
         assert page.evaluate("() => _roiHudHoverIdx") == 0
         assert page.evaluate("() => _selectedRoiIdx") == selected == 1
         page.focus("#keyboard-sink")
         for theme in range(4):
-            page.keyboard.press("T")
+            page.keyboard.press("Shift+T")
             page.wait_for_timeout(100)
             assert row.is_visible()
             page.screenshot(path=str(output / f"roi_hud_theme_{theme}.png"))
@@ -125,7 +124,7 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         assert row.locator("td").all_text_contents()[1:3] == expected
 
     # The header can relocate the HUD, and resize keeps it in the viewport.
-    grip = page.locator(".roi-hud-grip")
+    grip = page.locator(".roi-hud-grip").first
     grip_box = grip.bounding_box()
     page.mouse.move(grip_box["x"] + 10, grip_box["y"] + 5)
     page.mouse.down()
@@ -142,3 +141,4 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         page.locator(".roi-hud-delete").first.click()
         page.wait_for_function("count => _rois.length === count - 1", arg=count)
     page.locator("#roi-stats-hud").wait_for(state="hidden")
+
