@@ -42702,6 +42702,28 @@
                 if (xh) { xh.style.top = Math.round(fy * h) + 'px'; xh.style.display = 'block'; }
                 if (xv) { xv.style.left = Math.round(fx * w) + 'px'; xv.style.display = 'block'; }
             });
+            _reconcileCompareCrosshairCursor(srcCv);
+        }
+        function _reconcileCompareCrosshairCursor(activeCv = null) {
+            _allCrosshairCanvases().forEach(cv => {
+                if (cv === activeCv) {
+                    const cursor = cv.style.cursor;
+                    // Preserve interaction-specific affordances such as pan,
+                    // crop resize, and ROI editing. The ordinary compare
+                    // crosshair is redundant while the synchronized lines are
+                    // visible, so hide only that pointer.
+                    if (!cursor || cursor === 'crosshair' || cursor === 'none') {
+                        if (!Object.hasOwn(cv.dataset, 'crosshairCursor')) {
+                            cv.dataset.crosshairCursor = cursor;
+                        }
+                        cv.style.cursor = 'none';
+                    }
+                    return;
+                }
+                if (!Object.hasOwn(cv.dataset, 'crosshairCursor')) return;
+                if (cv.style.cursor === 'none') cv.style.cursor = cv.dataset.crosshairCursor;
+                delete cv.dataset.crosshairCursor;
+            });
         }
         function hideCompareCrosshairs() {
             _allCrosshairCanvases().forEach(cv => {
@@ -42709,6 +42731,7 @@
                 if (!inner) return;
                 inner.querySelectorAll('.cmp-xhair-h,.cmp-xhair-v').forEach(el => { el.style.display = 'none'; });
             });
+            _reconcileCompareCrosshairCursor();
         }
 
         // ── 9. Pinch to zoom ──────────────────────────────────────────

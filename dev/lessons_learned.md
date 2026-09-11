@@ -530,3 +530,10 @@ A gap below a canvas can already contain its colorbar. Place floating controls
 using the visible pane bounds and exclude adjacent chrome, then fall back to a
 draggable in-pane position. An unclipped canvas rectangle can extend beyond
 its pane during zoom and is not a safe placement boundary.
+
+## A Drawn Crosshair Owns the Pointer It Replaces
+
+When synchronized crosshair lines are visible over a pane, the native
+crosshair cursor is duplicate visual feedback. Hide it from the pane that owns
+the pointer, restore it when the lines hide, and preserve higher-priority
+affordances such as panning and resize handles.

@@ -6207,6 +6207,31 @@ class TestNormalInspectInteractions:
         page.wait_for_timeout(120)
         page.keyboard.press("v")
 
+    def test_split_crosshair_hides_native_cursor(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.evaluate("async () => { await enterDetachedDimMode(0); }")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_function("() => compareFrames.length === 2 && !compareRendering", timeout=5_000)
+
+        pane = page.locator("#compare-left-canvas")
+        cx, cy = _center_of(pane)
+        page.mouse.move(cx, cy)
+        page.wait_for_timeout(120)
+
+        state = page.evaluate(
+            """() => {
+                const canvas = document.getElementById('compare-left-canvas');
+                const inner = canvas.closest('.compare-canvas-inner');
+                return {
+                    cursor: getComputedStyle(canvas).cursor,
+                    horizontal: getComputedStyle(inner.querySelector('.cmp-xhair-h')).display,
+                    vertical: getComputedStyle(inner.querySelector('.cmp-xhair-v')).display,
+                };
+            }"""
+        )
+        assert state == {"cursor": "none", "horizontal": "block", "vertical": "block"}
+
     def test_ortho_hover_dimbar_reads_out_all_three_axes(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
