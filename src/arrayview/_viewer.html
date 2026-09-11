@@ -9346,7 +9346,12 @@
             // Update cursor on compare canvases
             const overflowing = comparePan.overflows;
             compareCanvases.forEach(cv => {
-                if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair';
+                if (!cv) return;
+                // Synchronized crosshairs own the pointer while they are
+                // visible. A redraw after scrolling must not restore the
+                // ordinary cursor before the pointer next moves.
+                if (cv.style.cursor === 'none' && Object.hasOwn(cv.dataset, 'crosshairCursor')) return;
+                cv.style.cursor = overflowing ? 'grab' : 'crosshair';
             });
             if (bigLeftCompare && _showCompareSharedSourceCb()) {
                 const _sharedSourceClip = (compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
