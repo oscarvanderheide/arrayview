@@ -10036,6 +10036,23 @@
             });
         }
 
+        function _waitForCompareCenterVisualReady(mode, timeoutMs = 5000) {
+            if (mode === 0) return _waitForCompareVisualReady(2, timeoutMs);
+            const started = performance.now();
+            return new Promise(resolve => {
+                const check = () => {
+                    const diffReady = mode < 1 || mode > 3
+                        || (_diffCanvasMode === mode && !_diffFetchActive && !_diffFetchPending);
+                    if (!diffReady && performance.now() - started < timeoutMs) {
+                        requestAnimationFrame(check);
+                        return;
+                    }
+                    requestAnimationFrame(() => requestAnimationFrame(resolve));
+                };
+                requestAnimationFrame(check);
+            });
+        }
+
         function _setCompareCenterMode(newMode) {
             const previousMode = compareCenterMode;
             const transition = _beginCompareCenterHandoff(previousMode, newMode);
@@ -27509,8 +27526,17 @@
                         return;
                     }
                     const nextMode = _nextCompareCenterModeValue();
-                    _setCompareCenterMode(nextMode);
-                    _showCompareCenterModePicker();
+                    const changesPaneCount = compareCenterMode === 0 || nextMode === 0;
+                    if (changesPaneCount) {
+                        crossfade(async () => {
+                            _setCompareCenterMode(nextMode);
+                            await _waitForCompareCenterVisualReady(nextMode);
+                            _showCompareCenterModePicker();
+                        });
+                    } else {
+                        _setCompareCenterMode(nextMode);
+                        _showCompareCenterModePicker();
+                    }
                     return;
                 },
             },

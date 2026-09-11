@@ -1488,6 +1488,54 @@ class TestKeyboard:
             f"but they moved by {max_shift:.2f}px"
         )
 
+    def test_compare_center_entry_fades_through_black(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.evaluate(
+            """() => {
+                activeDim = [...Array(shape.length).keys()].find(d => _canDetachDim(d));
+            }"""
+        )
+        page.keyboard.press("Shift+S")
+        page.wait_for_function(
+            "() => !_crossfading && detachedDimMode && compareFrames.length === 2 && !compareRendering",
+            timeout=5_000,
+        )
+        page.wait_for_function(
+            "() => Number.parseFloat(getComputedStyle(document.getElementById('wrapper')).opacity) >= 0.99",
+            timeout=2_000,
+        )
+        page.evaluate(
+            """() => {
+                window.__centerEntryFrames = [];
+                const started = performance.now();
+                const sample = () => {
+                    window.__centerEntryFrames.push({
+                        t: performance.now() - started,
+                        opacity: Number.parseFloat(getComputedStyle(document.getElementById('wrapper')).opacity),
+                        mode: compareCenterMode,
+                    });
+                    if (performance.now() - started < 1200) requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+            }"""
+        )
+
+        page.keyboard.press("Shift+X")
+        page.wait_for_function(
+            "() => compareCenterMode === 1 && _diffCanvasMode === 1 && !_diffFetchActive",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(300)
+        frames = page.evaluate("() => window.__centerEntryFrames")
+
+        assert min(frame["opacity"] for frame in frames) <= 0.05
+        switched = next(frame for frame in frames if frame["mode"] == 1)
+        assert switched["opacity"] <= 0.1, (
+            "the center pane should be introduced while the split view is hidden"
+        )
+        assert frames[-1]["opacity"] >= 0.99
+
     def test_shift_x_enters_split_for_single_array(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         _focus_kb(page)

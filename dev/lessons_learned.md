@@ -550,3 +550,9 @@ An asynchronous mode switch is not visually ready when its setup function
 returns. Keep the old view faded out until the first real frames have arrived
 and every queued layout pass has painted; otherwise the new panes resize after
 they are already visible.
+
+## Pane-Count Changes Share One Transition Contract
+
+Adding or removing a center pane should use the same fade-out, settled layout,
+and fade-in sequence as entering the surrounding split view. Cycling content
+inside an unchanged layout does not need a full-screen transition.
