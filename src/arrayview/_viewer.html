@@ -16214,7 +16214,10 @@
             const [sid_a, sid_b] = sids;
             const autoRangeKey = JSON.stringify([
                 sid_a, sid_b, diffMode, complexMode, logScale,
-                detachedDimMode ? [detachedDim, detachedDimIndexA, detachedDimIndexB] : null,
+                // The displayed pair changes whenever split view moves through
+                // its dimension. That changes the pixels, not the display
+                // range the user selected for this comparison.
+                detachedDimMode ? detachedDim : null,
             ]);
             if (_diffAutoRangeKey !== autoRangeKey) {
                 _diffAutoRangeKey = autoRangeKey;

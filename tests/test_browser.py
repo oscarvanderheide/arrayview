@@ -4831,6 +4831,64 @@ class TestCompareDiffRange:
             ), f"center mode {mode} changed its display range while scrolling: {before} -> {after}"
             assert after["labels"] == before["labels"]
 
+    def test_auto_range_stays_fixed_when_split_scrolls_center_pane(
+        self, loaded_viewer, sid_3d
+    ):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.evaluate("async () => { await enterDetachedDimMode(0); }")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_function("() => compareFrames.length === 2 && !compareRendering", timeout=5_000)
+        pane = page.locator("#compare-diff-canvas")
+        for mode in (1, 2, 3):
+            page.evaluate("mode => _setCompareCenterMode(mode)", mode)
+            page.wait_for_function(
+                "mode => _diffCanvasMode === mode && !_diffFetchActive && !!_diffCanvasKey",
+                arg=mode,
+                timeout=5_000,
+            )
+            page.wait_for_timeout(400)
+            cx, cy = _center_of(pane)
+
+            before = page.evaluate(
+                """() => ({
+                    a: detachedDimIndexA,
+                    b: detachedDimIndexB,
+                    vmin: _lastDiffVmin,
+                    vmax: _lastDiffVmax,
+                    key: _diffCanvasKey,
+                    labels: [
+                        document.getElementById('compare-diff-pane-cb-vmin').textContent,
+                        document.getElementById('compare-diff-pane-cb-vmax').textContent,
+                    ],
+                })"""
+            )
+            page.mouse.move(cx, cy)
+            page.mouse.wheel(0, -320)
+            page.wait_for_function(
+                """before => !compareRendering && !_diffFetchActive
+                    && (detachedDimIndexA !== before.a || detachedDimIndexB !== before.b)
+                    && _diffCanvasKey !== before.key""",
+                arg=before,
+                timeout=5_000,
+            )
+            page.wait_for_timeout(400)
+
+            after = page.evaluate(
+                """() => ({
+                    vmin: _lastDiffVmin,
+                    vmax: _lastDiffVmax,
+                    labels: [
+                        document.getElementById('compare-diff-pane-cb-vmin').textContent,
+                        document.getElementById('compare-diff-pane-cb-vmax').textContent,
+                    ],
+                })"""
+            )
+            assert (after["vmin"], after["vmax"]) == pytest.approx(
+                (before["vmin"], before["vmax"])
+            ), f"split center mode {mode} changed its display range while scrolling: {before} -> {after}"
+            assert after["labels"] == before["labels"]
+
 
 class TestCompareCenterPicker:
     """The mode strip borrows the dimbar's slot, so it has to give it back."""
