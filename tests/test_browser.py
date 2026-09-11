@@ -1436,6 +1436,58 @@ class TestKeyboard:
             f"job, got {after}"
         )
 
+    def test_split_entry_finishes_layout_before_fading_in(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.evaluate(
+            """() => {
+                const dim = [...Array(shape.length).keys()].find(d => _canDetachDim(d));
+                activeDim = dim;
+                window.__splitEntryFrames = [];
+                const started = performance.now();
+                const sample = () => {
+                    const wrapper = document.getElementById('wrapper');
+                    const canvas = document.getElementById('compare-left-canvas');
+                    const rect = canvas.getBoundingClientRect();
+                    window.__splitEntryFrames.push({
+                        t: performance.now() - started,
+                        opacity: Number.parseFloat(getComputedStyle(wrapper).opacity),
+                        active: document.getElementById('compare-view-wrap').classList.contains('active'),
+                        rect: [rect.x, rect.y, rect.width, rect.height],
+                    });
+                    if (performance.now() - started < 1400) requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+            }"""
+        )
+
+        page.keyboard.press("Shift+S")
+        page.wait_for_function(
+            "() => !_crossfading && detachedDimMode && compareFrames.length === 2 && !compareRendering",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(250)
+        frames = page.evaluate("() => window.__splitEntryFrames")
+
+        hidden_at = next(
+            i for i, frame in enumerate(frames)
+            if frame["active"] and frame["opacity"] <= 0.05
+        )
+        visible_frames = [
+            frame for frame in frames[hidden_at + 1:]
+            if frame["active"] and frame["opacity"] >= 0.1 and frame["rect"][2] > 0
+        ]
+        assert visible_frames
+        final_rect = visible_frames[-1]["rect"]
+        max_shift = max(
+            max(abs(value - final_rect[i]) for i, value in enumerate(frame["rect"]))
+            for frame in visible_frames
+        )
+        assert max_shift <= 1, (
+            "split panes must reach their final position and size before the fade-in starts, "
+            f"but they moved by {max_shift:.2f}px"
+        )
+
     def test_shift_x_enters_split_for_single_array(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
         _focus_kb(page)

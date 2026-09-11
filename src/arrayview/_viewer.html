@@ -27550,7 +27550,7 @@
                         return;
                     }
                     const dim = activeDim;
-                    crossfade(() => { enterDetachedDimMode(dim); });
+                    crossfade(() => enterDetachedDimMode(dim));
                     return;
                 },
             },
@@ -31278,6 +31278,25 @@
 
 
         // --------------- Side-by-side compare ---------------
+        function _waitForCompareVisualReady(expectedPanes, timeoutMs = 5000) {
+            const started = performance.now();
+            return new Promise(resolve => {
+                const check = () => {
+                    const ready = compareActive
+                        && compareFrames.slice(0, expectedPanes).filter(Boolean).length === expectedPanes
+                        && !compareRendering;
+                    if (!ready && performance.now() - started < timeoutMs) {
+                        requestAnimationFrame(check);
+                        return;
+                    }
+                    // Compare layout intentionally scales once now and once on
+                    // the next frame. Keep the fade down until both passes paint.
+                    requestAnimationFrame(() => requestAnimationFrame(resolve));
+                };
+                requestAnimationFrame(check);
+            });
+        }
+
         async function enterDetachedDimMode(dim) {
             if (!_canDetachDim(dim)) {
                 showStatus('compare: choose a non-spatial dimension with at least 2 indices');
@@ -31303,6 +31322,7 @@
             updateCompareTitles();
             renderInfo();
             _setCompareCenterMode(0);
+            await _waitForCompareVisualReady(2);
             showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
             saveState();
             return true;

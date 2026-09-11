@@ -543,3 +543,10 @@ affordances such as panning and resize handles.
 Do not overwrite a calculated pane's automatic display range from every slice
 response. Keep that range separate from manual bounds, reuse it while
 navigating, and reseed it only when the compared inputs or formula changes.
+
+## Fade-In Readiness Means Painted Geometry
+
+An asynchronous mode switch is not visually ready when its setup function
+returns. Keep the old view faded out until the first real frames have arrived
+and every queued layout pass has painted; otherwise the new panes resize after
+they are already visible.
