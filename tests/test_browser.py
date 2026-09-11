@@ -4655,6 +4655,83 @@ class TestROIDrag:
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
+class TestCompareDiffRange:
+    def test_auto_range_stays_fixed_while_scrolling_center_pane(
+        self, loaded_viewer, client, tmp_path
+    ):
+        yy, xx = np.mgrid[:32, :32]
+        gradient = (xx + 2 * yy).astype(np.float32) + 10
+        base = np.stack([gradient, gradient], axis=0)
+        other = np.stack([
+            gradient + 0.02 * np.sin(xx).astype(np.float32),
+            np.flipud(gradient) + 0.4 * np.sin(xx * yy).astype(np.float32),
+        ])
+        sids = []
+        for name, array in (("diff_range_a", base), ("diff_range_b", other)):
+            path = tmp_path / f"{name}.npy"
+            np.save(path, array)
+            sids.append(client.post(
+                "/load", json={"filepath": str(path), "name": name}
+            ).json()["sid"])
+
+        page = loaded_viewer(sids[0])
+        _focus_kb(page)
+        _enter_compare(page, sids[1])
+
+        for mode in (1, 2, 3):
+            page.evaluate(
+                """mode => {
+                    indices[current_slice_dim] = 0;
+                    _setCompareCenterMode(mode);
+                    updateView();
+                }""",
+                mode,
+            )
+            page.wait_for_function(
+                "mode => _diffCanvasMode === mode && !_diffFetchActive && !!_diffCanvasKey",
+                arg=mode,
+                timeout=5_000,
+            )
+            page.wait_for_timeout(800)
+            before = page.evaluate(
+                """() => ({
+                    index: indices[current_slice_dim],
+                    vmin: _lastDiffVmin,
+                    vmax: _lastDiffVmax,
+                    key: _diffCanvasKey,
+                    labels: [
+                        document.getElementById('compare-diff-pane-cb-vmin').textContent,
+                        document.getElementById('compare-diff-pane-cb-vmax').textContent,
+                    ],
+                })"""
+            )
+            pane = page.locator("#compare-diff-canvas")
+            cx, cy = _center_of(pane)
+            page.mouse.move(cx, cy)
+            page.mouse.wheel(0, -320)
+            page.wait_for_function(
+                "before => indices[current_slice_dim] !== before.index && _diffCanvasKey !== before.key && !_diffFetchActive",
+                arg=before,
+                timeout=5_000,
+            )
+            page.wait_for_timeout(800)
+            after = page.evaluate(
+                """() => ({
+                    index: indices[current_slice_dim],
+                    vmin: _lastDiffVmin,
+                    vmax: _lastDiffVmax,
+                    labels: [
+                        document.getElementById('compare-diff-pane-cb-vmin').textContent,
+                        document.getElementById('compare-diff-pane-cb-vmax').textContent,
+                    ],
+                })"""
+            )
+            assert (after["vmin"], after["vmax"]) == pytest.approx(
+                (before["vmin"], before["vmax"])
+            ), f"center mode {mode} changed its display range while scrolling: {before} -> {after}"
+            assert after["labels"] == before["labels"]
+
+
 class TestCompareCenterPicker:
     """The mode strip borrows the dimbar's slot, so it has to give it back."""
 

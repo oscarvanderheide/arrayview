@@ -537,3 +537,9 @@ When synchronized crosshair lines are visible over a pane, the native
 crosshair cursor is duplicate visual feedback. Hide it from the pane that owns
 the pointer, restore it when the lines hide, and preserve higher-priority
 affordances such as panning and resize handles.
+
+## Automatic Difference Ranges Need Their Own Lifetime
+
+Do not overwrite a calculated pane's automatic display range from every slice
+response. Keep that range separate from manual bounds, reuse it while
+navigating, and reseed it only when the compared inputs or formula changes.

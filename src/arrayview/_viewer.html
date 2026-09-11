@@ -7231,6 +7231,8 @@
         let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A| (derived from compareCenterMode)
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let _diffManualVmin = null, _diffManualVmax = null;
+        let _diffAutoVmin = null, _diffAutoVmax = null;
+        let _diffAutoRangeKey = null;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
         const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
@@ -9878,6 +9880,7 @@
             _dmenuSetRangeTarget('primary');
             _diffPresetIdx.q = 0; _diffPresetIdx.vmin = null; _diffPresetIdx.vmax = null;
             _diffManualVmin = null; _diffManualVmax = null;
+            _diffAutoVmin = null; _diffAutoVmax = null; _diffAutoRangeKey = null;
             { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } }
             _updateComparePaneSyncPairing();
         }
@@ -11819,6 +11822,11 @@
                     this._labelVminTarget = vmin;
                     this._labelVmaxTarget = vmax;
                     this._labelTransStart = performance.now();
+                    // Range labels are animated independently of the bar
+                    // shape. Keep ticking after an async render changes only
+                    // their values; otherwise the ticker advances once per
+                    // later scroll and appears to change with navigation.
+                    this.ensureAnimating();
                 }
 
                 // Interpolate current label values
@@ -16182,6 +16190,15 @@
             const sids = _diffPaneSids();
             if (!sids) return null;
             const [sid_a, sid_b] = sids;
+            const autoRangeKey = JSON.stringify([
+                sid_a, sid_b, diffMode, complexMode, logScale,
+                detachedDimMode ? [detachedDim, detachedDimIndexA, detachedDimIndexB] : null,
+            ]);
+            if (_diffAutoRangeKey !== autoRangeKey) {
+                _diffAutoRangeKey = autoRangeKey;
+                _diffAutoVmin = null;
+                _diffAutoVmax = null;
+            }
             const params = new URLSearchParams({
                 dim_x: String(dim_x),
                 dim_y: String(dim_y),
@@ -16201,12 +16218,18 @@
                 params.set('indices_b', indicesB.join(','));
             }
             if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
-            if (_diffManualVmin !== null) params.set('vmin_override', String(_diffManualVmin));
-            if (_diffManualVmax !== null) params.set('vmax_override', String(_diffManualVmax));
+            const requestVmin = _diffManualVmin ?? _diffAutoVmin;
+            const requestVmax = _diffManualVmax ?? _diffAutoVmax;
+            if (requestVmin !== null) params.set('vmin_override', String(requestVmin));
+            if (requestVmax !== null) params.set('vmax_override', String(requestVmax));
             const url = `/diff/${sid_a}/${sid_b}?${params}`;
             // Flips are applied client-side after the fetch, so two requests
             // with the same URL can still owe different pixels.
-            return { url, key: `${url}|${flip_x ? 1 : 0}${flip_y ? 1 : 0}` };
+            return {
+                url,
+                key: `${url}|${flip_x ? 1 : 0}${flip_y ? 1 : 0}`,
+                autoRangeKey,
+            };
         }
 
         /**
@@ -16282,6 +16305,14 @@
                         || requestedMode !== diffMode || !compareActive) {
                     bmp.close();
                     return;
+                }
+                if (_diffAutoRangeKey === req.autoRangeKey) {
+                    if (_diffManualVmin === null && _diffAutoVmin === null && Number.isFinite(hdrVmin)) {
+                        _diffAutoVmin = hdrVmin;
+                    }
+                    if (_diffManualVmax === null && _diffAutoVmax === null && Number.isFinite(hdrVmax)) {
+                        _diffAutoVmax = hdrVmax;
+                    }
                 }
                 const diffCanvas = document.getElementById('compare-diff-canvas');
                 diffCanvas.width = bmp.width;
