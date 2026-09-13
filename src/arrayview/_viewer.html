@@ -3906,7 +3906,11 @@
             border-radius: inherit; box-sizing: border-box;
             pointer-events: none;
         }
-        #mv-panes.mv-crosshair-cursor-hidden .mv-canvas { cursor: none; }
+        /* One switch for every ortho-style pane grid (plain multiview, compare
+           split + ortho, qMRI multiview) so a dragged crosshair hides the
+           pointer the same way regardless of which grid it lives in. */
+        body.crosshair-cursor-hidden .mv-canvas,
+        body.crosshair-cursor-hidden .qv-canvas { cursor: none; }
         .mv-pane.canvas-bordered .mv-canvas { outline: none; }
         .mv-promote-btn {
             position: absolute; top: 8px; right: 8px; z-index: 5;
@@ -7203,6 +7207,18 @@
         let mvDims = [];
         let mvDraggingView = null;
         let cmvDraggingView = null;
+        // Single source of truth for "a crosshair is being dragged in some
+        // ortho-style pane grid" — plain multiview and compare split + ortho
+        // each track their own dragged pane, but the pointer-hiding and
+        // info-cursor behavior is one rule, not one per mode. (qMRI multiview
+        // panning has no crosshair-line overlay, so it is not part of this.)
+        function _anyOrthoDragActive() {
+            return !!(mvDraggingView || cmvDraggingView);
+        }
+        function _reconcileOrthoCursorHidden() {
+            document.body.classList.toggle('crosshair-cursor-hidden', _anyOrthoDragActive());
+            _reconcileInfoCursor();
+        }
         let _mvClickFlashTimer = null; // pending crosshair flash, cancelable by a following double-click
         let _mvHoldFlashTimer = null;  // shows the crosshair once a press is clearly a hold, not a click
         // Oblique MPR state (multi-view only)
@@ -35415,6 +35431,7 @@
                             }
                         }
                         cmvDraggingView = view;
+                        _reconcileOrthoCursorHidden();
                         _cmvSetCurrentView(view);
                         _reconcileMvOrientationVisibility();
                         _cmvSetCrosshairTarget(1, sidVal);
@@ -37216,19 +37233,14 @@
         function _mvShowPressCrosshair() {
             _mvCancelPressCrosshair();
             _reconcileMvOrientationVisibility();
-            const row = document.getElementById('mv-panes');
-            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', !!mvDraggingView);
-            if (mvDraggingView && mvDraggingView.canvas) mvDraggingView.canvas.style.cursor = 'none';
-            _reconcileInfoCursor();
+            _reconcileOrthoCursorHidden();
             _mvSetCrosshairTarget(1);
         }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
             const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive);
-            const row = document.getElementById('mv-panes');
-            if (row) row.classList.toggle('mv-crosshair-cursor-hidden', false);
+            _reconcileOrthoCursorHidden();
             _mvSetCrosshairTarget(show ? 1 : 0);
-            _reconcileInfoCursor();
             _reconcileMvOrientationVisibility();
         }
         function _mvScrollHint(view) {
@@ -37797,7 +37809,6 @@
             if (cmvDraggingView) handleCmvPointer(cmvDraggingView, e);
         });
         document.addEventListener('mouseup', () => {
-            const releasedMvView = mvDraggingView;
             if (obliqueDrag) {
                 if (obliqueDrag._renderTimer) {
                     clearTimeout(obliqueDrag._renderTimer);
@@ -37817,7 +37828,7 @@
             mvNavDragPrev = null;
             mvDraggingView = null;
             cmvDraggingView = null;
-            if (releasedMvView && releasedMvView.canvas) releasedMvView.canvas.style.cursor = '';
+            _reconcileOrthoCursorHidden();
             if (_mvHoldFlashTimer) { clearTimeout(_mvHoldFlashTimer); _mvHoldFlashTimer = null; }
             _reconcileMvOrientationVisibility();
             // Sync crosshair visibility after drag ends: the pane mouseleave was
@@ -39593,7 +39604,7 @@
             const windowing = !!_bcDrag;
             const target = windowing ? null : _infoCursorPointerTarget;
             const targetIsLive = !!(target && document.documentElement.contains(target));
-            const orthoHold = !!(multiViewActive && mvDraggingView);
+            const orthoHold = _anyOrthoDragActive();
             const toolOwnsCursor = !windowing
                 && (rectRoiMode || document.body.classList.contains('ruler-mode'));
             const targetCursor = targetIsLive ? getComputedStyle(target).cursor : '';
