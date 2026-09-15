@@ -492,6 +492,10 @@
             position: absolute; top: 1px; transform: translateX(-50%);
             white-space: nowrap; opacity: 0.7;
         }
+        /* Axis level end values sit flush with the bar's edges. */
+        .cb-ticks span.cb-tick-min { transform: none; }
+        .cb-ticks span.cb-tick-max { transform: translateX(-100%); }
+        .cb-axis-ticks .roi-cb-front > .slim-cb-val, .cb-axis-ticks > .slim-cb-val { display: none; }
         /* The longhand is needed too: `.cb-wrap` (every ColorBar-built
            island) and `#mv-cb-wrap` set their own padding shorthand after
            `.cb-island`, so the variable alone never reaches them. */
@@ -11051,9 +11055,12 @@
         // ── Colorbar tick marks ──────────────────────────────────────────────
         // Interior ticks drawn on the collapsed strip. Level 0 shows only the
         // flanking vmin/vmax labels; higher levels add "nice" round values
-        // inside the bar. Cycled with `w`; every horizontal ColorBar reads it.
-        const CB_TICK_TARGETS = [0, 3, 6];   // rough tick count per level
-        const CB_TICK_LABELS  = ['off', 'few', 'many'];
+        // inside the bar. The last level ("axis") drops the big flanking
+        // labels and writes vmin/vmax at the bar's ends in the same small
+        // tick style. Cycled with `w`; every horizontal ColorBar reads it.
+        const CB_TICK_TARGETS = [0, 3, 6, 6];   // rough tick count per level
+        const CB_TICK_LABELS  = ['off', 'few', 'many', 'axis'];
+        const CB_TICK_AXIS_LEVEL = 3;           // level whose ends are ticks too
         const CB_TICK_ROW_H   = 11;          // value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
@@ -11673,10 +11680,10 @@
                 this._tickRowKey = '';
                 return row;
             }
-            _setTickRow(labels, cssW, alpha) {
+            _setTickRow(labels, cssW, alpha, axis) {
                 const row = this._tickRow;
                 if (!row) return;
-                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
+                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text + (l.end || '')).join(',') : '';
                 if (key !== this._tickRowKey) {
                     this._tickRowKey = key;
                     row.textContent = '';
@@ -11684,12 +11691,17 @@
                         const span = document.createElement('span');
                         span.textContent = l.text;
                         span.style.left = (l.x / cssW * 100) + '%';
+                        if (l.end) span.classList.add('cb-tick-' + l.end);
                         row.appendChild(span);
                     }
                 }
                 const on = !!(labels && labels.length);
                 row.style.opacity = on ? String(alpha) : '0';
-                if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
+                if (this.wrap) {
+                    this.wrap.classList.toggle('cb-has-ticks', on);
+                    // Axis level: the flanking labels give way to the end ticks.
+                    this.wrap.classList.toggle('cb-axis-ticks', !!axis && this.orientation !== 'vertical');
+                }
             }
             _tickRowClipped() {
                 if (!this.colWrap) return true;
@@ -11703,15 +11715,26 @@
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
+                const axis = _cbTickLevel === CB_TICK_AXIS_LEVEL;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
+                    // Axis level: the ends are ticks too. They are drawn
+                    // first so the round values yield to them, and they
+                    // survive even when no round value fits between them.
+                    if (axis && Number.isFinite(wLo) && Number.isFinite(wHi) && wHi > wLo) {
+                        ticks = [wLo, wHi, ...ticks];
+                    }
                 }
-                if (!ticks.length) { this._setTickRow(null); return; }
-                const fmt = formatValueGroup(ticks);
+                if (!ticks.length) { this._setTickRow(null, cssW, 0, axis); return; }
+                // The ends keep their own precision (they are rarely round)
+                // so they don't force decimals onto the round values.
+                const nEnds = axis ? 2 : 0;
+                const fmt = formatValueGroup(ticks.slice(nEnds));
+                const fmtEnds = nEnds ? formatValueGroup(ticks.slice(0, nEnds)) : null;
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
                 const notchH = inside && showText ? 3 : Math.max(2, Math.min(4, Math.round(cssH / 5)));
@@ -11729,35 +11752,43 @@
                 ctx.strokeStyle = halo;
                 const drawn = [];
                 const rowLabels = [];
-                for (const v of ticks) {
+                ticks.forEach((v, i) => {
+                    // End ticks hug the bar's edges: text is anchored so it
+                    // never sticks out past the strip, and the notch sits on
+                    // the edge itself.
+                    const end = axis && i < 2 ? (i === 0 ? 'min' : 'max') : null;
                     const f = (v - wLo) / (wHi - wLo);
-                    if (f < 0.03 || f > 0.97) continue;
-                    const x = Math.round(f * cssW);
-                    const text = fmt.format(v);
+                    if (!end && (f < 0.03 || f > 0.97)) return;
+                    const x = end ? (end === 'min' ? 0 : cssW) : Math.round(f * cssW);
+                    const text = (end ? fmtEnds : fmt).format(v);
                     const tw = ctx.measureText(text).width;
-                    const left = x - tw / 2 - 2, right = x + tw / 2 + 2;
-                    if (showText) {
+                    const left = end === 'min' ? 0 : end === 'max' ? cssW - tw - 2 : x - tw / 2 - 2;
+                    const right = end === 'min' ? tw + 2 : end === 'max' ? cssW : x + tw / 2 + 2;
+                    if (showText && !end) {
                         // The row may overhang the strip a little; inside it may not.
                         const slack = inside ? 0 : tw / 2;
-                        if (left < 1 - slack || right > cssW - 1 + slack) continue;
-                        if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) continue;
+                        if (left < 1 - slack || right > cssW - 1 + slack) return;
+                        if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) return;
                     }
-                    if (inside) ctx.fillRect(x, 0, 1, notchH);
-                    ctx.fillRect(x, cssH - notchH, 1, notchH);
+                    const nx = end === 'max' ? cssW - 1 : x;
+                    if (inside) ctx.fillRect(nx, 0, 1, notchH);
+                    ctx.fillRect(nx, cssH - notchH, 1, notchH);
                     if (showText) {
                         if (inside) {
                             // A stable theme halo keeps values legible without
                             // making each tick react to the colormap beneath it.
-                            ctx.strokeText(text, x, cssH / 2 + 0.5);
-                            ctx.fillText(text, x, cssH / 2 + 0.5);
+                            ctx.textAlign = end === 'min' ? 'left' : end === 'max' ? 'right' : 'center';
+                            const tx = end === 'min' ? 2 : end === 'max' ? cssW - 2 : x;
+                            ctx.strokeText(text, tx, cssH / 2 + 0.5);
+                            ctx.fillText(text, tx, cssH / 2 + 0.5);
                         } else {
-                            rowLabels.push({ x, text });
+                            rowLabels.push({ x, text, end });
                         }
                         drawn.push({ left, right });
                     }
-                }
+                });
                 ctx.restore();
-                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha);
+                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha, axis);
             }
 
             /**
@@ -28111,7 +28142,7 @@
                             { key: 'Drag bar', action: 'Shift the visible range up or down' },
                             { key: 'Dbl-click', action: 'Expand histogram' },
                             { key: 'Dbl-click label', action: 'Type an exact min or max value' },
-                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many · round values inside the bar' },
+                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many → axis · axis moves min/max into the tick row' },
                         ]
                     },
                     {
