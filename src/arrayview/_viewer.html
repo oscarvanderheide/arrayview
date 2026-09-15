@@ -35496,11 +35496,21 @@
             compareMvRender(v);
         }
 
+        function _qmriMvRenderPaneOnly(v) {
+            v.seq++;
+            v.lastImageData = null;
+            v.lastW = 0; v.lastH = 0;
+            v.rendering = false; v.pending = false;
+            qmriMvDrawFrame(v);
+            qmriMvRender(v);
+        }
+
         // Dispatcher used by the transpose/rotate keyboard commands so they work
-        // identically whether ortho is showing one array (mvViews) or several
-        // (compareMvViews). Compare mode applies the change to the whole column
-        // (that plane, across every compared array) rather than just the hovered
-        // pane, since compare mode's point is viewing co-registered arrays from
+        // identically whether ortho is showing one array (mvViews), several
+        // (compareMvViews), or qMRI's own per-map 3-plane view (qmriMvViews).
+        // Compare mode applies the change to the whole column (that plane,
+        // across every compared array) rather than just the hovered pane,
+        // since compare mode's point is viewing co-registered arrays from
         // the same perspective — matching how wheel-scroll already keeps rows
         // in sync (see compareMv pane 'wheel' listener).
         function _orthoTransposeTargets() {
@@ -35514,6 +35524,13 @@
                 const pi = compareMvViews.indexOf(v) % 3;
                 const views = compareMvViews.filter((_, idx) => idx % 3 === pi);
                 return { views, renderOne: _cmvRenderPaneOnly };
+            }
+            if (qmriMvActive) {
+                const v = _orthoCurrentPane(qmriMvViews, _hoveredQmriMvView);
+                if (!v) return null;
+                const pi = qmriMvViews.indexOf(v) % 3;
+                const views = qmriMvViews.filter((_, idx) => idx % 3 === pi);
+                return { views, renderOne: _qmriMvRenderPaneOnly };
             }
             return null;
         }

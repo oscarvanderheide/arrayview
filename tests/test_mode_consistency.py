@@ -934,6 +934,32 @@ class TestQmriMultiview:
         page.wait_for_timeout(600)
         assert not page.is_visible("#qmri-view-wrap.active")
 
+    def test_r_rotates_matching_plane_for_every_qmap(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function(
+            "() => qmriMvActive && qmriMvViews.length === 9 "
+            "&& qmriMvViews.every(v => v.lastW && v.lastH)",
+            timeout=10_000,
+        )
+        target = page.locator("#qmri-view-wrap .qmri-mv-row").first.locator(".qv-canvas").nth(1)
+        target.hover()
+        page.wait_for_function("() => !!_hoveredQmriMvView")
+        state_js = """() => qmriMvViews.map(v => ({
+            dimX: v.dimX, dimY: v.dimY, flipX: v.flipX, flipY: v.flipY,
+        }))"""
+        before = page.evaluate(state_js)
+        _focus_kb(page)
+        page.keyboard.press("r")
+        after = page.evaluate(state_js)
+
+        for i, (old, new) in enumerate(zip(before, after, strict=True)):
+            if i % 3 == 1:
+                assert new != old, f"matching plane {i} did not rotate"
+            else:
+                assert new == old, f"unrelated plane {i} changed"
+
     def test_d_opens_then_cycles_hovered_row_and_dismisses_cleanly(
         self, loaded_viewer, sid_4d
     ):
