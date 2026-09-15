@@ -34225,6 +34225,16 @@
                         }
                     });
                     cv.addEventListener('mousedown', (e) => {
+                        // Zoomed past the frame: plain left-drag pans, as in
+                        // normal mode, before any other left-click action.
+                        if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey
+                            && !_cropActive && !_segMode && !_rulerMode
+                            && _usesQmriPaneZoom(cv) && qvPan.overflows) {
+                            e.preventDefault(); sink.focus();
+                            qvPan.startDrag(e);
+                            _reconcileQvZoomCursor();
+                            return;
+                        }
                         if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                             && !_cropActive && !_segMode && !_rulerMode) {
                             if (!e.ctrlKey && _bcCanDrag()) _qmriArmWindowLevel(view, e);
@@ -37029,6 +37039,8 @@
             }
             fixWrapperAlignment();
             if (rectRoiMode) _drawAllQvRois();
+            _reconcileQvZoomCursor();
+            updateMiniMap();
             requestAnimationFrame(() => {
                 if (qmriActive) {
                     qmriViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
@@ -38603,13 +38615,28 @@
             if (comparePan.updateDrag(e)) {
                 updateMiniMapViewport();
             }
+            if (qvPan.updateDrag(e)) updateMiniMap();
         });
         window.addEventListener('mouseup', () => {
             if (comparePan.endDrag()) {
                 const overflowing = comparePan.overflows;
                 compareCanvases.forEach(cv => { if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair'; });
             }
+            if (qvPan.endDrag()) _reconcileQvZoomCursor();
         });
+        /** Hand cursor on qMRI panes while they overflow their frames.
+         *  Only the grab/grabbing values are ever written or cleared here,
+         *  so ROI editing and the loupe keep their own cursors. */
+        function _reconcileQvZoomCursor() {
+            const zoomed = _usesQmriPaneZoom(qmriViews[0]?.canvas) && qvPan.overflows;
+            for (const v of qmriViews) {
+                const cv = v.canvas;
+                if (!cv) continue;
+                const want = zoomed && !rectRoiMode ? (qvPan.dragging ? 'grabbing' : 'grab') : '';
+                if (want) cv.style.cursor = want;
+                else if (cv.style.cursor === 'grab' || cv.style.cursor === 'grabbing') cv.style.cursor = '';
+            }
+        }
         // Dynamically create crosshair elements in compare panes (including diff canvas)
         const _allCrosshairCanvases = () => {
             const cvs = compareCanvases.filter(Boolean);
@@ -42797,11 +42824,13 @@
             const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
             const compareShouldShow = compareActive && comparePan.overflows && compareFrame && !multiViewActive && !qmriActive;
             const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const qmriShouldShow = _usesQmriPaneZoom(qmriViews[0]?.canvas) && qvPan.overflows;
 
-            // ── Per-pane minimaps in compare mode ──
-            if (compareShouldShow) {
+            // ── Per-pane minimaps in compare / qMRI mode ──
+            if (compareShouldShow || qmriShouldShow) {
                 _miniMap.classList.remove('visible'); // hide global minimap
-                _updatePerPaneMinimaps();
+                if (compareShouldShow) _updatePerPaneMinimaps();
+                else _updateQvMinimaps();
                 return;
             } else {
                 _clearPerPaneMinimaps();
@@ -42864,53 +42893,84 @@
                         continue;
                     }
                 }
-                // Find or create per-pane minimap
-                let mm = clip.querySelector('.cmp-mini-map');
-                if (!mm) {
-                    mm = document.createElement('div');
-                    mm.className = 'cmp-mini-map';
-                    const mmCv = document.createElement('canvas');
-                    mmCv.width = W; mmCv.height = H;
-                    const mmVp = document.createElement('div');
-                    mmVp.className = 'cmp-mini-vp';
-                    mm.appendChild(mmCv);
-                    mm.appendChild(mmVp);
-                    clip.appendChild(mm);
-                }
-                // Position: NW for left panes, NE for right panes,
-                // SW for bottom-left, SE for bottom-right
-                mm.style.top = isBottom ? 'auto' : '6px';
-                mm.style.bottom = isBottom ? '6px' : 'auto';
-                mm.style.left = isLeft ? '6px' : 'auto';
-                mm.style.right = isRight ? '6px' : 'auto';
-                mm.classList.add('visible');
-                const mmCv = mm.querySelector('canvas');
-                const mmVp = mm.querySelector('.cmp-mini-vp');
-                // Draw thumbnail
-                mmCv.width = W; mmCv.height = H;
-                const ctx = mmCv.getContext('2d');
-                const tmp = document.createElement('canvas');
-                tmp.width = frame.width; tmp.height = frame.height;
-                tmp.getContext('2d').putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
-                ctx.drawImage(tmp, 0, 0, W, H);
-                // Draw viewport rectangle
-                const cssW = parseInt(cv.style.width) || cv.width;
-                const cssH = parseInt(cv.style.height) || cv.height;
-                const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
-                const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
-                const fx = Math.min(1, vpW / cssW);
-                const fy = Math.min(1, vpH / cssH);
-                const offFx = -comparePan.x / cssW;
-                const offFy = -comparePan.y / cssH;
-                const rW = Math.max(2, Math.round(fx * W));
-                const rH = Math.max(2, Math.round(fy * H));
-                const rX = Math.max(0, Math.min(W - rW, Math.round(offFx * W)));
-                const rY = Math.max(0, Math.min(H - rH, Math.round(offFy * H)));
-                mmVp.style.width = rW + 'px';
-                mmVp.style.height = rH + 'px';
-                mmVp.style.left = rX + 'px';
-                mmVp.style.top = rY + 'px';
+                const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth;
+                const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight;
+                _drawPaneMinimap(clip, cv, frame, comparePan, { w: vpW, h: vpH },
+                    { left: isLeft, right: isRight, bottom: isBottom });
             }
+        }
+
+        /** Find or create the small map inside a pane's clip wrapper and
+         *  draw `frame` with the rectangle that `pan` currently shows.
+         *  Corner: NW for left panes, NE for right panes, SW/SE at the
+         *  bottom. Shared by compare and qMRI panes. */
+        function _drawPaneMinimap(clip, cv, frame, pan, vp, corner) {
+            const W = 80, H = 80;
+            let mm = clip.querySelector('.cmp-mini-map');
+            if (!mm) {
+                mm = document.createElement('div');
+                mm.className = 'cmp-mini-map';
+                const mmCv = document.createElement('canvas');
+                mmCv.width = W; mmCv.height = H;
+                const mmVp = document.createElement('div');
+                mmVp.className = 'cmp-mini-vp';
+                mm.appendChild(mmCv);
+                mm.appendChild(mmVp);
+                clip.appendChild(mm);
+            }
+            mm.style.top = corner.bottom ? 'auto' : '6px';
+            mm.style.bottom = corner.bottom ? '6px' : 'auto';
+            mm.style.left = corner.left ? '6px' : 'auto';
+            mm.style.right = corner.right ? '6px' : 'auto';
+            mm.classList.add('visible');
+            const mmCv = mm.querySelector('canvas');
+            const mmVp = mm.querySelector('.cmp-mini-vp');
+            // Draw thumbnail
+            mmCv.width = W; mmCv.height = H;
+            const ctx = mmCv.getContext('2d');
+            const tmp = document.createElement('canvas');
+            tmp.width = frame.width; tmp.height = frame.height;
+            tmp.getContext('2d').putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
+            ctx.drawImage(tmp, 0, 0, W, H);
+            // Draw viewport rectangle
+            const cssW = parseInt(cv.style.width) || cv.width;
+            const cssH = parseInt(cv.style.height) || cv.height;
+            const vpW = vp.w || cssW;
+            const vpH = vp.h || cssH;
+            const fx = Math.min(1, vpW / cssW);
+            const fy = Math.min(1, vpH / cssH);
+            const offFx = -pan.x / cssW;
+            const offFy = -pan.y / cssH;
+            const rW = Math.max(2, Math.round(fx * W));
+            const rH = Math.max(2, Math.round(fy * H));
+            const rX = Math.max(0, Math.min(W - rW, Math.round(offFx * W)));
+            const rY = Math.max(0, Math.min(H - rH, Math.round(offFy * H)));
+            mmVp.style.width = rW + 'px';
+            mmVp.style.height = rH + 'px';
+            mmVp.style.left = rX + 'px';
+            mmVp.style.top = rY + 'px';
+        }
+
+        /** qMRI panes zoom and pan together, so one map per row is enough:
+         *  it sits in the row's last pane, top-right, like normal mode's. */
+        function _updateQvMinimaps() {
+            const rows = new Map();
+            for (const v of qmriViews) {
+                const clip = v.canvas && v.canvas.closest('.qv-canvas-clip');
+                const row = clip && clip.closest('.qv-row');
+                if (!row || !v.lastImageData) continue;
+                rows.set(row, { v, clip });
+            }
+            const keep = new Set();
+            for (const { v, clip } of rows.values()) {
+                _drawPaneMinimap(clip, v.canvas,
+                    { imageData: v.lastImageData, width: v.lastW, height: v.lastH },
+                    qvPan, { w: clip.offsetWidth, h: clip.offsetHeight }, { right: true });
+                keep.add(clip.querySelector('.cmp-mini-map'));
+            }
+            document.querySelectorAll('#qmri-view-wrap .cmp-mini-map').forEach(el => {
+                if (!keep.has(el)) el.classList.remove('visible');
+            });
         }
 
         function _clearPerPaneMinimaps() {
