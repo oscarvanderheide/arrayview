@@ -23146,6 +23146,26 @@
                 if (inner) inner.style.transform = (x || y) ? `translate(${x}px,${y}px)` : '';
             },
         });
+        const qvPan = new PanManager({
+            getViewport: () => {
+                const clip = qmriViews[0]?.canvas?.closest('.qv-canvas-clip');
+                return clip ? { w: clip.offsetWidth, h: clip.offsetHeight } : { w: 0, h: 0 };
+            },
+            getContent: () => {
+                const cvs = qmriViews[0]?.canvas;
+                return cvs ? {
+                    w: parseInt(cvs.style.width) || cvs.width,
+                    h: parseInt(cvs.style.height) || cvs.height,
+                } : { w: 0, h: 0 };
+            },
+            apply: (x, y) => {
+                const transform = (x || y) ? `translate(${x}px,${y}px)` : '';
+                qmriViews.forEach(v => {
+                    v.canvas.style.transform = transform;
+                    if (v.roiOverlay) v.roiOverlay.style.transform = transform;
+                });
+            },
+        });
         const mosaicPan = new PanManager({
             getViewport: () => {
                 const wrap = document.getElementById('qmri-view-wrap');
@@ -24742,7 +24762,8 @@
                 if (!view.roiOverlay && view._cvWrap) {
                     const ov = document.createElement('canvas');
                     ov.className = 'qv-roi-overlay';
-                    view._cvWrap.appendChild(ov);
+                    const clip = view.canvas.closest('.qv-canvas-clip') || view._cvWrap;
+                    clip.appendChild(ov);
                     view.roiOverlay = ov;
                     view.roiCtx = ov.getContext('2d');
                 }
@@ -33958,6 +33979,8 @@
             if (multiViewActive) exitMultiView();
             if (stackMosaicActive) exitStackMosaic();
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
+            userZoom = 1.0;
+            qvPan.reset();
             qmriActive = true;
             qmriDim = targetDim;
             _ensureQmriActiveDimVisible();
@@ -34080,6 +34103,10 @@
                     pane.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
                     pane.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
+                        if ((e.metaKey || (e.ctrlKey && !_mainLoupeInspecting())) && !e.shiftKey && !e.altKey) {
+                            onSliceWheel(e);
+                            return;
+                        }
                         e.preventDefault();
                         const delta = _wheelIndexDelta(current_slice_dim, e);
                         if (!delta) return;
@@ -34089,6 +34116,7 @@
                         _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
+                    _attachPinchHandlers(cv);
                     cv.addEventListener('mousemove', (e) => {
                         _bcMaybePromotePending(e);
                         if (!view.lastW || !view.lastH) return;
@@ -34317,6 +34345,10 @@
                     pane.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
                     pane.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
+                        if ((e.metaKey || (e.ctrlKey && !_mainLoupeInspecting())) && !e.shiftKey && !e.altKey) {
+                            onSliceWheel(e);
+                            return;
+                        }
                         e.preventDefault();
                         const delta = _wheelIndexDelta(current_slice_dim, e);
                         if (!delta) return;
@@ -34325,6 +34357,7 @@
                         qmriViews.forEach(v => qvRender(v));
                         saveState();
                     }, { passive: false });
+                    _attachPinchHandlers(cv);
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
@@ -34391,6 +34424,7 @@
             qmriMosaicActive = false;
             _qmriMosaicZDim = -1;
             _mosaicResetPan();
+            qvPan.reset();
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; } });
             const _hadRois = rectRoiMode && _rois.length;
             qmriViews = [];
@@ -36808,6 +36842,7 @@
             const n = ready.length;
 
             if (qmriMosaicActive) {
+                qvPan.reset();
                 // Mosaic mode: 1 row per parameter, each canvas is a wide horizontal strip.
                 // Enforce minimum tile size — if tiles would be too small to read,
                 // allow content to overflow the viewport and enable pan/drag.
@@ -36896,40 +36931,37 @@
             }));
             const absMaxScale = Math.min(...layoutSizes.map(({ w, h }) =>
                 Math.min(absMaxScaleW / w, absMaxScaleH / h)));
-            const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
-            // Per-pane geometry routed through the shared _scalePane primitive.
-            // qMRI non-mosaic has no per-pane pan or viewport clipping: each canvas
-            // is sized directly to fit. userZoom clamping + auto-fit are handled by
-            // _clampUniformZoom above, so updateAutoFit / allowOverflowRecalc are
-            // both false. baseScale is cappedScale/userZoom so _scalePane's
-            // finalScale = baseScale*userZoom reproduces cappedScale exactly.
-            // squareStretch is hardcoded false — qMRI panes are not square-stretched
-            // regardless of the global toggle. viewport:null and a stub pan skip the
-            // clip/pan machinery entirely.
-            const _qvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
-            const qvBaseScale = cappedScale / Math.max(0.0001, userZoom);
+            // Keep the fitted pane frames stationary while the images zoom and
+            // pan together behind them. This matches normal-mode zoom without
+            // turning the qMRI grid itself into one large scrollable viewport.
+            const qvBaseScale = absMaxScale;
             for (const { v, w, h } of layoutSizes) {
+                const clip = v.canvas.closest('.qv-canvas-clip');
+                const fittedViewport = _paneViewportAtBaseZoom(
+                    w, h, qvBaseScale, absMaxScaleW, absMaxScaleH, false,
+                );
                 _scalePane(
-                    { canvas: v.canvas, w, h, pan: _qvPanStub },
-                    null,
+                    { canvas: v.canvas, w, h, pan: qvPan },
+                    clip,
                     {
-                        maxW: Math.round(w * cappedScale),
-                        maxH: Math.round(h * cappedScale),
+                        maxW: absMaxScaleW,
+                        maxH: absMaxScaleH,
                         baseScale: qvBaseScale,
                         squareStretch: false,
                         updateAutoFit: false,
                         allowOverflowRecalc: false,
+                        forceViewport: fittedViewport,
                     }
                 );
                 // Keep colorbar island width clamped to target
                 if (v._colorBar && v._colorBar.wrap) {
-                    const qvPaneW = parseInt(v.canvas.style.width) || 0;
+                    const qvPaneW = fittedViewport.w;
                     const qvCbW = cbTargetWidth(qvPaneW);
                     v._colorBar.wrap.style.display = qvCbW == null ? 'none' : '';
                     if (qvCbW != null) v._colorBar.wrap.style.width = qvCbW + 'px';
                 }
                 if (v.syntheticId && v.paramControls) {
-                    const qvPaneW = parseInt(v.canvas.style.width) || 0;
+                    const qvPaneW = fittedViewport.w;
                     const qvControlW = cbTargetWidth(qvPaneW);
                     v.paramControls.style.display = qvControlW == null ? 'none' : 'grid';
                     if (qvControlW != null) v.paramControls.style.width = qvControlW + 'px';
@@ -36938,20 +36970,22 @@
             // Size all invisible placeholders to a real pane width so partial
             // rows preserve the same left-aligned column grid as the rows above.
             if (ready.length > 0) {
-                const placeholderWidth = ready[0].canvas.style.width;
+                const placeholderWidth = ready[0].canvas.closest('.qv-canvas-clip')?.style.width
+                    || ready[0].canvas.style.width;
                 document.querySelectorAll('#qmri-view-wrap .qv-placeholder').forEach(ph => {
                     ph.style.width = placeholderWidth;
                     ph.style.height = '1px';
                 });
             }
             fixWrapperAlignment();
+            if (rectRoiMode) _drawAllQvRois();
             requestAnimationFrame(() => {
                 if (qmriActive) {
                     qmriViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
                     positionEggs();
                 }
             });
-            return atMax ? 'max' : null;
+            return null;
         }
 
         function qvOnMessage(v, event) {
@@ -38367,7 +38401,9 @@
             // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
             // animation and surprised users.
             if ((e.metaKey || (e.ctrlKey && !_mainLoupeInspecting())) && !e.shiftKey && !e.altKey) {
-                const anchor = _captureZoomAnchor(e.clientX, e.clientY);
+                const zoomCanvas = e.currentTarget instanceof HTMLCanvasElement ? e.currentTarget : canvas;
+                const qmriPaneZoom = _usesQmriPaneZoom(zoomCanvas);
+                const anchor = _captureZoomAnchor(e.clientX, e.clientY, zoomCanvas);
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
                 const zoomBase = (_scrubRequestedZoom !== null) ? _scrubRequestedZoom : userZoom;
@@ -38376,13 +38412,22 @@
                 // settled immersive view via pinch (they must toggle with Shift+F).
                 const _wZ = lastImgW || canvas.width;
                 const _hZ = lastImgH || canvas.height;
-                const floorZ = _fullscreenActive && _wZ && _hZ
+                const floorZ = qmriPaneZoom ? 1.0 : (_fullscreenActive && _wZ && _hZ
                     ? _calcAutoFitZoom(_wZ, _hZ, true) * 1.005
-                    : _normalFitZoom;
+                    : _normalFitZoom);
                 const desiredZoom = Math.max(floorZ, Math.min(10.0, zoomBase * factor));
                 _scrubRequestedZoom = null;
                 userZoom = desiredZoom;
-                if (!_snapZoomToFit()) {
+                let snapped = false;
+                if (qmriPaneZoom && Math.abs(userZoom - 1.0) < 0.02) {
+                    userZoom = 1.0;
+                    _zoomAdjustedByUser = false;
+                    qvPan.reset();
+                    snapped = true;
+                } else if (!qmriPaneZoom) {
+                    snapped = _snapZoomToFit();
+                }
+                if (!snapped) {
                     _zoomAdjustedByUser = true;
                 }
                 ModeRegistry.scaleAll();
@@ -43048,13 +43093,22 @@
          *  getBoundingClientRect so CSS centering + existing pan translate
          *  are both captured without having to reason about them manually.
          *  Returns null when the canvas hasn't laid out yet. */
-        function _captureZoomAnchor(clientX, clientY) {
-            const r = canvas.getBoundingClientRect();
+        function _usesQmriPaneZoom(cvs) {
+            return !!cvs && qmriActive && !qmriMosaicActive && !qmriMvActive
+                && qmriViews.some(v => v.canvas === cvs);
+        }
+        function _zoomPanForCanvas(cvs) {
+            return _usesQmriPaneZoom(cvs) ? qvPan : mainPan;
+        }
+        function _captureZoomAnchor(clientX, clientY, targetCanvas = canvas) {
+            const r = targetCanvas.getBoundingClientRect();
             if (!r.width || !r.height) return null;
             return {
                 clientX, clientY,
                 fracX: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
                 fracY: Math.max(0, Math.min(1, (clientY - r.top)  / r.height)),
+                canvas: targetCanvas,
+                pan: _zoomPanForCanvas(targetCanvas),
             };
         }
         /** After userZoom has been applied (scaleAll), shift pan so the
@@ -43063,14 +43117,14 @@
          *  pan translates in the same coordinate system. */
         function _applyZoomAnchor(anchor) {
             if (!anchor) return;
-            const r = canvas.getBoundingClientRect();
+            const r = anchor.canvas.getBoundingClientRect();
             if (!r.width || !r.height) return;
             const currentX = r.left + anchor.fracX * r.width;
             const currentY = r.top  + anchor.fracY * r.height;
-            mainPan.x += anchor.clientX - currentX;
-            mainPan.y += anchor.clientY - currentY;
-            mainPan.clamp();
-            mainPan.apply();
+            anchor.pan.x += anchor.clientX - currentX;
+            anchor.pan.y += anchor.clientY - currentY;
+            anchor.pan.clamp();
+            anchor.pan.apply();
         }
         function _reconcileZoomCursor() {
             const normalNavigationOwnsCursor = !compareActive && !multiViewActive && !qmriActive
@@ -43088,7 +43142,7 @@
                 _pinchDist0 = _pinchDist(e.touches);
                 _pinchZoom0 = userZoom;
                 const c = _pinchCentroid(e.touches);
-                _pinchAnchor = _captureZoomAnchor(c.x, c.y);
+                _pinchAnchor = _captureZoomAnchor(c.x, c.y, e.currentTarget);
                 e.preventDefault();
             }
         }
@@ -43097,7 +43151,8 @@
                 e.preventDefault();
                 const d = _pinchDist(e.touches);
                 // Direct ratio — touch events are smoothly sampled, no dampening needed
-                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * (d / _pinchDist0)));
+                const floorZoom = _usesQmriPaneZoom(e.currentTarget) ? 1.0 : 0.1;
+                userZoom = Math.max(floorZoom, Math.min(10, _pinchZoom0 * (d / _pinchDist0)));
                 _zoomAdjustedByUser = true;
                 ModeRegistry.scaleAll();
                 _applyZoomAnchor(_pinchAnchor);
@@ -43109,11 +43164,15 @@
                 saveState();
             }
         }
-        [canvas, ...compareCanvases].forEach(el => {
+        function _attachPinchHandlers(el) {
             el.addEventListener('touchstart', _onTouchStart, { passive: false });
             el.addEventListener('touchmove',  _onTouchMove,  { passive: false });
             el.addEventListener('touchend',   _onTouchEnd,   { passive: false });
-        });
+            el.addEventListener('gesturestart', _onGestureStart, { passive: false });
+            el.addEventListener('gesturechange', _onGestureChange, { passive: false });
+            el.addEventListener('gestureend', _onGestureEnd, { passive: false });
+        }
+        [canvas, ...compareCanvases].forEach(_attachPinchHandlers);
 
         // ── 9b. Safari pinch-to-zoom (GestureEvent) ─────────────────────
         let _gestureStartZoom = null;
@@ -43121,12 +43180,13 @@
         function _onGestureStart(e) {
             e.preventDefault();
             _gestureStartZoom = userZoom;
-            _gestureAnchor = _captureZoomAnchor(e.clientX, e.clientY);
+            _gestureAnchor = _captureZoomAnchor(e.clientX, e.clientY, e.currentTarget);
         }
         function _onGestureChange(e) {
             e.preventDefault();
             // e.scale is cumulative from gesturestart — multiply against cached start
-            userZoom = Math.max(_normalFitZoom, Math.min(10.0, _gestureStartZoom * e.scale));
+            const floorZoom = _usesQmriPaneZoom(e.currentTarget) ? 1.0 : _normalFitZoom;
+            userZoom = Math.max(floorZoom, Math.min(10.0, _gestureStartZoom * e.scale));
             _zoomAdjustedByUser = true;
             ModeRegistry.scaleAll();
             _applyZoomAnchor(_gestureAnchor);
@@ -43137,12 +43197,6 @@
             _gestureAnchor = null;
             saveState();
         }
-        [canvas, ...compareCanvases].forEach(el => {
-            el.addEventListener('gesturestart',  _onGestureStart,  { passive: false });
-            el.addEventListener('gesturechange', _onGestureChange, { passive: false });
-            el.addEventListener('gestureend',    _onGestureEnd,    { passive: false });
-        });
-
         // Track mouse-over center pane (diff / wipe) for 'c' colormap cycling
         ['compare-diff-pane', 'compare-wipe-pane'].forEach(id => {
             const el = document.getElementById(id);

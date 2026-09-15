@@ -552,6 +552,121 @@ class TestQmriWorks:
         )
         assert state["qmriDim"] not in state["scope"]
 
+    def test_trackpad_pinch_zoom_stays_inside_fixed_panes(self, loaded_viewer, sid_4d):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        page.wait_for_function("() => qmriViews.every(v => v.lastW && v.lastH)")
+        before = page.evaluate(
+            """() => {
+                const clips = [...document.querySelectorAll('#qmri-view-wrap .qv-canvas-clip')];
+                const canvases = [...document.querySelectorAll('#qmri-view-wrap .qv-canvas')];
+                const wrap = document.getElementById('qmri-view-wrap');
+                const rect = el => {
+                    const r = el.getBoundingClientRect();
+                    return { x: r.x, y: r.y, width: r.width, height: r.height };
+                };
+                const target = canvases[0];
+                const tr = target.getBoundingClientRect();
+                const anchor = { x: tr.left + tr.width * 0.3, y: tr.top + tr.height * 0.4 };
+                return {
+                    zoom: userZoom,
+                    indices: [...indices],
+                    clips: clips.map(rect),
+                    canvases: canvases.map(rect),
+                    wrapper: {
+                        clientWidth: wrap.clientWidth, clientHeight: wrap.clientHeight,
+                        scrollWidth: wrap.scrollWidth, scrollHeight: wrap.scrollHeight,
+                        scrollLeft: wrap.scrollLeft, scrollTop: wrap.scrollTop,
+                    },
+                    anchor,
+                    anchorFrac: {
+                        x: (anchor.x - tr.left) / tr.width,
+                        y: (anchor.y - tr.top) / tr.height,
+                    },
+                };
+            }"""
+        )
+        page.evaluate(
+            """anchor => {
+                const canvas = document.querySelector('#qmri-view-wrap .qv-canvas');
+                canvas.dispatchEvent(new WheelEvent('wheel', {
+                    bubbles: true, cancelable: true, deltaY: -100,
+                    ctrlKey: true, clientX: anchor.x, clientY: anchor.y,
+                }));
+            }""",
+            before["anchor"],
+        )
+        page.wait_for_timeout(200)
+        after = page.evaluate(
+            """anchor => {
+                const clips = [...document.querySelectorAll('#qmri-view-wrap .qv-canvas-clip')];
+                const canvases = [...document.querySelectorAll('#qmri-view-wrap .qv-canvas')];
+                const wrap = document.getElementById('qmri-view-wrap');
+                const rect = el => {
+                    const r = el.getBoundingClientRect();
+                    return { x: r.x, y: r.y, width: r.width, height: r.height };
+                };
+                const tr = canvases[0].getBoundingClientRect();
+                return {
+                    zoom: userZoom,
+                    indices: [...indices],
+                    clips: clips.map(rect),
+                    canvases: canvases.map(rect),
+                    wrapper: {
+                        clientWidth: wrap.clientWidth, clientHeight: wrap.clientHeight,
+                        scrollWidth: wrap.scrollWidth, scrollHeight: wrap.scrollHeight,
+                        scrollLeft: wrap.scrollLeft, scrollTop: wrap.scrollTop,
+                    },
+                    anchorFrac: {
+                        x: (anchor.x - tr.left) / tr.width,
+                        y: (anchor.y - tr.top) / tr.height,
+                    },
+                };
+            }""",
+            before["anchor"],
+        )
+        assert after["zoom"] > before["zoom"], (before, after)
+        assert after["indices"] == before["indices"]
+        for old, new in zip(before["clips"], after["clips"], strict=True):
+            assert new == pytest.approx(old, abs=1.0)
+        for old, new in zip(before["canvases"], after["canvases"], strict=True):
+            assert new["width"] > old["width"]
+            assert new["height"] > old["height"]
+        assert after["wrapper"] == pytest.approx(before["wrapper"], abs=1.0)
+        assert after["anchorFrac"] == pytest.approx(before["anchorFrac"], abs=0.01)
+
+    @pytest.mark.parametrize(
+        ("axis_name", "key"),
+        [("x", "ArrowUp"), ("y", "ArrowDown")],
+    )
+    def test_image_axis_flip_repaints_every_pane_immediately(
+        self, loaded_viewer, sid_4d, axis_name, key
+    ):
+        page = _enter_qmri(None, sid_4d, loaded_viewer)
+        page.wait_for_function("() => qmriViews.every(v => v.lastImageData)")
+        page.evaluate("axis => { activeDim = axis === 'x' ? dim_x : dim_y; renderInfo(); }", axis_name)
+
+        checksum_js = """() => ({
+            indices: [...indices],
+            sums: qmriViews.map(v => {
+                const data = v.ctx.getImageData(0, 0, v.canvas.width, v.canvas.height).data;
+                let sum = 0;
+                for (let i = 0; i < data.length; i += 4) {
+                    const px = i / 4;
+                    const x = px % v.canvas.width;
+                    const y = Math.floor(px / v.canvas.width);
+                    sum += (data[i] + data[i + 1] * 3 + data[i + 2] * 7) * (x + y * 5 + 1);
+                }
+                return sum;
+            }),
+        })"""
+        before = page.evaluate(checksum_js)
+        _focus_kb(page)
+        page.keyboard.press(key)
+        after = page.evaluate(checksum_js)
+
+        assert after["indices"] == before["indices"]
+        assert all(a != b for a, b in zip(after["sums"], before["sums"], strict=True))
+
     def test_window_level_drag_changes_only_hovered_map(self, loaded_viewer, sid_4d):
         page = _enter_qmri(None, sid_4d, loaded_viewer)
         canvases = page.locator("#qmri-view-wrap .qv-canvas:visible")

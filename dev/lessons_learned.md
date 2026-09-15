@@ -556,3 +556,10 @@ they are already visible.
 Adding or removing a center pane should use the same fade-out, settled layout,
 and fade-in sequence as entering the surrounding split view. Cycling content
 inside an unchanged layout does not need a full-screen transition.
+
+## Multi-Pane Zoom Needs a Fixed Frame and a Shared Anchor
+
+Scaling each canvas without fixing its clipping frame makes the whole grid grow
+and scroll. Keep pane frames at their fitted size, scale images behind those
+frames, and move co-registered panes with one shared pan anchored to the gesture
+point. Any image-space overlay must share that transform and clipping parent.
