@@ -11027,6 +11027,40 @@
         const CB_LABEL_H     = 0;   // no label zone — dmin/dmax shown as DOM elements
         let _cbExpandedH  = 18;  // histogram fits within colorbar height (no vertical expansion)
         const _cbAnimDuration = 350; // animation duration in ms (shared with ColorBar class)
+
+        // ── Colorbar tick marks ──────────────────────────────────────────────
+        // Interior ticks drawn on the collapsed strip. Level 0 shows only the
+        // flanking vmin/vmax labels; higher levels add "nice" round values
+        // inside the bar. Cycled with `w`; every horizontal ColorBar reads it.
+        const CB_TICK_TARGETS = [0, 3, 6];   // rough tick count per level
+        const CB_TICK_LABELS  = ['off', 'few', 'many'];
+        let _cbTickLevel = 0;
+        // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
+        // `target` ticks fit. Endpoints are excluded — the flanking labels
+        // already show them.
+        function _cbNiceTicks(lo, hi, target) {
+            if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(target > 0)) return [];
+            const raw = (hi - lo) / target;
+            const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+            const norm = raw / mag;
+            // Round to the nearest of 1/2/2.5/5/10 rather than always up, so
+            // the count lands near the target instead of well under it.
+            const unit = norm < 1.5 ? 1 : norm < 2.25 ? 2 : norm < 3.5 ? 2.5 : norm < 7 ? 5 : 10;
+            const step = unit * mag;
+            const eps = step * 1e-6;
+            const ticks = [];
+            for (let k = Math.ceil((lo + eps) / step); k * step < hi - eps; k++) {
+                const v = Number((k * step).toPrecision(12));
+                ticks.push(Math.abs(v) < eps ? 0 : v);
+            }
+            return ticks;
+        }
+        function _cycleCbTickLevel() {
+            _cbTickLevel = (_cbTickLevel + 1) % CB_TICK_TARGETS.length;
+            ColorBar.redrawAll();
+            showStatus('colorbar ticks: ' + CB_TICK_LABELS[_cbTickLevel]);
+            saveState();
+        }
         // Legacy animation globals removed (Task 4) — primaryCb owns all animation state
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
@@ -11134,8 +11168,19 @@
             return { vminFrac, vmaxFrac };
         }
         class ColorBar {
+            // Every live instance, so a global display change (tick level)
+            // can repaint all bars without each mode wiring its own hook.
+            static _live = new Set();
+            static redrawAll() {
+                for (const cb of ColorBar._live) {
+                    if (!cb.canvas || !cb.canvas.isConnected || cb.canvas.clientWidth === 0) continue;
+                    try { cb.draw(); } catch (e) { /* a bar mid-teardown must not block the rest */ }
+                }
+            }
+
             constructor(opts) {
                 this.opts = opts;
+                ColorBar._live.add(this);
                 this.orientation = opts.orientation || 'horizontal';
                 this.interactive = opts.interactive !== false;
                 this.id = opts.id || ('cb-' + Math.random().toString(36).slice(2, 8));
@@ -11588,6 +11633,62 @@
             }
 
             /**
+             * Interior tick marks on the collapsed strip: a notch at the top
+             * and bottom edge plus the value between them. The strip spans
+             * the current window, so ticks are placed against getWindow().
+             * They fade out as the histogram expands — the expanded view has
+             * its own handle labels and the strip then spans the data range.
+             */
+            _drawTicks(ctx, cssW, cssH, aT, cmAt) {
+                if (!_cbTickLevel || !this.opts.getWindow) return;
+                const tickAlpha = 1 - Math.min(1, aT / 0.4);
+                if (tickAlpha <= 0 || cssW < 60) return;
+                const win = this.opts.getWindow();
+                const wLo = win ? win.vmin : null, wHi = win ? win.vmax : null;
+                const ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
+                if (!ticks.length) return;
+                const fmt = formatValueGroup(ticks);
+                const showText = cssH >= 14;
+                const notchH = showText ? 3 : Math.max(2, Math.round(cssH / 3));
+                ctx.save();
+                ctx.globalAlpha = tickAlpha;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = 2.5;
+                const drawn = [];
+                for (const v of ticks) {
+                    const f = (v - wLo) / (wHi - wLo);
+                    if (f < 0.03 || f > 0.97) continue;
+                    const x = Math.round(f * cssW);
+                    const text = fmt.format(v);
+                    const tw = ctx.measureText(text).width;
+                    const left = x - tw / 2 - 2, right = x + tw / 2 + 2;
+                    if (showText) {
+                        if (left < 1 || right > cssW - 1) continue;
+                        if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) continue;
+                    }
+                    // Ink follows the colormap underneath: dark on bright
+                    // colors, light on dark, with a soft halo for mid-tones.
+                    const [r, g, b] = cmAt(f);
+                    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                    const ink  = lum > 0.55 ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)';
+                    const halo = lum > 0.55 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+                    ctx.fillStyle = ink;
+                    ctx.fillRect(x, 0, 1, notchH);
+                    ctx.fillRect(x, cssH - notchH, 1, notchH);
+                    if (showText) {
+                        ctx.strokeStyle = halo;
+                        ctx.strokeText(text, x, cssH / 2 + 0.5);
+                        ctx.fillText(text, x, cssH / 2 + 0.5);
+                        drawn.push({ left, right });
+                    }
+                }
+                ctx.restore();
+            }
+
+            /**
              * Core morph renderer — draws the colorbar/histogram as one shape.
              * Adapted from the global _cbMorphDraw function.
              */
@@ -11716,6 +11817,7 @@
                     ctx.fillRect(px, y, 1, colH);
                 }
 
+                this._drawTicks(ctx, cssW, cssH, aT, cmAt);
 
                 // Solid handle lines + value labels in the label zone
                 if (aT > 0.1) {
@@ -11830,6 +11932,7 @@
 
             /** Remove the island from the DOM and clean up timers. */
             destroy() {
+                ColorBar._live.delete(this);
                 if (this._hoverTimer) clearTimeout(this._hoverTimer);
                 if (this._autoDismissTimer) clearTimeout(this._autoDismissTimer);
                 this._detachEvents();
@@ -21642,6 +21745,7 @@
                 colormap_idx,
                 indices: [...indices],
                 logScale,
+                cbTickLevel: _cbTickLevel,
                 projectionMode,
                 projectionDim,
                 complexMode,
@@ -21712,6 +21816,7 @@
                 });
             }
             logScale = s.logScale ?? false;
+            _cbTickLevel = Number.isInteger(s.cbTickLevel) && s.cbTickLevel >= 0 && s.cbTickLevel < CB_TICK_TARGETS.length ? s.cbTickLevel : 0;
             projectionMode = Number.isInteger(s.projectionMode) && s.projectionMode >= 0 && s.projectionMode < PROJECTION_LABELS.length + 1 ? s.projectionMode : 0;
             projectionDim = Number.isInteger(s.projectionDim) && s.projectionDim >= 0 && s.projectionDim < shape.length ? s.projectionDim : (projectionMode > 0 ? current_slice_dim : -1);
             if (_isCollectionDim(projectionDim)) {
@@ -27317,6 +27422,14 @@
                     }
                 },
             },
+            'colorbar.cycleTicks': {
+                title: 'Cycle colorbar tick marks',
+                when: [],
+                run: (ctx, e) => {
+                    e.preventDefault();
+                    _cycleCbTickLevel();
+                },
+            },
             'dimbar.toggleExtents': {
                 title: 'Toggle dimbar max indices',
                 when: [],
@@ -27746,6 +27859,7 @@
             { key: 'l', command: 'dim.next' },
             { key: 'ArrowRight', command: 'dim.next' },
             { key: 'D', shift: true, command: 'dimbar.toggleExtents' },
+            { key: 'w', command: 'colorbar.cycleTicks' },
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
             { key: 'p', command: 'projection.cycle' },
@@ -27894,6 +28008,7 @@
                             { key: 'Drag bar', action: 'Shift the visible range up or down' },
                             { key: 'Dbl-click', action: 'Expand histogram' },
                             { key: 'Dbl-click label', action: 'Type an exact min or max value' },
+                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many · round values inside the bar' },
                         ]
                     },
                     {
