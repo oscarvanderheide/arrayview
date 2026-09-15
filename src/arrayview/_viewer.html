@@ -27593,11 +27593,15 @@
                         }
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else if (activeDim === dim_y) {
                         flip_y = !flip_y;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
                         lastDirection = 1;
@@ -27639,11 +27643,15 @@
                         }
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else if (activeDim === dim_y) {
                         flip_y = !flip_y;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
                         lastDirection = -1;
