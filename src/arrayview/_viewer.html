@@ -522,8 +522,8 @@
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 12px; color: var(--text); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
-        .slim-cb-val.is-locked,
-        .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
+        .cb-expanded .slim-cb-val.is-locked,
+        .cb-expanded .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
 
         [data-cb-bound] {
             cursor: pointer; box-sizing: border-box;
@@ -535,8 +535,8 @@
         }
         [data-cb-bound]:hover { background: rgba(255,255,255,0.06); }
         :root.light [data-cb-bound]:hover { background: rgba(0,0,0,0.045); }
-        [data-cb-bound].is-locked,
-        [data-cb-bound].locked { color: var(--muted) !important; opacity: 0.5; }
+        .cb-expanded [data-cb-bound].is-locked,
+        .cb-expanded [data-cb-bound].locked { color: var(--muted) !important; opacity: 0.5; }
 
         .slim-cb-val-input { font-size: 12px; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; width: 52px; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 1px 2px; outline: none; line-height: 1; }
         :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }

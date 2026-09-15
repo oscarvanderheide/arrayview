@@ -887,7 +887,15 @@ class TestKeyboard:
         single-view, and only hide below CB_MIN_W=200."""
         page = loaded_viewer(sid_3d)
         page.set_viewport_size({"width": 900, "height": 700})
-        page.wait_for_timeout(200)
+        page.wait_for_function(
+            """() => {
+                const lo = getComputedStyle(document.getElementById('slim-cb-vmin'));
+                const hi = getComputedStyle(document.getElementById('slim-cb-vmax'));
+                return Number.parseFloat(lo.opacity || '1') < Number.parseFloat(hi.opacity || '1')
+                    || lo.color !== hi.color;
+            }""",
+            timeout=2_000,
+        )
         _focus_kb(page)
         page.keyboard.press("v")
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
@@ -5534,7 +5542,7 @@ class TestColorbarWindowLevel:
         )
         assert not state["popup"], "popup should close after Enter"
 
-    def test_double_click_vmin_label_toggles_lock_and_dims_the_value(
+    def test_locked_vmin_dims_only_while_histogram_is_visible(
         self, loaded_viewer, sid_2d
     ):
         page = loaded_viewer(sid_2d)
@@ -5559,11 +5567,35 @@ class TestColorbarWindowLevel:
             }"""
         )
         assert not locked["popup"], "double-click should lock without opening the editor"
+        assert locked["lockedClass"]
+        assert locked["opacity"] == pytest.approx(locked["peerOpacity"])
+        assert locked["color"] == locked["peerColor"]
+
+        page.focus("#keyboard-sink")
+        page.keyboard.press("d")
+        page.wait_for_function(
+            "() => primaryCb._expanded && primaryCb.wrap.classList.contains('cb-expanded')",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(200)
+        expanded = page.evaluate(
+            """() => {
+                const lo = document.getElementById('slim-cb-vmin');
+                const hi = document.getElementById('slim-cb-vmax');
+                const a = getComputedStyle(lo);
+                const b = getComputedStyle(hi);
+                return {
+                    opacity: Number.parseFloat(a.opacity || '1'),
+                    peerOpacity: Number.parseFloat(b.opacity || '1'),
+                    color: a.color,
+                    peerColor: b.color,
+                };
+            }"""
+        )
         assert (
-            locked["lockedClass"]
-            or locked["opacity"] < locked["peerOpacity"]
-            or locked["color"] != locked["peerColor"]
-        ), f"locked vmin should look dimmed, got {locked}"
+            expanded["opacity"] < expanded["peerOpacity"]
+            or expanded["color"] != expanded["peerColor"]
+        ), f"locked vmin should look dimmed in histogram mode, got {expanded}"
 
         page.dblclick("#slim-cb-vmin")
         page.wait_for_function("() => !vminLocked", timeout=2_000)
