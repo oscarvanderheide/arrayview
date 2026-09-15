@@ -477,6 +477,23 @@
             position: absolute; bottom: 0; left: 0; width: 100%;
             height: 0; overflow: visible; pointer-events: none; z-index: 1;
         }
+        /* Tick values under the strip (see ColorBar._drawTicks). Hangs off
+           the column so the bar itself never changes size; glass islands
+           pad their bottom to enclose it. */
+        .cb-ticks {
+            position: absolute; top: 100%; left: 0; width: 100%;
+            height: 11px; line-height: 10px; overflow: visible;
+            pointer-events: none; z-index: 1; opacity: 0;
+            font-size: 9px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-variant-numeric: tabular-nums; color: var(--text);
+            transition: opacity 0.2s ease;
+        }
+        .cb-ticks span {
+            position: absolute; top: 1px; transform: translateX(-50%);
+            white-space: nowrap; opacity: 0.7;
+        }
+        .cb-island.cb-has-ticks { --cb-base-pad-bottom: 14px; }
+        body.fullscreen-mode #slim-cb-wrap.cb-has-ticks { padding-bottom: 14px; }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
@@ -11034,6 +11051,7 @@
         // inside the bar. Cycled with `w`; every horizontal ColorBar reads it.
         const CB_TICK_TARGETS = [0, 3, 6];   // rough tick count per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
+        const CB_TICK_ROW_H   = 11;          // value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
         // `target` ticks fit. Endpoints are excluded — the flanking labels
@@ -11633,23 +11651,67 @@
             }
 
             /**
-             * Interior tick marks on the collapsed strip: a notch at the top
-             * and bottom edge plus the value between them. The strip spans
-             * the current window, so ticks are placed against getWindow().
-             * They fade out as the histogram expands — the expanded view has
-             * its own handle labels and the strip then spans the data range.
+             * Tick marks for the collapsed strip. Notches sit on the bar's
+             * bottom edge; the values go in a small row hanging under the
+             * bar (`.cb-ticks`), like an axis, so the strip itself stays
+             * clean. When that row would run off the bottom of the window
+             * the values are drawn inside the strip instead. The strip
+             * spans the current window, so ticks are placed against
+             * getWindow(). They fade out as the histogram expands — the
+             * expanded view has its own handle labels and the strip then
+             * spans the data range.
              */
+            _ensureTickRow() {
+                if (this._tickRow || !this.colWrap) return this._tickRow;
+                const row = document.createElement('div');
+                row.className = 'cb-ticks';
+                this.colWrap.appendChild(row);
+                this._tickRow = row;
+                this._tickRowKey = '';
+                return row;
+            }
+            _setTickRow(labels, cssW, alpha) {
+                const row = this._tickRow;
+                if (!row) return;
+                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
+                if (key !== this._tickRowKey) {
+                    this._tickRowKey = key;
+                    row.textContent = '';
+                    for (const l of labels || []) {
+                        const span = document.createElement('span');
+                        span.textContent = l.text;
+                        span.style.left = (l.x / cssW * 100) + '%';
+                        row.appendChild(span);
+                    }
+                }
+                const on = !!(labels && labels.length);
+                row.style.opacity = on ? String(alpha) : '0';
+                if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
+            }
+            _tickRowClipped() {
+                if (!this.colWrap) return true;
+                // Walk offsetTop rather than reading the client rect: the
+                // island flies in / fades via transforms, and a rect taken
+                // mid-flight would report the bar lower than it will rest.
+                let bottom = this.colWrap.offsetHeight;
+                for (let el = this.colWrap; el; el = el.offsetParent) bottom += el.offsetTop;
+                return bottom + CB_TICK_ROW_H > window.innerHeight;
+            }
             _drawTicks(ctx, cssW, cssH, aT, cmAt) {
-                if (!_cbTickLevel || !this.opts.getWindow) return;
+                const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
-                if (tickAlpha <= 0 || cssW < 60) return;
-                const win = this.opts.getWindow();
-                const wLo = win ? win.vmin : null, wHi = win ? win.vmax : null;
-                const ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
-                if (!ticks.length) return;
+                let ticks = [];
+                let wLo = null, wHi = null;
+                if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
+                    const win = this.opts.getWindow();
+                    wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
+                    ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
+                }
+                if (!ticks.length) { this._setTickRow(null); return; }
                 const fmt = formatValueGroup(ticks);
-                const showText = cssH >= 14;
-                const notchH = showText ? 3 : Math.max(2, Math.round(cssH / 3));
+                const inside = !row || this._tickRowClipped();
+                const showText = !inside || cssH >= 14;
+                const notchH = inside && showText ? 3 : Math.max(2, Math.min(4, Math.round(cssH / 5)));
                 ctx.save();
                 ctx.globalAlpha = tickAlpha;
                 ctx.font = '9px monospace';
@@ -11658,6 +11720,7 @@
                 ctx.lineJoin = 'round';
                 ctx.lineWidth = 2.5;
                 const drawn = [];
+                const rowLabels = [];
                 for (const v of ticks) {
                     const f = (v - wLo) / (wHi - wLo);
                     if (f < 0.03 || f > 0.97) continue;
@@ -11666,26 +11729,33 @@
                     const tw = ctx.measureText(text).width;
                     const left = x - tw / 2 - 2, right = x + tw / 2 + 2;
                     if (showText) {
-                        if (left < 1 || right > cssW - 1) continue;
+                        // The row may overhang the strip a little; inside it may not.
+                        const slack = inside ? 0 : tw / 2;
+                        if (left < 1 - slack || right > cssW - 1 + slack) continue;
                         if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) continue;
                     }
-                    // Ink follows the colormap underneath: dark on bright
-                    // colors, light on dark, with a soft halo for mid-tones.
+                    // Notch ink follows the colormap underneath: dark on
+                    // bright colors, light on dark.
                     const [r, g, b] = cmAt(f);
                     const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
                     const ink  = lum > 0.55 ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)';
-                    const halo = lum > 0.55 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
                     ctx.fillStyle = ink;
-                    ctx.fillRect(x, 0, 1, notchH);
+                    if (inside) ctx.fillRect(x, 0, 1, notchH);
                     ctx.fillRect(x, cssH - notchH, 1, notchH);
                     if (showText) {
-                        ctx.strokeStyle = halo;
-                        ctx.strokeText(text, x, cssH / 2 + 0.5);
-                        ctx.fillText(text, x, cssH / 2 + 0.5);
+                        if (inside) {
+                            // Soft halo keeps the value legible on mid-tones.
+                            ctx.strokeStyle = lum > 0.55 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+                            ctx.strokeText(text, x, cssH / 2 + 0.5);
+                            ctx.fillText(text, x, cssH / 2 + 0.5);
+                        } else {
+                            rowLabels.push({ x, text });
+                        }
                         drawn.push({ left, right });
                     }
                 }
                 ctx.restore();
+                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha);
             }
 
             /**
@@ -11933,6 +12003,8 @@
             /** Remove the island from the DOM and clean up timers. */
             destroy() {
                 ColorBar._live.delete(this);
+                if (this._tickRow && this._tickRow.parentNode) this._tickRow.parentNode.removeChild(this._tickRow);
+                this._tickRow = null;
                 if (this._hoverTimer) clearTimeout(this._hoverTimer);
                 if (this._autoDismissTimer) clearTimeout(this._autoDismissTimer);
                 this._detachEvents();
