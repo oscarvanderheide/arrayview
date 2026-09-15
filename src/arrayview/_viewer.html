@@ -492,7 +492,10 @@
             position: absolute; top: 1px; transform: translateX(-50%);
             white-space: nowrap; opacity: 0.7;
         }
-        .cb-island.cb-has-ticks { --cb-base-pad-bottom: 14px; }
+        /* The longhand is needed too: `.cb-wrap` (every ColorBar-built
+           island) and `#mv-cb-wrap` set their own padding shorthand after
+           `.cb-island`, so the variable alone never reaches them. */
+        .cb-island.cb-has-ticks, .cb-wrap.cb-has-ticks, #mv-cb-wrap.cb-has-ticks { --cb-base-pad-bottom: 14px; padding-bottom: 14px; }
         body.fullscreen-mode #slim-cb-wrap.cb-has-ticks { padding-bottom: 14px; }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
