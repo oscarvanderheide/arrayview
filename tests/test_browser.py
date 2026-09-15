@@ -5521,6 +5521,36 @@ class TestWheelSensitivity:
 
 
 class TestColorbarWindowLevel:
+    def test_colorbar_ticks_use_one_theme_color(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        colors = page.evaluate(
+            """() => {
+                _cbTickLevel = 2;
+                const fills = [];
+                const strokes = [];
+                const ctx = {
+                    save() {}, restore() {},
+                    measureText(text) { return { width: text.length * 5 }; },
+                    fillRect() { fills.push(this.fillStyle); },
+                    fillText() { fills.push(this.fillStyle); },
+                    strokeText() { strokes.push(this.strokeStyle); },
+                };
+                const clipped = primaryCb._tickRowClipped;
+                primaryCb._tickRowClipped = () => true;
+                primaryCb._drawTicks(ctx, 300, 18, 0);
+                primaryCb._tickRowClipped = clipped;
+                const theme = getComputedStyle(document.documentElement);
+                return {
+                    fills: [...new Set(fills)],
+                    strokes: [...new Set(strokes)],
+                    text: theme.getPropertyValue('--text').trim() || theme.color,
+                    surface: theme.getPropertyValue('--surface').trim() || theme.backgroundColor,
+                };
+            }"""
+        )
+        assert colors["fills"] == [colors["text"]]
+        assert colors["strokes"] == [colors["surface"]]
+
     def test_single_click_vmin_label_opens_value_popup_and_commits(
         self, loaded_viewer, sid_2d
     ):

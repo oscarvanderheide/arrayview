@@ -11697,7 +11697,7 @@
                 for (let el = this.colWrap; el; el = el.offsetParent) bottom += el.offsetTop;
                 return bottom + CB_TICK_ROW_H > window.innerHeight;
             }
-            _drawTicks(ctx, cssW, cssH, aT, cmAt) {
+            _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
                 let ticks = [];
@@ -11719,6 +11719,11 @@
                 ctx.textBaseline = 'middle';
                 ctx.lineJoin = 'round';
                 ctx.lineWidth = 2.5;
+                const themeStyle = getComputedStyle(document.documentElement);
+                const ink = themeStyle.getPropertyValue('--text').trim() || themeStyle.color;
+                const halo = themeStyle.getPropertyValue('--surface').trim() || themeStyle.backgroundColor;
+                ctx.fillStyle = ink;
+                ctx.strokeStyle = halo;
                 const drawn = [];
                 const rowLabels = [];
                 for (const v of ticks) {
@@ -11734,18 +11739,12 @@
                         if (left < 1 - slack || right > cssW - 1 + slack) continue;
                         if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) continue;
                     }
-                    // Notch ink follows the colormap underneath: dark on
-                    // bright colors, light on dark.
-                    const [r, g, b] = cmAt(f);
-                    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                    const ink  = lum > 0.55 ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)';
-                    ctx.fillStyle = ink;
                     if (inside) ctx.fillRect(x, 0, 1, notchH);
                     ctx.fillRect(x, cssH - notchH, 1, notchH);
                     if (showText) {
                         if (inside) {
-                            // Soft halo keeps the value legible on mid-tones.
-                            ctx.strokeStyle = lum > 0.55 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+                            // A stable theme halo keeps values legible without
+                            // making each tick react to the colormap beneath it.
                             ctx.strokeText(text, x, cssH / 2 + 0.5);
                             ctx.fillText(text, x, cssH / 2 + 0.5);
                         } else {
@@ -11887,7 +11886,7 @@
                     ctx.fillRect(px, y, 1, colH);
                 }
 
-                this._drawTicks(ctx, cssW, cssH, aT, cmAt);
+                this._drawTicks(ctx, cssW, cssH, aT);
 
                 // Solid handle lines + value labels in the label zone
                 if (aT > 0.1) {
