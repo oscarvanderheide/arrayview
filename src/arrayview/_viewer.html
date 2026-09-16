@@ -21464,9 +21464,18 @@
         }
         const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
-            const vals = view && view.displayState
-                ? [view.displayState.vmin, view.displayState.vmax]
-                : [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
+            // A pane's own window, falling back to its auto range — the
+            // legacy qMRI / multi-view objects carry vmin/vmax (+ locked*)
+            // directly, the View class carries a displayState; either way
+            // the main array's range is only right for the main canvas.
+            let vals;
+            if (view && view.displayState) {
+                vals = [view.displayState.vmin ?? view.vmin, view.displayState.vmax ?? view.vmax];
+            } else if (view && ('vmin' in view || 'lockedVmin' in view)) {
+                vals = [view.lockedVmin ?? view.vmin, view.lockedVmax ?? view.vmax];
+            } else {
+                vals = [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
+            }
             return vals.filter(Number.isFinite);
         }
         /** Format a hovered pixel value with decimals fixed by the numeric
