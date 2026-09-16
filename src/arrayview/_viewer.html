@@ -36490,6 +36490,7 @@
             if (_qmvScrollHintTimer) { clearTimeout(_qmvScrollHintTimer); _qmvScrollHintTimer = null; }
             _qmvCrosshairAlpha = 0; _qmvCrosshairTarget = 0; _qmvScrollHintDir = -1;
             _reconcileOrthoCursorHidden();
+            _reconcileMvOrientationVisibility();
             qmriMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriMvViews = [];
             qmriMvDims = [];
@@ -36656,6 +36657,7 @@
             v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
             _patientFrameDisplayed(v._renderPatientIndex);
             _qmvDrawCrosshair(v);
+            drawMvOrientation();
             _refreshLoupeFromLastMouse();
         }
         /** Position lines on the pane's overlay, like compareMvDrawFrame. */
@@ -37436,7 +37438,9 @@
 
         function drawMvOrientation() {
             const cv = document.getElementById('mv-orientation');
-            const _oriDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : []);
+            const _oriDims = multiViewActive ? mvDims
+                : compareMvActive ? compareMvDims
+                : qmriMvActive ? qmriMvDims : [];
             if (!cv || _oriDims.length < 3) return;
             const dpr = window.devicePixelRatio || 1;
             const cssSize = 120;
@@ -37633,7 +37637,8 @@
             const mvOrientation = document.getElementById('mv-orientation');
             if (!mvOrientation) return;
             const show = !!((multiViewActive || compareMvActive)
-                && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive));
+                && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld || _mvScrollHintActive))
+                || !!(qmriMvActive && (_qmriMvDragView || _qmvScrollHintTimer));
             mvOrientation.style.display = show ? 'block' : 'none';
         }
         function _mvCancelPressCrosshair() {
@@ -37707,6 +37712,7 @@
         function _qmvRecomputeCrosshairTarget() {
             if (!qmriMvActive) return;
             _reconcileOrthoCursorHidden();
+            _reconcileMvOrientationVisibility();
             _qmvSetCrosshairTarget(_qmriMvDragView || _qmvScrollHintTimer ? 1 : 0);
         }
         /** Scrolling a plane moves the lines in the other two planes; the
@@ -37719,6 +37725,7 @@
                 _qmvScrollHintDir = -1;
                 _qmvRecomputeCrosshairTarget();
             }, 250);
+            _reconcileMvOrientationVisibility();
             _qmvSetCrosshairTarget(1);
         }
 
