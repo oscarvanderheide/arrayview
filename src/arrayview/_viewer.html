@@ -8886,10 +8886,12 @@
                 if (!_fullscreenActive) _normalFitZoom = userZoom;
                 _zoomRendered = userZoom;
             } else if (allowOverflowRecalc && !_zoomAdjustedByUser && !_fullscreenActive && !(_scrubDetached && _scrubState)) {
-                const projW = Math.round(w * baseScale * userZoom);
-                const projH = Math.round(h * baseScale * userZoom);
-                if (projW > maxW + 2 || projH > maxH + 2) {
-                    userZoom = Math.max(1.0, capScale / baseScale);
+                // Untouched zoom means "fit": follow the window both ways,
+                // so growing it after a shrink fills the space again rather
+                // than leaving the image (and the chrome hugging it) small.
+                const fit = Math.max(1.0, capScale / baseScale);
+                if (Math.abs(fit - userZoom) > 1e-6) {
+                    userZoom = fit;
                     _fitZoom = userZoom;
                     _normalFitZoom = userZoom;
                     _zoomRendered = userZoom;
