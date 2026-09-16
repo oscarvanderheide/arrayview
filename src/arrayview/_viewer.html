@@ -500,7 +500,9 @@
         /* The end values are centred on the bar's edges, carry no marker
            (the edge is the mark) and read a little brighter: they are the
            window, the rest is the scale. */
-        .cb-ticks span.cb-tick-min, .cb-ticks span.cb-tick-max { opacity: 0.9; }
+        .cb-ticks span.cb-tick-min, .cb-ticks span.cb-tick-max {
+            opacity: 0.9; pointer-events: auto; cursor: pointer;
+        }
         .cb-ticks span.cb-tick-min::before, .cb-ticks span.cb-tick-max::before { display: none; }
         /* With ticks on, the flanking labels give way to the end ticks —
            until the histogram opens, where they are the edit/lock controls. */
@@ -11097,15 +11099,16 @@
         const _cbAnimDuration = 350; // animation duration in ms (shared with ColorBar class)
 
         // ── Colorbar tick marks ──────────────────────────────────────────────
-        // One ruler under the collapsed strip. Level 0 shows only the
-        // flanking vmin/vmax labels; higher levels replace them with a row
-        // of small values from vmin to vmax in equal steps, at growing
-        // density. Equal steps (rather than round values) keep the spacing
-        // even and never crowd the ends. The flanking labels come back while
-        // the histogram is open, where they are the edit / lock controls.
-        // Cycled with `w`; every horizontal ColorBar reads it.
-        const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
-        const CB_TICK_LABELS  = ['off', 'few', 'many'];
+        // One ruler under the collapsed strip: small values from vmin to
+        // vmax in equal steps, at growing density. Level 0 is just the two
+        // ends, so vmin/vmax always sit in the same place and size whether
+        // or not values are shown between them. Equal steps (rather than
+        // round values) keep the spacing even and never crowd the ends. The
+        // big flanking labels only appear while the histogram is open, where
+        // they are the edit / lock controls. Cycled with `w`; every
+        // horizontal ColorBar reads it.
+        const CB_TICK_TARGETS = [1, 4, 8];      // steps between vmin and vmax per level
+        const CB_TICK_LABELS  = ['min/max only', 'few', 'many'];
         const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         /** vmin..vmax in `steps` equal steps, ends included. */
@@ -11723,7 +11726,10 @@
                         const span = document.createElement('span');
                         span.textContent = l.text;
                         span.style.left = (l.x / cssW * 100) + '%';
-                        if (l.end) span.classList.add('cb-tick-' + l.end);
+                        if (l.end) {
+                            span.classList.add('cb-tick-' + l.end);
+                            if (this._bindLabel) this._bindLabel(span, l.end === 'min' ? 'vmin' : 'vmax');
+                        }
                         row.appendChild(span);
                     }
                 }
@@ -11747,13 +11753,13 @@
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
-                const axis = _cbTickLevel > 0;
+                const axis = true;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 let fmt = null;
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
+                if (this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
@@ -12456,6 +12462,9 @@
                 };
                 _bindLabel(this.vminLabel, 'vmin');
                 _bindLabel(this.vmaxLabel, 'vmax');
+                // The tick row's end values stand in for these labels while
+                // the bar is collapsed, so they take the same interactions.
+                this._bindLabel = _bindLabel;
 
                 // Mousedown on tri handles
                 if (this.triVmin) {
@@ -28209,7 +28218,7 @@
                             { key: 'Drag bar', action: 'Shift the visible range up or down' },
                             { key: 'Dbl-click', action: 'Expand histogram' },
                             { key: 'Dbl-click label', action: 'Type an exact min or max value' },
-                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many · min/max join the tick row under the bar' },
+                            { key: 'w', action: 'Cycle tick marks', hint: 'min/max only → few → many, all in the row under the bar' },
                         ]
                     },
                     {
