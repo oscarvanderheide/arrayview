@@ -42964,18 +42964,13 @@
             mmVp.style.top = rY + 'px';
         }
 
-        /** qMRI panes zoom and pan together, so one map per row is enough:
-         *  it sits in the row's last pane, top-right, like normal mode's. */
+        /** qMRI panes zoom and pan together, but each pane shows its own
+         *  map (top-right, like normal mode's) so every pane reads alone. */
         function _updateQvMinimaps() {
-            const rows = new Map();
+            const keep = new Set();
             for (const v of qmriViews) {
                 const clip = v.canvas && v.canvas.closest('.qv-canvas-clip');
-                const row = clip && clip.closest('.qv-row');
-                if (!row || !v.lastImageData) continue;
-                rows.set(row, { v, clip });
-            }
-            const keep = new Set();
-            for (const { v, clip } of rows.values()) {
+                if (!clip || !v.lastImageData) continue;
                 _drawPaneMinimap(clip, v.canvas,
                     { imageData: v.lastImageData, width: v.lastW, height: v.lastH },
                     qvPan, { w: clip.offsetWidth, h: clip.offsetHeight }, { right: true });
