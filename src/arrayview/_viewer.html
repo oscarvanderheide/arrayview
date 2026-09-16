@@ -14709,9 +14709,17 @@
             else if (_dmenuDiffTargetActive()) _dmenuSetRangeTarget('primary');
             if (which === 'vmin') {
                 if (_cbBoundPolicyLocked(cb, which)) return;
-                vminLocked = !vminLocked;
-                if (vminLocked) _dmenuCaptureBoundLock('vmin');
-                else _dmenuZeroFloorVminUnlocked = true;
+                // Toggle what the label shows, not the bare flag: a zero
+                // floor already reads as locked, so the first toggle there
+                // must release it (as the range menu row does) rather than
+                // engage a second, invisible lock underneath.
+                if (!vminLocked && _dmenuZeroFloorLocksVmin()) {
+                    _dmenuZeroFloorVminUnlocked = true;
+                } else {
+                    vminLocked = !vminLocked;
+                    if (vminLocked) _dmenuCaptureBoundLock('vmin');
+                    else _dmenuZeroFloorVminUnlocked = true;
+                }
             } else {
                 vmaxLocked = !vmaxLocked;
                 if (vmaxLocked) _dmenuCaptureBoundLock('vmax');
