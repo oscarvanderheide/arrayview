@@ -482,20 +482,26 @@
            pad their bottom to enclose it. */
         .cb-ticks {
             position: absolute; top: 100%; left: 0; width: 100%;
-            height: 11px; line-height: 10px; overflow: visible;
+            height: 15px; line-height: 10px; overflow: visible;
             pointer-events: none; z-index: 1; opacity: 0;
             font-size: 9px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-variant-numeric: tabular-nums; color: var(--text);
             transition: opacity 0.2s ease;
         }
         .cb-ticks span {
-            position: absolute; top: 1px; transform: translateX(-50%);
+            position: absolute; top: 5px; transform: translateX(-50%);
             white-space: nowrap; opacity: 0.55;
         }
-        /* The end values sit flush with the bar's edges and read a little
-           brighter: they are the window, the rest is the scale. */
-        .cb-ticks span.cb-tick-min { transform: none; opacity: 0.9; }
-        .cb-ticks span.cb-tick-max { transform: translateX(-100%); opacity: 0.9; }
+        /* A short marker under the bar's edge above each round value. */
+        .cb-ticks span::before {
+            content: ''; position: absolute; left: 50%; top: -4px;
+            width: 1px; height: 3px; background: currentColor; opacity: 0.8;
+        }
+        /* The end values are centred on the bar's edges, carry no marker
+           (the edge is the mark) and read a little brighter: they are the
+           window, the rest is the scale. */
+        .cb-ticks span.cb-tick-min, .cb-ticks span.cb-tick-max { opacity: 0.9; }
+        .cb-ticks span.cb-tick-min::before, .cb-ticks span.cb-tick-max::before { display: none; }
         /* With ticks on, the flanking labels give way to the end ticks —
            until the histogram opens, where they are the edit/lock controls. */
         .cb-axis-ticks:not(.cb-expanded) .roi-cb-front > .slim-cb-val,
@@ -503,8 +509,8 @@
         /* The longhand is needed too: `.cb-wrap` (every ColorBar-built
            island) and `#mv-cb-wrap` set their own padding shorthand after
            `.cb-island`, so the variable alone never reaches them. */
-        .cb-island.cb-has-ticks, .cb-wrap.cb-has-ticks, #mv-cb-wrap.cb-has-ticks { --cb-base-pad-bottom: 14px; padding-bottom: 14px; }
-        body.fullscreen-mode #slim-cb-wrap.cb-has-ticks { padding-bottom: 14px; }
+        .cb-island.cb-has-ticks, .cb-wrap.cb-has-ticks, #mv-cb-wrap.cb-has-ticks { --cb-base-pad-bottom: 18px; padding-bottom: 18px; }
+        body.fullscreen-mode #slim-cb-wrap.cb-has-ticks { padding-bottom: 18px; }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
@@ -8720,7 +8726,10 @@
 
         // const MAX_CANVAS_FIT_PX = 600;
         const NORMAL_SIDE_RESERVE = 80;
-        const NORMAL_BOTTOM_RESERVE = 48;
+        // Room under the image for the colorbar island and its tick row.
+        // Constant whether ticks are on or off, so cycling them never moves
+        // the image, dimbar or colorbar.
+        const NORMAL_BOTTOM_RESERVE = 62;
         const NORMAL_UI_RESERVE_FLOOR = 44;
         const MV_COLORBAR_BOTTOM_CLEARANCE = 42;
 
@@ -11097,7 +11106,7 @@
         // reads it.
         const CB_TICK_TARGETS = [0, 3, 6];      // rough tick count per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
-        const CB_TICK_ROW_H   = 11;          // value row under the strip, CSS px (matches .cb-ticks)
+        const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
         // `target` ticks fit. Endpoints are excluded — the flanking labels
@@ -11771,11 +11780,10 @@
                 const fmt = formatValueGroup(ticks);
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                // Notches are a faint hint under each value, not a ruler
-                // laid over the gradient; only the inside fallback (no room
-                // for a row) keeps them full strength.
-                const notchH = inside ? Math.max(2, Math.min(4, Math.round(cssH / 5))) : 2;
-                const notchAlpha = inside ? 1 : 0.45;
+                // Row mode keeps the strip clean: the markers live in the row
+                // (see .cb-ticks span::before). Only the inside fallback (no
+                // room for a row) draws notches on the strip itself.
+                const notchH = Math.max(2, Math.min(4, Math.round(cssH / 5)));
                 ctx.save();
                 ctx.globalAlpha = tickAlpha;
                 ctx.font = '9px monospace';
@@ -11791,36 +11799,35 @@
                 const drawn = [];
                 const rowLabels = [];
                 ticks.forEach((v, i) => {
-                    // End ticks hug the bar's edges: text is anchored so it
-                    // never sticks out past the strip, and the notch sits on
-                    // the edge itself.
+                    // The ends sit on the bar's edges. In the row they are
+                    // centred on the edge like any other value; inside the
+                    // strip the text is anchored so it never sticks out.
                     const end = axis && i < 2 ? (i === 0 ? 'min' : 'max') : null;
                     const f = (v - wLo) / (wHi - wLo);
                     if (!end && (f < 0.03 || f > 0.97)) return;
                     const x = end ? (end === 'min' ? 0 : cssW) : Math.round(f * cssW);
                     const text = fmt.format(v);
                     const tw = ctx.measureText(text).width;
-                    const left = end === 'min' ? 0 : end === 'max' ? cssW - tw - 2 : x - tw / 2 - 2;
-                    const right = end === 'min' ? tw + 2 : end === 'max' ? cssW : x + tw / 2 + 2;
+                    const hug = inside && end;
+                    const left = hug ? (end === 'min' ? 0 : cssW - tw - 2) : x - tw / 2 - 2;
+                    const right = hug ? (end === 'min' ? tw + 2 : cssW) : x + tw / 2 + 2;
                     if (showText && !end) {
                         // The row may overhang the strip a little; inside it may not.
                         const slack = inside ? 0 : tw / 2;
                         if (left < 1 - slack || right > cssW - 1 + slack) return;
                         if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) return;
                     }
-                    const nx = end === 'max' ? cssW - 1 : x;
-                    // Notches get the same halo as the values, so they still
-                    // read where the colormap matches the ink (white on white).
-                    const notch = (y) => {
-                        ctx.globalAlpha = tickAlpha * notchAlpha;
-                        ctx.fillStyle = halo;
-                        ctx.fillRect(nx - 1, y - 1, 3, notchH + 2);
-                        ctx.fillStyle = ink;
-                        ctx.fillRect(nx, y, 1, notchH);
-                        ctx.globalAlpha = tickAlpha;
-                    };
-                    if (inside) notch(0);
-                    notch(cssH - notchH);
+                    if (inside) {
+                        // Notches get the same halo as the values, so they
+                        // still read where the colormap matches the ink.
+                        const nx = end === 'max' ? cssW - 1 : x;
+                        for (const y of [0, cssH - notchH]) {
+                            ctx.fillStyle = halo;
+                            ctx.fillRect(nx - 1, y - 1, 3, notchH + 2);
+                            ctx.fillStyle = ink;
+                            ctx.fillRect(nx, y, 1, notchH);
+                        }
+                    }
                     if (showText) {
                         if (inside) {
                             // A stable theme halo keeps values legible without
