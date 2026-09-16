@@ -490,12 +490,16 @@
         }
         .cb-ticks span {
             position: absolute; top: 1px; transform: translateX(-50%);
-            white-space: nowrap; opacity: 0.7;
+            white-space: nowrap; opacity: 0.55;
         }
-        /* Axis level end values sit flush with the bar's edges. */
-        .cb-ticks span.cb-tick-min { transform: none; }
-        .cb-ticks span.cb-tick-max { transform: translateX(-100%); }
-        .cb-axis-ticks .roi-cb-front > .slim-cb-val, .cb-axis-ticks > .slim-cb-val { display: none; }
+        /* The end values sit flush with the bar's edges and read a little
+           brighter: they are the window, the rest is the scale. */
+        .cb-ticks span.cb-tick-min { transform: none; opacity: 0.9; }
+        .cb-ticks span.cb-tick-max { transform: translateX(-100%); opacity: 0.9; }
+        /* With ticks on, the flanking labels give way to the end ticks —
+           until the histogram opens, where they are the edit/lock controls. */
+        .cb-axis-ticks:not(.cb-expanded) .roi-cb-front > .slim-cb-val,
+        .cb-axis-ticks:not(.cb-expanded) > .slim-cb-val { display: none; }
         /* The longhand is needed too: `.cb-wrap` (every ColorBar-built
            island) and `#mv-cb-wrap` set their own padding shorthand after
            `.cb-island`, so the variable alone never reaches them. */
@@ -11058,14 +11062,15 @@
         const _cbAnimDuration = 350; // animation duration in ms (shared with ColorBar class)
 
         // ── Colorbar tick marks ──────────────────────────────────────────────
-        // Interior ticks drawn on the collapsed strip. Level 0 shows only the
-        // flanking vmin/vmax labels; higher levels add "nice" round values
-        // inside the bar. The last level ("axis") drops the big flanking
-        // labels and writes vmin/vmax at the bar's ends in the same small
-        // tick style. Cycled with `w`; every horizontal ColorBar reads it.
-        const CB_TICK_TARGETS = [0, 3, 6, 6];   // rough tick count per level
-        const CB_TICK_LABELS  = ['off', 'few', 'many', 'axis'];
-        const CB_TICK_AXIS_LEVEL = 3;           // level whose ends are ticks too
+        // One ruler under the collapsed strip. Level 0 shows only the
+        // flanking vmin/vmax labels; higher levels replace them with a row
+        // of small values — vmin and vmax flush with the bar's ends plus
+        // "nice" round values between — at growing density. The flanking
+        // labels come back while the histogram is open, where they are the
+        // edit / lock controls. Cycled with `w`; every horizontal ColorBar
+        // reads it.
+        const CB_TICK_TARGETS = [0, 3, 6];      // rough tick count per level
+        const CB_TICK_LABELS  = ['off', 'few', 'many'];
         const CB_TICK_ROW_H   = 11;          // value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
@@ -11704,7 +11709,7 @@
                 row.style.opacity = on ? String(alpha) : '0';
                 if (this.wrap) {
                     this.wrap.classList.toggle('cb-has-ticks', on);
-                    // Axis level: the flanking labels give way to the end ticks.
+                    // Ticks on: the flanking labels give way to the end ticks.
                     this.wrap.classList.toggle('cb-axis-ticks', !!axis && this.orientation !== 'vertical');
                 }
             }
@@ -11720,29 +11725,31 @@
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
-                const axis = _cbTickLevel === CB_TICK_AXIS_LEVEL;
+                const axis = _cbTickLevel > 0;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
-                    // Axis level: the ends are ticks too. They are drawn
-                    // first so the round values yield to them, and they
-                    // survive even when no round value fits between them.
-                    if (axis && Number.isFinite(wLo) && Number.isFinite(wHi) && wHi > wLo) {
+                    // The ends are ticks too. They are drawn first so the
+                    // round values yield to them, and they survive even when
+                    // no round value fits between them.
+                    if (Number.isFinite(wLo) && Number.isFinite(wHi) && wHi > wLo) {
                         ticks = [wLo, wHi, ...ticks];
                     }
                 }
                 if (!ticks.length) { this._setTickRow(null, cssW, 0, axis); return; }
-                // The ends keep their own precision (they are rarely round)
-                // so they don't force decimals onto the round values.
-                const nEnds = axis ? 2 : 0;
-                const fmt = formatValueGroup(ticks.slice(nEnds));
-                const fmtEnds = nEnds ? formatValueGroup(ticks.slice(0, nEnds)) : null;
+                // One precision for the whole row, ends included, so it
+                // reads as a single ruler rather than two kinds of number.
+                const fmt = formatValueGroup(ticks);
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                const notchH = inside && showText ? 3 : Math.max(2, Math.min(4, Math.round(cssH / 5)));
+                // Notches are a faint hint under each value, not a ruler
+                // laid over the gradient; only the inside fallback (no room
+                // for a row) keeps them full strength.
+                const notchH = inside ? Math.max(2, Math.min(4, Math.round(cssH / 5))) : 2;
+                const notchAlpha = inside ? 1 : 0.45;
                 ctx.save();
                 ctx.globalAlpha = tickAlpha;
                 ctx.font = '9px monospace';
@@ -11765,7 +11772,7 @@
                     const f = (v - wLo) / (wHi - wLo);
                     if (!end && (f < 0.03 || f > 0.97)) return;
                     const x = end ? (end === 'min' ? 0 : cssW) : Math.round(f * cssW);
-                    const text = (end ? fmtEnds : fmt).format(v);
+                    const text = fmt.format(v);
                     const tw = ctx.measureText(text).width;
                     const left = end === 'min' ? 0 : end === 'max' ? cssW - tw - 2 : x - tw / 2 - 2;
                     const right = end === 'min' ? tw + 2 : end === 'max' ? cssW : x + tw / 2 + 2;
@@ -11779,10 +11786,12 @@
                     // Notches get the same halo as the values, so they still
                     // read where the colormap matches the ink (white on white).
                     const notch = (y) => {
+                        ctx.globalAlpha = tickAlpha * notchAlpha;
                         ctx.fillStyle = halo;
                         ctx.fillRect(nx - 1, y - 1, 3, notchH + 2);
                         ctx.fillStyle = ink;
                         ctx.fillRect(nx, y, 1, notchH);
+                        ctx.globalAlpha = tickAlpha;
                     };
                     if (inside) notch(0);
                     notch(cssH - notchH);
@@ -21951,7 +21960,7 @@
                 });
             }
             logScale = s.logScale ?? false;
-            _cbTickLevel = Number.isInteger(s.cbTickLevel) && s.cbTickLevel >= 0 && s.cbTickLevel < CB_TICK_TARGETS.length ? s.cbTickLevel : 0;
+            _cbTickLevel = Number.isInteger(s.cbTickLevel) && s.cbTickLevel >= 0 ? Math.min(s.cbTickLevel, CB_TICK_TARGETS.length - 1) : 0;
             projectionMode = Number.isInteger(s.projectionMode) && s.projectionMode >= 0 && s.projectionMode < PROJECTION_LABELS.length + 1 ? s.projectionMode : 0;
             projectionDim = Number.isInteger(s.projectionDim) && s.projectionDim >= 0 && s.projectionDim < shape.length ? s.projectionDim : (projectionMode > 0 ? current_slice_dim : -1);
             if (_isCollectionDim(projectionDim)) {
@@ -28172,7 +28181,7 @@
                             { key: 'Drag bar', action: 'Shift the visible range up or down' },
                             { key: 'Dbl-click', action: 'Expand histogram' },
                             { key: 'Dbl-click label', action: 'Type an exact min or max value' },
-                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many → axis · axis moves min/max into the tick row' },
+                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many · min/max join the tick row under the bar' },
                         ]
                     },
                     {
