@@ -5548,7 +5548,9 @@ class TestColorbarWindowLevel:
                 };
             }"""
         )
-        assert colors["fills"] == [colors["text"]]
+        # Notches are haloed in the surface color under the text-color ink;
+        # nothing reacts to the colormap beneath.
+        assert set(colors["fills"]) == {colors["surface"], colors["text"]}
         assert colors["strokes"] == [colors["surface"]]
 
     def test_single_click_vmin_label_opens_value_popup_and_commits(

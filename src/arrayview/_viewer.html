@@ -11776,8 +11776,16 @@
                         if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) return;
                     }
                     const nx = end === 'max' ? cssW - 1 : x;
-                    if (inside) ctx.fillRect(nx, 0, 1, notchH);
-                    ctx.fillRect(nx, cssH - notchH, 1, notchH);
+                    // Notches get the same halo as the values, so they still
+                    // read where the colormap matches the ink (white on white).
+                    const notch = (y) => {
+                        ctx.fillStyle = halo;
+                        ctx.fillRect(nx - 1, y - 1, 3, notchH + 2);
+                        ctx.fillStyle = ink;
+                        ctx.fillRect(nx, y, 1, notchH);
+                    };
+                    if (inside) notch(0);
+                    notch(cssH - notchH);
                     if (showText) {
                         if (inside) {
                             // A stable theme halo keeps values legible without
