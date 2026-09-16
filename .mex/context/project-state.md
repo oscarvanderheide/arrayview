@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-09-08
+last_updated: 2026-09-16
 ---
 
 # Project State
@@ -211,6 +211,19 @@ last_updated: 2026-09-08
 - Focused API coverage now directly guards segmentation activate/scribble/click-accept/export paths, export/preload/vectorfield routes, slice/projection/diff/grid/gif rendering, large-array grid/gif guardrails, and websocket metadata plus shell-close cleanup.
 
 ## In Progress
+
+- `fix/tunnel-background-checks`: unbounded integrated-browser background pings
+  can consume Chromium's per-origin connection budget and block a new viewer.
+  Checks now allow one three-request batch, cancel after two seconds including
+  stalled response bodies, and stop warming that page after any failure.
+  Six real-HTTP browser regression cases cover accumulation, a third array's
+  first frame with two stalled older viewers, and foreground/fresh-viewer
+  recovery. Two real-host Julia/PythonCall launches through the Mac/Linux tunnel
+  rendered using the patched viewer and the already active opener 0.15.60.
+  Original server 8123 still serves its cached older viewer: activation awaits
+  permission to restart ArrayView because that closes existing array views.
+  Julia can remain running; its editable PythonCall environment already points
+  at this checkout. See `LAUNCH-MATRIX.md` and the tunnel handoff for limits.
 
 - **Faster launch (branch `perf/faster-launch`, 2026-09-07).** Three commits:
   terminal launches skip the IPython probe and dead-port ping retries (~0.3 s);

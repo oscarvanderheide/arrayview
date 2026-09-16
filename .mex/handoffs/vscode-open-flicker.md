@@ -1,12 +1,48 @@
 ---
 name: handoff-vscode-open-flicker
-description: Handoff for VS Code tunnel launch flicker/retries. Opener 0.15.53 is active and passed real-host launch, multi-tab, scoped-close, and final-cleanup validation.
-last_updated: 2026-08-18
+description: VS Code tunnel launch failures; 2026-09-16 background-check fix tested, activation in the original server pending.
+last_updated: 2026-09-16
 ---
 
 # Handoff: VS Code tunnel launch flicker/retries
 
-## Current state — read this first
+## Current state — 2026-09-16
+
+Opener **0.15.60 is already installed and active**; its source matches the
+bundle. Today's earlier fix only lets a requested array survive the guided
+window reload when VS Code cancels the reload command promise. It does not
+prevent the original blank tab. Julia/PythonCall uses the editable checkout in
+`~/localscratch/.julia/pythoncall_env/.venv`; no release or reinstall is needed.
+The original daemon on 8123 predates the edits and caches viewer assets at
+import time, so existing views still run the old code.
+
+The attached Mac logs plus Linux launch traces show six navigation attempts
+with no page GET on request `aacf49e…`, followed by immediate first frame after
+reload. The Mac clock is about 95 seconds behind the host: correlate request
+identities, not raw wall-clock timestamps. The archive does not prove which
+individual background request was stuck; do not claim every Mac failure is
+explained or an upstream VS Code issue is fixed.
+
+Concrete ArrayView fault reproduced with real served Chromium requests:
+`_warmClientPath` had no timeout, no overlap guard, and did not consume response
+bodies. Held checks occupy all six per-origin HTTP connections and stop a new
+page's request from being sent. Branch `fix/tunnel-background-checks` limits
+each page to one three-request batch, cancels after two seconds through body
+completion, and suspends further background warming after failure. A new
+working viewer starts fresh; foreground work and non-integrated viewers keep
+their existing behavior. No webview or public-port fallback is introduced.
+
+Evidence: six `real process` regression cases in
+`tests/test_tunnel_warm_path.py`; two nearby integrated-browser navigation tests;
+two `real host` Julia/PythonCall calls on a fresh patched server (8124) rendered
+on attempt 0 in the actual Mac tunnel. Request/frame identities and limits are
+in `LAUNCH-MATRIX.md`. The owned test server and both ports were shut down;
+Julia PID 14024 and original ArrayView PID 194227 remain running. Activation
+requires permission to restart only the original ArrayView server, closing its
+existing array views while leaving Julia alive. Do not use `arrayview stop`:
+it stops all servers, including unrelated ones.
+
+## Previous validation — 2026-08-18
 
 Opener **0.15.53 is built, installed, and active in both live Tunnel windows**.
 Its installed source exactly matches the bundled and working source. After the

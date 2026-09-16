@@ -5966,15 +5966,39 @@
         // A single connection is not enough (it took three flickers down to
         // one, not zero) — the drops come in short runs, and connections opened
         // together absorb a run instead of queueing behind it.
+        let _clientPathWarmBatch = null;
+        let _clientPathWarmSuspended = false;
         function _warmClientPath(connections) {
-            if (!_isIntegratedBrowserViewer) return;
-            const count = Math.max(1, Math.min(6, Number(connections) || 3));
-            for (let i = 0; i < count; i++) {
-                // Distinct URLs so nothing is served from cache and each one is
-                // a real connection through the forward.
-                fetch(`ping?warm=${Date.now()}-${i}`, { cache: 'no-store' })
-                    .catch(() => {});
-            }
+            if (!_isIntegratedBrowserViewer || _clientPathWarmBatch
+                || _clientPathWarmSuspended) return;
+            // Chromium shares its HTTP connection budget across tabs on this
+            // origin. Unbounded background pings can occupy every slot and
+            // prevent even a new page's first request from being sent.
+            const count = Math.max(1, Math.min(3, Number(connections) || 3));
+            const controller = new AbortController();
+            const stopWarming = () => {
+                // The private proxy may retain upstream work after a browser
+                // abort. Do not add another burst to a route already known to
+                // be stuck. A newly loaded viewer can warm its working route.
+                _clientPathWarmSuspended = true;
+                controller.abort();
+            };
+            const timeout = setTimeout(stopWarming, 2000);
+            const requests = Array.from({ length: count }, (_, i) =>
+                fetch(`ping?warm=${Date.now()}-${i}`, {
+                    cache: 'no-store',
+                    signal: controller.signal,
+                }).then(response => {
+                    if (!response.ok) throw new Error('Connection check failed');
+                    // Keep the deadline until the body has arrived too: fetch
+                    // resolves at headers, while the connection can stay busy.
+                    return response.arrayBuffer();
+                }).catch(stopWarming)
+            );
+            _clientPathWarmBatch = Promise.allSettled(requests).finally(() => {
+                clearTimeout(timeout);
+                _clientPathWarmBatch = null;
+            });
         }
         // isInlineEmbed: true when explicitly launched as an inline Jupyter/notebook embed
         // (the Python launcher adds &inline=1 to the URL for inline IFrames).

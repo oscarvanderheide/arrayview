@@ -52,6 +52,36 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-09-16 bounded background checks
+
+Branch `fix/tunnel-background-checks` changes the integrated-browser viewer's
+background pings only. Affected consumers: rows 1–4, 16, 19–20, 24–26,
+29–30, 32, and new Julia/PythonCall row 35. Cold startup (23) shares the viewer;
+ordinary browser, native, and inline viewers (5–10, 12–15, 21–22, 34) must keep
+ignoring integrated-browser warming. No opener, forwarding, ownership, or
+render-mode routing changes are included.
+
+- `real process`: real served Chromium pages reproduced the old failure:
+  repeated background checks occupied six HTTP connections; two existing
+  viewers with six stalled checks prevented a third navigation from loading.
+  Six regression cases now cancel checks before headers or during a partial
+  body, render the third array without closing either older page, and suppress
+  further background checks on the failed page. A fresh working viewer warms
+  normally; a non-integrated viewer does not warm. This is not evidence of
+  induced fault recovery on the physical Mac tunnel.
+- `real host`: two Julia/PythonCall public calls through the actual Mac/Linux
+  tunnel, using the patched server on port 8124, rendered in distinct tabs on
+  attempt 0. Correlated requests `fb54c053df2144cd9a8468148b9d1861` and
+  `89fc84e8eee64795a14d1c97a45574e7` reached first frame at
+  19:19:12.528Z and 19:19:15.262Z; callers returned successfully. The owned
+  test server was stopped; its main and delivery ports closed while the
+  original Julia process and server on 8123 stayed running.
+- `unavailable`: induction of the original stalled Mac tunnel, idle recurrence,
+  CLI/Explorer rechecks, cold launch, user-driven display close/session release,
+  and other IDE/environment rows. Their older status is retained below.
+  Existing server 8123 still holds the pre-fix viewer and needs a restart;
+  the editable PythonCall installation requires no release or reinstall.
+
 ### Measuring a launch: do not trust the phase journal for a breakdown
 
 The viewer's `navigation-arrived` / `script-loaded` / `ws-open` /
@@ -158,6 +188,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 16 | plain Python, VS Code tunnel terminal | vscode tab | small | **2026-08-19 `real host`, fixed** — the correlated port lease (`_viewer_port_url`, `_server_id_for_url`) was probing the loading-page stub instead of the real backend on every cold start over a tunnel: the stub answers any path including `/ping` with placeholder HTML, so the lease's JSON parse failed (or, once that was patched, `_server_id_for_url` silently returned `None` from the same stub-probing bug, making `expectedServerId` empty and the lease 400). Reproduced 100% on a cold kernel/process start; fixed by unwrapping the loading-page URL before probing. Confirmed against the user's live tunnel kernel, cold start, 4/4 |
 | 17 | any | `window=False` | any | never verified — must return a URL and open nothing |
 | 18 | any | multiple arrays (2-4 handles) | any | **verified 2026-08-06 `real host`** — `view(a, b, c)` returns 3 handles and opens one tab holding all three as a compare group, first try |
+| 35 | Julia/PythonCall, Linux host with macOS VS Code tunnel client | vscode tab | small, fast local | **2026-09-16 `real host`** — `using PythonCall; av=pyimport("arrayview"); av.view(rand(Float32,32,32); name="Fixed loading check", port=8124)` exercised twice against the patched server: two distinct tabs, first frame and successful caller return on attempt 0. Stalled-route recovery remains `real process`, not induced on this host. |
 
 ### VS Code Explorer click
 
@@ -173,8 +204,8 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | # | Case | Status |
 |---|------|--------|
 | 23 | Cold start — no server running yet | **0.15.53: verified 2026-08-18 `real host`** — the second five-launch batch began from no ArrayView server and rendered normally |
-| 24 | Warm repeat — second array within ~10 s | **0.15.53: verified 2026-08-18 `real host`** — ten public CLI launches across two batches rendered without reloads, manual retries, or replacement tabs |
-| 25 | Several viewers open at once | **0.15.53: verified 2026-08-18 `real host`** — five simultaneous viewers remained in five distinct tabs in each of two batches |
+| 24 | Warm repeat — second array within ~10 s | **2026-09-16 `real host`** — two Julia/PythonCall calls with the patched viewer and opener 0.15.60 rendered on attempt 0, about three seconds apart. CLI-specific evidence remains 2026-08-18. |
+| 25 | Several viewers open at once | **2026-09-16 `real host`** — two patched Julia/PythonCall viewers rendered in distinct tabs alongside the existing user views. `real process`: a third served Chromium viewer renders after stalled checks in two older viewers are cancelled. Five-viewer CLI evidence remains 2026-08-18. |
 | 26 | Close one viewer, others keep working | **0.15.53: verified 2026-08-18 `real host`** — closing the middle of five released exactly that array while the same window and the other four viewers stayed alive; closing the rest released every session and the temporary server shut down automatically |
 | 27 | `--kill` / shutdown leaves no orphan processes | **verified 2026-08-06 `real host`** — after `--kill`: no daemon processes, no listening ports (cold-start ports included), no stale claims, registry empty. A normal launch creates exactly one server. **But**: the server is `persist`ent by design, so it outlives the command that started it — including one interrupted mid-launch — and is only stopped explicitly. It stays discoverable via `arrayview instances` and killable, so it is a managed server rather than an orphan; a server from an *earlier session* was still running today and was found and stopped the same way |
 | 28 | Repeat launch after `--kill` | **verified 2026-08-06 `real host`** — 5/5 clean, this is the cold-start path |

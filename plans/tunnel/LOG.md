@@ -3762,3 +3762,48 @@ certificate/session suite has 11 passing cases. Targeted lint and the full
 client type check also pass. This is `component` evidence. A real Tunnel run of
 the custom macOS build is still open and the PR remains a draft until that host
 boundary or maintainer review confirms the fix.
+
+
+## 2026-09-16 — bounded background checks, Julia/PythonCall tunnel
+
+User supplied `Archive.zip` with Mac VS Code logs (local attachment, not source).
+The active opener is 0.15.60 and matches the checkout bundle. The earlier
+reload-cancellation fix was already active; it only repaired reload recovery.
+Julia uses an editable ArrayView from `~/localscratch/.julia/pythoncall_env/.venv`.
+The original daemon (8123, PID 194227) was started before the edits and still
+caches the older viewer assets; an unreleased checkout fix needs a daemon
+restart, not a package reinstall or a Julia restart.
+
+Correlated Julia request aacf49e… at host 18:53:35Z made six navigation attempts
+without a page GET; reloading produced first frame at 18:53:57.7Z. Archive clocks
+are about 95 seconds behind the host. No new tunnel interruption coincides with
+that failure. A permanent VS Code connection-pool wedge remains unproven;
+avoid speculative configuration toggles or public-port/webview fallback.
+
+`real process`: served Chromium with real HTTP endpoints held background pings
+before headers or during a response body. Before the change, repeated warming
+occupied six connections; six held checks across two rendered viewers blocked
+a third navigation for its five-second timeout. The ArrayView check had no
+deadline, overlap guard, or response-body completion tracking. The fix allows
+one three-request batch per page, aborts after two seconds including the body,
+and stops further background warming for that page after a failure. This also
+avoids adding more work if a private proxy retains requests after browser abort.
+A freshly loaded viewer can warm normally. Six cases now pass (17.91 s), covering
+actual disconnection, third-array first frame without closing old viewers,
+foreground recovery, repeated successful batches, and non-integrated guards.
+Two existing integrated-browser navigation cases also pass. No opener changes.
+
+`real host`: public Julia/PythonCall `view(rand(Float32,32,32); port=8124)` on
+a fresh patched server opened two distinct tabs in the actual Mac/Linux tunnel,
+returned successfully, and rendered on attempt 0. Correlated requests
+fb54c053df2144cd9a8468148b9d1861 / 89fc84e8eee64795a14d1c97a45574e7 reached
+first frame at 19:19:12.528Z / 19:19:15.262Z. The owned test server (PID 231984)
+was stopped; ports 8124 and 43599 are closed. Original Julia PID 14024 and server
+194227 are alive. Existing user array views were preserved.
+
+Physical Mac stalled-route recovery was not induced after this patch. The
+archive cannot identify a particular stuck background check, so this proves a
+real ArrayView failure mechanism and its regression fix, not that every VS Code
+blank tab has the same cause. Activation on the original server awaits user
+permission because restarting it closes its currently open array views. Do not
+use the global stop command; other ArrayView servers must remain untouched.
