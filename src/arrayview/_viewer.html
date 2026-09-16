@@ -7237,7 +7237,7 @@
         // info-cursor behavior is one rule, not one per mode. (qMRI multiview
         // panning has no crosshair-line overlay, so it is not part of this.)
         function _anyOrthoDragActive() {
-            return !!(mvDraggingView || cmvDraggingView);
+            return !!(mvDraggingView || cmvDraggingView || _qmriMvDragView);
         }
         function _reconcileOrthoCursorHidden() {
             document.body.classList.toggle('crosshair-cursor-hidden', _anyOrthoDragActive());
@@ -7508,6 +7508,11 @@
         let _cmvCrosshairAlpha = 0;    // current crosshair opacity for compare-mv
         let _cmvCrosshairTarget = 0;   // target opacity for compare-mv
         let _cmvCrosshairAnim = null;  // animation frame id for compare-mv crosshair fade
+        let _qmvCrosshairAlpha = 0;    // current crosshair opacity for qMRI multiview
+        let _qmvCrosshairTarget = 0;   // target opacity for qMRI multiview
+        let _qmvCrosshairAnim = null;  // animation frame id for qMRI-mv crosshair fade
+        let _qmvScrollHintTimer = null; // fade-out timer after scrolling a qMRI-mv pane
+        let _qmvScrollHintDir = -1;    // plane being scrolled (its own lines stay hidden)
         let compareMvSids = [];        // SIDs being compared in compare-mv mode
         let compareMvDims = [];        // [dimX, dimY, sliceDir×3] spatial dims used
         let qmriMvActive = false;      // qMRI + 3-plane multiview combined mode (sub-mode of qMRI)
@@ -36317,6 +36322,7 @@
                         const delta = _wheelIndexDelta(view.sliceDir, e);
                         if (!delta) return;
                         indices[view.sliceDir] = Math.max(0, Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + delta));
+                        _qmvScrollHint(view);
                         renderInfo();
                         qmriMvViews.forEach(v => qmriMvRender(v));
                         _debouncedHoverPrefetch();
@@ -36330,12 +36336,14 @@
                         if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
                         sink.focus();
                         _qmriMvDragView = view;
+                        _qmvRecomputeCrosshairTarget();
                         handleQmriMvPointer(view, e);
                         const onMove = (me) => { if (_qmriMvDragView === view) handleQmriMvPointer(view, me); };
                         const onUp = () => {
                             window.removeEventListener('mousemove', onMove);
                             window.removeEventListener('mouseup', onUp);
                             _qmriMvDragView = null;
+                            _qmvRecomputeCrosshairTarget();
                         };
                         window.addEventListener('mousemove', onMove);
                         window.addEventListener('mouseup', onUp);
@@ -36478,6 +36486,10 @@
             qmriMvActive = false;
             _qmriMvDragView = null;
             _hoveredQmriMvView = null;
+            if (_qmvCrosshairAnim) { cancelAnimationFrame(_qmvCrosshairAnim); _qmvCrosshairAnim = null; }
+            if (_qmvScrollHintTimer) { clearTimeout(_qmvScrollHintTimer); _qmvScrollHintTimer = null; }
+            _qmvCrosshairAlpha = 0; _qmvCrosshairTarget = 0; _qmvScrollHintDir = -1;
+            _reconcileOrthoCursorHidden();
             qmriMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriMvViews = [];
             qmriMvDims = [];
@@ -36643,7 +36655,37 @@
             }
             v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
             _patientFrameDisplayed(v._renderPatientIndex);
+            _qmvDrawCrosshair(v);
             _refreshLoupeFromLastMouse();
+        }
+        /** Position lines on the pane's overlay, like compareMvDrawFrame. */
+        function _qmvDrawCrosshair(v) {
+            const alpha = (_qmvScrollHintTimer && v.sliceDir === _qmvScrollHintDir) ? 0 : _qmvCrosshairAlpha;
+            const ov = _getMvCrosshairOverlay(v);
+            if (!ov) return;
+            const metrics = _getMvCrosshairMetrics(v);
+            if (!metrics) return;
+            const { paneW, paneH, offsetX, offsetY, scaleX, scaleY } = metrics;
+            const dpr = window.devicePixelRatio || 1;
+            const ovW = Math.round(paneW * dpr), ovH = Math.round(paneH * dpr);
+            if (ov.width !== ovW || ov.height !== ovH) {
+                ov.width = ovW; ov.height = ovH;
+                ov.style.width = paneW + 'px';
+                ov.style.height = paneH + 'px';
+            }
+            const c = ov.getContext('2d');
+            c.setTransform(dpr, 0, 0, dpr, 0, 0);
+            c.clearRect(0, 0, paneW, paneH);
+            if (alpha <= 0.005) return;
+            c.globalAlpha = alpha;
+            const fx = _mvFlipX(v), fy = _mvFlipY(v);
+            const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+            const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+            const cssCx = offsetX + cx * scaleX, cssCy = offsetY + cy * scaleY;
+            c.lineWidth = 1;
+            c.strokeStyle = _mvCrosshairStroke();
+            c.beginPath(); c.moveTo(cssCx, 0); c.lineTo(cssCx, paneH); c.stroke();
+            c.beginPath(); c.moveTo(0, cssCy); c.lineTo(paneW, cssCy); c.stroke();
         }
 
         function qmriMvScaleAllCanvases() {
@@ -37641,6 +37683,43 @@
             if (sid !== null) _cmvCrosshairSid = sid;  // keep sid during fade-out
             _cmvCrosshairTarget = target;
             if (!_cmvCrosshairAnim) _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
+        }
+        // qMRI multiview: every row shares one position, so one alpha drives
+        // the lines in all rows at once (same press / scroll triggers as the
+        // plain ortho grid).
+        function _qmvAnimateCrosshairs() {
+            const speed = 0.12;
+            const diff = _qmvCrosshairTarget - _qmvCrosshairAlpha;
+            if (Math.abs(diff) < 0.01) {
+                _qmvCrosshairAlpha = _qmvCrosshairTarget;
+                _qmvCrosshairAnim = null;
+                qmriMvViews.forEach(v => qmriMvDrawFrame(v));
+                return;
+            }
+            _qmvCrosshairAlpha += diff > 0 ? Math.min(speed, diff) : Math.max(-speed, diff);
+            qmriMvViews.forEach(v => qmriMvDrawFrame(v));
+            _qmvCrosshairAnim = requestAnimationFrame(_qmvAnimateCrosshairs);
+        }
+        function _qmvSetCrosshairTarget(target) {
+            _qmvCrosshairTarget = target;
+            if (!_qmvCrosshairAnim) _qmvCrosshairAnim = requestAnimationFrame(_qmvAnimateCrosshairs);
+        }
+        function _qmvRecomputeCrosshairTarget() {
+            if (!qmriMvActive) return;
+            _reconcileOrthoCursorHidden();
+            _qmvSetCrosshairTarget(_qmriMvDragView || _qmvScrollHintTimer ? 1 : 0);
+        }
+        /** Scrolling a plane moves the lines in the other two planes; the
+         *  scrolled plane's own lines stay put, so they are left hidden. */
+        function _qmvScrollHint(view) {
+            _qmvScrollHintDir = view ? view.sliceDir : -1;
+            if (_qmvScrollHintTimer) clearTimeout(_qmvScrollHintTimer);
+            _qmvScrollHintTimer = setTimeout(() => {
+                _qmvScrollHintTimer = null;
+                _qmvScrollHintDir = -1;
+                _qmvRecomputeCrosshairTarget();
+            }, 250);
+            _qmvSetCrosshairTarget(1);
         }
 
         function _getMvCrosshairOverlay(v) {
