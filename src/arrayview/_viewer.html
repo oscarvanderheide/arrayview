@@ -11099,33 +11099,20 @@
         // ── Colorbar tick marks ──────────────────────────────────────────────
         // One ruler under the collapsed strip. Level 0 shows only the
         // flanking vmin/vmax labels; higher levels replace them with a row
-        // of small values — vmin and vmax flush with the bar's ends plus
-        // "nice" round values between — at growing density. The flanking
-        // labels come back while the histogram is open, where they are the
-        // edit / lock controls. Cycled with `w`; every horizontal ColorBar
-        // reads it.
-        const CB_TICK_TARGETS = [0, 3, 6];      // rough tick count per level
+        // of small values from vmin to vmax in equal steps, at growing
+        // density. Equal steps (rather than round values) keep the spacing
+        // even and never crowd the ends. The flanking labels come back while
+        // the histogram is open, where they are the edit / lock controls.
+        // Cycled with `w`; every horizontal ColorBar reads it.
+        const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
         const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
-        // Round tick values inside [lo, hi] at a 1/2/5 step chosen so roughly
-        // `target` ticks fit. Endpoints are excluded — the flanking labels
-        // already show them.
-        function _cbNiceTicks(lo, hi, target) {
-            if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(target > 0)) return [];
-            const raw = (hi - lo) / target;
-            const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-            const norm = raw / mag;
-            // Round to the nearest of 1/2/2.5/5/10 rather than always up, so
-            // the count lands near the target instead of well under it.
-            const unit = norm < 1.5 ? 1 : norm < 2.25 ? 2 : norm < 3.5 ? 2.5 : norm < 7 ? 5 : 10;
-            const step = unit * mag;
-            const eps = step * 1e-6;
+        /** vmin..vmax in `steps` equal steps, ends included. */
+        function _cbEvenTicks(lo, hi, steps) {
+            if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(steps > 0)) return [];
             const ticks = [];
-            for (let k = Math.ceil((lo + eps) / step); k * step < hi - eps; k++) {
-                const v = Number((k * step).toPrecision(12));
-                ticks.push(Math.abs(v) < eps ? 0 : v);
-            }
+            for (let k = 0; k <= steps; k++) ticks.push(k === steps ? hi : lo + (hi - lo) * k / steps);
             return ticks;
         }
         function _cycleCbTickLevel() {
@@ -11763,23 +11750,32 @@
                 const axis = _cbTickLevel > 0;
                 let ticks = [];
                 let wLo = null, wHi = null;
+                let fmt = null;
+                const inside = !row || this._tickRowClipped();
+                const showText = !inside || cssH >= 14;
                 if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
-                    ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
-                    // The ends are ticks too. They are drawn first so the
-                    // round values yield to them, and they survive even when
-                    // no round value fits between them.
-                    if (Number.isFinite(wLo) && Number.isFinite(wHi) && wHi > wLo) {
-                        ticks = [wLo, wHi, ...ticks];
+                    ctx.save();
+                    ctx.font = '9px monospace';
+                    // Halve the step count until every label has room, so a
+                    // narrow bar thins the ruler evenly instead of dropping
+                    // values here and there.
+                    for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 1; steps = Math.floor(steps / 2)) {
+                        ticks = _cbEvenTicks(wLo, wHi, steps);
+                        if (!ticks.length) break;
+                        // One precision for the whole row, ends included, so
+                        // it reads as a single ruler, not two kinds of number.
+                        fmt = formatValueGroup(ticks);
+                        const widest = Math.max(...ticks.map(v => ctx.measureText(fmt.format(v)).width));
+                        const room = inside ? cssW - widest : cssW;
+                        // Same clearance the per-label overlap check below
+                        // demands (2px side pad each + 6px gap).
+                        if (!showText || (widest + 10) * steps <= room) break;
                     }
+                    ctx.restore();
                 }
                 if (!ticks.length) { this._setTickRow(null, cssW, 0, axis); return; }
-                // One precision for the whole row, ends included, so it
-                // reads as a single ruler rather than two kinds of number.
-                const fmt = formatValueGroup(ticks);
-                const inside = !row || this._tickRowClipped();
-                const showText = !inside || cssH >= 14;
                 // Row mode keeps the strip clean: the markers live in the row
                 // (see .cb-ticks span::before). Only the inside fallback (no
                 // room for a row) draws notches on the strip itself.
@@ -11802,9 +11798,8 @@
                     // The ends sit on the bar's edges. In the row they are
                     // centred on the edge like any other value; inside the
                     // strip the text is anchored so it never sticks out.
-                    const end = axis && i < 2 ? (i === 0 ? 'min' : 'max') : null;
+                    const end = i === 0 ? 'min' : i === ticks.length - 1 ? 'max' : null;
                     const f = (v - wLo) / (wHi - wLo);
-                    if (!end && (f < 0.03 || f > 0.97)) return;
                     const x = end ? (end === 'min' ? 0 : cssW) : Math.round(f * cssW);
                     const text = fmt.format(v);
                     const tw = ctx.measureText(text).width;
