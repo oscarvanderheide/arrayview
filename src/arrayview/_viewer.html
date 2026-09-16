@@ -497,17 +497,7 @@
             content: ''; position: absolute; left: 50%; top: -4px;
             width: 1px; height: 3px; background: currentColor; opacity: 0.8;
         }
-        /* The end values are centred on the bar's edges, carry no marker
-           (the edge is the mark) and read a little brighter: they are the
-           window, the rest is the scale. */
-        .cb-ticks span.cb-tick-min, .cb-ticks span.cb-tick-max {
-            opacity: 0.9; pointer-events: auto; cursor: pointer;
-        }
-        .cb-ticks span.cb-tick-min::before, .cb-ticks span.cb-tick-max::before { display: none; }
-        /* With ticks on, the flanking labels give way to the end ticks —
-           until the histogram opens, where they are the edit/lock controls. */
-        .cb-axis-ticks:not(.cb-expanded) .roi-cb-front > .slim-cb-val,
-        .cb-axis-ticks:not(.cb-expanded) > .slim-cb-val { display: none; }
+
         /* The longhand is needed too: `.cb-wrap` (every ColorBar-built
            island) and `#mv-cb-wrap` set their own padding shorthand after
            `.cb-island`, so the variable alone never reaches them. */
@@ -539,7 +529,9 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: var(--text); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
+        /* Same face and size as the tick row under the bar, so the ends and
+           the values between them read as one scale. */
+        .slim-cb-val { font-size: 9px; color: var(--text); opacity: 0.9; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         .cb-expanded .slim-cb-val.is-locked,
         .cb-expanded .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
@@ -11099,16 +11091,14 @@
         const _cbAnimDuration = 350; // animation duration in ms (shared with ColorBar class)
 
         // ── Colorbar tick marks ──────────────────────────────────────────────
-        // One ruler under the collapsed strip: small values from vmin to
-        // vmax in equal steps, at growing density. Level 0 is just the two
-        // ends, so vmin/vmax always sit in the same place and size whether
-        // or not values are shown between them. Equal steps (rather than
-        // round values) keep the spacing even and never crowd the ends. The
-        // big flanking labels only appear while the histogram is open, where
-        // they are the edit / lock controls. Cycled with `w`; every
+        // Values under the collapsed strip between the flanking vmin/vmax
+        // labels (which share the row's face and size): the window split
+        // into equal steps, at growing density. Equal steps (rather than
+        // round values) keep the spacing even and never crowd the ends.
+        // Level 0 shows only the flanking labels. Cycled with `w`; every
         // horizontal ColorBar reads it.
-        const CB_TICK_TARGETS = [1, 4, 8];      // steps between vmin and vmax per level
-        const CB_TICK_LABELS  = ['min/max only', 'few', 'many'];
+        const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
+        const CB_TICK_LABELS  = ['off', 'few', 'many'];
         const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         /** vmin..vmax in `steps` equal steps, ends included. */
@@ -11715,10 +11705,10 @@
                 this._tickRowKey = '';
                 return row;
             }
-            _setTickRow(labels, cssW, alpha, axis) {
+            _setTickRow(labels, cssW, alpha) {
                 const row = this._tickRow;
                 if (!row) return;
-                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text + (l.end || '')).join(',') : '';
+                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
                 if (key !== this._tickRowKey) {
                     this._tickRowKey = key;
                     row.textContent = '';
@@ -11726,20 +11716,12 @@
                         const span = document.createElement('span');
                         span.textContent = l.text;
                         span.style.left = (l.x / cssW * 100) + '%';
-                        if (l.end) {
-                            span.classList.add('cb-tick-' + l.end);
-                            if (this._bindLabel) this._bindLabel(span, l.end === 'min' ? 'vmin' : 'vmax');
-                        }
                         row.appendChild(span);
                     }
                 }
                 const on = !!(labels && labels.length);
                 row.style.opacity = on ? String(alpha) : '0';
-                if (this.wrap) {
-                    this.wrap.classList.toggle('cb-has-ticks', on);
-                    // Ticks on: the flanking labels give way to the end ticks.
-                    this.wrap.classList.toggle('cb-axis-ticks', !!axis && this.orientation !== 'vertical');
-                }
+                if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
             }
             _tickRowClipped() {
                 if (!this.colWrap) return true;
@@ -11753,13 +11735,12 @@
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
-                const axis = true;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 let fmt = null;
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                if (this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
+                if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
@@ -11767,21 +11748,23 @@
                     // Halve the step count until every label has room, so a
                     // narrow bar thins the ruler evenly instead of dropping
                     // values here and there.
-                    for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 1; steps = Math.floor(steps / 2)) {
-                        ticks = _cbEvenTicks(wLo, wHi, steps);
-                        if (!ticks.length) break;
-                        // One precision for the whole row, ends included, so
-                        // it reads as a single ruler, not two kinds of number.
-                        fmt = formatValueGroup(ticks);
+                    for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 2; steps = Math.floor(steps / 2)) {
+                        const all = _cbEvenTicks(wLo, wHi, steps);
+                        if (!all.length) break;
+                        // Precision chosen with the ends in the group, so the
+                        // row matches the flanking labels' scale.
+                        fmt = formatValueGroup(all);
+                        ticks = all.slice(1, -1);
                         const widest = Math.max(...ticks.map(v => ctx.measureText(fmt.format(v)).width));
                         const room = inside ? cssW - widest : cssW;
                         // Same clearance the per-label overlap check below
                         // demands (2px side pad each + 6px gap).
                         if (!showText || (widest + 10) * steps <= room) break;
+                        ticks = [];
                     }
                     ctx.restore();
                 }
-                if (!ticks.length) { this._setTickRow(null, cssW, 0, axis); return; }
+                if (!ticks.length) { this._setTickRow(null, cssW, 0); return; }
                 // Row mode keeps the strip clean: the markers live in the row
                 // (see .cb-ticks span::before). Only the inside fallback (no
                 // room for a row) draws notches on the strip itself.
@@ -11800,19 +11783,14 @@
                 ctx.strokeStyle = halo;
                 const drawn = [];
                 const rowLabels = [];
-                ticks.forEach((v, i) => {
-                    // The ends sit on the bar's edges. In the row they are
-                    // centred on the edge like any other value; inside the
-                    // strip the text is anchored so it never sticks out.
-                    const end = i === 0 ? 'min' : i === ticks.length - 1 ? 'max' : null;
+                ticks.forEach((v) => {
                     const f = (v - wLo) / (wHi - wLo);
-                    const x = end ? (end === 'min' ? 0 : cssW) : Math.round(f * cssW);
+                    const x = Math.round(f * cssW);
                     const text = fmt.format(v);
                     const tw = ctx.measureText(text).width;
-                    const hug = inside && end;
-                    const left = hug ? (end === 'min' ? 0 : cssW - tw - 2) : x - tw / 2 - 2;
-                    const right = hug ? (end === 'min' ? tw + 2 : cssW) : x + tw / 2 + 2;
-                    if (showText && !end) {
+                    const left = x - tw / 2 - 2;
+                    const right = x + tw / 2 + 2;
+                    if (showText) {
                         // The row may overhang the strip a little; inside it may not.
                         const slack = inside ? 0 : tw / 2;
                         if (left < 1 - slack || right > cssW - 1 + slack) return;
@@ -11821,7 +11799,7 @@
                     if (inside) {
                         // Notches get the same halo as the values, so they
                         // still read where the colormap matches the ink.
-                        const nx = end === 'max' ? cssW - 1 : x;
+                        const nx = x;
                         for (const y of [0, cssH - notchH]) {
                             ctx.fillStyle = halo;
                             ctx.fillRect(nx - 1, y - 1, 3, notchH + 2);
@@ -11833,18 +11811,16 @@
                         if (inside) {
                             // A stable theme halo keeps values legible without
                             // making each tick react to the colormap beneath it.
-                            ctx.textAlign = end === 'min' ? 'left' : end === 'max' ? 'right' : 'center';
-                            const tx = end === 'min' ? 2 : end === 'max' ? cssW - 2 : x;
-                            ctx.strokeText(text, tx, cssH / 2 + 0.5);
-                            ctx.fillText(text, tx, cssH / 2 + 0.5);
+                            ctx.strokeText(text, x, cssH / 2 + 0.5);
+                            ctx.fillText(text, x, cssH / 2 + 0.5);
                         } else {
-                            rowLabels.push({ x, text, end });
+                            rowLabels.push({ x, text });
                         }
                         drawn.push({ left, right });
                     }
                 });
                 ctx.restore();
-                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha, axis);
+                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha);
             }
 
             /**
@@ -12462,9 +12438,6 @@
                 };
                 _bindLabel(this.vminLabel, 'vmin');
                 _bindLabel(this.vmaxLabel, 'vmax');
-                // The tick row's end values stand in for these labels while
-                // the bar is collapsed, so they take the same interactions.
-                this._bindLabel = _bindLabel;
 
                 // Mousedown on tri handles
                 if (this.triVmin) {
@@ -28218,7 +28191,7 @@
                             { key: 'Drag bar', action: 'Shift the visible range up or down' },
                             { key: 'Dbl-click', action: 'Expand histogram' },
                             { key: 'Dbl-click label', action: 'Type an exact min or max value' },
-                            { key: 'w', action: 'Cycle tick marks', hint: 'min/max only → few → many, all in the row under the bar' },
+                            { key: 'w', action: 'Cycle tick marks', hint: 'off → few → many values between min and max' },
                         ]
                     },
                     {

@@ -5559,8 +5559,7 @@ class TestColorbarWindowLevel:
         page = loaded_viewer(sid_2d)
         page.wait_for_timeout(400)
 
-        # While collapsed the tick row's min value stands in for the label.
-        page.click("#slim-cb-wrap .cb-ticks .cb-tick-min")
+        page.click("#slim-cb-vmin")
         page.wait_for_selector(".cb-val-popup-wrap", timeout=2_000)
         popup_input = page.locator(".cb-val-popup .slim-cb-val-input")
         assert popup_input.count() == 1, "single-click on vmin should open the entry popup"
@@ -5581,8 +5580,7 @@ class TestColorbarWindowLevel:
         page = loaded_viewer(sid_2d)
         page.wait_for_timeout(400)
 
-        # While collapsed the tick row's min value stands in for the label.
-        page.dblclick("#slim-cb-wrap .cb-ticks .cb-tick-min")
+        page.dblclick("#slim-cb-vmin")
         page.wait_for_function("() => vminLocked", timeout=2_000)
         locked = page.evaluate(
             """() => {
