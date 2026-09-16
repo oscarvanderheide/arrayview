@@ -34641,6 +34641,7 @@
                     stackMosaicViews.forEach(v2 => smRender(v2));
                     saveState();
                 }, { passive: false });
+                _attachPinchHandlers(cv);
                 if (!httpTransport) {
                     view.ws = createTransport(sid,
                         (event) => smOnMessage(view, event),
@@ -35193,6 +35194,7 @@
                         _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
+                    _attachPinchHandlers(cv);
                     cv.addEventListener('mousemove', (e) => {
                         _bcMaybePromotePending(e);
                         if (!view.lastW || !view.lastH) return;
@@ -35691,6 +35693,7 @@
                         _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
+                    _attachPinchHandlers(cv);
                     cv.addEventListener('mousedown', (e) => {
                         if (e.button !== 0) return;
                         e.preventDefault();
@@ -36255,6 +36258,7 @@
                         _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
+                    _attachPinchHandlers(cv);
                     cv.addEventListener('mousedown', (e) => {
                         if (e.button !== 0) return;
                         e.preventDefault();
@@ -36911,6 +36915,15 @@
                 const vcbW = anyMosaicExpanded ? 30 : 8;
                 const labelW = 28 + 8; // label width + margin
                 const vcbTotalW = vcbW + 4 + 30; // vcb + margin + labels
+                // .cb-col defaults to a 250px width sized for horizontal colorbars;
+                // pin it to the actual vertical bar width so the mosaic row's
+                // reserved footprint doesn't stay oversized once histogram mode
+                // (the expand animation) grows the canvas past its collapsed size.
+                for (const v of ready) {
+                    if (v._mosaicColorBar && v._mosaicColorBar.colWrap) {
+                        v._mosaicColorBar.colWrap.style.width = vcbW + 'px';
+                    }
+                }
                 const bottomPad = 24;
                 const totalH = window.innerHeight - uiReserveV()
                              - (n - 1) * rowGap - bottomPad * (1 - _crossfadeCollapseP);

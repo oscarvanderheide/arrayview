@@ -137,6 +137,15 @@ const PANEL_MIN_REMAINING_MS = 1000;
 // A guided reload is useful only if the replacement extension host still has
 // time to activate, reclaim the request, navigate, and reach its first frame.
 const RELOAD_RECOVERY_MIN_REMAINING_MS = 15000;
+// workbench.action.reloadWindow tears this extension host down while its own
+// command promise is still pending, so on the real host that promise reliably
+// rejects (commonly "Canceled") even when the reload genuinely proceeds —
+// confirmed by the next window's clean activate immediately after
+// (plans/tunnel/LOG.md, 2026-08-14/15 "0.15.49"). Treating that rejection as
+// a real failure deleted the preserved request moments before the successor
+// window could resume it, so resume never once succeeded. Wait this long for
+// the teardown to actually happen before believing the rejection.
+let RELOAD_TEARDOWN_GRACE_MS = 3000;
 let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
@@ -191,6 +200,10 @@ function _setRetryTiming({
     if (readinessProbeTimeoutsMs) {
         READINESS_PROBE_TIMEOUTS_MS = readinessProbeTimeoutsMs;
     }
+}
+
+function _setReloadTeardownGraceMs(ms) {
+    RELOAD_TEARDOWN_GRACE_MS = ms;
 }
 
 function _withTimeout(promise, timeoutMs, label) {
@@ -2422,7 +2435,10 @@ async function _executeReloadRecovery(claimedFile, signalFile, data) {
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
             return true;
         } catch (error) {
-            log(`RECOVERY: reload command failed: ${error.message || error}`);
+            log(`RECOVERY: reload command rejected, waiting to see if this host `
+                + `is actually torn down: ${error.message || error}`);
+            await new Promise(resolve => setTimeout(resolve, RELOAD_TEARDOWN_GRACE_MS));
+            log('RECOVERY: still running after reload rejection; treating as a real failure');
         }
     }
     delete data.reloadRecovery;
@@ -4995,6 +5011,7 @@ module.exports = {
         LOCAL_FOREIGN,
         LOCAL_UNKNOWN,
         _setRetryTiming,
+        _setReloadTeardownGraceMs,
         resolveRemoteViewerUrl,
         claimProtocolRequest,
         writeProtocolAck,

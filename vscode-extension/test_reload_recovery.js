@@ -205,6 +205,40 @@ try {
     );
     assert.strictEqual(resumedAck.claimOwner.windowId, 'window-after-reload');
 
+    // workbench.action.reloadWindow tears the extension host down while its
+    // own promise is still pending, so on the real host it reliably rejects
+    // (commonly "Canceled") even though the reload genuinely proceeds. Treating
+    // that rejection as an immediate failure used to delete the preserved
+    // request moments before the successor window could resume it -- resume
+    // never once succeeded in real use. The fix waits a grace period for this
+    // host to actually be torn down before believing the rejection was real.
+    __test._setReloadTeardownGraceMs(150);
+    const teardownRace = stageClaim('reload-teardown-race', 'window-teardown-race');
+    vscodeMock.commands.executeCommand = async () => {
+        throw new Error('Canceled');
+    };
+    const racePromise = __test._executeReloadRecovery(
+        teardownRace.claimed, teardownRace.base, teardownRace.data
+    );
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.strictEqual(
+        JSON.parse(fs.readFileSync(teardownRace.data.ackPath, 'utf8')).state,
+        'panel_opened',
+        'a rejected reload must not be treated as failure before the teardown grace period elapses'
+    );
+    assert.strictEqual(
+        fs.existsSync(teardownRace.claimed),
+        true,
+        'the preserved request must still be on disk for the successor window to resume'
+    );
+    assert.strictEqual(await racePromise, false);
+    assert.strictEqual(
+        JSON.parse(fs.readFileSync(teardownRace.data.ackPath, 'utf8')).state,
+        'failed',
+        'a rejection that survives the grace period means this host never actually reloaded, so it must terminate the request instead of leaking it'
+    );
+
+    __test._setReloadTeardownGraceMs(0);
     const rejected = stageClaim('reload-rejected', 'window-rejected');
     vscodeMock.commands.executeCommand = async () => {
         throw new Error('reload rejected');
