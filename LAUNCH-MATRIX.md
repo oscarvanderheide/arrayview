@@ -79,8 +79,12 @@ render-mode routing changes are included.
 - `unavailable`: induction of the original stalled Mac tunnel, idle recurrence,
   CLI/Explorer rechecks, cold launch, user-driven display close/session release,
   and other IDE/environment rows. Their older status is retained below.
-  Existing server 8123 still holds the pre-fix viewer and needs a restart;
-  the editable PythonCall installation requires no release or reinstall.
+  With user approval the original server on 8123 was replaced by patched
+  persistent server PID 235567. Two further `real host` Julia/PythonCall calls
+  rendered on attempt 0 at 19:23:11.504Z and 19:23:14.178Z (requests
+  `ccfd76a4df084f84abb285d9dbcd2d72` and
+  `f498768ea6e54e0cb998a8f4a8da73de`). Julia PID 14024 remains alive.
+  The editable PythonCall installation requires no release or reinstall.
 
 ### Measuring a launch: do not trust the phase journal for a breakdown
 
@@ -188,7 +192,7 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 16 | plain Python, VS Code tunnel terminal | vscode tab | small | **2026-08-19 `real host`, fixed** — the correlated port lease (`_viewer_port_url`, `_server_id_for_url`) was probing the loading-page stub instead of the real backend on every cold start over a tunnel: the stub answers any path including `/ping` with placeholder HTML, so the lease's JSON parse failed (or, once that was patched, `_server_id_for_url` silently returned `None` from the same stub-probing bug, making `expectedServerId` empty and the lease 400). Reproduced 100% on a cold kernel/process start; fixed by unwrapping the loading-page URL before probing. Confirmed against the user's live tunnel kernel, cold start, 4/4 |
 | 17 | any | `window=False` | any | never verified — must return a URL and open nothing |
 | 18 | any | multiple arrays (2-4 handles) | any | **verified 2026-08-06 `real host`** — `view(a, b, c)` returns 3 handles and opens one tab holding all three as a compare group, first try |
-| 35 | Julia/PythonCall, Linux host with macOS VS Code tunnel client | vscode tab | small, fast local | **2026-09-16 `real host`** — `using PythonCall; av=pyimport("arrayview"); av.view(rand(Float32,32,32); name="Fixed loading check", port=8124)` exercised twice against the patched server: two distinct tabs, first frame and successful caller return on attempt 0. Stalled-route recovery remains `real process`, not induced on this host. |
+| 35 | Julia/PythonCall, Linux host with macOS VS Code tunnel client | vscode tab | small, fast local | **2026-09-16 `real host`** — `using PythonCall; av=pyimport("arrayview"); av.view(rand(Float32,32,32); name="Activated loading check", port=8123)` exercised twice after activation on the original port: two distinct tabs, first frame and successful caller return on attempt 0. Two earlier calls on patched test port 8124 also passed. Stalled-route recovery remains `real process`, not induced on this host. |
 
 ### VS Code Explorer click
 

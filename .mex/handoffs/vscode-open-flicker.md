@@ -1,6 +1,6 @@
 ---
 name: handoff-vscode-open-flicker
-description: VS Code tunnel launch failures; 2026-09-16 background-check fix tested, activation in the original server pending.
+description: VS Code tunnel launch failures; 2026-09-16 background-check fix tested and activated on the original port with Julia preserved.
 last_updated: 2026-09-16
 ---
 
@@ -13,8 +13,12 @@ bundle. Today's earlier fix only lets a requested array survive the guided
 window reload when VS Code cancels the reload command promise. It does not
 prevent the original blank tab. Julia/PythonCall uses the editable checkout in
 `~/localscratch/.julia/pythoncall_env/.venv`; no release or reinstall is needed.
-The original daemon on 8123 predates the edits and caches viewer assets at
-import time, so existing views still run the old code.
+The original daemon on 8123 predated the edits and cached viewer assets at
+import time. After user approval it was stopped and replaced by the patched
+0.45.1 server PID 235567 on the same port. Julia PID 14024 remains running.
+Two post-activation public Julia/PythonCall calls rendered on attempt 0,
+requests `ccfd76a4df084f84abb285d9dbcd2d72` and
+`f498768ea6e54e0cb998a8f4a8da73de`. No release or window reload was needed.
 
 The attached Mac logs plus Linux launch traces show six navigation attempts
 with no page GET on request `aacf49e…`, followed by immediate first frame after
@@ -37,9 +41,11 @@ Evidence: six `real process` regression cases in
 two `real host` Julia/PythonCall calls on a fresh patched server (8124) rendered
 on attempt 0 in the actual Mac tunnel. Request/frame identities and limits are
 in `LAUNCH-MATRIX.md`. The owned test server and both ports were shut down;
-Julia PID 14024 and original ArrayView PID 194227 remain running. Activation
-requires permission to restart only the original ArrayView server, closing its
-existing array views while leaving Julia alive. Do not use `arrayview stop`:
+Activation then stopped only original ArrayView PID 194227 and its ports 8123
+and 44865, with user permission. It ignored SIGTERM and required the verified
+stop helper's SIGKILL escalation; the dead child remains a zombie awaiting its
+Julia parent's reap, with no listeners. The replacement owns ports 8123 and
+41939 and stays running intentionally for the user's calls. Do not use `arrayview stop`:
 it stops all servers, including unrelated ones.
 
 ## Previous validation — 2026-08-18

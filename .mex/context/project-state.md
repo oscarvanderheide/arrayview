@@ -220,10 +220,12 @@ last_updated: 2026-09-16
   first frame with two stalled older viewers, and foreground/fresh-viewer
   recovery. Two real-host Julia/PythonCall launches through the Mac/Linux tunnel
   rendered using the patched viewer and the already active opener 0.15.60.
-  Original server 8123 still serves its cached older viewer: activation awaits
-  permission to restart ArrayView because that closes existing array views.
-  Julia can remain running; its editable PythonCall environment already points
-  at this checkout. See `LAUNCH-MATRIX.md` and the tunnel handoff for limits.
+  Activated with user permission on 2026-09-16: original server 8123 was stopped
+  and replaced by patched persistent server PID 235567 (0.45.1); two more
+  Julia/PythonCall calls rendered on attempt 0 on that same port. Original
+  Julia PID 14024 remains running; its editable PythonCall environment points
+  at this checkout. No release, reinstall, or IDE reload was required.
+  See `LAUNCH-MATRIX.md` and the tunnel handoff for recurrence-proof limits.
 
 - **Faster launch (branch `perf/faster-launch`, 2026-09-07).** Three commits:
   terminal launches skip the IPython probe and dead-port ping retries (~0.3 s);

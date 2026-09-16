@@ -3807,3 +3807,23 @@ real ArrayView failure mechanism and its regression fix, not that every VS Code
 blank tab has the same cause. Activation on the original server awaits user
 permission because restarting it closes its currently open array views. Do not
 use the global stop command; other ArrayView servers must remain untouched.
+
+
+### Activation after user approval
+
+User approved restarting ArrayView. Only verified original PID 194227 on 8123
+was stopped. SIGTERM did not exit it; the existing verified-stop helper escalated
+to SIGKILL. Both old ports (8123, 44865) closed. The helper reported the child
+still running because it remains a zombie under the unchanged Julia parent;
+it has no running code or listeners. No unrelated ArrayView server was stopped.
+Patched persistent server PID 235567 (0.45.1) now owns 8123 and delivery port
+41939. This is the user's intended running server, not an abandoned test server.
+Original Julia PID 14024 remains alive.
+
+`real host`: two post-activation public Julia/PythonCall calls on the original
+port returned successfully and rendered distinct arrays on attempt 0. Requests
+ccfd76a4df084f84abb285d9dbcd2d72 / f498768ea6e54e0cb998a8f4a8da73de reached
+first frame at 19:23:11.504Z / 19:23:14.178Z. Existing original Julia was not
+restarted; gate processes used its environment with --startup-file=no. No
+release, reinstall, or VS Code reload was required. Actual recurrence under a
+stalled physical Mac tunnel remains an observation to collect, not a guarantee.
