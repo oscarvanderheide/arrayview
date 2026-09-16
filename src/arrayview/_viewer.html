@@ -12330,6 +12330,7 @@
                     this.draw();
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                     this._syncInteraction('wheel', { vmin: newVmin, vmax: newVmax });
+                    _bcHudShowForColorbar(this, { linger: true });
                 }, { passive: false });
 
                 // Mousedown on canvas
@@ -12346,6 +12347,7 @@
                     }
                     this._dragX = e.clientX;
                     if (this.opts.onDragStart) this.opts.onDragStart('pan');
+                    _bcHudShowForColorbar(this);
                 });
 
                 // Dblclick follows the same histogram/range menu path as `d`.
@@ -12356,6 +12358,7 @@
                     this._dragTarget = null;
                     this._dragActive = false;
                     document.body.style.cursor = '';
+                    _bcHudHideForColorbar();
                     if (this.opts.onMouseLeave) this.opts.onMouseLeave();
                     const cmd = typeof commands !== 'undefined' ? commands['histogram.openOrCycle'] : null;
                     if (cmd && typeof cmd.run === 'function') {
@@ -12482,6 +12485,7 @@
                 this._dragActive = true;
                 document.body.style.cursor = 'ew-resize';
                 if (this.opts.onDragStart) this.opts.onDragStart(target);
+                _bcHudShowForColorbar(this);
                 const win = this.opts.getWindow();
                 const hd = this._histData;
                 if (hd) {
@@ -12526,6 +12530,7 @@
                     this.draw();
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                     this._syncInteraction('drag', { vmin: newVmin, vmax: newVmax });
+                    _bcHudShowForColorbar(this);
                 } else if (this._dragX != null) {
                     // Pan drag
                     const dx = e.clientX - this._dragX;
@@ -12540,6 +12545,7 @@
                     this.draw();
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                     this._syncInteraction('pan', { vmin: newVmin, vmax: newVmax });
+                    _bcHudShowForColorbar(this);
                 } else if (this._mouseOver && this.orientation === 'horizontal') {
                     // Hover — update hoverFrac and cursor
                     const frac = Math.max(0, Math.min(1, x / cssW));
@@ -12650,6 +12656,7 @@
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                 }
                 this._dragX = null;
+                if (wasDragging) _bcHudHideForColorbar();
                 if (wasDragging && this.opts.onDragEnd) this.opts.onDragEnd();
             }
 
@@ -23526,8 +23533,7 @@
          *  scale factors, computed once at drag start (the data range does not
          *  move mid-drag). minWindow is the base-edge floor — a 256th of the
          *  data range, same "small sliver" a manual window can already reach. */
-        function _bcTriGeom(initCenter, initWidth) {
-            const hist = (_bcTargetCb && _bcTargetCb._histData) || _histData;
+        function _bcTriGeom(initCenter, initWidth, hist = (_bcTargetCb && _bcTargetCb._histData) || _histData) {
             let dataMin = hist && Number.isFinite(hist.vmin) ? hist.vmin : null;
             let dataMax = hist && Number.isFinite(hist.vmax) ? hist.vmax : null;
             if (dataMin == null || dataMax == null || !(dataMax > dataMin)) {
@@ -23646,6 +23652,47 @@
         }
         function _bcHudHide() {
             if (_bcHudEl) _bcHudEl.classList.remove('visible');
+        }
+        // Window changes made on the colorbar itself (dragging the bar or a
+        // bound, wheel / pinch on it) show the same triangle readout as the
+        // in-pane drag, centred on the bar's own pane — both gestures then
+        // teach one level/window picture. Wheel has no end event, so that
+        // path lingers briefly and hides itself.
+        let _bcHudCbTimer = null;
+        function _bcHudPaneForCb(cb) {
+            const anchor = cb.opts.hoverValueAnchor ? cb.opts.hoverValueAnchor() : null;
+            if (anchor) return anchor;
+            const pane = cb.wrap && cb.wrap.closest('.qv-pane, .compare-pane, .mv-pane');
+            return (pane && pane.querySelector('canvas')) || canvas;
+        }
+        function _bcHudShowForColorbar(cb, { linger = false } = {}) {
+            if (_bcDrag) return; // the in-pane drag already owns the HUD
+            const win = cb.opts.getWindow ? cb.opts.getWindow() : null;
+            if (!win || !Number.isFinite(win.vmin) || !Number.isFinite(win.vmax)) return;
+            const center = (win.vmin + win.vmax) / 2;
+            const g = _bcTriGeom(center, win.vmax - win.vmin, cb._histData);
+            const width = Math.max(Math.abs(win.vmax - win.vmin), g.minWindow);
+            const local = _bcTriValueToLocal(g, center, width);
+            const hud = _bcHudEnsure();
+            hud.classList.add('visible');
+            _bcHudUpdateDot(local);
+            _bcHudUpdateWedge(g, center, width, local);
+            const pane = _bcHudPaneForCb(cb);
+            const r = pane.getBoundingClientRect();
+            const pr = hud.getBoundingClientRect();
+            hud.style.left = Math.round(r.left + r.width / 2 - pr.width / 2) + 'px';
+            hud.style.top = Math.round(r.top + r.height / 2 - pr.height / 2) + 'px';
+            if (_bcHudCbTimer) { clearTimeout(_bcHudCbTimer); _bcHudCbTimer = null; }
+            if (linger) {
+                _bcHudCbTimer = setTimeout(() => {
+                    _bcHudCbTimer = null;
+                    if (!_bcDrag) _bcHudHide();
+                }, 700);
+            }
+        }
+        function _bcHudHideForColorbar() {
+            if (_bcHudCbTimer) { clearTimeout(_bcHudCbTimer); _bcHudCbTimer = null; }
+            if (!_bcDrag) _bcHudHide();
         }
 
         async function _bcStartDrag(e, targetView = null, targetCb = null) {
