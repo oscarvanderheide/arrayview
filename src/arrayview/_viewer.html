@@ -491,6 +491,7 @@
         .cb-ticks span {
             position: absolute; top: 5px; transform: translateX(-50%);
             white-space: nowrap; opacity: 0.55;
+            transition: left 0.3s ease-out;
         }
         /* A short marker under the bar's edge above each round value. */
         .cb-ticks span::before {
@@ -6578,15 +6579,21 @@
         let _infoFreehandDragging = false; // true while the quick-measure drag is in progress
         let _infoFreehandPts = [];         // points collected during that drag
         let _infoFreehandView = null;      // which mv/qv pane initiated it (main mode: unused)
-        let _infoQuickRoi = null;          // finished shape, normal-mode canvas: {type:'freehand', points, _infoQuick:true}
-        let _infoQuickRoiMv = null;        // finished shape, tagged to one multiview pane: {..., mvDimX, mvDimY}
-        let _infoQuickRoiQv = null;        // finished shape, shown on every qMRI pane (they share one slice)
-        // Compare mode: split panes each get their own outline (indexed like
+        // Every finished quick-measure shape is APPENDED (not overwritten) to
+        // its own surface's list below, and a matching removal closure is
+        // pushed onto _infoQuickRoiStack — one global creation order across
+        // all 5 surfaces — so Backspace (see roi.deleteSelected) can always
+        // pop the single most-recently-drawn shape, whichever surface it's on.
+        let _infoQuickRois = [];           // normal-mode canvas: [{type:'freehand', points, _infoQuick:true, statsText}]
+        let _infoQuickRoisMv = [];         // multiview: [{..., mvDimX, mvDimY, statsText}]
+        let _infoQuickRoisQv = [];         // qMRI: [{..., qvStatsByPaneIdx:{[view.qmriIdx]:statsText}}] — shown on every pane, one stat per pane
+        // Compare mode: split panes each get their own list (indexed like
         // compareCanvases/compareDisplaySids), plus one for the centre diff
         // pane. Points are in that pane's own canvas-pixel space (cv.width/
         // height), never in the cached slice's grid — see _infoQuickCompareStats.
-        let _infoQuickRoiCompare = [];     // finished shape per split pane index, or undefined
-        let _infoQuickRoiCompareDiff = null; // finished shape for the centre diff pane
+        let _infoQuickRoisCompare = [];    // _infoQuickRoisCompare[paneIdx] = [{points, _infoQuick:true, statsText}]
+        let _infoQuickRoisCompareDiff = []; // [{points, _infoQuick:true, statsText}] for the centre diff pane
+        let _infoQuickRoiStack = [];       // LIFO of {remove(){...}} closures, one per shape, across all 5 surfaces — Backspace pops this
         function _infoQuickStatsText(stats) {
             return stats ? `${_roiStatsFmt(stats.mean)} ± ${_roiStatsFmt(stats.std)}` : null;
         }
@@ -6594,11 +6601,12 @@
             _infoFreehandDragging = false;
             _infoFreehandPts = [];
             _infoFreehandView = null;
-            _infoQuickRoi = null;
-            _infoQuickRoiMv = null;
-            _infoQuickRoiQv = null;
-            _infoQuickRoiCompare = [];
-            _infoQuickRoiCompareDiff = null;
+            _infoQuickRois = [];
+            _infoQuickRoisMv = [];
+            _infoQuickRoisQv = [];
+            _infoQuickRoisCompare = [];
+            _infoQuickRoisCompareDiff = [];
+            _infoQuickRoiStack = [];
             if (Array.isArray(compareCanvases)) compareCanvases.forEach(cv => cv && _infoHideCompareOverlay(cv));
             const diffCvForClear = document.getElementById('compare-diff-canvas');
             if (diffCvForClear) _infoHideCompareOverlay(diffCvForClear);
@@ -11741,7 +11749,14 @@
                 const row = this._tickRow;
                 if (!row) return;
                 const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
-                if (key !== this._tickRowKey) {
+                const canUpdateInPlace = labels && labels.length === row.children.length;
+                if (canUpdateInPlace) {
+                    labels.forEach((label, index) => {
+                        const span = row.children[index];
+                        span.textContent = label.text;
+                        span.style.left = (label.x / cssW * 100) + '%';
+                    });
+                } else if (key !== this._tickRowKey) {
                     this._tickRowKey = key;
                     row.textContent = '';
                     for (const l of labels || []) {
@@ -18128,11 +18143,16 @@
         }
 
         /** qMRI variant: each pane is a different quantitative map, so stats
-         *  are fetched per-view (mirrors _fetchQvRoiStats) and shown in that
-         *  pane's own pill rather than one shared value. */
-        function _infoQuickFetchQvStats(points) {
+         *  are fetched per-view (mirrors _fetchQvRoiStats) and stashed on
+         *  `entry.qvStatsByPaneIdx[view.qmriIdx]` — the one shape is shared
+         *  across every qMRI pane (they show the same slice), but each pane
+         *  can independently show a different mean±std for it, same as
+         *  today's single-shape case just keyed per entry now that several
+         *  shapes can coexist. Drawn by _drawAllQvRois, not shown in a fixed
+         *  pill anymore. */
+        function _infoQuickFetchQvStats(entry) {
             if (!qmriActive) return;
-            const roundedPts = points.map(p => [Math.round(p[0]), Math.round(p[1])]);
+            const roundedPts = entry.points.map(p => [Math.round(p[0]), Math.round(p[1])]);
             qmriViews.forEach(v => {
                 const qIndices = [...indices];
                 qIndices[qmriDim] = v.qmriIdx;
@@ -18141,9 +18161,9 @@
                     headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ points: roundedPts }),
                 }).then(r => r.json()).then(d => {
-                    if (d.error || !_infoQuickRoiQv) return;
-                    const text = _infoQuickStatsText(d);
-                    if (text != null) _showPanePixelPill(v.pixelInfoEl, text);
+                    if (d.error || !_infoQuickRoisQv.includes(entry)) return;
+                    entry.qvStatsByPaneIdx[v.qmriIdx] = _infoQuickStatsText(d);
+                    _drawAllQvRois();
                 }).catch(() => {});
             });
         }
@@ -24789,6 +24809,59 @@
         // Neutral color for the hover-info quick-measure outline — distinct
         // from the numbered _roiColors palette so it never reads as a saved ROI.
         const _INFO_QUICK_ROI_COLOR = { fill: 'rgba(255,255,255,0.05)', stroke: 'rgba(255,255,255,0.88)' };
+        /** Bounding-box anchor (center-x, top-y, bottom-y) for
+         *  _infoQuickDrawPill, in the same already-scaled display space
+         *  _roiLabelPoint/_roiDrawLabel use for real ROI labels. Built on
+         *  _roiBounds, the same helper every real ROI's handles/label point
+         *  already use, so a quick-measure shape's pill sits itself the same
+         *  way a real ROI already sizes its own label. */
+        function _infoQuickPillAnchor(r, sx, sy) {
+            const b = _roiBounds(r);
+            return { cx: ((b.x0 + b.x1) / 2) * sx, y0: b.y0 * sy, y1: b.y1 * sy };
+        }
+        /** Small pill-shaped chip (rounded-rect background + centered text)
+         *  showing a hover-info quick-measure shape's own mean±std reading,
+         *  drawn directly above that shape's own bounding box (or, if that
+         *  would clip off the top of this canvas, below it instead) — unlike
+         *  _roiDrawLabel (a real ROI's numbered label), which has no
+         *  background and isn't anchored to a specific shape's extent. One
+         *  shared helper so all 5 surfaces (normal/mv/qv/compare split/
+         *  compare diff) render this identically rather than duplicating
+         *  rounded-rect drawing code five times.
+         *  ctx: canvas 2d context to draw on. text: the pill's label, or a
+         *  falsy value to skip drawing (stats not back yet from the async
+         *  fetch/raster). cx, y0, y1: the shape's bounding box — horizontal
+         *  center and vertical extent — already scaled to this canvas's own
+         *  display space (see _infoQuickPillAnchor). */
+        function _infoQuickDrawPill(ctx, text, cx, y0, y1) {
+            if (!text) return;
+            const GAP = 5, PAD_X = 7, H = 18, RAD = 5;
+            ctx.save();
+            ctx.font = '700 12px monospace';
+            const w = ctx.measureText(text).width + PAD_X * 2;
+            // Anchor above the shape by default; flip to sit below it instead
+            // if drawing above would clip off the top of the canvas (y < 0).
+            let top = y0 - GAP - H;
+            if (top < 0) top = y1 + GAP;
+            const left = cx - w / 2;
+            ctx.beginPath();
+            ctx.moveTo(left + RAD, top);
+            ctx.arcTo(left + w, top, left + w, top + H, RAD);
+            ctx.arcTo(left + w, top + H, left, top + H, RAD);
+            ctx.arcTo(left, top + H, left, top, RAD);
+            ctx.arcTo(left, top, left + w, top, RAD);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(15,15,15,0.82)';
+            ctx.fill();
+            ctx.strokeStyle = _INFO_QUICK_ROI_COLOR.stroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = _INFO_QUICK_ROI_COLOR.stroke;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, cx, top + H / 2 + 0.5);
+            ctx.restore();
+        }
 
         // ── Hover-info quick-measure overlays for compare mode ──────────────
         // Compare panes have no shared ROI-overlay canvas to draw on (unlike
@@ -24817,16 +24890,22 @@
             if (ctx2) ctx2.clearRect(0, 0, ov.width, ov.height);
             ov.style.display = 'none';
         }
-        /** Draw (or hide) the quick-measure outline for one compare pane.
-         *  `roiObj` is a {type:'freehand', points} shape whose points are in
-         *  `cv`'s own canvas-pixel space (cv.width/height) — reuses
-         *  _roiDrawVisibleShape so the stroke/fill treatment matches the
-         *  outline drawn everywhere else this feature appears. */
-        function _infoRenderCompareOverlay(cv, roiObj) {
+        /** Draw (or hide) every committed quick-measure outline for one
+         *  compare pane, plus an optional still-being-dragged preview shape.
+         *  `roiObjs` is an array of {type:'freehand', points, statsText}
+         *  shapes whose points are in `cv`'s own canvas-pixel space
+         *  (cv.width/height) — reuses _roiDrawVisibleShape so the
+         *  stroke/fill treatment matches the outline drawn everywhere else
+         *  this feature appears, and _infoQuickDrawPill for each shape's own
+         *  mean±std pill (the in-progress `previewObj` has no stats yet, so
+         *  it never gets one). */
+        function _infoRenderCompareOverlay(cv, roiObjs, previewObj) {
             const ov = _infoGetCompareOverlay(cv);
             if (!ov) return;
             const imgW = cv.width, imgH = cv.height;
-            if (!roiObj || !roiObj.points || roiObj.points.length < 3 || !imgW || !imgH) {
+            const list = (roiObjs || []).filter(r => r && r.points && r.points.length >= 3);
+            const hasPreview = !!(previewObj && previewObj.points && previewObj.points.length >= 3);
+            if ((!list.length && !hasPreview) || !imgW || !imgH) {
                 _infoHideCompareOverlay(cv);
                 return;
             }
@@ -24839,7 +24918,14 @@
             if (!ctx2) { _infoHideCompareOverlay(cv); return; }
             ctx2.clearRect(0, 0, dispW, dispH);
             const sx = dispW / imgW, sy = dispH / imgH;
-            _roiDrawVisibleShape(ctx2, roiObj, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+            for (const r of list) {
+                _roiDrawVisibleShape(ctx2, r, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                const a = _infoQuickPillAnchor(r, sx, sy);
+                _infoQuickDrawPill(ctx2, r.statsText, a.cx, a.y0, a.y1);
+            }
+            if (hasPreview) {
+                _roiDrawVisibleShape(ctx2, previewObj, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+            }
             ov.style.display = '';
         }
         /**
@@ -24877,40 +24963,44 @@
             const mean = sum / n;
             return { mean, std: Math.sqrt(Math.max(0, sumSq / n - mean * mean)) };
         }
-        /** Split-pane quick-measure stats: rasterize `pts` (cv pixel space)
-         *  over pane `i`'s own cached hover slice and show mean±std in that
-         *  pane's fixed pixel-info pill. */
-        function _infoQuickComparePaneStats(i, pts) {
+        /** Split-pane quick-measure stats: rasterize `entry.points` (cv pixel
+         *  space) over pane `i`'s own cached hover slice, stash the result on
+         *  `entry.statsText`, and redraw so that entry's own pill picks it
+         *  up (see _infoRenderCompareOverlay) — the fixed pane pill is no
+         *  longer used for this, since each shape now carries its own number. */
+        function _infoQuickComparePaneStats(i, entry) {
             const cv = compareCanvases[i];
-            const piEl = _comparePiEls[i];
             const cvSid = compareDisplaySids[i];
-            if (!cv || !piEl || !cvSid || !cv.width || !cv.height) return;
+            if (!cv || !cvSid || !cv.width || !cv.height) return;
             const cached = _getCachedHoverSlice(cvSid, dim_x, dim_y, _comparePaneHoverIndices(i));
             if (!cached || !cached.w || !cached.h) return;
-            const scaledPts = pts.map(p => [p[0] * cached.w / cv.width, p[1] * cached.h / cv.height]);
+            const scaledPts = entry.points.map(p => [p[0] * cached.w / cv.width, p[1] * cached.h / cv.height]);
             const stats = _infoQuickRasterStats(cached.w, cached.h, scaledPts, (gx, gy) => {
                 const rawX = flip_x ? cached.w - 1 - gx : gx;
                 const rawY = flip_y ? cached.h - 1 - gy : gy;
                 return cached.slice[rawY * cached.w + rawX];
             });
-            const text = _infoQuickStatsText(stats);
-            if (text != null) _showPanePixelPill(piEl, text);
+            entry.statsText = _infoQuickStatsText(stats);
+            const arr = _infoQuickRoisCompare[i];
+            if (arr && arr.includes(entry)) _infoRenderCompareOverlay(cv, arr);
         }
         /** Centre diff-pane quick-measure stats: same per-pixel combine
          *  _compareCenterSample uses (diffMode 1/2/3), applied to every pixel
          *  inside the outline instead of a single hover point. No-op for
          *  diffMode 0 (overlay/wipe/flicker/checker) — there's no per-pixel
-         *  value concept for those today and this deliberately doesn't add one. */
-        function _infoQuickCompareDiffStats(pts) {
+         *  value concept for those today and this deliberately doesn't add one.
+         *  Stashes the result on `entry.statsText` and redraws so that
+         *  entry's own pill picks it up, same as _infoQuickComparePaneStats. */
+        function _infoQuickCompareDiffStats(entry) {
             const cv = document.getElementById('compare-diff-canvas');
-            if (!cv || !_compareDiffPiEl || diffMode <= 0 || compareDisplaySids.length < 2) return;
+            if (!cv || diffMode <= 0 || compareDisplaySids.length < 2) return;
             if (!cv.width || !cv.height) return;
             const [sidA, sidB] = compareDisplaySids;
             if (!sidA || !sidB) return;
             const cachedA = _getCachedHoverSlice(sidA, dim_x, dim_y, _comparePaneHoverIndices(0));
             const cachedB = _getCachedHoverSlice(sidB, dim_x, dim_y, _comparePaneHoverIndices(1));
             if (!cachedA || !cachedB || !cachedA.w || !cachedA.h) return;
-            const scaledPts = pts.map(p => [p[0] * cachedA.w / cv.width, p[1] * cachedA.h / cv.height]);
+            const scaledPts = entry.points.map(p => [p[0] * cachedA.w / cv.width, p[1] * cachedA.h / cv.height]);
             const stats = _infoQuickRasterStats(cachedA.w, cachedA.h, scaledPts, (gx, gy) => {
                 const rawXA = flip_x ? cachedA.w - 1 - gx : gx;
                 const rawYA = flip_y ? cachedA.h - 1 - gy : gy;
@@ -24922,8 +25012,8 @@
                 const d = a - b;
                 return diffMode === 1 ? d : diffMode === 2 ? Math.abs(d) : Math.abs(d) / Math.abs(a);
             });
-            const text = _infoQuickStatsText(stats);
-            if (text != null) _showPanePixelPill(_compareDiffPiEl, text);
+            entry.statsText = _infoQuickStatsText(stats);
+            if (_infoQuickRoisCompareDiff.includes(entry)) _infoRenderCompareOverlay(cv, _infoQuickRoisCompareDiff);
         }
         function _drawAllRois(previewRoi) {
             if (!roiOverlayCanvas || !roiOverlayCtx) return;
@@ -24931,16 +25021,20 @@
             const { sx, sy, dW, dH } = _roiDispScale();
             roiOverlayCtx.clearRect(0, 0, dW, dH);
             const hasNormalRoi = _rois.some(r => r && r.visible !== false && !_roiIsMvPaneRoi(r));
-            // The hover-info quick-measure outline lives outside _rois[]/_roiVisible
-            // entirely, so it survives redraws (resize, mode switches) that call
-            // this with no explicit previewRoi — see _infoQuickRoi.
+            // The hover-info quick-measure outlines live outside _rois[]/
+            // _roiVisible entirely, so they survive redraws (resize, mode
+            // switches) that call this with no explicit previewRoi — see
+            // _infoQuickRois. infoPreview is the one still-being-dragged
+            // shape (not yet committed/appended); realPreview is the real
+            // ROI tool's own in-progress preview, mutually exclusive with it.
             const infoPreview = previewRoi && previewRoi._infoQuick ? previewRoi : null;
-            const quickRoi = infoPreview || (previewRoi === undefined && !hasNormalRoi ? _infoQuickRoi : null);
-            if (!_roiVisible && !quickRoi) { roiOverlayCanvas.style.display = 'none'; return; }
-            if (_roiVisible && !quickRoi && (!hasNormalRoi && !previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
-            if (_roiIsMvPaneRoi(previewRoi)) { roiOverlayCanvas.style.display = 'none'; return; }
+            const realPreview = previewRoi && !previewRoi._infoQuick ? previewRoi : null;
+            const hasQuick = !!infoPreview || _infoQuickRois.length > 0;
+            if (!_roiVisible && !hasQuick) { roiOverlayCanvas.style.display = 'none'; return; }
+            if (_roiVisible && !hasQuick && (!hasNormalRoi && !realPreview)) { roiOverlayCanvas.style.display = 'none'; return; }
+            if (_roiIsMvPaneRoi(realPreview)) { roiOverlayCanvas.style.display = 'none'; return; }
             roiOverlayCanvas.style.display = '';
-            const replaceIdx = previewRoi && Number.isInteger(previewRoi.replaceIdx) ? previewRoi.replaceIdx : -1;
+            const replaceIdx = realPreview && Number.isInteger(realPreview.replaceIdx) ? realPreview.replaceIdx : -1;
             if (_roiVisible) {
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
@@ -24966,14 +25060,22 @@
                     _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
                 }
             }
-            // Draw in-progress ROI preview (same border treatment as committed ROIs)
-            if (previewRoi && !infoPreview) {
+            // Draw in-progress real-ROI-tool preview (same border treatment as committed ROIs)
+            if (realPreview) {
                 const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
                 const c = _roiColors[colorIdx % _roiColors.length];
-                _roiDrawVisibleShape(roiOverlayCtx, previewRoi, sx, sy, c, replaceIdx === _selectedRoiIdx);
-                if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, previewRoi, sx, sy);
-            } else if (quickRoi) {
-                _roiDrawVisibleShape(roiOverlayCtx, quickRoi, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                _roiDrawVisibleShape(roiOverlayCtx, realPreview, sx, sy, c, replaceIdx === _selectedRoiIdx);
+                if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, realPreview, sx, sy);
+            }
+            // Still-dragging quick-measure outline (no stats/pill yet).
+            if (infoPreview) {
+                _roiDrawVisibleShape(roiOverlayCtx, infoPreview, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+            }
+            // Every committed quick-measure shape, each with its own pill.
+            for (const q of _infoQuickRois) {
+                _roiDrawVisibleShape(roiOverlayCtx, q, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                const a = _infoQuickPillAnchor(q, sx, sy);
+                _infoQuickDrawPill(roiOverlayCtx, q.statsText, a.cx, a.y0, a.y1);
             }
         }
 
@@ -25017,15 +25119,17 @@
                 // pane whose dims match.
                 const preview3d = previewRoi && previewRoi.type === 'floodfill' && previewRoi.mask3d_b64 ? previewRoi : null;
                 const infoPreview = previewRoi && previewRoi._infoQuick && _roiMatchesMvView(previewRoi, view) ? previewRoi : null;
-                const previewForView = preview3d ? preview3d : (_roiMatchesMvView(previewRoi, view) ? previewRoi : null);
+                const realPreview = previewRoi && !previewRoi._infoQuick ? previewRoi : null;
+                const previewForView = preview3d ? preview3d : (_roiMatchesMvView(realPreview, view) ? realPreview : null);
                 const hasRoi = _rois.some(r => r && r.visible !== false && (
                     (r.type === 'floodfill' && r.mask3d_b64) || _roiMatchesMvView(r, view)
                 ));
-                // See _drawAllRois: the quick-measure outline bypasses _rois[]/
-                // _roiVisible so it survives redraws with no explicit previewRoi.
-                const quickRoi = infoPreview || (previewRoi === undefined && !hasRoi && _roiMatchesMvView(_infoQuickRoiMv, view) ? _infoQuickRoiMv : null);
-                if (!_roiVisible && !quickRoi) { ov.style.display = 'none'; continue; }
-                if (_roiVisible && !quickRoi && !hasRoi && !previewForView) { ov.style.display = 'none'; continue; }
+                // See _drawAllRois: quick-measure outlines bypass _rois[]/
+                // _roiVisible so they survive redraws with no explicit previewRoi.
+                const quickForView = _infoQuickRoisMv.filter(q => _roiMatchesMvView(q, view));
+                const hasQuick = !!infoPreview || quickForView.length > 0;
+                if (!_roiVisible && !hasQuick) { ov.style.display = 'none'; continue; }
+                if (_roiVisible && !hasQuick && !hasRoi && !previewForView) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 const vfx = !!flipDims[view.dimX], vfy = !!flipDims[view.dimY];
@@ -25063,7 +25167,7 @@
                         _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
                     }
                 }
-                if (previewForView && !infoPreview) {
+                if (previewForView) {
                     const is3dPreview = previewForView.mask3d_b64;
                     if (is3dPreview) {
                         const slice = _roiFloodFillSliceForView(previewForView, view);
@@ -25074,8 +25178,16 @@
                     const c = _roiColors[colorIdx % _roiColors.length];
                     _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, replaceIdx === _selectedRoiIdx);
                     previewForView._paneSlice = null;
-                } else if (quickRoi) {
-                    _roiDrawVisibleShape(rctx, quickRoi, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                }
+                // Still-dragging quick-measure outline for this pane (no pill yet).
+                if (infoPreview) {
+                    _roiDrawVisibleShape(rctx, infoPreview, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                }
+                // Every committed quick-measure shape tagged to this pane, each with its own pill.
+                for (const q of quickForView) {
+                    _roiDrawVisibleShape(rctx, q, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                    const a = _infoQuickPillAnchor(q, sx, sy);
+                    _infoQuickDrawPill(rctx, q.statsText, a.cx, a.y0, a.y1);
                 }
             }
         }
@@ -25112,13 +25224,14 @@
                 rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 rctx.clearRect(0, 0, dW, dH);
                 const hasQvRoi = _rois.some(r => r && r.visible !== false && !_roiIsMvPaneRoi(r));
-                // See _drawAllRois: the quick-measure outline bypasses _rois[]/
-                // _roiVisible so it survives redraws with no explicit previewRoi.
+                // See _drawAllRois: quick-measure outlines bypass _rois[]/
+                // _roiVisible so they survive redraws with no explicit previewRoi.
                 const infoPreview = previewRoi && previewRoi._infoQuick ? previewRoi : null;
-                const quickRoi = infoPreview || (previewRoi === undefined && !hasQvRoi ? _infoQuickRoiQv : null);
-                if (!_roiVisible && !quickRoi) { ov.style.display = 'none'; continue; }
-                if (_roiVisible && !quickRoi && (!hasQvRoi && !previewRoi)) { ov.style.display = 'none'; continue; }
-                if (_roiIsMvPaneRoi(previewRoi)) { ov.style.display = 'none'; continue; }
+                const realPreview = previewRoi && !previewRoi._infoQuick ? previewRoi : null;
+                const hasQuick = !!infoPreview || _infoQuickRoisQv.length > 0;
+                if (!_roiVisible && !hasQuick) { ov.style.display = 'none'; continue; }
+                if (_roiVisible && !hasQuick && (!hasQvRoi && !realPreview)) { ov.style.display = 'none'; continue; }
+                if (_roiIsMvPaneRoi(realPreview)) { ov.style.display = 'none'; continue; }
                 ov.style.display = 'block';
                 const sx = dW / view.lastW, sy = dH / view.lastH;
                 if (_roiVisible) {
@@ -25134,11 +25247,21 @@
                         _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
                     }
                 }
-                if (previewRoi && !infoPreview) {
+                if (realPreview) {
                     const c = _roiColors[_rois.length % _roiColors.length];
-                    _roiDrawVisibleShape(rctx, previewRoi, sx, sy, c, false);
-                } else if (quickRoi) {
-                    _roiDrawVisibleShape(rctx, quickRoi, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                    _roiDrawVisibleShape(rctx, realPreview, sx, sy, c, false);
+                }
+                // Still-dragging quick-measure outline (no pill yet).
+                if (infoPreview) {
+                    _roiDrawVisibleShape(rctx, infoPreview, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                }
+                // Every committed quick-measure shape — shared across every qMRI
+                // pane, but each pane shows its own independently-fetched stat.
+                for (const q of _infoQuickRoisQv) {
+                    _roiDrawVisibleShape(rctx, q, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+                    const text = q.qvStatsByPaneIdx[view.qmriIdx] || null;
+                    const a = _infoQuickPillAnchor(q, sx, sy);
+                    _infoQuickDrawPill(rctx, text, a.cx, a.y0, a.y1);
                 }
             }
         }
@@ -25850,11 +25973,19 @@
             const pts = _infoFreehandPts.slice();
             _infoFreehandPts = [];
             if (pts.length < 5) { _drawAllRois(); return; }
-            _infoQuickRoi = { type: 'freehand', points: pts, _infoQuick: true };
+            const entry = { type: 'freehand', points: pts, _infoQuick: true, statsText: null };
+            _infoQuickRois.push(entry);
+            _infoQuickRoiStack.push({
+                remove: () => {
+                    const idx = _infoQuickRois.indexOf(entry);
+                    if (idx >= 0) _infoQuickRois.splice(idx, 1);
+                    _drawAllRois();
+                },
+            });
             _drawAllRois();
             _infoQuickFetchStats(pts).then(stats => {
-                const text = stats ? _infoQuickStatsText(stats) : null;
-                if (text != null) _setEggsValuePill(text, 'info', null, null);
+                entry.statsText = stats ? _infoQuickStatsText(stats) : null;
+                if (_infoQuickRois.includes(entry)) _drawAllRois();
             });
         });
 
@@ -26531,12 +26662,22 @@
                 title: 'Delete selected ROI',
                 when: [],
                 run: (ctx, e) => {
-                    if (!rectRoiMode || _selectedRoiIdx < 0) return;
-                    e.preventDefault();
-                    const idx = _selectedRoiIdx;
-                    _roiDelete(idx);
-                    _hideRoiContextMenu();
-                    showStatus(`ROI ${idx + 1} deleted`);
+                    if (rectRoiMode && _selectedRoiIdx >= 0) {
+                        e.preventDefault();
+                        const idx = _selectedRoiIdx;
+                        _roiDelete(idx);
+                        _hideRoiContextMenu();
+                        showStatus(`ROI ${idx + 1} deleted`);
+                    } else if (_pixelInfoVisible && _infoQuickRoiStack.length) {
+                        // Hover-info quick-measure shapes have no selection of
+                        // their own — Backspace/Delete just removes the single
+                        // most-recently-drawn one, across all 5 surfaces
+                        // combined (one shared creation-order stack; see
+                        // _infoQuickRoiStack).
+                        e.preventDefault();
+                        _infoQuickRoiStack.pop().remove();
+                        showStatus('quick-measure outline removed');
+                    }
                 },
             },
             'compare.cycleTarget': {
@@ -28434,7 +28575,7 @@
                     {
                         title: 'Info & Modes',
                         entries: [
-                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value in the pane pill; drag draws a quick outline (mean ± std); hold Ctrl for the loupe; alt+click adds pins; Esc clears all pins' },
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value in the pane pill; drag draws a quick outline (mean ± std), repeatable; Backspace removes the last one; hold Ctrl for the loupe; alt+click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
                             { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
                         ]
@@ -33134,11 +33275,19 @@
                             const pts = _infoFreehandPts.slice();
                             _infoFreehandPts = [];
                             if (pts.length < 5) { _drawAllMvRois(); return; }
-                            _infoQuickRoiMv = { type: 'freehand', points: pts, mvDimX: view.dimX, mvDimY: view.dimY, _infoQuick: true };
+                            const entry = { type: 'freehand', points: pts, mvDimX: view.dimX, mvDimY: view.dimY, _infoQuick: true, statsText: null };
+                            _infoQuickRoisMv.push(entry);
+                            _infoQuickRoiStack.push({
+                                remove: () => {
+                                    const idx = _infoQuickRoisMv.indexOf(entry);
+                                    if (idx >= 0) _infoQuickRoisMv.splice(idx, 1);
+                                    _drawAllMvRois();
+                                },
+                            });
                             _drawAllMvRois();
                             _infoQuickFetchStats(pts).then(stats => {
-                                const text = stats ? _infoQuickStatsText(stats) : null;
-                                if (text != null) _setEggsValuePill(text, 'info', cv, null);
+                                entry.statsText = stats ? _infoQuickStatsText(stats) : null;
+                                if (_infoQuickRoisMv.includes(entry)) _drawAllMvRois();
                             });
                         };
                         window.addEventListener('mousemove', onInfoMove);
@@ -34663,9 +34812,17 @@
                                     const pts = _infoFreehandPts.slice();
                                     _infoFreehandPts = [];
                                     if (pts.length < 5) { _drawAllQvRois(); return; }
-                                    _infoQuickRoiQv = { type: 'freehand', points: pts, _infoQuick: true };
+                                    const entry = { type: 'freehand', points: pts, _infoQuick: true, qvStatsByPaneIdx: {} };
+                                    _infoQuickRoisQv.push(entry);
+                                    _infoQuickRoiStack.push({
+                                        remove: () => {
+                                            const idx = _infoQuickRoisQv.indexOf(entry);
+                                            if (idx >= 0) _infoQuickRoisQv.splice(idx, 1);
+                                            _drawAllQvRois();
+                                        },
+                                    });
                                     _drawAllQvRois();
-                                    _infoQuickFetchQvStats(pts);
+                                    _infoQuickFetchQvStats(entry);
                                 };
                                 window.addEventListener('mousemove', onInfoMove);
                                 window.addEventListener('mouseup', onInfoUp);
@@ -39155,7 +39312,7 @@
                             (me.clientY - mr.top) * cv.height / mr.height,
                         ]);
                         if (_infoFreehandPts.length > 2) {
-                            _infoRenderCompareOverlay(cv, { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
+                            _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx], { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
                         }
                     };
                     const onInfoUp = () => {
@@ -39168,13 +39325,23 @@
                         _infoFreehandPts = [];
                         // Trivial click: fall back to the plain hover value
                         // (already shown continuously by this pane's mousemove
-                        // listener) — just redraw whatever outline already
+                        // listener) — just redraw whatever outlines already
                         // persisted here, same threshold as the rest of this feature.
-                        if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoiCompare[cmpPaneIdx] || null); return; }
-                        const roiObj = { type: 'freehand', points: pts, _infoQuick: true };
-                        _infoQuickRoiCompare[cmpPaneIdx] = roiObj;
-                        _infoRenderCompareOverlay(cv, roiObj);
-                        _infoQuickComparePaneStats(cmpPaneIdx, pts);
+                        if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx]); return; }
+                        const entry = { type: 'freehand', points: pts, _infoQuick: true, statsText: null };
+                        if (!_infoQuickRoisCompare[cmpPaneIdx]) _infoQuickRoisCompare[cmpPaneIdx] = [];
+                        _infoQuickRoisCompare[cmpPaneIdx].push(entry);
+                        _infoQuickRoiStack.push({
+                            remove: () => {
+                                const arr = _infoQuickRoisCompare[cmpPaneIdx];
+                                if (!arr) return;
+                                const idx = arr.indexOf(entry);
+                                if (idx >= 0) arr.splice(idx, 1);
+                                _infoRenderCompareOverlay(cv, arr);
+                            },
+                        });
+                        _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx]);
+                        _infoQuickComparePaneStats(cmpPaneIdx, entry);
                     };
                     window.addEventListener('mousemove', onInfoMove);
                     window.addEventListener('mouseup', onInfoUp);
@@ -39433,7 +39600,7 @@
                         (me.clientY - mr.top) * cv.height / mr.height,
                     ]);
                     if (_infoFreehandPts.length > 2) {
-                        _infoRenderCompareOverlay(cv, { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
+                        _infoRenderCompareOverlay(cv, _infoQuickRoisCompareDiff, { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
                     }
                 };
                 const onInfoUp = () => {
@@ -39444,11 +39611,18 @@
                     _infoFreehandView = null;
                     const pts = _infoFreehandPts.slice();
                     _infoFreehandPts = [];
-                    if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoiCompareDiff); return; }
-                    const roiObj = { type: 'freehand', points: pts, _infoQuick: true };
-                    _infoQuickRoiCompareDiff = roiObj;
-                    _infoRenderCompareOverlay(cv, roiObj);
-                    _infoQuickCompareDiffStats(pts);
+                    if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoisCompareDiff); return; }
+                    const entry = { type: 'freehand', points: pts, _infoQuick: true, statsText: null };
+                    _infoQuickRoisCompareDiff.push(entry);
+                    _infoQuickRoiStack.push({
+                        remove: () => {
+                            const idx = _infoQuickRoisCompareDiff.indexOf(entry);
+                            if (idx >= 0) _infoQuickRoisCompareDiff.splice(idx, 1);
+                            _infoRenderCompareOverlay(cv, _infoQuickRoisCompareDiff);
+                        },
+                    });
+                    _infoRenderCompareOverlay(cv, _infoQuickRoisCompareDiff);
+                    _infoQuickCompareDiffStats(entry);
                 };
                 window.addEventListener('mousemove', onInfoMove);
                 window.addEventListener('mouseup', onInfoUp);

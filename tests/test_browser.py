@@ -6700,7 +6700,7 @@ class TestNormalInspectInteractions:
             "hover info should claim the plain zoomed drag for its quick-measure outline, not panning"
         )
         assert (after_pan["x"], after_pan["y"]) == (before_pan["x"], before_pan["y"])
-        has_quick_roi = page.evaluate("() => !!_infoQuickRoi")
+        has_quick_roi = page.evaluate("() => _infoQuickRois.length > 0")
         assert has_quick_roi, "a real drag while hover info is on should leave a quick-measure outline"
 
     def test_info_hover_mosaic_drag_only_inspects(self, loaded_viewer, sid_4d):
