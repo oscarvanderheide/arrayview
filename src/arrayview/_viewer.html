@@ -24824,12 +24824,21 @@
          *  falsy value to skip drawing (stats not back yet from the async
          *  fetch/raster). cx, y0, y1: the shape's bounding box — horizontal
          *  center and vertical extent — already scaled to this canvas's own
-         *  display space (see _infoQuickPillAnchor). */
+         *  display space (see _infoQuickPillAnchor). Matches the CSS of the
+         *  actual hovered-value pill (.eggs-value-pill, ~line 2072) as
+         *  closely as a canvas shape can — same background/border colors,
+         *  corner radius, padding, font — so this reads as the same pill
+         *  rather than a separate ROI-tool-styled chip of its own. */
         function _infoQuickDrawPill(ctx, text, cx, y0, y1) {
             if (!text) return;
-            const GAP = 5, PAD_X = 7, H = 18, RAD = 5;
+            const light = document.documentElement.classList.contains('light');
+            const bg = light ? 'rgba(240,240,240,0.8)' : 'rgba(30,30,30,0.75)';
+            const border = 'rgba(255,255,255,0.08)';
+            const valueColor = getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim()
+                || _INFO_QUICK_ROI_COLOR.stroke;
+            const GAP = 5, PAD_X = 7, H = 18, RAD = 4;
             ctx.save();
-            ctx.font = '700 12px monospace';
+            ctx.font = '11px "SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", monospace';
             const w = ctx.measureText(text).width + PAD_X * 2;
             // Anchor above the shape by default; flip to sit below it instead
             // if drawing above would clip off the top of the canvas (y < 0).
@@ -24843,12 +24852,12 @@
             ctx.arcTo(left, top + H, left, top, RAD);
             ctx.arcTo(left, top, left + w, top, RAD);
             ctx.closePath();
-            ctx.fillStyle = 'rgba(15,15,15,0.82)';
+            ctx.fillStyle = bg;
             ctx.fill();
-            ctx.strokeStyle = _INFO_QUICK_ROI_COLOR.stroke;
+            ctx.strokeStyle = border;
             ctx.lineWidth = 1;
             ctx.stroke();
-            ctx.fillStyle = _INFO_QUICK_ROI_COLOR.stroke;
+            ctx.fillStyle = valueColor;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, cx, top + H / 2 + 0.5);
@@ -34767,7 +34776,11 @@
                         }
                         if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
                             && !_cropActive && !_segMode && !_rulerMode) {
-                            if (!e.ctrlKey && _bcCanDrag()) _qmriArmWindowLevel(view, e);
+                            // Hover-info mode claims plain left-drag for the
+                            // quick-measure outline below, so it must not also
+                            // arm the window/level triangle (same rule normal
+                            // mode already applies to its own drag arm).
+                            if (!e.ctrlKey && !_pixelInfoVisible && _bcCanDrag()) _qmriArmWindowLevel(view, e);
                             else {
                                 _pixelInfoHeld = true;
                                 cv.dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY, buttons: 1, ctrlKey: e.ctrlKey, bubbles: true }));
