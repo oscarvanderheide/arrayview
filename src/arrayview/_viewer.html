@@ -482,9 +482,9 @@
            pad their bottom to enclose it. */
         .cb-ticks {
             position: absolute; top: 100%; left: 0; width: 100%;
-            height: 15px; line-height: 10px; overflow: visible;
+            height: 16px; line-height: 11px; overflow: visible;
             pointer-events: none; z-index: 1; opacity: 0;
-            font-size: 9px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 10px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-variant-numeric: tabular-nums; color: var(--text);
             transition: opacity 0.2s ease;
         }
@@ -531,7 +531,7 @@
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         /* Same face and size as the tick row under the bar, so the ends and
            the values between them read as one scale. */
-        .slim-cb-val { font-size: 9px; color: var(--text); opacity: 0.9; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
+        .slim-cb-val { font-size: 10px; color: var(--text); opacity: 0.9; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         .cb-expanded .slim-cb-val.is-locked,
         .cb-expanded .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
@@ -11099,7 +11099,7 @@
         // horizontal ColorBar reads it.
         const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
-        const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
+        const CB_TICK_ROW_H   = 16;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         /** vmin..vmax in `steps` equal steps, ends included. */
         function _cbEvenTicks(lo, hi, steps) {
@@ -11744,7 +11744,7 @@
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
-                    ctx.font = '9px monospace';
+                    ctx.font = '10px monospace';
                     // Halve the step count until every label has room, so a
                     // narrow bar thins the ruler evenly instead of dropping
                     // values here and there.
@@ -11758,8 +11758,8 @@
                         const widest = Math.max(...ticks.map(v => ctx.measureText(fmt.format(v)).width));
                         const room = inside ? cssW - widest : cssW;
                         // Same clearance the per-label overlap check below
-                        // demands (2px side pad each + 6px gap).
-                        if (!showText || (widest + 10) * steps <= room) break;
+                        // demands (2px side pad each + 4px gap).
+                        if (!showText || (widest + 8) * steps <= room) break;
                         ticks = [];
                     }
                     ctx.restore();
@@ -11771,7 +11771,7 @@
                 const notchH = Math.max(2, Math.min(4, Math.round(cssH / 5)));
                 ctx.save();
                 ctx.globalAlpha = tickAlpha;
-                ctx.font = '9px monospace';
+                ctx.font = '10px monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.lineJoin = 'round';
@@ -11794,7 +11794,7 @@
                         // The row may overhang the strip a little; inside it may not.
                         const slack = inside ? 0 : tw / 2;
                         if (left < 1 - slack || right > cssW - 1 + slack) return;
-                        if (drawn.some(d => left < d.right + 6 && right > d.left - 6)) return;
+                        if (drawn.some(d => left < d.right + 4 && right > d.left - 4)) return;
                     }
                     if (inside) {
                         // Notches get the same halo as the values, so they
