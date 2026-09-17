@@ -6581,6 +6581,12 @@
         let _infoQuickRoi = null;          // finished shape, normal-mode canvas: {type:'freehand', points, _infoQuick:true}
         let _infoQuickRoiMv = null;        // finished shape, tagged to one multiview pane: {..., mvDimX, mvDimY}
         let _infoQuickRoiQv = null;        // finished shape, shown on every qMRI pane (they share one slice)
+        // Compare mode: split panes each get their own outline (indexed like
+        // compareCanvases/compareDisplaySids), plus one for the centre diff
+        // pane. Points are in that pane's own canvas-pixel space (cv.width/
+        // height), never in the cached slice's grid — see _infoQuickCompareStats.
+        let _infoQuickRoiCompare = [];     // finished shape per split pane index, or undefined
+        let _infoQuickRoiCompareDiff = null; // finished shape for the centre diff pane
         function _infoQuickStatsText(stats) {
             return stats ? `${_roiStatsFmt(stats.mean)} ± ${_roiStatsFmt(stats.std)}` : null;
         }
@@ -6591,6 +6597,11 @@
             _infoQuickRoi = null;
             _infoQuickRoiMv = null;
             _infoQuickRoiQv = null;
+            _infoQuickRoiCompare = [];
+            _infoQuickRoiCompareDiff = null;
+            if (Array.isArray(compareCanvases)) compareCanvases.forEach(cv => cv && _infoHideCompareOverlay(cv));
+            const diffCvForClear = document.getElementById('compare-diff-canvas');
+            if (diffCvForClear) _infoHideCompareOverlay(diffCvForClear);
             _redrawRoiOverlays();
         }
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
@@ -24778,6 +24789,142 @@
         // Neutral color for the hover-info quick-measure outline — distinct
         // from the numbered _roiColors palette so it never reads as a saved ROI.
         const _INFO_QUICK_ROI_COLOR = { fill: 'rgba(255,255,255,0.05)', stroke: 'rgba(255,255,255,0.88)' };
+
+        // ── Hover-info quick-measure overlays for compare mode ──────────────
+        // Compare panes have no shared ROI-overlay canvas to draw on (unlike
+        // normal/mv/qv, which all reuse _drawAllRois/_drawAllMvRois/_drawAllQvRois
+        // against roiOverlayCanvas-style surfaces). Instead, mirror the crop
+        // tool's per-pane overlay pattern (_cropGetCompareOverlay /
+        // _cropRenderCompareOverlay / _cropHideCompareOverlay): one lazily
+        // created absolutely-positioned canvas per pane, cached on the pane's
+        // own canvas element, sized to match it in CSS pixels (no dpr scaling,
+        // same as the crop overlay).
+        function _infoGetCompareOverlay(cv) {
+            if (!cv) return null;
+            if (cv._infoOverlay) return cv._infoOverlay;
+            const parent = cv.parentElement; // .compare-canvas-inner
+            if (!parent) return null;
+            const ov = document.createElement('canvas');
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;display:none;z-index:2;';
+            parent.appendChild(ov);
+            cv._infoOverlay = ov;
+            return ov;
+        }
+        function _infoHideCompareOverlay(cv) {
+            if (!cv || !cv._infoOverlay) return;
+            const ov = cv._infoOverlay;
+            const ctx2 = ov.getContext('2d');
+            if (ctx2) ctx2.clearRect(0, 0, ov.width, ov.height);
+            ov.style.display = 'none';
+        }
+        /** Draw (or hide) the quick-measure outline for one compare pane.
+         *  `roiObj` is a {type:'freehand', points} shape whose points are in
+         *  `cv`'s own canvas-pixel space (cv.width/height) — reuses
+         *  _roiDrawVisibleShape so the stroke/fill treatment matches the
+         *  outline drawn everywhere else this feature appears. */
+        function _infoRenderCompareOverlay(cv, roiObj) {
+            const ov = _infoGetCompareOverlay(cv);
+            if (!ov) return;
+            const imgW = cv.width, imgH = cv.height;
+            if (!roiObj || !roiObj.points || roiObj.points.length < 3 || !imgW || !imgH) {
+                _infoHideCompareOverlay(cv);
+                return;
+            }
+            const dispW = parseInt(cv.style.width) || imgW;
+            const dispH = parseInt(cv.style.height) || imgH;
+            ov.style.width = cv.style.width || `${dispW}px`;
+            ov.style.height = cv.style.height || `${dispH}px`;
+            if (ov.width !== dispW || ov.height !== dispH) { ov.width = dispW; ov.height = dispH; }
+            const ctx2 = ov.getContext('2d');
+            if (!ctx2) { _infoHideCompareOverlay(cv); return; }
+            ctx2.clearRect(0, 0, dispW, dispH);
+            const sx = dispW / imgW, sy = dispH / imgH;
+            _roiDrawVisibleShape(ctx2, roiObj, sx, sy, _INFO_QUICK_ROI_COLOR, false);
+            ov.style.display = '';
+        }
+        /**
+         * Client-side mean/std of `valueAt(gx,gy)` over grid cells (integer
+         * pixel centers) whose center falls inside polygon `scaledPts` — both
+         * in the same 0..w,0..h grid space. Compare mode never calls the ROI
+         * backend for hover (see _getCachedHoverSlice), so the quick-measure
+         * aggregation for compare panes/the diff pane is done entirely here,
+         * unlike _infoQuickFetchStats/_infoQuickFetchQvStats which POST to
+         * /roi_stats / /roi_freehand for normal/mv/qMRI. Reuses _pointInRoi
+         * (same ray-casting it already does for real freehand ROIs) rather
+         * than duplicating point-in-polygon math.
+         */
+        function _infoQuickRasterStats(w, h, scaledPts, valueAt) {
+            if (!scaledPts || scaledPts.length < 3) return null;
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const [x, y] of scaledPts) {
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+            }
+            minX = Math.max(0, Math.floor(minX)); maxX = Math.min(w - 1, Math.ceil(maxX));
+            minY = Math.max(0, Math.floor(minY)); maxY = Math.min(h - 1, Math.ceil(maxY));
+            if (minX > maxX || minY > maxY) return null;
+            const roi = { type: 'freehand', points: scaledPts };
+            let n = 0, sum = 0, sumSq = 0;
+            for (let gy = minY; gy <= maxY; gy++) {
+                for (let gx = minX; gx <= maxX; gx++) {
+                    if (!_pointInRoi(roi, gx + 0.5, gy + 0.5, null, null)) continue;
+                    const v = valueAt(gx, gy);
+                    if (!Number.isFinite(v)) continue;
+                    n++; sum += v; sumSq += v * v;
+                }
+            }
+            if (!n) return null;
+            const mean = sum / n;
+            return { mean, std: Math.sqrt(Math.max(0, sumSq / n - mean * mean)) };
+        }
+        /** Split-pane quick-measure stats: rasterize `pts` (cv pixel space)
+         *  over pane `i`'s own cached hover slice and show mean±std in that
+         *  pane's fixed pixel-info pill. */
+        function _infoQuickComparePaneStats(i, pts) {
+            const cv = compareCanvases[i];
+            const piEl = _comparePiEls[i];
+            const cvSid = compareDisplaySids[i];
+            if (!cv || !piEl || !cvSid || !cv.width || !cv.height) return;
+            const cached = _getCachedHoverSlice(cvSid, dim_x, dim_y, _comparePaneHoverIndices(i));
+            if (!cached || !cached.w || !cached.h) return;
+            const scaledPts = pts.map(p => [p[0] * cached.w / cv.width, p[1] * cached.h / cv.height]);
+            const stats = _infoQuickRasterStats(cached.w, cached.h, scaledPts, (gx, gy) => {
+                const rawX = flip_x ? cached.w - 1 - gx : gx;
+                const rawY = flip_y ? cached.h - 1 - gy : gy;
+                return cached.slice[rawY * cached.w + rawX];
+            });
+            const text = _infoQuickStatsText(stats);
+            if (text != null) _showPanePixelPill(piEl, text);
+        }
+        /** Centre diff-pane quick-measure stats: same per-pixel combine
+         *  _compareCenterSample uses (diffMode 1/2/3), applied to every pixel
+         *  inside the outline instead of a single hover point. No-op for
+         *  diffMode 0 (overlay/wipe/flicker/checker) — there's no per-pixel
+         *  value concept for those today and this deliberately doesn't add one. */
+        function _infoQuickCompareDiffStats(pts) {
+            const cv = document.getElementById('compare-diff-canvas');
+            if (!cv || !_compareDiffPiEl || diffMode <= 0 || compareDisplaySids.length < 2) return;
+            if (!cv.width || !cv.height) return;
+            const [sidA, sidB] = compareDisplaySids;
+            if (!sidA || !sidB) return;
+            const cachedA = _getCachedHoverSlice(sidA, dim_x, dim_y, _comparePaneHoverIndices(0));
+            const cachedB = _getCachedHoverSlice(sidB, dim_x, dim_y, _comparePaneHoverIndices(1));
+            if (!cachedA || !cachedB || !cachedA.w || !cachedA.h) return;
+            const scaledPts = pts.map(p => [p[0] * cachedA.w / cv.width, p[1] * cachedA.h / cv.height]);
+            const stats = _infoQuickRasterStats(cachedA.w, cachedA.h, scaledPts, (gx, gy) => {
+                const rawXA = flip_x ? cachedA.w - 1 - gx : gx;
+                const rawYA = flip_y ? cachedA.h - 1 - gy : gy;
+                const rawXB = flip_x ? cachedB.w - 1 - gx : gx;
+                const rawYB = flip_y ? cachedB.h - 1 - gy : gy;
+                const a = cachedA.slice[rawYA * cachedA.w + rawXA];
+                const b = cachedB.slice[rawYB * cachedB.w + rawXB];
+                if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
+                const d = a - b;
+                return diffMode === 1 ? d : diffMode === 2 ? Math.abs(d) : Math.abs(d) / Math.abs(a);
+            });
+            const text = _infoQuickStatsText(stats);
+            if (text != null) _showPanePixelPill(_compareDiffPiEl, text);
+        }
         function _drawAllRois(previewRoi) {
             if (!roiOverlayCanvas || !roiOverlayCtx) return;
             _syncRoiOverlay();
@@ -38977,14 +39124,66 @@
             });
         });
         // Compare pane drag-to-pan when zoomed past viewport
-        compareCanvases.forEach(cv => {
+        compareCanvases.forEach((cv, cmpPaneIdx) => {
             cv.addEventListener('mousedown', (e) => {
-                if (!compareActive || !comparePan.overflows) return;
-                // Hover-info mode has no quick-measure outline in compare view
-                // (no ROI overlay/drawing surface exists for compare panes to
-                // reuse), but plain left-drag must still stop stealing the
-                // gesture away from the continuous hover readout. Right-click
-                // pan is untouched.
+                if (!compareActive) return;
+                // Hover-info quick-measure: a plain click-drag while hover info
+                // is on always draws a disposable freehand outline on this pane
+                // and shows mean±std in its own pixel-info pill, instead of
+                // panning (when zoomed) or doing nothing (when not) — the same
+                // trade-off this gesture already makes in normal/mv/qMRI. Unlike
+                // those, compare mode already has this pane's 2D slice cached
+                // client-side (see _getCachedHoverSlice), so the aggregation is
+                // done entirely here rather than via /roi_stats — see
+                // _infoQuickComparePaneStats. Runs regardless of comparePan.overflows
+                // so it isn't limited to the zoomed-in case (unlike the pan below).
+                if (e.button === 0 && _pixelInfoVisible && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    const dragTag = `cmp:${cmpPaneIdx}`;
+                    _infoFreehandDragging = true;
+                    _infoFreehandView = dragTag;
+                    const rect0 = cv.getBoundingClientRect();
+                    _infoFreehandPts = [[
+                        (e.clientX - rect0.left) * cv.width / rect0.width,
+                        (e.clientY - rect0.top) * cv.height / rect0.height,
+                    ]];
+                    const onInfoMove = (me) => {
+                        if (!_infoFreehandDragging || _infoFreehandView !== dragTag) return;
+                        const mr = cv.getBoundingClientRect();
+                        _infoFreehandPts.push([
+                            (me.clientX - mr.left) * cv.width / mr.width,
+                            (me.clientY - mr.top) * cv.height / mr.height,
+                        ]);
+                        if (_infoFreehandPts.length > 2) {
+                            _infoRenderCompareOverlay(cv, { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
+                        }
+                    };
+                    const onInfoUp = () => {
+                        window.removeEventListener('mousemove', onInfoMove);
+                        window.removeEventListener('mouseup', onInfoUp);
+                        if (!_infoFreehandDragging || _infoFreehandView !== dragTag) return;
+                        _infoFreehandDragging = false;
+                        _infoFreehandView = null;
+                        const pts = _infoFreehandPts.slice();
+                        _infoFreehandPts = [];
+                        // Trivial click: fall back to the plain hover value
+                        // (already shown continuously by this pane's mousemove
+                        // listener) — just redraw whatever outline already
+                        // persisted here, same threshold as the rest of this feature.
+                        if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoiCompare[cmpPaneIdx] || null); return; }
+                        const roiObj = { type: 'freehand', points: pts, _infoQuick: true };
+                        _infoQuickRoiCompare[cmpPaneIdx] = roiObj;
+                        _infoRenderCompareOverlay(cv, roiObj);
+                        _infoQuickComparePaneStats(cmpPaneIdx, pts);
+                    };
+                    window.addEventListener('mousemove', onInfoMove);
+                    window.addEventListener('mouseup', onInfoUp);
+                    return;
+                }
+                if (!comparePan.overflows) return;
+                // Hover-info mode has no pan on this pane — handled above —
+                // but keep this guard too as a defensive no-op for modified
+                // clicks (shift/ctrl/meta/alt) that skip the branch above.
                 if (e.button === 0 && _pixelInfoVisible) return;
                 if (e.button !== 0 && e.button !== 2) return;
                 e.preventDefault();
@@ -39203,6 +39402,56 @@
             _diffCvForXhair.addEventListener('mouseleave', () => {
                 hideCompareCrosshairs();
                 _hideComparePaneInfo();
+            });
+            // Hover-info quick-measure on the centre diff pane. Unlike the
+            // split panes above, this canvas has no pre-existing mousedown
+            // wiring at all (no pan — comparePan only ever starts from a
+            // split pane), so there's no gesture to guard against here, only
+            // one to add. Only the three numeric diff modes have a per-pixel
+            // value to aggregate (diffMode 1-3 — see _compareCenterSample);
+            // overlay/wipe/flicker/checker (diffMode 0) are left alone, same
+            // as today — no outline, no stats, no crash.
+            _diffCvForXhair.addEventListener('mousedown', (e) => {
+                if (!compareActive || !_pixelInfoVisible || e.button !== 0) return;
+                if (e.shiftKey || e.metaKey || e.altKey || e.ctrlKey) return;
+                if (diffMode <= 0) return;
+                e.preventDefault();
+                const cv = _diffCvForXhair;
+                const dragTag = 'cmp:diff';
+                _infoFreehandDragging = true;
+                _infoFreehandView = dragTag;
+                const rect0 = cv.getBoundingClientRect();
+                _infoFreehandPts = [[
+                    (e.clientX - rect0.left) * cv.width / rect0.width,
+                    (e.clientY - rect0.top) * cv.height / rect0.height,
+                ]];
+                const onInfoMove = (me) => {
+                    if (!_infoFreehandDragging || _infoFreehandView !== dragTag) return;
+                    const mr = cv.getBoundingClientRect();
+                    _infoFreehandPts.push([
+                        (me.clientX - mr.left) * cv.width / mr.width,
+                        (me.clientY - mr.top) * cv.height / mr.height,
+                    ]);
+                    if (_infoFreehandPts.length > 2) {
+                        _infoRenderCompareOverlay(cv, { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
+                    }
+                };
+                const onInfoUp = () => {
+                    window.removeEventListener('mousemove', onInfoMove);
+                    window.removeEventListener('mouseup', onInfoUp);
+                    if (!_infoFreehandDragging || _infoFreehandView !== dragTag) return;
+                    _infoFreehandDragging = false;
+                    _infoFreehandView = null;
+                    const pts = _infoFreehandPts.slice();
+                    _infoFreehandPts = [];
+                    if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoiCompareDiff); return; }
+                    const roiObj = { type: 'freehand', points: pts, _infoQuick: true };
+                    _infoQuickRoiCompareDiff = roiObj;
+                    _infoRenderCompareOverlay(cv, roiObj);
+                    _infoQuickCompareDiffStats(pts);
+                };
+                window.addEventListener('mousemove', onInfoMove);
+                window.addEventListener('mouseup', onInfoUp);
             });
         }
 
