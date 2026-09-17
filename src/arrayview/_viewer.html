@@ -482,9 +482,9 @@
            pad their bottom to enclose it. */
         .cb-ticks {
             position: absolute; top: 100%; left: 0; width: 100%;
-            height: 16px; line-height: 11px; overflow: visible;
+            height: 15px; line-height: 10px; overflow: visible;
             pointer-events: none; z-index: 1; opacity: 0;
-            font-size: 10px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 9px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-variant-numeric: tabular-nums; color: var(--text);
             transition: opacity 0.2s ease;
         }
@@ -11099,7 +11099,7 @@
         // horizontal ColorBar reads it.
         const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
-        const CB_TICK_ROW_H   = 16;          // marker + value row under the strip, CSS px (matches .cb-ticks)
+        const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
         let _cbTickLevel = 0;
         /** vmin..vmax in `steps` equal steps, ends included. */
         function _cbEvenTicks(lo, hi, steps) {
@@ -11744,7 +11744,7 @@
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
-                    ctx.font = '10px monospace';
+                    ctx.font = '9px monospace';
                     // Halve the step count until every label has room, so a
                     // narrow bar thins the ruler evenly instead of dropping
                     // values here and there.
@@ -11771,7 +11771,7 @@
                 const notchH = Math.max(2, Math.min(4, Math.round(cssH / 5)));
                 ctx.save();
                 ctx.globalAlpha = tickAlpha;
-                ctx.font = '10px monospace';
+                ctx.font = '9px monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.lineJoin = 'round';
