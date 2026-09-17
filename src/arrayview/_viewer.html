@@ -11099,19 +11099,6 @@
         // round values) keep the spacing even and never crowd the ends.
         // Level 0 shows only the flanking labels. Cycled with `w`; every
         // horizontal ColorBar reads it.
-        //
-        // While the bar itself is being dragged (ColorBar._dragX — the
-        // "Drag bar" pan gesture in _handleMouseMove; see the long comment
-        // in _drawTicks for why this and not _dragActive is the signal) the
-        // row switches to _cbNiceTicks instead: round tick VALUES rather
-        // than fixed screen fractions, so a tick's on-screen
-        // x = (v - lo) / (hi - lo) genuinely moves as the dragged window
-        // pans/zooms, and ticks enter/exit at the row's edges. That is
-        // the pre-"evenly spaced ticks" behaviour; it comes back only for the
-        // live/dragging case because the resting/idle layout below is what
-        // the evenly-spaced steps were built for. _drawTicks flips the
-        // algorithm; _setTickRow does the one eased "settle" transition back
-        // to even ticks the instant the drag ends.
         const CB_TICK_TARGETS = [0, 4, 8];      // steps between vmin and vmax per level
         const CB_TICK_LABELS  = ['off', 'few', 'many'];
         const CB_TICK_ROW_H   = 15;          // marker + value row under the strip, CSS px (matches .cb-ticks)
@@ -11121,27 +11108,6 @@
             if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(steps > 0)) return [];
             const ticks = [];
             for (let k = 0; k <= steps; k++) ticks.push(k === steps ? hi : lo + (hi - lo) * k / steps);
-            return ticks;
-        }
-        // Round tick values strictly inside (lo, hi) at a 1/2/2.5/5/10 step
-        // chosen so roughly `target` ticks fit. Endpoints are excluded — the
-        // flanking vmin/vmax labels already show them. Only used live, while
-        // a window/level drag is in progress (see comment above).
-        function _cbNiceTicks(lo, hi, target) {
-            if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(target > 0)) return [];
-            const raw = (hi - lo) / target;
-            const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-            const norm = raw / mag;
-            // Round to the nearest of 1/2/2.5/5/10 rather than always up, so
-            // the count lands near the target instead of well under it.
-            const unit = norm < 1.5 ? 1 : norm < 2.25 ? 2 : norm < 3.5 ? 2.5 : norm < 7 ? 5 : 10;
-            const step = unit * mag;
-            const eps = step * 1e-6;
-            const ticks = [];
-            for (let k = Math.ceil((lo + eps) / step); k * step < hi - eps; k++) {
-                const v = Number((k * step).toPrecision(12));
-                ticks.push(Math.abs(v) < eps ? 0 : v);
-            }
             return ticks;
         }
         function _cycleCbTickLevel() {
@@ -11739,135 +11705,25 @@
                 this.colWrap.appendChild(row);
                 this._tickRow = row;
                 this._tickRowKey = '';
-                this._tickNodeMap = new Map();  // tick key -> <span>, reused across redraws
-                this._tickRowWasLive = null;    // null = no frame drawn yet
-                this._settleCleanupTimer = null;
                 return row;
             }
-            /**
-             * Render the tick row's <span> children, reused by `l.key` (a
-             * value identity — see _drawTicks — not array index, so a tick
-             * that is still present just has its `left`/text updated in
-             * place instead of being torn down and rebuilt). `live` is
-             * whether this ColorBar's own bar is mid pan-drag as of this
-             * frame (this._dragX != null — see _drawTicks):
-             *  - live frame following a live frame: direct 1:1 tracking, no
-             *    transition — every mousemove reassigns `left` straight from
-             *    the mouse. An eased CSS transition here would keep
-             *    retriggering on every rapid mousemove update and fight
-             *    itself instead of tracking smoothly.
-             *  - live frame following a settled one (drag just started):
-             *    same direct reuse, just against the live keying scheme —
-             *    still no transition, the drag should track immediately.
-             *  - settled frame following a live one (drag just ended): the
-             *    one eased "settle" transition, see _settleTickRow.
-             *  - settled frame following a settled one (idle steady state,
-             *    resize, `w` cycle): direct reuse again, nothing dragging to
-             *    fight.
-             */
-            _setTickRow(labels, cssW, alpha, live) {
+            _setTickRow(labels, cssW, alpha) {
                 const row = this._tickRow;
                 if (!row) return;
-                const list = labels || [];
-                const settling = this._tickRowWasLive === true && live === false;
-                this._tickRowWasLive = live;
-                if (settling) {
-                    this._settleTickRow(list, cssW, alpha);
-                    return;
-                }
-                const key = cssW + '|' + list.map(l => l.key + ':' + l.text).join(',');
+                const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
                 if (key !== this._tickRowKey) {
                     this._tickRowKey = key;
-                    const nodes = this._tickNodeMap || (this._tickNodeMap = new Map());
-                    const seen = new Set();
-                    for (const l of list) {
-                        let span = nodes.get(l.key);
-                        if (!span) {
-                            span = document.createElement('span');
-                            nodes.set(l.key, span);
-                            row.appendChild(span);
-                        }
-                        span.style.transition = 'none';
-                        span.style.opacity = '';
+                    row.textContent = '';
+                    for (const l of labels || []) {
+                        const span = document.createElement('span');
                         span.textContent = l.text;
                         span.style.left = (l.x / cssW * 100) + '%';
-                        seen.add(l.key);
-                    }
-                    for (const [k, span] of nodes) {
-                        if (!seen.has(k)) { span.remove(); nodes.delete(k); }
-                    }
-                }
-                const on = !!list.length;
-                row.style.opacity = on ? String(alpha) : '0';
-                if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
-            }
-            /**
-             * The one eased transition: from wherever the live round-number
-             * ticks last sat to the resting evenly-spaced layout, fired once
-             * by _setTickRow the instant a drag ends. Matches each settled
-             * tick to the closest still-present live node by last on-screen
-             * position (not by index — the round-number set can gain or
-             * lose ticks as the window pans, so index would silently
-             * relabel the wrong node) and glides that node's `left`/text
-             * into place; a settled tick with no reasonable live counterpart
-             * fades in fresh, and a live tick with no settled counterpart
-             * fades out and is removed. The transition is stripped again
-             * once it completes so the next live drag resumes direct,
-             * untransitioned tracking (a lingering `transition: left` would
-             * fight rapid mousemove-driven position updates).
-             */
-            _settleTickRow(list, cssW, alpha) {
-                const row = this._tickRow;
-                const SETTLE_MS = 260;
-                const liveNodes = this._tickNodeMap || (this._tickNodeMap = new Map());
-                const liveEntries = [...liveNodes.entries()];
-                const usedLive = new Set();
-                const newMap = new Map();
-                const REUSE_MAX_PX = Math.max(24, cssW * 0.12);
-                for (const l of list) {
-                    let bestKey = null, bestDist = Infinity;
-                    for (const [k, span] of liveEntries) {
-                        if (usedLive.has(k)) continue;
-                        const leftPct = parseFloat(span.style.left);
-                        const spanX = Number.isFinite(leftPct) ? leftPct / 100 * cssW : Infinity;
-                        const d = Math.abs(spanX - l.x);
-                        if (d < bestDist) { bestDist = d; bestKey = k; }
-                    }
-                    let span;
-                    if (bestKey !== null && bestDist <= REUSE_MAX_PX) {
-                        span = liveNodes.get(bestKey);
-                        usedLive.add(bestKey);
-                    } else {
-                        span = document.createElement('span');
                         row.appendChild(span);
-                        span.style.transition = 'none';
-                        span.style.left = (l.x / cssW * 100) + '%';
-                        span.style.opacity = '0';
-                        span.textContent = l.text;
-                        void span.offsetWidth; // force layout so the fade-in below actually transitions
                     }
-                    span.style.transition = `left ${SETTLE_MS}ms ease-out, opacity ${SETTLE_MS}ms ease-out`;
-                    span.textContent = l.text;
-                    span.style.left = (l.x / cssW * 100) + '%';
-                    span.style.opacity = '';
-                    newMap.set(l.key, span);
                 }
-                for (const [k, span] of liveEntries) {
-                    if (usedLive.has(k)) continue;
-                    span.style.transition = `left ${SETTLE_MS}ms ease-out, opacity ${SETTLE_MS}ms ease-out`;
-                    span.style.opacity = '0';
-                    setTimeout(() => span.remove(), SETTLE_MS + 30);
-                }
-                this._tickNodeMap = newMap;
-                this._tickRowKey = cssW + '|' + list.map(l => l.key + ':' + l.text).join(',');
-                const on = !!list.length;
+                const on = !!(labels && labels.length);
                 row.style.opacity = on ? String(alpha) : '0';
                 if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
-                clearTimeout(this._settleCleanupTimer);
-                this._settleCleanupTimer = setTimeout(() => {
-                    for (const span of newMap.values()) span.style.transition = '';
-                    this._settleCleanupTimer = null;
-                }, SETTLE_MS + 40);
             }
             _tickRowClipped() {
                 if (!this.colWrap) return true;
@@ -11881,33 +11737,6 @@
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
                 const tickAlpha = 1 - Math.min(1, aT / 0.4);
-                // Mid window/level drag: switch to round tick VALUES (see
-                // _cbNiceTicks) so on-screen position genuinely tracks the
-                // panning/zooming window — the pre-"evenly spaced ticks"
-                // behaviour — instead of the resting fixed-fraction layout,
-                // which has nothing to animate because its positions never
-                // depend on the window.
-                //
-                // this._dragActive (set by _startClimDrag's threshold-handle
-                // drag, and by the global Cmd+Shift/middle-drag in
-                // _bcStartDrag/_bcEndDrag) is NOT the right signal here even
-                // though it looks like it should be: both of those drags
-                // only ever run while the histogram is expanded (or
-                // expanding — _bcStartDrag calls _bcExpandHist()), and this
-                // row's own alpha is tied to that same expansion progress
-                // (tickAlpha above, zero by aT=0.4) — so whenever
-                // _dragActive is true the row is already invisible. The
-                // gesture that actually keeps the row visible while
-                // continuously changing the window is the plain drag
-                // directly on the collapsed bar itself ("Drag bar: shift
-                // the visible range", the pan branch of _handleMouseMove) —
-                // that one is tracked by this._dragX, not this._dragActive,
-                // and deliberately does not touch the histogram. Each
-                // instance's own this._dragX is independent, so an
-                // unrelated colorbar being dragged elsewhere (compare /
-                // multiview / qMRI each carry their own ColorBar) never
-                // flips this one into live mode.
-                const live = this._dragX != null;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 let fmt = null;
@@ -11918,31 +11747,26 @@
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
                     ctx.font = '9px monospace';
-                    if (live) {
-                        ticks = _cbNiceTicks(wLo, wHi, CB_TICK_TARGETS[_cbTickLevel]);
-                        if (ticks.length) fmt = formatValueGroup(ticks);
-                    } else {
-                        // Halve the step count until every label has room, so a
-                        // narrow bar thins the ruler evenly instead of dropping
-                        // values here and there.
-                        for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 2; steps = Math.floor(steps / 2)) {
-                            const all = _cbEvenTicks(wLo, wHi, steps);
-                            if (!all.length) break;
-                            // Precision chosen with the ends in the group, so the
-                            // row matches the flanking labels' scale.
-                            fmt = formatValueGroup(all);
-                            ticks = all.slice(1, -1);
-                            const widest = Math.max(...ticks.map(v => ctx.measureText(_signPad(fmt.format(v))).width));
-                            const room = inside ? cssW - widest : cssW;
-                            // Same clearance the per-label overlap check below
-                            // demands (2px side pad each + 4px gap).
-                            if (!showText || (widest + 8) * steps <= room) break;
-                            ticks = [];
-                        }
+                    // Halve the step count until every label has room, so a
+                    // narrow bar thins the ruler evenly instead of dropping
+                    // values here and there.
+                    for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 2; steps = Math.floor(steps / 2)) {
+                        const all = _cbEvenTicks(wLo, wHi, steps);
+                        if (!all.length) break;
+                        // Precision chosen with the ends in the group, so the
+                        // row matches the flanking labels' scale.
+                        fmt = formatValueGroup(all);
+                        ticks = all.slice(1, -1);
+                        const widest = Math.max(...ticks.map(v => ctx.measureText(_signPad(fmt.format(v))).width));
+                        const room = inside ? cssW - widest : cssW;
+                        // Same clearance the per-label overlap check below
+                        // demands (2px side pad each + 4px gap).
+                        if (!showText || (widest + 8) * steps <= room) break;
+                        ticks = [];
                     }
                     ctx.restore();
                 }
-                if (!ticks.length) { this._setTickRow(null, cssW, 0, live); return; }
+                if (!ticks.length) { this._setTickRow(null, cssW, 0); return; }
                 // Row mode keeps the strip clean: the markers live in the row
                 // (see .cb-ticks span::before). Only the inside fallback (no
                 // room for a row) draws notches on the strip itself.
@@ -11972,12 +11796,6 @@
                     // collapsing when this ends up in a <span> below.
                     const text = _signPad(fmt.format(v));
                     const tw = ctx.measureText(text).width;
-                    // Live: keyed by the tick's own round VALUE, so a
-                    // round number that stays in range across consecutive
-                    // drag frames keeps the same DOM node (see _setTickRow).
-                    // Settled: keyed by its fixed fraction of the bar, which
-                    // is what actually stays constant between redraws here.
-                    const key = live ? 'v:' + v : 'f:' + f.toFixed(6);
                     const left = x - tw / 2 - 2;
                     const right = x + tw / 2 + 2;
                     if (showText) {
@@ -12004,13 +11822,13 @@
                             ctx.strokeText(text, x, cssH / 2 + 0.5);
                             ctx.fillText(text, x, cssH / 2 + 0.5);
                         } else {
-                            rowLabels.push({ x, text, key });
+                            rowLabels.push({ x, text });
                         }
                         drawn.push({ left, right });
                     }
                 });
                 ctx.restore();
-                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha, live);
+                this._setTickRow(inside ? null : rowLabels, cssW, tickAlpha);
             }
 
             /**
@@ -12264,8 +12082,6 @@
                 ColorBar._live.delete(this);
                 if (this._tickRow && this._tickRow.parentNode) this._tickRow.parentNode.removeChild(this._tickRow);
                 this._tickRow = null;
-                this._tickNodeMap = null;
-                if (this._settleCleanupTimer) { clearTimeout(this._settleCleanupTimer); this._settleCleanupTimer = null; }
                 if (this._hoverTimer) clearTimeout(this._hoverTimer);
                 if (this._autoDismissTimer) clearTimeout(this._autoDismissTimer);
                 this._detachEvents();
@@ -12869,7 +12685,6 @@
             /** Handle global mouseup — end any active drag. */
             _handleMouseUp(e) {
                 const wasDragging = this._dragTarget || this._dragX != null;
-                const wasPanning = this._dragX != null;
                 if (this._dragTarget) {
                     this._dragTarget = null;
                     this._dragActive = false;
@@ -12881,14 +12696,6 @@
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                 }
                 this._dragX = null;
-                // The pan drag redraws on every mousemove (see the "Pan
-                // drag" branch above) but nothing redraws again on its own
-                // right after mouseup — force one more draw() so _drawTicks
-                // sees the now-cleared this._dragX and runs the live→settled
-                // "settle" transition (see _setTickRow) immediately, instead
-                // of it sitting frozen in its last live position until some
-                // unrelated redraw happens to come along.
-                if (wasPanning) this.draw();
                 if (wasDragging && this.opts.onDragEnd) this.opts.onDragEnd();
             }
 
