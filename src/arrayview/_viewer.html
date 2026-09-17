@@ -11736,13 +11736,25 @@
             }
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
-                const tickAlpha = 1 - Math.min(1, aT / 0.4);
+                // Ticks are still generated (and their layout space, the
+                // cb-has-ticks padding-bottom, still reserved) purely off
+                // the histogram-expansion progress, same as always —
+                // expandAlpha gates that, unrelated to hover. Only the
+                // *displayed* opacity (tickAlpha) additionally requires
+                // hover, so hovering fades the numbers in/out (via the
+                // existing `transition: opacity` on .cb-ticks) without the
+                // bar or its surroundings resizing when the mouse enters or
+                // leaves — gating the generation step itself on hover would
+                // drop `on` to false while not hovered and pull the
+                // reserved padding out from under the bar every time.
+                const expandAlpha = 1 - Math.min(1, aT / 0.4);
+                const tickAlpha = this._mouseOver ? expandAlpha : 0;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 let fmt = null;
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                if (_cbTickLevel && this.opts.getWindow && tickAlpha > 0 && cssW >= 60) {
+                if (_cbTickLevel && this.opts.getWindow && expandAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
@@ -12470,6 +12482,9 @@
                     this._mouseOver = true;
                     if (this._onBinHover) this.ensureHistogramData();
                     if (this.opts.onMouseEnter) this.opts.onMouseEnter();
+                    // Fade the tick row in immediately (see _drawTicks)
+                    // instead of waiting for some unrelated redraw.
+                    this.draw();
                 });
                 this.wrap.addEventListener('mouseleave', () => {
                     this._mouseOver = false;
@@ -12480,6 +12495,11 @@
                         if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                         else if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
+                    } else {
+                        // Fade the tick row back out (see _drawTicks) even
+                        // on a leave with no prior hoverFrac update (e.g. a
+                        // mouseenter/leave with no movement in between).
+                        this.draw();
                     }
                     if (this._autoDismissPending && !this._dragActive) {
                         this._autoDismissPending = false;
