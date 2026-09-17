@@ -11057,8 +11057,10 @@
                 const labelFmt = primaryCb && primaryCb._dragLabelFormatter
                     ? primaryCb._dragLabelFormatter
                     : formatValueGroup(labelValues);
-                slimVmin.innerHTML = _cbFmt(displayValues[0], labelValues, labelFmt);
-                slimVmax.innerHTML = _cbFmt(displayValues[1], labelValues, labelFmt);
+                // _signPad reserves the sign's width so crossing zero doesn't
+                // shift the centred digits — see the comment on _signPad.
+                slimVmin.innerHTML = _signPad(_cbFmt(displayValues[0], labelValues, labelFmt));
+                slimVmax.innerHTML = _signPad(_cbFmt(displayValues[1], labelValues, labelFmt));
                 const vminIsLocked = _cbBoundLocked(primaryCb, 'vmin');
                 const vmaxIsLocked = _cbBoundLocked(primaryCb, 'vmax');
                 slimVmin.classList.toggle('is-locked', vminIsLocked);
@@ -11930,7 +11932,7 @@
                             // row matches the flanking labels' scale.
                             fmt = formatValueGroup(all);
                             ticks = all.slice(1, -1);
-                            const widest = Math.max(...ticks.map(v => ctx.measureText(fmt.format(v)).width));
+                            const widest = Math.max(...ticks.map(v => ctx.measureText(_signPad(fmt.format(v))).width));
                             const room = inside ? cssW - widest : cssW;
                             // Same clearance the per-label overlap check below
                             // demands (2px side pad each + 4px gap).
@@ -11962,7 +11964,13 @@
                 ticks.forEach((v) => {
                     const f = (v - wLo) / (wHi - wLo);
                     const x = Math.round(f * cssW);
-                    const text = fmt.format(v);
+                    // Reserve the sign's width (see _signPad) so a tick
+                    // crossing zero mid-drag doesn't shift its own centred
+                    // text — a non-breaking figure space in place of an
+                    // absent '-' has the same monospace advance width and,
+                    // unlike a plain space, survives DOM whitespace
+                    // collapsing when this ends up in a <span> below.
+                    const text = _signPad(fmt.format(v));
                     const tw = ctx.measureText(text).width;
                     // Live: keyed by the tick's own round VALUE, so a
                     // round number that stays in range across consecutive
@@ -12188,21 +12196,25 @@
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
+                        // _signPad reserves the sign's width so a label
+                        // crossing zero doesn't shift position — matters most
+                        // for the 'center'-aligned ones below, where the text
+                        // itself (not just a box around it) is centred.
                         const labels = [];
-                        labels.push({ x: 1, text: _cbFmtPlain(dmin, groupValues, labelFormatter), align: 'start', color: dimColor, prio: 0 });
-                        labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax, groupValues, labelFormatter), align: 'end', color: dimColor, prio: 0 });
+                        labels.push({ x: 1, text: _signPad(_cbFmtPlain(dmin, groupValues, labelFormatter)), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 1, text: _signPad(_cbFmtPlain(dmax, groupValues, labelFormatter)), align: 'end', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
-                            labels.push({ x: vx, text: _cbFmtPlain(wVmin, groupValues, labelFormatter), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _signPad(_cbFmtPlain(wVmin, groupValues, labelFormatter)), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (effVmax > 0.01 && effVmax < 0.99) {
                             const vx = Math.round(effVmax * cssW);
-                            labels.push({ x: vx, text: _cbFmtPlain(wVmax, groupValues, labelFormatter), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _signPad(_cbFmtPlain(wVmax, groupValues, labelFormatter)), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
                             const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
                             const hx = Math.round(this._hoverFrac * cssW);
-                            labels.push({ x: hx, text: _cbFmtPlain(hoverVal, groupValues, labelFormatter), align: 'center', color: hoverColor, prio: 2 });
+                            labels.push({ x: hx, text: _signPad(_cbFmtPlain(hoverVal, groupValues, labelFormatter)), align: 'center', color: hoverColor, prio: 2 });
                         }
                         labels.sort((a, b) => b.prio - a.prio);
                         const drawn = [];
@@ -12303,9 +12315,11 @@
                 const labelFormatter = this._dragLabelFormatter || formatValueGroup(targetLabelValues);
                 const formatLabel = this.opts.formatLabel;
                 const defaultLabel = (value) => _cbFmt(value, targetLabelValues, labelFormatter);
+                // _signPad reserves the sign's width so crossing zero
+                // doesn't shift the (centred) digits — see its comment.
                 const labelHtml = (value, which) => {
                     const custom = formatLabel ? formatLabel(value, which) : null;
-                    return custom ?? defaultLabel(value);
+                    return _signPad(custom ?? defaultLabel(value));
                 };
                 if (this.vminLabel) {
                     this.vminLabel.innerHTML = labelHtml(this._labelVmin, 'vmin');
