@@ -491,7 +491,6 @@
         .cb-ticks span {
             position: absolute; top: 5px; transform: translateX(-50%);
             white-space: nowrap; opacity: 0.55;
-            transition: left 0.3s ease-out;
         }
         /* A short marker under the bar's edge above each round value. */
         .cb-ticks span::before {
@@ -11749,14 +11748,7 @@
                 const row = this._tickRow;
                 if (!row) return;
                 const key = labels ? cssW + '|' + labels.map(l => l.x + ':' + l.text).join(',') : '';
-                const canUpdateInPlace = labels && labels.length === row.children.length;
-                if (canUpdateInPlace) {
-                    labels.forEach((label, index) => {
-                        const span = row.children[index];
-                        span.textContent = label.text;
-                        span.style.left = (label.x / cssW * 100) + '%';
-                    });
-                } else if (key !== this._tickRowKey) {
+                if (key !== this._tickRowKey) {
                     this._tickRowKey = key;
                     row.textContent = '';
                     for (const l of labels || []) {
