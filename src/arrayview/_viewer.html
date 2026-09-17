@@ -11802,61 +11802,57 @@
                 if (this.wrap) this.wrap.classList.toggle('cb-has-ticks', on);
             }
             /**
-             * The one eased transition: from wherever the live round-number
-             * ticks last sat to the resting evenly-spaced layout, fired once
-             * by _setTickRow the instant a drag ends. Matches each settled
-             * tick to the closest still-present live node by last on-screen
-             * position (not by index — the round-number set can gain or
-             * lose ticks as the window pans, so index would silently
-             * relabel the wrong node) and glides that node's `left`/text
-             * into place; a settled tick with no reasonable live counterpart
-             * fades in fresh, and a live tick with no settled counterpart
-             * fades out and is removed. The transition is stripped again
-             * once it completes so the next live drag resumes direct,
-             * untransitioned tracking (a lingering `transition: left` would
-             * fight rapid mousemove-driven position updates).
+             * The one eased transition, fired once by _setTickRow the
+             * instant a drag ends: the live round-number ticks fly out in
+             * the direction the bar was just being dragged, and the resting
+             * evenly-spaced ticks fly in from the opposite edge, like a
+             * carousel — matching this._panDir (see _handleMouseMove's pan
+             * branch and the mousedown handler that resets it), not by
+             * trying to match individual old/new ticks by position.
+             *
+             * A first attempt matched each settled tick to its closest
+             * live tick and glided that one DOM node the true distance
+             * between them. That is technically correct but reads as an
+             * instant snap: round-number ticks and evenly-spaced ticks are
+             * both laid out over the *same* just-released window, so their
+             * true positions are only ever a few px apart on a normal-width
+             * bar — nothing close to enough to look like sliding, no matter
+             * how faithfully it's eased. This version does not try to be
+             * "accurate" about it: it manufactures an obviously visible
+             * slide of a fixed size every time, regardless of how close the
+             * numbers happen to actually land.
              */
             _settleTickRow(list, cssW, alpha) {
                 const row = this._tickRow;
-                const SETTLE_MS = 260;
+                const SETTLE_MS = 300;
+                const FLY_PX = Math.max(30, cssW * 0.16);
+                // Which edge is "new" vs "old" — see the comment above.
+                // Defaults to entering from the right if a drag somehow ends
+                // with no recorded direction (e.g. a click with no movement).
+                const dir = this._panDir < 0 ? -1 : 1;
                 const liveNodes = this._tickNodeMap || (this._tickNodeMap = new Map());
-                const liveEntries = [...liveNodes.entries()];
-                const usedLive = new Set();
                 const newMap = new Map();
-                const REUSE_MAX_PX = Math.max(24, cssW * 0.12);
-                for (const l of list) {
-                    let bestKey = null, bestDist = Infinity;
-                    for (const [k, span] of liveEntries) {
-                        if (usedLive.has(k)) continue;
-                        const leftPct = parseFloat(span.style.left);
-                        const spanX = Number.isFinite(leftPct) ? leftPct / 100 * cssW : Infinity;
-                        const d = Math.abs(spanX - l.x);
-                        if (d < bestDist) { bestDist = d; bestKey = k; }
-                    }
-                    let span;
-                    if (bestKey !== null && bestDist <= REUSE_MAX_PX) {
-                        span = liveNodes.get(bestKey);
-                        usedLive.add(bestKey);
-                    } else {
-                        span = document.createElement('span');
-                        row.appendChild(span);
-                        span.style.transition = 'none';
-                        span.style.left = (l.x / cssW * 100) + '%';
-                        span.style.opacity = '0';
-                        span.textContent = l.text;
-                        void span.offsetWidth; // force layout so the fade-in below actually transitions
-                    }
+                for (const [, span] of liveNodes) {
+                    span.style.transition = 'none';
+                    void span.offsetWidth;
                     span.style.transition = `left ${SETTLE_MS}ms ease-out, opacity ${SETTLE_MS}ms ease-out`;
+                    const curLeftPx = (parseFloat(span.style.left) || 0) / 100 * cssW;
+                    span.style.left = ((curLeftPx + dir * FLY_PX) / cssW * 100) + '%';
+                    span.style.opacity = '0';
+                    setTimeout(() => span.remove(), SETTLE_MS + 30);
+                }
+                for (const l of list) {
+                    const span = document.createElement('span');
+                    row.appendChild(span);
+                    span.style.transition = 'none';
+                    span.style.left = ((l.x - dir * FLY_PX) / cssW * 100) + '%';
+                    span.style.opacity = '0';
                     span.textContent = l.text;
+                    void span.offsetWidth; // force layout so the fly-in below actually transitions
+                    span.style.transition = `left ${SETTLE_MS}ms ease-out, opacity ${SETTLE_MS}ms ease-out`;
                     span.style.left = (l.x / cssW * 100) + '%';
                     span.style.opacity = '';
                     newMap.set(l.key, span);
-                }
-                for (const [k, span] of liveEntries) {
-                    if (usedLive.has(k)) continue;
-                    span.style.transition = `left ${SETTLE_MS}ms ease-out, opacity ${SETTLE_MS}ms ease-out`;
-                    span.style.opacity = '0';
-                    setTimeout(() => span.remove(), SETTLE_MS + 30);
                 }
                 this._tickNodeMap = newMap;
                 this._tickRowKey = cssW + '|' + list.map(l => l.key + ':' + l.text).join(',');
@@ -12575,6 +12571,10 @@
                         }
                     }
                     this._dragX = e.clientX;
+                    // Which way the tick row should fly out/in when this
+                    // drag ends — see _settleTickRow. Kept from the previous
+                    // drag if this one ends up with no net movement at all.
+                    this._panDir = this._panDir || 1;
                     if (this.opts.onDragStart) this.opts.onDragStart('pan');
                 });
 
@@ -12760,6 +12760,11 @@
                     // Pan drag
                     const dx = e.clientX - this._dragX;
                     this._dragX = e.clientX;
+                    // See _settleTickRow — remembers the last real movement,
+                    // ignoring zero-delta frames, so a drag that ends dead
+                    // still settles in the direction it was actually going.
+                    if (dx > 0) this._panDir = 1;
+                    else if (dx < 0) this._panDir = -1;
                     const win = this.opts.getWindow();
                     if (win.vmin == null) return;
                     const range = win.vmax - win.vmin;
