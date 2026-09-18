@@ -11736,25 +11736,26 @@
             }
             _drawTicks(ctx, cssW, cssH, aT) {
                 const row = this._ensureTickRow();
-                // Ticks are still generated (and their layout space, the
-                // cb-has-ticks padding-bottom, still reserved) purely off
-                // the histogram-expansion progress, same as always —
-                // expandAlpha gates that, unrelated to hover. Only the
-                // *displayed* opacity (tickAlpha) additionally requires
-                // hover, so hovering fades the numbers in/out (via the
-                // existing `transition: opacity` on .cb-ticks) without the
-                // bar or its surroundings resizing when the mouse enters or
-                // leaves — gating the generation step itself on hover would
-                // drop `on` to false while not hovered and pull the
-                // reserved padding out from under the bar every time.
+                // `w` pins the tick row permanently visible at the level it
+                // cycles to (_cbTickLevel > 0); hovering always gives a peek
+                // even while off, at the 'few' density as a default (there's
+                // no pinned density to fall back on at level 0). Layout
+                // space (cb-has-ticks padding-bottom) is reserved whenever
+                // ticks are actually showing either way, so pinned viewing
+                // never jumps; a hover-only peek at level 0 does reserve it
+                // right as hovering starts, which reads as part of the peek
+                // rather than an unrelated layout shift.
+                const pinned = _cbTickLevel > 0;
+                const peeking = this._mouseOver;
+                const activeLevel = pinned ? _cbTickLevel : 1;
                 const expandAlpha = 1 - Math.min(1, aT / 0.4);
-                const tickAlpha = this._mouseOver ? expandAlpha : 0;
+                const tickAlpha = (pinned || peeking) ? expandAlpha : 0;
                 let ticks = [];
                 let wLo = null, wHi = null;
                 let fmt = null;
                 const inside = !row || this._tickRowClipped();
                 const showText = !inside || cssH >= 14;
-                if (_cbTickLevel && this.opts.getWindow && expandAlpha > 0 && cssW >= 60) {
+                if ((pinned || peeking) && this.opts.getWindow && expandAlpha > 0 && cssW >= 60) {
                     const win = this.opts.getWindow();
                     wLo = win ? win.vmin : null; wHi = win ? win.vmax : null;
                     ctx.save();
@@ -11762,7 +11763,7 @@
                     // Halve the step count until every label has room, so a
                     // narrow bar thins the ruler evenly instead of dropping
                     // values here and there.
-                    for (let steps = CB_TICK_TARGETS[_cbTickLevel]; steps >= 2; steps = Math.floor(steps / 2)) {
+                    for (let steps = CB_TICK_TARGETS[activeLevel]; steps >= 2; steps = Math.floor(steps / 2)) {
                         const all = _cbEvenTicks(wLo, wHi, steps);
                         if (!all.length) break;
                         // Precision chosen with the ends in the group, so the
