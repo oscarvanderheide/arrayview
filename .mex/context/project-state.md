@@ -7,12 +7,23 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-09-16
+last_updated: 2026-09-18
 ---
 
 # Project State
 
 ## Working
+
+- Ortho view no longer jitters its colorbar: dragging the colorbar (either
+  handle or a pan) keeps the canvas column at its rest width for the drag's
+  duration, so the center-aligned wrap cannot reflow and displace the view;
+  the rest state and the drag state reserve the same label width, measured in
+  the real label element. The hovered-value pill sign-pads uniformly in both
+  display paths so +N and -N occupy the same column width and the centred text
+  does not shift as the cursor crosses zero. Verified real browser on a
+  served 64³ mixed-sign array: canvas width held at 234px over 14 drag steps,
+  repeat-drag dx=0, ticker stable at 48px after release, and equal-length
+  pos/neg formatter pairs.
 
 - Flood-fill hold/drag shows a translucent cursor-side tapered sensitivity gauge with
   1%, 10%, and 100% reference marks; fixed at the initial pointer location,
