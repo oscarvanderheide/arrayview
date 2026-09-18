@@ -953,14 +953,6 @@
             opacity: 1;
             transform: translateY(0);
         }
-        /* Only the axis letter (x/y/z) itself is purple — the slash and
-         * size/hover-position after it dim the same way as any other dim's
-         * does, not tinted purple (a plain color on .dim-hover-idx wouldn't
-         * be enough to override an inherited -webkit-text-fill-color). */
-        #info .dim-axis-letter {
-            color: var(--spatial-dim);
-            -webkit-text-fill-color: var(--spatial-dim);
-        }
         #info .active-dim.dim-label .dim-slash,
         #info .active-dim.dim-label .dim-size {
             color: var(--text);
