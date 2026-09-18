@@ -6675,6 +6675,11 @@ class TestNormalInspectInteractions:
         after_middle = page.evaluate("() => [manualVmin ?? currentVmin, manualVmax ?? currentVmax]")
         assert after_middle != before_middle, "middle drag should keep explicit window/level available"
 
+        # Zoomed + hover-info on: a plain drag now draws the hover-info
+        # quick-measure outline instead of panning — the old "plain drag
+        # pans while zoomed" behavior didn't check hover-info state at all,
+        # which stole the gesture from inspection. Panning stays available
+        # via the modifier drags asserted above.
         page.evaluate(
             """() => {
                 userZoom = 3;
@@ -6691,8 +6696,12 @@ class TestNormalInspectInteractions:
         during_pan = page.evaluate("() => ({ x: mainPan.x, y: mainPan.y })")
         page.mouse.up()
         after_pan = page.evaluate("() => ({ x: mainPan.x, y: mainPan.y })")
-        assert (during_pan["x"], during_pan["y"]) != (before_pan["x"], before_pan["y"])
-        assert (after_pan["x"], after_pan["y"]) == (during_pan["x"], during_pan["y"])
+        assert (during_pan["x"], during_pan["y"]) == (before_pan["x"], before_pan["y"]), (
+            "hover info should claim the plain zoomed drag for its quick-measure outline, not panning"
+        )
+        assert (after_pan["x"], after_pan["y"]) == (before_pan["x"], before_pan["y"])
+        has_quick_roi = page.evaluate("() => _infoQuickRois.length > 0")
+        assert has_quick_roi, "a real drag while hover info is on should leave a quick-measure outline"
 
     def test_info_hover_mosaic_drag_only_inspects(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
