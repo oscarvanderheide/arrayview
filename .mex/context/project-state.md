@@ -140,6 +140,9 @@ last_updated: 2026-09-16
   cleanup. The focused pending-preparation and cleanup component gates pass;
   the post-fix large-array real-host row remains open.
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
+- Outside colorbar tick labels now reuse their DOM markers and ease between live
+  drag positions before settling at the released window; source syntax is clean,
+  but the focused browser suite remains blocked by existing viewer/ROI failures.
 - Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
 - Tool menu (`/` menu) supports multi-select where allowed: spacebar toggles tools, Enter applies selection. Mutual exclusion enforced (ROI ↔ Segmentation, and overlay/vectorfield ↔ everything else). Cursor indicator shows focused tile via yellow background + left accent bar
