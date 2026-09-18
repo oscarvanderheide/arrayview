@@ -11745,8 +11745,14 @@
                 // never jumps; a hover-only peek at level 0 does reserve it
                 // right as hovering starts, which reads as part of the peek
                 // rather than an unrelated layout shift.
+                //
+                // Hover-info mode (_pixelInfoVisible, `i`) peeks the ticks
+                // too, on every colorbar at once, not just the one under the
+                // cursor — once you're reading out values via hover-info,
+                // the ticks are a hint for the whole bar, not just wherever
+                // the mouse happens to be.
                 const pinned = _cbTickLevel > 0;
-                const peeking = this._mouseOver;
+                const peeking = this._mouseOver || _pixelInfoVisible;
                 const activeLevel = pinned ? _cbTickLevel : 1;
                 const expandAlpha = 1 - Math.min(1, aT / 0.4);
                 const tickAlpha = (pinned || peeking) ? expandAlpha : 0;
@@ -26387,6 +26393,10 @@
                 when: [],
                 run: (ctx, e) => {
                     _pixelInfoVisible = !_pixelInfoVisible;
+                    // Peek the tick row on every colorbar the instant this
+                    // toggles, rather than waiting for some unrelated
+                    // redraw — see _drawTicks.
+                    ColorBar.redrawAll();
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
