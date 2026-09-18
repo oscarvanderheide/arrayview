@@ -7175,11 +7175,13 @@
         let _eggsValuePillFadeTimer = null;
         let _loupeValuePillOwned = false;
         function _setEggsValuePill(value, kind, anchorEl, minWidthCh) {
-            // The leading-space sign pad exists to keep width stable when the
-            // sign flips — not needed (and actively off-centering) once the
-            // width is already pinned to minWidthCh; text-align does the
-            // centering instead, so skip it in that case.
-            value = minWidthCh ? value : _signPad(value);
+            // Always sign-pad: the leading space (or minus sign) keeps the text
+            // column width identical for +N and -N, so the centred text does not
+            // shift horizontally as the cursor crosses zero.  Without the pad a
+            // 5-char positive ("0.450") and its 6-char negative ("-0.450") are
+            // each centred in the same pinned pill, so the digits jump by half
+            // a character — that is the jitter the user sees.
+            value = _signPad(value);
             if (value == null) {
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
@@ -11314,6 +11316,7 @@
                 this._hitVmaxX = null;
                 this._dragLabelFormatter = null;
                 this._dragLabelWidthPx = null;
+                this._dragColWidthPx = null;
 
                 // Auto-dismiss
                 this._autoDismissTimer = null;
@@ -12178,7 +12181,17 @@
                 this._labelVmax = this._labelVmaxFrom != null
                     ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
                 const targetLabelValues = [vmin, vmax];
-                const labelFormatter = this._dragLabelFormatter || formatValueGroup(targetLabelValues);
+                // Use the SAME formatter at rest and during a drag.  If the two
+                // states derived different decimal counts (rest = window range,
+                // drag = window+histogram range), the same bound value would
+                // render at a different width across the drag boundary and the
+                // centered wrap would reflow the instant the drag started.
+                let labelFormatter = this._dragLabelFormatter;
+                if (!labelFormatter && this._histData) {
+                    const win = this.opts.getWindow();
+                    labelFormatter = formatValueGroup([this._histData.vmin, this._histData.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
+                }
+                if (!labelFormatter) labelFormatter = formatValueGroup(targetLabelValues);
                 const formatLabel = this.opts.formatLabel;
                 const defaultLabel = (value) => _cbFmt(value, targetLabelValues, labelFormatter);
                 // _signPad reserves the sign's width so crossing zero
@@ -12212,7 +12225,16 @@
                         this.vminLabel.style.minWidth = '';
                         this.vmaxLabel.style.minWidth = '';
                         const natMw = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
-                        if (natMw > this._labelWidthHwmPx) this._labelWidthHwmPx = natMw;
+                        // Also floor at the widest value a drag can surface, so
+                        // the rest state and the drag state reserve the SAME
+                        // label width.  The island is center-aligned, so any
+                        // width difference between the two states would shift
+                        // the canvas by half the difference the instant a drag
+                        // begins (the wrap re-centers); agreeing on width
+                        // removes that one-time jump.
+                        const reserveWm = this._reserveWidestLabelPx();
+                        const restFloor = Math.max(natMw, reserveWm);
+                        if (restFloor > this._labelWidthHwmPx) this._labelWidthHwmPx = restFloor;
                         const stableWidth = Math.max(1, Math.ceil(this._labelWidthHwmPx)) + 'px';
                         this.vminLabel.style.minWidth = stableWidth;
                         this.vmaxLabel.style.minWidth = stableWidth;
@@ -12441,6 +12463,8 @@
                         }
                     }
                     this._dragX = e.clientX;
+                    this._dragActive = true;
+                    this._freezeDragLabelWidths();
                     if (this.opts.onDragStart) this.opts.onDragStart('pan');
                 });
 
@@ -12578,6 +12602,117 @@
                 return null;
             }
 
+            // Pre-reserve the label width for the widest value a drag can
+            // surface, so the rest state and the drag state agree on label
+            // width.  Because the island is center-aligned, any difference in
+            // the reserved width between the two states shifts the canvas by
+            // half the difference the instant a drag starts (the wrap
+            // re-centers) — pre-reserving the same width in both states
+            // removes that one-time jump.  Measured in the real label element
+            // so its own font, padding, and box-sizing all apply (a detached
+            // probe inherits none of those and undershoots).
+            _reserveWidestLabelPx() {
+                if (!this.vminLabel || !this.vmaxLabel || !this._histData) return 0;
+                const fmt = this._dragLabelFormatter || this._reserveFormatter
+                    || formatValueGroup([this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax], { maxDecimals: 7 });
+                this._reserveFormatter = fmt;
+                const candidates = [this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax];
+                let widest = '';
+                for (const v of candidates) {
+                    if (!Number.isFinite(v)) continue;
+                    const s = _signPad(_cbFmtPlain(v, null, fmt));
+                    if (s.length > widest.length) widest = s;
+                }
+                if (!widest) return 0;
+                const saveMin = this.vminLabel.innerHTML;
+                this.vminLabel.style.minWidth = '';
+                this.vminLabel.innerHTML = '';
+                this.vminLabel.textContent = widest;
+                const widthPx = this.vminLabel.offsetWidth;
+                this.vminLabel.innerHTML = saveMin;
+                return widthPx;
+            }
+
+            /** Freeze the vmin/vmax label widths and formatter for the duration
+                of a drag.  Without this, updateLabels() re-derives the label
+                min-widths from the animated ticker values on every frame, and
+                any width change reflows the flex row and displaces the colorbar
+                and every element anchored to it.  Shared by the clim-handle and
+                pan drag paths.
+
+                The key subtlety: a drag moves the window without changing its
+                range, so the bound values can grow past their starting magnitude
+                (e.g. "-94.5" -> "-148.5" as the window shifts).  Reserving only
+                the *current* text width would let the label expand mid-drag and
+                shove the canvas.  So we (a) reserve a floor sized to the widest
+                value a drag can surface, measured in the real label element so
+                its font/padding/box-sizing all apply, and (b) lock the canvas
+                column to its rest width for the drag's duration so the wider
+                floor grows the wrap instead of squeezing the canvas. */
+            _freezeDragLabelWidths() {
+                const hd = this._histData;
+                const win = this.opts.getWindow();
+                if (hd) {
+                    this._dragLabelFormatter = formatValueGroup([hd.vmin, hd.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
+                }
+                // Capture the canvas column's rest-state width BEFORE any label
+                // reflow.  .cb-col is flex:1, so widening the label min-widths
+                // (below) would shrink the column and shift the canvas; locking
+                // it now (flex:0 0 auto at its rest width) decouples the canvas
+                // from the label's reserved width for the whole drag.
+                if (this.colWrap) {
+                    this._dragColWidthPx = this.colWrap.offsetWidth;
+                }
+                if (this.vminLabel && this.vmaxLabel) {
+                    const saveMin = this.vminLabel.innerHTML;
+                    const saveMax = this.vmaxLabel.innerHTML;
+                    let widthPx = 0;
+                    const formatter = this._dragLabelFormatter || (hd ? formatValueGroup([hd.vmin, hd.vmax]) : null);
+                    if (formatter && hd) {
+                        // Widest renderable bound: the histogram extremes are the
+                        // largest magnitudes any drag can surface, so formatting
+                        // them (sign-padded) gives the widest text this drag can
+                        // produce.  Measure it IN the real label element (swap the
+                        // text, clear min-width, read offsetWidth) so the label's
+                        // own font, padding, and box-sizing all apply — a detached
+                        // probe inherits none of those and undershoots.
+                        let widest = '';
+                        const candidates = [hd.vmin, hd.vmax, win.vmin, win.vmax];
+                        for (const v of candidates) {
+                            if (!Number.isFinite(v)) continue;
+                            const s = _signPad(_cbFmtPlain(v, null, formatter));
+                            if (s.length > widest.length) widest = s;
+                        }
+                        if (widest) {
+                            const el = this.vminLabel;
+                            el.style.minWidth = '';
+                            el.innerHTML = '';
+                            el.textContent = widest;
+                            widthPx = el.offsetWidth;
+                        }
+                        // Restore the live labels before the next frame rewrites
+                        // them via updateLabels().
+                        this.vminLabel.innerHTML = saveMin;
+                        this.vmaxLabel.innerHTML = saveMax;
+                    }
+                    if (widthPx <= 0) {
+                        widthPx = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
+                    }
+                    this._dragLabelWidthPx = widthPx;
+                    if (this._dragLabelWidthPx > 0) {
+                        this.vminLabel.style.minWidth = this._dragLabelWidthPx + 'px';
+                        this.vmaxLabel.style.minWidth = this._dragLabelWidthPx + 'px';
+                    }
+                }
+                // Now lock the canvas column at the rest width captured above,
+                // so the wider reserved labels grow the wrap instead of
+                // squeezing the canvas.
+                if (this.colWrap && this._dragColWidthPx > 0) {
+                    this.colWrap.style.width = this._dragColWidthPx + 'px';
+                    this.colWrap.style.flex = '0 0 auto';
+                }
+            }
+
             /** Begin a clim threshold drag. */
             _startClimDrag(target, e) {
                 e.preventDefault();
@@ -12586,20 +12721,7 @@
                 this._dragActive = true;
                 document.body.style.cursor = 'ew-resize';
                 if (this.opts.onDragStart) this.opts.onDragStart(target);
-                const win = this.opts.getWindow();
-                const hd = this._histData;
-                if (hd) {
-                    this._dragLabelFormatter = formatValueGroup([hd.vmin, hd.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
-                    if (this.vminLabel && this.vmaxLabel) {
-                        this.vminLabel.style.minWidth = '';
-                        this.vmaxLabel.style.minWidth = '';
-                        this._dragLabelWidthPx = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
-                        if (this._dragLabelWidthPx > 0) {
-                            this.vminLabel.style.minWidth = this._dragLabelWidthPx + 'px';
-                            this.vmaxLabel.style.minWidth = this._dragLabelWidthPx + 'px';
-                        }
-                    }
-                }
+                this._freezeDragLabelWidths();
             }
 
             /** Handle global mousemove — drives both threshold drag and pan. */
@@ -12742,12 +12864,25 @@
 
             /** Handle global mouseup — end any active drag. */
             _handleMouseUp(e) {
-                const wasDragging = this._dragTarget || this._dragX != null;
-                if (this._dragTarget) {
-                    this._dragTarget = null;
+                const wasClim = this._dragTarget != null;
+                const wasPan = this._dragX != null;
+                const wasDragging = wasClim || wasPan;
+                if (wasClim) this._dragTarget = null;
+                if (wasDragging) {
+                    // Both the clim-handle and the pan drag freeze the label
+                    // widths (see _freezeDragLabelWidths); release the freeze on
+                    // either so updateLabels() resumes its high-water-mark width
+                    // and the ticker animation re-engages.
                     this._dragActive = false;
                     this._dragLabelFormatter = null;
                     this._dragLabelWidthPx = null;
+                    this._dragColWidthPx = null;
+                    // Release the canvas-column width lock so .cb-col resumes
+                    // its flex:1 sizing for the next rest state.
+                    if (this.colWrap) {
+                        this.colWrap.style.width = '';
+                        this.colWrap.style.flex = '';
+                    }
                     document.body.style.cursor = '';
                     if (this.opts.hoverValueInEggs) _setEggsValuePill(null);
                     else if (this.tooltip) this.tooltip.style.display = 'none';
@@ -21462,9 +21597,10 @@
                 el.style.display = 'none';
                 return;
             }
-            // See _setEggsValuePill: skip the sign pad once width is pinned —
-            // text-align does the centering instead.
-            value = minWidthCh ? value : _signPad(value);
+            // Always sign-pad (see _setEggsValuePill): +N and -N must occupy
+            // the same column width so the centred text does not shift when
+            // the cursor crosses zero.
+            value = _signPad(value);
             // Update the existing pill's text in place rather than rebuilding
             // it — replacing the node on every value restarts its fade-in
             // animation, which is what was flickering on every mousemove.
