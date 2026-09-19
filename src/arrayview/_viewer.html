@@ -21903,6 +21903,14 @@
             document.getElementById('fft-spinner-overlay').classList.remove('visible');
         }
 
+        // Render a cycle ring for the toast: every option in order, the
+        // active one bracketed — "off · [MAX] · MIN · MEAN · STD · SOS · SUM".
+        // Used by keys that step through a fixed list (p, m) so a new user
+        // sees the whole ring, not just the value they landed on.
+        function cycleRingText(labels, activeIdx) {
+            return labels.map((l, i) => i === activeIdx ? `[${l}]` : l).join(' · ');
+        }
+
         function showStatus(msg, duration) {
             const el = document.getElementById('status');
             if (el) {
@@ -27489,6 +27497,9 @@
                             }, 900);
                         }, 2000);
                     }
+                    const _modeNames = (isComplex ? COMPLEX_MODES : REAL_MODES)
+                        .map(m => (MODE_LABEL[m] || m).toLowerCase());
+                    showStatus(`complex mode: ${cycleRingText(_modeNames, complexMode)}`, 3000);
                     updateView(); triggerPreload();
                     renderInfo();
                     renderEggs();
@@ -27722,15 +27733,12 @@
                 },
             },
             'projection.cycle': {
-                title: 'Cycle statistical projection / MIP',
+                title: 'Cycle statistical projection',
                 when: [],
                 run: (ctx, e) => {
-                    // In multiview: toggle 3-D MIP volume renderer
-                    if (multiViewActive || mipActive) {
-                        if (mipActive) { exitMipMode(); }
-                        else { enterMipMode(); }
-                        return;
-                    }
+                    // 3-D MIP is not ready for users; `p` does nothing in ortho view.
+                    if (mipActive) { exitMipMode(); return; }
+                    if (multiViewActive) { showStatus('projection: not available in ortho view'); return; }
                     // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
                     if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; } // kept inline: emits toast
                     if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; } // kept inline: emits toast
@@ -27750,10 +27758,11 @@
                     _eggsVisible = true;
                     updateView();
                     renderEggs();
+                    const _projRing = cycleRingText(['off', ...PROJECTION_LABELS], projectionMode);
                     if (projectionMode === 0) {
-                        showStatus('projection: off');
+                        showStatus(`projection: ${_projRing}`, 3000);
                     } else {
-                        showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${projectionDim}`);
+                        showStatus(`projection along dim ${projectionDim}: ${_projRing}`, 3000);
                     }
                     saveState();
                 },
@@ -28807,7 +28816,7 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → off' },
+                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → SOS → SUM → off' },
                             { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary' },
                         ]
                     }
@@ -28824,7 +28833,6 @@
                             { key: 'orientation HUD', action: 'Shows while drag-scrubbing or holding Alt/Option' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
-                            { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
                             { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice or all three ortho panes; drag to rotate and scroll to slice' },
                             { key: 'o', action: 'Reset to origin' },
                         ]

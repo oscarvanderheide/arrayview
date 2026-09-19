@@ -166,23 +166,6 @@ def _exit_qmri(page):
     _wait(page, 350)
 
 
-# --- mip (multiview + p) ---
-def _enter_mip(page):
-    page.keyboard.press("v")
-    page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-    _wait(page, 250)
-    page.keyboard.press("p")
-    _wait(page, 400)
-
-
-def _exit_mip(page):
-    # p toggles MIP off while in multiview; then v to exit multiview
-    page.keyboard.press("p")
-    _wait(page, 300)
-    page.keyboard.press("v")
-    _wait(page, 300)
-
-
 # --- projection ---
 def _enter_projection(page):
     page.keyboard.press("p")
@@ -226,7 +209,6 @@ MODES = {
     "multiview":    {"enter": _enter_multiview,    "exit": _exit_multiview,    "arr": "3d"},
     "compare":      {"enter": _enter_compare,      "exit": _exit_compare,      "arr": "3d-compare"},
     "qmri":         {"enter": _enter_qmri,         "exit": _exit_qmri,         "arr": "4d"},
-    "mip":          {"enter": _enter_mip,          "exit": _exit_mip,          "arr": "3d"},
     "projection":   {"enter": _enter_projection,   "exit": _exit_projection,   "arr": "3d"},
     "mosaic":       {"enter": _enter_mosaic,       "exit": _exit_mosaic,       "arr": "4d"},
     "zen":          {"enter": _enter_zen,          "exit": _exit_zen,          "arr": "3d"},
