@@ -2026,6 +2026,25 @@
         }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
+        #mode-eggs .mode-badge-off { color: var(--muted); border-color: var(--border); background-color: transparent; }
+        /* Cycle picker: the ring of options a badge steps through, stacked
+         * above it. Same pills as the badge, dimmer with distance. */
+        #mode-picker {
+            position: fixed; width: 0; height: 0; z-index: 2; pointer-events: none;
+            opacity: 0; transition: opacity 180ms ease;
+        }
+        #mode-picker.visible { opacity: 1; }
+        body.loupe-value-pill #mode-picker { z-index: 101; }
+        #mode-picker .mode-badge {
+            position: absolute; left: 0; bottom: 0; margin: 0; white-space: nowrap;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 220ms ease;
+            cursor: pointer;
+        }
+        #mode-picker.visible .mode-badge:not(.is-current) { pointer-events: auto; }
+        #mode-picker .mode-badge:hover { opacity: 1 !important; }
+        :root.light #mode-picker .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
         .percentile-preset-overlay {
             display: flex; flex-direction: column; align-items: center; gap: 5px;
             box-sizing: border-box;
@@ -4756,7 +4775,7 @@
 
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
-        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
+        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
@@ -5752,6 +5771,7 @@
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="mode-eggs"></div>
+    <div id="mode-picker"></div>
     <div id="status"></div>
     <div id="toast"></div>
     <div id="preload-status"></div>
@@ -17366,6 +17386,182 @@
             renderEggs();
         }
 
+        // Apply a projection mode (0 = off, 1.. = PROJECTION_LABELS index + 1).
+        // Shared by the `p` key and clicks on the cycle picker.
+        function _setProjectionMode(mode) {
+            projectionMode = mode;
+            projectionDim = mode === 0 ? -1 : (projectionDim >= 0 ? projectionDim : current_slice_dim);
+            modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
+            _eggsVisible = true;
+            updateView();
+            renderEggs();
+            showModePicker('proj');   // after renderEggs: the badge it anchors to must exist
+            saveState();
+        }
+
+        // Apply a complex display mode (index into COMPLEX_MODES / REAL_MODES).
+        // Shared by the `m` key and clicks on the cycle picker.
+        function _setComplexMode(mode) {
+            const _view = modeManager.getFocusedView();
+            complexMode = mode;
+            if (_view) _view.displayState.complexMode = complexMode;  // Phase 12: dual-write
+            complexModeEverUsed = true;
+            _invalidateVolHistCache();
+            manualVmin = manualVmax = null;
+            if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
+            _eggsVisible = true;
+            _complexEggVisible = true;
+            clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
+            // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
+            if (complexMode === 0) {
+                _complexFadeTimer = setTimeout(() => {
+                    const badge = document.querySelector('#mode-eggs .mode-badge-complex');
+                    if (badge) badge.classList.add('fading');
+                    _complexFadeTimer = setTimeout(() => {
+                        _complexEggVisible = false;
+                        _complexFadeTimer = null;
+                        renderEggs();
+                    }, 900);
+                }, 2000);
+            }
+            updateView(); triggerPreload();
+            renderInfo();
+            renderEggs();
+            showModePicker('complex');   // after renderEggs: the badge it anchors to must exist
+            saveState();
+        }
+
+        // ── Cycle picker ──────────────────────────────────────────────
+        // A picker-wheel column that rises out of a mode badge when its key
+        // is pressed (p → projection, m → complex mode). The badge is the
+        // selected slot; the other options stack above it in cycle order,
+        // nearest = next. Each press scrolls the column down one slot so
+        // the next option lands in the badge. Items are keyed by label and
+        // persist across presses so the slide is a real transition; the
+        // picker lives outside #mode-eggs, whose innerHTML is rebuilt on
+        // every render.
+        const MODE_PICKER_HOLD_MS = 1400;
+        const MODE_PICKER_GAP = 4;
+        let _modePicker = null;   // { kind, timer } while open
+
+        function _modePickerRing(kind) {
+            if (kind === 'proj') {
+                return {
+                    labels: ['OFF', ...PROJECTION_LABELS],
+                    current: projectionMode,
+                    badgeClass: 'mode-badge-proj',
+                    select: _setProjectionMode,
+                };
+            }
+            const names = isComplex ? COMPLEX_MODES : REAL_MODES;
+            return {
+                labels: names.map(m => MODE_LABEL[m] || m.toUpperCase()),
+                current: complexMode,
+                badgeClass: 'mode-badge-complex',
+                select: _setComplexMode,
+            };
+        }
+
+        function _modePickerAnchor() {
+            if (!_modePicker) return null;
+            return document.querySelector(`#mode-eggs .mode-badge.${_modePickerRing(_modePicker.kind).badgeClass}`);
+        }
+
+        function showModePicker(kind) {
+            const el = document.getElementById('mode-picker');
+            if (!el) return;
+            const opening = !_modePicker || _modePicker.kind !== kind;
+            if (_modePicker) clearTimeout(_modePicker.timer);
+            _modePicker = { kind, timer: null };
+            // Projection at OFF has no badge of its own; the picker holds one open.
+            if (!_modePickerAnchor()) renderEggs();
+            if (!_modePickerAnchor()) { _modePicker = null; return; }
+            const ring = _modePickerRing(kind);
+            const n = ring.labels.length;
+            if (opening) {
+                el.innerHTML = ring.labels.map((l, i) =>
+                    `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('');
+                el.classList.remove('visible');
+            }
+            const items = Array.from(el.children);
+            // Slot 0 is the badge itself; slots 1..n-1 stack upward, nearest = next.
+            items.forEach(item => {
+                const i = +item.dataset.idx;
+                const slot = (i - ring.current + n) % n;
+                const wasCurrent = item.classList.contains('is-current');
+                item.classList.toggle('is-current', slot === 0);
+                item.dataset.slot = slot;
+                if (opening || wasCurrent) {
+                    // No slide for a fresh open, nor for the old value: it
+                    // re-enters at the top of the column instead of flying
+                    // up past every other option.
+                    item.style.transition = 'none';
+                    item.style.opacity = '0';
+                    _placeModePickerItem(item, slot);
+                    void item.offsetHeight;
+                    item.style.transition = '';
+                }
+                _placeModePickerItem(item, slot);
+            });
+            _positionModePicker();
+            if (opening) requestAnimationFrame(() => el.classList.add('visible'));
+            else el.classList.add('visible');
+            _armModePickerHide();
+        }
+
+        function _placeModePickerItem(item, slot) {
+            // Slot k sits k steps above the badge; slot 0 slides down into
+            // the badge and disappears. Opacity falls off with distance —
+            // the far end of the wheel is dimmer, like an iOS picker.
+            const step = item.offsetHeight + MODE_PICKER_GAP;
+            item.style.transform = `translate(-50%, ${slot === 0 ? step : -(slot - 1) * step}px)`;
+            item.style.opacity = slot === 0 ? '0' : String(Math.max(0.5, 0.92 - (slot - 1) * 0.1));
+        }
+
+        function _armModePickerHide() {
+            if (!_modePicker) return;
+            clearTimeout(_modePicker.timer);
+            _modePicker.timer = setTimeout(hideModePicker, MODE_PICKER_HOLD_MS);
+        }
+
+        function hideModePicker() {
+            const el = document.getElementById('mode-picker');
+            if (!_modePicker || !el) return;
+            clearTimeout(_modePicker.timer);
+            const kind = _modePicker.kind;
+            _modePicker = null;
+            el.classList.remove('visible');
+            // The projection badge only exists while the picker holds it open
+            // at OFF; let it go now.
+            if (kind === 'proj' && projectionMode === 0) renderEggs();
+        }
+
+        function _positionModePicker() {
+            const el = document.getElementById('mode-picker');
+            if (!el || !_modePicker) return;
+            const badge = _modePickerAnchor();
+            if (!badge) { hideModePicker(); return; }
+            const r = badge.getBoundingClientRect();
+            el.style.left = r.left + r.width / 2 + 'px';
+            el.style.top = r.top - MODE_PICKER_GAP + 'px';
+        }
+
+        function _bindModePicker() {
+            const el = document.getElementById('mode-picker');
+            if (!el) return;
+            el.addEventListener('click', e => {
+                const item = e.target.closest('.mode-badge');
+                if (!item || !_modePicker) return;
+                const ring = _modePickerRing(_modePicker.kind);
+                const idx = +item.dataset.idx;
+                if (idx !== ring.current) ring.select(idx);
+            });
+            // Hovering the wheel keeps it open; leaving restarts the clock.
+            el.addEventListener('mouseenter', () => { if (_modePicker) clearTimeout(_modePicker.timer); });
+            el.addEventListener('mouseleave', _armModePickerHide);
+        }
+        _bindModePicker();
+
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
@@ -17433,6 +17629,8 @@
                 html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
+            } else if (_modePicker && _modePicker.kind === 'proj') {
+                html += `<span class="mode-badge mode-badge-proj mode-badge-off">OFF</span>`;
             }
             if (mipActive) {
                 html += `<span class="mode-badge mode-badge-mip">MIP</span>`;
@@ -17440,6 +17638,7 @@
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
+            else _positionModePicker();   // no badge left to anchor → picker closes
             renderIsland();
         }
 
@@ -17485,6 +17684,7 @@
                 el.style.bottom        = cbRect
                     ? (window.innerHeight - cbRect.top + 6) + 'px'
                     : (window.innerHeight - vpRect.bottom + 30) + 'px';
+                _positionModePicker();
                 return;
             }
 
@@ -17532,6 +17732,7 @@
             el.style.left      = eggsLeft + 'px';
             el.style.transform = 'translateX(-50%)';
             el.dataset.pillPlacement = placement;
+            _positionModePicker();
             _validateUIState();
         }
 
@@ -21901,14 +22102,6 @@
             clearTimeout(_fftSpinnerTimer);
             _fftSpinnerTimer = null;
             document.getElementById('fft-spinner-overlay').classList.remove('visible');
-        }
-
-        // Render a cycle ring for the toast: every option in order, the
-        // active one bracketed — "off · [MAX] · MIN · MEAN · STD · SOS · SUM".
-        // Used by keys that step through a fixed list (p, m) so a new user
-        // sees the whole ring, not just the value they landed on.
-        function cycleRingText(labels, activeIdx) {
-            return labels.map((l, i) => i === activeIdx ? `[${l}]` : l).join(' · ');
         }
 
         function showStatus(msg, duration) {
@@ -27476,34 +27669,7 @@
                         return;
                     }
                     const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
-                    complexMode = (complexMode + 1) % modeCount;
-                    if (_view) _view.displayState.complexMode = complexMode;  // Phase 12: dual-write
-                    complexModeEverUsed = true;
-                    _invalidateVolHistCache();
-                    manualVmin = manualVmax = null;
-                    if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
-                    _eggsVisible = true;
-                    _complexEggVisible = true;
-                    clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
-                    // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
-                    if (complexMode === 0) {
-                        _complexFadeTimer = setTimeout(() => {
-                            const badge = document.querySelector('.mode-badge-complex');
-                            if (badge) badge.classList.add('fading');
-                            _complexFadeTimer = setTimeout(() => {
-                                _complexEggVisible = false;
-                                _complexFadeTimer = null;
-                                renderEggs();
-                            }, 900);
-                        }, 2000);
-                    }
-                    const _modeNames = (isComplex ? COMPLEX_MODES : REAL_MODES)
-                        .map(m => (MODE_LABEL[m] || m).toLowerCase());
-                    showToast(`complex mode: ${cycleRingText(_modeNames, complexMode)}`);
-                    updateView(); triggerPreload();
-                    renderInfo();
-                    renderEggs();
-                    saveState();
+                    _setComplexMode((complexMode + 1) % modeCount);
                 },
             },
             'colormap.promptCustom': {
@@ -27745,26 +27911,7 @@
                     if (_isCollectionDim(current_slice_dim)) {
                         showStatus('projection: collection dims are index-only'); return;
                     }
-                    if (projectionMode === 0) {
-                        projectionMode = 1;
-                        projectionDim = current_slice_dim;
-                    } else if (projectionMode < PROJECTION_LABELS.length) {
-                        projectionMode++;
-                    } else {
-                        projectionMode = 0;
-                        projectionDim = -1;
-                    }
-                    modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
-                    _eggsVisible = true;
-                    updateView();
-                    renderEggs();
-                    const _projRing = cycleRingText(['off', ...PROJECTION_LABELS], projectionMode);
-                    if (projectionMode === 0) {
-                        showToast(`projection: ${_projRing}`);
-                    } else {
-                        showToast(`projection (dim ${projectionDim}): ${_projRing}`);
-                    }
-                    saveState();
+                    _setProjectionMode((projectionMode + 1) % (PROJECTION_LABELS.length + 1));
                 },
             },
             'info.toggle': {
