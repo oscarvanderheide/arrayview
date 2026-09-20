@@ -27499,7 +27499,7 @@
                     }
                     const _modeNames = (isComplex ? COMPLEX_MODES : REAL_MODES)
                         .map(m => (MODE_LABEL[m] || m).toLowerCase());
-                    showStatus(`complex mode: ${cycleRingText(_modeNames, complexMode)}`, 3000);
+                    showToast(`complex mode: ${cycleRingText(_modeNames, complexMode)}`);
                     updateView(); triggerPreload();
                     renderInfo();
                     renderEggs();
@@ -27738,7 +27738,7 @@
                 run: (ctx, e) => {
                     // 3-D MIP is not ready for users; `p` does nothing in ortho view.
                     if (mipActive) { exitMipMode(); return; }
-                    if (multiViewActive) { showStatus('projection: not available in ortho view'); return; }
+                    if (multiViewActive) { showToast('projection: not available in ortho view'); return; }
                     // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
                     if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; } // kept inline: emits toast
                     if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; } // kept inline: emits toast
@@ -27760,9 +27760,9 @@
                     renderEggs();
                     const _projRing = cycleRingText(['off', ...PROJECTION_LABELS], projectionMode);
                     if (projectionMode === 0) {
-                        showStatus(`projection: ${_projRing}`, 3000);
+                        showToast(`projection: ${_projRing}`);
                     } else {
-                        showStatus(`projection along dim ${projectionDim}: ${_projRing}`, 3000);
+                        showToast(`projection (dim ${projectionDim}): ${_projRing}`);
                     }
                     saveState();
                 },
