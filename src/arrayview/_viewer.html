@@ -2027,23 +2027,26 @@
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
         #mode-eggs .mode-badge-off { color: var(--muted); border-color: var(--border); background-color: transparent; }
-        /* Cycle picker: the ring of options a badge steps through, stacked
-         * above it. Same pills as the badge, dimmer with distance. */
+        /* Cycle picker: every option a key steps through, in a row where the
+         * badges normally sit. Same pills as the badges; the current one lit,
+         * the rest dim. The badges fade out underneath while it shows. */
+        #mode-eggs.picker-open { opacity: 0; }
         #mode-picker {
-            position: fixed; width: 0; height: 0; z-index: 2; pointer-events: none;
-            opacity: 0; transition: opacity 180ms ease;
+            position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px;
+            transform: translateX(-50%); z-index: 2; pointer-events: none;
+            opacity: 0; transition: opacity 160ms ease;
         }
         #mode-picker.visible { opacity: 1; }
         body.loupe-value-pill #mode-picker { z-index: 101; }
         #mode-picker .mode-badge {
-            position: absolute; left: 0; bottom: 0; margin: 0; white-space: nowrap;
+            margin: 0; white-space: nowrap; cursor: pointer; opacity: 0.4;
             background-color: rgba(30, 30, 30, 0.75);
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-            transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 220ms ease;
-            cursor: pointer;
+            transition: opacity 160ms ease;
         }
-        #mode-picker.visible .mode-badge:not(.is-current) { pointer-events: auto; }
-        #mode-picker .mode-badge:hover { opacity: 1 !important; }
+        #mode-picker .mode-badge.is-current { opacity: 1; }
+        #mode-picker.visible .mode-badge { pointer-events: auto; }
+        #mode-picker .mode-badge:not(.is-current):hover { opacity: 0.6; }
         :root.light #mode-picker .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
         .percentile-preset-overlay {
             display: flex; flex-direction: column; align-items: center; gap: 5px;
@@ -17432,16 +17435,14 @@
         }
 
         // ── Cycle picker ──────────────────────────────────────────────
-        // A picker-wheel column that rises out of a mode badge when its key
-        // is pressed (p → projection, m → complex mode). The badge is the
-        // selected slot; the other options stack above it in cycle order,
-        // nearest = next. Each press scrolls the column down one slot so
-        // the next option lands in the badge. Items are keyed by label and
-        // persist across presses so the slide is a real transition; the
-        // picker lives outside #mode-eggs, whose innerHTML is rebuilt on
-        // every render.
+        // A row of every option a key steps through (p → projection,
+        // m → complex mode), in cycle order, shown in place of the mode
+        // badges while the key is being pressed. The current option is the
+        // lit pill; the rest sit dim beside it. Pressing again just moves
+        // the light one pill to the right (wrapping); clicking a pill jumps
+        // to it. The row fades ~1.4 s after the last press, or once the
+        // mouse leaves it, and the badges come back.
         const MODE_PICKER_HOLD_MS = 1400;
-        const MODE_PICKER_GAP = 4;
         let _modePicker = null;   // { kind, timer } while open
 
         function _modePickerRing(kind) {
@@ -17462,60 +17463,29 @@
             };
         }
 
-        function _modePickerAnchor() {
-            if (!_modePicker) return null;
-            return document.querySelector(`#mode-eggs .mode-badge.${_modePickerRing(_modePicker.kind).badgeClass}`);
-        }
-
         function showModePicker(kind) {
             const el = document.getElementById('mode-picker');
-            if (!el) return;
+            const eggs = document.getElementById('mode-eggs');
+            if (!el || !eggs) return;
             const opening = !_modePicker || _modePicker.kind !== kind;
             if (_modePicker) clearTimeout(_modePicker.timer);
             _modePicker = { kind, timer: null };
-            // Projection at OFF has no badge of its own; the picker holds one open.
-            if (!_modePickerAnchor()) renderEggs();
-            if (!_modePickerAnchor()) { _modePicker = null; return; }
+            // The badges are the row's anchor; projection at OFF has none of
+            // its own, so renderEggs holds an OFF badge open while we show.
+            if (!eggs.innerHTML) renderEggs();
+            if (!eggs.innerHTML) { _modePicker = null; return; }
             const ring = _modePickerRing(kind);
-            const n = ring.labels.length;
             if (opening) {
                 el.innerHTML = ring.labels.map((l, i) =>
                     `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('');
-                el.classList.remove('visible');
+                void el.offsetHeight;   // commit the fresh row so the fade-in can run
             }
-            const items = Array.from(el.children);
-            // Slot 0 is the badge itself; slots 1..n-1 stack upward, nearest = next.
-            items.forEach(item => {
-                const i = +item.dataset.idx;
-                const slot = (i - ring.current + n) % n;
-                const wasCurrent = item.classList.contains('is-current');
-                item.classList.toggle('is-current', slot === 0);
-                item.dataset.slot = slot;
-                if (opening || wasCurrent) {
-                    // No slide for a fresh open, nor for the old value: it
-                    // re-enters at the top of the column instead of flying
-                    // up past every other option.
-                    item.style.transition = 'none';
-                    item.style.opacity = '0';
-                    _placeModePickerItem(item, slot);
-                    void item.offsetHeight;
-                    item.style.transition = '';
-                }
-                _placeModePickerItem(item, slot);
+            Array.from(el.children).forEach(item => {
+                item.classList.toggle('is-current', +item.dataset.idx === ring.current);
             });
             _positionModePicker();
-            if (opening) requestAnimationFrame(() => el.classList.add('visible'));
-            else el.classList.add('visible');
+            _reconcileUI();
             _armModePickerHide();
-        }
-
-        function _placeModePickerItem(item, slot) {
-            // Slot k sits k steps above the badge; slot 0 slides down into
-            // the badge and disappears. Opacity falls off with distance —
-            // the far end of the wheel is dimmer, like an iOS picker.
-            const step = item.offsetHeight + MODE_PICKER_GAP;
-            item.style.transform = `translate(-50%, ${slot === 0 ? step : -(slot - 1) * step}px)`;
-            item.style.opacity = slot === 0 ? '0' : String(Math.max(0.5, 0.92 - (slot - 1) * 0.1));
         }
 
         function _armModePickerHide() {
@@ -17525,25 +17495,32 @@
         }
 
         function hideModePicker() {
-            const el = document.getElementById('mode-picker');
-            if (!_modePicker || !el) return;
+            if (!_modePicker) return;
             clearTimeout(_modePicker.timer);
             const kind = _modePicker.kind;
             _modePicker = null;
-            el.classList.remove('visible');
-            // The projection badge only exists while the picker holds it open
-            // at OFF; let it go now.
+            _reconcileUI();
+            // Drop the OFF badge the picker was holding open.
             if (kind === 'proj' && projectionMode === 0) renderEggs();
         }
 
+        // The row sits exactly where the badges sit; copy their placement.
         function _positionModePicker() {
             const el = document.getElementById('mode-picker');
-            if (!el || !_modePicker) return;
-            const badge = _modePickerAnchor();
-            if (!badge) { hideModePicker(); return; }
-            const r = badge.getBoundingClientRect();
-            el.style.left = r.left + r.width / 2 + 'px';
-            el.style.top = r.top - MODE_PICKER_GAP + 'px';
+            const eggs = document.getElementById('mode-eggs');
+            if (!el || !eggs || !_modePicker) return;
+            el.style.left = eggs.style.left;
+            el.style.top = eggs.style.top;
+            el.style.bottom = eggs.style.bottom;
+        }
+
+        function _reconcileModePicker() {
+            const el = document.getElementById('mode-picker');
+            const eggs = document.getElementById('mode-eggs');
+            if (!el || !eggs) return;
+            const open = !!_modePicker;
+            el.classList.toggle('visible', open);
+            eggs.classList.toggle('picker-open', open);
         }
 
         function _bindModePicker() {
@@ -17556,7 +17533,7 @@
                 const idx = +item.dataset.idx;
                 if (idx !== ring.current) ring.select(idx);
             });
-            // Hovering the wheel keeps it open; leaving restarts the clock.
+            // Hovering the row keeps it open; leaving restarts the clock.
             el.addEventListener('mouseenter', () => { if (_modePicker) clearTimeout(_modePicker.timer); });
             el.addEventListener('mouseleave', _armModePickerHide);
         }
@@ -17638,7 +17615,6 @@
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
-            else _positionModePicker();   // no badge left to anchor → picker closes
             renderIsland();
         }
 
@@ -41009,6 +40985,7 @@
             _reconcileFloodfillSensitivityHud();
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
+            _reconcileModePicker();
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
                 const busy = _patientLoadingVisible || _slowRenderBusyVisible;
