@@ -17476,6 +17476,7 @@
             _modePicker = { kind, timer: null };
             // The badges are the row's anchor; projection at OFF has none of
             // its own, so renderEggs holds an OFF badge open while we show.
+            _eggsVisible = true;
             if (!eggs.innerHTML) renderEggs();
             if (!eggs.innerHTML) { _modePicker = null; return; }
             const ring = _modePickerRing(kind);
@@ -27658,6 +27659,8 @@
                         showStatus('complex mode: not available here');
                         return;
                     }
+                    // First press only opens the row; the next ones step through it.
+                    if (!_modePicker || _modePicker.kind !== 'complex') { showModePicker('complex'); return; }
                     const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                     _setComplexMode((complexMode + 1) % modeCount);
                 },
@@ -27906,6 +27909,8 @@
                     if (_isCollectionDim(current_slice_dim)) {
                         showStatus('projection: collection dims are index-only'); return;
                     }
+                    // First press only opens the row; the next ones step through it.
+                    if (!_modePicker || _modePicker.kind !== 'proj') { showModePicker('proj'); return; }
                     _setProjectionMode((projectionMode + 1) % (PROJECTION_LABELS.length + 1));
                 },
             },
@@ -28960,8 +28965,8 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter closes the row' },
-                            { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary · click an option to jump to it · Enter closes the row' },
+                            { key: 'p', action: 'Cycle projections', hint: 'first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter closes the row' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter closes the row' },
                         ]
                     }
                 ]
@@ -31384,7 +31389,7 @@
                         expect: ['slice.toggleMosaic'],
                     },
                     {
-                        key: 'p', whisper: 'twice · a dimension can also collapse',
+                        key: 'p', whisper: 'twice · the first shows the choices, the second collapses a dimension',
                         echo: 'it collapses a dimension instead of stepping through it',
                         expect: ['projection.cycle'], count: 2,
                         test: () => projectionMode > 0,

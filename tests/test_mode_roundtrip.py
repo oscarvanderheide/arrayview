@@ -168,16 +168,21 @@ def _exit_qmri(page):
 
 # --- projection ---
 def _enter_projection(page):
+    # The first `p` only opens the option row; the second steps to MAX.
+    page.keyboard.press("p")
+    _wait(page, 250)
     page.keyboard.press("p")
     _wait(page, 250)
 
 
 def _exit_projection(page):
-    # Projection cycles: off -> MAX -> MIN -> MEAN -> STD -> SOS -> SUM -> off
-    # We entered at mode=1; read PROJECTION_LABELS.length from the page so we
-    # don't drift when modes are added, and press `p` enough times to wrap.
+    # Projection cycles: off -> MAX -> MIN -> MEAN -> STD -> SOS -> SUM -> off.
+    # The row may have closed since we entered (a press then only reopens it),
+    # so step until the page reports mode 0 instead of counting presses.
     n_labels = page.evaluate("() => PROJECTION_LABELS.length")
-    for _ in range(n_labels):  # 1 + n_labels presses total → wraps to 0
+    for _ in range(n_labels + 2):
+        if page.evaluate("() => projectionMode") == 0:
+            break
         page.keyboard.press("p")
         _wait(page, 100)
     _wait(page, 200)
