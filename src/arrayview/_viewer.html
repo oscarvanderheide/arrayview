@@ -2030,11 +2030,12 @@
         /* Cycle picker: every option a key steps through, in a row where the
          * badges normally sit. Same pills as the badges; the current one lit,
          * the rest dim. The badges fade out underneath while it shows. */
-        #mode-eggs.picker-open { opacity: 0; }
+        #mode-eggs.picker-open { opacity: 0; transition-duration: 300ms; }
+        #mode-eggs.picker-returning { transition-duration: 300ms; }
         #mode-picker {
             position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px;
             transform: translateX(-50%); z-index: 2; pointer-events: none;
-            opacity: 0; transition: opacity 160ms ease;
+            opacity: 0; transition: opacity 300ms ease;
         }
         #mode-picker.visible { opacity: 1; }
         body.loupe-value-pill #mode-picker { z-index: 101; }
@@ -17443,7 +17444,9 @@
         // to it. The row fades ~1.4 s after the last press, or once the
         // mouse leaves it, and the badges come back.
         const MODE_PICKER_HOLD_MS = 1400;
-        let _modePicker = null;   // { kind, timer } while open
+        const MODE_PICKER_FADE_MS = 300;   // matches the #mode-picker / #mode-eggs.picker-open transitions
+        let _modePicker = null;        // { kind, timer } while open
+        let _modePickerClosing = null; // { phase: 'out' | 'in', timer } while the row fades and the badges return
 
         function _modePickerRing(kind) {
             if (kind === 'proj') {
@@ -17469,6 +17472,7 @@
             if (!el || !eggs) return;
             const opening = !_modePicker || _modePicker.kind !== kind;
             if (_modePicker) clearTimeout(_modePicker.timer);
+            if (_modePickerClosing) { clearTimeout(_modePickerClosing.timer); _modePickerClosing = null; }
             _modePicker = { kind, timer: null };
             // The badges are the row's anchor; projection at OFF has none of
             // its own, so renderEggs holds an OFF badge open while we show.
@@ -17499,9 +17503,19 @@
             clearTimeout(_modePicker.timer);
             const kind = _modePicker.kind;
             _modePicker = null;
+            // Fade the row out first; the badges fade back in only once it is gone.
+            _modePickerClosing = { phase: 'out', timer: null };
+            _modePickerClosing.timer = setTimeout(() => {
+                _modePickerClosing = { phase: 'in', timer: null };
+                _reconcileUI();
+                _modePickerClosing.timer = setTimeout(() => {
+                    _modePickerClosing = null;
+                    _reconcileUI();
+                    // Drop the OFF badge the picker was holding open.
+                    if (kind === 'proj' && projectionMode === 0) renderEggs();
+                }, MODE_PICKER_FADE_MS);
+            }, MODE_PICKER_FADE_MS);
             _reconcileUI();
-            // Drop the OFF badge the picker was holding open.
-            if (kind === 'proj' && projectionMode === 0) renderEggs();
         }
 
         // The row sits exactly where the badges sit; copy their placement.
@@ -17518,9 +17532,9 @@
             const el = document.getElementById('mode-picker');
             const eggs = document.getElementById('mode-eggs');
             if (!el || !eggs) return;
-            const open = !!_modePicker;
-            el.classList.toggle('visible', open);
-            eggs.classList.toggle('picker-open', open);
+            el.classList.toggle('visible', !!_modePicker);
+            eggs.classList.toggle('picker-open', !!_modePicker || _modePickerClosing?.phase === 'out');
+            eggs.classList.toggle('picker-returning', _modePickerClosing?.phase === 'in');
         }
 
         function _bindModePicker() {
@@ -27874,6 +27888,11 @@
                     saveState();
                 },
             },
+            'modePicker.confirm': {
+                title: 'Close the cycle picker, keeping the lit option',
+                when: ['modePickerOpen'],
+                run: (ctx, e) => { hideModePicker(); },
+            },
             'projection.cycle': {
                 title: 'Cycle statistical projection',
                 when: [],
@@ -28805,6 +28824,7 @@
             { key: '7', command: 'slice.bufferDigit' },
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
+            { key: 'Enter', command: 'modePicker.confirm' },
             { key: 'Enter', command: 'slice.jumpCommit' },
             // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
             { key: 'Escape', command: 'tool.exit' },
@@ -28826,6 +28846,7 @@
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
+                modePickerOpen: (typeof _modePicker !== 'undefined') ? !!_modePicker : false,
                 cutawayActive: (typeof cutawayActive !== 'undefined') ? !!cutawayActive : false,
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
@@ -28939,8 +28960,8 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → SOS → SUM → off' },
-                            { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary' },
+                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter closes the row' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary · click an option to jump to it · Enter closes the row' },
                         ]
                     }
                 ]
