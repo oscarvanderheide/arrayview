@@ -27910,8 +27910,10 @@
                     if (_isCollectionDim(current_slice_dim)) {
                         showStatus('projection: collection dims are index-only'); return;
                     }
-                    // Only a slice dimension can be reduced; with x, y (or z) selected, do nothing.
-                    if (activeDim !== current_slice_dim) return;
+                    // Only a slice dimension can be reduced: with x, y (or z) selected, p does
+                    // not start a projection. A projection already running keeps its own
+                    // dimension and can still be changed or turned off from anywhere.
+                    if (projectionMode === 0 && !_modePicker && activeDim !== current_slice_dim) return;
                     // First press only opens the row; the next ones step through it.
                     if (!_modePicker || _modePicker.kind !== 'proj') { showModePicker('proj'); return; }
                     _setProjectionMode((projectionMode + 1) % (PROJECTION_LABELS.length + 1));
