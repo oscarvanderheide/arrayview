@@ -2042,23 +2042,31 @@
         }
         #mode-picker-dim.visible { opacity: 0.45; }
         #mode-picker {
-            position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px;
+            position: fixed; display: flex; flex-direction: column; align-items: center; gap: 7px;
             transform: translate(-50%, -50%); z-index: 3; pointer-events: none;
+            /* Same translucent card as the percentile-preset overlay. */
+            padding: 8px 10px; border-radius: 9px;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             opacity: 0; transition: opacity 300ms ease;
         }
+        :root.light #mode-picker { background-color: rgba(240, 240, 240, 0.8); }
         #mode-picker.visible { opacity: 1; }
         body.loupe-value-pill #mode-picker-dim { z-index: 100; }
         body.loupe-value-pill #mode-picker { z-index: 101; }
+        .mode-picker-title {
+            color: var(--text); font-size: 11px; line-height: 1; white-space: nowrap;
+            letter-spacing: 0.01em;
+        }
+        .mode-picker-row { display: flex; flex-direction: row; align-items: center; gap: 4px; }
         #mode-picker .mode-badge {
             margin: 0; white-space: nowrap; cursor: pointer; opacity: 0.4;
-            background-color: rgba(30, 30, 30, 0.75);
-            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
             transition: opacity 160ms ease;
         }
         #mode-picker .mode-badge.is-current { opacity: 1; }
         #mode-picker.visible .mode-badge { pointer-events: auto; }
         #mode-picker .mode-badge:not(.is-current):hover { opacity: 0.6; }
-        :root.light #mode-picker .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
         .percentile-preset-overlay {
             display: flex; flex-direction: column; align-items: center; gap: 5px;
             box-sizing: border-box;
@@ -17434,7 +17442,9 @@
 
         function _modePickerRing(kind) {
             if (kind === 'proj') {
+                const dim = projectionMode > 0 ? projectionDim : current_slice_dim;
                 return {
+                    title: `Reduce along dim ${dim}`,
                     labels: ['OFF', ...PROJECTION_LABELS],
                     current: projectionMode,
                     badgeClass: 'mode-badge-proj',
@@ -17443,6 +17453,7 @@
             }
             const names = isComplex ? COMPLEX_MODES : REAL_MODES;
             return {
+                title: isComplex ? 'Show complex values as' : 'Show values as',
                 labels: names.map(m => MODE_LABEL[m] || m.toUpperCase()),
                 current: complexMode,
                 badgeClass: 'mode-badge-complex',
@@ -17459,11 +17470,14 @@
             const ring = _modePickerRing(kind);
             if (opening) {
                 renderEggs();   // the badge for this mode steps aside while its row is open
-                el.innerHTML = ring.labels.map((l, i) =>
-                    `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('');
+                el.innerHTML = `<div class="mode-picker-title"></div><div class="mode-picker-row">`
+                    + ring.labels.map((l, i) =>
+                        `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('')
+                    + '</div>';
                 void el.offsetHeight;   // commit the fresh row so the fade-in can run
             }
-            Array.from(el.children).forEach(item => {
+            el.querySelector('.mode-picker-title').textContent = ring.title;
+            el.querySelectorAll('.mode-picker-row .mode-badge').forEach(item => {
                 item.classList.toggle('is-current', +item.dataset.idx === ring.current);
             });
             _positionModePicker();
