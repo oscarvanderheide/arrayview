@@ -2021,11 +2021,52 @@
             background-color: rgba(30, 30, 30, 0.75);
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         }
+        /* The hover value pill sits in the same row as the badges, so it takes
+         * their height (0.62 × the row's font × 1.5 line + 2px padding + 1px
+         * border; the row inherits the root size, hence rem) and their 6px
+         * lead-in, instead of its own 18px box. */
+        #mode-eggs .eggs-value-pill {
+            height: calc(0.62rem * 1.5 + 6px);
+            margin-left: 6px;
+        }
         :root.light #mode-eggs .mode-badge {
             background-color: rgba(240, 240, 240, 0.75);
         }
-        .mode-badge-complex { transition: opacity 0.9s ease; }
-        .mode-badge-complex.fading { opacity: 0; }
+        /* Cycle picker: every option a key steps through, in a row centred in
+         * the pane over a slight dim. Same pills as the badges; the current
+         * one lit, the rest dim. The badges themselves stay put underneath. */
+        #mode-picker-dim {
+            position: fixed; z-index: 1; pointer-events: none;   /* under the badges (z 2) */
+            background: var(--overlay-bg);
+            opacity: 0; transition: opacity 300ms ease;
+        }
+        #mode-picker-dim.visible { opacity: 0.45; }
+        #mode-picker {
+            position: fixed; display: flex; flex-direction: column; align-items: center; gap: 7px;
+            transform: translate(-50%, -50%); z-index: 3; pointer-events: none;
+            /* Same translucent card as the percentile-preset overlay. */
+            padding: 8px 10px; border-radius: 9px;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            opacity: 0; transition: opacity 300ms ease;
+        }
+        :root.light #mode-picker { background-color: rgba(240, 240, 240, 0.8); }
+        #mode-picker.visible { opacity: 1; }
+        body.loupe-value-pill #mode-picker-dim { z-index: 100; }
+        body.loupe-value-pill #mode-picker { z-index: 101; }
+        .mode-picker-title {
+            color: var(--text); font-size: 11px; line-height: 1; white-space: nowrap;
+            letter-spacing: 0.01em;
+        }
+        .mode-picker-row { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+        #mode-picker .mode-badge {
+            margin: 0; white-space: nowrap; cursor: pointer; opacity: 0.4;
+            transition: opacity 160ms ease;
+        }
+        #mode-picker .mode-badge.is-current { opacity: 1; }
+        #mode-picker.visible .mode-badge { pointer-events: auto; }
+        #mode-picker .mode-badge:not(.is-current):hover { opacity: 0.6; }
         .percentile-preset-overlay {
             display: flex; flex-direction: column; align-items: center; gap: 5px;
             box-sizing: border-box;
@@ -4756,7 +4797,7 @@
 
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
-        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
+        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker, body.zen-mode #mode-picker-dim,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
@@ -5752,6 +5793,8 @@
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="mode-eggs"></div>
+    <div id="mode-picker-dim"></div>
+    <div id="mode-picker"></div>
     <div id="status"></div>
     <div id="toast"></div>
     <div id="preload-status"></div>
@@ -7115,7 +7158,6 @@
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
-        let _complexFadeTimer = null;
         let _percentilePresetOverlay = null;
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
@@ -7172,7 +7214,6 @@
             + '</svg>';
         let _eggsValuePill = null; // { value, kind } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
-        let _eggsValuePillFadeTimer = null;
         let _loupeValuePillOwned = false;
         function _setEggsValuePill(value, kind, anchorEl, minWidthCh) {
             // Always sign-pad: the leading space (or minus sign) keeps the text
@@ -7186,7 +7227,6 @@
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
                 _eggsValuePillAnchor = null;
-                if (_eggsValuePillFadeTimer) { clearTimeout(_eggsValuePillFadeTimer); _eggsValuePillFadeTimer = null; }
                 renderEggs();
                 return;
             }
@@ -7199,22 +7239,10 @@
                 if (anchorChanged || _loupeInspecting()) positionEggs();
                 return;
             }
-            const entering = _eggsValuePill === null;
             _eggsValuePill = { value, kind, minWidthCh: minWidthCh || null };
             if (_percentilePresetOverlay) return; // picker owns the spot
-            const eggs = document.getElementById('mode-eggs');
-            // Crossfade past any mode pills (FFT/LOG/...) the first time hover
-            // starts, same as the percentile-dots overlay does.
-            if (entering && eggs?.querySelector('.mode-badge')) {
-                eggs.classList.add('percentile-preset-switching');
-                if (_eggsValuePillFadeTimer) clearTimeout(_eggsValuePillFadeTimer);
-                _eggsValuePillFadeTimer = setTimeout(() => {
-                    _eggsValuePillFadeTimer = null;
-                    renderEggs();
-                    requestAnimationFrame(() => eggs.classList.remove('percentile-preset-switching'));
-                }, 120);
-                return;
-            }
+            // The pill joins the mode badges (FFT/LOG/...) rather than
+            // replacing them: they say what the value being read is.
             renderEggs();
         }
         function _setLoupeValuePill(payload, minWidthCh) {
@@ -17366,6 +17394,154 @@
             renderEggs();
         }
 
+        // Apply a projection mode (0 = off, 1.. = PROJECTION_LABELS index + 1).
+        // Shared by the `p` key and clicks on the cycle picker.
+        function _setProjectionMode(mode) {
+            projectionMode = mode;
+            projectionDim = mode === 0 ? -1 : (projectionDim >= 0 ? projectionDim : current_slice_dim);
+            modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
+            _eggsVisible = true;
+            updateView();
+            renderEggs();
+            showModePicker('proj');
+            saveState();
+        }
+
+        // Apply a complex display mode (index into COMPLEX_MODES / REAL_MODES).
+        // Shared by the `m` key and clicks on the cycle picker.
+        function _setComplexMode(mode) {
+            const _view = modeManager.getFocusedView();
+            complexMode = mode;
+            if (_view) _view.displayState.complexMode = complexMode;  // Phase 12: dual-write
+            complexModeEverUsed = true;
+            _invalidateVolHistCache();
+            manualVmin = manualVmax = null;
+            if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
+            _eggsVisible = true;
+            // The default (mode 0 = magnitude / real) needs no badge: the row
+            // the choice was made from is confirmation enough.
+            _complexEggVisible = complexMode !== 0;
+            updateView(); triggerPreload();
+            renderInfo();
+            renderEggs();
+            if (isComplex) showModePicker('complex');
+            saveState();
+        }
+
+        // ── Cycle picker ──────────────────────────────────────────────
+        // A row of every option a key steps through (p → projection,
+        // m → complex mode), in cycle order, centred in the active pane
+        // over a slight dim. The current option is the lit pill, the rest
+        // sit dim beside it. The first press only opens the row; presses
+        // while it shows move the light one pill to the right (wrapping),
+        // and clicking a pill jumps to it. The row fades ~1.4 s after the
+        // last press, on Enter / Esc, on a click elsewhere, or once the
+        // mouse leaves it. The mode badges stay where they are throughout.
+        const MODE_PICKER_HOLD_MS = 1400;
+        let _modePicker = null;   // { kind, timer } while open
+
+        function _modePickerRing(kind) {
+            if (kind === 'proj') {
+                return {
+                    title: 'Reduce along selected dimension:',
+                    labels: ['OFF', ...PROJECTION_LABELS],
+                    current: projectionMode,
+                    badgeClass: 'mode-badge-proj',
+                    select: _setProjectionMode,
+                };
+            }
+            const names = isComplex ? COMPLEX_MODES : REAL_MODES;
+            return {
+                title: 'Show complex array as:',
+                labels: names.map(m => MODE_LABEL[m] || m.toUpperCase()),
+                current: complexMode,
+                badgeClass: 'mode-badge-complex',
+                select: _setComplexMode,
+            };
+        }
+
+        function showModePicker(kind) {
+            const el = document.getElementById('mode-picker');
+            if (!el) return;
+            const opening = !_modePicker || _modePicker.kind !== kind;
+            if (_modePicker) clearTimeout(_modePicker.timer);
+            _modePicker = { kind, timer: null };
+            const ring = _modePickerRing(kind);
+            if (opening) {
+                renderEggs();   // the badge for this mode steps aside while its row is open
+                el.innerHTML = `<div class="mode-picker-title"></div><div class="mode-picker-row">`
+                    + ring.labels.map((l, i) =>
+                        `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('')
+                    + '</div>';
+                void el.offsetHeight;   // commit the fresh row so the fade-in can run
+            }
+            el.querySelector('.mode-picker-title').textContent = ring.title;
+            el.querySelectorAll('.mode-picker-row .mode-badge').forEach(item => {
+                item.classList.toggle('is-current', +item.dataset.idx === ring.current);
+            });
+            _positionModePicker();
+            _reconcileUI();
+            _armModePickerHide();
+        }
+
+        function _armModePickerHide() {
+            if (!_modePicker) return;
+            clearTimeout(_modePicker.timer);
+            _modePicker.timer = setTimeout(hideModePicker, MODE_PICKER_HOLD_MS);
+        }
+
+        function hideModePicker() {
+            if (!_modePicker) return;
+            clearTimeout(_modePicker.timer);
+            _modePicker = null;
+            _reconcileUI();
+            renderEggs();   // the chosen option now shows as a badge
+        }
+
+        // Centre the row in the pane the badges belong to and lay the dim
+        // over that same pane.
+        function _positionModePicker() {
+            const el = document.getElementById('mode-picker');
+            const dim = document.getElementById('mode-picker-dim');
+            if (!el || !dim || !_modePicker) return;
+            const r = ModeRegistry.getEggsAnchorRect();
+            if (!r) return;
+            el.style.left = r.left + r.width / 2 + 'px';
+            el.style.top = r.top + r.height / 2 + 'px';
+            dim.style.left = r.left + 'px';
+            dim.style.top = r.top + 'px';
+            dim.style.width = r.width + 'px';
+            dim.style.height = r.height + 'px';
+        }
+
+        function _reconcileModePicker() {
+            const el = document.getElementById('mode-picker');
+            const dim = document.getElementById('mode-picker-dim');
+            if (!el || !dim) return;
+            el.classList.toggle('visible', !!_modePicker);
+            dim.classList.toggle('visible', !!_modePicker);
+        }
+
+        function _bindModePicker() {
+            const el = document.getElementById('mode-picker');
+            if (!el) return;
+            el.addEventListener('click', e => {
+                const item = e.target.closest('.mode-badge');
+                if (!item || !_modePicker) return;
+                const ring = _modePickerRing(_modePicker.kind);
+                const idx = +item.dataset.idx;
+                if (idx !== ring.current) ring.select(idx);
+            });
+            // Hovering the row keeps it open; leaving restarts the clock.
+            el.addEventListener('mouseenter', () => { if (_modePicker) clearTimeout(_modePicker.timer); });
+            el.addEventListener('mouseleave', _armModePickerHide);
+            // A click anywhere else dismisses it.
+            document.addEventListener('pointerdown', e => {
+                if (_modePicker && !el.contains(e.target)) hideModePicker();
+            }, true);
+        }
+        _bindModePicker();
+
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
@@ -17402,6 +17578,10 @@
                         + '</div>';
                     pill = el.querySelector('.eggs-value-pill');
                 }
+                // Keep the mode badges beside the pill. The pill element itself
+                // persists so its fade-in does not restart on every mouse move.
+                el.querySelectorAll('.mode-badge').forEach(b => b.remove());
+                pill.insertAdjacentHTML('beforebegin', _modeBadgeHtml());
                 const valueEl = pill.querySelector('.eggs-pill-value');
                 valueEl.textContent = _eggsValuePill.value;
                 // Reserved in characters (content-box), separately from the
@@ -17413,11 +17593,21 @@
                 renderIsland();
                 return;
             }
-            if (!_eggsVisible) { el.innerHTML = ''; return; }
+            const html = _modeBadgeHtml();
+            el.innerHTML = html;
+            // Position eggs below the active canvas, just above the slim colorbar
+            if (html) positionEggs();
+            renderIsland();
+        }
+
+        // The mode badges (RGB / FFT / LOG / complex mode / ALPHA / projection /
+        // MIP) as markup, or '' while there is nothing to badge yet.
+        function _modeBadgeHtml() {
+            if (!_eggsVisible) return '';
             // Hide eggs during loading / welcome — no data received yet
-            if (_isWelcomeScreen) { el.innerHTML = ''; return; }
-            if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) { el.innerHTML = ''; return; }
-            if (!lastImgW && !lastImgH && !compareActive) { el.innerHTML = ''; return; }
+            if (_isWelcomeScreen) return '';
+            if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) return '';
+            if (!lastImgW && !lastImgH && !compareActive) return '';
             let html = '';
             if (rgbMode)
                 html += `<span class="mode-badge mode-badge-rgb">RGB</span>`;
@@ -17425,22 +17615,22 @@
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
                 html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (_complexEggVisible && !qmriActive && !compareQmriActive) {
+            // While a row is open for it, a mode has no badge yet: the badge is the
+            // result and shows once the row closes.
+            const picking = _modePicker ? _modePicker.kind : null;
+            if (_complexEggVisible && picking !== 'complex' && !qmriActive && !compareQmriActive) {
                 const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
                 html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
             }
             if (alphaLevel > 0)
                 html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
-            if (projectionMode > 0) {
+            if (projectionMode > 0 && picking !== 'proj') {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
             if (mipActive) {
                 html += `<span class="mode-badge mode-badge-mip">MIP</span>`;
             }
-            el.innerHTML = html;
-            // Position eggs below the active canvas, just above the slim colorbar
-            if (html) positionEggs();
-            renderIsland();
+            return html;
         }
 
         function _reconcileHistogramEggsVisibility() {
@@ -17485,6 +17675,7 @@
                 el.style.bottom        = cbRect
                     ? (window.innerHeight - cbRect.top + 6) + 'px'
                     : (window.innerHeight - vpRect.bottom + 30) + 'px';
+                _positionModePicker();
                 return;
             }
 
@@ -17532,6 +17723,7 @@
             el.style.left      = eggsLeft + 'px';
             el.style.transform = 'translateX(-50%)';
             el.dataset.pillPlacement = placement;
+            _positionModePicker();
             _validateUIState();
         }
 
@@ -27467,32 +27659,11 @@
                         showStatus('complex mode: not available here');
                         return;
                     }
-                    const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
-                    complexMode = (complexMode + 1) % modeCount;
-                    if (_view) _view.displayState.complexMode = complexMode;  // Phase 12: dual-write
-                    complexModeEverUsed = true;
-                    _invalidateVolHistCache();
-                    manualVmin = manualVmax = null;
-                    if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
-                    _eggsVisible = true;
-                    _complexEggVisible = true;
-                    clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
-                    // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
-                    if (complexMode === 0) {
-                        _complexFadeTimer = setTimeout(() => {
-                            const badge = document.querySelector('.mode-badge-complex');
-                            if (badge) badge.classList.add('fading');
-                            _complexFadeTimer = setTimeout(() => {
-                                _complexEggVisible = false;
-                                _complexFadeTimer = null;
-                                renderEggs();
-                            }, 900);
-                        }, 2000);
-                    }
-                    updateView(); triggerPreload();
-                    renderInfo();
-                    renderEggs();
-                    saveState();
+                    // Real data only has real ↔ magnitude: toggle straight away, no menu.
+                    if (!isComplex) { _setComplexMode((complexMode + 1) % REAL_MODES.length); return; }
+                    // First press only opens the row; the next ones step through it.
+                    if (!_modePicker || _modePicker.kind !== 'complex') { showModePicker('complex'); return; }
+                    _setComplexMode((complexMode + 1) % COMPLEX_MODES.length);
                 },
             },
             'colormap.promptCustom': {
@@ -27721,41 +27892,31 @@
                     saveState();
                 },
             },
+            'modePicker.confirm': {
+                title: 'Close the cycle picker, keeping the lit option',
+                when: ['modePickerOpen'],
+                run: (ctx, e) => { hideModePicker(); },
+            },
             'projection.cycle': {
-                title: 'Cycle statistical projection / MIP',
+                title: 'Cycle statistical projection',
                 when: [],
                 run: (ctx, e) => {
-                    // In multiview: toggle 3-D MIP volume renderer
-                    if (multiViewActive || mipActive) {
-                        if (mipActive) { exitMipMode(); }
-                        else { enterMipMode(); }
-                        return;
-                    }
+                    // 3-D MIP is not ready for users; `p` does nothing in ortho view.
+                    if (mipActive) { exitMipMode(); return; }
+                    if (multiViewActive) { showToast('projection: not available in ortho view'); return; }
                     // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
                     if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; } // kept inline: emits toast
                     if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; } // kept inline: emits toast
                     if (_isCollectionDim(current_slice_dim)) {
                         showStatus('projection: collection dims are index-only'); return;
                     }
-                    if (projectionMode === 0) {
-                        projectionMode = 1;
-                        projectionDim = current_slice_dim;
-                    } else if (projectionMode < PROJECTION_LABELS.length) {
-                        projectionMode++;
-                    } else {
-                        projectionMode = 0;
-                        projectionDim = -1;
-                    }
-                    modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
-                    _eggsVisible = true;
-                    updateView();
-                    renderEggs();
-                    if (projectionMode === 0) {
-                        showStatus('projection: off');
-                    } else {
-                        showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${projectionDim}`);
-                    }
-                    saveState();
+                    // Only a slice dimension can be reduced: with x, y (or z) selected, p does
+                    // not start a projection. A projection already running keeps its own
+                    // dimension and can still be changed or turned off from anywhere.
+                    if (projectionMode === 0 && !_modePicker && activeDim !== current_slice_dim) return;
+                    // First press only opens the row; the next ones step through it.
+                    if (!_modePicker || _modePicker.kind !== 'proj') { showModePicker('proj'); return; }
+                    _setProjectionMode((projectionMode + 1) % (PROJECTION_LABELS.length + 1));
                 },
             },
             'info.toggle': {
@@ -28673,8 +28834,10 @@
             { key: '7', command: 'slice.bufferDigit' },
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
+            { key: 'Enter', command: 'modePicker.confirm' },
             { key: 'Enter', command: 'slice.jumpCommit' },
             // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
+            { key: 'Escape', command: 'modePicker.confirm' },
             { key: 'Escape', command: 'tool.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
@@ -28694,6 +28857,7 @@
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
+                modePickerOpen: (typeof _modePicker !== 'undefined') ? !!_modePicker : false,
                 cutawayActive: (typeof cutawayActive !== 'undefined') ? !!cutawayActive : false,
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
@@ -28807,8 +28971,8 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → off' },
-                            { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary' },
+                            { key: 'p', action: 'Cycle projections', hint: 'reduces along the selected slice dimension (nothing happens with x or y selected) · first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'complex data: first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter or Esc closes the row · real data: toggles real ↔ magnitude' },
                         ]
                     }
                 ]
@@ -28824,7 +28988,6 @@
                             { key: 'orientation HUD', action: 'Shows while drag-scrubbing or holding Alt/Option' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
-                            { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
                             { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice or all three ortho panes; drag to rotate and scroll to slice' },
                             { key: 'o', action: 'Reset to origin' },
                         ]
@@ -31232,7 +31395,7 @@
                         expect: ['slice.toggleMosaic'],
                     },
                     {
-                        key: 'p', whisper: 'twice · a dimension can also collapse',
+                        key: 'p', whisper: 'twice · the first shows the choices, the second collapses a dimension',
                         echo: 'it collapses a dimension instead of stepping through it',
                         expect: ['projection.cycle'], count: 2,
                         test: () => projectionMode > 0,
@@ -40854,6 +41017,7 @@
             _reconcileFloodfillSensitivityHud();
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
+            _reconcileModePicker();
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
                 const busy = _patientLoadingVisible || _slowRenderBusyVisible;
