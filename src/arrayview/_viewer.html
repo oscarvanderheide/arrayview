@@ -2021,6 +2021,14 @@
             background-color: rgba(30, 30, 30, 0.75);
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         }
+        /* The hover value pill sits in the same row as the badges, so it takes
+         * their height (0.62 × the row's font × 1.5 line + 2px padding + 1px
+         * border; the row inherits the root size, hence rem) and their 6px
+         * lead-in, instead of its own 18px box. */
+        #mode-eggs .eggs-value-pill {
+            height: calc(0.62rem * 1.5 + 6px);
+            margin-left: 6px;
+        }
         :root.light #mode-eggs .mode-badge {
             background-color: rgba(240, 240, 240, 0.75);
         }
@@ -17464,6 +17472,7 @@
             _modePicker = { kind, timer: null };
             const ring = _modePickerRing(kind);
             if (opening) {
+                renderEggs();   // the badge for this mode steps aside while its row is open
                 el.innerHTML = ring.labels.map((l, i) =>
                     `<span class="mode-badge ${ring.badgeClass}" data-idx="${i}">${l}</span>`).join('');
                 void el.offsetHeight;   // commit the fresh row so the fade-in can run
@@ -17487,6 +17496,7 @@
             clearTimeout(_modePicker.timer);
             _modePicker = null;
             _reconcileUI();
+            renderEggs();   // the chosen option now shows as a badge
         }
 
         // Centre the row in the pane the badges belong to and lay the dim
@@ -17606,13 +17616,16 @@
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
                 html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (_complexEggVisible && !qmriActive && !compareQmriActive) {
+            // While a row is open for it, a mode has no badge yet: the badge is the
+            // result and shows once the row closes.
+            const picking = _modePicker ? _modePicker.kind : null;
+            if (_complexEggVisible && picking !== 'complex' && !qmriActive && !compareQmriActive) {
                 const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
                 html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
             }
             if (alphaLevel > 0)
                 html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
-            if (projectionMode > 0) {
+            if (projectionMode > 0 && picking !== 'proj') {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
             if (mipActive) {
