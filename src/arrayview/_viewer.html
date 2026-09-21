@@ -2032,8 +2032,6 @@
         :root.light #mode-eggs .mode-badge {
             background-color: rgba(240, 240, 240, 0.75);
         }
-        .mode-badge-complex { transition: opacity 0.9s ease; }
-        .mode-badge-complex.fading { opacity: 0; }
         /* Cycle picker: every option a key steps through, in a row centred in
          * the pane over a slight dim. Same pills as the badges; the current
          * one lit, the rest dim. The badges themselves stay put underneath. */
@@ -7152,7 +7150,6 @@
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
-        let _complexFadeTimer = null;
         let _percentilePresetOverlay = null;
         let _percentilePresetOverlayTimer = null;
         let _percentilePresetOverlayFadeTimer = null;
@@ -17413,20 +17410,9 @@
             manualVmin = manualVmax = null;
             if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
             _eggsVisible = true;
-            _complexEggVisible = true;
-            clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
-            // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
-            if (complexMode === 0) {
-                _complexFadeTimer = setTimeout(() => {
-                    const badge = document.querySelector('#mode-eggs .mode-badge-complex');
-                    if (badge) badge.classList.add('fading');
-                    _complexFadeTimer = setTimeout(() => {
-                        _complexEggVisible = false;
-                        _complexFadeTimer = null;
-                        renderEggs();
-                    }, 900);
-                }, 2000);
-            }
+            // The default (mode 0 = magnitude / real) needs no badge: the row
+            // the choice was made from is confirmation enough.
+            _complexEggVisible = complexMode !== 0;
             updateView(); triggerPreload();
             renderInfo();
             renderEggs();
