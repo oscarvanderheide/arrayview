@@ -17424,7 +17424,7 @@
             updateView(); triggerPreload();
             renderInfo();
             renderEggs();
-            showModePicker('complex');
+            if (isComplex) showModePicker('complex');
             saveState();
         }
 
@@ -17442,9 +17442,8 @@
 
         function _modePickerRing(kind) {
             if (kind === 'proj') {
-                const dim = projectionMode > 0 ? projectionDim : current_slice_dim;
                 return {
-                    title: `Reduce along dim ${dim}`,
+                    title: 'Reduce along selected dimension:',
                     labels: ['OFF', ...PROJECTION_LABELS],
                     current: projectionMode,
                     badgeClass: 'mode-badge-proj',
@@ -17453,7 +17452,7 @@
             }
             const names = isComplex ? COMPLEX_MODES : REAL_MODES;
             return {
-                title: isComplex ? 'Show complex values as' : 'Show values as',
+                title: 'Show complex array as:',
                 labels: names.map(m => MODE_LABEL[m] || m.toUpperCase()),
                 current: complexMode,
                 badgeClass: 'mode-badge-complex',
@@ -27660,10 +27659,11 @@
                         showStatus('complex mode: not available here');
                         return;
                     }
+                    // Real data only has real ↔ magnitude: toggle straight away, no menu.
+                    if (!isComplex) { _setComplexMode((complexMode + 1) % REAL_MODES.length); return; }
                     // First press only opens the row; the next ones step through it.
                     if (!_modePicker || _modePicker.kind !== 'complex') { showModePicker('complex'); return; }
-                    const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
-                    _setComplexMode((complexMode + 1) % modeCount);
+                    _setComplexMode((complexMode + 1) % COMPLEX_MODES.length);
                 },
             },
             'colormap.promptCustom': {
@@ -27910,6 +27910,8 @@
                     if (_isCollectionDim(current_slice_dim)) {
                         showStatus('projection: collection dims are index-only'); return;
                     }
+                    // Only a slice dimension can be reduced; with x, y (or z) selected, do nothing.
+                    if (activeDim !== current_slice_dim) return;
                     // First press only opens the row; the next ones step through it.
                     if (!_modePicker || _modePicker.kind !== 'proj') { showModePicker('proj'); return; }
                     _setProjectionMode((projectionMode + 1) % (PROJECTION_LABELS.length + 1));
@@ -28967,8 +28969,8 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
-                            { key: 'm', action: 'Complex mode cycle', hint: 'first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter or Esc closes the row' },
+                            { key: 'p', action: 'Cycle projections', hint: 'reduces along the selected slice dimension (nothing happens with x or y selected) · first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'complex data: first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter or Esc closes the row · real data: toggles real ↔ magnitude' },
                         ]
                     }
                 ]
