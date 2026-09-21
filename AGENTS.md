@@ -150,9 +150,23 @@ clearly needs fresh context.
 
 ## Testing
 
-Verify narrowly — do not run the full suite unless asked.
-For startup/display work, "narrowly" includes the affected real launch gate
-defined above; automated tests alone are not sufficient.
+Use a two-speed verification workflow.
+
+For each change by default:
+
+- Run one focused automated check that directly covers the changed behavior.
+- Give the user a short checklist of the visible behavior worth checking by
+  hand.
+- Do not run the full suite, the full mode matrix, broad visual smoke checks,
+  or documentation audits unless the user asks for them.
+
+Run broad regression, mode, visual, and documentation checks only when the user
+explicitly asks for release validation or broader testing.
+
+For startup/display work, the focused check must include the affected real
+launch gate defined above; automated tests alone are not sufficient.
+
+Available targeted commands include:
 
 ```bash
 uv run pytest tests/test_api.py -v
