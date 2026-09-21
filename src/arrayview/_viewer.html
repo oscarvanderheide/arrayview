@@ -2026,18 +2026,22 @@
         }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
-        #mode-eggs .mode-badge-off { color: var(--muted); border-color: var(--border); background-color: transparent; }
-        /* Cycle picker: every option a key steps through, in a row where the
-         * badges normally sit. Same pills as the badges; the current one lit,
-         * the rest dim. The badges fade out underneath while it shows. */
-        #mode-eggs.picker-open { opacity: 0; transition-duration: 300ms; }
-        #mode-eggs.picker-returning { transition-duration: 300ms; }
+        /* Cycle picker: every option a key steps through, in a row centred in
+         * the pane over a slight dim. Same pills as the badges; the current
+         * one lit, the rest dim. The badges themselves stay put underneath. */
+        #mode-picker-dim {
+            position: fixed; z-index: 1; pointer-events: none;   /* under the badges (z 2) */
+            background: var(--overlay-bg);
+            opacity: 0; transition: opacity 300ms ease;
+        }
+        #mode-picker-dim.visible { opacity: 0.45; }
         #mode-picker {
             position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px;
-            transform: translateX(-50%); z-index: 2; pointer-events: none;
+            transform: translate(-50%, -50%); z-index: 3; pointer-events: none;
             opacity: 0; transition: opacity 300ms ease;
         }
         #mode-picker.visible { opacity: 1; }
+        body.loupe-value-pill #mode-picker-dim { z-index: 100; }
         body.loupe-value-pill #mode-picker { z-index: 101; }
         #mode-picker .mode-badge {
             margin: 0; white-space: nowrap; cursor: pointer; opacity: 0.4;
@@ -4779,7 +4783,7 @@
 
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
-        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker,
+        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker, body.zen-mode #mode-picker-dim,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
@@ -5775,6 +5779,7 @@
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="mode-eggs"></div>
+    <div id="mode-picker-dim"></div>
     <div id="mode-picker"></div>
     <div id="status"></div>
     <div id="toast"></div>
@@ -7196,7 +7201,6 @@
             + '</svg>';
         let _eggsValuePill = null; // { value, kind } | null — colorbar/pixel hover, shown in the fixed dots spot
         let _eggsValuePillAnchor = null; // which pane's canvas to anchor the pill to, if not the mode default
-        let _eggsValuePillFadeTimer = null;
         let _loupeValuePillOwned = false;
         function _setEggsValuePill(value, kind, anchorEl, minWidthCh) {
             // Always sign-pad: the leading space (or minus sign) keeps the text
@@ -7210,7 +7214,6 @@
                 if (_eggsValuePill === null) return;
                 _eggsValuePill = null;
                 _eggsValuePillAnchor = null;
-                if (_eggsValuePillFadeTimer) { clearTimeout(_eggsValuePillFadeTimer); _eggsValuePillFadeTimer = null; }
                 renderEggs();
                 return;
             }
@@ -7223,22 +7226,10 @@
                 if (anchorChanged || _loupeInspecting()) positionEggs();
                 return;
             }
-            const entering = _eggsValuePill === null;
             _eggsValuePill = { value, kind, minWidthCh: minWidthCh || null };
             if (_percentilePresetOverlay) return; // picker owns the spot
-            const eggs = document.getElementById('mode-eggs');
-            // Crossfade past any mode pills (FFT/LOG/...) the first time hover
-            // starts, same as the percentile-dots overlay does.
-            if (entering && eggs?.querySelector('.mode-badge')) {
-                eggs.classList.add('percentile-preset-switching');
-                if (_eggsValuePillFadeTimer) clearTimeout(_eggsValuePillFadeTimer);
-                _eggsValuePillFadeTimer = setTimeout(() => {
-                    _eggsValuePillFadeTimer = null;
-                    renderEggs();
-                    requestAnimationFrame(() => eggs.classList.remove('percentile-preset-switching'));
-                }, 120);
-                return;
-            }
+            // The pill joins the mode badges (FFT/LOG/...) rather than
+            // replacing them: they say what the value being read is.
             renderEggs();
         }
         function _setLoupeValuePill(payload, minWidthCh) {
@@ -17399,7 +17390,7 @@
             _eggsVisible = true;
             updateView();
             renderEggs();
-            showModePicker('proj');   // after renderEggs: the badge it anchors to must exist
+            showModePicker('proj');
             saveState();
         }
 
@@ -17431,22 +17422,21 @@
             updateView(); triggerPreload();
             renderInfo();
             renderEggs();
-            showModePicker('complex');   // after renderEggs: the badge it anchors to must exist
+            showModePicker('complex');
             saveState();
         }
 
         // ── Cycle picker ──────────────────────────────────────────────
         // A row of every option a key steps through (p → projection,
-        // m → complex mode), in cycle order, shown in place of the mode
-        // badges while the key is being pressed. The current option is the
-        // lit pill; the rest sit dim beside it. Pressing again just moves
-        // the light one pill to the right (wrapping); clicking a pill jumps
-        // to it. The row fades ~1.4 s after the last press, or once the
-        // mouse leaves it, and the badges come back.
+        // m → complex mode), in cycle order, centred in the active pane
+        // over a slight dim. The current option is the lit pill, the rest
+        // sit dim beside it. The first press only opens the row; presses
+        // while it shows move the light one pill to the right (wrapping),
+        // and clicking a pill jumps to it. The row fades ~1.4 s after the
+        // last press, on Enter / Esc, on a click elsewhere, or once the
+        // mouse leaves it. The mode badges stay where they are throughout.
         const MODE_PICKER_HOLD_MS = 1400;
-        const MODE_PICKER_FADE_MS = 300;   // matches the #mode-picker / #mode-eggs.picker-open transitions
-        let _modePicker = null;        // { kind, timer } while open
-        let _modePickerClosing = null; // { phase: 'out' | 'in', timer } while the row fades and the badges return
+        let _modePicker = null;   // { kind, timer } while open
 
         function _modePickerRing(kind) {
             if (kind === 'proj') {
@@ -17468,17 +17458,10 @@
 
         function showModePicker(kind) {
             const el = document.getElementById('mode-picker');
-            const eggs = document.getElementById('mode-eggs');
-            if (!el || !eggs) return;
+            if (!el) return;
             const opening = !_modePicker || _modePicker.kind !== kind;
             if (_modePicker) clearTimeout(_modePicker.timer);
-            if (_modePickerClosing) { clearTimeout(_modePickerClosing.timer); _modePickerClosing = null; }
             _modePicker = { kind, timer: null };
-            // The badges are the row's anchor; projection at OFF has none of
-            // its own, so renderEggs holds an OFF badge open while we show.
-            _eggsVisible = true;
-            if (!eggs.innerHTML) renderEggs();
-            if (!eggs.innerHTML) { _modePicker = null; return; }
             const ring = _modePickerRing(kind);
             if (opening) {
                 el.innerHTML = ring.labels.map((l, i) =>
@@ -17502,40 +17485,32 @@
         function hideModePicker() {
             if (!_modePicker) return;
             clearTimeout(_modePicker.timer);
-            const kind = _modePicker.kind;
             _modePicker = null;
-            // Fade the row out first; the badges fade back in only once it is gone.
-            _modePickerClosing = { phase: 'out', timer: null };
-            _modePickerClosing.timer = setTimeout(() => {
-                _modePickerClosing = { phase: 'in', timer: null };
-                _reconcileUI();
-                _modePickerClosing.timer = setTimeout(() => {
-                    _modePickerClosing = null;
-                    _reconcileUI();
-                    // Drop the OFF badge the picker was holding open.
-                    if (kind === 'proj' && projectionMode === 0) renderEggs();
-                }, MODE_PICKER_FADE_MS);
-            }, MODE_PICKER_FADE_MS);
             _reconcileUI();
         }
 
-        // The row sits exactly where the badges sit; copy their placement.
+        // Centre the row in the pane the badges belong to and lay the dim
+        // over that same pane.
         function _positionModePicker() {
             const el = document.getElementById('mode-picker');
-            const eggs = document.getElementById('mode-eggs');
-            if (!el || !eggs || !_modePicker) return;
-            el.style.left = eggs.style.left;
-            el.style.top = eggs.style.top;
-            el.style.bottom = eggs.style.bottom;
+            const dim = document.getElementById('mode-picker-dim');
+            if (!el || !dim || !_modePicker) return;
+            const r = ModeRegistry.getEggsAnchorRect();
+            if (!r) return;
+            el.style.left = r.left + r.width / 2 + 'px';
+            el.style.top = r.top + r.height / 2 + 'px';
+            dim.style.left = r.left + 'px';
+            dim.style.top = r.top + 'px';
+            dim.style.width = r.width + 'px';
+            dim.style.height = r.height + 'px';
         }
 
         function _reconcileModePicker() {
             const el = document.getElementById('mode-picker');
-            const eggs = document.getElementById('mode-eggs');
-            if (!el || !eggs) return;
+            const dim = document.getElementById('mode-picker-dim');
+            if (!el || !dim) return;
             el.classList.toggle('visible', !!_modePicker);
-            eggs.classList.toggle('picker-open', !!_modePicker || _modePickerClosing?.phase === 'out');
-            eggs.classList.toggle('picker-returning', _modePickerClosing?.phase === 'in');
+            dim.classList.toggle('visible', !!_modePicker);
         }
 
         function _bindModePicker() {
@@ -17551,6 +17526,10 @@
             // Hovering the row keeps it open; leaving restarts the clock.
             el.addEventListener('mouseenter', () => { if (_modePicker) clearTimeout(_modePicker.timer); });
             el.addEventListener('mouseleave', _armModePickerHide);
+            // A click anywhere else dismisses it.
+            document.addEventListener('pointerdown', e => {
+                if (_modePicker && !el.contains(e.target)) hideModePicker();
+            }, true);
         }
         _bindModePicker();
 
@@ -17590,6 +17569,10 @@
                         + '</div>';
                     pill = el.querySelector('.eggs-value-pill');
                 }
+                // Keep the mode badges beside the pill. The pill element itself
+                // persists so its fade-in does not restart on every mouse move.
+                el.querySelectorAll('.mode-badge').forEach(b => b.remove());
+                pill.insertAdjacentHTML('beforebegin', _modeBadgeHtml());
                 const valueEl = pill.querySelector('.eggs-pill-value');
                 valueEl.textContent = _eggsValuePill.value;
                 // Reserved in characters (content-box), separately from the
@@ -17601,11 +17584,21 @@
                 renderIsland();
                 return;
             }
-            if (!_eggsVisible) { el.innerHTML = ''; return; }
+            const html = _modeBadgeHtml();
+            el.innerHTML = html;
+            // Position eggs below the active canvas, just above the slim colorbar
+            if (html) positionEggs();
+            renderIsland();
+        }
+
+        // The mode badges (RGB / FFT / LOG / complex mode / ALPHA / projection /
+        // MIP) as markup, or '' while there is nothing to badge yet.
+        function _modeBadgeHtml() {
+            if (!_eggsVisible) return '';
             // Hide eggs during loading / welcome — no data received yet
-            if (_isWelcomeScreen) { el.innerHTML = ''; return; }
-            if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) { el.innerHTML = ''; return; }
-            if (!lastImgW && !lastImgH && !compareActive) { el.innerHTML = ''; return; }
+            if (_isWelcomeScreen) return '';
+            if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) return '';
+            if (!lastImgW && !lastImgH && !compareActive) return '';
             let html = '';
             if (rgbMode)
                 html += `<span class="mode-badge mode-badge-rgb">RGB</span>`;
@@ -17621,16 +17614,11 @@
                 html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
-            } else if (_modePicker && _modePicker.kind === 'proj') {
-                html += `<span class="mode-badge mode-badge-proj mode-badge-off">OFF</span>`;
             }
             if (mipActive) {
                 html += `<span class="mode-badge mode-badge-mip">MIP</span>`;
             }
-            el.innerHTML = html;
-            // Position eggs below the active canvas, just above the slim colorbar
-            if (html) positionEggs();
-            renderIsland();
+            return html;
         }
 
         function _reconcileHistogramEggsVisibility() {
@@ -28832,6 +28820,7 @@
             { key: 'Enter', command: 'modePicker.confirm' },
             { key: 'Enter', command: 'slice.jumpCommit' },
             // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
+            { key: 'Escape', command: 'modePicker.confirm' },
             { key: 'Escape', command: 'tool.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
@@ -28965,8 +28954,8 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter closes the row' },
-                            { key: 'm', action: 'Complex mode cycle', hint: 'first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter closes the row' },
+                            { key: 'p', action: 'Cycle projections', hint: 'first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter or Esc closes the row' },
                         ]
                     }
                 ]
