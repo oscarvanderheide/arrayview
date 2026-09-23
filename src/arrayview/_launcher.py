@@ -1321,6 +1321,9 @@ def _load_session_from_filepath(
         "requested_sid": requested_sid,
         "release_on_disconnect": release_on_disconnect,
         "related_sids": related_sids or [],
+        # Multi-array .npz/.mat: open the first array instead of returning
+        # the key list; the viewer then offers the choice.
+        "array_default": True,
     }
     if source_staging_dir:
         payload["source_staging_dir"] = source_staging_dir
@@ -4758,6 +4761,9 @@ def _serve_daemon(
             if _array_keys and len(_array_keys) > 1:
                 session.array_keys = _array_keys
                 session.array_filepath = filepath
+                session.array_key = _load_key
+                # The first array was opened without asking; offer the choice once.
+                session.array_prompt = True
             if spatial_meta is not None:
                 session.original_volume = data
             if rgb:

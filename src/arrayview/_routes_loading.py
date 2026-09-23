@@ -419,6 +419,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 # the client can show a picker instead of blocking on terminal input.
                 _key = body.get("key")
                 _array_keys = None
+                _array_prompt = False
                 if dir_patterns:
                     data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
                         load_dir_collection,
@@ -432,7 +433,12 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 elif filepath.endswith(".npz") or filepath.endswith(".mat"):
                     _array_keys = await asyncio.to_thread(list_array_keys, filepath)
                     if len(_array_keys) > 1 and not _key:
-                        return {"array_keys": _array_keys, "filepath": filepath}
+                        if not body.get("array_default"):
+                            return {"array_keys": _array_keys, "filepath": filepath}
+                        # Command-line launch: open the first array now and
+                        # let the viewer offer the choice once.
+                        _key = _array_keys[0]["key"]
+                        _array_prompt = True
                     if len(_array_keys) == 1 and not _key:
                         _key = _array_keys[0]["key"]
 
@@ -482,6 +488,8 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             if _array_keys and len(_array_keys) > 1:
                 session.array_keys = _array_keys
                 session.array_filepath = filepath
+                session.array_key = _key
+                session.array_prompt = _array_prompt
             if body.get("rgb"):
                 try:
                     await asyncio.to_thread(setup_rgb, session)
@@ -627,15 +635,25 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             return {"error": str(e)}
         session.data = data
         session.shape = data.shape
+        session.spatial_shape = data.shape
+        session.rgb_axis = None
+        session.fft_original_data = None
+        session.fft_axes = None
+        session.reset_caches()
         session.data_version += 1
-        session.raw_cache.clear()
-        session.rgba_cache.clear()
-        session.mosaic_cache.clear()
-        session._raw_bytes = 0
-        session._rgba_bytes = 0
-        session._mosaic_bytes = 0
         session._estimated_mem = session._estimate_memory()
         # Keep array_keys so the user can switch again, but don't auto-prompt
+        session.array_key = key
+        session.array_prompt = False
+        return {"ok": True}
+
+    @app.post("/session/{sid}/array-prompt-done")
+    async def array_prompt_done(sid: str):
+        """Record that the array picker was offered, so it never reopens by itself."""
+        session = SESSIONS.get(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        session.array_prompt = False
         return {"ok": True}
 
     @app.get("/fs/list")

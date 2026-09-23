@@ -17240,23 +17240,16 @@
             _reconcileUI();
             _tutorialMaybeStart();
 
-            // Multi-array .npz/.mat: show picker immediately so the user can select
-            // the array they want, regardless of how the file was opened.
-            // Skip if we already reloaded for a key selection.
-            if (!urlParams.has('_picked') && data.array_keys && Array.isArray(data.array_keys) && data.array_keys.length > 1) {
-                (async () => {
-                    const key = await showArrayPicker(data.array_keys, '');
-                    if (key) {
-                        await proxyFetch(`/session/${sid}/reload-key`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ key }),
-                        });
-                        const u = new URL(window.location.href);
-                        u.searchParams.set('_picked', '1');
-                        window.location.href = u.href;
-                    }
-                })();
+            // Multi-array .npz/.mat: offer the array picker once per session.
+            // The server remembers it was offered, so a reload never reopens it.
+            if (Array.isArray(data.array_keys) && data.array_keys.length > 1) {
+                _sessionArrayKeys = data.array_keys;
+                _sessionArrayKey = data.array_key || null;
+                _sessionArrayFilename = data.array_filename || '';
+                if (data.array_prompt) {
+                    proxyFetch(`/session/${sid}/array-prompt-done`, { method: 'POST' }).catch(() => {});
+                    openSessionArrayPicker({ initial: true });
+                }
             }
 
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
@@ -22230,100 +22223,144 @@
             });
         }
 
-        function showArrayPicker(keys, filepath) {
+        let _arrayPickerOpen = false;
+        function showArrayPicker(keys, filepath, currentKey = null, { hideViewer = false, hint = '' } = {}) {
             return new Promise(resolve => {
+                if (_arrayPickerOpen) { resolve(null); return; }
+                _arrayPickerOpen = true;
                 const basename = filepath ? filepath.split('/').pop().split('\\').pop() : '';
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;'
-                    + 'background:rgba(0,0,0,0.55);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);';
+                    + (hideViewer ? 'background:var(--bg);' : 'background:rgba(0,0,0,0.3);');
                 const box = document.createElement('div');
-                box.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:16px;'
-                    + 'padding:24px 28px 20px;min-width:420px;max-width:560px;max-height:72vh;display:flex;flex-direction:column;gap:14px;'
-                    + 'box-shadow:0 24px 56px rgba(0,0,0,0.55);';
+                box.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;'
+                    + 'padding:12px;width:min(400px,calc(100vw - 32px));max-height:60vh;display:flex;flex-direction:column;gap:10px;'
+                    + 'box-shadow:0 12px 32px rgba(0,0,0,0.45);font-family:system-ui,-apple-system,sans-serif;';
                 const hdr = document.createElement('div');
-                hdr.style.cssText = 'font-size:16px;color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-weight:600;letter-spacing:-0.01em;';
-                hdr.textContent = basename || `${keys.length} arrays`;
-                box.appendChild(hdr);
+                hdr.style.cssText = 'display:flex;flex-direction:column;gap:5px;padding:2px 6px 0;min-width:0;';
+                const title = document.createElement('div');
+                title.style.cssText = 'font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                title.textContent = basename || 'Arrays in file';
+                if (basename) title.title = basename;
+                hdr.appendChild(title);
                 const sub = document.createElement('div');
-                sub.style.cssText = 'font-size:12px;color:var(--muted);font-family:monospace;margin-top:-10px;';
-                sub.textContent = 'Select an array to load';
-                box.appendChild(sub);
+                sub.style.cssText = 'font-size:10.5px;color:var(--muted);';
+                sub.textContent = `${keys.length} arrays · ↑↓ Enter to load · Esc` + (hint ? ` · ${hint}` : '');
+                hdr.appendChild(sub);
+                box.appendChild(hdr);
                 const list = document.createElement('div');
-                list.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:380px;overflow-y:auto;';
+                list.style.cssText = 'display:flex;flex-direction:column;gap:1px;overflow-y:auto;min-height:0;';
                 let chosen = null;
                 const items = [];
+                // Monospace columns sized to the longest entry, so every
+                // row's shape and dtype line up.
+                const shapeText = k => k.shape.join('×');
+                const shapeCh = Math.max(...keys.map(k => shapeText(k).length));
+                const dtypeCh = Math.max(...keys.map(k => String(k.dtype).length));
                 keys.forEach((k, i) => {
+                    const isCurrent = k.key === currentKey;
                     const row = document.createElement('div');
-                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 14px;'
-                        + 'border-radius:10px;cursor:pointer;border:1px solid transparent;user-select:none;'
-                        + 'transition:background 0.1s,border-color 0.1s;color:var(--text);';
-                    row.dataset.idx = i;
-                    const left = document.createElement('div');
-                    left.style.cssText = 'display:flex;flex-direction:column;gap:3px;min-width:0;';
+                    row.style.cssText = `display:grid;grid-template-columns:8px minmax(0,1fr) ${shapeCh}ch ${dtypeCh}ch;`
+                        + 'align-items:baseline;column-gap:14px;padding:5px 6px;border-radius:6px;font-family:monospace;'
+                        + 'cursor:pointer;user-select:none;color:var(--text);';
+                    const dot = document.createElement('span');
+                    dot.style.cssText = 'width:8px;flex-shrink:0;font-size:9px;color:var(--active-dim);';
+                    dot.textContent = isCurrent ? '●' : '';
+                    if (isCurrent) dot.title = 'currently loaded';
+                    row.appendChild(dot);
                     const keyEl = document.createElement('span');
-                    keyEl.style.cssText = 'font-size:14px;font-family:monospace;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                    keyEl.style.cssText = 'min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                     keyEl.textContent = k.key;
-                    left.appendChild(keyEl);
-                    const meta = document.createElement('span');
-                    meta.style.cssText = 'font-size:11px;color:var(--muted);font-family:monospace;white-space:nowrap;';
-                    meta.textContent = `${k.shape.join(' × ')}  ·  ${k.dtype}`;
-                    left.appendChild(meta);
-                    row.appendChild(left);
-                    const enter = document.createElement('span');
-                    enter.style.cssText = 'font-size:10px;color:var(--subtle);flex-shrink:0;opacity:0;transition:opacity 0.1s;';
-                    enter.textContent = '⏎';
-                    row.appendChild(enter);
+                    keyEl.title = k.key;
+                    row.appendChild(keyEl);
+                    for (const text of [shapeText(k), k.dtype]) {
+                        const meta = document.createElement('span');
+                        meta.style.cssText = 'font-size:10.5px;color:var(--muted);white-space:nowrap;';
+                        meta.textContent = text;
+                        row.appendChild(meta);
+                    }
                     row.onclick = () => { chosen = k.key; cleanup(); };
-                    row.onmouseenter = () => { if (!row.classList.contains('npz-active')) { row.style.background = 'rgba(255,255,255,0.04)'; row.style.borderColor = 'rgba(255,255,255,0.06)'; enter.style.opacity = '0.6'; } };
-                    row.onmouseleave = () => { if (!row.classList.contains('npz-active')) { row.style.background = 'transparent'; row.style.borderColor = 'transparent'; enter.style.opacity = '0'; } };
+                    row.onmouseenter = () => setActive(i);
                     list.appendChild(row);
                     items.push(row);
                 });
                 box.appendChild(list);
-                const footer = document.createElement('div');
-                footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;padding-top:2px;';
-                const cancelBtn = document.createElement('button');
-                cancelBtn.style.cssText = 'padding:7px 20px;border-radius:10px;border:1px solid var(--border);'
-                    + 'background:transparent;color:var(--muted);font:13px system-ui,sans-serif;cursor:pointer;transition:background 0.1s,border-color 0.1s;';
-                cancelBtn.textContent = 'Cancel';
-                cancelBtn.onclick = () => { cleanup(); };
-                cancelBtn.onmouseenter = () => { cancelBtn.style.borderColor = 'var(--muted)'; cancelBtn.style.background = 'rgba(255,255,255,0.04)'; };
-                cancelBtn.onmouseleave = () => { cancelBtn.style.borderColor = 'var(--border)'; cancelBtn.style.background = 'transparent'; };
-                footer.appendChild(cancelBtn);
-                box.appendChild(footer);
                 overlay.appendChild(box);
                 document.body.appendChild(overlay);
 
                 let activeIdx = 0;
                 function setActive(idx) {
                     items.forEach((r, i) => {
-                        const isActive = i === idx;
-                        r.classList.toggle('npz-active', isActive);
-                        r.style.background = isActive ? 'rgba(255,255,255,0.07)' : 'transparent';
-                        r.style.borderColor = isActive ? 'var(--active-dim)' : 'transparent';
-                        const e = r.querySelector('span:last-child');
-                        if (e) e.style.opacity = isActive ? '1' : '0';
+                        r.style.background = i === idx ? 'rgba(127,127,127,0.16)' : 'transparent';
                     });
                     activeIdx = idx;
                     if (items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
                 }
-                setActive(0);
+                setActive(Math.max(0, keys.findIndex(k => k.key === currentKey)));
 
                 function cleanup() {
-                    document.removeEventListener('keydown', onKey);
+                    document.removeEventListener('keydown', onKey, true);
                     overlay.remove();
+                    _arrayPickerOpen = false;
                     resolve(chosen);
                 }
 
+                // Capture phase: the picker owns the keyboard while open, so
+                // Enter / arrows / Esc never also reach the viewer's shortcuts.
                 function onKey(e) {
+                    e.stopPropagation();
                     if (e.key === 'Escape') { e.preventDefault(); cleanup(); }
                     else if (e.key === 'Enter') { e.preventDefault(); if (keys[activeIdx]) { chosen = keys[activeIdx].key; cleanup(); } }
-                    else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, keys.length - 1)); }
-                    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
+                    else if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); setActive(Math.min(activeIdx + 1, keys.length - 1)); }
+                    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
                 }
-                document.addEventListener('keydown', onKey);
+                document.addEventListener('keydown', onKey, true);
                 overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
             });
+        }
+
+        // Multi-array .npz/.mat session: let the user pick which array the
+        // session shows. Switching reloads the page because the new array can
+        // have a different shape and type.
+        let _sessionArrayKeys = null;
+        let _sessionArrayKey = null;
+        let _sessionArrayFilename = '';
+        async function openSessionArrayPicker({ initial = false } = {}) {
+            if (!_sessionArrayKeys || _sessionArrayKeys.length < 2) {
+                showToast('this file has only one array');
+                return;
+            }
+            // On first open nothing has been chosen yet: hide the viewer and
+            // mark no row as loaded, so the menu reads as the first step.
+            const key = await showArrayPicker(
+                _sessionArrayKeys, _sessionArrayFilename, initial ? null : _sessionArrayKey,
+                { hideViewer: initial, hint: 'Shift+K to switch later' },
+            );
+            if (!key || key === _sessionArrayKey) return;
+            // Cover the viewer until the page reloads with the new array, so
+            // the previous array never shows while the new one is read.
+            const cover = document.createElement('div');
+            cover.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;'
+                + 'background:var(--bg);';
+            // Reuse the shared loading panel (animated logo) with its own caption.
+            const panel = document.querySelector('#busy-overlay .av-loading-panel').cloneNode(true);
+            panel.querySelector('span').textContent = `Loading ${key}…`;
+            cover.appendChild(panel);
+            document.body.appendChild(cover);
+            let res = {};
+            let ok = false;
+            try {
+                const r = await proxyFetch(`/session/${sid}/reload-key`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key }),
+                });
+                res = await r.json().catch(() => ({}));
+                ok = r.ok && !res.error;
+                if (!ok && !res.error) res.error = r.status;
+            } catch (err) { res.error = err.message || err; }
+            if (!ok) { cover.remove(); showToast(`could not load ${key}: ${res.error}`); return; }
+            window.location.reload();
         }
 
         async function _loadWithArraySupport(filepath, name) {
@@ -28737,6 +28774,11 @@
                     });
                 },
             },
+            'arrays.openPicker': {
+                title: 'Switch array in file',
+                when: [],
+                run: (ctx, e) => { openSessionArrayPicker(); },
+            },
             'palette.open': {
                 title: 'Open command palette',
                 when: ['!paletteOpen'],
@@ -28841,6 +28883,7 @@
             { key: 'Escape', command: 'tool.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
+            { key: 'K', shift: true, command: 'arrays.openPicker' },
         ];
 
         function makeContext(_state) {
@@ -28915,6 +28958,7 @@
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value in the pane pill; drag draws a quick outline (mean ± std), repeatable; Backspace removes the last one; hold Ctrl for the loupe; alt+click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
+                            { key: 'Shift+K', action: 'Switch array in file', hint: '.npz / .mat files that hold several arrays' },
                             { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
                         ]
                     },

@@ -67,6 +67,29 @@ def _is_viewable_mat_array(value):
     )
 
 
+def _is_viewable_h5_dataset(ds):
+    """True for HDF5 datasets in a v7.3 .mat file ArrayView can display.
+
+    MATLAB v7.3 stores complex arrays as a compound dtype with 'real' and
+    'imag' fields, which has dtype kind 'V' rather than 'c'.
+    """
+    import h5py
+
+    if not isinstance(ds, h5py.Dataset) or len(ds.shape) < 1:
+        return False
+    names = ds.dtype.names
+    if names:
+        return "real" in names and "imag" in names
+    return ds.dtype.kind in ("b", "i", "u", "f", "c")
+
+
+def _h5_display_dtype(ds):
+    """Dtype string to show for a v7.3 .mat dataset (compound complex → complex)."""
+    if ds.dtype.names:
+        return "complex128" if ds.dtype["real"].itemsize == 8 else "complex64"
+    return str(ds.dtype)
+
+
 def list_npz_keys(filepath):
     """Return [{key, shape, dtype}] for each ndarray in an .npz file.
 
@@ -106,8 +129,8 @@ def list_mat_keys(filepath):
         keys = []
         for k in f.keys():
             ds = f[k]
-            if isinstance(ds, h5py.Dataset) and len(ds.shape) >= 1 and ds.dtype.kind in ("b", "i", "u", "f", "c"):
-                keys.append({"key": k, "shape": list(ds.shape), "dtype": str(ds.dtype)})
+            if _is_viewable_h5_dataset(ds):
+                keys.append({"key": k, "shape": list(ds.shape), "dtype": _h5_display_dtype(ds)})
         f.close()
         return keys
 
@@ -1726,11 +1749,11 @@ def load_data(filepath, key=None, *, progress=None):
             import h5py
 
             f = h5py.File(filepath, "r")
-            arrays = {k: f[k] for k in f.keys() if isinstance(f[k], h5py.Dataset)}
+            arrays = {k: f[k] for k in f.keys() if _is_viewable_h5_dataset(f[k])}
             if key is not None:
-                return np.array(arrays[key])
+                return _fix_mat_complex(np.array(arrays[key]))
             if len(arrays) == 1:
-                return np.array(next(iter(arrays.values())))
+                return _fix_mat_complex(np.array(next(iter(arrays.values()))))
             raise ValueError(
                 f".mat (v7.3) file contains multiple datasets: {list(arrays.keys())}. "
                 "Select one in the viewer or pass a key."

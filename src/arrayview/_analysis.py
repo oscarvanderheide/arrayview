@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 
 import numpy as np
 
@@ -63,6 +64,9 @@ def _build_metadata(session) -> dict:
         )
     if getattr(session, "array_keys", None):
         meta["array_keys"] = session.array_keys
+        meta["array_key"] = getattr(session, "array_key", None)
+        meta["array_prompt"] = bool(getattr(session, "array_prompt", False))
+        meta["array_filename"] = os.path.basename(getattr(session, "array_filepath", "") or "")
     if collection_spatial_ndim is not None:
         meta["collection_spatial_ndim"] = int(collection_spatial_ndim)
     if getattr(session.data, "_av_ragged", False):
