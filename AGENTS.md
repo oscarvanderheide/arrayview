@@ -10,7 +10,7 @@ nothing about how it works.
 
 **Rules, in priority order:**
 
-1. **Answer first, in one sentence.** What is broken, or what you did. Then stop.
+1. **Answer first.** What is broken, or what you did. In simple terms, but no vague, hand-waivy analogues. Then stop.
    Add detail only if I ask.
 2. **Never name an internal thing in a sentence I have to act on.** No function
    names, file names, variable names, transports, proxies, handlers, sockets,
@@ -69,7 +69,14 @@ work and `.claude/skills/iterative-debug`.
 
 ## Execution
 
-Use **subagent-driven development**. Work in **feature branches**.
+Work in **feature branches**. Use a subagent only for a bounded, independent
+task when it clearly saves time or improves the result. Give it only the context
+it needs; work directly on short or single-area tasks.
+
+Long conversations repeatedly reuse their full context. Once a task is done,
+recommend a fresh conversation for a new, unrelated task when this thread has
+grown large; include a short handoff if needed. Keep tool output narrow and stop
+after the focused check passes unless a concrete risk remains.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 

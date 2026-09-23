@@ -19,19 +19,6 @@ uvx arrayview your_array.npy
 uvx arrayview path/to/dicom-series/
 ```
 
-Press `v` for the three-plane ortho view. `Shift+3` replaces the current slice,
-or all three ortho panes, with interactive 3D cutaway renders.
-Drop another file onto an open viewer to compare, open separately, or overlay it.
-Press `Shift+R` for ROI analysis: a compact HUD lists each region's mean and standard
-deviation. The HUD sits beside the image when space allows; drag its header
-to move it. Hover a row or region to highlight its counterpart, and use each
-row's trash icon to delete that region. Open the detailed analysis with the
-button beside the HUD's column headings.
-Hold a flood-fill seed and drag up/down to adjust sensitivity; a translucent tapered gauge
-at the starting point shows the current value and the 1%–100% range. The
-pointer hides while adjusting; only the gauge marker moves.
-
-
 Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
 
 **Warning**: Arrayview is still under active development. Things may break or change without warning.
