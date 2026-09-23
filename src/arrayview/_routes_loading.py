@@ -413,7 +413,12 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             PENDING_SESSIONS.add(dir_pending_sid)
         try:
             try:
-                from ._io import load_data_with_meta, load_dir_collection, list_array_keys
+                from ._io import (
+                    array_choice_placeholder,
+                    list_array_keys,
+                    load_data_with_meta,
+                    load_dir_collection,
+                )
 
                 # Multi-array .npz/.mat: if no key provided, return the key list so
                 # the client can show a picker instead of blocking on terminal input.
@@ -435,19 +440,20 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     if len(_array_keys) > 1 and not _key:
                         if not body.get("array_default"):
                             return {"array_keys": _array_keys, "filepath": filepath}
-                        # Command-line launch: open the first array now and
-                        # let the viewer offer the choice once.
-                        _key = _array_keys[0]["key"]
+                        # Command-line launch: open the viewer without reading
+                        # any array; it asks which one to load.
                         _array_prompt = True
+                        data, spatial_meta = array_choice_placeholder(), None
                     if len(_array_keys) == 1 and not _key:
                         _key = _array_keys[0]["key"]
 
-                data, spatial_meta = await asyncio.to_thread(
-                    load_data_with_meta,
-                    filepath,
-                    key=_key,
-                    select=body.get("select"),
-                ) if not dir_patterns else (data, spatial_meta)
+                if not dir_patterns and not _array_prompt:
+                    data, spatial_meta = await asyncio.to_thread(
+                        load_data_with_meta,
+                        filepath,
+                        key=_key,
+                        select=body.get("select"),
+                    )
             except Exception as e:
                 if staging_dir:
                     cleanup_staging_directory(staging_dir)

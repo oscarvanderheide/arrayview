@@ -90,6 +90,15 @@ def _h5_display_dtype(ds):
     return str(ds.dtype)
 
 
+def array_choice_placeholder():
+    """Stand-in data for a multi-array file whose array is not chosen yet.
+
+    The session exists so the viewer can open and ask which array to load;
+    nothing from the file is read until the user picks one.
+    """
+    return np.zeros((2, 2), dtype=np.float32)
+
+
 def list_npz_keys(filepath):
     """Return [{key, shape, dtype}] for each ndarray in an .npz file.
 

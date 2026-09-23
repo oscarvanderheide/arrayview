@@ -4485,6 +4485,8 @@
             opacity: 0; transition: opacity 0.4s ease;
         }
         #loading-overlay .av-load-name.visible { opacity: 1; }
+        #loading-overlay.av-array-switch .av-load-logo,
+        #loading-overlay.av-array-switch .av-load-name { display: none; }
         /* Deliberately outside #loading-overlay. The overlay is centred over the
            canvas, so anything drawn in it sits on top of the slice — wrong for
            progress that continues after the viewer is live and showing data.
@@ -5784,6 +5786,23 @@
         <div id="render-progress-text"></div>
         <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
         <div id="busy-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading…</span></div></div>
+        <script>
+            // After a switch between arrays of a multi-array file the page
+            // reloads. Show the same small loading panel the switch used, not
+            // the startup splash, so no second, larger logo flashes by.
+            try {
+                const key = sessionStorage.getItem('av-array-switch');
+                if (key !== null) {
+                    sessionStorage.removeItem('av-array-switch');
+                    const ol = document.getElementById('loading-overlay');
+                    const panel = document.querySelector('#busy-overlay .av-loading-panel').cloneNode(true);
+                    panel.querySelector('span').textContent = `Loading ${key}…`;
+                    panel.classList.add('av-array-switch-panel');
+                    ol.classList.add('av-array-switch');
+                    ol.appendChild(panel);
+                }
+            } catch (_) {}
+        </script>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -22224,7 +22243,7 @@
         }
 
         let _arrayPickerOpen = false;
-        function showArrayPicker(keys, filepath, currentKey = null, { hideViewer = false, hint = '' } = {}) {
+        function showArrayPicker(keys, filepath, currentKey = null, { hideViewer = false, required = false, hint = '' } = {}) {
             return new Promise(resolve => {
                 if (_arrayPickerOpen) { resolve(null); return; }
                 _arrayPickerOpen = true;
@@ -22245,7 +22264,7 @@
                 hdr.appendChild(title);
                 const sub = document.createElement('div');
                 sub.style.cssText = 'font-size:10.5px;color:var(--muted);';
-                sub.textContent = `${keys.length} arrays · ↑↓ Enter to load · Esc` + (hint ? ` · ${hint}` : '');
+                sub.textContent = `${keys.length} arrays · ↑↓ Enter to load` + (required ? '' : ' · Esc') + (hint ? ` · ${hint}` : '');
                 hdr.appendChild(sub);
                 box.appendChild(hdr);
                 const list = document.createElement('div');
@@ -22309,13 +22328,13 @@
                 // Enter / arrows / Esc never also reach the viewer's shortcuts.
                 function onKey(e) {
                     e.stopPropagation();
-                    if (e.key === 'Escape') { e.preventDefault(); cleanup(); }
+                    if (e.key === 'Escape') { e.preventDefault(); if (!required) cleanup(); }
                     else if (e.key === 'Enter') { e.preventDefault(); if (keys[activeIdx]) { chosen = keys[activeIdx].key; cleanup(); } }
                     else if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); setActive(Math.min(activeIdx + 1, keys.length - 1)); }
                     else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
                 }
                 document.addEventListener('keydown', onKey, true);
-                overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+                overlay.addEventListener('click', e => { if (e.target === overlay && !required) cleanup(); });
             });
         }
 
@@ -22330,11 +22349,11 @@
                 showToast('this file has only one array');
                 return;
             }
-            // On first open nothing has been chosen yet: hide the viewer and
-            // mark no row as loaded, so the menu reads as the first step.
+            // On first open no array is loaded yet: hide the viewer and
+            // require a choice.
             const key = await showArrayPicker(
                 _sessionArrayKeys, _sessionArrayFilename, initial ? null : _sessionArrayKey,
-                { hideViewer: initial, hint: 'Shift+K to switch later' },
+                { hideViewer: initial, required: initial, hint: 'Shift+K to switch later' },
             );
             if (!key || key === _sessionArrayKey) return;
             // Cover the viewer until the page reloads with the new array, so
@@ -22360,6 +22379,9 @@
                 if (!ok && !res.error) res.error = r.status;
             } catch (err) { res.error = err.message || err; }
             if (!ok) { cover.remove(); showToast(`could not load ${key}: ${res.error}`); return; }
+            // Tell the reloaded page to keep this loading panel up instead of
+            // playing the startup splash.
+            try { sessionStorage.setItem('av-array-switch', key); } catch (_) {}
             window.location.reload();
         }
 

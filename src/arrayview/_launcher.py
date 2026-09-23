@@ -4694,6 +4694,7 @@ def _serve_daemon(
 
     def _load():
         from arrayview._io import (
+            array_choice_placeholder,
             load_data,
             load_data_with_meta,
             load_dir_collection,
@@ -4708,8 +4709,8 @@ def _serve_daemon(
                 if dir_patterns is None and not cleanup
                 else None
             )
-            # Multi-array .npz/.mat: load the first array so the session is
-            # created, then store keys so the viewer can show a picker.
+            # Multi-array .npz/.mat: create the session with a placeholder and
+            # store the keys; the viewer asks which array to load.
             _array_keys = None
             if dir_patterns is not None:
                 data, spatial_meta, dir_overlay_items, _summary = load_dir_collection(
@@ -4726,8 +4727,12 @@ def _serve_daemon(
                     _array_keys = list_array_keys(filepath)
                 except Exception:
                     pass
-                _load_key = _array_keys[0]["key"] if _array_keys else None
-                data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
+                if _array_keys and len(_array_keys) > 1:
+                    _load_key = None
+                    data, spatial_meta = array_choice_placeholder(), None
+                else:
+                    _load_key = _array_keys[0]["key"] if _array_keys else None
+                    data, spatial_meta = load_data_with_meta(filepath, key=_load_key)
                 dir_overlay_items = None
                 collection_spatial_ndim = None
             else:
@@ -4762,7 +4767,7 @@ def _serve_daemon(
                 session.array_keys = _array_keys
                 session.array_filepath = filepath
                 session.array_key = _load_key
-                # The first array was opened without asking; offer the choice once.
+                # Nothing is loaded yet; the viewer asks once which array to show.
                 session.array_prompt = True
             if spatial_meta is not None:
                 session.original_volume = data
