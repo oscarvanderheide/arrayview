@@ -34,105 +34,279 @@ class TutorialBundle:
     stack_pattern: str
 
 
-def make_tutorial_arrays():
-    """Return a scalar 4D volume, a comparison volume, and an integer mask.
+# The main tutorial array is a small pixel-art campsite. It is 4D so every
+# part of the tour has something to show: height and width are the picture,
+# the third dimension is a looping animation (rain, wind in the trees, the
+# fire, a camper walking about) and the fourth is the time of day, from dawn
+# through noon to the middle of the night. Values are brightness, so any
+# colormap works and the fire lights up its surroundings after dark.
 
-    The volume is a made-up head scan rather than a single blob, so that
-    stepping through any dimension shows something change: a skull and
-    folded tissue, two dark cavities, a tilted ring that splits in two, a
-    bright tube that spirals through the slices, a small beating "heart"
-    and a patch of fine stripes that rewards zooming and the Fourier view.
-    The last dimension is time: the heart beats and the spiral turns.
+_CAMP_HEIGHT, _CAMP_WIDTH, _CAMP_FRAMES, _CAMP_HOURS = 64, 96, 24, 8
+_CAMP_GROUND = 44
+# Ambient light for each time of day: dawn, morning, noon, afternoon, dusk,
+# evening, night, late night.
+_CAMP_LIGHT = (0.55, 0.85, 1.0, 0.9, 0.55, 0.3, 0.2, 0.22)
+_CAMP_FIRE = (58, 52)
+
+_CAMPER_SHADES = {"h": 1.0, "s": 0.78, "e": 0.02, "c": 0.62, "p": 0.18, "b": 0.08}
+_CAMPER_WALK = (
+    (
+        "..hhh..",
+        ".hhhhh.",
+        "..sss..",
+        "..sse..",
+        "..sss..",
+        ".ccccc.",
+        "c.ccc.c",
+        "..ccc..",
+        "..p.p..",
+        ".p...p.",
+        ".b...b.",
+    ),
+    (
+        "..hhh..",
+        ".hhhhh.",
+        "..sss..",
+        "..sse..",
+        "..sss..",
+        ".ccccc.",
+        ".ccccc.",
+        "..ccc..",
+        "..p.p..",
+        "..p.p..",
+        "..b.b..",
+    ),
+)
+_CAMPER_SIT = (
+    "..hhh..",
+    ".hhhhh.",
+    "..sse..",
+    "..sss..",
+    ".cccc..",
+    ".ccccss",
+    ".cccc..",
+    ".ppppp.",
+    ".pp..pb",
+    ".bb....",
+)
+
+
+def _camp_scene(frame: int, hour: int, snow: bool):
+    """Draw one picture of the campsite and its region labels."""
+    import numpy as np
+
+    H, W, F = _CAMP_HEIGHT, _CAMP_WIDTH, _CAMP_FRAMES
+    ground = _CAMP_GROUND
+    light = _CAMP_LIGHT[hour]
+    night = light < 0.4
+    rng = np.random.default_rng(7)  # the fixed layout: stars, drops, grass
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    loop = 2.0 * np.pi * frame / F
+    sway = float(np.sin(2.0 * loop) + 0.4 * np.sin(3.0 * loop + 1.0))
+
+    albedo = np.zeros((H, W), dtype=np.float32)
+    glow = np.zeros((H, W), dtype=np.float32)  # light that ignores the hour
+    labels = np.zeros((H, W), dtype=np.uint8)
+
+    def put(y, x, value, target=albedo):
+        y, x = int(round(y)), int(round(x))
+        if 0 <= y < H and 0 <= x < W:
+            target[y, x] = value
+
+    def sprite(rows, left, bottom, flip=False):
+        top = bottom - len(rows) + 1
+        for r, row in enumerate(rows):
+            for c, ch in enumerate(row[::-1] if flip else row):
+                if ch != ".":
+                    put(top + r, left + c, _CAMPER_SHADES[ch])
+                    if 0 <= top + r < H and 0 <= left + c < W:
+                        labels[top + r, left + c] = 2
+
+    # Sky, brighter toward the horizon.
+    sky = 0.62 + 0.25 * (yy / ground)
+    albedo[:] = np.where(yy < ground, sky, 0.0)
+
+    # Stars, twinkling.
+    star_y = rng.integers(0, 30, 45)
+    star_x = rng.integers(0, W, 45)
+    stars = []
+    if night:
+        for i, (sy, sx) in enumerate(zip(star_y, star_x)):
+            stars.append((sy, sx, 0.9 if (i + frame // 3) % 4 else 0.45))
+
+    # The sun crosses the sky by day; a crescent moon by night.
+    if not night:
+        t = min(hour, 4) / 4.0
+        cx, cy = 8 + 80 * t, 28 - 22 * np.sin(np.pi * t)
+        disc = (xx - cx) ** 2 + (yy - cy) ** 2 <= 16
+        glow[disc] = 1.3
+        albedo[disc] = 0.0
+    else:
+        cx, cy = 18 + (hour - 5) * 28, 11
+        disc = ((xx - cx) ** 2 + (yy - cy) ** 2 <= 10) & (
+            (xx - cx - 1.6) ** 2 + (yy - cy + 1) ** 2 > 7
+        )
+        glow[disc] = 0.95
+
+    # Clouds drifting past; they loop with the animation.
+    for i, (x0, y0, speed) in enumerate(((10, 8, 1), (55, 15, 2), (80, 5, 1))):
+        cx = (x0 + frame * speed * W / F) % W
+        for dx, dy, rx, ry in ((0, 0, 7, 2.6), (-5, 1, 4, 2), (5, 1, 5, 2), (1, -2, 4, 2)):
+            dxw = (xx - cx - dx + W / 2) % W - W / 2
+            blob = (dxw / rx) ** 2 + ((yy - y0 - dy) / ry) ** 2 <= 1
+            albedo[blob] = 0.95
+            glow[blob] = 0.0
+            if night:
+                albedo[blob] = 0.55
+    for sy, sx, v in stars:
+        if albedo[sy, sx] < 0.9:
+            glow[sy, sx] = v
+
+    # Mountains, with snow on the peaks.
+    ridge = 31 + 5 * np.sin(xx[0] * 0.08 + 0.5) + 4 * np.sin(xx[0] * 0.21 + 2.0)
+    for x in range(W):
+        top = int(ridge[x])
+        albedo[top:ground, x] = 0.42
+        glow[top:ground, x] = 0.0
+        if top < 30:
+            albedo[top : top + 2, x] = 0.95
+
+    # Ground, grass with a little texture; snow when it snows.
+    texture = rng.normal(0.0, 0.02, (H, W)).astype(np.float32)
+    base = 0.86 if snow else 0.4
+    albedo[ground:] = base + texture[ground:]
+
+    # Grass tufts lean with the wind.
+    for gx, gy in zip(rng.integers(0, W, 40), rng.integers(ground + 2, H, 40)):
+        lean = int(round(sway * 0.8))
+        shade = 0.7 if snow else 0.58
+        put(gy - 1, gx, shade)
+        put(gy - 2, gx + lean, shade)
+        put(gy - 1, gx + 1, shade)
+
+    # Pine trees sway, more at the top.
+    for tx, base_y, height in ((6, 47, 20), (14, 45, 15), (86, 46, 19), (93, 48, 14), (76, 45, 12)):
+        for r in range(height):
+            y = base_y - 3 - height + r
+            half = 1 + int(r * 0.42) - (1 if r % 4 == 0 and r > 3 else 0)
+            shift = int(round(sway * 1.6 * (1.0 - r / height)))
+            for dx in range(-half, half + 1):
+                v = 0.24 if dx > 0 else 0.32
+                if snow and (r % 4 == 0 or dx == -half):
+                    v = 0.9
+                put(y, tx + dx + shift, v)
+        for r in range(3):
+            put(base_y - 2 + r, tx, 0.18)
+            put(base_y - 2 + r, tx + 1, 0.18)
+
+    # The tent, with a lantern inside after dark.
+    apex_x, apex_y, bottom = 22, 34, 49
+    for y in range(apex_y, bottom + 1):
+        half = int((y - apex_y) * 0.85)
+        for dx in range(-half, half + 1):
+            v = 0.55 if dx < 0 else 0.68
+            if snow and y - apex_y < 3:
+                v = 0.92
+            put(y, apex_x + dx, v)
+            if 0 <= y < H and 0 <= apex_x + dx < W:
+                labels[y, apex_x + dx] = 3
+        door = int((y - 43) * 0.6) if y >= 43 else -1
+        for dx in range(-door, door + 1):
+            put(y, apex_x + dx, 0.1)
+            if night:
+                put(y, apex_x + dx, 0.5, glow)
+
+    # The camper walks about by day and sits by the fire at night.
+    if night:
+        sprite(_CAMPER_SIT, 46, 55)
+    else:
+        going = frame < F // 2
+        t = (frame if going else F - 1 - frame) / (F // 2 - 1)
+        x = int(round(32 + 36 * t))
+        sprite(_CAMPER_WALK[(frame // 2) % 2], x, 58, flip=not going)
+
+    # The fire: stones, logs, flickering flames and rising sparks.
+    fx, fy = _CAMP_FIRE
+    for dx in (-5, -4, 4, 5):
+        put(fy + 1, fx + dx, 0.55)
+    for dx in range(-3, 4):
+        put(fy + 1, fx + dx, 0.22)
+        put(fy, fx + dx if abs(dx) < 3 else fx, 0.28)
+    flicker = np.random.default_rng(100 + frame)
+    heights = np.array([2, 4, 6, 8, 6, 4, 2]) + flicker.integers(-1, 3, 7)
+    for i, h in enumerate(heights):
+        x = fx - 3 + i
+        for r in range(h):
+            y = fy - 1 - r
+            put(y, x, 1.25 if r < h - 2 and 1 <= i <= 5 else 0.9, glow)
+            put(y, x, 0.0)
+            if 0 <= y < H:
+                labels[y, x] = 1
+    for k in range(4):
+        age = (frame * 2 + k * 5) % 16
+        put(fy - 6 - age, fx + int(round(np.sin(k + age * 0.5) * 2 + sway)), 0.9, glow)
+
+    # Smoke drifts off with the wind.
+    for k in range(6):
+        age = ((frame + 4 * k) % F) / F
+        sx = fx + 16 * age + sway
+        sy = fy - 9 - 30 * age
+        puff = (xx - sx) ** 2 + (yy - sy) ** 2 <= (1 + 2.2 * age) ** 2
+        albedo[puff] = albedo[puff] * (0.5 + 0.5 * age) + 0.6 * (0.5 - 0.5 * age)
+
+    # Firelight: the hour's light, plus the fire nearby.
+    fire_d2 = (xx - fx) ** 2 + (yy - fy + 3) ** 2
+    firelight = (1.0 + 0.12 * np.sin(frame * 2.3)) * np.exp(-fire_d2 / 16.0**2)
+    lit = albedo * (light + (1.0 - light) * 0.9 * firelight) + glow
+
+    # Rain streaks, or snowflakes, slanted by the wind.
+    drops = zip(rng.integers(0, W, 55), rng.integers(0, H, 55), rng.integers(2, 4, 55))
+    for i, (x0, y0, speed) in enumerate(drops):
+        if snow:
+            y = (y0 + frame * H / F) % H
+            x = (x0 + 1.5 * np.sin(loop + i) + sway) % W
+            if i % 2 == 0:
+                put(y, x, 0.35 + 0.6 * light, lit)
+            continue
+        y = (y0 + frame * speed * H / F) % H
+        for r in range(3):
+            px = int(round((x0 + (y - r) * 0.35) % W)) % W
+            py = int(round(y - r))
+            if 0 <= py < H:
+                lit[py, px] = 0.6 * lit[py, px] + 0.4 * (0.3 + 0.5 * light)
+
+    # Fireflies after dark.
+    if night:
+        for k in range(5):
+            a = loop * (1 + k % 2) + k * 1.3
+            if (frame + k) % 3:
+                put(47 + 3 * np.sin(a) + k, 70 + 7 * k % 20 + 4 * np.cos(a), 0.8, lit)
+
+    return lit.astype(np.float32), labels
+
+
+def make_tutorial_arrays():
+    """Return the campsite, the same campsite in the snow, and its regions.
+
+    The regions mark the fire (1), the camper (2) and the tent (3).
     """
     import numpy as np
 
-    height, width, depth, frames = 96, 96, 36, 12
-    yy, xx, zz = np.meshgrid(
-        np.linspace(-1.0, 1.0, height, dtype=np.float32),
-        np.linspace(-1.0, 1.0, width, dtype=np.float32),
-        np.linspace(-1.0, 1.0, depth, dtype=np.float32),
-        indexing="ij",
-    )
-
-    def ellipsoid(cx, cy, cz, rx, ry, rz):
-        return ((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 + ((zz - cz) / rz) ** 2
-
-    def soft(inside, width=0.03):
-        # 1 inside, 0 outside, with a smooth edge instead of a staircase.
-        return (1.0 / (1.0 + np.exp(np.minimum((inside - 1.0) / width, 60.0)))).astype(
-            np.float32
-        )
-
-    head = soft(ellipsoid(0.0, 0.0, 0.0, 0.86, 0.94, 0.92))
-    brain = soft(ellipsoid(0.0, 0.0, 0.0, 0.76, 0.84, 0.82))
-    skull = np.clip(head - brain, 0.0, 1.0)
-    folds = 0.18 * np.sin(11.0 * xx + 3.0 * zz) * np.cos(9.0 * yy - 2.0 * zz)
-    cavities = np.maximum(
-        soft(ellipsoid(-0.2, -0.08, 0.05, 0.13, 0.32, 0.38)),
-        soft(ellipsoid(0.2, -0.08, 0.05, 0.13, 0.32, 0.38)),
-    )
-
-    # A ring tilted out of the screen: scrolling through it shows a circle
-    # that breaks into two spots and then closes again.
-    tilt = np.float32(0.6)
-    rx = xx - 0.1
-    ry = (yy + 0.45) * np.cos(tilt) - zz * np.sin(tilt)
-    rz = (yy + 0.45) * np.sin(tilt) + zz * np.cos(tilt)
-    ring = soft(((np.sqrt(rx**2 + ry**2) - 0.26) ** 2 + rz**2) / 0.06**2)
-
-    # Fine stripes that get finer to the right: a resolution chart.
-    patch = (
-        (xx > 0.25) & (xx < 0.62) & (yy > 0.38) & (yy < 0.62) & (np.abs(zz) < 0.5)
-    ).astype(np.float32)
-    stripes = patch * 0.5 * (1.0 + np.sin((30.0 + 90.0 * (xx - 0.25)) * xx))
-
-    static = (
-        1.0 * skull
-        + brain * (0.45 + folds)
-        - 0.35 * cavities
-        + 0.8 * ring
-        + 0.6 * stripes
-    )
-
-    rng = np.random.default_rng(0)
-    base = np.empty((height, width, depth, frames), dtype=np.float32)
+    shape = (_CAMP_HEIGHT, _CAMP_WIDTH, _CAMP_FRAMES, _CAMP_HOURS)
+    base = np.empty(shape, dtype=np.float32)
     compare = np.empty_like(base)
-    overlay = np.zeros(base.shape, dtype=np.uint8)
-
-    for frame in range(frames):
-        phase = np.float32(2.0 * np.pi * frame / frames)
-
-        # A bright tube that spirals through the slices and turns with time.
-        angle = np.pi * 2.0 * zz + phase
-        spiral = soft(
-            ((xx - 0.5 * np.cos(angle)) ** 2 + (yy - 0.5 * np.sin(angle)) ** 2)
-            / 0.07**2
-        )
-
-        # A small heart that beats.
-        beat = np.float32(0.16 + 0.05 * np.sin(phase))
-        heart = soft(ellipsoid(-0.05, 0.35, -0.2, beat, beat, beat * 1.4))
-
-        frame_base = static + 1.1 * spiral + 1.3 * heart
-        base[..., frame] = (
-            frame_base + 0.03 * rng.standard_normal(frame_base.shape)
-        ).astype(np.float32)
-
-        # The comparison scan: a little later in the beat, and a new spot
-        # has appeared, so the difference view has something to find.
-        late_beat = np.float32(0.16 + 0.05 * np.sin(phase + 0.9))
-        late_heart = soft(ellipsoid(-0.05, 0.35, -0.2, late_beat, late_beat, late_beat * 1.4))
-        spot = soft(ellipsoid(-0.45, 0.1, 0.3, 0.09, 0.09, 0.14))
-        frame_compare = static + 1.1 * spiral + 1.3 * late_heart + 0.7 * spot
-        compare[..., frame] = (
-            frame_compare + 0.03 * rng.standard_normal(frame_compare.shape)
-        ).astype(np.float32)
-
-        overlay[..., frame][cavities > 0.5] = 1
-        overlay[..., frame][heart > 0.5] = 2
-        overlay[..., frame][ring > 0.5] = 3
-
-    return base, compare, overlay
+    overlay = np.zeros(shape, dtype=np.uint8)
+    for hour in range(_CAMP_HOURS):
+        for frame in range(_CAMP_FRAMES):
+            base[..., frame, hour], overlay[..., frame, hour] = _camp_scene(
+                frame, hour, snow=False
+            )
+            compare[..., frame, hour], _ = _camp_scene(frame, hour, snow=True)
+    # The viewer draws the first dimension across the screen, so the
+    # picture is stored as (x, y, frame, hour).
+    return tuple(
+        np.ascontiguousarray(a.transpose(1, 0, 2, 3)) for a in (base, compare, overlay)
+    )
 
 
 def make_flow_arrays():
