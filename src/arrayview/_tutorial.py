@@ -49,9 +49,9 @@ _CAMP_FRAMES = 24
 _CAMP_UNITS_W, _CAMP_UNITS_H = 96, 64
 _CAMP_GROUND = 44
 _CAMP_FIRE = (58, 52)
-# The time-of-day dimension, in hours on the clock. Steps are closer
-# together around sunset and sunrise, where the light changes fastest.
-_CAMP_CLOCK = (8, 10, 12, 14, 16, 17, 18, 19, 20, 22, 0, 2, 4, 5, 6, 7)
+# The time-of-day dimension, in hours on the clock: a whole day in fine
+# steps, starting in the morning, so playing it looks smooth.
+_CAMP_CLOCK = tuple((8.0 + 24.0 * i / 128) % 24.0 for i in range(128))
 
 _CAMPER_SHADES = {
     "h": 1.0, "s": 0.78, "e": 0.02, "c": 0.62, "k": 0.36,
