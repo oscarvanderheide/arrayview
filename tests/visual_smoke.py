@@ -933,8 +933,16 @@ def run_smoke(page, base, client, tmp):
         "() => document.body.classList.contains('tutorial-active')",
         timeout=15_000,
     )
-    # The tour opens on a section title, not an instruction: it pauses so
-    # the first frame can land, names the chapter, and only then asks.
+    # The tour opens with a short welcome, each line held until Enter,
+    # then names its first chapter before asking for anything.
+    for _ in range(page.evaluate("() => _TUTORIAL_INTRO.length")):
+        page.wait_for_function(
+            "() => document.getElementById('tutorial-whisper').classList.contains('is-intro')"
+            " && _tutorialSkip !== null",
+            timeout=15_000,
+        )
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
     page.wait_for_function(
         "() => document.getElementById('tutorial-whisper')"
         ".classList.contains('is-section')",
@@ -958,17 +966,15 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "48_tutorial_section")
 
     page.wait_for_function(
-        "() => document.getElementById('tutorial-whisper-key').textContent === 'k'",
+        "() => document.getElementById('tutorial-whisper-key').textContent === 'j  k'",
         timeout=10_000,
     )
     _shot(page, "48_tutorial_start")
     _focus(page)
-    _press(page, "ArrowUp", wait=400)
-    echoed = page.evaluate(
-        "() => document.getElementById('tutorial-whisper-text').textContent"
-    )
-    if "slice" not in echoed:
-        print(f"  WARNING: tutorial did not echo the slice action: {echoed!r}")
+    _press(page, "ArrowUp", wait=1500)
+    # Trying the key must not move the tour on; only Enter does.
+    if page.evaluate("() => _tutorialIndex") != 0:
+        print("  WARNING: tutorial moved on after a single key press")
     _shot(page, "48_tutorial_after_slice")
 
     # ── 49: array identity moves to window title; toast uses bottom-left slot ─

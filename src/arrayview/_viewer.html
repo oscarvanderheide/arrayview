@@ -4609,38 +4609,43 @@
         }
         /* Something opened over the array — step aside until it closes. */
         #tutorial-layer.is-muted { opacity: 0; pointer-events: none; }
+        /* The line, its key, and a note underneath, in a box of fixed
+           height with the text pinned to its top. Lines differ in length
+           and some wrap; a box that grew with them made the text jump
+           up and down from one line to the next. */
         #tutorial-whisper {
-            display: flex; align-items: baseline; gap: 10px;
-            flex-wrap: wrap; justify-content: center;
-            min-height: 20px; padding: 0 8px;
-            /* The rail may be wide; a line of prose should not be. */
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: flex-start; gap: 6px;
+            height: 124px; padding: 0 8px; box-sizing: border-box;
             max-width: min(620px, 100%);
-            color: var(--muted);
-            font-size: 13px; line-height: 1.5; letter-spacing: 0.02em;
+            color: var(--text);
+            font-size: 14px; line-height: 1.5; letter-spacing: 0.02em;
             text-align: center;
             text-shadow: 0 1px 12px var(--bg, rgba(0,0,0,0.6));
             visibility: hidden;
-            opacity: 0; transform: translateY(10px);
+            opacity: 0;
             /* Slower than the rest of the UI on purpose — it should arrive
-               and leave the way a thought does, not the way a toast does. */
-            transition: opacity 460ms ease, transform 460ms ease, visibility 460ms;
+               and leave the way a thought does, not the way a toast does.
+               It fades in place; it does not slide. */
+            transition: opacity 460ms ease, visibility 460ms;
         }
         body.tutorial-active #tutorial-whisper.is-visible {
-            opacity: 1; transform: translateY(0); visibility: visible;
+            opacity: 1; visibility: visible;
         }
-        /* The echo — what just happened — reads as the viewer's own voice
-           rather than an instruction, so it loses the key chip and dims. */
-        #tutorial-whisper.is-echo { color: var(--text); opacity: 0.82; }
-        /* A breather between chapters: nothing is being asked for, and the
-           line says so rather than leaving the frame blank. */
-        #tutorial-whisper.is-rest { color: var(--muted); opacity: 0.7; }
+        /* Key above its sentence. The key's row is kept even when there
+           is no key (headings, the welcome), so the sentence always
+           starts at the same height. */
+        #tutorial-whisper-line {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 8px;
+        }
         #tutorial-whisper-key {
-            flex: 0 0 auto; padding: 2px 8px;
+            flex: 0 0 auto; padding: 1px 8px;
             color: var(--active-dim);
             border: 1px solid var(--active-dim); border-radius: 5px;
-            font-size: 12px; letter-spacing: 0.04em;
+            font-size: 12px; letter-spacing: 0.04em; white-space: pre;
             opacity: 0.9;
-            /* Breathing while it waits, so an unanswered key reads as a
+            /* Breathing until you try it, so an untried key reads as a
                thing waiting for you rather than a label. */
             animation: tutorial-chip-breathe 2600ms ease-in-out infinite;
             transition: box-shadow 140ms ease, transform 140ms ease;
@@ -4649,36 +4654,20 @@
             0%, 100% { opacity: 0.55; }
             50%      { opacity: 1; }
         }
-        /* Each accepted press lands on the chip, so a step that wants four
-           of them shows progress instead of looking broken. */
+        /* Tried at least once: it stops breathing and stays lit. */
+        #tutorial-whisper-key.is-tried { animation: none; opacity: 1; }
         #tutorial-whisper-key.is-hit {
-            animation: none; opacity: 1;
             box-shadow: 0 0 0 2px var(--active-dim);
             transform: scale(1.08);
         }
-        #tutorial-whisper-ticks {
-            flex: 0 0 auto; display: none;
-            color: var(--active-dim); opacity: 0.7;
-            font-size: 9px; letter-spacing: 0.22em;
+        #tutorial-whisper-note {
+            font-size: 12px; letter-spacing: 0.02em;
+            color: var(--text); opacity: 0.68;
         }
-        #tutorial-whisper.has-ticks #tutorial-whisper-ticks { display: inline; }
-        /* "Move on when you like." It appears only once the line has been
-           up long enough to have been read, so it invites rather than
-           rushes — and it is the only way to cut a line short, because a
-           press on any other key is someone still playing, not someone
-           asking for the next instruction. */
-        #tutorial-whisper-next {
-            flex: 0 0 auto; display: none;
-            color: var(--muted); opacity: 0;
-            font-size: 11px; letter-spacing: 0.04em;
-            transition: opacity 420ms ease;
-        }
-        #tutorial-whisper.can-skip #tutorial-whisper-next {
-            display: inline; opacity: 0.5;
-        }
-        #tutorial-whisper.is-section #tutorial-whisper-next { display: none; }
-        #tutorial-whisper.is-echo #tutorial-whisper-key,
-        #tutorial-whisper.is-section #tutorial-whisper-key { display: none; }
+        #tutorial-whisper-key:empty,
+        #tutorial-whisper.is-section #tutorial-whisper-key,
+        #tutorial-whisper.is-intro #tutorial-whisper-key { visibility: hidden; }
+        #tutorial-whisper-key:empty::before { content: '\00a0'; }
         /* Pointing at the thing a step is about. Not a spotlight over the
            array — a ring that blooms outward once and is gone. */
         .tutorial-spotlight {
@@ -4694,37 +4683,14 @@
             #tutorial-whisper-key { animation: none; opacity: 0.9; }
             .tutorial-spotlight { animation-duration: 1ms; }
         }
-        /* A section opening is the one moment the tutorial is allowed to
-           be a title rather than a nudge: it marks that the ground is
-           about to change (a second array appears, overlays arrive). */
-        #tutorial-whisper.is-section {
-            flex-direction: column; align-items: center; gap: 5px;
-            color: var(--text); opacity: 1;
-        }
+        /* A chapter heading: a title and what the chapter covers. */
         #tutorial-whisper.is-section #tutorial-whisper-text {
             font-size: 17px; letter-spacing: 0.06em; opacity: 0.95;
         }
-        #tutorial-whisper-note {
-            display: none;
-            font-size: 12px; letter-spacing: 0.02em;
-            color: var(--muted); opacity: 0.75;
-        }
-        #tutorial-whisper.is-section #tutorial-whisper-note { display: block; }
-        /* The welcome: plain sentences about what this is, before any key
-           is asked for. Larger than a nudge, with its note underneath. */
-        #tutorial-whisper.is-intro {
-            flex-direction: column; align-items: center; gap: 6px;
-            color: var(--text); opacity: 1;
-        }
+        /* The welcome: plain sentences about what this is. */
         #tutorial-whisper.is-intro #tutorial-whisper-text {
             font-size: 15px; letter-spacing: 0.03em;
         }
-        #tutorial-whisper.is-intro #tutorial-whisper-key { display: none; }
-        #tutorial-whisper.is-intro #tutorial-whisper-note {
-            display: block; color: var(--text); opacity: 0.72;
-        }
-        /* The Enter hint goes last, under the note, not between the two. */
-        #tutorial-whisper.is-intro #tutorial-whisper-next { order: 1; }
 
         /* ── Section rail ─────────────────────────────────────────
            The only furniture the tutorial keeps. It exists because the
@@ -5598,10 +5564,10 @@
         </div>
         <div id="tutorial-layer" aria-hidden="true">
             <div id="tutorial-whisper" aria-live="polite">
-                <span id="tutorial-whisper-key"></span>
-                <span id="tutorial-whisper-ticks" aria-hidden="true"></span>
-                <span id="tutorial-whisper-text"></span>
-                <span id="tutorial-whisper-next" aria-hidden="true">↵</span>
+                <div id="tutorial-whisper-line">
+                    <span id="tutorial-whisper-key"></span>
+                    <span id="tutorial-whisper-text"></span>
+                </div>
                 <span id="tutorial-whisper-note"></span>
             </div>
         </div>
@@ -31324,48 +31290,18 @@
         let _tutorialStarted = false;
         let _tutorialVisible = false;
         let _tutorialIndex = 0;
-        let _tutorialCompleting = false;
-        let _tutorialRoiCount = 0;
-        let _tutorialZoom = 1;
         // Bumped whenever the tour is steered somewhere new. Every async
         // continuation captures it and gives up if it no longer matches, so
         // a section jump mid-echo cannot resurrect the step you left.
         let _tutorialSeq = 0;
-        // How many qualifying presses the current step has seen. Steps that
-        // say "a few times" mean it, and must not resolve on the first one.
-        let _tutorialHits = 0;
+        // One press can arrive twice (once as the command, once as the raw
+        // key); presses closer together than this are the same press.
         let _tutorialLastHit = 0;
         const _TUTORIAL_HIT_GAP_MS = 130;
         // Which section has already introduced itself, so returning to a
         // step inside the current section does not replay its title.
         let _tutorialShownSection = -1;
 
-        /**
-         * The tutorial, as sections of whispers.
-         *
-         * Each step asks for one key and says nothing about what the key
-         * does. `echo` is the line that replaces it once the viewer state
-         * actually changed — so the explanation always arrives after the
-         * discovery, never before it. Steps with `auto` are stage-hands
-         * rather than lessons: they set something up, say what appeared,
-         * and move on without asking for anything. `count` is how many
-         * qualifying presses a step wants before it is satisfied; use it
-         * wherever the whisper asks for more than one.
-         *
-         * Sections exist because the tour changes ground under you — a
-         * second array appears, then overlays do — and those deserve to be
-         * announced rather than sprung. A section names the state it needs
-         * via `stage`, so jumping into it out of order still works.
-         *
-         * `key` must be exactly what the keymap binds: it is a literal
-         * character, so 'v' and 'V' are different commands. Check
-         * `keybinds` before changing one.
-         *
-         * Keep every line short enough to read without stopping, and keep
-         * every `echo` about what is now on screen. Anything that is pure
-         * exposition — a feature list, a diagram of stacking — belongs in
-         * the help map, not here.
-         */
         /**
          * What the tour says before it asks for anything. Someone who has
          * just typed `arrayview --tutorial` may not know what this tool is
@@ -31396,35 +31332,50 @@
             },
         ];
 
+        /**
+         * The tutorial, as sections of steps.
+         *
+         * Each step says plainly what its keys do, invites you to try them,
+         * and then waits. Nothing moves on because you pressed a key: you
+         * press Enter when you have had enough. The tour used to ask for a
+         * single press and move straight on, which rushed people past the
+         * very thing it had just shown them.
+         *
+         * `key` is the chip shown next to the line — a label, not a binding.
+         * `expect` lists the commands that count as trying it; they only
+         * make the chip light up. `note` replaces the default "try it ·
+         * Enter" line underneath. `auto` steps change something themselves
+         * (open the comparison) before they say what appeared.
+         *
+         * A section names the state it needs via `stage`, and staging puts
+         * the viewer back to normal first (see `_tutorialTidy`), so a step
+         * can leave things switched on without the next chapter tripping
+         * over them.
+         *
+         * Keys named in the text must be exactly what the keymap binds —
+         * check `keybinds` before changing one.
+         */
+        const _TUTORIAL_TRY = 'try it · press Enter when you are done';
         const _TUTORIAL_SECTIONS = [
             {
                 id: 'moving', title: 'moving', stage: 'single',
-                note: 'one array, four dimensions · esc ends this',
+                note: 'getting around an array with more than two dimensions',
                 steps: [
                     {
-                        key: 'k', whisper: 'there is more behind this one',
-                        echo: 'you moved through a slice',
+                        key: 'j  k',
+                        text: 'j and k step through the slices — so do the up and down arrows, and the mouse wheel or trackpad',
                         expect: ['slice.next', 'slice.prev'],
                     },
                     {
-                        key: 'l', whisper: 'four dimensions, one of them listening',
-                        echo: 'a different dimension is listening now',
-                        expect: ['dim.next', 'dim.prev'],
+                        key: 'h  l',
+                        text: 'h and l (or left and right) choose which dimension j and k move along · the highlighted one at the top',
+                        note: 'switch dimension, then step through it · Enter when you are done',
+                        expect: ['dim.next', 'dim.prev'], spotlight: '#info',
                     },
                     {
-                        key: 'k', whisper: 'same key, new listener',
-                        echo: 'same key, different axis — nothing here is special-cased',
-                        expect: ['slice.next', 'slice.prev'],
-                    },
-                    {
-                        key: 'space', whisper: 'it can do this on its own',
-                        echo: 'it runs along whichever dimension you left selected',
-                        expect: ['playback.toggle'], test: () => isPlaying,
-                    },
-                    {
-                        key: 'space', whisper: 'the same key again, to stop it',
-                        echo: 'stopped — everything stayed live while it moved',
-                        expect: ['playback.toggle'], test: () => !isPlaying,
+                        key: 'space',
+                        text: 'space plays through the highlighted dimension like a movie, and stops it again · < and > change the speed',
+                        expect: ['playback.toggle'],
                     },
                 ],
             },
@@ -31433,26 +31384,15 @@
                 note: 'the same numbers, shown differently',
                 steps: [
                     {
-                        // Exactly one press: the first `c` opens the picker,
-                        // and every `c` after that is typed into its search
-                        // box rather than dispatched as a command. Asking for
-                        // more than one here strands the reader.
-                        key: 'c', whisper: 'grey is only one of the choices',
-                        echo: 'every colormap, searchable · Enter takes one, Esc leaves',
+                        key: 'c',
+                        text: 'c opens the colormaps · type to search, arrows to browse, Enter picks one, Esc closes it',
                         expect: ['colormap.openOrCycle'],
                     },
                     {
-                        key: 'd', whisper: 'there is a shape behind the picture',
-                        echo: 'the distribution behind the picture · drag its handles',
-                        expect: ['histogram.openOrCycle'],
+                        key: 'd',
+                        text: 'd opens the histogram under the image · drag its handles to change the contrast · d again shows range presets',
+                        expect: ['histogram.openOrCycle'], rawKeys: ['d'],
                         spotlight: '#slim-cb-wrap',
-                        test: () => !!(primaryCb && primaryCb._expanded),
-                    },
-                    {
-                        key: 'd', whisper: 'twice more, for what sits behind that',
-                        echo: 'range presets · click a dim to change what the range is taken over',
-                        expect: ['histogram.openOrCycle'], rawKeys: ['d'], count: 2,
-                        test: () => !!(primaryCb && primaryCb._expanded),
                     },
                 ],
             },
@@ -31461,33 +31401,25 @@
                 note: 'which way round you look at it',
                 steps: [
                     {
-                        key: 'r', whisper: 'four presses, all the way round',
-                        echo: 'all the way round · rotating is a lens, not an edit',
-                        expect: ['view.rotateOrFlip'], count: 4,
+                        key: 'r',
+                        text: 'r rotates the image a quarter turn · only the view turns, the data is untouched',
+                        expect: ['view.rotateOrFlip'],
                     },
                     {
-                        key: 't', whisper: 'twice, and you are back where you began',
-                        echo: 'x and y swapped, and swapped back — the array never moved',
-                        expect: ['view.transpose'], count: 2,
+                        key: 't',
+                        text: 't swaps the horizontal and vertical axes · t again swaps them back',
+                        expect: ['view.transpose'],
                     },
                 ],
             },
             {
                 id: 'closer', title: 'closer', stage: 'single',
-                note: 'the array is bigger than the window',
-                breather: 'nothing to press for a moment · look around',
+                note: 'zooming in and moving around',
                 steps: [
                     {
-                        key: '=', whisper: 'the array is larger than the window',
-                        echo: 'closer · drag to move around in there',
-                        expect: ['zoom.in'], count: 3,
-                        onEnter: () => { _tutorialZoom = userZoom; },
-                        test: () => userZoom > _tutorialZoom,
-                    },
-                    {
-                        key: '0', whisper: 'one key undoes all of that',
-                        echo: 'back to fit, from wherever you were',
-                        expect: ['zoom.reset'],
+                        key: '+  -',
+                        text: '+ and - zoom in and out · drag the image to move around · 0 fits it back into the window',
+                        expect: ['zoom.in', 'zoom.out', 'zoom.reset'],
                     },
                 ],
             },
@@ -31496,26 +31428,23 @@
                 note: 'a whole dimension in one picture',
                 steps: [
                     {
-                        key: 'z', whisper: 'they do not all have to wait their turn',
-                        echo: 'every slice laid out at once',
+                        key: 'z',
+                        text: 'z lays out every slice of the highlighted dimension side by side · z again goes back to one',
                         expect: ['slice.toggleMosaic'],
                     },
                     {
-                        key: 'z', whisper: 'and back to one',
-                        echo: 'one again',
-                        expect: ['slice.toggleMosaic'],
-                    },
-                    {
-                        key: 'p', whisper: 'twice · the first shows the choices, the second collapses a dimension',
-                        echo: 'it collapses a dimension instead of stepping through it',
-                        expect: ['projection.cycle'], count: 2,
-                        test: () => projectionMode > 0,
-                    },
-                    {
-                        key: 'p', whisper: 'keep going until it comes back around',
-                        echo: 'max, min, mean, std — then off again',
+                        key: 'p',
+                        text: 'p squashes the highlighted dimension into one image: its maximum, minimum, mean or spread · press p a few times to step through them',
+                        note: 'keep pressing p until it turns off · Enter when you are done',
                         expect: ['projection.cycle'],
-                        test: () => projectionMode === 0,
+                        // `p` only works on a dimension you step through,
+                        // not on the two drawn across the screen.
+                        onEnter: () => {
+                            if (activeDim === dim_x || activeDim === dim_y) {
+                                activeDim = current_slice_dim;
+                                renderInfo();
+                            }
+                        },
                     },
                 ],
             },
@@ -31524,134 +31453,82 @@
                 note: 'the same array, in another domain',
                 steps: [
                     {
-                        // On a real-valued array `f` asks which axes to
-                        // transform before it does anything, so the step is
-                        // only done once the transform has actually landed.
-                        key: 'f', whisper: 'this one asks a question first · Enter',
-                        echo: 'frequency space · you chose which axes went into it',
-                        expect: ['fft.toggle'], test: () => _fftActive,
+                        key: 'f',
+                        text: 'f shows the Fourier transform · it first asks which axes to use, and Enter accepts the suggestion',
+                        expect: ['fft.toggle'],
                     },
                     {
-                        key: 'L', whisper: 'the range spans orders of magnitude',
-                        echo: 'log scale — where the range spans orders of magnitude',
-                        expect: ['logscale.toggle'], test: () => logScale,
-                    },
-                    {
-                        key: 'L', whisper: 'and back to linear',
-                        echo: 'linear again',
-                        expect: ['logscale.toggle'], test: () => !logScale,
-                    },
-                    {
-                        key: 'f', whisper: 'once more, to undo it',
-                        echo: 'back where you started, nothing consumed',
-                        expect: ['fft.toggle'], test: () => !_fftActive,
+                        key: 'L',
+                        text: 'L (shift+l) switches to a log scale, which helps when values span orders of magnitude, as a spectrum does · press L and f again to go back',
+                        expect: ['logscale.toggle', 'fft.toggle'],
                     },
                 ],
             },
             {
                 id: 'values', title: 'values', stage: 'single',
                 note: 'the numbers under the picture',
-                breather: 'still nothing to press · take a moment',
                 steps: [
                     {
-                        key: 'i', whisper: 'then move the pointer over the array',
-                        echo: 'the value under the cursor · click to pin one',
-                        expect: ['hoverinfo.toggle'], test: () => _pixelInfoVisible,
+                        key: 'i',
+                        text: 'i shows the value under the mouse pointer · click to pin one · i again hides them',
+                        expect: ['hoverinfo.toggle'],
                     },
                     {
-                        key: 'i', whisper: 'and off again',
-                        echo: 'pins go with it',
-                        expect: ['hoverinfo.toggle'], test: () => !_pixelInfoVisible,
-                    },
-                    {
-                        key: 'I', whisper: 'the capital asks about the array itself',
-                        echo: 'shape, dtype, and how it sits in memory',
+                        key: 'I',
+                        text: 'I (shift+i) shows facts about the array itself: its shape, data type and size · the same key closes it',
                         expect: ['info.toggle'],
-                        test: () => !!document.getElementById('info-overlay')
-                            .classList.contains('visible'),
-                    },
-                    {
-                        key: 'I', whisper: 'the same key closes it',
-                        echo: 'nothing about the array changed while you looked',
-                        expect: ['info.toggle'],
-                        test: () => !document.getElementById('info-overlay')
-                            .classList.contains('visible'),
                     },
                 ],
             },
             {
                 id: 'views', title: 'views', stage: 'single',
-                note: 'one array, more than one place at once',
+                note: 'one array, seen from more than one place',
                 steps: [
                     {
-                        key: 'v', whisper: 'one point, seen three ways',
-                        echo: 'three planes through one point · drag a crosshair',
-                        expect: ['multiview.toggle'], test: () => multiViewActive,
+                        key: 'v',
+                        text: 'v shows three planes through one point at once · click or drag in any of them to move the point · v again goes back',
+                        expect: ['multiview.toggle'],
                     },
                     {
-                        key: 'v', whisper: 'and back to one',
-                        echo: 'you kept your place — modes are lenses, not rooms',
-                        expect: ['multiview.toggle'], test: () => !multiViewActive,
-                    },
-                    {
-                        key: 'Shift+S', whisper: 'one array can still be two pictures',
-                        echo: 'one dimension, two positions, no second file',
-                        expect: ['compare.toggleDetachedSplit'], test: () => detachedDimMode,
-                    },
-                    {
-                        key: ']', whisper: 'twice · only one side should move',
-                        echo: 'that side moves alone · { and } move the other',
-                        expect: ['detachedDim.adjustIndexA'], count: 2,
-                    },
-                    {
-                        key: 'Shift+S', whisper: 'back to one',
-                        echo: 'back to one',
-                        expect: ['compare.toggleDetachedSplit'], test: () => !detachedDimMode,
+                        key: 'S',
+                        text: 'S (shift+s) splits the view into two copies of this array, each at its own position · [ and ] move one side, { and } the other · S again goes back',
+                        expect: [
+                            'compare.toggleDetachedSplit',
+                            'detachedDim.adjustIndexA', 'detachedDim.adjustIndexB',
+                        ],
                     },
                 ],
             },
             {
                 id: 'pair', title: 'two arrays', stage: 'pair',
-                note: 'a second one was waiting all along',
+                note: 'comparing one array with another',
                 steps: [
                     {
                         auto: 'pair',
-                        echo: 'both loaded, sharing one range and one cursor',
+                        text: 'a second array was loaded as well · now they sit side by side, and everything you do moves both',
+                        note: 'look around · press Enter when you are done',
                     },
                     {
-                        key: 'Shift+X', whisper: 'a difference can be shown in many ways',
-                        echo: 'signed, absolute, relative · then overlay, wipe, flicker, checker',
-                        expect: ['compare.cycleCenterMode'], count: 3,
-                        test: () => compareCenterMode > 0,
-                    },
-                    {
-                        auto: 'single',
-                        echo: 'back to the one array — nothing you did was lost',
+                        key: 'X',
+                        text: 'X (shift+x) cycles through ways to compare them: difference, absolute and relative difference, overlay, wipe, flicker and checkerboard',
+                        expect: ['compare.cycleCenterMode'],
                     },
                 ],
             },
             {
                 id: 'marks', title: 'marks', stage: 'single',
                 note: 'things drawn over the data, not in it',
-                breather: 'nothing to press · the array is yours',
                 steps: [
                     {
-                        key: 'Shift+O', whisper: 'someone has been here before you',
-                        echo: 'someone had already marked these regions',
+                        key: 'O',
+                        text: 'O (shift+o) shows regions that were drawn on this array beforehand · press it again to change how they are shown',
                         expect: ['overlay.cycleVisibility'],
-                        test: () => _overlayVisibility !== 'none',
                     },
                     {
-                        key: 'Shift+R', whisper: 'the colorbar can become something else',
-                        echo: 'the colorbar became a tool shelf',
-                        expect: ['roi.cycleMode'], test: () => rectRoiMode,
+                        key: 'R',
+                        text: 'R (shift+r) turns on region drawing · drag a box on the image to measure what is inside it · R again turns it off',
+                        expect: ['roi.cycleMode', 'pointer.draw'],
                         spotlight: '#slim-cb-wrap',
-                    },
-                    {
-                        key: 'drag', whisper: 'draw a box anywhere on the array',
-                        echo: 'it measured what you drew',
-                        test: () => _rois.length > _tutorialRoiCount,
-                        onEnter: () => { _tutorialRoiCount = _rois.length; },
                     },
                 ],
             },
@@ -31660,35 +31537,21 @@
                 note: 'arrows that are data, not decoration',
                 steps: [
                     {
-                        key: '}', whisper: 'three presses · the arrows have length',
-                        echo: 'the arrows scale · they follow a displacement per voxel',
-                        expect: ['vfield.adjustLength'], count: 3,
-                    },
-                    {
-                        // Deliberately short. A live vector field counts as an
-                        // active tool, and ortho view refuses to open over one
-                        // (`_TOOL_ORTHO_ALLOWED`), so there is no third key
-                        // here that would actually do anything.
-                        key: '{', whisper: 'and three back the other way',
-                        echo: 'length is yours to set · the direction is the data',
-                        expect: ['vfield.adjustLength'], count: 3,
+                        key: '{  }',
+                        text: 'this array comes with a vector field, drawn as arrows · { and } make the arrows shorter or longer · their direction is the data',
+                        expect: ['vfield.adjustLength'],
                     },
                 ],
             },
             {
                 id: 'stack', title: 'a stack', stage: 'single', session: 'stack',
-                note: 'many arrays that do not agree on their shape',
+                note: 'arrays that do not share a shape',
                 steps: [
                     {
-                        key: 'l', whisper: 'one of these dimensions is not space',
-                        echo: 'that one indexes whole arrays, not slices',
-                        expect: ['dim.next', 'dim.prev'],
-                        test: () => _isCollectionDim(activeDim),
-                    },
-                    {
-                        key: 'k', whisper: 'twice along it',
-                        echo: 'each one keeps its own size — nothing was padded or resampled',
-                        expect: ['slice.next', 'slice.prev'], count: 2,
+                        key: 'h  l',
+                        text: 'these are four arrays of different sizes in one view · use h and l to pick the dimension that selects the array, then j and k to step between them',
+                        note: 'each keeps its own size · press Enter when you are done',
+                        expect: ['dim.next', 'dim.prev', 'slice.next', 'slice.prev'],
                     },
                 ],
             },
@@ -31697,14 +31560,10 @@
                 note: 'far more than fits in one tour',
                 steps: [
                     {
-                        key: '?', whisper: 'this tour left a great deal out',
-                        echo: 'everything else is in here, whenever you want it',
+                        key: '?',
+                        text: 'this tour showed a small part of arrayview · ? opens the full list of keys, any time · ? or Esc closes it',
+                        note: 'press Enter to end the tour',
                         rawKeys: ['?'], spotlight: '#help-hint',
-                        test: () => helpOverlay.classList.contains('visible'),
-                    },
-                    {
-                        auto: 'finish',
-                        echo: 'go on then — take as long as you like',
                     },
                 ],
             },
@@ -31741,24 +31600,13 @@
             return starts;
         }, []);
 
-        // Pacing. Every line used to hold for the same 3.1s whether it was
-        // two words or twelve, and then the frame went blank for another
-        // 1.5s before anything else happened. Three things fix that: a
-        // dwell measured from the line's own length, a line that stays up
-        // until the next one replaces it instead of blanking, and a reader
-        // who can cut a dwell short by pressing something.
+        // Pacing. Steps never time out: each one waits for Enter. Only a
+        // chapter heading, which asks for nothing, moves on by itself.
         //
-        // `IDLE` is unchanged and still does the important job: the beat
-        // before a new demand only starts once you have stopped touching
-        // things, so staying to play with what you just found is never
-        // interrupted.
+        // `IDLE` still does one job: a new line only arrives once you have
+        // stopped touching things, so it never lands mid-gesture.
         const _TUTORIAL_WORD_MS = 230;
         const _TUTORIAL_READ_BASE_MS = 1400;
-        const _TUTORIAL_ECHO_MIN_MS = 2800;
-        const _TUTORIAL_ECHO_MAX_MS = 4600;
-        // A stage-hand's line is a caption on something you can already
-        // see, not a lesson, so it does not need a lesson's dwell.
-        const _TUTORIAL_STAGE_MIN_MS = 2000;
         const _TUTORIAL_SECTION_MIN_MS = 1900;
         const _TUTORIAL_SECTION_MAX_MS = 3000;
         const _TUTORIAL_GAP_MS = 420;
@@ -31770,10 +31618,9 @@
         // Swapping one line for another dips through a short fade rather
         // than changing the words underneath someone mid-read.
         const _TUTORIAL_SWAP_MS = 180;
-        // How long a line must have been up before it offers to move on.
-        // Sooner than this and the offer is rushing you through a line you
-        // have not finished.
-        const _TUTORIAL_SKIP_GRACE_MS = 1200;
+        // How long a line must have been up before Enter moves past it, so
+        // one Enter cannot skip two lines.
+        const _TUTORIAL_SKIP_GRACE_MS = 600;
         let _tutorialWhisperTimer = null;
         let _tutorialSwapTimer = 0;
         let _tutorialSkipArmTimer = 0;
@@ -31867,8 +31714,7 @@
             const whisper = document.getElementById('tutorial-whisper');
             if (whisper && !visible) {
                 whisper.classList.remove(
-                    'is-visible', 'is-echo', 'is-section', 'is-rest', 'is-intro',
-                    'has-ticks'
+                    'is-visible', 'is-section', 'is-intro'
                 );
             }
             _reconcileTutorialRail(visible);
@@ -32019,7 +31865,7 @@
          * and a half read as "the tour ended", so whatever was last said
          * stays until the next thing is ready to say.
          */
-        function _tutorialSay(keyLabel, text, mode, note, ticks) {
+        function _tutorialSay(keyLabel, text, mode, note) {
             const whisper = document.getElementById('tutorial-whisper');
             if (!whisper) return;
             if (_tutorialSwapTimer) {
@@ -32032,21 +31878,14 @@
             }
             const paint = () => {
                 const keyEl = document.getElementById('tutorial-whisper-key');
-                const tickEl = document.getElementById('tutorial-whisper-ticks');
                 const textEl = document.getElementById('tutorial-whisper-text');
                 const noteEl = document.getElementById('tutorial-whisper-note');
-                keyEl.textContent = keyLabel || '';
-                keyEl.style.display = keyLabel && mode === 'ask' ? '' : 'none';
-                keyEl.classList.remove('is-hit');
-                tickEl.textContent = ticks || '';
+                keyEl.textContent = mode === 'ask' ? (keyLabel || '') : '';
+                keyEl.classList.remove('is-hit', 'is-tried');
                 textEl.textContent = text;
                 noteEl.textContent = note || '';
-                whisper.classList.toggle('has-ticks', !!ticks && mode === 'ask');
-                whisper.classList.toggle('is-echo', mode === 'echo');
-                whisper.classList.toggle('is-rest', mode === 'rest');
                 whisper.classList.toggle('is-section', mode === 'section');
                 whisper.classList.toggle('is-intro', mode === 'intro');
-                whisper.classList.remove('can-skip');
                 whisper.classList.add('is-visible');
             };
             if (whisper.classList.contains('is-visible')) {
@@ -32060,30 +31899,12 @@
             paint();
         }
 
-        /** Progress through a step that wants more than one press. */
-        function _tutorialTicks(step, hits) {
-            const total = (step && step.count) || 1;
-            if (total < 2) return '';
-            const done = Math.max(0, Math.min(total, hits));
-            return '●'.repeat(done) + '○'.repeat(total - done);
-        }
-
-        /**
-         * The press landed. A step asking for four of them used to give
-         * nothing back until all four had arrived, which reads as broken
-         * rather than as counting.
-         */
+        /** You tried the thing the line is about: the chip says so. */
         function _tutorialMarkHit() {
             const keyEl = document.getElementById('tutorial-whisper-key');
-            if (keyEl) {
-                keyEl.classList.add('is-hit');
-                window.setTimeout(() => keyEl.classList.remove('is-hit'), 180);
-            }
-            const tickEl = document.getElementById('tutorial-whisper-ticks');
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (tickEl && step && (step.count || 1) > 1) {
-                tickEl.textContent = _tutorialTicks(step, _tutorialHits);
-            }
+            if (!keyEl) return;
+            keyEl.classList.add('is-hit', 'is-tried');
+            window.setTimeout(() => keyEl.classList.remove('is-hit'), 180);
         }
 
         /**
@@ -32116,8 +31937,6 @@
                 clearTimeout(_tutorialSkipArmTimer);
                 _tutorialSkipArmTimer = 0;
             }
-            const whisper = document.getElementById('tutorial-whisper');
-            if (whisper) whisper.classList.remove('can-skip');
             if (_tutorialWhisperTimer) {
                 clearTimeout(_tutorialWhisperTimer);
                 _tutorialWhisperTimer = null;
@@ -32155,8 +31974,6 @@
             _tutorialSkipArmTimer = window.setTimeout(() => {
                 _tutorialSkipArmTimer = 0;
                 if (seq !== _tutorialSeq || !_tutorialVisible) return;
-                const whisper = document.getElementById('tutorial-whisper');
-                if (whisper) whisper.classList.add('can-skip');
                 _tutorialSkip = () => {
                     _tutorialClearTimer();
                     // Asking for the next line is not "still exploring".
@@ -32240,8 +32057,7 @@
                 }
             }
             if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
-            if (multiViewActive) exitMultiView();
-            if (isPlaying) togglePlay();
+            _tutorialTidy();
             // The `pair` section opens the comparison itself; every other
             // section wants the single array back.
             if (section.stage === 'single' && compareActive) exitCompareMode();
@@ -32253,6 +32069,31 @@
                 updateView();
             }
             await new Promise(resolve => window.setTimeout(resolve, 120));
+        }
+
+        /**
+         * Undo what the previous chapter's steps may have left switched on.
+         * Steps no longer switch things back themselves — you are free to
+         * leave them on while you explore — so each chapter starts from a
+         * plain single view. Your colormap, contrast, rotation and slice
+         * position are yours and stay.
+         */
+        function _tutorialTidy() {
+            const run = id => { try { _runCommand(id); } catch (_) { /* best effort */ } };
+            if (typeof _modePicker !== 'undefined' && _modePicker) hideModePicker();
+            if (isPlaying) togglePlay();
+            if (multiViewActive) exitMultiView();
+            if (detachedDimMode) run('compare.toggleDetachedSplit');
+            if (projectionMode > 0) _setProjectionMode(0);
+            if (dim_z >= 0) run('slice.toggleMosaic');
+            if (logScale) run('logscale.toggle');
+            if (_fftActive) run('fft.toggle');
+            if (_pixelInfoVisible) run('hoverinfo.toggle');
+            const info = document.getElementById('info-overlay');
+            if (info && info.classList.contains('visible')) info.classList.remove('visible');
+            if (rectRoiMode) run('roi.cycleMode');
+            if (compareCenterMode > 0) compareCenterMode = 0;
+            if (userZoom !== 1) run('zoom.reset');
         }
 
         function _tutorialPrepareStep(seq) {
@@ -32293,19 +32134,22 @@
             });
         }
 
-        function _tutorialEnterStep(seq, step) {
+        async function _tutorialEnterStep(seq, step) {
             if (seq !== _tutorialSeq || !_tutorialVisible) return;
             if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
-            _tutorialHits = 0;
             _tutorialLastHit = 0;
             if (typeof step.onEnter === 'function') step.onEnter();
             if (step.auto) {
-                // Stage-hands run themselves and report what changed; there is
-                // nothing for the reader to press.
-                _tutorialRunAuto(seq, step);
-                return;
+                // Stage-hands change something themselves, then say what
+                // appeared.
+                const ran = await _tutorialRunAuto(step);
+                if (seq !== _tutorialSeq || !_tutorialVisible) return;
+                if (!ran) {
+                    _tutorialNext(seq);
+                    return;
+                }
             }
-            _tutorialSay(step.key, step.whisper, 'ask', '', _tutorialTicks(step, 0));
+            _tutorialSay(step.key || '', step.text, 'ask', step.note || _TUTORIAL_TRY);
             if (step.spotlight) {
                 window.setTimeout(() => {
                     if (seq === _tutorialSeq && _tutorialVisible) {
@@ -32313,6 +32157,19 @@
                     }
                 }, _TUTORIAL_SWAP_MS);
             }
+            // No timeout: the step stays until you press Enter.
+            _tutorialArm(seq, null, () => _tutorialNext(seq));
+        }
+
+        /** Enter was pressed on a step: on to the next, or the end. */
+        function _tutorialNext(seq) {
+            if (seq !== _tutorialSeq || !_tutorialVisible) return;
+            if (_tutorialIndex >= _TUTORIAL_STEPS.length - 1) {
+                _tutorialFinish();
+                return;
+            }
+            _tutorialSay('', '', 'ask');
+            _tutorialAfter(seq, _TUTORIAL_GAP_MS, () => _tutorialGo(_tutorialIndex + 1));
         }
 
         function _tutorialGo(index) {
@@ -32320,7 +32177,6 @@
             const seq = ++_tutorialSeq;
             _tutorialIndex = Math.max(0, Math.min(_TUTORIAL_STEPS.length - 1, index));
             sessionStorage.setItem(_TUTORIAL_STORAGE_KEY, String(_tutorialIndex));
-            _tutorialCompleting = false;
             _reconcileTutorial();
             _tutorialPrepareStep(seq);
         }
@@ -32334,53 +32190,6 @@
             _tutorialShownSection = -1;
             _tutorialSay('', '', 'ask');
             _tutorialGo(_TUTORIAL_SECTION_START[clamped]);
-        }
-
-        /** Replace the invitation with what just happened, then move on. */
-        function _tutorialComplete() {
-            if (_tutorialCompleting || !_tutorialVisible) return;
-            _tutorialCompleting = true;
-            const seq = _tutorialSeq;
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            const last = _tutorialIndex >= _TUTORIAL_STEPS.length - 1;
-            const next = _TUTORIAL_STEPS[_tutorialIndex + 1];
-            const section = _TUTORIAL_SECTIONS[step ? step._section : 0];
-            const leaving = !!(next && step && next._section !== step._section);
-            const echo = (step && step.echo) || '';
-            const hold = _tutorialDwell(
-                echo,
-                step && step.auto ? _TUTORIAL_STAGE_MIN_MS : _TUTORIAL_ECHO_MIN_MS,
-                _TUTORIAL_ECHO_MAX_MS
-            );
-            const advance = () => {
-                _tutorialAfter(seq, _TUTORIAL_GAP_MS, () => {
-                    if (last) {
-                        _tutorialFinish();
-                    } else {
-                        _tutorialGo(_tutorialIndex + 1);
-                    }
-                });
-            };
-            // A breather between chapters. Thirteen chapters back to back
-            // is a corridor; a beat where nothing is asked for, and the
-            // line says so, is a room. Silence alone would just read as
-            // the tour having stopped working.
-            const rest = () => {
-                if (!(leaving && section && section.breather)) {
-                    advance();
-                    return;
-                }
-                _tutorialSay('', section.breather, 'rest');
-                _tutorialArm(
-                    seq,
-                    _tutorialDwell(section.breather, _TUTORIAL_STAGE_MIN_MS, _TUTORIAL_ECHO_MAX_MS),
-                    advance, advance
-                );
-            };
-            _tutorialWhenClear(seq, () => {
-                _tutorialSay('', echo, 'echo');
-                _tutorialArm(seq, hold, rest, rest);
-            });
         }
 
         function _tutorialFinish() {
@@ -32398,54 +32207,28 @@
             _reconcileTutorial();
         }
 
+        /** A press that counts as trying the current step lights its chip. */
         function _tutorialEvaluate(actionId) {
-            if (!_tutorialVisible || _tutorialCompleting) return;
+            if (!_tutorialVisible) return;
             const step = _TUTORIAL_STEPS[_tutorialIndex];
             if (!step || step.auto) return;
             const rawKey = actionId && actionId.startsWith('key:') ? actionId.slice(4) : '';
             const rawMatch = !!(rawKey && step.rawKeys && step.rawKeys.includes(rawKey));
-            if (step.expect && !step.expect.includes(actionId) && !rawMatch) return;
-            if (!step.expect && !rawMatch && actionId !== 'pointer.draw') return;
-            const seq = _tutorialSeq;
-            const check = () => {
-                if (seq !== _tutorialSeq || _tutorialCompleting) return;
-                if (!step.test || step.test()) {
-                    // A step that asked for several presses waits for them;
-                    // resolving on the first would make the whisper a lie.
-                    // One press can arrive twice (once as the command, once
-                    // as the raw key), so presses too close together are the
-                    // same press.
-                    const now = performance.now();
-                    if (now - _tutorialLastHit >= _TUTORIAL_HIT_GAP_MS) {
-                        _tutorialLastHit = now;
-                        _tutorialHits += 1;
-                        _tutorialMarkHit();
-                    }
-                    if (_tutorialHits < (step.count || 1)) return;
-                    _tutorialComplete();
-                    return;
-                }
-                window.setTimeout(check, 120);
-            };
-            check();
+            if (!rawMatch && !(step.expect && step.expect.includes(actionId))) return;
+            const now = performance.now();
+            if (now - _tutorialLastHit < _TUTORIAL_HIT_GAP_MS) return;
+            _tutorialLastHit = now;
+            _tutorialMarkHit();
         }
 
-        async function _tutorialRunAuto(seq, step) {
+        /** Run a stage-hand's change. False when there is nothing to show. */
+        async function _tutorialRunAuto(step) {
             if (step.auto === 'pair') {
                 const pairSids = [sid, ...compareSidList.filter(item => item && item !== sid)].slice(0, 2);
-                if (pairSids.length < 2) {
-                    // No second array to show — skip rather than stall the tour.
-                    _tutorialGo(_tutorialIndex + 1);
-                    return;
-                }
-                await enterCompareModeByMultipleSids(pairSids);
-            } else if (step.auto === 'single') {
-                if (compareActive) exitCompareMode();
-                await new Promise(resolve => window.setTimeout(resolve, 180));
+                if (pairSids.length < 2) return false;
+                if (!compareActive) await enterCompareModeByMultipleSids(pairSids);
             }
-            if (seq !== _tutorialSeq || !_tutorialVisible) return;
-            _tutorialCompleting = false;
-            _tutorialComplete();
+            return true;
         }
 
         window.addEventListener('arrayview:action', event => {
@@ -32487,7 +32270,10 @@
             // Enter, while a line is holding, means "done with that one".
             // It is the one key the tour takes for itself, and only while
             // it is offering — every other press is you exploring.
-            if (_tutorialSkip && event.key === 'Enter' && !typing
+            // Enter also confirms the `p` choices, a typed slice number and
+            // the segmentation tool; those keep it while they are up.
+            const enterTaken = !!_modePicker || sliceJumpBuffer.length > 0 || _segMode;
+            if (_tutorialSkip && event.key === 'Enter' && !typing && !enterTaken
                 && !event.ctrlKey && !event.metaKey && !event.altKey
                 && !_tutorialPanelOpen()) {
                 event.preventDefault();

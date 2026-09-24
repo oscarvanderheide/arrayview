@@ -147,26 +147,21 @@ With no file argument, ArrayView opens its generated interactive tutorial. It
 runs in the normal viewer on real commands rather than a simulated walkthrough,
 and includes prepared comparison and overlay data.
 
-The tutorial has no panel. A single line near the bottom of the frame names one
-key and asks you to press it; it does not say what the key does. Once the viewer
-state actually changes, that line is replaced by what just happened, then
-dissolves into the next one.
-
-It is in no hurry. Each line holds long enough to read, the frame goes quiet
-between steps, and the next thing is only asked once you have stopped — so you
-can stay and play with whatever you just found for as long as you like. When a
-panel opens over the array, the tutorial fades out and waits rather than talking
-underneath it.
+The tutorial has no panel. It opens with a few lines on what ArrayView is and
+what the tour will do. After that, each step names a key, says what it does,
+and invites you to try it. Nothing moves on because you pressed a key: stay as
+long as you like, and press `Enter` when you are done. When a panel opens over
+the array, the tutorial fades out and waits rather than talking underneath it.
 
 The tour is divided into sections — `moving`, `looking`, `shaping`, `closer`,
 `all at once`, `spectra`, `values`, `views`, `two arrays`, `marks`, `flow`,
-`a stack`, `the rest` — listed along the bottom of the frame. `flow` and
+`a stack`, `the rest` — listed down the left edge of the frame. `flow` and
 `a stack` run on their own generated sessions (a deformation field, and a
 ragged collection of differently shaped volumes); entering them loads that
 session and leaving returns you to the main array. Each announces
 itself before it starts asking for anything. Click a section to jump to it, or
 use `Tab` and `Shift+Tab`. Jumping is safe in either direction: every section
-sets up the state it needs, so skipping ahead to `two arrays` loads the pair and
+starts from a plain view and sets up what it needs, so skipping ahead to `two arrays` loads the pair and
 going back closes it again. Press `Esc` to end the tour.
 
 ## Multiple Arrays

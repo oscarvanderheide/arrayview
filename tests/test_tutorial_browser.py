@@ -26,7 +26,6 @@ WHISPER = """
             text: document.getElementById('tutorial-whisper-text').textContent,
             note: document.getElementById('tutorial-whisper-note').textContent,
             visible: w.classList.contains('is-visible'),
-            echo: w.classList.contains('is-echo'),
             section: w.classList.contains('is-section'),
             muted: document.getElementById('tutorial-layer')
                 .classList.contains('is-muted'),
@@ -36,20 +35,6 @@ WHISPER = """
         };
     }
 """
-
-ASK = "() => document.getElementById('tutorial-whisper-key').textContent === %r"
-
-_ASKING = """
-    () => {
-        const w = document.getElementById('tutorial-whisper');
-        return w.classList.contains('is-visible') && !w.classList.contains('is-echo')
-            && document.getElementById('tutorial-whisper-key').textContent !== '';
-    }
-"""
-_ECHOING = """
-    () => document.getElementById('tutorial-whisper').classList.contains('is-echo')
-"""
-
 
 @pytest.fixture
 def tutorial_page(page, client, server_url, tmp_path):
@@ -117,10 +102,6 @@ def test_it_says_what_arrayview_is_before_asking_for_anything(tutorial_page):
     assert page.evaluate(WHISPER)["text"] == "moving"
 
 
-def _wait_for_ask(page, key, timeout=20_000):
-    page.wait_for_function(ASK % key, timeout=timeout)
-
-
 def _section(page, section_id):
     """Resolve a section by id. Never hard-code the index — sections get
     inserted, and an index that silently means a different chapter turns a
@@ -158,143 +139,129 @@ def test_the_tour_opens_on_a_chapter_not_an_instruction(toured_page):
     )
 
 
-def test_the_invitation_explains_nothing(toured_page):
-    """The whole premise: it asks for a key and does not say what the key
-    does. Anything that describes the outcome up front is the old tour."""
+def _wait_for_step(page, index, timeout=20_000):
+    """Wait until step `index` is on screen and Enter would move past it."""
+    page.wait_for_function(
+        f"() => _tutorialIndex === {index} && _tutorialSkip !== null"
+        " && document.getElementById('tutorial-whisper-text').textContent"
+        f" === _TUTORIAL_STEPS[{index}].text",
+        timeout=timeout,
+    )
+
+
+def _step_index(page, predicate):
+    return page.evaluate(f"() => _TUTORIAL_STEPS.findIndex({predicate})")
+
+
+def test_a_step_says_what_its_keys_do(toured_page):
+    """A bare "press k" with no explanation rushed people past the point.
+    Each step names its keys and says what they do."""
     page = toured_page
-    _wait_for_ask(page, "k")
+    _wait_for_step(page, 0)
     state = page.evaluate(WHISPER)
-
-    assert state["visible"] and not state["echo"], f"an invitation is not an echo, got {state}"
-    assert len(state["text"]) <= 40, (
-        f"the invitation should be a whisper, not a paragraph, got {state['text']!r}"
-    )
-    assert "slice" not in state["text"].lower(), (
-        f"the invitation must not give away what the key does, got {state['text']!r}"
-    )
+    assert state["key"].split() == ["j", "k"], state
+    assert "slice" in state["text"], f"the step should say what j and k do, got {state}"
+    assert "Enter" in state["note"], f"the step should say how to move on, got {state}"
 
 
-def test_every_step_asks_for_a_key_that_is_actually_bound(toured_page):
-    """`v` and `V` are different commands. A step whose label does not match
-    the keymap strands the reader on a key that does something else."""
+def test_trying_the_keys_does_not_move_on(toured_page):
+    """Pressing the key once used to jump straight to the next line. Now
+    you can keep going for as long as you like."""
     page = toured_page
-    mismatched = page.evaluate(
-        """() => {
-            const bound = new Map();
-            keybinds.forEach(b => {
-                if (!b.key) return;
-                const label = (b.shift === true ? 'Shift+' : '') + b.key;
-                if (!bound.has(label)) bound.set(label, []);
-                bound.get(label).push(b.command);
-            });
-            return _TUTORIAL_STEPS
-                .filter(s => s.key && s.expect)
-                .filter(s => {
-                    const cmds = bound.get(s.key === 'space' ? ' ' : s.key) || [];
-                    return !s.expect.some(e => cmds.includes(e));
-                })
-                .map(s => ({key: s.key, expect: s.expect}));
-        }"""
-    )
-    assert mismatched == [], f"these steps name a key that does not run them: {mismatched}"
-
-
-def test_the_action_reveals_what_it_did(toured_page):
-    page = toured_page
-    _wait_for_ask(page, "k")
+    _wait_for_step(page, 0)
     before = page.evaluate("indices[activeDim]")
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(400)
+    for _ in range(5):
+        page.keyboard.press("k")
+        page.wait_for_timeout(150)
+    page.wait_for_timeout(4_000)
 
     assert page.evaluate("indices[activeDim]") != before, "the key should still act"
-    echoed = page.evaluate(WHISPER)
-    assert echoed["echo"], f"landing the action should switch to the echo, got {echoed}"
-    assert "slice" in echoed["text"].lower(), (
-        f"the echo should name what just happened, got {echoed['text']!r}"
-    )
-    assert echoed["index"] == 0, "the echo belongs to the step you just did"
-
-    # It dissolves on its own into the next invitation. Nothing to dismiss.
-    _wait_for_ask(page, "l")
-    nxt = page.evaluate(WHISPER)
-    assert nxt["index"] == 1, f"the tour should move on by itself, got {nxt}"
-    assert not nxt["echo"], f"the next step is an invitation again, got {nxt}"
-
-
-def test_the_echo_holds_long_enough_to_read(toured_page):
-    """The tour used to move on before you had finished the line."""
-    page = toured_page
-    _wait_for_ask(page, "k")
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(2400)
     state = page.evaluate(WHISPER)
-    assert state["echo"] and state["visible"], (
-        f"the echo should still be up 2.4s after the action, got {state}"
-    )
+    assert state["index"] == 0, f"trying the keys must not move the tour on, got {state}"
+    assert page.evaluate(
+        "() => document.getElementById('tutorial-whisper-key').classList.contains('is-tried')"
+    ), "the key should show it was tried"
+
+    page.keyboard.press("Enter")
+    _wait_for_step(page, 1)
 
 
-def test_it_waits_while_you_are_still_exploring(toured_page):
-    """Room to explore is the point: a new demand must not land on someone
-    who is still playing with what they just found."""
+def test_the_text_does_not_jump(toured_page):
+    """Headings, steps with a key, and long lines that wrap must all start
+    at the same height, and nothing may appear under a line after it lands."""
     page = toured_page
-    _wait_for_ask(page, "k")
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(300)
-
-    # Keep working well past the point where the next step would be due.
-    for _ in range(10):
-        page.keyboard.press("ArrowUp")
-        page.wait_for_timeout(400)
-    busy = page.evaluate(WHISPER)
-    assert not (busy["visible"] and not busy["echo"]), (
-        f"no new invitation should arrive while keys are still coming, got {busy}"
+    top = "() => Math.round(document.getElementById('tutorial-whisper-text').getBoundingClientRect().top)"
+    tops = set()
+    for index in (0, 1, 2):
+        _wait_for_step(page, index)
+        tops.add(page.evaluate(top))
+        page.wait_for_timeout(1_500)
+        tops.add(page.evaluate(top))
+        page.keyboard.press("Enter")
+    page.wait_for_function(
+        "() => document.getElementById('tutorial-whisper').classList.contains('is-section')"
+        " && document.getElementById('tutorial-whisper').classList.contains('is-visible')",
+        timeout=20_000,
     )
+    tops.add(page.evaluate(top))
+    assert len(tops) == 1, f"the text moved between lines: {sorted(tops)}"
 
-    _wait_for_ask(page, "l")
-    assert page.evaluate(WHISPER)["index"] == 1, "it should resume once you stop"
 
-
-def test_an_unrelated_command_earns_no_progress(toured_page):
+def test_every_key_on_a_chip_is_bound(toured_page):
+    """A chip that names a key the keymap does not bind strands the reader."""
     page = toured_page
-    _wait_for_ask(page, "k")
-    page.keyboard.press("b")
-    page.wait_for_timeout(300)
-    state = page.evaluate(WHISPER)
-    assert state["index"] == 0 and not state["echo"], (
-        f"only the asked-for action should advance the tour, got {state}"
+    unbound = page.evaluate(
+        """() => {
+            const bound = new Set(keybinds.map(b => b.key).filter(Boolean));
+            bound.add('?');
+            return _TUTORIAL_STEPS
+                .flatMap(s => (s.key || '').split(/\\s+/).filter(Boolean))
+                .map(k => k === 'space' ? ' ' : k)
+                .filter(k => !bound.has(k));
+        }"""
     )
+    assert unbound == [], f"these chip keys do nothing: {unbound}"
 
 
-def test_a_step_that_asks_for_several_presses_waits_for_them(toured_page):
-    """'press it a few times' resolving on the first press makes the line
-    a lie, and skips the behaviour it was pointing at."""
+def test_every_expected_command_exists(toured_page):
     page = toured_page
-    # Walk into the split step the way a reader would; its `]` is the only
-    # counted step that does not open a panel over the frame. Consecutive
-    # steps reuse the same key, so wait on the step index, not the label.
-    target = page.evaluate(
-        "() => _TUTORIAL_STEPS.findIndex(s => s.expect"
-        " && s.expect.includes('detachedDim.adjustIndexA'))"
+    missing = page.evaluate(
+        """() => _TUTORIAL_STEPS
+            .flatMap(s => s.expect || [])
+            .filter(id => id !== 'pointer.draw' && !commands[id])"""
     )
-    _go_to_section(page, "views")
-    for key in ("v", "v", "Shift+S"):
-        page.wait_for_function(_ASKING, timeout=20_000)
-        page.keyboard.press(key)
-        # Wait for the press to be taken before looking for the next ask,
-        # or the still-showing previous label reads as the next one.
-        page.wait_for_function(_ECHOING, timeout=20_000)
-    page.wait_for_function(f"() => _tutorialIndex === {target}", timeout=20_000)
-    _wait_for_ask(page, "]")
+    assert missing == [], f"these steps listen for commands that do not exist: {missing}"
 
-    page.keyboard.press("]")
-    page.wait_for_timeout(400)
-    state = page.evaluate(WHISPER)
-    assert not state["echo"], f"one press should not satisfy a two-press step, got {state}"
-    assert page.evaluate("() => _tutorialHits") == 1, "the press should still be counted"
 
-    page.keyboard.press("]")
-    page.wait_for_timeout(500)
-    assert page.evaluate(WHISPER)["echo"], "the second press should complete the step"
+def test_enter_belongs_to_the_choices_while_they_are_open(toured_page):
+    """`p` opens a row of choices that Enter closes. That Enter must not
+    also skip the step."""
+    page = toured_page
+    target = _step_index(page, "s => s.key === 'p'")
+    _go_to_section(page, "mosaic")
+    _wait_for_step(page, target - 1)
+    page.keyboard.press("Enter")
+    _wait_for_step(page, target)
+
+    page.keyboard.press("p")
+    page.wait_for_function("() => !!_modePicker", timeout=5_000)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(1_500)
+    assert page.evaluate(WHISPER)["index"] == target, "Enter should only close the choices"
+
+
+def test_a_new_chapter_starts_from_a_plain_view(toured_page):
+    """Steps leave things on for you to play with; the next chapter must
+    not inherit them."""
+    page = toured_page
+    target = _step_index(page, "s => s.key === 'z'")
+    _go_to_section(page, "mosaic")
+    _wait_for_step(page, target)
+    page.keyboard.press("z")
+    page.wait_for_function("() => dim_z >= 0", timeout=5_000)
+
+    _go_to_section(page, "spectra")
+    page.wait_for_function("() => dim_z < 0", timeout=10_000)
 
 
 def test_the_only_thing_to_click_is_the_section_rail(toured_page):
@@ -346,10 +313,10 @@ def test_the_whisper_never_blocks_the_array(toured_page):
 
 def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     """The colormap picker opens centred, right over where the line sits.
-    Talking underneath it is how the tour used to lose its own echo."""
+    Talking underneath it would go unread."""
     page = toured_page
     _go_to_section(page, "looking")
-    _wait_for_ask(page, "c")
+    _wait_for_step(page, _step_index(page, "s => s.key === 'c'"))
 
     page.keyboard.press("c")
     page.wait_for_timeout(700)
@@ -404,25 +371,20 @@ def test_jumping_into_a_section_puts_the_viewer_where_it_expects(toured_page):
 
 
 def test_the_stage_hand_steps_run_themselves(toured_page):
-    """`auto` steps set something up and move on; nothing is asked of the
-    reader, so a stall there would strand the whole tour."""
+    """`auto` steps open the comparison themselves, then wait like any
+    other step."""
     page = toured_page
-    page.evaluate(
-        """() => {
-            const i = _TUTORIAL_STEPS.findIndex(s => s.auto === 'pair');
-            _tutorialGo(i);
-        }"""
-    )
+    index = _step_index(page, "s => s.auto === 'pair'")
+    page.evaluate(f"() => _tutorialGo({index})")
     page.wait_for_function("() => compareActive", timeout=20_000)
-    _wait_for_ask(page, "Shift+X")
-    assert page.evaluate(WHISPER)["index"] > page.evaluate(
-        "() => _TUTORIAL_STEPS.findIndex(s => s.auto === 'pair')"
-    ), "the tour should carry on without input"
+    _wait_for_step(page, index)
+    page.keyboard.press("Enter")
+    _wait_for_step(page, index + 1)
 
 
 def test_escape_wakes_you_up(toured_page):
     page = toured_page
-    _wait_for_ask(page, "k")
+    _wait_for_step(page, 0)
     page.keyboard.press("Escape")
     page.wait_for_timeout(300)
     assert page.evaluate(
@@ -435,7 +397,10 @@ def test_escape_wakes_you_up(toured_page):
 
 def test_the_last_step_ends_the_tour(toured_page):
     page = toured_page
-    page.evaluate("() => _tutorialGo(_TUTORIAL_STEPS.length - 1)")
+    last = page.evaluate("() => _TUTORIAL_STEPS.length - 1")
+    page.evaluate(f"() => _tutorialGo({last})")
+    _wait_for_step(page, last)
+    page.keyboard.press("Enter")
     page.wait_for_function(
         "() => !document.body.classList.contains('tutorial-active')",
         timeout=20_000,
