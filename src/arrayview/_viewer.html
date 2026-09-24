@@ -31328,7 +31328,7 @@
             },
             {
                 text: 'take your time · the tour waits while you explore',
-                note: 'Enter moves on · Tab skips a chapter · Esc ends the tour',
+                note: 'Enter moves on · Tab or the dots on the left jump between chapters · Esc ends the tour',
             },
         ];
 
@@ -31368,7 +31368,7 @@
                     },
                     {
                         text: 'the labels at the top are the dimensions · x and y are the two drawn on screen · the numbers show where you are in the others',
-                        note: 'have a look · press Enter when you are done',
+                        note: 'scroll over a number to move through it · double-click the labels to see each size · Enter when you are done',
                         spotlight: '#info',
                     },
                     {
@@ -31396,6 +31396,7 @@
                     {
                         key: 'd',
                         text: 'd opens the histogram under the image · drag its handles to change the contrast · d again shows range presets',
+                        note: 'double-clicking the colorbar does the same · scrolling over it narrows or widens the range · Enter when you are done',
                         expect: ['histogram.openOrCycle'], rawKeys: ['d'],
                         spotlight: '#slim-cb-wrap',
                     },
@@ -31423,7 +31424,7 @@
                 steps: [
                     {
                         key: '+  -',
-                        text: '+ and - zoom in and out · drag the image to move around · 0 fits it back into the window',
+                        text: '+ and - zoom in and out, and so does pinching on a trackpad or ctrl+scroll · drag the image to move around · 0 fits it back',
                         expect: ['zoom.in', 'zoom.out', 'zoom.reset'],
                     },
                 ],
@@ -31475,7 +31476,8 @@
                 steps: [
                     {
                         key: 'i',
-                        text: 'i shows the value under the mouse pointer · click to pin one · i again hides them',
+                        text: 'i shows the value under the mouse pointer · alt+click pins one · i again hides them',
+                        note: 'double-clicking the image does the same as i · Enter when you are done',
                         expect: ['hoverinfo.toggle'],
                     },
                     {
@@ -31516,6 +31518,7 @@
                     {
                         key: 'X',
                         text: 'X (shift+x) cycles through ways to compare them: difference, absolute and relative difference, overlay, wipe, flicker and checkerboard',
+                        note: 'or click the buttons that appear above the images · Enter when you are done',
                         expect: ['compare.cycleCenterMode'],
                     },
                 ],
@@ -31566,7 +31569,7 @@
                 steps: [
                     {
                         key: '?',
-                        text: 'this tour showed a small part of arrayview · ? opens the full list of keys, any time · ? or Esc closes it',
+                        text: 'this tour showed a small part of arrayview · ? or the ? button in the corner opens the full list of keys, any time · ? or Esc closes it',
                         note: 'press Enter to end the tour',
                         rawKeys: ['?'], spotlight: '#help-hint',
                     },
