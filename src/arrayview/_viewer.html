@@ -4710,6 +4710,21 @@
             color: var(--muted); opacity: 0.75;
         }
         #tutorial-whisper.is-section #tutorial-whisper-note { display: block; }
+        /* The welcome: plain sentences about what this is, before any key
+           is asked for. Larger than a nudge, with its note underneath. */
+        #tutorial-whisper.is-intro {
+            flex-direction: column; align-items: center; gap: 6px;
+            color: var(--text); opacity: 1;
+        }
+        #tutorial-whisper.is-intro #tutorial-whisper-text {
+            font-size: 15px; letter-spacing: 0.03em;
+        }
+        #tutorial-whisper.is-intro #tutorial-whisper-key { display: none; }
+        #tutorial-whisper.is-intro #tutorial-whisper-note {
+            display: block; color: var(--text); opacity: 0.72;
+        }
+        /* The Enter hint goes last, under the note, not between the two. */
+        #tutorial-whisper.is-intro #tutorial-whisper-next { order: 1; }
 
         /* ── Section rail ─────────────────────────────────────────
            The only furniture the tutorial keeps. It exists because the
@@ -31351,6 +31366,36 @@
          * exposition — a feature list, a diagram of stacking — belongs in
          * the help map, not here.
          */
+        /**
+         * What the tour says before it asks for anything. Someone who has
+         * just typed `arrayview --tutorial` may not know what this tool is
+         * for, and being handed "press K" over an unexplained picture is
+         * what made the start feel rushed. None of these lines time out:
+         * each one stays until Enter.
+         */
+        const _TUTORIAL_INTRO = [
+            {
+                text: 'welcome to arrayview',
+                note: 'press Enter to continue',
+            },
+            {
+                text: 'arrayview shows arrays with any number of dimensions as images',
+                note: 'two dimensions are drawn on screen · you move through the rest with the keyboard',
+            },
+            {
+                text: 'the array in front of you was made up for this tour',
+                note: 'four dimensions: a blob that drifts and changes shape over time',
+            },
+            {
+                text: 'this tour walks you through some of what arrayview can do',
+                note: 'a key appears · you press it · then you see what it did',
+            },
+            {
+                text: 'take your time · the tour waits while you explore',
+                note: 'Enter moves on · Tab skips a chapter · Esc ends the tour',
+            },
+        ];
+
         const _TUTORIAL_SECTIONS = [
             {
                 id: 'moving', title: 'moving', stage: 'single',
@@ -31758,7 +31803,11 @@
             if (_tutorialSessionKind() === 'main' && _arrayViewLaunchSearch) {
                 sessionStorage.setItem(_TUTORIAL_HOME_KEY, _arrayViewLaunchSearch);
             }
-            const stored = Number(sessionStorage.getItem(_TUTORIAL_STORAGE_KEY));
+            const storedRaw = sessionStorage.getItem(_TUTORIAL_STORAGE_KEY);
+            // A reload or a section that lives on another array lands back
+            // here mid-tour; only a genuinely fresh start gets the welcome.
+            const fresh = storedRaw === null;
+            const stored = Number(storedRaw);
             const resume = Number.isInteger(stored)
                 ? Math.max(0, Math.min(_TUTORIAL_STEPS.length - 1, stored))
                 : 0;
@@ -31783,8 +31832,21 @@
             const seq = ++_tutorialSeq;
             _tutorialWhisperTimer = window.setTimeout(() => {
                 if (seq !== _tutorialSeq) return;
-                _tutorialPrepareStep(seq);
+                if (fresh) _tutorialIntro(seq, 0);
+                else _tutorialPrepareStep(seq);
             }, _TUTORIAL_OPENING_MS);
+        }
+
+        /** The welcome, one line at a time, each held until Enter. */
+        function _tutorialIntro(seq, lineIndex) {
+            if (seq !== _tutorialSeq || !_tutorialVisible) return;
+            const line = _TUTORIAL_INTRO[lineIndex];
+            if (!line) {
+                _tutorialPrepareStep(seq);
+                return;
+            }
+            _tutorialSay('', line.text, 'intro', line.note);
+            _tutorialArm(seq, null, () => _tutorialIntro(seq, lineIndex + 1));
         }
 
         function _tutorialSectionOf(index) {
@@ -31805,7 +31867,8 @@
             const whisper = document.getElementById('tutorial-whisper');
             if (whisper && !visible) {
                 whisper.classList.remove(
-                    'is-visible', 'is-echo', 'is-section', 'is-rest', 'has-ticks'
+                    'is-visible', 'is-echo', 'is-section', 'is-rest', 'is-intro',
+                    'has-ticks'
                 );
             }
             _reconcileTutorialRail(visible);
@@ -31982,6 +32045,7 @@
                 whisper.classList.toggle('is-echo', mode === 'echo');
                 whisper.classList.toggle('is-rest', mode === 'rest');
                 whisper.classList.toggle('is-section', mode === 'section');
+                whisper.classList.toggle('is-intro', mode === 'intro');
                 whisper.classList.remove('can-skip');
                 whisper.classList.add('is-visible');
             };
@@ -32079,10 +32143,15 @@
                 if (seq !== _tutorialSeq || !_tutorialVisible) return;
                 fn();
             };
-            _tutorialWhisperTimer = window.setTimeout(() => fire(onDone), ms);
+            // `ms === null` holds the line until Enter, with no timeout.
+            if (ms !== null) {
+                _tutorialWhisperTimer = window.setTimeout(() => fire(onDone), ms);
+            }
             // The offer appears only once the line has been up long enough
             // to have been read, and never so late that it is pointless.
-            const offerAt = Math.min(_TUTORIAL_SKIP_GRACE_MS, Math.max(0, ms - 400));
+            const offerAt = ms === null
+                ? _TUTORIAL_SKIP_GRACE_MS
+                : Math.min(_TUTORIAL_SKIP_GRACE_MS, Math.max(0, ms - 400));
             _tutorialSkipArmTimer = window.setTimeout(() => {
                 _tutorialSkipArmTimer = 0;
                 if (seq !== _tutorialSeq || !_tutorialVisible) return;

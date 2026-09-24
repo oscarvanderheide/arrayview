@@ -74,6 +74,49 @@ def tutorial_page(page, client, server_url, tmp_path):
     return page
 
 
+_INTRO = "() => document.getElementById('tutorial-whisper').classList.contains('is-intro')"
+
+
+def _read_the_welcome(page):
+    """Press Enter through every welcome line, the way a reader would."""
+    for line in range(page.evaluate("() => _TUTORIAL_INTRO.length")):
+        page.wait_for_function(
+            f"() => {_INTRO[6:]} && _tutorialSkip !== null"
+            f" && document.getElementById('tutorial-whisper-text').textContent"
+            f" === _TUTORIAL_INTRO[{line}].text",
+            timeout=15_000,
+        )
+        page.keyboard.press("Enter")
+
+
+@pytest.fixture
+def toured_page(tutorial_page):
+    _read_the_welcome(tutorial_page)
+    return tutorial_page
+
+
+def test_it_says_what_arrayview_is_before_asking_for_anything(tutorial_page):
+    """Starting on "press K" over an unexplained picture felt rushed. The
+    tour first says what the tool is, and waits for Enter on every line."""
+    page = tutorial_page
+    page.wait_for_function(_INTRO, timeout=15_000)
+    first = page.evaluate(WHISPER)
+    assert "arrayview" in first["text"], first
+    assert "Enter" in first["note"], f"the first line should say how to continue, got {first}"
+    assert not first["key"], f"the welcome asks for no key, got {first}"
+
+    page.wait_for_timeout(6_000)
+    still = page.evaluate(WHISPER)
+    assert still["text"] == first["text"], "a welcome line must not move on by itself"
+
+    _read_the_welcome(page)
+    page.wait_for_function(
+        "() => document.getElementById('tutorial-whisper').classList.contains('is-section')",
+        timeout=15_000,
+    )
+    assert page.evaluate(WHISPER)["text"] == "moving"
+
+
 def _wait_for_ask(page, key, timeout=20_000):
     page.wait_for_function(ASK % key, timeout=timeout)
 
@@ -93,11 +136,11 @@ def _go_to_section(page, section_id):
     page.evaluate(f"() => _tutorialGoSection({_section(page, section_id)})")
 
 
-def test_the_tour_opens_on_a_chapter_not_an_instruction(tutorial_page):
+def test_the_tour_opens_on_a_chapter_not_an_instruction(toured_page):
     """It used to drop you straight into 'press K'. A tour that changes the
     ground under you — a second array, then overlays — has to say where it
     is before it asks for anything."""
-    page = tutorial_page
+    page = toured_page
     page.wait_for_function(
         "() => document.getElementById('tutorial-whisper').classList.contains('is-section')",
         timeout=15_000,
@@ -115,10 +158,10 @@ def test_the_tour_opens_on_a_chapter_not_an_instruction(tutorial_page):
     )
 
 
-def test_the_invitation_explains_nothing(tutorial_page):
+def test_the_invitation_explains_nothing(toured_page):
     """The whole premise: it asks for a key and does not say what the key
     does. Anything that describes the outcome up front is the old tour."""
-    page = tutorial_page
+    page = toured_page
     _wait_for_ask(page, "k")
     state = page.evaluate(WHISPER)
 
@@ -131,10 +174,10 @@ def test_the_invitation_explains_nothing(tutorial_page):
     )
 
 
-def test_every_step_asks_for_a_key_that_is_actually_bound(tutorial_page):
+def test_every_step_asks_for_a_key_that_is_actually_bound(toured_page):
     """`v` and `V` are different commands. A step whose label does not match
     the keymap strands the reader on a key that does something else."""
-    page = tutorial_page
+    page = toured_page
     mismatched = page.evaluate(
         """() => {
             const bound = new Map();
@@ -156,8 +199,8 @@ def test_every_step_asks_for_a_key_that_is_actually_bound(tutorial_page):
     assert mismatched == [], f"these steps name a key that does not run them: {mismatched}"
 
 
-def test_the_action_reveals_what_it_did(tutorial_page):
-    page = tutorial_page
+def test_the_action_reveals_what_it_did(toured_page):
+    page = toured_page
     _wait_for_ask(page, "k")
     before = page.evaluate("indices[activeDim]")
     page.keyboard.press("ArrowUp")
@@ -178,9 +221,9 @@ def test_the_action_reveals_what_it_did(tutorial_page):
     assert not nxt["echo"], f"the next step is an invitation again, got {nxt}"
 
 
-def test_the_echo_holds_long_enough_to_read(tutorial_page):
+def test_the_echo_holds_long_enough_to_read(toured_page):
     """The tour used to move on before you had finished the line."""
-    page = tutorial_page
+    page = toured_page
     _wait_for_ask(page, "k")
     page.keyboard.press("ArrowUp")
     page.wait_for_timeout(2400)
@@ -190,10 +233,10 @@ def test_the_echo_holds_long_enough_to_read(tutorial_page):
     )
 
 
-def test_it_waits_while_you_are_still_exploring(tutorial_page):
+def test_it_waits_while_you_are_still_exploring(toured_page):
     """Room to explore is the point: a new demand must not land on someone
     who is still playing with what they just found."""
-    page = tutorial_page
+    page = toured_page
     _wait_for_ask(page, "k")
     page.keyboard.press("ArrowUp")
     page.wait_for_timeout(300)
@@ -211,8 +254,8 @@ def test_it_waits_while_you_are_still_exploring(tutorial_page):
     assert page.evaluate(WHISPER)["index"] == 1, "it should resume once you stop"
 
 
-def test_an_unrelated_command_earns_no_progress(tutorial_page):
-    page = tutorial_page
+def test_an_unrelated_command_earns_no_progress(toured_page):
+    page = toured_page
     _wait_for_ask(page, "k")
     page.keyboard.press("b")
     page.wait_for_timeout(300)
@@ -222,10 +265,10 @@ def test_an_unrelated_command_earns_no_progress(tutorial_page):
     )
 
 
-def test_a_step_that_asks_for_several_presses_waits_for_them(tutorial_page):
+def test_a_step_that_asks_for_several_presses_waits_for_them(toured_page):
     """'press it a few times' resolving on the first press makes the line
     a lie, and skips the behaviour it was pointing at."""
-    page = tutorial_page
+    page = toured_page
     # Walk into the split step the way a reader would; its `]` is the only
     # counted step that does not open a panel over the frame. Consecutive
     # steps reuse the same key, so wait on the step index, not the label.
@@ -254,10 +297,10 @@ def test_a_step_that_asks_for_several_presses_waits_for_them(tutorial_page):
     assert page.evaluate(WHISPER)["echo"], "the second press should complete the step"
 
 
-def test_the_only_thing_to_click_is_the_section_rail(tutorial_page):
+def test_the_only_thing_to_click_is_the_section_rail(toured_page):
     """No panel, no counter, no progress bar, no dismiss button. The rail
     is the one deliberate exception."""
-    page = tutorial_page
+    page = toured_page
     leftovers = page.evaluate(
         """() => ['tutorial-panel', 'tutorial-title', 'tutorial-copy',
                   'tutorial-count', 'tutorial-progress', 'tutorial-action',
@@ -278,8 +321,8 @@ def test_the_only_thing_to_click_is_the_section_rail(tutorial_page):
     assert len(rail) >= 4 and rail[0] == "moving", f"the rail should list sections, got {rail}"
 
 
-def test_the_whisper_never_blocks_the_array(tutorial_page):
-    page = tutorial_page
+def test_the_whisper_never_blocks_the_array(toured_page):
+    page = toured_page
     page.set_viewport_size({"width": 1024, "height": 640})
     page.wait_for_timeout(300)
     state = page.evaluate(
@@ -301,10 +344,10 @@ def test_the_whisper_never_blocks_the_array(tutorial_page):
     )
 
 
-def test_it_goes_quiet_behind_the_panel_it_just_asked_for(tutorial_page):
+def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     """The colormap picker opens centred, right over where the line sits.
     Talking underneath it is how the tour used to lose its own echo."""
-    page = tutorial_page
+    page = toured_page
     _go_to_section(page, "looking")
     _wait_for_ask(page, "c")
 
@@ -324,8 +367,8 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(tutorial_page):
     ), "closing a panel must not also end the tutorial"
 
 
-def test_sections_can_be_switched(tutorial_page):
-    page = tutorial_page
+def test_sections_can_be_switched(toured_page):
+    page = toured_page
     page.wait_for_timeout(600)
 
     page.keyboard.press("Tab")
@@ -345,10 +388,10 @@ def test_sections_can_be_switched(tutorial_page):
     )
 
 
-def test_jumping_into_a_section_puts_the_viewer_where_it_expects(tutorial_page):
+def test_jumping_into_a_section_puts_the_viewer_where_it_expects(toured_page):
     """Sections are entry points, so each one has to set its own stage —
     otherwise skipping ahead lands you in a mode its first step cannot use."""
-    page = tutorial_page
+    page = toured_page
     _go_to_section(page, "pair")
     page.wait_for_function("() => compareActive", timeout=20_000)
 
@@ -360,10 +403,10 @@ def test_jumping_into_a_section_puts_the_viewer_where_it_expects(tutorial_page):
     )
 
 
-def test_the_stage_hand_steps_run_themselves(tutorial_page):
+def test_the_stage_hand_steps_run_themselves(toured_page):
     """`auto` steps set something up and move on; nothing is asked of the
     reader, so a stall there would strand the whole tour."""
-    page = tutorial_page
+    page = toured_page
     page.evaluate(
         """() => {
             const i = _TUTORIAL_STEPS.findIndex(s => s.auto === 'pair');
@@ -377,8 +420,8 @@ def test_the_stage_hand_steps_run_themselves(tutorial_page):
     ), "the tour should carry on without input"
 
 
-def test_escape_wakes_you_up(tutorial_page):
-    page = tutorial_page
+def test_escape_wakes_you_up(toured_page):
+    page = toured_page
     _wait_for_ask(page, "k")
     page.keyboard.press("Escape")
     page.wait_for_timeout(300)
@@ -390,8 +433,8 @@ def test_escape_wakes_you_up(tutorial_page):
     ) is False, "the whisper should go with it"
 
 
-def test_the_last_step_ends_the_tour(tutorial_page):
-    page = tutorial_page
+def test_the_last_step_ends_the_tour(toured_page):
+    page = toured_page
     page.evaluate("() => _tutorialGo(_TUTORIAL_STEPS.length - 1)")
     page.wait_for_function(
         "() => !document.body.classList.contains('tutorial-active')",
