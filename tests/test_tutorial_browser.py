@@ -192,7 +192,7 @@ def test_the_text_does_not_jump(toured_page):
     page = toured_page
     top = "() => Math.round(document.getElementById('tutorial-whisper-text').getBoundingClientRect().top)"
     tops = set()
-    for index in (0, 1, 2):
+    for index in range(page.evaluate("() => _TUTORIAL_SECTION_START[1]")):
         _wait_for_step(page, index)
         tops.add(page.evaluate(top))
         page.wait_for_timeout(1_500)

@@ -31367,14 +31367,19 @@
                         expect: ['slice.next', 'slice.prev'],
                     },
                     {
+                        text: 'the labels at the top are the dimensions · x and y are the two drawn on screen · the numbers show where you are in the others',
+                        note: 'have a look · press Enter when you are done',
+                        spotlight: '#info',
+                    },
+                    {
                         key: 'h  l',
-                        text: 'h and l (or left and right) choose which dimension j and k move along · the highlighted one at the top',
+                        text: 'h and l (or left and right) choose which dimension j and k move along — or click a number at the top · the underlined one is selected',
                         note: 'switch dimension, then step through it · Enter when you are done',
                         expect: ['dim.next', 'dim.prev'], spotlight: '#info',
                     },
                     {
                         key: 'space',
-                        text: 'space plays through the highlighted dimension like a movie, and stops it again · < and > change the speed',
+                        text: 'space plays through the underlined dimension like a movie, and stops it again · < and > change the speed',
                         expect: ['playback.toggle'],
                     },
                 ],
@@ -31429,12 +31434,12 @@
                 steps: [
                     {
                         key: 'z',
-                        text: 'z lays out every slice of the highlighted dimension side by side · z again goes back to one',
+                        text: 'z lays out every slice of the underlined dimension side by side · z again goes back to one',
                         expect: ['slice.toggleMosaic'],
                     },
                     {
                         key: 'p',
-                        text: 'p squashes the highlighted dimension into one image: its maximum, minimum, mean or spread · press p a few times to step through them',
+                        text: 'p squashes the underlined dimension into one image: its maximum, minimum, mean or spread · press p a few times to step through them',
                         note: 'keep pressing p until it turns off · Enter when you are done',
                         expect: ['projection.cycle'],
                         // `p` only works on a dimension you step through,
