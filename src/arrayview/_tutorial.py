@@ -35,10 +35,18 @@ class TutorialBundle:
 
 
 def make_tutorial_arrays():
-    """Return a scalar 4D volume, a comparison volume, and an integer mask."""
+    """Return a scalar 4D volume, a comparison volume, and an integer mask.
+
+    The volume is a made-up head scan rather than a single blob, so that
+    stepping through any dimension shows something change: a skull and
+    folded tissue, two dark cavities, a tilted ring that splits in two, a
+    bright tube that spirals through the slices, a small beating "heart"
+    and a patch of fine stripes that rewards zooming and the Fourier view.
+    The last dimension is time: the heart beats and the spiral turns.
+    """
     import numpy as np
 
-    height, width, depth, frames = 72, 72, 24, 12
+    height, width, depth, frames = 96, 96, 36, 12
     yy, xx, zz = np.meshgrid(
         np.linspace(-1.0, 1.0, height, dtype=np.float32),
         np.linspace(-1.0, 1.0, width, dtype=np.float32),
@@ -46,50 +54,83 @@ def make_tutorial_arrays():
         indexing="ij",
     )
 
+    def ellipsoid(cx, cy, cz, rx, ry, rz):
+        return ((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 + ((zz - cz) / rz) ** 2
+
+    def soft(inside, width=0.03):
+        # 1 inside, 0 outside, with a smooth edge instead of a staircase.
+        return (1.0 / (1.0 + np.exp(np.minimum((inside - 1.0) / width, 60.0)))).astype(
+            np.float32
+        )
+
+    head = soft(ellipsoid(0.0, 0.0, 0.0, 0.86, 0.94, 0.92))
+    brain = soft(ellipsoid(0.0, 0.0, 0.0, 0.76, 0.84, 0.82))
+    skull = np.clip(head - brain, 0.0, 1.0)
+    folds = 0.18 * np.sin(11.0 * xx + 3.0 * zz) * np.cos(9.0 * yy - 2.0 * zz)
+    cavities = np.maximum(
+        soft(ellipsoid(-0.2, -0.08, 0.05, 0.13, 0.32, 0.38)),
+        soft(ellipsoid(0.2, -0.08, 0.05, 0.13, 0.32, 0.38)),
+    )
+
+    # A ring tilted out of the screen: scrolling through it shows a circle
+    # that breaks into two spots and then closes again.
+    tilt = np.float32(0.6)
+    rx = xx - 0.1
+    ry = (yy + 0.45) * np.cos(tilt) - zz * np.sin(tilt)
+    rz = (yy + 0.45) * np.sin(tilt) + zz * np.cos(tilt)
+    ring = soft(((np.sqrt(rx**2 + ry**2) - 0.26) ** 2 + rz**2) / 0.06**2)
+
+    # Fine stripes that get finer to the right: a resolution chart.
+    patch = (
+        (xx > 0.25) & (xx < 0.62) & (yy > 0.38) & (yy < 0.62) & (np.abs(zz) < 0.5)
+    ).astype(np.float32)
+    stripes = patch * 0.5 * (1.0 + np.sin((30.0 + 90.0 * (xx - 0.25)) * xx))
+
+    static = (
+        1.0 * skull
+        + brain * (0.45 + folds)
+        - 0.35 * cavities
+        + 0.8 * ring
+        + 0.6 * stripes
+    )
+
+    rng = np.random.default_rng(0)
     base = np.empty((height, width, depth, frames), dtype=np.float32)
     compare = np.empty_like(base)
     overlay = np.zeros(base.shape, dtype=np.uint8)
 
     for frame in range(frames):
         phase = np.float32(2.0 * np.pi * frame / frames)
-        cx = np.float32(0.28 * np.sin(phase))
-        cy = np.float32(0.22 * np.cos(phase))
-        cz = np.float32(0.18 * np.sin(phase * 2.0))
 
-        core = np.exp(
-            -(
-                ((xx - cx) / 0.42) ** 2
-                + ((yy - cy) / 0.34) ** 2
-                + ((zz - cz) / 0.55) ** 2
-            )
-        )
-        satellite = np.exp(
-            -(
-                ((xx + 0.48) / 0.20) ** 2
-                + ((yy - 0.32) / 0.18) ** 2
-                + ((zz + 0.15) / 0.30) ** 2
-            )
-        )
-        ripple = 0.12 * np.sin(8.0 * xx - phase) * np.cos(7.0 * yy + phase)
-        base[..., frame] = (1.35 * core + 0.72 * satellite + ripple).astype(
-            np.float32
+        # A bright tube that spirals through the slices and turns with time.
+        angle = np.pi * 2.0 * zz + phase
+        spiral = soft(
+            ((xx - 0.5 * np.cos(angle)) ** 2 + (yy - 0.5 * np.sin(angle)) ** 2)
+            / 0.07**2
         )
 
-        shifted_core = np.exp(
-            -(
-                ((xx - cx - 0.07) / 0.44) ** 2
-                + ((yy - cy + 0.04) / 0.36) ** 2
-                + ((zz - cz) / 0.55) ** 2
-            )
-        )
-        compare[..., frame] = (
-            1.22 * shifted_core + 0.78 * satellite + ripple * 0.65 + 0.04
+        # A small heart that beats.
+        beat = np.float32(0.16 + 0.05 * np.sin(phase))
+        heart = soft(ellipsoid(-0.05, 0.35, -0.2, beat, beat, beat * 1.4))
+
+        frame_base = static + 1.1 * spiral + 1.3 * heart
+        base[..., frame] = (
+            frame_base + 0.03 * rng.standard_normal(frame_base.shape)
         ).astype(np.float32)
 
-        overlay[..., frame][core > 0.58] = 1
-        overlay[..., frame][satellite > 0.50] = 2
-        ring = (core > 0.34) & (core < 0.43)
-        overlay[..., frame][ring] = 3
+        # The comparison scan: a little later in the beat, and a new spot
+        # has appeared, so the difference view has something to find.
+        late_beat = np.float32(0.16 + 0.05 * np.sin(phase + 0.9))
+        late_heart = soft(ellipsoid(-0.05, 0.35, -0.2, late_beat, late_beat, late_beat * 1.4))
+        spot = soft(ellipsoid(-0.45, 0.1, 0.3, 0.09, 0.09, 0.14))
+        frame_compare = static + 1.1 * spiral + 1.3 * late_heart + 0.7 * spot
+        compare[..., frame] = (
+            frame_compare + 0.03 * rng.standard_normal(frame_compare.shape)
+        ).astype(np.float32)
+
+        overlay[..., frame][cavities > 0.5] = 1
+        overlay[..., frame][heart > 0.5] = 2
+        overlay[..., frame][ring > 0.5] = 3
 
     return base, compare, overlay
 

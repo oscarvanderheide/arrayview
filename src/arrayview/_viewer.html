@@ -4691,6 +4691,10 @@
         #tutorial-whisper.is-intro #tutorial-whisper-text {
             font-size: 15px; letter-spacing: 0.03em;
         }
+        /* A welcome note can list a few things, one per line. */
+        #tutorial-whisper.is-intro #tutorial-whisper-note {
+            white-space: pre-line; line-height: 1.7; text-align: center;
+        }
 
         /* ── Section rail ─────────────────────────────────────────
            The only furniture the tutorial keeps. It exists because the
@@ -31311,24 +31315,16 @@
          */
         const _TUTORIAL_INTRO = [
             {
-                text: 'welcome to arrayview',
-                note: 'press Enter to continue',
+                text: 'Welcome to arrayview',
+                note: 'Press Enter to continue',
             },
             {
-                text: 'arrayview shows arrays with any number of dimensions as images',
-                note: 'two dimensions are drawn on screen · you move through the rest with the keyboard',
+                text: 'This tour walks you through some of what arrayview can do',
+                note: 'A key appears, you press it, and then you see what it did',
             },
             {
-                text: 'the array in front of you was made up for this tour',
-                note: 'four dimensions: a blob that drifts and changes shape over time',
-            },
-            {
-                text: 'this tour walks you through some of what arrayview can do',
-                note: 'a key appears · you press it · then you see what it did',
-            },
-            {
-                text: 'take your time · the tour waits while you explore',
-                note: 'Enter moves on · Tab or the dots on the left jump between chapters · Esc ends the tour',
+                text: 'Take your time. The tour waits while you explore.',
+                note: 'Enter moves on.\nTab or the dots on the left jump between chapters.\nEsc ends the tour.',
             },
         ];
 
@@ -31355,93 +31351,93 @@
          * Keys named in the text must be exactly what the keymap binds —
          * check `keybinds` before changing one.
          */
-        const _TUTORIAL_TRY = 'try it · press Enter when you are done';
+        const _TUTORIAL_TRY = 'Try it, then press Enter when you are done';
         const _TUTORIAL_SECTIONS = [
             {
-                id: 'moving', title: 'moving', stage: 'single',
-                note: 'getting around an array with more than two dimensions',
+                id: 'moving', title: 'Moving', stage: 'single',
+                note: 'Getting around an array with more than two dimensions',
                 steps: [
                     {
                         key: 'j  k',
-                        text: 'j and k step through the slices — so do the up and down arrows, and the mouse wheel or trackpad',
+                        text: 'Press j and k to step through the slices. The up and down arrows, the mouse wheel and the trackpad do the same.',
                         expect: ['slice.next', 'slice.prev'],
                     },
                     {
-                        text: 'the labels at the top are the dimensions · x and y are the two drawn on screen · the numbers show where you are in the others',
-                        note: 'scroll over a number to move through it · double-click the labels to see each size · Enter when you are done',
+                        text: 'The labels at the top are the dimensions. x and y are the two drawn on screen. The numbers show where you are in the others.',
+                        note: 'Scroll over a number to move through it. Double-click the labels to see each size. Press Enter when you are done.',
                         spotlight: '#info',
                     },
                     {
                         key: 'h  l',
-                        text: 'h and l (or left and right) choose which dimension j and k move along — or click a number at the top · the underlined one is selected',
-                        note: 'switch dimension, then step through it · Enter when you are done',
+                        text: 'Press h and l (or left and right) to choose which dimension j and k move along, or click a number at the top. The underlined one is selected.',
+                        note: 'Switch dimension, then step through it. Press Enter when you are done.',
                         expect: ['dim.next', 'dim.prev'], spotlight: '#info',
                     },
                     {
                         key: 'space',
-                        text: 'space plays through the underlined dimension like a movie, and stops it again · < and > change the speed',
+                        text: 'Press space to play through the underlined dimension like a movie, and again to stop. Use < and > to change the speed.',
                         expect: ['playback.toggle'],
                     },
                 ],
             },
             {
-                id: 'looking', title: 'looking', stage: 'single',
-                note: 'the same numbers, shown differently',
+                id: 'looking', title: 'Looking', stage: 'single',
+                note: 'The same numbers, shown differently',
                 steps: [
                     {
                         key: 'c',
-                        text: 'c opens the colormaps · type to search, arrows to browse, Enter picks one, Esc closes it',
+                        text: 'Press c to open the colormaps. Type to search, use the arrows to browse, Enter picks one and Esc closes it.',
                         expect: ['colormap.openOrCycle'],
                     },
                     {
                         key: 'd',
-                        text: 'd opens the histogram under the image · drag its handles to change the contrast · d again shows range presets',
-                        note: 'double-clicking the colorbar does the same · scrolling over it narrows or widens the range · Enter when you are done',
+                        text: 'Press d to open the histogram under the image. Drag its handles to change the contrast. Press d again for range presets.',
+                        note: 'Double-clicking the colorbar does the same. Scrolling over it narrows or widens the range. Press Enter when you are done.',
                         expect: ['histogram.openOrCycle'], rawKeys: ['d'],
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
             },
             {
-                id: 'shaping', title: 'shaping', stage: 'single',
-                note: 'which way round you look at it',
+                id: 'shaping', title: 'Shaping', stage: 'single',
+                note: 'Which way round you look at it',
                 steps: [
                     {
                         key: 'r',
-                        text: 'r rotates the image a quarter turn · only the view turns, the data is untouched',
+                        text: 'Press r to rotate the image a quarter turn. Only the view turns; the data is untouched.',
                         expect: ['view.rotateOrFlip'],
                     },
                     {
                         key: 't',
-                        text: 't swaps the horizontal and vertical axes · t again swaps them back',
+                        text: 'Press t to swap the horizontal and vertical axes, and again to swap them back.',
                         expect: ['view.transpose'],
                     },
                 ],
             },
             {
-                id: 'closer', title: 'closer', stage: 'single',
-                note: 'zooming in and moving around',
+                id: 'closer', title: 'Closer', stage: 'single',
+                note: 'Zooming in and moving around',
                 steps: [
                     {
                         key: '+  -',
-                        text: '+ and - zoom in and out, and so does pinching on a trackpad or ctrl+scroll · drag the image to move around · 0 fits it back',
+                        text: 'Press + and - to zoom in and out, or pinch on a trackpad, or ctrl+scroll. Drag the image to move around. Press 0 to fit it back.',
                         expect: ['zoom.in', 'zoom.out', 'zoom.reset'],
                     },
                 ],
             },
             {
-                id: 'mosaic', title: 'all at once', stage: 'single',
-                note: 'a whole dimension in one picture',
+                id: 'mosaic', title: 'All at once', stage: 'single',
+                note: 'A whole dimension in one picture',
                 steps: [
                     {
                         key: 'z',
-                        text: 'z lays out every slice of the underlined dimension side by side · z again goes back to one',
+                        text: 'Press z to lay out every slice of the underlined dimension side by side, and again to go back to one.',
                         expect: ['slice.toggleMosaic'],
                     },
                     {
                         key: 'p',
-                        text: 'p squashes the underlined dimension into one image: its maximum, minimum, mean or spread · press p a few times to step through them',
-                        note: 'keep pressing p until it turns off · Enter when you are done',
+                        text: 'Press p to squash the underlined dimension into one image: its maximum, minimum, mean or spread. Press p a few times to step through them.',
+                        note: 'Keep pressing p until it turns off. Press Enter when you are done.',
                         expect: ['projection.cycle'],
                         // `p` only works on a dimension you step through,
                         // not on the two drawn across the screen.
@@ -31455,50 +31451,50 @@
                 ],
             },
             {
-                id: 'spectra', title: 'spectra', stage: 'single',
-                note: 'the same array, in another domain',
+                id: 'spectra', title: 'Spectra', stage: 'single',
+                note: 'The same array, in another domain',
                 steps: [
                     {
                         key: 'f',
-                        text: 'f shows the Fourier transform · it first asks which axes to use, and Enter accepts the suggestion',
+                        text: 'Press f to show the Fourier transform. It first asks which axes to use; Enter accepts the suggestion.',
                         expect: ['fft.toggle'],
                     },
                     {
                         key: 'L',
-                        text: 'L (shift+l) switches to a log scale, which helps when values span orders of magnitude, as a spectrum does · press L and f again to go back',
+                        text: 'Press L (shift+l) for a log scale, which helps when values span orders of magnitude, as a spectrum does. Press L and f again to go back.',
                         expect: ['logscale.toggle', 'fft.toggle'],
                     },
                 ],
             },
             {
-                id: 'values', title: 'values', stage: 'single',
-                note: 'the numbers under the picture',
+                id: 'values', title: 'Values', stage: 'single',
+                note: 'The numbers under the picture',
                 steps: [
                     {
                         key: 'i',
-                        text: 'i shows the value under the mouse pointer · alt+click pins one · i again hides them',
-                        note: 'double-clicking the image does the same as i · Enter when you are done',
+                        text: 'Press i to show the value under the mouse pointer. Alt+click pins one. Press i again to hide them.',
+                        note: 'Double-clicking the image does the same as i. Press Enter when you are done.',
                         expect: ['hoverinfo.toggle'],
                     },
                     {
                         key: 'I',
-                        text: 'I (shift+i) shows facts about the array itself: its shape, data type and size · the same key closes it',
+                        text: 'Press I (shift+i) for facts about the array itself: its shape, data type and size. The same key closes it.',
                         expect: ['info.toggle'],
                     },
                 ],
             },
             {
-                id: 'views', title: 'views', stage: 'single',
-                note: 'one array, seen from more than one place',
+                id: 'views', title: 'Views', stage: 'single',
+                note: 'One array, seen from more than one place',
                 steps: [
                     {
                         key: 'v',
-                        text: 'v shows three planes through one point at once · click or drag in any of them to move the point · v again goes back',
+                        text: 'Press v to see three planes through one point at once. Click or drag in any of them to move the point. Press v again to go back.',
                         expect: ['multiview.toggle'],
                     },
                     {
                         key: 'S',
-                        text: 'S (shift+s) splits the view into two copies of this array, each at its own position · [ and ] move one side, { and } the other · S again goes back',
+                        text: 'Press S (shift+s) to split the view into two copies of this array, each at its own position. [ and ] move one side, { and } the other. Press S again to go back.',
                         expect: [
                             'compare.toggleDetachedSplit',
                             'detachedDim.adjustIndexA', 'detachedDim.adjustIndexB',
@@ -31507,70 +31503,70 @@
                 ],
             },
             {
-                id: 'pair', title: 'two arrays', stage: 'pair',
-                note: 'comparing one array with another',
+                id: 'pair', title: 'Two arrays', stage: 'pair',
+                note: 'Comparing one array with another',
                 steps: [
                     {
                         auto: 'pair',
-                        text: 'a second array was loaded as well · now they sit side by side, and everything you do moves both',
-                        note: 'look around · press Enter when you are done',
+                        text: 'A second array was loaded as well. Now they sit side by side, and everything you do moves both.',
+                        note: 'Look around. Press Enter when you are done.',
                     },
                     {
                         key: 'X',
-                        text: 'X (shift+x) cycles through ways to compare them: difference, absolute and relative difference, overlay, wipe, flicker and checkerboard',
-                        note: 'or click the buttons that appear above the images · Enter when you are done',
+                        text: 'Press X (shift+x) to cycle through ways to compare them: difference, absolute and relative difference, overlay, wipe, flicker and checkerboard.',
+                        note: 'Or click the buttons that appear above the images. Press Enter when you are done.',
                         expect: ['compare.cycleCenterMode'],
                     },
                 ],
             },
             {
-                id: 'marks', title: 'marks', stage: 'single',
-                note: 'things drawn over the data, not in it',
+                id: 'marks', title: 'Marks', stage: 'single',
+                note: 'Things drawn over the data, not in it',
                 steps: [
                     {
                         key: 'O',
-                        text: 'O (shift+o) shows regions that were drawn on this array beforehand · press it again to change how they are shown',
+                        text: 'Press O (shift+o) to show regions that were drawn on this array beforehand. Press it again to change how they are shown.',
                         expect: ['overlay.cycleVisibility'],
                     },
                     {
                         key: 'R',
-                        text: 'R (shift+r) turns on region drawing · drag a box on the image to measure what is inside it · R again turns it off',
+                        text: 'Press R (shift+r) to turn on region drawing. Drag a box on the image to measure what is inside it. Press R again to turn it off.',
                         expect: ['roi.cycleMode', 'pointer.draw'],
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
             },
             {
-                id: 'flow', title: 'flow', stage: 'single', session: 'flow',
-                note: 'arrows that are data, not decoration',
+                id: 'flow', title: 'Flow', stage: 'single', session: 'flow',
+                note: 'Arrows that are data, not decoration',
                 steps: [
                     {
                         key: '{  }',
-                        text: 'this array comes with a vector field, drawn as arrows · { and } make the arrows shorter or longer · their direction is the data',
+                        text: 'This array comes with a vector field, drawn as arrows. Press { and } to make the arrows shorter or longer. Their direction is the data.',
                         expect: ['vfield.adjustLength'],
                     },
                 ],
             },
             {
-                id: 'stack', title: 'a stack', stage: 'single', session: 'stack',
-                note: 'arrays that do not share a shape',
+                id: 'stack', title: 'A stack', stage: 'single', session: 'stack',
+                note: 'Arrays that do not share a shape',
                 steps: [
                     {
                         key: 'h  l',
-                        text: 'these are four arrays of different sizes in one view · use h and l to pick the dimension that selects the array, then j and k to step between them',
-                        note: 'each keeps its own size · press Enter when you are done',
+                        text: 'These are four arrays of different sizes in one view. Use h and l to pick the dimension that selects the array, then j and k to step between them.',
+                        note: 'Each keeps its own size. Press Enter when you are done.',
                         expect: ['dim.next', 'dim.prev', 'slice.next', 'slice.prev'],
                     },
                 ],
             },
             {
-                id: 'rest', title: 'the rest', stage: 'single',
-                note: 'far more than fits in one tour',
+                id: 'rest', title: 'The rest', stage: 'single',
+                note: 'Far more than fits in one tour',
                 steps: [
                     {
                         key: '?',
-                        text: 'this tour showed a small part of arrayview · ? or the ? button in the corner opens the full list of keys, any time · ? or Esc closes it',
-                        note: 'press Enter to end the tour',
+                        text: 'This tour showed a small part of arrayview. Press ? or the ? button in the corner for the full list of keys, any time. ? or Esc closes it.',
+                        note: 'Press Enter to end the tour',
                         rawKeys: ['?'], spotlight: '#help-hint',
                     },
                 ],

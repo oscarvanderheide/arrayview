@@ -99,7 +99,7 @@ def test_it_says_what_arrayview_is_before_asking_for_anything(tutorial_page):
         "() => document.getElementById('tutorial-whisper').classList.contains('is-section')",
         timeout=15_000,
     )
-    assert page.evaluate(WHISPER)["text"] == "moving"
+    assert page.evaluate(WHISPER)["text"] == "Moving"
 
 
 def _section(page, section_id):
@@ -128,7 +128,7 @@ def test_the_tour_opens_on_a_chapter_not_an_instruction(toured_page):
     )
     state = page.evaluate(WHISPER)
 
-    assert state["text"] == "moving", f"the first section should name itself, got {state}"
+    assert state["text"] == "Moving", f"the first section should name itself, got {state}"
     assert state["note"], f"a section should say what it covers, got {state}"
     assert not state["key"], f"a chapter heading asks for nothing, got {state}"
     assert page.evaluate("() => compareActive") is False, (
@@ -285,7 +285,7 @@ def test_the_only_thing_to_click_is_the_section_rail(toured_page):
         "() => Array.from(document.querySelectorAll('.tutorial-rail-item'))"
         ".map(el => el.textContent)"
     )
-    assert len(rail) >= 4 and rail[0] == "moving", f"the rail should list sections, got {rail}"
+    assert len(rail) >= 4 and rail[0] == "Moving", f"the rail should list sections, got {rail}"
 
 
 def test_the_whisper_never_blocks_the_array(toured_page):
@@ -340,17 +340,17 @@ def test_sections_can_be_switched(toured_page):
 
     page.keyboard.press("Tab")
     page.wait_for_timeout(600)
-    assert page.evaluate(WHISPER)["rail"] == "looking", "Tab should move a section on"
+    assert page.evaluate(WHISPER)["rail"] == "Looking", "Tab should move a section on"
 
     page.keyboard.press("Shift+Tab")
     page.wait_for_timeout(600)
-    assert page.evaluate(WHISPER)["rail"] == "moving", "Shift+Tab should move back"
+    assert page.evaluate(WHISPER)["rail"] == "Moving", "Shift+Tab should move back"
 
     page.click(f".tutorial-rail-item[data-section='{_section(page, 'pair')}']")
     page.wait_for_timeout(600)
     state = page.evaluate(WHISPER)
-    assert state["rail"] == "two arrays", f"the rail should be clickable, got {state}"
-    assert state["section"] and state["text"] == "two arrays", (
+    assert state["rail"] == "Two arrays", f"the rail should be clickable, got {state}"
+    assert state["section"] and state["text"] == "Two arrays", (
         f"arriving in a section should announce it, got {state}"
     )
 
