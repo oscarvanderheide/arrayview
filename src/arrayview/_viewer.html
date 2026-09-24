@@ -31321,6 +31321,42 @@
             }
             return `?${params.toString()}${_integratedBrowserDisplayHash}`;
         }
+        /**
+         * While this tab is on a side chapter, keep hold of the main array.
+         *
+         * The main array belongs to the launch, and the server lets it go
+         * shortly after no tab is showing it. The flow and stack chapters
+         * navigate this tab away from it, so a reader who lingered there
+         * came back to "the array could not be loaded". A quiet connection
+         * that never asks for a frame holds it for as long as this page is
+         * up; closing the tab drops it and the usual cleanup runs.
+         */
+        let _tutorialHomeHold = null;
+        function _tutorialHoldHome() {
+            if (_tutorialHomeHold || _tutorialSessionKind() === 'main') return;
+            const home = new URLSearchParams(sessionStorage.getItem(_TUTORIAL_HOME_KEY) || '');
+            const homeSid = home.get('sid');
+            if (!homeSid) return;
+            let target = resolveServerPath(`/ws/${homeSid}`);
+            const requestId = home.get('_av_launch_request_id');
+            const token = home.get('_av_launch_token');
+            if (requestId && token) {
+                target += `${target.includes('?') ? '&' : '?'}launch_request_id=${encodeURIComponent(requestId)}`;
+                target += `&launch_token=${encodeURIComponent(token)}`;
+            }
+            try {
+                if (_embeddedServerOrigin) {
+                    const url = new URL(target);
+                    const proto = url.protocol === 'https:' ? 'wss:' : 'ws:';
+                    _tutorialHomeHold = new WebSocket(`${proto}//${url.host}${url.pathname}${url.search}`);
+                } else {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    _tutorialHomeHold = new WebSocket(`${proto}//${location.host}${target}`);
+                }
+            } catch (_) {
+                _tutorialHomeHold = null;
+            }
+        }
         let _tutorialStarted = false;
         let _tutorialVisible = false;
         let _tutorialIndex = 0;
@@ -31689,6 +31725,7 @@
             if (_tutorialSessionKind() === 'main' && _arrayViewLaunchSearch) {
                 sessionStorage.setItem(_TUTORIAL_HOME_KEY, _arrayViewLaunchSearch);
             }
+            _tutorialHoldHome();
             const storedRaw = sessionStorage.getItem(_TUTORIAL_STORAGE_KEY);
             // A reload or a section that lives on another array lands back
             // here mid-tour; only a genuinely fresh start gets the welcome.

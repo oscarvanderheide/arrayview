@@ -418,3 +418,86 @@ def test_the_last_step_ends_the_tour(toured_page):
     assert page.evaluate(
         "() => sessionStorage.getItem('arrayview:tutorial:v3')"
     ) is None, "a finished tour should not resume on reload"
+
+
+def test_the_main_array_survives_the_side_chapters(page, client, server_url, tmp_path):
+    """The flow and stack chapters navigate the tab to other arrays. The
+    main array belongs to the launch, which the server lets go shortly after
+    no tab shows it, so a reader who lingered there came back to "the array
+    could not be loaded". The tab keeps hold of it while it is away."""
+    import arrayview._session as session_mod
+
+    base, compare, overlay = make_tutorial_arrays()
+    base_sid = _register(client, tmp_path, "tutorial", base)
+    compare_sid = _register(client, tmp_path, "comparison-volume", compare)
+    overlay_sid = _register(client, tmp_path, "Regions", overlay)
+    flow_sid = _register(client, tmp_path, "flow", np.ones((8, 8, 4), np.float32))
+
+    request_id, token, window_id = "tour-release-request", "tour-release-token", "tour-window"
+    server_id = client.get("/ping").json()["instance_id"]
+    prepared = client.post(
+        f"/viewer-phase/{base_sid}/{request_id}",
+        json={
+            "phase": "launch-prepared",
+            "server_id": server_id,
+            "window_id": window_id,
+            "token": token,
+        },
+    )
+    assert prepared.status_code == 200
+    query = urlencode(
+        {
+            "sid": base_sid,
+            "compare_sid": compare_sid,
+            "compare_sids": compare_sid,
+            "overlay_sid": overlay_sid,
+            "overlay_names": "Regions",
+            "tutorial_flow_sid": flow_sid,
+            "_av_launch_request_id": request_id,
+            "_av_launch_token": token,
+            "_av_launch_server_id": server_id,
+            "_av_launch_window_id": window_id,
+        }
+    )
+    page.goto(f"{server_url}/?{query}")
+    page.wait_for_function(
+        "() => document.body.classList.contains('tutorial-active')", timeout=15_000
+    )
+    _read_the_welcome(page)
+    journal = session_mod.VIEWER_PHASE_JOURNALS[base_sid][request_id]
+    journal["disconnect_release_grace_seconds"] = 0.5
+
+    _go_to_section(page, "flow")
+    page.wait_for_function(
+        f"() => new URLSearchParams(location.search).get('sid') === {flow_sid!r}"
+        " && document.body.classList.contains('tutorial-active')",
+        timeout=15_000,
+    )
+    page.wait_for_timeout(2_000)
+    assert base_sid in session_mod.SESSIONS, "the main array was let go mid-tour"
+
+    page.keyboard.press("Tab")
+    page.wait_for_function(
+        f"() => new URLSearchParams(location.search).get('sid') === {base_sid!r}"
+        " && document.body.classList.contains('tutorial-active')",
+        timeout=15_000,
+    )
+    page.wait_for_timeout(1_000)
+    assert base_sid in session_mod.SESSIONS
+    assert not page.evaluate(
+        "() => /could not/i.test(document.body.innerText)"
+    ), "coming back from a side chapter must show the array"
+
+    # Closing the tab on a side chapter still lets everything go.
+    _go_to_section(page, "flow")
+    page.wait_for_function(
+        f"() => new URLSearchParams(location.search).get('sid') === {flow_sid!r}"
+        " && document.body.classList.contains('tutorial-active')",
+        timeout=15_000,
+    )
+    page.wait_for_timeout(1_000)
+    # Coming home reported the launch again, which restores the real wait.
+    journal["disconnect_release_grace_seconds"] = 0.5
+    page.goto("about:blank")
+    page.wait_for_timeout(2_500)
+    assert base_sid not in session_mod.SESSIONS, "closing the tour should release its array"
