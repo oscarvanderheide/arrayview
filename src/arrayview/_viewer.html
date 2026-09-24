@@ -4589,13 +4589,14 @@
            by pressing it. Pointer-transparent, so it can sit over the
            array without ever being in the way.
 
-           The layer that carries it rides above whatever bottom chrome is
-           currently open — the colormap island and the expanded histogram
-           both grow upward out of the colorbar, and the line must never
-           land on top of the thing it just asked you to look at. The lift
-           is measured, not guessed; see `_tutorialReconcileLift`. */
+           The layer that carries it sits near the top of the array, just
+           under the dimension bar. Low in the frame it covered the middle
+           of the picture and the colorbar chrome it was talking about. The
+           position is measured, not guessed; see `_tutorialReconcileLift`.
+           During the welcome there is no array, and the words sit a
+           little above the middle of the screen instead. */
         #tutorial-layer {
-            position: fixed; left: 50%; bottom: var(--tutorial-lift, 78px);
+            position: fixed; left: 50%; top: var(--tutorial-top, 96px);
             z-index: 58;
             transform: translateX(-50%);
             /* One line of prose and nothing else. The section rail used to
@@ -4604,24 +4605,28 @@
             width: min(620px, calc(100vw - 48px));
             display: flex; flex-direction: column; align-items: center;
             pointer-events: none;
-            transition: bottom 340ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            transition: top 340ms cubic-bezier(0.2, 0.8, 0.2, 1),
                         opacity 200ms ease;
         }
         /* Something opened over the array — step aside until it closes. */
         #tutorial-layer.is-muted { opacity: 0; pointer-events: none; }
-        /* The line, its key, and a note underneath, in a box of fixed
-           height with the text pinned to its top. Lines differ in length
-           and some wrap; a box that grew with them made the text jump
-           up and down from one line to the next. */
+        /* The line, its key, and a note underneath, on a translucent
+           pill so it stays readable over a busy picture. The layer is
+           anchored by its top, so a longer line grows the pill downward
+           and the first words never move. */
         #tutorial-whisper {
             display: flex; flex-direction: column; align-items: center;
             justify-content: flex-start; gap: 6px;
-            height: 180px; padding: 0 8px; box-sizing: border-box;
+            padding: 12px 22px; box-sizing: border-box;
             max-width: min(620px, 100%);
             color: var(--text);
             font-size: 14px; line-height: 1.5; letter-spacing: 0.02em;
             text-align: center;
-            text-shadow: 0 1px 12px var(--bg, rgba(0,0,0,0.6));
+            background: color-mix(in srgb, var(--bg) 78%, transparent);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+            border-radius: 18px;
+            box-shadow: var(--surface-shadow);
             visibility: hidden;
             opacity: 0;
             /* Slower than the rest of the UI on purpose — it should arrive
@@ -4664,10 +4669,13 @@
             font-size: 12px; letter-spacing: 0.02em;
             color: var(--text); opacity: 0.68;
         }
+        /* The key's row is kept even when there is no key, so every
+           line starts at the same height. Only the welcome, which is
+           never followed by a step in the same place, drops it. */
         #tutorial-whisper-key:empty,
-        #tutorial-whisper.is-section #tutorial-whisper-key,
-        #tutorial-whisper.is-intro #tutorial-whisper-key { visibility: hidden; }
+        #tutorial-whisper.is-section #tutorial-whisper-key { visibility: hidden; }
         #tutorial-whisper-key:empty::before { content: '\00a0'; }
+        #tutorial-whisper.is-intro #tutorial-whisper-key { display: none; }
         /* Pointing at the thing a step is about. Not a spotlight over the
            array — a ring that blooms outward once and is gone. */
         .tutorial-spotlight {
@@ -4691,11 +4699,24 @@
         #tutorial-whisper.is-intro #tutorial-whisper-text {
             font-size: 15px; letter-spacing: 0.03em;
         }
-        /* A welcome note can list a few things, one per line. */
         /* Every sentence sits on its own line. */
         #tutorial-whisper-text,
         #tutorial-whisper-note { white-space: pre-line; }
         #tutorial-whisper-note { line-height: 1.6; }
+        #tutorial-whisper-note:empty { display: none; }
+
+        /* The welcome, with the array not yet shown. */
+        body.tutorial-intro #tutorial-layer { top: 36vh; }
+        body.tutorial-intro #canvas-viewport,
+        body.tutorial-intro #info,
+        body.tutorial-intro #slim-cb-wrap {
+            opacity: 0; visibility: hidden;
+        }
+        body.tutorial-active #canvas-viewport,
+        body.tutorial-active #info,
+        body.tutorial-active #slim-cb-wrap {
+            transition: opacity 700ms ease, visibility 700ms;
+        }
 
         /* ── Section rail ─────────────────────────────────────────
            The only furniture the tutorial keeps. It exists because the
@@ -6095,6 +6116,9 @@
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
         let _isTutorialSession = false;
+        // The tour's welcome is up and the array is kept out of sight until
+        // the first chapter. See `_reconcileTutorialIntro`.
+        let _tutorialIntroActive = false;
         const _DEBUG_UI = urlParams.get('debug_ui') === '1';
         const _PERF_ENABLED = urlParams.get('perf') === '1';
         const _perfRequests = new Map();
@@ -17162,6 +17186,11 @@
             // "tutorial", so the URL is what says a tour is running.
             _isTutorialSession = data.name === 'tutorial'
                 || !!(_TUTORIAL_SIDS.flow || _TUTORIAL_SIDS.stack);
+            // Decided before the first frame lands, so a fresh tour never
+            // flashes the array before its welcome.
+            _tutorialIntroActive = _isTutorialSession
+                && sessionStorage.getItem(_TUTORIAL_STORAGE_KEY) === null;
+            _reconcileTutorialIntro();
             if (_isWelcomeScreen) {
                 document.body.classList.add('welcome-mode');
             }
@@ -31364,8 +31393,10 @@
                         expect: ['slice.next', 'slice.prev'],
                     },
                     {
+                        key: 'D',
                         text: 'The labels at the top are the dimensions.\nThe x and y dimensions are drawn on screen.\nThe numbers show where you are in the others.',
-                        note: 'Scroll over a number to move through it.\nDouble-click the labels to see each size.\nPress Enter when you are done.',
+                        note: 'Press D (shift+d) to also show the size of each dimension.\nDouble-clicking the labels does the same.\nScroll over a number to move through it.\nPress Enter when you are done.',
+                        expect: ['dimbar.toggleExtents'],
                         spotlight: '#info',
                     },
                     {
@@ -31637,7 +31668,7 @@
         let _tutorialSpotTimer = 0;
         let _tutorialLastInput = 0;
         let _tutorialLiftRaf = 0;
-        let _tutorialLift = 0;
+        let _tutorialTop = 0;
 
         /**
          * How long a line stays up: long enough to read what it actually
@@ -31726,6 +31757,18 @@
                 );
             }
             _reconcileTutorialRail(visible);
+            _reconcileTutorialIntro();
+        }
+
+        /**
+         * During the welcome the screen is empty apart from the words: the
+         * array, its dimension bar and its colorbar arrive with the first
+         * chapter, which is where the tour starts talking about them.
+         */
+        function _reconcileTutorialIntro() {
+            document.body.classList.toggle(
+                'tutorial-intro', !!(_isTutorialSession && _tutorialIntroActive)
+            );
         }
 
         /** The section rail: where you are, and every place you can go. */
@@ -31782,13 +31825,13 @@
         }
 
         /**
-         * Keep the line clear of the chrome it is talking about, in the two
-         * ways chrome can get in the way.
+         * Keep the line in a sensible place and out of the way.
          *
-         * Bottom-anchored chrome — the colorbar, and the histogram that
-         * grows upward out of it — is dodged: a fixed offset lands the
-         * whisper on top of it, so the offset is measured instead, every
-         * frame the tour is up.
+         * It sits at the top of the array, just under the dimension bar:
+         * in a picture that is where the sky usually is, and it keeps the
+         * middle of the picture and the colorbar chrome at the bottom
+         * clear. The top of the array moves (zoom, split views, a second
+         * array), so it is measured every frame the tour is up.
          *
          * A panel that opens over the array cannot be dodged, because it is
          * centred. There the tutorial goes quiet until the panel closes.
@@ -31800,18 +31843,22 @@
             const rail = document.getElementById('tutorial-rail');
             if (!layer) return;
             const vh = window.innerHeight || 0;
-            let lift = 78;
-            document.querySelectorAll('[id$="-cb-wrap"]').forEach(el => {
+            let contentTop = Infinity;
+            document.querySelectorAll(
+                '#canvas-viewport, .mv-pane, .compare-canvas-wrap'
+            ).forEach(el => {
                 const rect = el.getBoundingClientRect();
                 if (rect.width <= 0 || rect.height <= 0) return;
-                // Only bottom-anchored chrome can be in the way.
-                if (rect.bottom < vh * 0.5) return;
-                lift = Math.max(lift, vh - rect.top + 18);
+                contentTop = Math.min(contentTop, rect.top);
             });
-            lift = Math.min(lift, Math.max(78, vh * 0.5));
-            if (Math.abs(lift - _tutorialLift) >= 1) {
-                _tutorialLift = lift;
-                document.body.style.setProperty('--tutorial-lift', `${lift}px`);
+            const info = document.getElementById('info');
+            const infoRect = info ? info.getBoundingClientRect() : null;
+            const infoBottom = infoRect && infoRect.height > 0 ? infoRect.bottom : 0;
+            let top = Math.max(Number.isFinite(contentTop) ? contentTop : 0, infoBottom) + 14;
+            top = Math.max(24, Math.min(top, vh * 0.4));
+            if (Math.abs(top - _tutorialTop) >= 1) {
+                _tutorialTop = top;
+                document.body.style.setProperty('--tutorial-top', `${top}px`);
             }
 
             // The rail lives in the left gutter. It steps out of the way in
@@ -32106,6 +32153,10 @@
 
         function _tutorialPrepareStep(seq) {
             if (seq !== _tutorialSeq || !_tutorialVisible) return;
+            if (_tutorialIntroActive) {
+                _tutorialIntroActive = false;
+                _reconcileTutorialIntro();
+            }
             const step = _TUTORIAL_STEPS[_tutorialIndex];
             if (!step) return;
             const sectionIndex = step._section;
@@ -32206,12 +32257,13 @@
             _tutorialSeq++;
             sessionStorage.removeItem(_TUTORIAL_STORAGE_KEY);
             _tutorialVisible = false;
+            _tutorialIntroActive = false;
             if (_tutorialLiftRaf) {
                 cancelAnimationFrame(_tutorialLiftRaf);
                 _tutorialLiftRaf = 0;
             }
-            _tutorialLift = 0;
-            document.body.style.removeProperty('--tutorial-lift');
+            _tutorialTop = 0;
+            document.body.style.removeProperty('--tutorial-top');
             _reconcileTutorial();
         }
 

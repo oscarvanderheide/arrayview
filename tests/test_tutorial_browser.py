@@ -312,8 +312,8 @@ def test_the_whisper_never_blocks_the_array(toured_page):
 
 
 def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
-    """The colormap picker opens centred, right over where the line sits.
-    Talking underneath it would go unread."""
+    """The colormap picker opens centred. The line may stay up above it,
+    but never on top of it: talking underneath it would go unread."""
     page = toured_page
     _go_to_section(page, "looking")
     _wait_for_step(page, _step_index(page, "s => s.key === 'c'"))
@@ -321,10 +321,20 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     page.keyboard.press("c")
     page.wait_for_timeout(700)
     state = page.evaluate(WHISPER)
-    assert state["muted"], f"the tutorial should step aside for the picker, got {state}"
-    assert page.evaluate(
-        "() => getComputedStyle(document.getElementById('tutorial-layer')).opacity"
-    ) == "0", "a muted tutorial should be fully out of the way"
+    overlap = page.evaluate(
+        """() => {
+            const a = document.getElementById('tutorial-whisper').getBoundingClientRect();
+            const b = document.getElementById('cmap-picker-box').getBoundingClientRect();
+            return !(a.bottom <= b.top || a.top >= b.bottom
+                || a.right <= b.left || a.left >= b.right);
+        }"""
+    )
+    if state["muted"]:
+        assert page.evaluate(
+            "() => getComputedStyle(document.getElementById('tutorial-layer')).opacity"
+        ) == "0", "a muted tutorial should be fully out of the way"
+    else:
+        assert not overlap, f"the line should not sit on the picker, got {state}"
 
     # And Escape belongs to the picker, not to the tour.
     page.keyboard.press("Escape")
