@@ -15,7 +15,7 @@ def test_tutorial_arrays_are_deterministic_and_composable():
     base_a, compare_a, overlay_a = make_tutorial_arrays()
     base_b, compare_b, overlay_b = make_tutorial_arrays()
 
-    assert base_a.shape == (192, 128, 24, 128)
+    assert base_a.shape == (192, 128, 24, 32)
     assert compare_a.shape == base_a.shape
     assert overlay_a.shape == base_a.shape
     assert base_a.dtype == compare_a.dtype == np.float32

@@ -51,7 +51,7 @@ _CAMP_GROUND = 44
 _CAMP_FIRE = (58, 52)
 # The time-of-day dimension, in hours on the clock: a whole day in fine
 # steps, starting in the morning, so playing it looks smooth.
-_CAMP_CLOCK = tuple((8.0 + 24.0 * i / 128) % 24.0 for i in range(128))
+_CAMP_CLOCK = tuple((8.0 + 24.0 * i / 32) % 24.0 for i in range(32))
 
 _CAMPER_SHADES = {
     "h": 1.0, "s": 0.78, "e": 0.02, "c": 0.62, "k": 0.36,
@@ -139,12 +139,12 @@ def _camp_light(clock: float):
     return sun_up, light, dark
 
 
-def _camp_layers(frame: int, snow: bool, night: bool):
+def _camp_layers(frame: int, snow: bool):
     """Everything in one animation frame that does not depend on the hour.
 
     The hour only changes the light, the sky's sun, moon and stars, the
-    shade of the clouds and the lantern in the tent, so those are left as
-    masks for `_camp_scene` to fill in.
+    shade of the clouds, the lantern in the tent and what the camper is
+    doing, so those are left for `_camp_camper` and `_camp_scene`.
     """
     import numpy as np
 
@@ -167,19 +167,6 @@ def _camp_layers(frame: int, snow: bool, night: bool):
         y, x = int(round(y)), int(round(x))
         if 0 <= y < H and 0 <= x < W:
             target[y, x] = value
-
-    def sprite(rows_, left, bottom, flip=False):
-        """Draw the camper, one character per pixel, feet at `bottom`."""
-        width = max(len(r) for r in rows_)
-        top = bottom - len(rows_) + 1
-        for r, row in enumerate(rows_):
-            row = row.ljust(width, ".")
-            for c, ch in enumerate(row[::-1] if flip else row):
-                y, x = top + r, left + c
-                if ch != "." and 0 <= y < H and 0 <= x < W:
-                    albedo[y, x] = _CAMPER_SHADES[ch]
-                    if ch != "l":
-                        labels[y, x] = 2
 
     # Sky, brighter toward the horizon.
     albedo[:] = np.where(yy < ground, 0.62 + 0.25 * (yy / ground), 0.0)
@@ -243,15 +230,6 @@ def _camp_layers(frame: int, snow: bool, night: bool):
     labels[tent] = 3
     door = tent & (yy >= 42) & (np.abs(across) <= (yy - 42) * 0.6)
     albedo[door] = 0.1
-
-    # The camper walks about by day and sits by the fire at night.
-    if night:
-        sprite(_CAMPER_SIT, 44 * S, 55 * S)
-    else:
-        going = frame < F // 2
-        step = (frame if going else F - 1 - frame) / (F // 2 - 1)
-        sprite(_CAMPER_WALK[(frame // 2) % 2], int(round((30 + 38 * step) * S)),
-               58 * S, flip=not going)
 
     # The fire: a ring of stones, crossed logs, flickering flames, sparks.
     fx, fy = _CAMP_FIRE
@@ -317,6 +295,36 @@ def _camp_layers(frame: int, snow: bool, night: bool):
     }
 
 
+def _camp_camper(layers, frame: int, night: bool):
+    """The frame's layers with the camper added, in front of everything.
+
+    The camper walks about by day and sits by the fire at night.
+    """
+    S = _CAMP_SCALE
+    F = _CAMP_FRAMES
+    albedo = layers["albedo"].copy()
+    labels = layers["labels"].copy()
+    H, W = albedo.shape
+    if night:
+        rows, left, bottom, flip = _CAMPER_SIT, 44 * S, 55 * S, False
+    else:
+        going = frame < F // 2
+        step = (frame if going else F - 1 - frame) / (F // 2 - 1)
+        rows = _CAMPER_WALK[(frame // 2) % 2]
+        left, bottom, flip = int(round((30 + 38 * step) * S)), 58 * S, not going
+    width = max(len(r) for r in rows)
+    top = bottom - len(rows) + 1
+    for r, row in enumerate(rows):
+        row = row.ljust(width, ".")
+        for c, ch in enumerate(row[::-1] if flip else row):
+            y, x = top + r, left + c
+            if ch != "." and 0 <= y < H and 0 <= x < W:
+                albedo[y, x] = _CAMPER_SHADES[ch]
+                if ch != "l":
+                    labels[y, x] = 2
+    return dict(layers, albedo=albedo, labels=labels)
+
+
 def _camp_scene(frame: int, clock: float, snow: bool, layers=None):
     """Draw one picture of the campsite and its region labels.
 
@@ -327,7 +335,7 @@ def _camp_scene(frame: int, clock: float, snow: bool, layers=None):
     S = _CAMP_SCALE
     sun_up, light, dark = _camp_light(clock)
     if layers is None:
-        layers = _camp_layers(frame, snow, sun_up < 0.0)
+        layers = _camp_camper(_camp_layers(frame, snow), frame, sun_up < 0.0)
     albedo = layers["albedo"].copy()
     glow = layers["glow"].copy()
     xx, yy, loop = layers["xx"], layers["yy"], layers["loop"]
@@ -392,26 +400,28 @@ def make_tutorial_arrays():
     import numpy as np
 
     S = _CAMP_SCALE
-    shape = (_CAMP_UNITS_H * S, _CAMP_UNITS_W * S, _CAMP_FRAMES, len(_CAMP_CLOCK))
+    # Drawn picture by picture into (frame, hour, y, x), where each picture
+    # is one contiguous block, and reordered once at the end.
+    shape = (_CAMP_FRAMES, len(_CAMP_CLOCK), _CAMP_UNITS_H * S, _CAMP_UNITS_W * S)
     base = np.empty(shape, dtype=np.float32)
     compare = np.empty_like(base)
     overlay = np.zeros(shape, dtype=np.uint8)
     for frame in range(_CAMP_FRAMES):
-        cache = {}
-        for step, clock in enumerate(_CAMP_CLOCK):
-            night = _camp_light(clock)[0] < 0.0
-            for snow, target in ((False, base), (True, compare)):
-                key = (snow, night)
-                if key not in cache:
-                    cache[key] = _camp_layers(frame, snow, night)
-                image, labels = _camp_scene(frame, clock, snow, cache[key])
-                target[..., frame, step] = image
+        for snow, target in ((False, base), (True, compare)):
+            layers = _camp_layers(frame, snow)
+            with_camper = {}
+            for step, clock in enumerate(_CAMP_CLOCK):
+                night = _camp_light(clock)[0] < 0.0
+                if night not in with_camper:
+                    with_camper[night] = _camp_camper(layers, frame, night)
+                image, labels = _camp_scene(frame, clock, snow, with_camper[night])
+                target[frame, step] = image
                 if not snow:
-                    overlay[..., frame, step] = labels
+                    overlay[frame, step] = labels
     # The viewer draws the first dimension across the screen, so the
     # picture is stored as (x, y, frame, hour).
     return tuple(
-        np.ascontiguousarray(a.transpose(1, 0, 2, 3)) for a in (base, compare, overlay)
+        np.ascontiguousarray(a.transpose(3, 2, 0, 1)) for a in (base, compare, overlay)
     )
 
 
