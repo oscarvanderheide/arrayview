@@ -4647,21 +4647,9 @@
             color: var(--active-dim);
             border: 1px solid var(--active-dim); border-radius: 5px;
             font-size: 12px; letter-spacing: 0.04em; white-space: pre;
-            opacity: 0.9;
-            /* Breathing until you try it, so an untried key reads as a
-               thing waiting for you rather than a label. */
-            animation: tutorial-chip-breathe 2600ms ease-in-out infinite;
-            transition: box-shadow 140ms ease, transform 140ms ease;
-        }
-        @keyframes tutorial-chip-breathe {
-            0%, 100% { opacity: 0.55; }
-            50%      { opacity: 1; }
-        }
-        /* Tried at least once: it stops breathing and stays lit. */
-        #tutorial-whisper-key.is-tried { animation: none; opacity: 1; }
-        #tutorial-whisper-key.is-hit {
-            box-shadow: 0 0 0 2px var(--active-dim);
-            transform: scale(1.08);
+            /* Still, always. It does not pulse, and it does not react
+               when you press the key: the thing to watch is what the key
+               does to the array, not the label. */
         }
         #tutorial-whisper-note {
             font-size: 12px; letter-spacing: 0.02em;
@@ -4685,7 +4673,6 @@
             100% { outline-color: transparent; outline-offset: 14px; }
         }
         @media (prefers-reduced-motion: reduce) {
-            #tutorial-whisper-key { animation: none; opacity: 0.9; }
             .tutorial-spotlight { animation-duration: 1ms; }
         }
         /* The welcome: plain sentences about what this is. */
@@ -31296,10 +31283,6 @@
         // continuation captures it and gives up if it no longer matches, so
         // a section jump mid-echo cannot resurrect the step you left.
         let _tutorialSeq = 0;
-        // One press can arrive twice (once as the command, once as the raw
-        // key); presses closer together than this are the same press.
-        let _tutorialLastHit = 0;
-        const _TUTORIAL_HIT_GAP_MS = 130;
         // Which section has already introduced itself, so returning to a
         // step inside the current section does not replay its title.
         let _tutorialShownSection = -1;
@@ -31337,11 +31320,13 @@
          * very thing it had just shown them.
          *
          * `key` is the chip shown next to the line — a label, not a binding.
-         * `expect` lists the commands that count as trying it; they only
-         * make the chip light up. `note` is an optional dimmer line
+         * `expect` lists the commands the step is about, so tests can check
+         * they exist and the tour can find a step by what it teaches. The
+         * chip never reacts to them. `note` is an optional dimmer line
          * underneath. Enter moves on from every step; the welcome says so
-         * once and the steps do not repeat it. `auto` steps change something themselves
-         * (open the comparison) before they say what appeared.
+         * once and the steps do not repeat it. `auto` steps change
+         * something themselves (open the comparison) before they say what
+         * appeared.
          *
          * A section names the state it needs via `stage`, and staging puts
          * the viewer back to normal first (see `_tutorialTidy`), so a step
@@ -31393,7 +31378,7 @@
                         key: 'd',
                         text: 'Press d to open the histogram.\nDrag its handles to change the contrast.\nPress d again for range presets.',
                         note: 'Double-clicking the colorbar does the same.\nScrolling over it changes the range.',
-                        expect: ['histogram.openOrCycle'], rawKeys: ['d'],
+                        expect: ['histogram.openOrCycle'],
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
@@ -31525,7 +31510,7 @@
                     {
                         key: 'R',
                         text: 'Press R (shift+r) to draw regions.\nDrag a box to measure what is inside it.\nPress R again to stop.',
-                        expect: ['roi.cycleMode', 'pointer.draw'],
+                        expect: ['roi.cycleMode'],
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
@@ -31558,7 +31543,7 @@
                         key: '?',
                         text: 'This tour showed a small part of arrayview.\nPress ? or click the ? in the corner to see all keys.\nPress ? or Esc to close it.',
                         note: 'Press Enter to end the tour',
-                        rawKeys: ['?'], spotlight: '#help-hint',
+                        spotlight: '#help-hint',
                     },
                 ],
             },
@@ -31827,7 +31812,6 @@
                 const textEl = document.getElementById('tutorial-whisper-text');
                 const noteEl = document.getElementById('tutorial-whisper-note');
                 keyEl.textContent = mode === 'ask' ? (keyLabel || '') : '';
-                keyEl.classList.remove('is-hit', 'is-tried');
                 textEl.textContent = text;
                 noteEl.textContent = note || '';
                 whisper.classList.toggle('has-logo', !!logo);
@@ -31843,14 +31827,6 @@
                 return;
             }
             paint();
-        }
-
-        /** You tried the thing the line is about: the chip says so. */
-        function _tutorialMarkHit() {
-            const keyEl = document.getElementById('tutorial-whisper-key');
-            if (!keyEl) return;
-            keyEl.classList.add('is-hit', 'is-tried');
-            window.setTimeout(() => keyEl.classList.remove('is-hit'), 180);
         }
 
         /**
@@ -32077,7 +32053,6 @@
         async function _tutorialEnterStep(seq, step) {
             if (seq !== _tutorialSeq || !_tutorialVisible) return;
             if (helpOverlay.classList.contains('visible')) setHelpVisible(false);
-            _tutorialLastHit = 0;
             if (typeof step.onEnter === 'function') step.onEnter();
             if (step.auto) {
                 // Stage-hands change something themselves, then say what
@@ -32137,20 +32112,6 @@
             _reconcileTutorial();
         }
 
-        /** A press that counts as trying the current step lights its chip. */
-        function _tutorialEvaluate(actionId) {
-            if (!_tutorialVisible) return;
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!step || step.auto) return;
-            const rawKey = actionId && actionId.startsWith('key:') ? actionId.slice(4) : '';
-            const rawMatch = !!(rawKey && step.rawKeys && step.rawKeys.includes(rawKey));
-            if (!rawMatch && !(step.expect && step.expect.includes(actionId))) return;
-            const now = performance.now();
-            if (now - _tutorialLastHit < _TUTORIAL_HIT_GAP_MS) return;
-            _tutorialLastHit = now;
-            _tutorialMarkHit();
-        }
-
         /** Run a stage-hand's change. False when there is nothing to show. */
         async function _tutorialRunAuto(step) {
             if (step.auto === 'pair') {
@@ -32161,9 +32122,6 @@
             return true;
         }
 
-        window.addEventListener('arrayview:action', event => {
-            _tutorialEvaluate(event.detail && event.detail.id);
-        });
         window.addEventListener('keydown', event => {
             if (!_tutorialVisible) return;
             _tutorialLastInput = performance.now();
@@ -32201,12 +32159,6 @@
                 _tutorialSkip();
                 return;
             }
-            const step = _TUTORIAL_STEPS[_tutorialIndex];
-            if (!step || !step.rawKeys || event.ctrlKey || event.metaKey || event.altKey) return;
-            const key = String(event.key || '').toLowerCase();
-            if (step.rawKeys.includes(key)) {
-                window.setTimeout(() => _tutorialEvaluate(`key:${key}`), 80);
-            }
         }, true);
         window.addEventListener('pointerdown', () => {
             if (_tutorialVisible) _tutorialLastInput = performance.now();
@@ -32232,9 +32184,7 @@
             reportParent('wheel-passthrough', { deltaY: e.deltaY, deltaMode: e.deltaMode });
         }, { capture: true, passive: true });
         window.addEventListener('pointerup', () => {
-            if (!_tutorialVisible) return;
-            _tutorialLastInput = performance.now();
-            window.setTimeout(() => _tutorialEvaluate('pointer.draw'), 180);
+            if (_tutorialVisible) _tutorialLastInput = performance.now();
         }, true);
 
 

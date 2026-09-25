@@ -174,8 +174,8 @@ def test_trying_the_keys_does_not_move_on(toured_page):
     state = page.evaluate(WHISPER)
     assert state["index"] == 0, f"trying the keys must not move the tour on, got {state}"
     assert page.evaluate(
-        "() => document.getElementById('tutorial-whisper-key').classList.contains('is-tried')"
-    ), "the key should show it was tried"
+        "() => getComputedStyle(document.getElementById('tutorial-whisper-key')).animationName"
+    ) == "none", "the key label should stay still, not pulse or react"
 
     page.keyboard.press("Enter")
     _wait_for_step(page, 1)
@@ -220,7 +220,7 @@ def test_every_expected_command_exists(toured_page):
     missing = page.evaluate(
         """() => _TUTORIAL_STEPS
             .flatMap(s => s.expect || [])
-            .filter(id => id !== 'pointer.draw' && !commands[id])"""
+            .filter(id => !commands[id])"""
     )
     assert missing == [], f"these steps listen for commands that do not exist: {missing}"
 
