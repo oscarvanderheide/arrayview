@@ -23125,6 +23125,7 @@
             _recordPlaybackFrame();
             const targetMs = 1000 / playFps;
             function _rafTick(ts) {
+                _playRafId = null;
                 if (!isPlaying) return;
                 if (ts - playLastFrameTime >= targetMs) {
                     const steps = Math.max(1, Math.floor((ts - playLastFrameTime) / targetMs));
@@ -23136,7 +23137,9 @@
                     _playRafId = requestAnimationFrame(_rafTick);
                 }
             }
-            _playRafId = requestAnimationFrame(_rafTick);
+            // A completed render may already be past the next deadline.
+            // Start that request now instead of adding another display tick.
+            _rafTick(performance.now());
         }
 
         async function playNextVfieldT() {
@@ -31463,19 +31466,19 @@
                         expect: ['colormap.openOrCycle'],
                     },
                     {
-                        text: 'Press and hold on the image, then drag.\nLeft and right shift the range of values shown.\nUp and down widen or narrow it.',
-                        note: 'A small triangle shows the range while you drag.',
-                    },
-                    {
                         key: 'd',
-                        text: 'Press d to open the histogram under the image.\nDrag its handles to change the range.',
+                        text: 'Press d to open the histogram under the image.\nDrag its handles to move either end of the range.\nDrag anywhere else on it to slide the whole range.',
                         note: 'Double-clicking the colorbar also opens it.\nScrolling over it changes the range.',
                         expect: ['histogram.openOrCycle'],
                         spotlight: '#slim-cb-wrap',
                     },
                     {
+                        text: 'You can also press and hold on the image, then drag.\nLeft and right shift the range.\nUp and down widen or narrow it.',
+                        note: 'The histogram opens with it.\nA small triangle shows the range while you drag.',
+                    },
+                    {
                         key: 'd',
-                        text: 'Press d again to step through range presets.\nEach one leaves out a share of the lowest and highest values.',
+                        text: 'Keep pressing d to step through range presets.\nThey are based on percentiles of the data.\nFor example, 1–99% leaves out the lowest and highest 1%.',
                         note: 'They go from the full range to 10–90%.',
                         expect: ['histogram.openOrCycle'],
                         spotlight: '#slim-cb-wrap',
