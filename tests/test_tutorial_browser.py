@@ -26,12 +26,10 @@ WHISPER = """
             text: document.getElementById('tutorial-whisper-text').textContent,
             note: document.getElementById('tutorial-whisper-note').textContent,
             visible: w.classList.contains('is-visible'),
-            section: w.classList.contains('is-section'),
+            logo: w.classList.contains('has-logo'),
             muted: document.getElementById('tutorial-layer')
                 .classList.contains('is-muted'),
             index: _tutorialIndex,
-            rail: (document.querySelector('.tutorial-rail-item.is-current') || {})
-                .textContent,
         };
     }
 """
@@ -89,17 +87,15 @@ def test_it_says_what_arrayview_is_before_asking_for_anything(tutorial_page):
     assert "arrayview" in first["text"], first
     assert "Enter" in first["note"], f"the first line should say how to continue, got {first}"
     assert not first["key"], f"the welcome asks for no key, got {first}"
+    assert first["logo"], f"the first line shows the logo, got {first}"
 
     page.wait_for_timeout(6_000)
     still = page.evaluate(WHISPER)
     assert still["text"] == first["text"], "a welcome line must not move on by itself"
 
     _read_the_welcome(page)
-    page.wait_for_function(
-        "() => document.getElementById('tutorial-whisper').classList.contains('is-section')",
-        timeout=15_000,
-    )
-    assert page.evaluate(WHISPER)["text"] == "Moving"
+    _wait_for_step(page, 0)
+    assert not page.evaluate(WHISPER)["logo"], "only the first welcome line has the logo"
 
 
 def _section(page, section_id):
@@ -114,23 +110,20 @@ def _section(page, section_id):
 
 
 def _go_to_section(page, section_id):
-    page.evaluate(f"() => _tutorialGoSection({_section(page, section_id)})")
-
-
-def test_the_tour_opens_on_a_chapter_not_an_instruction(toured_page):
-    """It used to drop you straight into 'press K'. A tour that changes the
-    ground under you — a second array, then overlays — has to say where it
-    is before it asks for anything."""
-    page = toured_page
-    page.wait_for_function(
-        "() => document.getElementById('tutorial-whisper').classList.contains('is-section')",
-        timeout=15_000,
+    """Jump straight to a section's first step, staging it as the tour would."""
+    page.evaluate(
+        "() => { _tutorialShownSection = -1;"
+        f" _tutorialGo(_TUTORIAL_SECTION_START[{_section(page, section_id)}]); }}"
     )
-    state = page.evaluate(WHISPER)
 
-    assert state["text"] == "Moving", f"the first section should name itself, got {state}"
-    assert state["note"], f"a section should say what it covers, got {state}"
-    assert not state["key"], f"a chapter heading asks for nothing, got {state}"
+
+def test_the_tour_is_one_run_without_chapter_titles(toured_page):
+    """After the welcome the tour goes straight into its first step. There
+    are no chapter headings, and nothing it reaches later is open yet."""
+    page = toured_page
+    _wait_for_step(page, 0)
+    state = page.evaluate(WHISPER)
+    assert state["key"], f"the first thing after the welcome is a step, got {state}"
     assert page.evaluate("() => compareActive") is False, (
         "the comparison pair must not open before the tour reaches it"
     )
@@ -161,7 +154,9 @@ def test_a_step_says_what_its_keys_do(toured_page):
     state = page.evaluate(WHISPER)
     assert state["key"].split() == ["j", "k"], state
     assert "slice" in state["text"], f"the step should say what j and k do, got {state}"
-    assert "Enter" in state["note"], f"the step should say how to move on, got {state}"
+    assert "Enter" in page.evaluate("() => _TUTORIAL_INTRO.map(l => l.note).join(' ')"), (
+        "the welcome should say once that Enter moves on"
+    )
 
 
 def test_trying_the_keys_does_not_move_on(toured_page):
@@ -187,8 +182,9 @@ def test_trying_the_keys_does_not_move_on(toured_page):
 
 
 def test_the_text_does_not_jump(toured_page):
-    """Headings, steps with a key, and long lines that wrap must all start
-    at the same height, and nothing may appear under a line after it lands."""
+    """Steps with and without a key, and long lines that wrap, must all
+    start at the same height, and nothing may appear under a line after it
+    lands."""
     page = toured_page
     top = "() => Math.round(document.getElementById('tutorial-whisper-text').getBoundingClientRect().top)"
     tops = set()
@@ -198,11 +194,7 @@ def test_the_text_does_not_jump(toured_page):
         page.wait_for_timeout(1_500)
         tops.add(page.evaluate(top))
         page.keyboard.press("Enter")
-    page.wait_for_function(
-        "() => document.getElementById('tutorial-whisper').classList.contains('is-section')"
-        " && document.getElementById('tutorial-whisper').classList.contains('is-visible')",
-        timeout=20_000,
-    )
+    _wait_for_step(page, page.evaluate("() => _TUTORIAL_SECTION_START[1]"))
     tops.add(page.evaluate(top))
     assert len(tops) == 1, f"the text moved between lines: {sorted(tops)}"
 
@@ -264,15 +256,15 @@ def test_a_new_chapter_starts_from_a_plain_view(toured_page):
     page.wait_for_function("() => dim_z < 0", timeout=10_000)
 
 
-def test_the_only_thing_to_click_is_the_section_rail(toured_page):
-    """No panel, no counter, no progress bar, no dismiss button. The rail
-    is the one deliberate exception."""
+def test_there_is_nothing_to_click(toured_page):
+    """No panel, no counter, no progress bar, no chapter list, no dismiss
+    button. The tour is one continuous run."""
     page = toured_page
     leftovers = page.evaluate(
         """() => ['tutorial-panel', 'tutorial-title', 'tutorial-copy',
                   'tutorial-count', 'tutorial-progress', 'tutorial-action',
                   'tutorial-back', 'tutorial-skip', 'tutorial-restart',
-                  'tutorial-close']
+                  'tutorial-close', 'tutorial-rail']
             .filter(id => document.getElementById(id))"""
     )
     assert leftovers == [], f"the tutorial chrome should be gone, found {leftovers}"
@@ -280,12 +272,6 @@ def test_the_only_thing_to_click_is_the_section_rail(toured_page):
     assert page.evaluate(
         "() => document.querySelectorAll('#tutorial-whisper button').length"
     ) == 0, "the whisper itself should offer nothing to click"
-
-    rail = page.evaluate(
-        "() => Array.from(document.querySelectorAll('.tutorial-rail-item'))"
-        ".map(el => el.textContent)"
-    )
-    assert len(rail) >= 4 and rail[0] == "Moving", f"the rail should list sections, got {rail}"
 
 
 def test_the_whisper_never_blocks_the_array(toured_page):
@@ -344,25 +330,13 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     ), "closing a panel must not also end the tutorial"
 
 
-def test_sections_can_be_switched(toured_page):
+def test_tab_does_not_skip_ahead(toured_page):
+    """There are no chapters to jump between: Tab leaves the tour where it is."""
     page = toured_page
-    page.wait_for_timeout(600)
-
+    _wait_for_step(page, 0)
     page.keyboard.press("Tab")
     page.wait_for_timeout(600)
-    assert page.evaluate(WHISPER)["rail"] == "Looking", "Tab should move a section on"
-
-    page.keyboard.press("Shift+Tab")
-    page.wait_for_timeout(600)
-    assert page.evaluate(WHISPER)["rail"] == "Moving", "Shift+Tab should move back"
-
-    page.click(f".tutorial-rail-item[data-section='{_section(page, 'pair')}']")
-    page.wait_for_timeout(600)
-    state = page.evaluate(WHISPER)
-    assert state["rail"] == "Two arrays", f"the rail should be clickable, got {state}"
-    assert state["section"] and state["text"] == "Two arrays", (
-        f"arriving in a section should announce it, got {state}"
-    )
+    assert page.evaluate("() => _tutorialIndex") == 0
 
 
 def test_jumping_into_a_section_puts_the_viewer_where_it_expects(toured_page):
@@ -476,7 +450,7 @@ def test_the_main_array_survives_the_side_chapters(page, client, server_url, tmp
     page.wait_for_timeout(2_000)
     assert base_sid in session_mod.SESSIONS, "the main array was let go mid-tour"
 
-    page.keyboard.press("Tab")
+    _go_to_section(page, "rest")
     page.wait_for_function(
         f"() => new URLSearchParams(location.search).get('sid') === {base_sid!r}"
         " && document.body.classList.contains('tutorial-active')",

@@ -4599,9 +4599,7 @@
             position: fixed; left: 50%; top: var(--tutorial-top, 96px);
             z-index: 58;
             transform: translateX(-50%);
-            /* One line of prose and nothing else. The section rail used to
-               live in here too, which is what put a two-row block of text
-               on top of the array; it now sits under the bottom chrome. */
+            /* One line of prose and nothing else. */
             width: min(620px, calc(100vw - 48px));
             display: flex; flex-direction: column; align-items: center;
             pointer-events: none;
@@ -4672,8 +4670,7 @@
         /* The key's row is kept even when there is no key, so every
            line starts at the same height. Only the welcome, which is
            never followed by a step in the same place, drops it. */
-        #tutorial-whisper-key:empty,
-        #tutorial-whisper.is-section #tutorial-whisper-key { visibility: hidden; }
+        #tutorial-whisper-key:empty { visibility: hidden; }
         #tutorial-whisper-key:empty::before { content: '\00a0'; }
         #tutorial-whisper.is-intro #tutorial-whisper-key { display: none; }
         /* Pointing at the thing a step is about. Not a spotlight over the
@@ -4691,14 +4688,13 @@
             #tutorial-whisper-key { animation: none; opacity: 0.9; }
             .tutorial-spotlight { animation-duration: 1ms; }
         }
-        /* A chapter heading: a title and what the chapter covers. */
-        #tutorial-whisper.is-section #tutorial-whisper-text {
-            font-size: 17px; letter-spacing: 0.06em; opacity: 0.95;
-        }
         /* The welcome: plain sentences about what this is. */
         #tutorial-whisper.is-intro #tutorial-whisper-text {
             font-size: 15px; letter-spacing: 0.03em;
         }
+        /* The very first line carries the logo above it. */
+        #tutorial-whisper-logo { display: none; margin-bottom: 4px; }
+        #tutorial-whisper.has-logo #tutorial-whisper-logo { display: block; }
         /* Every sentence sits on its own line. */
         #tutorial-whisper-text,
         #tutorial-whisper-note { white-space: pre-line; }
@@ -4718,86 +4714,11 @@
             transition: opacity 700ms ease, visibility 700ms;
         }
 
-        /* ── Section rail ─────────────────────────────────────────
-           The only furniture the tutorial keeps. It exists because the
-           tour is no longer one undifferentiated run: you should be able
-           to see that "two arrays" is its own chapter, skip ahead to it,
-           or go back to a chapter you rushed.
-
-           Thirteen chapter names spelled out was a paragraph of furniture,
-           and it wrapped onto the array. It is a column of marks now: only
-           the chapter you are in is named, and hovering a mark names that
-           one.
-
-           It runs down the left edge because that is the one part of the
-           frame that is reliably empty. The bottom is not: the colorbar
-           sits flush against it, which is what put the old rail on top of
-           the array in the first place. */
-        #tutorial-rail {
-            position: fixed; left: 14px; top: 50%;
-            transform: translateY(-50%); z-index: 58;
-            display: flex; flex-direction: column;
-            align-items: flex-start; justify-content: center;
-            max-height: calc(100vh - 80px);
-            pointer-events: auto;
-            opacity: 0; visibility: hidden;
-            transition: opacity 620ms ease, visibility 620ms;
-        }
-        body.tutorial-active #tutorial-rail { opacity: 1; visibility: visible; }
-        /* Covered by a panel, or the window is too short to hold the
-           column at all. Tab still walks the chapters either way. */
-        body.tutorial-active #tutorial-rail.is-muted,
-        body.tutorial-active #tutorial-rail.is-cramped {
-            opacity: 0; pointer-events: none;
-        }
-        .tutorial-rail-item {
-            appearance: none; -webkit-appearance: none;
-            background: none; border: 0; margin: 0;
-            padding: 6px 5px; border-radius: 999px;
-            font: inherit; font-size: 11px; letter-spacing: 0.1em;
-            color: var(--muted); opacity: 0.3;
-            cursor: pointer; white-space: nowrap;
-            display: flex; align-items: center;
-            transition: opacity 220ms ease, color 220ms ease;
-        }
-        .tutorial-rail-dot {
-            flex: 0 0 auto; width: 5px; height: 5px;
-            border-radius: 50%; background: currentColor;
-            transition: width 220ms ease, height 220ms ease;
-        }
-        .tutorial-rail-name {
-            max-width: 0; overflow: hidden; opacity: 0;
-            text-shadow: 0 1px 12px var(--bg, rgba(0,0,0,0.6));
-            transition: max-width 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                        opacity 220ms ease, margin-left 320ms ease;
-        }
-        .tutorial-rail-item:hover { opacity: 0.75; }
-        .tutorial-rail-item.is-done { opacity: 0.5; }
-        .tutorial-rail-item.is-current { color: var(--active-dim); opacity: 1; }
-        .tutorial-rail-item.is-current .tutorial-rail-dot { width: 6px; height: 6px; }
-        .tutorial-rail-item.is-current .tutorial-rail-name,
-        .tutorial-rail-item:hover .tutorial-rail-name,
-        .tutorial-rail-item:focus-visible .tutorial-rail-name {
-            max-width: 16ch; opacity: 1; margin-left: 7px;
-        }
-        /* The array has grown far enough left that a name would be written
-           over it. Marks only until it shrinks back; hover still names. */
-        #tutorial-rail.is-tight .tutorial-rail-item.is-current:not(:hover)
-            .tutorial-rail-name {
-            max-width: 0; opacity: 0; margin-left: 0;
-        }
-        .tutorial-rail-item:focus-visible {
-            outline: 1px solid var(--active-dim); outline-offset: 1px;
-        }
         body.tutorial-before-overlay #overlay-palette {
             opacity: 0; pointer-events: none;
         }
         @media (max-width: 560px) {
             #tutorial-whisper { font-size: 12px; }
-            #tutorial-whisper.is-section #tutorial-whisper-text { font-size: 15px; }
-            .tutorial-rail-item { font-size: 10px; padding: 5px 4px; }
-            .tutorial-rail-item.is-current .tutorial-rail-name,
-            .tutorial-rail-item:hover .tutorial-rail-name { max-width: 12ch; }
         }
 
         /* ── Cross-fade overlay ──────────────────────────────────── */
@@ -5590,6 +5511,18 @@
         </div>
         <div id="tutorial-layer" aria-hidden="true">
             <div id="tutorial-whisper" aria-live="polite">
+                <svg id="tutorial-whisper-logo" width="48" height="48" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>
+                    <rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/>
+                    <rect x="6.5" y="2" width="3" height="3" fill="#560bad"/>
+                    <rect x="11" y="2" width="3" height="3" fill="#c77dff"/>
+                    <rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/>
+                    <rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/>
+                    <rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/>
+                    <rect x="2" y="11" width="3" height="3" fill="#4895ef"/>
+                    <rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/>
+                    <rect x="11" y="11" width="3" height="3" fill="#f8961e"/>
+                </svg>
                 <div id="tutorial-whisper-line">
                     <span id="tutorial-whisper-key"></span>
                     <span id="tutorial-whisper-text"></span>
@@ -5597,7 +5530,6 @@
                 <span id="tutorial-whisper-note"></span>
             </div>
         </div>
-        <div id="tutorial-rail" role="tablist" aria-label="Tutorial sections" aria-hidden="true"></div>
         <div id="slim-cb-wrap" style="display:none">
             <div id="roi-cb-flip-inner">
                 <div id="roi-cb-front" class="roi-cb-front">
@@ -31382,15 +31314,16 @@
         const _TUTORIAL_INTRO = [
             {
                 text: 'Welcome to arrayview',
-                note: 'Press Enter to continue',
+                note: 'Press Enter to start a tour',
+                logo: true,
             },
             {
                 text: 'This tour shows you some of what arrayview can do.',
-                note: 'A key appears.\nYou press it.\nYou see what it does.',
+                note: 'Instructions appear.\nYou follow them and see what happens.\nPress Enter to move on.',
             },
             {
                 text: 'Take your time.\nThe tour waits while you explore.',
-                note: 'Enter moves on.\nTab or the dots on the left jump between chapters.\nEsc ends the tour.',
+                note: 'Esc ends the tour at any point.',
             },
         ];
 
@@ -31405,8 +31338,9 @@
          *
          * `key` is the chip shown next to the line — a label, not a binding.
          * `expect` lists the commands that count as trying it; they only
-         * make the chip light up. `note` replaces the default "try it ·
-         * Enter" line underneath. `auto` steps change something themselves
+         * make the chip light up. `note` is an optional dimmer line
+         * underneath. Enter moves on from every step; the welcome says so
+         * once and the steps do not repeat it. `auto` steps change something themselves
          * (open the comparison) before they say what appeared.
          *
          * A section names the state it needs via `stage`, and staging puts
@@ -31417,11 +31351,9 @@
          * Keys named in the text must be exactly what the keymap binds —
          * check `keybinds` before changing one.
          */
-        const _TUTORIAL_TRY = 'Try it.\nPress Enter when you are done.';
         const _TUTORIAL_SECTIONS = [
             {
-                id: 'moving', title: 'Moving', stage: 'single',
-                note: 'Getting around an array with more than two dimensions',
+                id: 'moving', stage: 'single',
                 steps: [
                     {
                         key: 'j  k',
@@ -31431,14 +31363,14 @@
                     {
                         key: 'D',
                         text: 'The labels at the top are the dimensions.\nThe x and y dimensions are drawn on screen.\nThe numbers show where you are in the others.',
-                        note: 'Press D (shift+d) to also show the size of each dimension.\nDouble-clicking the labels does the same.\nScroll over a number to move through it.\nPress Enter when you are done.',
+                        note: 'Press D (shift+d) to also show the size of each dimension.\nDouble-clicking the labels does the same.',
                         expect: ['dimbar.toggleExtents'],
                         spotlight: '#info',
                     },
                     {
                         key: 'h  l',
                         text: 'Press h and l to pick the dimension j and k move along.\nThe left and right arrows work too.\nOr click a number at the top.',
-                        note: 'The underlined one is selected.\nTry the last one: it changes the time of day.\nPress Enter when you are done.',
+                        note: 'The underlined one is selected.\nScrolling over a number also moves through that dimension.\nTry the last one: it changes the time of day.',
                         expect: ['dim.next', 'dim.prev'], spotlight: '#info',
                     },
                     {
@@ -31449,27 +31381,25 @@
                 ],
             },
             {
-                id: 'looking', title: 'Looking', stage: 'single',
-                note: 'The same numbers, shown differently',
+                id: 'looking', stage: 'single',
                 steps: [
                     {
                         key: 'c',
                         text: 'Press c to open the colormaps.\nType to search, or browse with the arrows.',
-                        note: 'Enter picks one.\nEsc closes the list.\nThen press Enter to move on.',
+                        note: 'Enter picks one.\nEsc closes the list.',
                         expect: ['colormap.openOrCycle'],
                     },
                     {
                         key: 'd',
                         text: 'Press d to open the histogram.\nDrag its handles to change the contrast.\nPress d again for range presets.',
-                        note: 'Double-clicking the colorbar does the same.\nScrolling over it changes the range.\nPress Enter when you are done.',
+                        note: 'Double-clicking the colorbar does the same.\nScrolling over it changes the range.',
                         expect: ['histogram.openOrCycle'], rawKeys: ['d'],
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
             },
             {
-                id: 'shaping', title: 'Shaping', stage: 'single',
-                note: 'Which way round you look at it',
+                id: 'shaping', stage: 'single',
                 steps: [
                     {
                         key: 'r',
@@ -31484,20 +31414,18 @@
                 ],
             },
             {
-                id: 'closer', title: 'Closer', stage: 'single',
-                note: 'Zooming in and moving around',
+                id: 'closer', stage: 'single',
                 steps: [
                     {
                         key: '+  -',
                         text: 'Press + and - to zoom in and out.\nPinching or ctrl+scroll works too.\nDrag the image to move around.',
-                        note: 'Press 0 to fit the image again.\nPress Enter when you are done.',
+                        note: 'Press 0 to fit the image again.',
                         expect: ['zoom.in', 'zoom.out', 'zoom.reset'],
                     },
                 ],
             },
             {
-                id: 'mosaic', title: 'All at once', stage: 'single',
-                note: 'A whole dimension in one picture',
+                id: 'mosaic', stage: 'single',
                 steps: [
                     {
                         key: 'z',
@@ -31507,7 +31435,7 @@
                     {
                         key: 'p',
                         text: 'Press p to squash the underlined dimension into one image.\nIt shows the maximum, minimum, mean or spread.\nPress p again to step through them.',
-                        note: 'Keep pressing p until it turns off.\nPress Enter when you are done.',
+                        note: 'Keep pressing p until it turns off.',
                         expect: ['projection.cycle'],
                         // `p` only works on a dimension you step through,
                         // not on the two drawn across the screen.
@@ -31521,8 +31449,7 @@
                 ],
             },
             {
-                id: 'spectra', title: 'Spectra', stage: 'single',
-                note: 'The same array, in another domain',
+                id: 'spectra', stage: 'single',
                 steps: [
                     {
                         key: 'f',
@@ -31537,13 +31464,12 @@
                 ],
             },
             {
-                id: 'values', title: 'Values', stage: 'single',
-                note: 'The numbers under the picture',
+                id: 'values', stage: 'single',
                 steps: [
                     {
                         key: 'i',
                         text: 'Press i to see the value under the mouse.\nAlt+click pins one.\nPress i again to hide them.',
-                        note: 'Double-clicking the image does the same.\nPress Enter when you are done.',
+                        note: 'Double-clicking the image does the same.',
                         expect: ['hoverinfo.toggle'],
                     },
                     {
@@ -31554,8 +31480,7 @@
                 ],
             },
             {
-                id: 'views', title: 'Views', stage: 'single',
-                note: 'One array, seen from more than one place',
+                id: 'views', stage: 'single',
                 steps: [
                     {
                         key: 'v',
@@ -31565,7 +31490,7 @@
                     {
                         key: 'S',
                         text: 'Press S (shift+s) to split the view in two.\n[ and ] move one side.\n{ and } move the other.',
-                        note: 'Press S again to go back.\nPress Enter when you are done.',
+                        note: 'Press S again to go back.',
                         expect: [
                             'compare.toggleDetachedSplit',
                             'detachedDim.adjustIndexA', 'detachedDim.adjustIndexB',
@@ -31574,25 +31499,23 @@
                 ],
             },
             {
-                id: 'pair', title: 'Two arrays', stage: 'pair',
-                note: 'Comparing one array with another',
+                id: 'pair', stage: 'pair',
                 steps: [
                     {
                         auto: 'pair',
                         text: 'A second array is now open next to the first.\nIt is the same camp, in the snow.\nEverything you do moves both.',
-                        note: 'Look around.\nPress Enter when you are done.',
+                        note: 'Look around.',
                     },
                     {
                         key: 'X',
                         text: 'Press X (shift+x) to cycle through ways to compare them.\nDifference, overlay, wipe, flicker and more.',
-                        note: 'Or click the buttons above the images.\nPress Enter when you are done.',
+                        note: 'Or click the buttons above the images.',
                         expect: ['compare.cycleCenterMode'],
                     },
                 ],
             },
             {
-                id: 'marks', title: 'Marks', stage: 'single',
-                note: 'Things drawn over the data, not in it',
+                id: 'marks', stage: 'single',
                 steps: [
                     {
                         key: 'O',
@@ -31608,8 +31531,7 @@
                 ],
             },
             {
-                id: 'flow', title: 'Flow', stage: 'single', session: 'flow',
-                note: 'Arrows that are data, not decoration',
+                id: 'flow', stage: 'single', session: 'flow',
                 steps: [
                     {
                         key: '{  }',
@@ -31619,20 +31541,18 @@
                 ],
             },
             {
-                id: 'stack', title: 'A stack', stage: 'single', session: 'stack',
-                note: 'Arrays that do not share a shape',
+                id: 'stack', stage: 'single', session: 'stack',
                 steps: [
                     {
                         key: 'h  l',
                         text: 'These are four arrays of different sizes.\nUse h and l to pick the dimension that selects the array.\nThen use j and k to step between them.',
-                        note: 'Each keeps its own size.\nPress Enter when you are done.',
+                        note: 'Each keeps its own size.',
                         expect: ['dim.next', 'dim.prev', 'slice.next', 'slice.prev'],
                     },
                 ],
             },
             {
-                id: 'rest', title: 'The rest', stage: 'single',
-                note: 'Far more than fits in one tour',
+                id: 'rest', stage: 'single',
                 steps: [
                     {
                         key: '?',
@@ -31646,8 +31566,7 @@
 
         /**
          * The sections flattened into the step list the engine walks.
-         * `_section` on each entry is what the rail and the stage setup
-         * read; index positions stay stable so a stored resume point and
+         * `_section` on each entry is what the stage setup reads; index positions stay stable so a stored resume point and
          * `_tutorialGo(n)` keep meaning the same thing.
          */
         /**
@@ -31675,19 +31594,14 @@
             return starts;
         }, []);
 
-        // Pacing. Steps never time out: each one waits for Enter. Only a
-        // chapter heading, which asks for nothing, moves on by itself.
+        // Pacing. Steps never time out: each one waits for Enter.
         //
         // `IDLE` still does one job: a new line only arrives once you have
         // stopped touching things, so it never lands mid-gesture.
         const _TUTORIAL_WORD_MS = 230;
         const _TUTORIAL_READ_BASE_MS = 1400;
-        const _TUTORIAL_SECTION_MIN_MS = 1900;
-        const _TUTORIAL_SECTION_MAX_MS = 3000;
         const _TUTORIAL_GAP_MS = 420;
         const _TUTORIAL_IDLE_MS = 1400;
-        // The heading was itself the pause; the beat after it can be short.
-        const _TUTORIAL_SECTION_GAP_MS = 500;
         // The array is on screen before the tutorial says anything at all.
         const _TUTORIAL_OPENING_MS = 1400;
         // Swapping one line for another dips through a short fade rather
@@ -31735,7 +31649,7 @@
                 ? Math.max(0, Math.min(_TUTORIAL_STEPS.length - 1, stored))
                 : 0;
             // Resume at the top of the section you were in, not mid-sentence:
-            // that replays the heading and re-runs the section's staging, so
+            // that re-runs the section's staging, so
             // a reloaded tab is in the state the next step assumes.
             _tutorialIndex = _TUTORIAL_SECTION_START[_tutorialSectionOf(resume)];
             _tutorialShownSection = -1;
@@ -31768,7 +31682,7 @@
                 _tutorialPrepareStep(seq);
                 return;
             }
-            _tutorialSay('', line.text, 'intro', line.note);
+            _tutorialSay('', line.text, 'intro', line.note, !!line.logo);
             _tutorialArm(seq, null, () => _tutorialIntro(seq, lineIndex + 1));
         }
 
@@ -31790,58 +31704,21 @@
             const whisper = document.getElementById('tutorial-whisper');
             if (whisper && !visible) {
                 whisper.classList.remove(
-                    'is-visible', 'is-section', 'is-intro'
+                    'is-visible', 'is-intro', 'has-logo'
                 );
             }
-            _reconcileTutorialRail(visible);
             _reconcileTutorialIntro();
         }
 
         /**
          * During the welcome the screen is empty apart from the words: the
          * array, its dimension bar and its colorbar arrive with the first
-         * chapter, which is where the tour starts talking about them.
+         * step, which is where the tour starts talking about them.
          */
         function _reconcileTutorialIntro() {
             document.body.classList.toggle(
                 'tutorial-intro', !!(_isTutorialSession && _tutorialIntroActive)
             );
-        }
-
-        /** The section rail: where you are, and every place you can go. */
-        function _reconcileTutorialRail(visible) {
-            const rail = document.getElementById('tutorial-rail');
-            if (!rail) return;
-            rail.setAttribute('aria-hidden', visible ? 'false' : 'true');
-            if (!rail.childElementCount) {
-                _TUTORIAL_SECTIONS.forEach((section, i) => {
-                    const item = document.createElement('button');
-                    item.type = 'button';
-                    item.className = 'tutorial-rail-item';
-                    item.dataset.section = String(i);
-                    item.setAttribute('role', 'tab');
-                    item.title = `${section.title} — ${section.note}`;
-                    // A mark you can always see, and a name that only the
-                    // chapter you are in (or the one under the pointer)
-                    // spends screen space on.
-                    const dot = document.createElement('span');
-                    dot.className = 'tutorial-rail-dot';
-                    const name = document.createElement('span');
-                    name.className = 'tutorial-rail-name';
-                    name.textContent = section.title;
-                    item.appendChild(dot);
-                    item.appendChild(name);
-                    item.addEventListener('click', () => _tutorialGoSection(i));
-                    rail.appendChild(item);
-                });
-            }
-            const current = _tutorialSectionOf(_tutorialIndex);
-            Array.from(rail.children).forEach((item, i) => {
-                item.classList.toggle('is-current', visible && i === current);
-                item.classList.toggle('is-done', visible && i < current);
-                item.setAttribute('aria-selected', visible && i === current ? 'true' : 'false');
-                item.tabIndex = visible ? 0 : -1;
-            });
         }
 
         /* Panels that open in front of the array. When one of these is up,
@@ -31877,7 +31754,6 @@
          */
         function _tutorialReconcileLift() {
             const layer = document.getElementById('tutorial-layer');
-            const rail = document.getElementById('tutorial-rail');
             if (!layer) return;
             const vh = window.innerHeight || 0;
             let contentTop = Infinity;
@@ -31898,44 +31774,22 @@
                 document.body.style.setProperty('--tutorial-top', `${top}px`);
             }
 
-            // The rail lives in the left gutter. It steps out of the way in
-            // a window too short to hold the column, and stops spelling out
-            // the current chapter when the array itself reaches that far
-            // left. Tab still walks the chapters in both cases.
-            if (rail) {
-                const railH = rail.offsetHeight || 0;
-                rail.classList.toggle('is-cramped', railH > 0 && railH > vh - 40);
-                let contentLeft = Infinity;
-                document.querySelectorAll(
-                    '#canvas-viewport, .mv-pane, .compare-canvas-wrap'
-                ).forEach(el => {
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width <= 0 || rect.height <= 0) return;
-                    contentLeft = Math.min(contentLeft, rect.left);
-                });
-                rail.classList.toggle('is-tight', contentLeft < 150);
-            }
-
             const overlaps = (rect, box) => !(
                 rect.bottom <= box.top || rect.top >= box.bottom
                 || rect.right <= box.left || rect.left >= box.right
             );
             const here = layer.getBoundingClientRect();
-            const railBox = rail ? rail.getBoundingClientRect() : null;
             let coveredLayer = false;
-            let coveredRail = false;
             document.querySelectorAll(_TUTORIAL_PANELS).forEach(el => {
-                if (coveredLayer && coveredRail) return;
+                if (coveredLayer) return;
                 // A hidden panel still has a box, so ask whether it is
                 // actually being shown before believing its rect.
                 if (getComputedStyle(el).visibility !== 'visible') return;
                 const rect = el.getBoundingClientRect();
                 if (rect.width <= 0 || rect.height <= 0) return;
                 if (overlaps(rect, here)) coveredLayer = true;
-                if (railBox && overlaps(rect, railBox)) coveredRail = true;
             });
             layer.classList.toggle('is-muted', coveredLayer);
-            if (rail) rail.classList.toggle('is-muted', coveredRail);
         }
 
         function _tutorialStartLiftWatch() {
@@ -31957,7 +31811,7 @@
          * and a half read as "the tour ended", so whatever was last said
          * stays until the next thing is ready to say.
          */
-        function _tutorialSay(keyLabel, text, mode, note) {
+        function _tutorialSay(keyLabel, text, mode, note, logo) {
             const whisper = document.getElementById('tutorial-whisper');
             if (!whisper) return;
             if (_tutorialSwapTimer) {
@@ -31976,7 +31830,7 @@
                 keyEl.classList.remove('is-hit', 'is-tried');
                 textEl.textContent = text;
                 noteEl.textContent = note || '';
-                whisper.classList.toggle('is-section', mode === 'section');
+                whisper.classList.toggle('has-logo', !!logo);
                 whisper.classList.toggle('is-intro', mode === 'intro');
                 whisper.classList.add('is-visible');
             };
@@ -32204,28 +32058,18 @@
             _tutorialEnterStep(seq, step);
         }
 
-        /** Announce a section, then let its first step arrive. */
+        /**
+         * Set up the state a section needs, then let its first step arrive.
+         * The tour is one continuous run: sections are how it knows what to
+         * stage, not chapters it announces.
+         */
         function _tutorialOpenSection(seq, sectionIndex) {
-            const section = _TUTORIAL_SECTIONS[sectionIndex];
             _tutorialShownSection = sectionIndex;
             _tutorialStage(sectionIndex).then(() => {
                 if (seq !== _tutorialSeq || !_tutorialVisible) return;
                 _tutorialWhenClear(seq, () => {
-                    _tutorialSay('', section.title, 'section', section.note);
-                    const openStep = () => {
-                        _tutorialAfter(seq, _TUTORIAL_SECTION_GAP_MS, () => {
-                            const step = _TUTORIAL_STEPS[_tutorialIndex];
-                            if (step) _tutorialEnterStep(seq, step);
-                        });
-                    };
-                    _tutorialArm(
-                        seq,
-                        _tutorialDwell(
-                            `${section.title} ${section.note}`,
-                            _TUTORIAL_SECTION_MIN_MS, _TUTORIAL_SECTION_MAX_MS
-                        ),
-                        openStep, openStep
-                    );
+                    const step = _TUTORIAL_STEPS[_tutorialIndex];
+                    if (step) _tutorialEnterStep(seq, step);
                 });
             });
         }
@@ -32245,7 +32089,7 @@
                     return;
                 }
             }
-            _tutorialSay(step.key || '', step.text, 'ask', step.note || _TUTORIAL_TRY);
+            _tutorialSay(step.key || '', step.text, 'ask', step.note || '');
             if (step.spotlight) {
                 window.setTimeout(() => {
                     if (seq === _tutorialSeq && _tutorialVisible) {
@@ -32275,17 +32119,6 @@
             sessionStorage.setItem(_TUTORIAL_STORAGE_KEY, String(_tutorialIndex));
             _reconcileTutorial();
             _tutorialPrepareStep(seq);
-        }
-
-        /** Jump to a section from the rail or from Tab. */
-        function _tutorialGoSection(sectionIndex) {
-            if (!_tutorialVisible) return;
-            const clamped = Math.max(0, Math.min(_TUTORIAL_SECTIONS.length - 1, sectionIndex));
-            // Force the title to play again even when the section is the
-            // one you were already in — asking for it is asking to restart it.
-            _tutorialShownSection = -1;
-            _tutorialSay('', '', 'ask');
-            _tutorialGo(_TUTORIAL_SECTION_START[clamped]);
         }
 
         function _tutorialFinish() {
@@ -32344,26 +32177,16 @@
             })();
             if (event.key === 'Escape' && !_tutorialPanelOpen() && !toolRunning) {
                 _tutorialFinish();
-                showStatus('tutorial closed · reload this tab to resume', 3200);
+                showStatus('Tutorial closed. Reload this tab to resume.', 3200);
                 return;
             }
-            // Tab walks the sections, unless something with its own Tab
-            // handling is open in front of us. `#keyboard-sink` is the
-            // viewer's own always-focused capture textarea, not a field
-            // anyone is typing into — treating it as one disables Tab
-            // for the entire session.
+            // `#keyboard-sink` is the viewer's own always-focused capture
+            // textarea, not a field anyone is typing into — treating it as
+            // one would disable Enter for the entire session.
             const active = document.activeElement;
             const typing = !!active
                 && active.id !== 'keyboard-sink'
                 && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
-            if (event.key === 'Tab' && !_cmapPickerOpen && !typing
-                && !event.ctrlKey && !event.metaKey && !event.altKey) {
-                event.preventDefault();
-                event.stopPropagation();
-                const here = _tutorialSectionOf(_tutorialIndex);
-                _tutorialGoSection(here + (event.shiftKey ? -1 : 1));
-                return;
-            }
             // Enter, while a line is holding, means "done with that one".
             // It is the one key the tour takes for itself, and only while
             // it is offering — every other press is you exploring.
