@@ -165,6 +165,23 @@ rows 2-4, 8-10 (native window waits on the same daemon), 23 (cold start).
 
 Status is **`never verified`** unless a dated entry says otherwise.
 
+### 2026-09-25 playback transport change
+
+WebSocket compression was disabled at all four server start sites. This affects
+WebSocket viewers in CLI, Python, notebook, and IDE rows (1–10, 12–22, 23–26,
+29–32, 34); no display routing or ownership policy changed. With the actual
+`large_array.npy` (256×256×192×4×4), a real served Chromium process at
+120 steps/s showed 18–19 displayed FPS before and 50–56 after. A spawned CLI
+server's main and extra viewer ports showed 57 and 58 FPS after the change,
+with the array's first frame visibly rendered. Two repeat loads also rendered.
+This is `real process` evidence; tunnel throughput and the actual IDE browser's
+FPS remain `unavailable`, so no IDE display row is upgraded on this measurement.
+The public VS Code CLI launch returned successfully, but its IDE frame was not
+independently captured. The public `--window browser` launch failed at display
+handoff before a frame (row 5), separately from the measured frame transport.
+The no-display CLI command loaded and released this file before and after the
+change (`real host`, row 11). Test servers on ports 8192–8195 were stopped.
+
 ### CLI
 
 | # | Environment | Window | Array / storage | Status |
@@ -173,13 +190,13 @@ Status is **`never verified`** unless a dated entry says otherwise.
 | 2 | VS Code tunnel, Linux | vscode tab | small, fast local, **first open after ~1 min idle** | **0.15.59: verified 2026-08-21 `real host`** — the first launch after about 16 minutes idle rendered on attempt 0. Separately, the 0.15.58 diagnostic reproduced a lost idle navigation and proved attempt 3 could recover with the byte-identical address in the same tab at 5.76 s. |
 | 3 | VS Code tunnel, Linux | vscode tab | large (88 MB, 4-D), fast local | **0.15.53: verified 2026-08-18 `real host`** — four large-array launches across two five-launch batches rendered on their first navigation; a ~3.25 s load was retained without replacement |
 | 4 | VS Code tunnel, Linux | vscode tab | slow network mount (NFS/SMB) | **0.15.53: 2026-08-18 `component`; no network-mount launch was exercised**. Previous design verified 2026-08-11 `real host`, by the user |
-| 5 | VS Code tunnel, Linux | browser | any | never verified |
+| 5 | VS Code tunnel, Linux | browser | any | **failed 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window browser --port 8187` reached display handoff, then reported that the array kept failing to load; no first frame was observed. Unrelated to WebSocket compression; this row remains open. |
 | 6 | VS Code Remote SSH | vscode tab | small, fast local | never verified this session; resolves the URL differently (`asExternalUri`) |
 | 7 | plain SSH, no VS Code | browser | small | never verified |
 | 8 | local desktop Linux | native window | small | never verified |
 | 9 | local desktop macOS | native window | small | never verified |
 | 10 | local desktop Windows | native window | small | never verified |
-| 11 | any | none | any | **verified 2026-08-06 `real host`** — but note what it *does*: it loads the array, waits for the session to register, then **releases it again** and exits, so no server is left behind. It now says so on success. This is deliberate and **pinned by tests** (`test_source_safety.py`: the daemon must not keep its port or stay alive), because the mode exists to load a source — including one on a network share — prove it registers, and leave nothing holding it. It is a safe loader, not "give me a URL to open later" |
+| 11 | any | none | any | **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
 
 ### Python `arrayview.view()`
 

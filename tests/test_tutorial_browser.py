@@ -301,8 +301,9 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     """The colormap picker opens centred. The line may stay up above it,
     but never on top of it: talking underneath it would go unread."""
     page = toured_page
-    _go_to_section(page, "looking")
-    _wait_for_step(page, _step_index(page, "s => s.key === 'c'"))
+    target = _step_index(page, "s => s.key === 'c'")
+    page.evaluate(f"() => _tutorialGo({target})")
+    _wait_for_step(page, target)
 
     page.keyboard.press("c")
     page.wait_for_timeout(700)
@@ -328,6 +329,9 @@ def test_it_goes_quiet_behind_the_panel_it_just_asked_for(toured_page):
     assert page.evaluate(
         "() => document.body.classList.contains('tutorial-active')"
     ), "closing a panel must not also end the tutorial"
+    page.keyboard.press("Enter")
+    _wait_for_step(page, target + 1)
+    assert page.evaluate(WHISPER)["key"] == "space"
 
 
 def test_tab_does_not_skip_ahead(toured_page):

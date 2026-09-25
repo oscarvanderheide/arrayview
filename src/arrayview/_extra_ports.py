@@ -91,7 +91,7 @@ def _start_extra_port() -> tuple[int, dict] | None:
             timeout_keep_alive=30,
             ws_ping_interval=None,
             ws="websockets",
-            ws_per_message_deflate=True,
+            ws_per_message_deflate=False,
         )
         server = uvicorn.Server(config)
         task = asyncio.create_task(server.serve(sockets=[sock]))

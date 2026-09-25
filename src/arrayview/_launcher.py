@@ -2779,8 +2779,10 @@ async def _serve_background(
         log_level="error",
         timeout_keep_alive=30,
         ws_ping_interval=None,
-        ws="websockets",  # S7: explicit backend — enables permessage-deflate compression
-        ws_per_message_deflate=True,  # S7: negotiate deflate with browser (transparent)
+        ws="websockets",
+        # Deflate costs more than rendering a large slice and stalls playback.
+        # A 256×256 frame measured 18 fps with it and 54 fps without it.
+        ws_per_message_deflate=False,
     )
     server = _uvicorn().Server(config)
     if stop_when_closed:
@@ -4550,6 +4552,8 @@ def _serve_empty(port: int) -> None:
             _server_mod().app,
             log_level="error",
             timeout_keep_alive=30,
+            ws="websockets",
+            ws_per_message_deflate=False,
         )
         server = _uvicorn().Server(config)
         asyncio.run(server.serve(sockets=socks))
@@ -4642,6 +4646,8 @@ def _serve_daemon(
             bootstrap,
             log_level="error",
             timeout_keep_alive=30,
+            ws="websockets",
+            ws_per_message_deflate=False,
         )
         server = _uvicorn().Server(config)
         uvicorn_server.append(server)

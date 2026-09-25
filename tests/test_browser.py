@@ -2436,12 +2436,30 @@ class TestKeyboard:
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("Space")
-        page.wait_for_timeout(250)
-        assert "playing" in page.inner_text("#status").lower()
+        page.wait_for_function("() => document.querySelector('#info').classList.contains('playback-hud-visible')")
+        initial = page.evaluate("() => ({fps: playFps, size: shape[playingDim]})")
+        assert initial["fps"] == max(1, min(120, int(initial["size"] / 4 + 0.5)))
+        assert page.locator(".playback-fps").inner_text() == f'{initial["fps"]} fps'
+        assert page.locator(".playback-controls").evaluate(
+            "el => el.parentElement.classList.contains('playing-dim')"
+        )
+
+        page.keyboard.press("Shift+Period")
+        assert page.locator('.playback-hint[data-step="up"]').evaluate(
+            "el => el.classList.contains('is-pressed')"
+        )
+        adjusted = page.evaluate("() => playFps")
+        assert adjusted > initial["fps"]
+        assert page.locator(".playback-fps").inner_text() == f"{adjusted} fps"
+        assert page.locator("#info").evaluate(
+            "el => !el.style.getPropertyValue('--av-fill-tint')"
+        )
+        assert not page.inner_text("#toast")
 
         page.keyboard.press("Space")
-        page.wait_for_timeout(150)
-        assert "playing" not in page.inner_text("#status").lower()
+        assert not page.locator("#info").evaluate(
+            "el => el.classList.contains('playback-hud-visible')"
+        )
 
     def test_playing_dim_gets_orange_class(self, loaded_viewer, sid_3d):
         """Playing dim should get .playing-dim class (orange), not .active-dim."""
@@ -2505,7 +2523,10 @@ class TestKeyboard:
         assert still_playing_idx == playing_dim_idx, (
             f"playingDim changed from {playing_dim_idx} to {still_playing_idx} after pressing h"
         )
-        assert "playing" in page.inner_text("#status").lower(), \
+        assert page.locator(".playback-controls").evaluate(
+            "el => Number(el.parentElement.dataset.dim)"
+        ) == playing_dim_idx
+        assert page.evaluate("() => isPlaying && document.querySelector('#info').classList.contains('playback-hud-visible')"), \
             "should still be playing after changing activeDim"
         page.keyboard.press("Space")  # stop
 
@@ -2618,7 +2639,7 @@ class TestKeyboard:
         page.keyboard.press("Space")
         page.wait_for_timeout(300)
         # Ensure we're playing
-        assert "playing" in page.inner_text("#status").lower()
+        assert page.evaluate("() => isPlaying")
         # Get the playing dim index from the DOM
         playing_dim_idx = page.evaluate("""
             () => {
@@ -2632,8 +2653,7 @@ class TestKeyboard:
         # So activeDim should already be on the playing dim — just press j
         page.keyboard.press("j")
         page.wait_for_timeout(200)
-        status = page.inner_text("#status").lower()
-        assert "playing" not in status, \
+        assert not page.evaluate("() => isPlaying"), \
             "playback should stop when j/k pressed on playing dim"
 
     def test_shift_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):

@@ -171,25 +171,20 @@
         #info.param-reset-silent::before {
             transition: none !important;
         }
-        #info .playback-hint, #info .playback-fps {
-            position: absolute; pointer-events: none; white-space: nowrap;
+        #info .playback-controls {
+            position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
+            pointer-events: none; white-space: nowrap;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            opacity: 0; transition: opacity 0.14s ease, color 0.14s ease;
-        }
-        #info.playback-hud-visible .playback-hint,
-        #info.playback-hud-visible .playback-fps { opacity: 1; }
-        #info .playback-hint {
-            top: 50%; transform: translateY(-50%);
-            color: var(--muted); font-size: 14px; line-height: 1;
-        }
-        #info .playback-hint[data-step="down"] { right: calc(100% + 8px); }
-        #info .playback-hint[data-step="up"] { left: calc(100% + 8px); }
-        #info.playback-hud-visible .playback-hint.is-pressed { color: var(--active-dim); }
-        #info .playback-fps {
-            bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
-            color: var(--muted); font-size: 10px; line-height: 10px;
+            font-size: 10px; line-height: 10px; color: var(--muted);
             font-variant-numeric: tabular-nums;
+            opacity: 0; transition: opacity 0.14s ease;
         }
+        #info.playback-hud-visible .playback-controls { opacity: 1; }
+        #info .playback-hint {
+            color: inherit; transition: color 0.14s ease;
+        }
+        #info.playback-hud-visible .playback-hint.is-pressed { color: var(--active-dim); }
         :root.light #info {
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
@@ -20838,10 +20833,16 @@
             }
                         let text = idxStr;
             const _info = document.getElementById('info');
-            _info.innerHTML = text
+            _info.innerHTML = text;
+            const playingLabel = playingVfieldT
+                ? _info.querySelector(`.vfield-t-dim[data-dim="${VFIELD_T_DIM}"]`)
+                : _info.querySelector('.playing-dim.dim-label');
+            if (playingLabel) playingLabel.insertAdjacentHTML('beforeend',
+                '<span class="playback-controls">'
                 + '<span class="playback-hint" data-step="down" aria-hidden="true">&lt;</span>'
+                + '<span class="playback-fps" aria-live="off"></span>'
                 + '<span class="playback-hint" data-step="up" aria-hidden="true">&gt;</span>'
-                + '<span class="playback-fps" aria-live="off"></span>';
+                + '</span>');
             _reconcilePlaybackHud();
             // A fresh render always starts from plain sizes — if a hover
             // position was showing, put it right back so scrolling another
@@ -22075,14 +22076,12 @@
 
         // ── Param flash on the dimbar (#info) ──────────────────────────
         // Paints a left-to-right colored *edge* on the #info pill whose
-        // width encodes the current value of a parameter (playback fps /
-        // vfield density / vfield length) within its [min, max] range.
+        // width encodes the current vector-field density or length within
+        // its [min, max] range.
         // When viewing a single array in non-immersive mode, also swaps the
-        // array name with a caption ("Playback FPS: 30", etc). Otherwise no
-        // text is shown — the edge fill alone is the indicator. The fill +
-        // any text swap fade out 1 second after the last press.
+        // array name with a caption. Otherwise the edge fill alone is the
+        // indicator. The fill fades out 1 second after the last press.
         const _DIMBAR_TINTS = {
-            fps:     'rgba(245,150, 70, 0.85)',
             density: 'rgba( 90,170,240, 0.85)',
             length:  'rgba(140,220,140, 0.85)',
         };
@@ -23065,37 +23064,13 @@
         let _playRafId = null;
         let _playbackPressedStep = null;
         let _playbackPressedTimer = null;
-        let _playObservedAt = null;
-        let _playFrameIntervals = [];
-        let _playObservedFps = null;
-
-        function _recordPlaybackFrame() {
-            const now = performance.now();
-            if (_playObservedAt !== null) {
-                const elapsed = now - _playObservedAt;
-                if (elapsed > 0 && elapsed < 1000) {
-                    _playFrameIntervals.push(elapsed);
-                    if (_playFrameIntervals.length > 8) _playFrameIntervals.shift();
-                    const total = _playFrameIntervals.reduce((sum, interval) => sum + interval, 0);
-                    _playObservedFps = Math.round(1000 * _playFrameIntervals.length / total);
-                }
-            }
-            _playObservedAt = now;
-            _reconcilePlaybackHud();
-        }
 
         function _reconcilePlaybackHud() {
             const info = document.getElementById('info');
             if (!info) return;
             info.classList.toggle('playback-hud-visible', isPlaying);
             const value = info.querySelector('.playback-fps');
-            if (value) {
-                value.textContent = _playObservedFps === null
-                    ? `${playFps} steps/s`
-                    : Math.abs(_playObservedFps - playFps) <= 1
-                        ? `${_playObservedFps} fps`
-                        : `${_playObservedFps} fps · ${playFps} steps/s`;
-            }
+            if (value) value.textContent = `${playFps} fps`;
             info.querySelectorAll('.playback-hint').forEach(hint => {
                 hint.classList.toggle('is-pressed', isPlaying && hint.dataset.step === _playbackPressedStep);
             });
@@ -23113,16 +23088,12 @@
             isPlaying = false; playingVfieldT = false; playingDim = -1;
             clearTimeout(_playbackPressedTimer);
             _playbackPressedStep = null;
-            _playObservedAt = null;
-            _playFrameIntervals = [];
-            _playObservedFps = null;
             setStatus('');
             renderInfo();
         }
 
         function playNext() {
             if (!isPlaying) return;
-            _recordPlaybackFrame();
             const targetMs = 1000 / playFps;
             function _rafTick(ts) {
                 _playRafId = null;
@@ -23152,7 +23123,6 @@
             renderInfo();
             await drawVectorOverlay();
             if (!isPlaying || !playingVfieldT) return;
-            _recordPlaybackFrame();
             const elapsed = performance.now() - t0;
             playInterval = setTimeout(playNextVfieldT, Math.max(0, 1000 / playFps - elapsed));
         }
@@ -23160,9 +23130,6 @@
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
-            _playObservedAt = null;
-            _playFrameIntervals = [];
-            _playObservedFps = null;
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
@@ -27148,7 +27115,6 @@
                         _reconcilePlaybackHud();
                     }, 350);
                     _reconcilePlaybackHud();
-                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
                     return;
                 },
             },
@@ -31450,8 +31416,22 @@
                         expect: ['dim.next', 'dim.prev'], spotlight: '#info',
                     },
                     {
+                        key: 'x  y',
+                        text: 'Choose a dimension with h or l.\nPress x to draw it across the image, or y to draw it down.',
+                        note: 'This pixel art scene looks best in its starting view, so other views may look odd.',
+                        expect: ['axis.assignX', 'axis.assignY'],
+                        spotlight: '#info',
+                    },
+                    {
+                        key: 'c',
+                        text: 'Press c to open the colormaps.\nType to search, or browse with the arrows.',
+                        note: 'Enter picks one.\nEsc closes the list.',
+                        expect: ['colormap.openOrCycle'],
+                    },
+                    {
                         key: 'space',
-                        text: 'Press space to play the underlined dimension like a movie.\nPress space again to stop.\nUse < and > to change the speed.',
+                        text: 'Press space to play the underlined dimension like a movie.\nIt keeps playing while you change colormaps or scroll another dimension.\nPress space again to stop.',
+                        note: 'Use < and > to change the speed.',
                         expect: ['playback.toggle'],
                     },
                 ],
@@ -31459,12 +31439,6 @@
             {
                 id: 'looking', stage: 'single',
                 steps: [
-                    {
-                        key: 'c',
-                        text: 'Press c to open the colormaps.\nType to search, or browse with the arrows.',
-                        note: 'Enter picks one.\nEsc closes the list.',
-                        expect: ['colormap.openOrCycle'],
-                    },
                     {
                         key: 'd',
                         text: 'Press d to open the histogram under the image.\nDrag its handles to move either end of the range.\nDrag anywhere else on it to slide the whole range.',
