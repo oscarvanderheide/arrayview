@@ -171,6 +171,25 @@
         #info.param-reset-silent::before {
             transition: none !important;
         }
+        #info .playback-hint, #info .playback-fps {
+            position: absolute; pointer-events: none; white-space: nowrap;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            opacity: 0; transition: opacity 0.14s ease, color 0.14s ease;
+        }
+        #info.playback-hud-visible .playback-hint,
+        #info.playback-hud-visible .playback-fps { opacity: 1; }
+        #info .playback-hint {
+            top: 50%; transform: translateY(-50%);
+            color: var(--muted); font-size: 14px; line-height: 1;
+        }
+        #info .playback-hint[data-step="down"] { right: calc(100% + 8px); }
+        #info .playback-hint[data-step="up"] { left: calc(100% + 8px); }
+        #info.playback-hud-visible .playback-hint.is-pressed { color: var(--active-dim); }
+        #info .playback-fps {
+            bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
+            color: var(--muted); font-size: 10px; line-height: 10px;
+            font-variant-numeric: tabular-nums;
+        }
         :root.light #info {
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
@@ -20819,7 +20838,11 @@
             }
                         let text = idxStr;
             const _info = document.getElementById('info');
-            _info.innerHTML = text;
+            _info.innerHTML = text
+                + '<span class="playback-hint" data-step="down" aria-hidden="true">&lt;</span>'
+                + '<span class="playback-hint" data-step="up" aria-hidden="true">&gt;</span>'
+                + '<span class="playback-fps" aria-live="off"></span>';
+            _reconcilePlaybackHud();
             // A fresh render always starts from plain sizes — if a hover
             // position was showing, put it right back so scrolling another
             // dim (or any other reason this re-rendered) doesn't make it
@@ -22073,7 +22096,9 @@
             if (_dimbarRevertCleanupTimer) { clearTimeout(_dimbarRevertCleanupTimer); _dimbarRevertCleanupTimer = null; }
 
             const rect = el.getBoundingClientRect();
-            const fillPx = Math.max(0, Math.min(1, norm01)) * rect.width;
+            // The outline extends 1px beyond each side of #info. Include
+            // those pixels so a full fill reaches the rounded right edge.
+            const fillPx = Math.max(0, Math.min(1, norm01)) * (rect.width + 2);
             el.style.setProperty('--av-fill-px', fillPx.toFixed(1) + 'px');
             el.style.setProperty('--av-fill-tint', _DIMBAR_TINTS[which] || 'transparent');
 
@@ -23036,25 +23061,75 @@
         }
 
         let playLastFrameTime = 0;
-        let playFps = 30; // playback speed; adjustable with [ / ] while playing
+        let playFps = 30; // playback speed; adjustable with < / > while playing
         let _playRafId = null;
+        let _playbackPressedStep = null;
+        let _playbackPressedTimer = null;
+        let _playObservedAt = null;
+        let _playFrameIntervals = [];
+        let _playObservedFps = null;
+
+        function _recordPlaybackFrame() {
+            const now = performance.now();
+            if (_playObservedAt !== null) {
+                const elapsed = now - _playObservedAt;
+                if (elapsed > 0 && elapsed < 1000) {
+                    _playFrameIntervals.push(elapsed);
+                    if (_playFrameIntervals.length > 8) _playFrameIntervals.shift();
+                    const total = _playFrameIntervals.reduce((sum, interval) => sum + interval, 0);
+                    _playObservedFps = Math.round(1000 * _playFrameIntervals.length / total);
+                }
+            }
+            _playObservedAt = now;
+            _reconcilePlaybackHud();
+        }
+
+        function _reconcilePlaybackHud() {
+            const info = document.getElementById('info');
+            if (!info) return;
+            info.classList.toggle('playback-hud-visible', isPlaying);
+            const value = info.querySelector('.playback-fps');
+            if (value) {
+                value.textContent = _playObservedFps === null
+                    ? `${playFps} steps/s`
+                    : Math.abs(_playObservedFps - playFps) <= 1
+                        ? `${_playObservedFps} fps`
+                        : `${_playObservedFps} fps · ${playFps} steps/s`;
+            }
+            info.querySelectorAll('.playback-hint').forEach(hint => {
+                hint.classList.toggle('is-pressed', isPlaying && hint.dataset.step === _playbackPressedStep);
+            });
+        }
+
+        function _initialPlaybackFps(size) {
+            // Aim for one pass in about four seconds, within the same range
+            // available through the speed keys.
+            return Math.max(1, Math.min(120, Math.round(size / 4)));
+        }
 
         function stopPlay() {
             if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
             isPlaying = false; playingVfieldT = false; playingDim = -1;
+            clearTimeout(_playbackPressedTimer);
+            _playbackPressedStep = null;
+            _playObservedAt = null;
+            _playFrameIntervals = [];
+            _playObservedFps = null;
             setStatus('');
             renderInfo();
         }
 
         function playNext() {
             if (!isPlaying) return;
+            _recordPlaybackFrame();
             const targetMs = 1000 / playFps;
             function _rafTick(ts) {
                 if (!isPlaying) return;
                 if (ts - playLastFrameTime >= targetMs) {
-                    playLastFrameTime = ts;
-                    indices[playingDim] = (indices[playingDim] + 1) % shape[playingDim];
+                    const steps = Math.max(1, Math.floor((ts - playLastFrameTime) / targetMs));
+                    playLastFrameTime = ts - ((ts - playLastFrameTime) % targetMs);
+                    indices[playingDim] = (indices[playingDim] + steps) % shape[playingDim];
                     updateView();
                     // updateView will call playNext() again after render completes
                 } else {
@@ -23067,30 +23142,38 @@
         async function playNextVfieldT() {
             if (!isPlaying || !playingVfieldT) return;
             const t0 = performance.now();
-            vfieldT = (vfieldT + 1) % vfieldNTimes;
+            const targetMs = 1000 / playFps;
+            const steps = Math.max(1, Math.floor((t0 - playLastFrameTime) / targetMs));
+            playLastFrameTime = t0 - ((t0 - playLastFrameTime) % targetMs);
+            vfieldT = (vfieldT + steps) % vfieldNTimes;
             renderInfo();
             await drawVectorOverlay();
             if (!isPlaying || !playingVfieldT) return;
+            _recordPlaybackFrame();
             const elapsed = performance.now() - t0;
-            playInterval = setTimeout(playNextVfieldT, Math.max(0, 40 - elapsed));
+            playInterval = setTimeout(playNextVfieldT, Math.max(0, 1000 / playFps - elapsed));
         }
 
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
+            _playObservedAt = null;
+            _playFrameIntervals = [];
+            _playObservedFps = null;
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
+                playFps = _initialPlaybackFps(vfieldNTimes);
                 playLastFrameTime = performance.now();
                 playNextVfieldT();
             } else {
                 playingDim = current_slice_dim;
                 const sz = shape[playingDim];
-                playFps = Math.max(3, Math.min(30, Math.round(Math.log2(Math.max(1, sz)) * 6)));
-                setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
+                playFps = _initialPlaybackFps(sz);
                 playLastFrameTime = performance.now();
                 playNext();
             }
+            renderInfo();
         }
 
         // Download helper: tries <a download> first, falls back to server POST (for PyWebView)
@@ -27044,7 +27127,7 @@
                 },
             },
             'playback.adjustFps': {
-                title: 'Adjust playback fps',
+                title: 'Adjust playback speed',
                 when: ['isPlaying'],
                 run: (ctx, e) => {
                     // Multiplicative step so the slider feels continuous rather
@@ -27055,8 +27138,13 @@
                     next = Math.round(next);
                     if (next === playFps) next = playFps + (up ? 1 : -1);
                     playFps = Math.max(1, Math.min(120, next));
-                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
-                    showToast(`playback: ${playFps} fps`);
+                    _playbackPressedStep = up ? 'up' : 'down';
+                    clearTimeout(_playbackPressedTimer);
+                    _playbackPressedTimer = setTimeout(() => {
+                        _playbackPressedStep = null;
+                        _reconcilePlaybackHud();
+                    }, 350);
+                    _reconcilePlaybackHud();
                     _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
                     return;
                 },
@@ -31375,10 +31463,38 @@
                         expect: ['colormap.openOrCycle'],
                     },
                     {
+                        text: 'Press and hold on the image, then drag.\nLeft and right shift the range of values shown.\nUp and down widen or narrow it.',
+                        note: 'A small triangle shows the range while you drag.',
+                    },
+                    {
                         key: 'd',
-                        text: 'Press d to open the histogram.\nDrag its handles to change the contrast.\nPress d again for range presets.',
-                        note: 'Double-clicking the colorbar does the same.\nScrolling over it changes the range.',
+                        text: 'Press d to open the histogram under the image.\nDrag its handles to change the range.',
+                        note: 'Double-clicking the colorbar also opens it.\nScrolling over it changes the range.',
                         expect: ['histogram.openOrCycle'],
+                        spotlight: '#slim-cb-wrap',
+                    },
+                    {
+                        key: 'd',
+                        text: 'Press d again to step through range presets.\nEach one leaves out a share of the lowest and highest values.',
+                        note: 'They go from the full range to 10–90%.',
+                        expect: ['histogram.openOrCycle'],
+                        spotlight: '#slim-cb-wrap',
+                    },
+                    {
+                        text: 'While the histogram is open, the dimension labels are colored.\nThe color says how each dimension counts toward the range.\nHover over the labels to see what the colors mean.',
+                        note: 'Click a dimension to change how it counts.',
+                        spotlight: '#info',
+                        // The labels only carry their colors while the
+                        // histogram is open, so open it if it was closed.
+                        onEnter: () => {
+                            if (!(primaryCb && primaryCb._expanded)) {
+                                commands['histogram.openOrCycle'].run(makeContext(null), null);
+                            }
+                        },
+                    },
+                    {
+                        text: 'Click the number at either end of the colorbar to type a value.\nThe padlock next to it keeps that value fixed.',
+                        note: 'Double-clicking a number locks or unlocks it.',
                         spotlight: '#slim-cb-wrap',
                     },
                 ],
@@ -31402,8 +31518,8 @@
                 id: 'closer', stage: 'single',
                 steps: [
                     {
-                        key: '+  -',
-                        text: 'Press + and - to zoom in and out.\nPinching or ctrl+scroll works too.\nDrag the image to move around.',
+                        key: '=  -',
+                        text: 'Press = and - to zoom in and out.\nOn a trackpad, pinching works too.\nOnce zoomed in, drag the image to move around.',
                         note: 'Press 0 to fit the image again.',
                         expect: ['zoom.in', 'zoom.out', 'zoom.reset'],
                     },
@@ -31765,7 +31881,10 @@
             );
             const here = layer.getBoundingClientRect();
             let coveredLayer = false;
-            document.querySelectorAll(_TUTORIAL_PANELS).forEach(el => {
+            // The histogram's explanation of the dimension labels opens
+            // right under them, which is where the line sits. It only
+            // hides the line; unlike a panel it does not hold up Enter.
+            document.querySelectorAll(`${_TUTORIAL_PANELS}, #hist-tooltip`).forEach(el => {
                 if (coveredLayer) return;
                 // A hidden panel still has a box, so ask whether it is
                 // actually being shown before believing its rect.
@@ -40800,6 +40919,7 @@
 
         function _reconcileUI() {
             _reconcileLayout();
+            _reconcilePlaybackHud();
             _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileDimbarExtent();
