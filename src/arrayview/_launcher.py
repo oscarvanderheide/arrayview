@@ -3534,6 +3534,7 @@ def view(
     vmin: float | None = None,
     vmax: float | None = None,
     log: bool = False,
+    complex: str | None = None,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -3578,8 +3579,10 @@ def view(
     ``"mosaic"``, ``"qmri"``, ``"qmri-ortho"``, ``"qmri-mosaic"``), the two
     dimensions shown as x and y (three for ortho: its volume dims; three for
     the mosaics: x, y and the gridded dim), the position along every
-    dimension, the colormap, the display range and log scale. Pressing ``E``
-    in the viewer copies the current view as such a call.
+    dimension, the colormap, the display range and log scale. ``complex``
+    picks what complex data shows: ``"mag"``, ``"phase"``, ``"real"`` or
+    ``"imag"`` (``"mag"`` shows the absolute value of real data). Pressing
+    ``E`` in the viewer copies the current view as such a call.
 
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). In inline/Jupyter mode with
@@ -3593,7 +3596,8 @@ def view(
     from arrayview._io import _tensor_to_numpy
 
     _initial_view = _session_mod.initial_view_spec(
-        mode=mode, dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log
+        mode=mode, dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log,
+        complex=complex,
     )
     _code_name = _caller_variable_name(arrays[0]) if arrays else None
 
@@ -5790,6 +5794,12 @@ def arrayview():
     parser.add_argument("--vmax", type=float, default=None, help="Upper end of the display range (with --vmin).")
     parser.add_argument("--log", action="store_true", help="Open with log scale on.")
     parser.add_argument(
+        "--complex",
+        default=None,
+        choices=["mag", "phase", "real", "imag"],
+        help="Which part of complex data to show (mag shows |x| of real data).",
+    )
+    parser.add_argument(
         "--name",
         default=None,
         dest="array_name",
@@ -5970,6 +5980,7 @@ def arrayview():
             vmin=args.vmin,
             vmax=args.vmax,
             log=args.log,
+            complex=args.complex,
         )
     except ValueError as exc:
         parser.error(str(exc))

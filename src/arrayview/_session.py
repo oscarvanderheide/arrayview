@@ -529,6 +529,8 @@ class Session:
         return data_bytes
 
 VIEW_MODES = ("ortho", "mosaic", "qmri", "qmri-ortho", "qmri-mosaic")
+# What `m` shows: magnitude, phase, real or imaginary part (real arrays: real or mag).
+COMPLEX_PARTS = ("mag", "phase", "real", "imag")
 # Modes whose dims name three dimensions: the three ortho planes' volume
 # dims, or x, y and the dimension laid out as a grid.
 _THREE_DIM_MODES = ("ortho", "mosaic", "qmri-mosaic")
@@ -543,6 +545,7 @@ def initial_view_spec(
     vmin=None,
     vmax=None,
     log=False,
+    complex=None,
 ) -> dict | None:
     """Validate how a caller asks the viewer to open; None when nothing is set.
 
@@ -583,6 +586,10 @@ def initial_view_spec(
         spec["vmin"], spec["vmax"] = vmin, vmax
     if log:
         spec["log"] = True
+    if complex is not None:
+        if complex not in COMPLEX_PARTS:
+            raise ValueError(f"complex must be one of: {', '.join(COMPLEX_PARTS)}")
+        spec["complex"] = complex
     return spec or None
 
 

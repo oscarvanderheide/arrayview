@@ -15981,6 +15981,7 @@
                         _perfServerTimings.delete(`main:${seq}`);
                         if (!_reportedFirstFrame) {
                             _reportedFirstFrame = true;
+                            renderEggs();  // badges wait for a frame; a restored LOG/PHASE must appear now
                             reportParent('frame-rendered', {
                                 mode: 'ws',
                                 width,
@@ -16279,6 +16280,7 @@
                 if (rectRoiMode || (_roiVisible && _rois.length)) _redrawRoiOverlays();
                 if (!_reportedFirstFrame) {
                     _reportedFirstFrame = true;
+                    renderEggs();  // badges wait for a frame; a restored LOG/PHASE must appear now
                     reportParent('frame-rendered', {
                         mode: 'http',
                             width: frame.width,
@@ -22421,6 +22423,13 @@
                 }
                 if (_dv) _dv.displayState.cmapIdx = colormap_idx;
             }
+            const parts = isComplex ? COMPLEX_MODES : REAL_MODES;
+            if (typeof v.complex === 'string' && parts.includes(v.complex) && !rgbMode) {
+                complexMode = parts.indexOf(v.complex);
+                complexModeEverUsed = true;
+                _complexEggVisible = complexMode !== 0;
+                if (_dv) _dv.displayState.complexMode = complexMode;
+            }
             if (v.log === true && !rgbMode) {
                 logScale = true;
                 if (_dv) _dv.displayState.logScale = true;
@@ -22469,6 +22478,7 @@
             // qMRI panes carry their own colormap and range per parameter.
             if (!rgbMode && !qmri && currentColormap()) opts.push(['cmap', currentColormap()]);
             if (logScale && !qmri) opts.push(['log', true]);
+            if (complexMode !== 0 && !rgbMode) opts.push(['complex', (isComplex ? COMPLEX_MODES : REAL_MODES)[complexMode]]);
             if (manualVmin !== null && manualVmax !== null && !qmri) {
                 opts.push(['vmin', num(manualVmin)]);
                 opts.push(['vmax', num(manualVmax)]);

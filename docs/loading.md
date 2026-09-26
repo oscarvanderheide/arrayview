@@ -111,6 +111,7 @@ Key parameters:
 | `cmap` | str | Colormap, e.g. `"gray"` |
 | `vmin`, `vmax` | float | Display range (give both) |
 | `log` | bool | Open with log scale on |
+| `complex` | str | `"mag"`, `"phase"`, `"real"` or `"imag"` (`"mag"` shows the absolute value of real data) |
 
 Press `E` in the viewer to copy the current view as such a call.
 
