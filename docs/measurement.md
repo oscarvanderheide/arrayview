@@ -40,8 +40,19 @@ While pixel info is on, use middle-drag or `Ctrl`/`Cmd`+`Shift`-drag to adjust t
 |-----|--------|
 | `s` | Open save options (screenshot PNG, GIF, .npy export) |
 | `e` | Copy a reusable URL to clipboard |
+| `E` | Copy the current view as a line of code |
 
 Screenshots download as PNG. GIF saves an animation along the current slice dimension. `.npy` export saves the current slice.
+
+`E` copies one line that reopens what you are looking at: the displayed axes, the slice position, the colormap, a range you set, and log scale. Settings still at their defaults are left out. An array passed from Python gives a `view()` call using your variable's name; from Julia, an `arrayview.view(...)` call; an array opened from a file gives an `arrayview` command:
+
+```python
+view(vol, dims=(2, 1), index=(8, 32, 24), cmap="gray", vmin=-0.1235, vmax=3.142)
+```
+
+```bash
+arrayview ~/data/vol.npy --index 3,32,24 --cmap magma --log --vmin=-1.5 --vmax 2
+```
 
 ## Caveat
 

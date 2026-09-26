@@ -6848,6 +6848,10 @@
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let hasSourceFile = false;
+        // How the caller's code names this array ({kind, name} or {kind:'file', path})
+        // and the x/y dims it opens with by default; both feed view.copyAsCode.
+        let _codeSource = null;
+        let _startupDims = null;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
         let vfieldVisible = true;
         let vfieldT = 0;        // current time frame index
@@ -17096,6 +17100,7 @@
             _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
             hasSourceFile = !!data.has_source_file;
+            _codeSource = (data.code_source && typeof data.code_source === 'object') ? data.code_source : null;
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
             if (!hasVectorfield) vfieldVisible = true;
@@ -17147,6 +17152,7 @@
                 }
                 // else keep dim_x=0, dim_y=1 (first two are largest or ambiguous)
             }
+            _startupDims = [dim_x, dim_y];
             // Allow URL override: ?dim_x=N&dim_y=M (set by CLI --dims)
             { const _ux = parseInt(urlParams.get('dim_x')), _uy = parseInt(urlParams.get('dim_y'));
               if (Number.isInteger(_ux) && Number.isInteger(_uy) && _ux >= 0 && _uy >= 0 &&
@@ -17176,7 +17182,8 @@
             reportParent('initial-layout-start', { sid });
             await modeManager.enterMode(new NormalLayout(), [_bootSession]);
             reportParent('initial-layout-ready', { sid });
-            restoreStateFromSessionStorage();
+            const _restoredSavedView = restoreStateFromSessionStorage();
+            if (!_restoredSavedView && !stateParam) _applyInitialView(data.initial_view);
             _syncRaggedShapeForCollection();
             _ensureViewingDimsAreSpatial();
             if (stateParam) {
@@ -22363,6 +22370,91 @@
         }
 
         /* ── JS: State Persistence and Restore ────────────────────── */
+
+        // Starting view asked for by the caller — view(x, dims=, index=, cmap=,
+        // vmin=, vmax=, log=) or the matching CLI flags. Applied once at boot,
+        // only when this tab has no saved view of its own to restore.
+        function _applyInitialView(v) {
+            if (!v || typeof v !== 'object') return;
+            const _dv = modeManager.currentViews[0] || null;
+            const usable = d => Number.isInteger(d) && d >= 0 && d < shape.length && !_isCollectionDim(d);
+            if (Array.isArray(v.dims) && v.dims.length === 2) {
+                const [dx, dy] = v.dims.map(Number);
+                if (usable(dx) && usable(dy) && dx !== dy) {
+                    dim_x = dx; dim_y = dy;
+                    if (current_slice_dim === dim_x || current_slice_dim === dim_y) {
+                        const free = shape.findIndex((n, i) => i !== dim_x && i !== dim_y && !_isCollectionDim(i) && n > 1);
+                        if (free >= 0) current_slice_dim = activeDim = free;
+                    }
+                }
+            }
+            if (Array.isArray(v.index) && v.index.length === shape.length) {
+                indices = v.index.map((n, i) => {
+                    n = Number(n);
+                    return Number.isFinite(n) ? Math.max(0, Math.min(shape[i] - 1, Math.round(n))) : indices[i];
+                });
+            }
+            if (typeof v.cmap === 'string' && v.cmap && !rgbMode) {
+                const idx = COLORMAPS.indexOf(v.cmap);
+                if (idx >= 0) {
+                    colormap_idx = idx;
+                    customColormap = null;
+                    customGradientStops = null;
+                } else {
+                    colormap_idx = -1;
+                    customColormap = v.cmap;
+                    refreshCustomColormap(v.cmap);  // falls back to the default if unknown
+                }
+                if (_dv) _dv.displayState.cmapIdx = colormap_idx;
+            }
+            if (v.log === true && !rgbMode) {
+                logScale = true;
+                if (_dv) _dv.displayState.logScale = true;
+            }
+            if (Number.isFinite(v.vmin) && Number.isFinite(v.vmax) && v.vmax > v.vmin) {
+                manualVmin = v.vmin;
+                manualVmax = v.vmax;
+                if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
+            }
+        }
+
+        // One line of code that reopens the current view: `view(x, …)` for an
+        // array passed from Python, `arrayview.view(x; …)` from Julia, and
+        // `arrayview <file> …` for an array opened from a file. Only settings
+        // that differ from how the array opens by default are written out.
+        function _viewAsCode() {
+            const src = _codeSource || { kind: 'python', name: 'x' };
+            if (src.kind === 'matlab') return null;
+            const num = v => String(Number(Number(v).toPrecision(4)));
+            const opts = [];
+            const startDims = _startupDims || [dim_x, dim_y];
+            if (dim_x !== startDims[0] || dim_y !== startDims[1]) opts.push(['dims', [dim_x, dim_y]]);
+            const start = _initialIndices();
+            if (indices.some((n, i) => i !== dim_x && i !== dim_y && n !== start[i])) opts.push(['index', [...indices]]);
+            if (!rgbMode && currentColormap()) opts.push(['cmap', currentColormap()]);
+            if (logScale) opts.push(['log', true]);
+            if (manualVmin !== null && manualVmax !== null) {
+                opts.push(['vmin', num(manualVmin)]);
+                opts.push(['vmax', num(manualVmax)]);
+            }
+            if (src.kind === 'file') {
+                const flags = opts.map(([k, v]) => {
+                    if (v === true) return `--${k}`;
+                    const text = Array.isArray(v) ? v.join(',') : String(v);
+                    return text.startsWith('-') ? `--${k}=${text}` : `--${k} ${text}`;
+                });
+                return ['arrayview', src.path, ...flags].join(' ');
+            }
+            const julia = src.kind === 'julia';
+            const value = v => v === true ? (julia ? 'true' : 'True')
+                : Array.isArray(v) ? `(${v.join(', ')})`
+                : (typeof v === 'string' && !/^-?[0-9.e+-]+$/.test(v)) ? JSON.stringify(v)
+                : String(v);
+            const kwargs = opts.map(([k, v]) => `${k}=${value(v)}`).join(', ');
+            const name = src.name || 'x';
+            if (julia) return `arrayview.view(${name}${kwargs ? '; ' + kwargs : ''})`;
+            return `view(${name}${kwargs ? ', ' + kwargs : ''})`;
+        }
 
         function collectStateSnapshot() {
             return {
@@ -28002,6 +28094,17 @@
                     }
                 },
             },
+            'view.copyAsCode': {
+                title: 'Copy view as code',
+                when: [],
+                run: (ctx, e) => {
+                    const code = _viewAsCode();
+                    if (!code) { showStatus('Copy as code: not available from MATLAB yet'); return; }
+                    navigator.clipboard.writeText(code).then(() => {
+                        showStatus('Copied: ' + code);
+                    }).catch(() => showStatus('Clipboard unavailable'));
+                },
+            },
             'url.copyReusable': {
                 title: 'Copy reusable URL',
                 when: [],
@@ -28874,6 +28977,7 @@
             { key: '3', code: 'Digit3', shift: true, command: 'mode.toggleCutaway' },
             { key: 'I', command: 'info.toggle' },
             { key: 'e', command: 'url.copyReusable' },
+            { key: 'E', command: 'view.copyAsCode' },
             { key: 'f', command: 'fft.toggle' },
             { key: 'x', command: 'axis.assignX' },
             { key: 'y', command: 'axis.assignY' },
@@ -28989,8 +29093,9 @@
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Open save options', hint: 'opens screenshot, GIF, array, and URL exports directly · / also lists tools' },
+                            { key: 's', action: 'Open save options', hint: 'opens screenshot, GIF, array, URL, and code exports directly · / also lists tools' },
                             { key: 'e', action: 'Copy shareable URL' },
+                            { key: 'E', action: 'Copy view as code', hint: 'a view(…) call or arrayview command that reopens this view' },
                         ]
                     }
                 ]
@@ -29100,7 +29205,7 @@
                     {
                         title: 'Direct',
                         entries: [
-                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, and URL options' },
+                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
                             { key: 'S', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
@@ -30088,6 +30193,13 @@
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 1 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 1 0 7 7l1-1"/></svg>',
                 isEnabled: () => true,
                 run: () => _runCommand('url.copyReusable'),
+            },
+            {
+                id: 'code', label: 'Copy view as code',
+                detail: 'A line of code that reopens this view.',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 7.5 4 12l4.5 4.5"/><path d="M15.5 7.5 20 12l-4.5 4.5"/></svg>',
+                isEnabled: () => !_codeSource || _codeSource.kind !== 'matlab',
+                run: () => _runCommand('view.copyAsCode'),
             },
         ];
 

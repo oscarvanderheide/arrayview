@@ -1312,6 +1312,8 @@ def _load_session_from_filepath(
     related_sids: list[str] | None = None,
     source_staging_dir: str | None = None,
     watch: bool = False,
+    initial_view: dict | None = None,
+    code_source: dict | None = None,
 ) -> dict:
     requested_sid = uuid.uuid4().hex
     payload = {
@@ -1329,6 +1331,10 @@ def _load_session_from_filepath(
         payload["source_staging_dir"] = source_staging_dir
     if watch:
         payload["watch"] = True
+    if initial_view:
+        payload["initial_view"] = initial_view
+    if code_source:
+        payload["code_source"] = code_source
     if rgb:
         payload["rgb"] = True
     if dir_patterns:
@@ -1665,6 +1671,7 @@ def _register_cli_session_with_existing_server_impl(
     native_request_id: str | None = None,
     source_staging_dirs: dict[str, str] | None = None,
     watch: bool = False,
+    initial_view: dict | None = None,
     _loaded_sids: list[str],
 ) -> dict[str, object]:
     overlay_sids_list: list[str] = []
@@ -1719,6 +1726,7 @@ def _register_cli_session_with_existing_server_impl(
         related_sids=[*compare_sids, *overlay_sids_list],
         source_staging_dir=(source_staging_dirs or {}).get(base_file),
         watch=watch,
+        initial_view=initial_view,
     )
     if "error" in result:
         error = str(result["error"])
@@ -1797,6 +1805,7 @@ def _handle_cli_existing_server(
     use_native_shell: bool,
     dims_override: tuple[int, int] | None,
     watch: bool,
+    initial_view: dict | None = None,
     window_mode: str | None,
     floating: bool,
     is_remote: bool = False,
@@ -1847,6 +1856,7 @@ def _handle_cli_existing_server(
             native_request_id=native_request_id,
             source_staging_dirs=source_staging_dirs,
             watch=watch,
+            initial_view=initial_view,
         )
         # Inside this try on purpose: the generated bundle is removed in the
         # finally below, and these sessions read from it.
@@ -1902,6 +1912,7 @@ def _handle_cli_existing_server(
                     dims_override=dims_override,
                     use_native_shell=use_native_shell,
                     watch=watch,
+                    initial_view=initial_view,
                     window_mode=window_mode,
                     floating=floating,
                     is_remote=is_remote,
@@ -2036,6 +2047,7 @@ def _handle_cli_spawned_daemon(
     dims_override: tuple[int, int] | None,
     use_native_shell: bool,
     watch: bool,
+    initial_view: dict | None = None,
     window_mode: str | None,
     floating: bool,
     is_remote: bool,
@@ -2098,6 +2110,7 @@ def _handle_cli_spawned_daemon(
                 use_native_shell=use_native_shell,
                 dims_override=dims_override,
                 watch=watch,
+                initial_view=initial_view,
                 window_mode=window_mode,
                 floating=floating,
                 is_remote=is_remote,
@@ -2170,6 +2183,7 @@ def _handle_cli_spawned_daemon(
             f" cleanup_dir={repr(cleanup_dir)},"
             f" source_staging_dirs={repr(source_staging_dirs or {})},"
             f" watch={watch},"
+            f" initial_view={repr(initial_view)},"
             f")"
         )
 
@@ -3478,6 +3492,30 @@ class ViewHandle(str):
         return False
 
 
+def _caller_variable_name(obj) -> str | None:
+    """Name of the caller's variable that holds ``obj``, if there is one.
+
+    Used only to write a copyable ``view(<name>, ...)`` line, so a miss is
+    harmless: expressions such as ``view(a[0])`` simply have no name.
+    """
+    import inspect
+
+    frame = inspect.currentframe()
+    try:
+        caller = frame.f_back.f_back if frame and frame.f_back else None
+        if caller is None:
+            return None
+        for scope in (caller.f_locals, caller.f_globals):
+            for key, value in list(scope.items()):
+                if value is obj and key.isidentifier() and not key.startswith("_"):
+                    return key
+    except Exception:
+        return None
+    finally:
+        del frame
+    return None
+
+
 def view(
     *arrays,
     name=None,
@@ -3489,6 +3527,12 @@ def view(
     rgb: bool | list = False,
     overlay=None,
     floating: bool = False,
+    dims=None,
+    index=None,
+    cmap: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    log: bool = False,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -3528,6 +3572,11 @@ def view(
     ``overlay`` — a single array or list of arrays to composite as overlays.
     Each overlay is assigned an auto-palette color from _OVERLAY_PALETTE.
 
+    ``dims``, ``index``, ``cmap``, ``vmin``/``vmax`` and ``log`` set the view
+    the viewer opens with: the two dimensions shown as x and y, the position
+    along every dimension, the colormap, the display range and log scale.
+    Pressing ``E`` in the viewer copies the current view as such a call.
+
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). In inline/Jupyter mode with
     multiple arrays, the IFrame is displayed automatically and a uniform tuple
@@ -3538,6 +3587,11 @@ def view(
     """
     import numpy as np
     from arrayview._io import _tensor_to_numpy
+
+    _initial_view = _session_mod.initial_view_spec(
+        dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log
+    )
+    _code_name = _caller_variable_name(arrays[0]) if arrays else None
 
     height = _normalize_inline_height(height)
     _inline_mode_heights = _normalize_inline_mode_heights(mode_heights)
@@ -3607,6 +3661,13 @@ def view(
     data = arrays[0]
     name = names[0]
     rgb_primary = rgbs[0]
+    if _initial_view and "index" in _initial_view:
+        _ndim = len(getattr(data, "shape", ()))
+        if len(_initial_view["index"]) != _ndim:
+            raise ValueError(
+                f"index has {len(_initial_view['index'])} entries but the array "
+                f"has {_ndim} dimensions"
+            )
 
     # --- Normalise string window modes ---
     _raw_window = window
@@ -3635,6 +3696,18 @@ def view(
         _invocation = Invocation.JUPYTER
     else:
         _invocation = Invocation.PYTHON
+
+    # Julia and MATLAB callers are not Python frames, so only their explicit
+    # name can stand in for the variable.
+    if _code_name is None or _invocation in (Invocation.JULIA, Invocation.MATLAB):
+        _code_name = name if str(name).isidentifier() else "x"
+    _code_source = {
+        "kind": {
+            Invocation.JULIA: "julia",
+            Invocation.MATLAB: "matlab",
+        }.get(_invocation, "python"),
+        "name": _code_name,
+    }
 
     if isinstance(_raw_window, str):
         _requested_window = _raw_window
@@ -3706,6 +3779,8 @@ def view(
             mode_heights=_inline_mode_heights,
             floating=floating,
             launch_context=_launch_context,
+            initial_view=_initial_view,
+            code_source=_code_source,
         )
 
     # VS Code tunnel/remote: use the server + WebSocket path. The opener owns
@@ -3729,6 +3804,7 @@ def view(
                     _tmp_path = _tmp.name
                 try:
                     np.save(_tmp_path, _array)
+                    _is_primary = not _loaded_sids
                     _result = _load_session_from_filepath(
                         port,
                         _tmp_path,
@@ -3736,6 +3812,8 @@ def view(
                         rgb=_rgb,
                         expected_server_id=_expected_server_id,
                         release_on_disconnect=inline,
+                        initial_view=_initial_view if _is_primary else None,
+                        code_source=_code_source if _is_primary else None,
                     )
                 finally:
                     try:
@@ -3832,6 +3910,8 @@ def view(
     session = _session_mod.Session(data, name=name)
     if rgb_primary:
         _setup_rgb(session)
+    session.initial_view = _initial_view
+    session.code_source = _code_source
     _session_mod.SESSIONS[session.sid] = session
 
     # Register compare sessions (arrays[1:])
@@ -4262,6 +4342,8 @@ def _view_julia(
     mode_heights: dict[str, int] | None = None,
     floating: bool = False,
     launch_context=None,
+    initial_view: dict | None = None,
+    code_source: dict | None = None,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
@@ -4283,6 +4365,8 @@ def _view_julia(
         force_vscode=force_vscode,
         floating=floating,
         launch_context=launch_context,
+        initial_view=initial_view,
+        code_source=code_source,
     )
 
 
@@ -4298,6 +4382,8 @@ def _view_subprocess(
     force_vscode: bool = False,
     floating: bool = False,
     launch_context=None,
+    initial_view: dict | None = None,
+    code_source: dict | None = None,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -4353,6 +4439,8 @@ def _view_subprocess(
                 expected_server_id=active_server_id,
                 native_request_id=native_request_id,
                 release_on_disconnect=True,
+                initial_view=initial_view,
+                code_source=code_source,
             )
             if "error" in result:
                 raise RuntimeError(result["error"])
@@ -4417,7 +4505,9 @@ def _view_subprocess(
                     f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
                     f"name={repr(name)}, cleanup=True, "
                     f"persist={persist_daemon}, "
-                    f"connect_timeout={repr(daemon_connect_timeout)}, rgb={rgb})"
+                    f"connect_timeout={repr(daemon_connect_timeout)}, rgb={rgb}, "
+                    f"initial_view={repr(initial_view)}, "
+                    f"code_source={repr(code_source)})"
                 )
                 daemon_proc = subprocess.Popen(
                     [sys.executable, "-c", script],
@@ -4593,6 +4683,8 @@ def _serve_daemon(
     cleanup_dir: str | None = None,
     source_staging_dirs: dict[str, str] | None = None,
     watch: bool = False,
+    initial_view: dict | None = None,
+    code_source: dict | None = None,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -4762,6 +4854,10 @@ def _serve_daemon(
             if filepath in source_staging_dirs:
                 session._source_staging_dirs = [source_staging_dirs[filepath]]
             session.sid = sid
+            _session_mod.apply_launch_view(
+                session,
+                {"initial_view": initial_view, "code_source": code_source},
+            )
             if signature_before_load is not None:
                 signature_after_load = file_signature(filepath)
                 if signature_before_load == signature_after_load:
@@ -5674,6 +5770,16 @@ def arrayview():
         ),
     )
     parser.add_argument(
+        "--index",
+        metavar="I,J,...",
+        default=None,
+        help="Open at this position: one 0-based index per dimension, e.g. '128,128,40'.",
+    )
+    parser.add_argument("--cmap", default=None, help="Open with this colormap, e.g. 'gray'.")
+    parser.add_argument("--vmin", type=float, default=None, help="Lower end of the display range (with --vmax).")
+    parser.add_argument("--vmax", type=float, default=None, help="Upper end of the display range (with --vmin).")
+    parser.add_argument("--log", action="store_true", help="Open with log scale on.")
+    parser.add_argument(
         "--name",
         default=None,
         dest="array_name",
@@ -5840,6 +5946,18 @@ def arrayview():
                 f"--dims {args.dims!r} is invalid. "
                 "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
             )
+    initial_view: dict | None = None
+    try:
+        initial_view = _session_mod.initial_view_spec(
+            dims=dims_override,
+            index=args.index.split(",") if args.index else None,
+            cmap=args.cmap,
+            vmin=args.vmin,
+            vmax=args.vmax,
+            log=args.log,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if getattr(args, "stack_flag_removed", False):
         parser.error(
             "--stack has been renamed to --match, because it never controlled "
@@ -6464,6 +6582,7 @@ def arrayview():
                 vfield_components_dim=vfield_components_dim,
                 use_native_shell=use_native_shell,
                 dims_override=dims_override,
+                initial_view=initial_view,
                 watch=getattr(args, "watch", False),
                 window_mode=window_mode,
                 floating=args.floating,
@@ -6496,6 +6615,7 @@ def arrayview():
             overlay_files=[] if args.stack_mode else file_overlay_paths,
             overlay_names=[] if args.stack_mode else file_overlay_names,
             dims_override=dims_override,
+            initial_view=initial_view,
             use_native_shell=use_native_shell,
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
