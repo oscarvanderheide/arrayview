@@ -3527,6 +3527,7 @@ def view(
     rgb: bool | list = False,
     overlay=None,
     floating: bool = False,
+    mode: str | None = None,
     dims=None,
     index=None,
     cmap: str | None = None,
@@ -3572,10 +3573,13 @@ def view(
     ``overlay`` — a single array or list of arrays to composite as overlays.
     Each overlay is assigned an auto-palette color from _OVERLAY_PALETTE.
 
-    ``dims``, ``index``, ``cmap``, ``vmin``/``vmax`` and ``log`` set the view
-    the viewer opens with: the two dimensions shown as x and y, the position
-    along every dimension, the colormap, the display range and log scale.
-    Pressing ``E`` in the viewer copies the current view as such a call.
+    ``mode``, ``dims``, ``index``, ``cmap``, ``vmin``/``vmax`` and ``log`` set
+    the view the viewer opens with: the viewing mode (``"ortho"``,
+    ``"mosaic"``, ``"qmri"``, ``"qmri-ortho"``, ``"qmri-mosaic"``), the two
+    dimensions shown as x and y (three for ortho: its volume dims; three for
+    the mosaics: x, y and the gridded dim), the position along every
+    dimension, the colormap, the display range and log scale. Pressing ``E``
+    in the viewer copies the current view as such a call.
 
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). In inline/Jupyter mode with
@@ -3589,7 +3593,7 @@ def view(
     from arrayview._io import _tensor_to_numpy
 
     _initial_view = _session_mod.initial_view_spec(
-        dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log
+        mode=mode, dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log
     )
     _code_name = _caller_variable_name(arrays[0]) if arrays else None
 
@@ -5775,6 +5779,12 @@ def arrayview():
         default=None,
         help="Open at this position: one 0-based index per dimension, e.g. '128,128,40'.",
     )
+    parser.add_argument(
+        "--mode",
+        default=None,
+        choices=["ortho", "mosaic", "qmri", "qmri-ortho", "qmri-mosaic"],
+        help="Open in this viewing mode. With ortho or a mosaic, --dims takes three dims.",
+    )
     parser.add_argument("--cmap", default=None, help="Open with this colormap, e.g. 'gray'.")
     parser.add_argument("--vmin", type=float, default=None, help="Lower end of the display range (with --vmax).")
     parser.add_argument("--vmax", type=float, default=None, help="Upper end of the display range (with --vmin).")
@@ -5939,7 +5949,11 @@ def arrayview():
         return
 
     dims_override: tuple[int, int] | None = None
-    if args.dims:
+    view_dims: list[str] | None = None
+    if args.dims and args.mode in ("ortho", "mosaic", "qmri-mosaic"):
+        # Three dims: not an x/y pair, so they only travel with the view.
+        view_dims = args.dims.split(",")
+    elif args.dims:
         dims_override = _parse_dims_spec(args.dims)
         if dims_override is None:
             parser.error(
@@ -5949,7 +5963,8 @@ def arrayview():
     initial_view: dict | None = None
     try:
         initial_view = _session_mod.initial_view_spec(
-            dims=dims_override,
+            mode=args.mode,
+            dims=view_dims or dims_override,
             index=args.index.split(",") if args.index else None,
             cmap=args.cmap,
             vmin=args.vmin,

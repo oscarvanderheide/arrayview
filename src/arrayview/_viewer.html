@@ -7533,6 +7533,7 @@
         }
         let pendingMvDims = null;
         let pendingQmriDim = null;
+        let pendingQmriMosaicZ = null;  // z dim for a qMRI mosaic asked for at launch
 
         let qmriActive = false;
         let qmriDim = -1;
@@ -22378,15 +22379,28 @@
             if (!v || typeof v !== 'object') return;
             const _dv = modeManager.currentViews[0] || null;
             const usable = d => Number.isInteger(d) && d >= 0 && d < shape.length && !_isCollectionDim(d);
-            if (Array.isArray(v.dims) && v.dims.length === 2) {
-                const [dx, dy] = v.dims.map(Number);
-                if (usable(dx) && usable(dy) && dx !== dy) {
-                    dim_x = dx; dim_y = dy;
-                    if (current_slice_dim === dim_x || current_slice_dim === dim_y) {
-                        const free = shape.findIndex((n, i) => i !== dim_x && i !== dim_y && !_isCollectionDim(i) && n > 1);
-                        if (free >= 0) current_slice_dim = activeDim = free;
-                    }
-                }
+            const mode = typeof v.mode === 'string' ? v.mode : null;
+            const dims = Array.isArray(v.dims) ? v.dims.map(Number) : [];
+            const dimsOk = dims.length >= 2 && dims.every(usable) && new Set(dims).size === dims.length;
+            // x/y come first in every dims except ortho's, which names its volume dims.
+            if (dimsOk && mode !== 'ortho') { dim_x = dims[0]; dim_y = dims[1]; }
+            const free = () => shape.findIndex((n, i) => ![dim_x, dim_y, dim_z].includes(i) && !_isCollectionDim(i) && n > 1);
+            if ([dim_x, dim_y].includes(current_slice_dim) && free() >= 0) current_slice_dim = activeDim = free();
+            if (mode === 'mosaic' && shape.length >= 4) {
+                // Without a third dim, grid the dim that was scrolling, as `z` does.
+                dim_z = dimsOk && dims.length === 3 ? dims[2] : current_slice_dim;
+                if (current_slice_dim === dim_z && free() >= 0) current_slice_dim = activeDim = free();
+            }
+            if (mode === 'ortho') {
+                pendingViewMode = 'multiview';
+                pendingMvDims = dimsOk && dims.length === 3 ? [...dims].sort((a, b) => a - b) : null;
+            } else if (mode === 'qmri' || mode === 'qmri-mosaic') {
+                pendingViewMode = 'qmri';
+                // -1: grid whichever dim `z` would pick.
+                pendingQmriMosaicZ = mode !== 'qmri-mosaic' ? null
+                    : dimsOk && dims.length === 3 ? dims[2] : -1;
+            } else if (mode === 'qmri-ortho') {
+                pendingViewMode = 'qmri-mv';
             }
             if (Array.isArray(v.index) && v.index.length === shape.length) {
                 indices = v.index.map((n, i) => {
@@ -22427,13 +22441,35 @@
             if (src.kind === 'matlab') return null;
             const num = v => String(Number(Number(v).toPrecision(4)));
             const opts = [];
+            const viewMode = currentViewMode();
+            const mode = viewMode === 'multiview' ? 'ortho'
+                : viewMode === 'qmri-mv' ? 'qmri-ortho'
+                : viewMode === 'qmri' ? (qmriMosaicActive ? 'qmri-mosaic' : 'qmri')
+                : viewMode === 'mosaic' ? 'mosaic'
+                : null;
+            const qmri = mode && mode.startsWith('qmri');
+            if (mode) opts.push(['mode', mode]);
             const startDims = _startupDims || [dim_x, dim_y];
-            if (dim_x !== startDims[0] || dim_y !== startDims[1]) opts.push(['dims', [dim_x, dim_y]]);
+            const sameDims = (a, b) => a.length === b.length && a.every((d, i) => d === b[i]);
+            // Dims that are on screen; their index only moves an ortho crosshair.
+            let shown = [dim_x, dim_y];
+            if (mode === 'ortho') {
+                if (!sameDims(mvDims, defaultMultiViewDims())) opts.push(['dims', [...mvDims]]);
+                shown = [];
+            } else if (mode === 'mosaic' || mode === 'qmri-mosaic') {
+                shown = [dim_x, dim_y, mode === 'mosaic' ? dim_z : _qmriMosaicZDim];
+                opts.push(['dims', shown]);
+            } else if (mode !== 'qmri-ortho' && !sameDims([dim_x, dim_y], startDims)) {
+                opts.push(['dims', [dim_x, dim_y]]);
+            }
             const start = _initialIndices();
-            if (indices.some((n, i) => i !== dim_x && i !== dim_y && n !== start[i])) opts.push(['index', [...indices]]);
-            if (!rgbMode && currentColormap()) opts.push(['cmap', currentColormap()]);
-            if (logScale) opts.push(['log', true]);
-            if (manualVmin !== null && manualVmax !== null) {
+            if (indices.some((n, i) => !shown.includes(i) && !(qmri && i === qmriDim) && n !== start[i])) {
+                opts.push(['index', [...indices]]);
+            }
+            // qMRI panes carry their own colormap and range per parameter.
+            if (!rgbMode && !qmri && currentColormap()) opts.push(['cmap', currentColormap()]);
+            if (logScale && !qmri) opts.push(['log', true]);
+            if (manualVmin !== null && manualVmax !== null && !qmri) {
                 opts.push(['vmin', num(manualVmin)]);
                 opts.push(['vmax', num(manualVmax)]);
             }
@@ -22667,9 +22703,16 @@
                 enterMultiView(dims);
                 return multiViewActive;
             }
-            if (targetMode === 'qmri') {
+            if (targetMode === 'qmri' || targetMode === 'qmri-mv') {
+                const mosaicZ = pendingQmriMosaicZ;
+                pendingQmriMosaicZ = null;
                 if (Number.isInteger(targetQmriDim)) activeDim = targetQmriDim;
                 enterQmri();
+                if (qmriActive && targetMode === 'qmri-mv') enterQmriMv();
+                if (qmriActive && Number.isInteger(mosaicZ) && mosaicZ !== qmriDim) {
+                    if (mosaicZ >= 0) activeDim = mosaicZ;
+                    _runCommand('slice.toggleMosaic');
+                }
                 return qmriActive;
             }
             return false;
@@ -34894,6 +34937,9 @@
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
             userZoom = 1.0;
             qvPan.reset();
+            // Opening straight into qMRI never draws the main canvas, so its
+            // first frame would not clear the loading screen (mirrors enterMultiView).
+            hideLoadingOverlay();
             qmriActive = true;
             qmriDim = targetDim;
             _ensureQmriActiveDimVisible();
@@ -38289,6 +38335,7 @@
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width;
                 v.lastH = frame.height;
+                _mvSeedRangeIfUnset(v);
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
                 drawMvColorbar();
@@ -38703,6 +38750,16 @@
             if (typeof _cropRenderMvOverlay === 'function') _cropRenderMvOverlay(v);
         }
 
+        // The ortho colorbar reads the single view's range. A viewer that opens
+        // straight into ortho never draws the single view, so take the range
+        // from the panes until it does.
+        function _mvSeedRangeIfUnset(v) {
+            if (lastImageData || manualVmin !== null) return;
+            if (!Number.isFinite(v.vmin) || !Number.isFinite(v.vmax)) return;
+            currentVmin = v.vmin;
+            currentVmax = v.vmax;
+        }
+
         function mvOnMessage(v, event) {
             // Skip text messages (e.g. metadata JSON push on new WS connections)
             const perfKey = `mv:${v.dimX}:${v.dimY}`;
@@ -38728,6 +38785,7 @@
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width; v.lastH = frame.height;
                 v.initialConnectRetries = 0;
+                _mvSeedRangeIfUnset(v);
                 // Ensure CSS scaling is applied before drawing so we can compute
                 // a line width that looks consistent at different zooms.
                 mvScaleAllCanvases();

@@ -528,8 +528,15 @@ class Session:
         data_bytes = int(np.prod(self.shape)) * itemsize
         return data_bytes
 
+VIEW_MODES = ("ortho", "mosaic", "qmri", "qmri-ortho", "qmri-mosaic")
+# Modes whose dims name three dimensions: the three ortho planes' volume
+# dims, or x, y and the dimension laid out as a grid.
+_THREE_DIM_MODES = ("ortho", "mosaic", "qmri-mosaic")
+
+
 def initial_view_spec(
     *,
+    mode=None,
     dims=None,
     index=None,
     cmap=None,
@@ -543,14 +550,23 @@ def initial_view_spec(
     names are what users see in the copied line.
     """
     spec: dict = {}
+    if mode is not None:
+        if mode not in VIEW_MODES:
+            raise ValueError(f"mode must be one of: {', '.join(VIEW_MODES)}")
+        spec["mode"] = mode
     if dims is not None:
+        want = 3 if mode in _THREE_DIM_MODES else 2
+        example = "(0, 1, 2)" if want == 3 else "(0, 1)"
         try:
-            pair = [int(d) for d in dims]
+            dims = [int(d) for d in dims]
         except (TypeError, ValueError):
-            raise ValueError("dims must be a pair of dimension numbers, e.g. (0, 1)")
-        if len(pair) != 2 or pair[0] == pair[1] or min(pair) < 0:
-            raise ValueError("dims must be two different dimension numbers, e.g. (0, 1)")
-        spec["dims"] = pair
+            raise ValueError(f"dims must be {want} dimension numbers, e.g. {example}")
+        if len(dims) != want or len(set(dims)) != want or min(dims) < 0:
+            raise ValueError(
+                f"dims must be {want} different dimension numbers"
+                f"{' for mode ' + repr(mode) if want == 3 else ''}, e.g. {example}"
+            )
+        spec["dims"] = dims
     if index is not None:
         try:
             spec["index"] = [int(i) for i in index]

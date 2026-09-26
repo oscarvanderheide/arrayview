@@ -37,6 +37,7 @@ uvx arrayview volume.npy --window browser
 uvx arrayview image.npy --rgb
 uvx arrayview --watch data.npy              # reload on file change
 uvx arrayview vol.npy --index 5,10,12 --cmap gray --vmin 0 --vmax 1 --log   # open at this view
+uvx arrayview vol.npy --mode ortho --dims 0,1,2                              # open in ortho view
 uvx arrayview --version                     # print version
 ```
 
@@ -104,7 +105,8 @@ Key parameters:
 | `mode_heights` | dict | Inline height overrides, e.g. `{"ortho": 360, "qmri": 480}` |
 | `rgb` | bool | Treat last/first axis as RGB/RGBA channels |
 | `overlay` | array or list | Arrays composited as overlays |
-| `dims` | (int, int) | Dimensions shown as x and y |
+| `mode` | str | `"ortho"`, `"mosaic"`, `"qmri"`, `"qmri-ortho"` or `"qmri-mosaic"` |
+| `dims` | (int, int) | Dimensions shown as x and y; three for ortho (its volume dims) and the mosaics (x, y, gridded dim) |
 | `index` | tuple of int | Position along every dimension (0-based) |
 | `cmap` | str | Colormap, e.g. `"gray"` |
 | `vmin`, `vmax` | float | Display range (give both) |
