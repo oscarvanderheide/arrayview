@@ -31440,6 +31440,10 @@
                 id: 'looking', stage: 'single',
                 steps: [
                     {
+                        text: 'Hover over the colorbar below the image.\nTick marks appear, and matching values are highlighted in the image.\nMove along the bar to explore different values.',
+                        spotlight: '#slim-cb-wrap',
+                    },
+                    {
                         key: 'd',
                         text: 'Press d to open the histogram under the image.\nDrag its handles to move either end of the range.\nDrag anywhere else on it to slide the whole range.',
                         note: 'Double-clicking the colorbar also opens it.\nScrolling over it changes the range.',
@@ -31583,6 +31587,11 @@
                         auto: 'pair',
                         text: 'A second array is now open next to the first.\nIt is the same camp, in the snow.\nEverything you do moves both.',
                         note: 'Look around.',
+                    },
+                    {
+                        key: 'g',
+                        text: 'Press g to change how the two arrays are arranged.\nKeep pressing to try the layouts.',
+                        expect: ['compare.cycleLayout'],
                     },
                     {
                         key: 'X',
