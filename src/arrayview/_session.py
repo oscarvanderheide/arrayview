@@ -492,6 +492,12 @@ class Session:
         # Spatial metadata for NIfTI files (None for other formats).
         # Set externally after construction by the loader.
         self.spatial_meta = None
+        # How the caller asked the viewer to open (dims, index, cmap, range),
+        # and how the caller's code names the array ({"kind": "python" |
+        # "julia" | "matlab", "name": ...}). The viewer uses both to write a
+        # line of code that reopens the view it is showing.
+        self.initial_view = None
+        self.code_source = None
         # RAS resample (tier 2 of NIfTI orientation feature).
         # original_volume holds the canonical-reoriented array; resampled_volume
         # caches the RAS-resampled volume after first computation. active_volume
@@ -521,6 +527,56 @@ class Session:
         itemsize = np.dtype(getattr(self.data, "dtype", np.float32)).itemsize
         data_bytes = int(np.prod(self.shape)) * itemsize
         return data_bytes
+
+def initial_view_spec(
+    *,
+    dims=None,
+    index=None,
+    cmap=None,
+    vmin=None,
+    vmax=None,
+    log=False,
+) -> dict | None:
+    """Validate how a caller asks the viewer to open; None when nothing is set.
+
+    The viewer copies its current view back as the same keywords, so these
+    names are what users see in the copied line.
+    """
+    spec: dict = {}
+    if dims is not None:
+        try:
+            pair = [int(d) for d in dims]
+        except (TypeError, ValueError):
+            raise ValueError("dims must be a pair of dimension numbers, e.g. (0, 1)")
+        if len(pair) != 2 or pair[0] == pair[1] or min(pair) < 0:
+            raise ValueError("dims must be two different dimension numbers, e.g. (0, 1)")
+        spec["dims"] = pair
+    if index is not None:
+        try:
+            spec["index"] = [int(i) for i in index]
+        except (TypeError, ValueError):
+            raise ValueError("index must be one whole number per dimension")
+    if cmap is not None:
+        spec["cmap"] = str(cmap)
+    if vmin is not None or vmax is not None:
+        if vmin is None or vmax is None:
+            raise ValueError("vmin and vmax must be given together")
+        vmin, vmax = float(vmin), float(vmax)
+        if not vmax > vmin:
+            raise ValueError("vmax must be larger than vmin")
+        spec["vmin"], spec["vmax"] = vmin, vmax
+    if log:
+        spec["log"] = True
+    return spec or None
+
+
+def apply_launch_view(session, source: dict) -> None:
+    """Copy a launch request's starting view and code source onto a session."""
+    view = source.get("initial_view")
+    session.initial_view = dict(view) if isinstance(view, dict) and view else None
+    code = source.get("code_source")
+    session.code_source = dict(code) if isinstance(code, dict) and code else None
+
 
 def _recommend_colormap_reason(data) -> str:
     """Return a human-readable reason for the recommended colormap choice."""

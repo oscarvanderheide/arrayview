@@ -23,6 +23,7 @@ from arrayview._session import (
     PENDING_SESSIONS,
     SESSIONS,
     Session,
+    apply_launch_view,
     file_signature,
     upgrade_memmap_in_background,
     wait_for_session_ready,
@@ -354,6 +355,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     session.related_release_sids = [
                         str(value) for value in body.get("related_sids", [])
                     ]
+                    apply_launch_view(session, body)
                     if staging_dir:
                         session._source_staging_dirs = [str(staging_dir)]
                     upgrade_memmap_in_background(session)
@@ -474,6 +476,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             session.related_release_sids = [
                 str(value) for value in body.get("related_sids", [])
             ]
+            apply_launch_view(session, body)
             if staging_dir:
                 session._source_staging_dirs = [str(staging_dir)]
             if not dir_patterns:

@@ -36,6 +36,7 @@ uvx arrayview volume.nii.gz
 uvx arrayview volume.npy --window browser
 uvx arrayview image.npy --rgb
 uvx arrayview --watch data.npy              # reload on file change
+uvx arrayview vol.npy --index 5,10,12 --cmap gray --vmin 0 --vmax 1 --log   # open at this view
 uvx arrayview --version                     # print version
 ```
 
@@ -103,6 +104,13 @@ Key parameters:
 | `mode_heights` | dict | Inline height overrides, e.g. `{"ortho": 360, "qmri": 480}` |
 | `rgb` | bool | Treat last/first axis as RGB/RGBA channels |
 | `overlay` | array or list | Arrays composited as overlays |
+| `dims` | (int, int) | Dimensions shown as x and y |
+| `index` | tuple of int | Position along every dimension (0-based) |
+| `cmap` | str | Colormap, e.g. `"gray"` |
+| `vmin`, `vmax` | float | Display range (give both) |
+| `log` | bool | Open with log scale on |
+
+Press `E` in the viewer to copy the current view as such a call.
 
 `window` values:
 

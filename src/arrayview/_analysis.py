@@ -19,6 +19,29 @@ def _visible_shape(session) -> list[int]:
     return [int(s) for s in shape]
 
 
+def _code_source(session) -> dict | None:
+    """Say how a copied line of code should name this array.
+
+    Arrays passed from Python are named by the caller's variable. Arrays
+    opened from a file are reopened with the command line and that file.
+    """
+    code_source = getattr(session, "code_source", None)
+    if code_source:
+        return code_source
+    filepath = getattr(session, "filepath", None)
+    if not filepath:
+        return None
+    import shlex
+
+    path = os.path.abspath(filepath)
+    home = os.path.expanduser("~")
+    if path.startswith(home + os.sep) and shlex.quote(path) == path:
+        path = "~" + path[len(home):]
+    else:
+        path = shlex.quote(path)
+    return {"kind": "file", "path": path}
+
+
 def _build_metadata(session) -> dict:
     """Build metadata shared by HTTP routes and WebSocket startup."""
     target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
@@ -35,6 +58,11 @@ def _build_metadata(session) -> dict:
         "is_rgb": session.rgb_axis is not None,
         "has_source_file": bool(getattr(session, "filepath", None)),
     }
+    if getattr(session, "initial_view", None):
+        meta["initial_view"] = session.initial_view
+    code_source = _code_source(session)
+    if code_source is not None:
+        meta["code_source"] = code_source
     collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
     default_shape = target_shape
     if collection_spatial_ndim is not None:
