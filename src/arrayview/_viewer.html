@@ -28099,10 +28099,10 @@
                 when: [],
                 run: (ctx, e) => {
                     const code = _viewAsCode();
-                    if (!code) { showStatus('Copy as code: not available from MATLAB yet'); return; }
+                    if (!code) { showToast('copy as code: not available from MATLAB yet'); return; }
                     navigator.clipboard.writeText(code).then(() => {
-                        showStatus('Copied: ' + code);
-                    }).catch(() => showStatus('Clipboard unavailable'));
+                        showToast(`copied: ${code}`);
+                    }).catch(() => showToast('clipboard unavailable'));
                 },
             },
             'url.copyReusable': {
@@ -28111,8 +28111,8 @@
                 run: (ctx, e) => {
                     const reusableUrl = buildReusableUrl();
                     navigator.clipboard.writeText(reusableUrl).then(() => {
-                        showStatus('Reusable URL copied');
-                    }).catch(() => showStatus('Clipboard unavailable'));
+                        showToast('copied: link to this view');
+                    }).catch(() => showToast('clipboard unavailable'));
                 },
             },
             'fft.toggle': {
