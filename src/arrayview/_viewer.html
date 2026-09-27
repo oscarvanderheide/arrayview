@@ -4325,7 +4325,7 @@
         #stack-mosaic-panes { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 16px; }
         .sm-pane { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; background: var(--bg); }
         .sm-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
-        .sm-label { font-size: 13px; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; white-space: nowrap; }
+        .sm-label { font-size: 13px; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; white-space: nowrap; width: 100%; contain: inline-size; overflow: hidden; text-overflow: ellipsis; text-align: center; }
         .sm-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .sm-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
         .sm-pane.sm-focused::after {
@@ -6410,6 +6410,7 @@
         let collectionSpatialNdim = -1;
         let raggedSpatialShapes = null;
         let caseVoxelSpacings = null; // per-case [x,y,z] mm spacing, or null when unknown
+        let caseNames = null;         // per-case id (e.g. patient folder) for --match collections
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
         let indices = [];
@@ -17100,6 +17101,7 @@
             caseVoxelSpacings = Array.isArray(data.case_voxel_spacings)
                 ? data.case_voxel_spacings
                 : null;
+            caseNames = Array.isArray(data.case_names) ? data.case_names : null;
             isComplex = data.is_complex || false;
             _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
@@ -35592,7 +35594,7 @@
                 pane.dataset.smIdx = String(i);
                 const label = document.createElement('div');
                 label.className = 'sm-label';
-                label.textContent = `#${colIdx + 1}`;
+                _stackMosaicSetLabel(label, colIdx);
                 const cvWrap = document.createElement('div');
                 cvWrap.className = 'sm-canvas-wrap';
                 const cv = document.createElement('canvas');
@@ -35680,6 +35682,11 @@
             };
         }
 
+        function _stackMosaicSetLabel(label, colIdx) {
+            const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
+            label.textContent = name ? String(name) : `#${colIdx + 1}`;
+        }
+
         function _stackMosaicFocusPane(i) {
             if (i < 0 || i >= stackMosaicViews.length) return;
             stackMosaicFocus = i;
@@ -35739,7 +35746,7 @@
             // Rebuild pane collection indices and re-render each pane.
             stackMosaicViews.forEach((v, i) => {
                 v.colIdx = stackMosaicStart + i;
-                v.label.textContent = `#${v.colIdx + 1}`;
+                _stackMosaicSetLabel(v.label, v.colIdx);
                 smRender(v);
             });
             stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === 0));

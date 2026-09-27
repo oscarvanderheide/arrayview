@@ -770,6 +770,7 @@ class TestLoad:
         assert meta["shape"] == [4, 5, 6, 2]
         assert meta["collection_spatial_ndim"] == 3
         assert meta["ragged_spatial_shapes"] == [[[4, 5, 6]], [[4, 5, 7]]]
+        assert meta["case_names"] == ["case_a", "case_b"]
 
         repeated = client.post(
             "/load",

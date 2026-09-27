@@ -1281,6 +1281,9 @@ def load_dir_collection(
         scan_progress=scan_progress,
         scan_label="images",
     )
+    # Lets the viewer label each case by its id (e.g. the patient folder)
+    # instead of its position in the stack.
+    data.case_names = [str(case) for case in case_ids]
     spatial_shape = data._vol_shape
 
     overlay_items = []

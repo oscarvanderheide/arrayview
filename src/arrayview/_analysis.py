@@ -102,6 +102,9 @@ def _build_metadata(session) -> dict:
             [list(shape) for shape in row]
             for row in session.data.ragged_spatial_shapes
         ]
+    case_names = getattr(session.data, "case_names", None)
+    if case_names:
+        meta["case_names"] = [str(name) for name in case_names]
     case_voxel_spacings = getattr(session.data, "case_voxel_spacings", None)
     if case_voxel_spacings:
         meta["case_voxel_spacings"] = [
