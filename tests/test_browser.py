@@ -1191,6 +1191,16 @@ class TestKeyboard:
         page.wait_for_function(idle, timeout=10_000)
         before = page.evaluate(widths)
         assert len(set(before)) == 1, f"tiles differ in size: {before}"
+        # The chosen grid fits the window and rows are evenly filled (no
+        # free wrap leaving a mostly empty last row).
+        tops = page.evaluate(
+            "() => stackMosaicViews.map(v => Math.round(v.pane.getBoundingClientRect().top))"
+        )
+        per_row = [tops.count(t) for t in sorted(set(tops))]
+        assert per_row[0] == max(per_row) and max(per_row) - min(per_row) < per_row[0], per_row
+        assert page.evaluate(
+            "() => Math.max(...stackMosaicViews.map(v => v.pane.getBoundingClientRect().bottom)) <= window.innerHeight"
+        )
         for _ in range(3):
             page.keyboard.press("k")
             page.wait_for_timeout(300)

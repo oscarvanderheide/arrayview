@@ -35981,11 +35981,9 @@
         function smScaleAllCanvases() {
             const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
-            const n = ready.length;
-            // sqrt(3) rounds up to 2 columns, splitting 3 panes into a lone
-            // centered item under a row of 2 instead of one row of 3.
-            const cols = n <= 3 ? n : Math.ceil(Math.sqrt(n));
-            const rows = Math.ceil(n / cols);
+            // Lay out every pane of the window, loaded or not, so the grid
+            // shape doesn't jump while frames arrive.
+            const n = Math.max(ready.length, stackMosaicViews.length);
             const colGap = 16, rowGap = 16;
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 4 + 8;
             const cbH = document.getElementById('slim-cb-wrap')
@@ -35995,21 +35993,37 @@
             // reserving a single labelH here under-budgeted multi-row windows,
             // so the panes grid ran taller than planned and pushed the
             // colorbar (docked to its bottom edge) below the viewport.
-            const uiReserveH = uiReserveV() + (cbH + labelH * rows) * (1 - _crossfadeCollapseP);
-            const availW = Math.max(50, window.innerWidth - 80);
-            const availH = Math.max(50, window.innerHeight - uiReserveH);
-            const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
-            const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
             // spacings[i] scales one received pixel of pane i into the shared
-            // unit the layout fits to the cell. True scale: real-world size (native pixels × the case's own
-            // voxel spacing), so a case scanned with a larger field of view
-            // shows smaller anatomy in a same-size box. Fill (default): each
-            // pane's own fit-to-cell size, so every image fills its tile.
-            const spacings = stackMosaicTrueScale
-                ? ready.map(v => _stackMosaicCaseSpacing(v.colIdx) * (v.nativePerPx || 1))
-                : ready.map(v => Math.min(cellW / v.lastW, cellH / v.lastH));
-            const absMaxScale = Math.min(...ready.map((v, i) =>
-                Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
+            // unit the layout fits to the cell. True scale: real-world size
+            // (native pixels × the case's own voxel spacing), so a case scanned
+            // with a larger field of view shows smaller anatomy in a same-size
+            // box. Fill (default): each pane's own fit-to-cell size, so every
+            // image fills its tile.
+            const layoutFor = (cols) => {
+                const rows = Math.ceil(n / cols);
+                const uiReserveH = uiReserveV() + (cbH + labelH * rows) * (1 - _crossfadeCollapseP);
+                const availW = Math.max(50, window.innerWidth - 80);
+                const availH = Math.max(50, window.innerHeight - uiReserveH);
+                const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
+                const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
+                const spacings = stackMosaicTrueScale
+                    ? ready.map(v => _stackMosaicCaseSpacing(v.colIdx) * (v.nativePerPx || 1))
+                    : ready.map(v => Math.min(cellW / v.lastW, cellH / v.lastH));
+                const absMaxScale = Math.min(...ready.map((v, i) =>
+                    Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
+                // Total on-screen image area: the column count that maximizes
+                // it uses the window best (4 wide scans on a wide screen go in
+                // one row; 9 go 3×3 instead of wrapping 5+4).
+                const area = ready.reduce((sum, v, i) =>
+                    sum + (v.lastW * v.lastH * (spacings[i] * absMaxScale) ** 2), 0);
+                return { cols, rows, cellW, cellH, spacings, absMaxScale, area };
+            };
+            let layout = layoutFor(1);
+            for (let c = 2; c <= n; c++) {
+                const next = layoutFor(c);
+                if (next.area > layout.area * 1.001) layout = next;
+            }
+            const { cols, cellW, cellH, spacings, absMaxScale } = layout;
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
             // The shared box is the largest content actually renders at, not the
             // full cell: cellW/cellH is only a target aspect ratio (usually not
@@ -36061,6 +36075,10 @@
                     v.pan.apply();
                 }
             });
+            // Panes wrap freely, so cap the row width at exactly `cols` tiles;
+            // a short last row stays centered under the full ones.
+            const panesEl = document.getElementById('stack-mosaic-panes');
+            if (panesEl) panesEl.style.maxWidth = (cols * Math.round(refW) + (cols - 1) * colGap + 1) + 'px';
             fixWrapperAlignment();
             // The colorbar docks to this grid's bottom edge, but normally
             // only repositions when the focused pane's own frame lands
