@@ -1164,6 +1164,44 @@ class TestKeyboard:
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
+    def test_stack_mosaic_tiles_keep_size_across_slices(self, loaded_viewer, client, tmp_path):
+        """Tiles smaller than the arrays get shrunken frames from the server;
+        that must not feed back into the layout. Every tile fills the same box
+        and keeps its size across slice changes; Shift+U toggles true size."""
+        stack_dir = tmp_path / "stack_big_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(3)
+        for i in range(9):
+            np.save(stack_dir / f"b_{i}.npy", rng.random((4, 600, 600), dtype=np.float32))
+        resp = client.post("/load", json={"filepath": str(stack_dir)})
+        sid = resp.json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "9")
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "() => stackMosaicViews.length === 9 && stackMosaicViews.every(v => v.lastW > 0)",
+            timeout=15_000,
+        )
+        widths = "() => stackMosaicViews.map(v => v.canvas.style.width)"
+        idle = "() => stackMosaicViews.every(v => !v.rendering && !v.pending)"
+        page.wait_for_function(idle, timeout=10_000)
+        before = page.evaluate(widths)
+        assert len(set(before)) == 1, f"tiles differ in size: {before}"
+        for _ in range(3):
+            page.keyboard.press("k")
+            page.wait_for_timeout(300)
+            page.wait_for_function(idle, timeout=10_000)
+        assert page.evaluate(widths) == before
+
+        page.keyboard.press("Shift+U")
+        page.wait_for_function("() => stackMosaicTrueScale === true", timeout=5_000)
+        page.keyboard.press("Shift+U")
+        page.wait_for_function("() => stackMosaicTrueScale === false", timeout=5_000)
+
     def test_stack_mosaic_ragged_hover_shapes(self, loaded_viewer, client, tmp_path):
         """Ragged stacks: each pane renders its own array's spatial shape, and
         the dimbar spatial sizes follow the hovered pane."""

@@ -7581,6 +7581,7 @@
         let stackMosaicViews = [];     // flat array of {colIdx, canvas, ws, ...}
         let stackMosaicFocus = 0;      // focused pane index within the window
         let stackMosaicHover = -1;     // hovered pane index within the window (-1 = none)
+        let stackMosaicTrueScale = false; // false: every image fills its tile; true: tiles keep real-world size
         let _smPrevZoom = 1.0;
         const QMRI_COLORMAPS = {
             3: ['lipari', 'navia', 'gray'],
@@ -28475,6 +28476,20 @@
                     _stackMosaicResize(next);
                 },
             },
+            'stackMosaic.toggleTrueScale': {
+                title: 'Toggle true physical size (stack mosaic)',
+                when: ['stackMosaicActive'],
+                run: (ctx, e) => {
+                    if (!stackMosaicActive) return;
+                    if (e) e.preventDefault();
+                    stackMosaicTrueScale = !stackMosaicTrueScale;
+                    stackMosaicViews.forEach(v => { v.pan.x = 0; v.pan.y = 0; });
+                    smScaleAllCanvases();
+                    showStatus(stackMosaicTrueScale
+                        ? 'stack mosaic: true physical size'
+                        : 'stack mosaic: fill each tile');
+                },
+            },
             'axis.assignY': {
                 title: 'Assign active dim to Y axis',
                 when: [],
@@ -28977,6 +28992,7 @@
             // bracket binds so the mosaic's when-guarded command wins.
             { key: '[', command: 'stackMosaic.adjustN' },
             { key: ']', command: 'stackMosaic.adjustN' },
+            { key: 'U', shift: true, command: 'stackMosaic.toggleTrueScale' },
             { key: '[', command: 'detachedDim.adjustIndexA' },
             { key: ']', command: 'detachedDim.adjustIndexA' },
             { key: '[', command: 'ui.adjustBracket' },
@@ -29112,7 +29128,7 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active' },
+                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Shift+U true physical size' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -35511,8 +35527,12 @@
             const idx = stackMosaicHover >= 0 ? stackMosaicHover : stackMosaicFocus;
             const view = stackMosaicViews[idx];
             if (!view) return null;
+            return _stackMosaicCaseSpatialShape(view.colIdx);
+        }
+
+        function _stackMosaicCaseSpatialShape(colIdx) {
             if (Array.isArray(raggedSpatialShapes)) {
-                const row = raggedSpatialShapes[view.colIdx] || [];
+                const row = raggedSpatialShapes[colIdx] || [];
                 const channelDim = collectionSpatialNdim + 1;
                 const channelIdx = shape.length > channelDim
                     ? Math.max(0, Math.min(row.length - 1, indices[channelDim] || 0))
@@ -35776,8 +35796,8 @@
                     overlay_colors: _getVisibleOverlayColors() || null,
                     overlay_alphas: _getVisibleOverlayAlphas() || null,
                     overlay_outline: overlayOutlineOnly,
-                    canvas_w: Math.round((parseInt(v.canvas.style.width) || window.innerWidth) * (window.devicePixelRatio || 1)),
-                    canvas_h: Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * (window.devicePixelRatio || 1)),
+                    canvas_w: _smRequestSize(v).w,
+                    canvas_h: _smRequestSize(v).h,
                     projection_mode: projectionMode,
                     projection_dim: projectionMode > 0 ? projectionDim : -1,
                     perf: _PERF_ENABLED,
@@ -35786,6 +35806,17 @@
                 // they only warm the server render cache.
                 v._preloadSeq = seq;
             });
+        }
+
+        // Ask for frames as large as the pane's tile can show (or its zoomed
+        // canvas, if bigger), never its current size: a pane drawn small for
+        // a moment would otherwise get a low-resolution frame that stays
+        // blurry once the pane grows again.
+        function _smRequestSize(v) {
+            const dpr = window.devicePixelRatio || 1;
+            const w = Math.max(parseInt(v.canvas.style.width) || 0, v.tileW || window.innerWidth);
+            const h = Math.max(parseInt(v.canvas.style.height) || 0, v.tileH || window.innerHeight);
+            return { w: Math.round(w * dpr), h: Math.round(h * dpr) };
         }
 
         function smRender(v) {
@@ -35800,9 +35831,7 @@
             v._renderPatientIndex = _currentPatientIndex();
             const smIndices = [...indices];
             smIndices[_stackMosaicColDim()] = v.colIdx;
-            const _dpr = window.devicePixelRatio || 1;
-            const _cw = Math.round((parseInt(v.canvas.style.width) || window.innerWidth) * _dpr);
-            const _ch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _dpr);
+            const { w: _cw, h: _ch } = _smRequestSize(v);
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: smIndices, colormap: currentColormap(),
@@ -35844,6 +35873,7 @@
                     { imageData: new ImageData(rgba, width, height), width, height },
                     sid, dim_x, dim_y, indices,
                 );
+                v.nativePerPx = _stackMosaicNativePerPixel(v.colIdx, width, height);
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width; v.lastH = frame.height;
                 smScaleAllCanvases();
@@ -35885,6 +35915,7 @@
                 }
                 const frame = await fetchSliceFrame(params);
                 if (!stackMosaicActive || !stackMosaicViews.includes(v)) return;
+                v.nativePerPx = _stackMosaicNativePerPixel(v.colIdx, frame.width, frame.height);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -35932,6 +35963,21 @@
             return Number.isFinite(sx) && sx > 0 ? sx : (Number.isFinite(sy) && sy > 0 ? sy : 1);
         }
 
+        // The server shrinks frames larger than the requested canvas, so a
+        // frame's width is not the case's own pixel count. Layout that treats
+        // it as such (true-scale extents) shrinks a pane, which requests an
+        // even smaller frame next render — a feedback loop. Track how many
+        // native pixels each received pixel stands for instead.
+        function _stackMosaicNativePerPixel(colIdx, w, h) {
+            const sp = _stackMosaicCaseSpatialShape(colIdx);
+            if (!Array.isArray(sp) || !w || !h) return 1;
+            const nx = Number(sp[dim_x]), ny = Number(sp[dim_y]);
+            if (!(nx > 0 && ny > 0)) return 1;
+            // A rotated/transposed view swaps which native axis is horizontal.
+            const swapped = Math.abs(w / h - ny / nx) < Math.abs(w / h - nx / ny);
+            return Math.max(1, (swapped ? ny : nx) / w);
+        }
+
         function smScaleAllCanvases() {
             const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
@@ -35954,13 +36000,14 @@
             const availH = Math.max(50, window.innerHeight - uiReserveH);
             const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
             const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
-            const spacings = ready.map(v => _stackMosaicCaseSpacing(v.colIdx));
-            // absMaxScale is mm-of-real-world-size per screen pixel: computing it
-            // from each pane's physical extent (native pixels × its own spacing)
-            // instead of raw pixel count keeps every case at its true relative
-            // physical scale, so a case scanned with a different field of view
-            // fills less of the shared box instead of getting its own,
-            // differently sized one.
+            // spacings[i] scales one received pixel of pane i into the shared
+            // unit the layout fits to the cell. True scale: real-world size (native pixels × the case's own
+            // voxel spacing), so a case scanned with a larger field of view
+            // shows smaller anatomy in a same-size box. Fill (default): each
+            // pane's own fit-to-cell size, so every image fills its tile.
+            const spacings = stackMosaicTrueScale
+                ? ready.map(v => _stackMosaicCaseSpacing(v.colIdx) * (v.nativePerPx || 1))
+                : ready.map(v => Math.min(cellW / v.lastW, cellH / v.lastH));
             const absMaxScale = Math.min(...ready.map((v, i) =>
                 Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
             const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
@@ -35977,6 +36024,7 @@
                 refH = Math.max(refH, v.lastH * spacings[i] * cappedScale);
             });
             ready.forEach((v, i) => {
+                v.tileW = cellW; v.tileH = cellH;
                 const baseScale = cappedScale * spacings[i] / Math.max(0.0001, userZoom);
                 // Pass v.clip as the viewport so _scalePane sizes it (and clamps
                 // pan against that fresh size) in one pass. Sizing the clip
