@@ -3328,7 +3328,12 @@ async function waitForBackendViewerReady(
             Math.max(1, Math.min(1500, activeDeadline - Date.now()))
         );
         if (isOwnedPhasePayload(payload)) {
-            scriptLoaded = payload.phases.includes('script-loaded');
+            // Any later phase also proves the script ran: the page's own
+            // 'script-loaded' report is its first request and can be lost on a
+            // cold tunnel connection even though the viewer is working.
+            const scriptRanNow = required.some(p => payload.phases.includes(p));
+            const firstScriptSign = scriptRanNow && !scriptLoaded;
+            scriptLoaded = scriptRanNow;
             const arrivedNow = payload.phases.includes('navigation-arrived');
             if (!navigationArrived && arrivedNow) {
                 navigationArrived = true;
@@ -3337,6 +3342,9 @@ async function waitForBackendViewerReady(
                 // that point instead of expiring the navigation budget a few
                 // milliseconds later.
                 preScriptDeadline = Date.now() + preScriptBudgetMs;
+            }
+            if (firstScriptSign && !payload.phases.includes('script-loaded') && onScriptLoaded) {
+                try { onScriptLoaded(); } catch (_) {}
             }
             for (const phase of payload.phases) {
                 if (!logged.has(phase)) {
@@ -3357,6 +3365,9 @@ async function waitForBackendViewerReady(
                 let previous = -1;
                 for (const phase of required) {
                     const index = payload.phases.indexOf(phase);
+                    // A phase report that never arrived is not disorder: the
+                    // frame itself is the proof that the viewer works.
+                    if (index < 0) continue;
                     if (index <= previous) {
                         return new Error(
                             `Viewer phase journal reached first frame out of order: ${payload.phases.join(' -> ')}`

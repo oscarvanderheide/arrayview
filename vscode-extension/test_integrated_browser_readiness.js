@@ -495,6 +495,44 @@ Module._load = originalLoad;
             `a page arriving near the navigation deadline gets a fresh bounded script budget: ${nearDeadlineError?.message || ''}`
         );
 
+        // A lost 'script-loaded' report must not fail a viewer that went on
+        // to connect and draw, nor expire the shorter pre-script budget.
+        const lostScriptToken = 'lost-script-token';
+        journal = {
+            sid: 'sid-one',
+            request_id: 'request-lost-script-loaded',
+            window_id: 'window-one',
+            server_id: 'server-one',
+            token: lostScriptToken,
+            phases: ['navigation-arrived', 'ws-open'],
+            viewer_instance_ids: ['viewer-one'],
+        };
+        setTimeout(() => {
+            journal.phases = [
+                'navigation-arrived',
+                'ws-open',
+                'metadata-loaded',
+                'frame-rendered',
+            ];
+        }, 800);
+        const lostScriptError = await __test.waitForBackendViewerReady(
+            backendUrl,
+            'sid-one',
+            'request-lost-script-loaded',
+            'server-one',
+            'window-one',
+            lostScriptToken,
+            3000,
+            () => {},
+            null,
+            500
+        );
+        assert.strictEqual(
+            lostScriptError,
+            null,
+            `a rendered viewer whose script-loaded report was lost still succeeds: ${lostScriptError?.message || ''}`
+        );
+
         const delayedPreScriptStart = commandArgsHistory.length;
         const delayedPreScriptCommandStart = commandHistory.length;
         const delayedPreScriptPreparedStart = preparedBodies.length;
