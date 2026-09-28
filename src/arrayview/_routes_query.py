@@ -7,7 +7,7 @@ import numpy as np
 from fastapi import Depends, HTTPException, Request, Response
 
 from arrayview._analysis import _build_metadata
-from arrayview._render import render_rgb_rgba, render_rgba
+from arrayview._render import _overlay_base_axes, render_rgb_rgba, render_rgba
 from arrayview._session import SESSIONS, wait_for_session_ready
 import arrayview._session as _session_mod
 
@@ -367,6 +367,34 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                 status_code=500, content=str(e).encode(), media_type="text/plain"
             )
 
+    @app.get("/overlay_slices/{sid}")
+    def get_overlay_slices(
+        sid: str,
+        base_sid: str,
+        dim_x: int,
+        dim_y: int,
+        axis: int,
+        idx: str = "",
+        session=Depends(get_session_or_404),
+    ):
+        """Pixel count of each overlay label on every slice along ``axis``.
+
+        The overlay legend draws these as a strip so the user can see where a
+        mask lives without scrolling through the volume.
+        """
+        base = SESSIONS.get(str(base_sid))
+        if base is None:
+            raise HTTPException(status_code=404, detail="base session not found")
+        base_shape = tuple(int(n) for n in base.shape)
+        try:
+            idx_list = [int(v) for v in idx.split(",")] if idx else []
+        except ValueError:
+            raise HTTPException(status_code=400, detail="bad idx")
+        idx_list = (idx_list + [0] * len(base_shape))[: len(base_shape)]
+        if not (0 <= axis < len(base_shape)) or axis in (dim_x, dim_y):
+            raise HTTPException(status_code=400, detail="bad axis")
+        return _overlay_slice_counts(session, base_shape, dim_x, dim_y, axis, idx_list)
+
     @app.get("/info/{sid}")
     def get_info(
         sid: str,
@@ -500,3 +528,48 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                 "X-ArrayView-Height": str(img.height),
             },
         )
+
+
+def _overlay_slice_counts(ov_session, base_shape, dim_x, dim_y, axis, idx_list):
+    """Count overlay pixels per label on every slice along ``axis``."""
+    n = int(base_shape[axis])
+    empty = {"axis": axis, "n": n, "labels": [], "counts": {}}
+    base_axes = _overlay_base_axes(ov_session, base_shape, dim_x, dim_y)
+    if base_axes is None:
+        return empty
+    fixed = tuple(
+        None if a in (dim_x, dim_y, axis) else int(idx_list[a]) for a in base_axes
+    )
+    cache_key = (base_shape, dim_x, dim_y, axis, fixed)
+    cache = getattr(ov_session, "_overlay_slice_count_cache", None)
+    if cache is None:
+        cache = {}
+        ov_session._overlay_slice_count_cache = cache
+    if cache_key in cache:
+        return cache[cache_key]
+    index = tuple(slice(None) if f is None else f for f in fixed)
+    try:
+        vol = np.asarray(ov_session.data[index])
+    except Exception:
+        return empty
+    kept = [a for a in base_axes if a in (dim_x, dim_y, axis)]
+    if axis in kept:
+        vol = np.moveaxis(vol, kept.index(axis), 0).reshape(n, -1)
+    else:
+        # The overlay has no such axis: it looks the same on every slice.
+        vol = np.broadcast_to(vol.reshape(1, -1), (n, vol.size))
+    labels: list[int] = []
+    if np.issubdtype(vol.dtype, np.integer):
+        values = np.unique(vol)
+        values = values[values > 0]
+        if values.size <= 16:
+            labels = [int(v) for v in values]
+    counts = {"0": (np.isfinite(vol) & (vol > 0)).sum(axis=1).astype(int).tolist()}
+    if len(labels) > 1:
+        for label in labels:
+            counts[str(label)] = (vol == label).sum(axis=1).astype(int).tolist()
+    result = {"axis": axis, "n": n, "labels": labels, "counts": counts}
+    if len(cache) > 32:
+        cache.clear()
+    cache[cache_key] = result
+    return result

@@ -577,6 +577,32 @@ def render_projection_rgba(
 # ---------------------------------------------------------------------------
 
 
+def _overlay_base_axes(
+    ov_session, main_shape: tuple[int, ...], dim_x: int, dim_y: int
+) -> tuple[int, ...] | None:
+    """Return the base-array axes an overlay's axes line up with, or None."""
+    ov_shape = tuple(int(size) for size in ov_session.shape)
+    if len(ov_shape) > len(main_shape):
+        return None
+    map_key = (main_shape, dim_x, dim_y)
+    axis_maps = getattr(ov_session, "_overlay_axis_maps", None)
+    if axis_maps is None:
+        axis_maps = {}
+        ov_session._overlay_axis_maps = axis_maps
+    if map_key not in axis_maps:
+        axis_maps[map_key] = next(
+            (
+                base_axes
+                for base_axes in itertools.combinations(range(len(main_shape)), len(ov_shape))
+                if dim_x in base_axes
+                and dim_y in base_axes
+                and tuple(main_shape[axis] for axis in base_axes) == ov_shape
+            ),
+            None,
+        )
+    return axis_maps[map_key]
+
+
 def _extract_overlay_mask(
     overlay_sid: str | None,
     dim_x: int,
@@ -604,23 +630,7 @@ def _extract_overlay_mask(
     # Match its axes to equal-sized base axes, then index only those axes. This
     # broadcasts the overlay over every omitted axis without allocating a tiled
     # copy (important for masks next to multi-echo or multi-channel data).
-    map_key = (main_shape, dim_x, dim_y)
-    axis_maps = getattr(ov_session, "_overlay_axis_maps", None)
-    if axis_maps is None:
-        axis_maps = {}
-        ov_session._overlay_axis_maps = axis_maps
-    if map_key not in axis_maps:
-        axis_maps[map_key] = next(
-            (
-                base_axes
-                for base_axes in itertools.combinations(range(len(main_shape)), len(ov_shape))
-                if dim_x in base_axes
-                and dim_y in base_axes
-                and tuple(main_shape[axis] for axis in base_axes) == ov_shape
-            ),
-            None,
-        )
-    base_axes = axis_maps[map_key]
+    base_axes = _overlay_base_axes(ov_session, main_shape, dim_x, dim_y)
     if base_axes is None:
         return None
     ov_dim_x = base_axes.index(dim_x)
@@ -663,6 +673,7 @@ def _composite_overlay_mask(
     is_label: bool = False,
     override_color: np.ndarray | None = None,
     outline_only: bool = False,
+    hidden_labels: frozenset[int] = frozenset(),
 ) -> np.ndarray:
     """Alpha-composite an overlay on top of an RGBA frame.
 
@@ -689,6 +700,8 @@ def _composite_overlay_mask(
         # Binary mask with a palette override colour
         use_override = override_color is not None and len(nonzero_labels) == 1
         for lbl in nonzero_labels:
+            if int(lbl) in hidden_labels:
+                continue
             mask = labels == lbl
             if outline_only:
                 mask = _mask_outline(mask)
@@ -975,6 +988,7 @@ __all__ = [
     "_extract_overlay_mask",
     "_composite_overlay_mask",
     "_overlay_is_label_map",
+    "_overlay_base_axes",
     "LABEL_COLORS",
     # Mosaic
     "render_mosaic",

@@ -26,6 +26,22 @@ def _parse_hex_color(hex_str: str) -> np.ndarray | None:
         return None
 
 
+def _parse_overlay_color_token(token: str) -> tuple[np.ndarray | None, frozenset[int]]:
+    """Parse one ``overlay_colors`` entry: ``RRGGBB`` or ``RRGGBB~2.5``.
+
+    The optional ``~`` suffix lists label values of a label-map overlay that
+    the viewer has switched off.
+    """
+    color_part, _, hidden_part = token.partition("~")
+    hidden = set()
+    for value in hidden_part.split("."):
+        try:
+            hidden.add(int(value))
+        except ValueError:
+            pass
+    return _parse_hex_color(color_part), frozenset(hidden)
+
+
 def _composite_overlays(
     rgba: np.ndarray,
     overlay_sid_str: str | None,
@@ -50,7 +66,11 @@ def _composite_overlays(
         [a.strip() for a in overlay_alphas_str.split(",")] if overlay_alphas_str else []
     )
     for i, sid in enumerate(sids):
-        color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
+        color, hidden = (
+            _parse_overlay_color_token(colors_raw[i])
+            if i < len(colors_raw)
+            else (None, frozenset())
+        )
         alpha = overlay_alpha
         if i < len(alphas_raw):
             try:
@@ -73,6 +93,7 @@ def _composite_overlays(
             is_label=_overlay_is_label_map(sid, ov_raw),
             override_color=color,
             outline_only=overlay_outline,
+            hidden_labels=hidden,
         )
     return rgba
 
@@ -114,7 +135,11 @@ def _composite_mosaic_overlays(
     n_frames = int(base_shape[dim_z])
 
     for i, sid in enumerate(sids):
-        color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
+        color, hidden = (
+            _parse_overlay_color_token(colors_raw[i])
+            if i < len(colors_raw)
+            else (None, frozenset())
+        )
         try:
             alpha = float(alphas_raw[i]) if i < len(alphas_raw) else overlay_alpha
         except ValueError:
@@ -146,5 +171,6 @@ def _composite_mosaic_overlays(
             is_label=_overlay_is_label_map(sid, grid),
             override_color=color,
             outline_only=overlay_outline,
+            hidden_labels=hidden,
         )
     return rgba

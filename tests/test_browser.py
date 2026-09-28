@@ -423,28 +423,29 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert "focused" in palette.locator(".overlay-palette-row").nth(1).get_attribute("class")
     assert "dimmed" in palette.locator(".overlay-palette-row").nth(0).get_attribute("class")
     assert page.evaluate(
-        "() => getComputedStyle(document.querySelector('.overlay-palette-row.focused')).outlineStyle"
-    ) == "solid"
-    assert page.evaluate(
-        "() => getComputedStyle(document.querySelector('.overlay-palette-row.focused .overlay-palette-name')).color"
-    ) != page.evaluate(
-        "() => getComputedStyle(document.querySelector('.overlay-palette-row.dimmed .overlay-palette-name')).color"
-    )
+        "() => getComputedStyle(document.querySelector('.overlay-palette-row.dimmed')).opacity"
+    ) != "1"
     page.mouse.move(5, 5)
     assert page.evaluate("() => _overlayFocusIdx") is None
-    mode_group = palette.locator(".overlay-palette-mode-group")
-    mode_fill = mode_group.locator(".overlay-palette-mode").nth(0)
-    mode_outline = mode_group.locator(".overlay-palette-mode").nth(1)
-    assert mode_fill.inner_text() == "filled"
-    assert mode_outline.inner_text() == "outline"
-    assert "active" in mode_fill.get_attribute("class")
-    mode_outline.click()
+    # Each mask row draws a strip of where it sits along the slice axis.
+    page.wait_for_function(
+        "() => document.querySelector('#overlay-palette .overlay-palette-strip-fill')?.getAttribute('d')"
+    )
+    # Minimizing shrinks the list to a single button; clicking it restores the list.
+    palette.locator(".overlay-palette-minimize").click()
+    assert "collapsed" in palette.get_attribute("class")
+    assert palette.locator(".overlay-palette-row").count() == 0
+    assert palette.bounding_box()["width"] < 40
+    palette.locator(".overlay-palette-restore").click()
+    assert palette.locator(".overlay-palette-row").count() == 2
+    style_btn = palette.locator(".overlay-palette-style")
+    style_btn.click()
     assert page.evaluate("() => overlayOutlineOnly") is True
-    assert "active" in mode_outline.get_attribute("class")
+    assert "outline" in palette.get_attribute("class")
     assert page.evaluate(
         "() => { const p = new URLSearchParams(); _applyOverlayRenderParams(p); return p.get('overlay_outline'); }"
     ) == "1"
-    mode_fill.click()
+    palette.locator(".overlay-palette-style").click()
     assert page.evaluate("() => overlayOutlineOnly") is False
     all_btn = palette.locator(".overlay-palette-all")
     assert "active" in all_btn.get_attribute("class")
@@ -524,14 +525,11 @@ def test_overlay_palette_lists_each_label_in_single_mask(
     palette = page.locator("#overlay-palette")
     palette.wait_for(state="visible", timeout=5_000)
 
-    assert palette.locator(".overlay-palette-row").count() == 4
+    assert palette.locator(".overlay-palette-row").count() == 5
     assert palette.locator(".overlay-palette-name").all_text_contents() == [
-        "labels · label 1",
-        "labels · label 2",
-        "labels · label 3",
-        "labels · label 4",
+        "labels", "1", "2", "3", "4",
     ]
-    assert palette.locator(".overlay-palette-swatch").evaluate_all(
+    assert palette.locator(".overlay-palette-row.child .overlay-palette-swatch").evaluate_all(
         "els => els.map(el => getComputedStyle(el).backgroundColor)"
     ) == [
         "rgb(255, 80, 80)",
@@ -539,10 +537,17 @@ def test_overlay_palette_lists_each_label_in_single_mask(
         "rgb(80, 210, 80)",
         "rgb(255, 175, 50)",
     ]
+    # Clicking a label row hides just that label; hovering one shows only it.
+    palette.locator(".overlay-palette-row").nth(2).click()
+    assert page.evaluate("() => _getVisibleOverlayColors()").endswith("~2")
+    assert "off" in palette.locator(".overlay-palette-row").nth(2).get_attribute("class")
+    palette.locator(".overlay-palette-row").nth(3).hover()
+    assert page.evaluate("() => _getVisibleOverlayColors()").endswith("~1.2.4")
+    page.mouse.move(5, 5)
 
     page.keyboard.press("v")
     page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-    assert palette.locator(".overlay-palette-row").count() == 4
+    assert palette.locator(".overlay-palette-row").count() == 5
 
 
 def _enter_compare(page, partner_sid, timeout=5000):

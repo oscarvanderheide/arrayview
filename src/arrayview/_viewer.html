@@ -1396,144 +1396,145 @@
             right: 10px;
             z-index: 6;
             display: none;
-            max-width: min(240px, calc(100% - 20px));
+            box-sizing: border-box;
+            width: 236px;
+            max-width: calc(100% - 20px);
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
             color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-size: 11px;
-            padding: 7px;
-            opacity: 0.86;
+            font-variant-numeric: tabular-nums;
+            padding: 3px 4px 5px;
+            opacity: 0.9;
             backdrop-filter: var(--blur);
             -webkit-backdrop-filter: var(--blur);
+            transition: opacity 160ms ease;
         }
+        #overlay-palette:hover { opacity: 1; }
         #overlay-palette.visible { display: block; }
-        .overlay-palette-header {
-            display: grid;
-            grid-template-columns: 12px minmax(0, 1fr) 16px;
-            align-items: center;
-            gap: 7px;
-            min-height: 22px;
-            padding: 2px 3px;
+        #overlay-palette button {
+            display: inline-grid;
+            place-items: center;
+            height: 20px;
+            min-width: 20px;
+            padding: 0 3px;
+            border: 0;
+            border-radius: 5px;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            cursor: pointer;
         }
-        .overlay-palette-drag-handle {
-            width: 10px;
-            height: 10px;
-            margin: 0;
-            border-radius: 50%;
+        #overlay-palette button:hover { color: var(--text); background: var(--surface-2); }
+        #overlay-palette button:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+        #overlay-palette button svg { width: 12px; height: 12px; display: block; }
+        /* Hover hints drop below the button, right-aligned so they never run
+           off the edge of the screen (the list usually sits top-right). */
+        #overlay-palette button[data-tip] { position: relative; }
+        #overlay-palette button[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            top: calc(100% + 6px); right: 0;
+            padding: 4px 8px;
+            border-radius: 5px;
             border: 1px solid var(--border);
-            background: var(--muted);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 10px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 120ms ease;
+            z-index: 2;
+        }
+        #overlay-palette button[data-tip]:hover::after { opacity: 1; transition-delay: 350ms; }
+        /* Minimized: a dot like the help button, sitting in the list's corner. */
+        #overlay-palette.collapsed {
+            width: auto;
+            padding: 0;
+            border-radius: 50%;
+        }
+        #overlay-palette .overlay-palette-restore {
+            width: 26px; height: 26px; min-width: 0;
+            padding: 0;
+            border-radius: 50%;
+            color: color-mix(in srgb, var(--text) 70%, var(--muted));
+        }
+        #overlay-palette .overlay-palette-restore svg { width: 14px; height: 14px; }
+        #overlay-palette .overlay-palette-restore:hover { color: var(--text); background: transparent; }
+        .overlay-palette-header {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+            align-items: center;
+            gap: 1px;
+            height: 26px;
+            padding: 0 2px 0 6px;
+            margin-bottom: 3px;
             cursor: grab;
             touch-action: none;
             user-select: none;
-            opacity: 0.7;
         }
-        .overlay-palette-drag-handle:hover { opacity: 1; background: var(--text); }
-        .overlay-palette-drag-handle.dragging { cursor: grabbing; }
-        .overlay-palette-mode {
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            background: transparent;
-            color: var(--muted);
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 10px;
-            line-height: 16px;
-            padding: 0 6px;
-            justify-self: start;
-        }
-        .overlay-palette-mode:hover,
-        .overlay-palette-mode.active {
-            color: var(--active-dim);
-            background: var(--surface-2);
-            border-color: var(--active-dim);
-        }
-        .overlay-palette-mode-group {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-        }
-        .overlay-palette-mode-group .overlay-palette-mode {
-            border: 0;
-            border-radius: 0;
-            justify-self: stretch;
-            padding: 0 4px;
-        }
-        .overlay-palette-mode-group .overlay-palette-mode + .overlay-palette-mode {
-            border-left: 1px solid var(--border);
-        }
+        .overlay-palette-header.dragging { cursor: grabbing; }
+        .overlay-palette-title { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
+        #overlay-palette .overlay-palette-alpha { font-size: 10px; min-width: 4.5ch; cursor: ns-resize; }
+        #overlay-palette .overlay-palette-all.active { color: var(--text); }
         .overlay-palette-row {
             display: grid;
-            grid-template-columns: 12px minmax(0, 1fr) 16px;
+            grid-template-columns: 8px minmax(0, 1fr) 56px;
             align-items: center;
-            gap: 7px;
-            min-height: 22px;
-            padding: 2px 3px;
-            border-radius: var(--radius);
+            gap: 8px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 6px;
             cursor: pointer;
+            transition: opacity 120ms ease;
         }
-        .overlay-palette-row:hover { background: var(--surface-2); }
-        .overlay-palette-row.focused {
-            background: var(--surface-2);
-            color: var(--active-dim);
-            outline: 1px solid var(--active-dim);
-            outline-offset: -1px;
-        }
-        .overlay-palette-row.focused .overlay-palette-name {
-            color: var(--active-dim);
-        }
-        .overlay-palette-row.dimmed {
-            opacity: 0.38;
-        }
-        .overlay-palette-row.off { color: var(--muted); opacity: 0.55; }
-        .overlay-palette-row.focused .overlay-palette-swatch {
-            border-color: var(--active-dim);
-            box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--active-dim);
-        }
+        .overlay-palette-row:hover,
+        .overlay-palette-row.focused { background: var(--surface-2); }
+        .overlay-palette-row.child { padding-left: 18px; }
+        .overlay-palette-row.group { margin-top: 2px; }
+        .overlay-palette-row.child + .overlay-palette-row:not(.child) { margin-top: 2px; }
+        .overlay-palette-row.dimmed { opacity: 0.4; }
         .overlay-palette-swatch {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            border: 1px solid var(--border);
+            background: var(--ovp-c);
+        }
+        .overlay-palette-swatch.none { visibility: hidden; }
+        #overlay-palette.outline .overlay-palette-swatch {
+            background: transparent;
+            box-shadow: inset 0 0 0 1.5px var(--ovp-c);
         }
         .overlay-palette-name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .overlay-palette-glyph {
-            color: var(--muted);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 14px;
-            height: 14px;
-        }
-        .overlay-palette-glyph svg {
-            width: 13px;
-            height: 13px;
-            display: block;
-        }
-        .overlay-palette-row:not(.off) .overlay-palette-glyph { color: var(--active-dim); }
-        .overlay-palette-all {
-            color: var(--muted);
+        .overlay-palette-row.child .overlay-palette-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
+        .overlay-palette-strip {
+            width: 56px;
+            height: 10px;
+            overflow: visible;
             cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 14px;
-            height: 14px;
+            background: linear-gradient(var(--border), var(--border)) bottom / 100% 1px no-repeat;
         }
-        .overlay-palette-all svg {
-            width: 13px;
-            height: 13px;
-            display: block;
-        }
-        .overlay-palette-all.active { color: var(--active-dim); }
-        .overlay-palette-all:hover { color: var(--text); }
+        .overlay-palette-strip.empty { visibility: hidden; }
+        .overlay-palette-strip-fill { fill: var(--ovp-c); opacity: 0.6; transition: opacity 120ms ease; }
+        .overlay-palette-row:hover .overlay-palette-strip-fill,
+        .overlay-palette-strip.scrubbing .overlay-palette-strip-fill { opacity: 0.9; }
+        .overlay-palette-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        /* Shown, but nothing of it on this slice. */
+        .overlay-palette-row.absent .overlay-palette-name { color: var(--muted); }
+        .overlay-palette-row.absent .overlay-palette-swatch { opacity: 0.45; }
+        /* Switched off. */
+        .overlay-palette-row.off .overlay-palette-name { color: var(--muted); }
+        #overlay-palette .overlay-palette-row.off .overlay-palette-swatch { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+        .overlay-palette-row.off .overlay-palette-strip-fill { fill: var(--muted); opacity: 0.5; }
+        .overlay-palette-row.off .overlay-palette-tick { stroke: var(--muted); }
         .dim-boundary-sep {
             color: var(--active-dim);
             opacity: 0.78;
@@ -6013,6 +6014,12 @@
         // drives Shift+O cycling; the island toggles _overlayVisible[i] directly.
         let _overlayVisible = _overlaySids.map(() => true);
         let _overlayLabelValues = _overlaySids.map(() => []);
+        let _overlayFocusLabel = null;
+        let _overlayHiddenLabels = _overlaySids.map(() => new Set());
+        let _overlaySliceCounts = _overlaySids.map(() => null);  // {key, data}
+        let _overlaySliceCountsPending = _overlaySids.map(() => null);
+        let _overlayPaletteRows = [];
+        const _OVP_STRIP_W = 56, _OVP_STRIP_H = 10;
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
         const _overlayNamesArr = _overlayNamesParam ? _overlayNamesParam.split(',').map(s => s.trim()).filter(Boolean) : [];
         let _overlayLabels = _overlaySids.map((_, i) => _overlayNamesArr[i] || `overlay ${i + 1}`);
@@ -6030,7 +6037,6 @@
             }));
             _overlayLabelValues = results;
         }
-        const _LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path><path d="m22 12.5-8.58 3.91a2 2 0 0 1-1.66 0L3 12.5"></path><path d="m22 17.5-8.58 3.91a2 2 0 0 1-1.66 0L3 17.5"></path></svg>';
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
@@ -19980,10 +19986,9 @@
             const density = document.getElementById('island-vf-density-slider');
             const length = document.getElementById('island-vf-length-slider');
             _wireIslandSlider(alpha, (v) => {
-                overlayAlpha = Math.max(0.05, Math.min(0.95, Number(v) / 100));
+                _setOverlayAlpha(Number(v) / 100, { island: false });
                 const lbl = document.getElementById('island-alpha-value');
                 if (lbl) lbl.textContent = `${Math.round(overlayAlpha * 100)}%`;
-                updateView();
             });
             _wireIslandSlider(density, (v) => {
                 vfDensityLevel = Math.max(-5, Math.min(5, parseInt(v, 10)));
@@ -20081,6 +20086,29 @@
         }
 
         let _overlayPaletteHidden = false;
+        let _overlayPaletteCollapsed = false;
+        const _OVERLAY_LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="m2.5 12.5 9.5 5 9.5-5"/><path d="m2.5 17 9.5 5 9.5-5" opacity="0.55"/></svg>';
+        const _OVERLAY_MINIMIZE_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+        function _overlayPaletteSetCollapsed(collapsed, e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            const el = document.getElementById('overlay-palette');
+            if (el && _overlayPaletteDragPos) {
+                // Keep the right edge where it was, so the dot sits in the
+                // panel's corner and the panel reopens in the same place.
+                const before = el.offsetWidth;
+                _overlayPaletteCollapsed = !!collapsed;
+                _renderOverlayPalette();
+                _overlayPaletteDragPos.left += before - el.offsetWidth;
+            } else {
+                _overlayPaletteCollapsed = !!collapsed;
+            }
+            _overlayFocusIdx = null;
+            _overlayFocusLabel = null;
+            _reconcileOverlayPalette();
+            updateView();
+        }
+        window._overlayPaletteSetCollapsed = _overlayPaletteSetCollapsed;
         let _overlayPaletteDragPos = null;
 
         function _overlayActuallyVisible(idx) {
@@ -20091,47 +20119,244 @@
             return true;
         }
 
+        // Overlay legend: one row per mask (a group row plus one row per label
+        // for label maps). Each row carries a strip showing how much of it
+        // sits on every slice along the scroll axis, a tick for the current
+        // slice, and the pixel count on this slice.
+
+        function _overlaySliceKey() {
+            if (!Array.isArray(shape) || shape.length < 3) return null;
+            const axis = current_slice_dim;
+            if (axis == null || axis === dim_x || axis === dim_y || !(axis < shape.length)) return null;
+            const fixed = indices.map((v, d) => (d === dim_x || d === dim_y || d === axis) ? '*' : v);
+            return `${dim_x}|${dim_y}|${axis}|${fixed.join(',')}`;
+        }
+
+        function _ensureOverlaySliceCounts() {
+            const key = _overlaySliceKey();
+            if (!key) return;
+            _overlaySids.forEach((ovSid, i) => {
+                if (_overlaySliceCounts[i]?.key === key || _overlaySliceCountsPending[i] === key) return;
+                _overlaySliceCountsPending[i] = key;
+                const q = `base_sid=${sid}&dim_x=${dim_x}&dim_y=${dim_y}&axis=${current_slice_dim}&idx=${indices.join(',')}`;
+                proxyFetch(`/overlay_slices/${ovSid}?${q}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
+                    .then(data => {
+                        if (_overlaySids[i] !== ovSid || _overlaySliceCountsPending[i] !== key) return;
+                        _overlaySliceCountsPending[i] = null;
+                        _overlaySliceCounts[i] = { key, data };
+                        if (key === _overlaySliceKey()) _renderOverlayPalette();
+                    });
+            });
+        }
+
+        function _overlayCountsFor(i, label) {
+            const entry = _overlaySliceCounts[i];
+            if (!entry || entry.key !== _overlaySliceKey() || !entry.data) return null;
+            return entry.data.counts?.[String(label ?? 0)] || null;
+        }
+
+        function _overlayStripPath(counts) {
+            const n = counts.length;
+            let max = 0;
+            for (const c of counts) if (c > max) max = c;
+            if (!max) return '';
+            const bins = Math.min(n, _OVP_STRIP_W);
+            const w = _OVP_STRIP_W / bins;
+            let d = '';
+            for (let b = 0; b < bins; b++) {
+                const s0 = Math.floor(b * n / bins), s1 = Math.max(s0 + 1, Math.floor((b + 1) * n / bins));
+                let m = 0;
+                for (let s = s0; s < s1; s++) if (counts[s] > m) m = counts[s];
+                if (!m) continue;
+                const h = Math.max(1.5, _OVP_STRIP_H * Math.sqrt(m / max));
+                d += `M${(b * w).toFixed(2)} ${_OVP_STRIP_H}h${w.toFixed(2)}v${(-h).toFixed(2)}h${(-w).toFixed(2)}z`;
+            }
+            return d;
+        }
+
+        function _overlaySpanText(counts) {
+            let first = -1, last = -1;
+            counts.forEach((c, s) => { if (c) { if (first < 0) first = s; last = s; } });
+            if (first < 0) return 'not in this volume';
+            return first === last ? `only on slice ${first}` : `slices ${first}–${last}`;
+        }
+
+        function _overlayLabelShown(i, label) {
+            if (!_overlayActuallyVisible(i)) return false;
+            return label === null || !_overlayHiddenLabels[i]?.has(label);
+        }
+
         function _renderOverlayPalette() {
             const el = document.getElementById('overlay-palette');
             if (!el) return;
+            _overlayPaletteRows = [];
             if (!_overlaySids.length) {
                 el.innerHTML = '';
                 return;
             }
+            el.classList.toggle('collapsed', _overlayPaletteCollapsed);
+            if (_overlayPaletteCollapsed) {
+                el.innerHTML = `<button class="overlay-palette-restore" type="button" onclick="_overlayPaletteSetCollapsed(false, event)" data-tip="Show overlay list" aria-label="Show overlay list">${_OVERLAY_LAYERS_ICON}</button>`;
+                return;
+            }
+            _ensureOverlaySliceCounts();
             const anyVisible = _visibleOverlayIndices().length > 0;
-            let html = '<div class="overlay-palette-header">';
-            html += '<div class="overlay-palette-drag-handle" role="button" aria-label="Drag overlay list" title="Drag overlay list"></div>';
-            html += '<div class="overlay-palette-mode-group" role="group" aria-label="Overlay drawing mode">';
-            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? '' : ' active'}" type="button" onclick="_overlayPaletteSetOutline(false, event)" title="Show filled masks">filled</button>`;
-            html += `<button class="overlay-palette-mode${overlayOutlineOnly ? ' active' : ''}" type="button" onclick="_overlayPaletteSetOutline(true, event)" title="Show contour outlines only">outline</button>`;
+            const pct = Math.round(overlayAlpha * 100);
+            const styleIcon = overlayOutlineOnly
+                ? '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
+                : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="currentColor"/></svg>';
+            let html = '<div class="overlay-palette-header overlay-palette-drag-handle">';
+            html += '<span class="overlay-palette-title">overlays</span>';
+            html += `<button class="overlay-palette-style" type="button" onclick="_overlayPaletteToggleOutline(event)" data-tip="${overlayOutlineOnly ? 'Showing outlines · click for filled masks' : 'Showing filled masks · click for outlines'}" aria-label="Filled or outline">${styleIcon}</button>`;
+            html += `<button class="overlay-palette-alpha" type="button" data-tip="Opacity · scroll here, or press [ and ]" aria-label="Overlay opacity">${pct}%</button>`;
+            html += `<button class="overlay-palette-all${anyVisible ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleAll(event)" data-tip="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}" aria-label="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}">${anyVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</button>`;
+            html += `<button class="overlay-palette-minimize" type="button" onclick="_overlayPaletteSetCollapsed(true, event)" data-tip="Minimize" aria-label="Minimize overlay list">${_OVERLAY_MINIMIZE_ICON}</button>`;
             html += '</div>';
-            html += `<span class="overlay-palette-all${anyVisible ? ' active' : ''}" role="button" onclick="_overlayPaletteToggleAll(event)" title="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}">${anyVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
-            html += '</div>';
+
             const focusActive = _overlayFocusIdx !== null && _overlayActuallyVisible(_overlayFocusIdx);
+            const rows = [];
             for (let i = 0; i < _overlaySids.length; i++) {
-                const visible = _overlayActuallyVisible(i);
-                const focused = focusActive && i === _overlayFocusIdx;
-                const dimmed = focusActive && visible && !focused;
                 const baseName = _overlayLabels[i] || `overlay ${i + 1}`;
                 const labels = _overlayLabelValues[i] || [];
-                const rows = labels.length > 1 ? labels : [null];
-                for (const label of rows) {
-                    const rawName = label === null ? baseName : `${baseName} · label ${label}`;
-                    const name = _roiHtmlEscape(rawName);
-                    let color = `#${_overlayColors[i]}`;
-                    if (label !== null && LABEL_COLORS.length) {
+                if (labels.length > 1) {
+                    rows.push({ i, label: null, group: true, name: baseName, color: null });
+                    for (const label of labels) {
                         const rgb = LABEL_COLORS[(label - 1) % LABEL_COLORS.length];
-                        color = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+                        rows.push({ i, label, group: false, child: true, name: String(label), title: `${baseName} · label ${label}`, color: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})` });
                     }
-                    html += `<div class="overlay-palette-row${visible ? '' : ' off'}${focused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}" onpointerenter="_overlayPaletteFocus(${i})" onclick="_overlayPaletteToggle(${i})" title="Toggle ${_roiHtmlEscape(baseName)}">`;
-                    html += `<span class="overlay-palette-swatch" style="background:${color}"></span>`;
-                    html += `<span class="overlay-palette-name">${name}</span>`;
-                    html += `<span class="overlay-palette-glyph">${_LAYERS_ICON}</span>`;
-                    html += `</div>`;
+                } else {
+                    rows.push({ i, label: null, group: false, name: baseName, color: `#${_overlayColors[i]}` });
                 }
             }
+            html += '<div class="overlay-palette-rows">';
+            rows.forEach((row, r) => {
+                const shown = _overlayLabelShown(row.i, row.label);
+                const focused = focusActive && row.i === _overlayFocusIdx
+                    && (_overlayFocusLabel === null || _overlayFocusLabel === row.label || row.group);
+                const dimmed = focusActive && shown && !focused;
+                const cls = ['overlay-palette-row'];
+                if (row.group) cls.push('group');
+                if (row.child) cls.push('child');
+                if (!shown) cls.push('off');
+                if (focused) cls.push('focused');
+                if (dimmed) cls.push('dimmed');
+                const labelArg = row.label === null ? 'null' : row.label;
+                const tip = row.title || row.name;
+                html += `<div class="${cls.join(' ')}" data-row="${r}" onpointerenter="_overlayPaletteFocus(${row.i}, ${labelArg})" onclick="_overlayPaletteToggle(${row.i}, ${labelArg})" title="${_roiHtmlEscape(shown ? `Hide ${tip}` : `Show ${tip}`)}">`;
+                html += row.color
+                    ? `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`
+                    : '<span class="overlay-palette-swatch none"></span>';
+                html += `<span class="overlay-palette-name">${_roiHtmlEscape(row.name)}</span>`;
+                html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}" onpointerdown="_overlayPaletteStripDown(event, ${r})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
+                html += '</div>';
+            });
+            html += '</div>';
             el.innerHTML = html;
+            el.classList.toggle('outline', overlayOutlineOnly);
+            const rowEls = el.querySelectorAll('.overlay-palette-row');
+            _overlayPaletteRows = rows.map((row, r) => ({ ...row, el: rowEls[r] }));
+            _overlayPaletteRows.forEach(row => {
+                const counts = _overlayCountsFor(row.i, row.label);
+                row.counts = counts;
+                const strip = row.el.querySelector('.overlay-palette-strip');
+                strip.classList.toggle('empty', !counts);
+                if (counts) {
+                    strip.querySelector('path').setAttribute('d', _overlayStripPath(counts));
+                    strip.insertAdjacentHTML('afterbegin', `<title>${_overlaySpanText(counts)} — click or drag to go there</title>`);
+                }
+            });
+            const alphaBtn = el.querySelector('.overlay-palette-alpha');
+            alphaBtn.addEventListener('wheel', _overlayPaletteAlphaWheel, { passive: false });
+            _syncOverlayPaletteSlice();
         }
+
+        // Cheap per-slice refresh: move the ticks and fade rows absent from this slice.
+        function _syncOverlayPaletteSlice() {
+            const el = document.getElementById('overlay-palette');
+            if (!el || !el.classList.contains('visible') || !_overlayPaletteRows.length) return;
+            const key = _overlaySliceKey();
+            if (_overlayPaletteRows.some(row => row.counts && _overlaySliceCounts[row.i]?.key !== key)
+                || (key && _overlaySliceCounts.some(entry => entry?.key !== key))) {
+                _ensureOverlaySliceCounts();
+            }
+            const s = key ? indices[current_slice_dim] : null;
+            for (const row of _overlayPaletteRows) {
+                const counts = row.counts;
+                const tick = row.el.querySelector('.overlay-palette-tick');
+                if (!counts || s == null) {
+                    row.el.classList.remove('absent');
+                    continue;
+                }
+                const x = ((s + 0.5) / counts.length) * _OVP_STRIP_W;
+                tick.setAttribute('x1', x.toFixed(2));
+                tick.setAttribute('x2', x.toFixed(2));
+                row.el.classList.toggle('absent', !counts[s]);
+            }
+        }
+
+        function _overlayPaletteGoToSlice(row, clientX, rect) {
+            const counts = row.counts;
+            if (!counts || !counts.length) return;
+            const n = counts.length;
+            let s = Math.max(0, Math.min(n - 1, Math.floor((clientX - rect.left) / Math.max(1, rect.width) * n)));
+            if (!counts[s]) {
+                // A strip pixel can cover several slices; snap to the nearest
+                // one that actually has the mask on it.
+                const reach = Math.ceil(n / _OVP_STRIP_W);
+                for (let k = 1; k <= reach; k++) {
+                    if (counts[s - k]) { s -= k; break; }
+                    if (counts[s + k]) { s += k; break; }
+                }
+            }
+            if (indices[current_slice_dim] === s) return;
+            indices[current_slice_dim] = s;
+            updateView();
+            saveState();
+        }
+
+        function _overlayPaletteStripDown(e, r) {
+            const row = _overlayPaletteRows[r];
+            if (!row || !row.counts) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const strip = e.currentTarget;
+            const rect = strip.getBoundingClientRect();
+            strip.setPointerCapture(e.pointerId);
+            strip.classList.add('scrubbing');
+            _overlayPaletteGoToSlice(row, e.clientX, rect);
+            const move = ev => _overlayPaletteGoToSlice(row, ev.clientX, rect);
+            const up = () => {
+                strip.classList.remove('scrubbing');
+                strip.removeEventListener('pointermove', move);
+                strip.removeEventListener('pointerup', up);
+                strip.removeEventListener('pointercancel', up);
+            };
+            strip.addEventListener('pointermove', move);
+            strip.addEventListener('pointerup', up);
+            strip.addEventListener('pointercancel', up);
+        }
+        window._overlayPaletteStripDown = _overlayPaletteStripDown;
+
+        function _overlayPaletteAlphaWheel(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const step = e.deltaY < 0 ? 0.05 : -0.05;
+            _setOverlayAlpha(overlayAlpha + step);
+        }
+
+        function _setOverlayAlpha(value, { island = true } = {}) {
+            overlayAlpha = Math.max(0.05, Math.min(0.95, Math.round(value * 100) / 100));
+            const pct = Math.round(overlayAlpha * 100);
+            const el = document.getElementById('overlay-palette');
+            const btn = el?.querySelector('.overlay-palette-alpha');
+            if (btn) btn.textContent = `${pct}%`;
+            updateView();
+            if (island && typeof renderIsland === 'function') renderIsland();
+            saveState();
+        }
+        window._setOverlayAlpha = _setOverlayAlpha;
 
         function _overlayPaletteAnchor() {
             if (compareQmriActive || qmriActive || compareMvActive) return document.getElementById('qmri-view-wrap');
@@ -20178,7 +20403,7 @@
 
             el.addEventListener('pointerdown', e => {
                 const handle = e.target.closest('.overlay-palette-drag-handle');
-                if (!handle) return;
+                if (!handle || e.target.closest('button')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 const hostRect = host.getBoundingClientRect();
@@ -20229,18 +20454,37 @@
             el.setAttribute('aria-hidden', show ? 'false' : 'true');
         }
 
-        function _overlayPaletteToggle(idx) {
-            _islandToggleOverlay(idx);
+        function _overlayPaletteToggle(idx, label = null) {
             _overlayPaletteHidden = false;
-            if (!_overlayActuallyVisible(idx)) _overlayFocusIdx = null;
+            if (label !== null && _overlayHiddenLabels[idx]) {
+                const hidden = _overlayHiddenLabels[idx];
+                if (!_overlayActuallyVisible(idx)) {
+                    // Showing one label of a switched-off map shows just that label.
+                    const labels = _overlayLabelValues[idx] || [];
+                    _overlayHiddenLabels[idx] = new Set(labels.filter(v => v !== label));
+                    _islandToggleOverlay(idx);
+                } else if (hidden.has(label)) {
+                    hidden.delete(label);
+                } else {
+                    hidden.add(label);
+                    if (_overlayFocusLabel === label) _overlayFocusLabel = null;
+                }
+                _renderOverlayPalette();
+                updateView();
+                return;
+            }
+            _islandToggleOverlay(idx);
+            if (!_overlayActuallyVisible(idx)) { _overlayFocusIdx = null; _overlayFocusLabel = null; }
             _reconcileOverlayPalette();
         }
         window._overlayPaletteToggle = _overlayPaletteToggle;
 
-        function _overlayPaletteFocus(idx) {
-            const next = Number.isInteger(idx) && _overlayActuallyVisible(idx) ? idx : null;
-            if (_overlayFocusIdx === next) return;
+        function _overlayPaletteFocus(idx, label = null) {
+            const next = Number.isInteger(idx) && _overlayLabelShown(idx, label) ? idx : null;
+            const nextLabel = next === null ? null : label;
+            if (_overlayFocusIdx === next && _overlayFocusLabel === nextLabel) return;
             _overlayFocusIdx = next;
+            _overlayFocusLabel = nextLabel;
             _renderOverlayPalette();
             updateView();
         }
@@ -20255,6 +20499,7 @@
             _overlayVisible = _overlaySids.map(() => !anyVisible);
             _overlayVisibility = !anyVisible ? 'all' : 'none';
             _overlayFocusIdx = null;
+            _overlayFocusLabel = null;
             _overlayPaletteHidden = false;
             _reconcileOverlayPalette();
             if (typeof renderIsland === 'function') renderIsland();
@@ -20318,6 +20563,11 @@
             _overlayVisible.splice(idx, 1);
             _overlayLabelValues.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
+            _overlayHiddenLabels.splice(idx, 1);
+            _overlaySliceCounts.splice(idx, 1);
+            _overlaySliceCountsPending.splice(idx, 1);
+            _overlayFocusIdx = null;
+            _overlayFocusLabel = null;
             if (!_overlaySids.length) _overlayPaletteHidden = false;
             renderIsland();
             _reconcileOverlayPalette();
@@ -20752,6 +21002,7 @@
 
         function renderInfo() {
             _ensureQmriActiveDimVisible();
+            _syncOverlayPaletteSlice();
             // In stack mosaic, the spatial sizes shown come from the hovered
             // (or focused) pane's own array shape so ragged stacks read the
             // right extents; the tiled collection dim shows the window range.
@@ -22154,7 +22405,16 @@
         }
 
         function _getVisibleOverlayColors() {
-            return _visibleOverlayIndices().map(i => _overlayColors[i]).join(',');
+            // A "~2.3" suffix tells the server which labels of a label map to skip:
+            // the ones switched off in the legend, or all but the hovered one.
+            return _visibleOverlayIndices().map(i => {
+                const labels = _overlayLabelValues[i] || [];
+                let hidden = [..._overlayHiddenLabels[i] || []];
+                if (_overlayFocusIdx === i && _overlayFocusLabel !== null) {
+                    hidden = labels.filter(v => v !== _overlayFocusLabel);
+                }
+                return hidden.length ? `${_overlayColors[i]}~${hidden.join('.')}` : _overlayColors[i];
+            }).join(',');
         }
 
         function _getVisibleOverlayAlphas() {
@@ -27301,10 +27561,8 @@
                         saveState();
                     } else if (overlay_sid && !registrationMode) {
                         // Overlay transparency mode
-                        overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
-                        updateView();
+                        _setOverlayAlpha(overlayAlpha + step);
                         showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
-                        if (typeof renderIsland === 'function') renderIsland();
                     } else if (compareActive && registrationMode) {
                         registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
                         { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }

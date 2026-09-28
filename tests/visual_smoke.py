@@ -1099,9 +1099,9 @@ def run_smoke(page, base, client, tmp):
         "return { visible: el.classList.contains('visible'), "
         "hidden: el.getAttribute('aria-hidden'), "
         "rows: el.querySelectorAll('.overlay-palette-row').length, "
-        "mode: el.querySelector('.overlay-palette-mode')?.textContent || '' }; }"
+        "style: !!el.querySelector('.overlay-palette-style') }; }"
     )
-    assert palette_state == {"visible": True, "hidden": "false", "rows": 2, "mode": "fill"}, (
+    assert palette_state == {"visible": True, "hidden": "false", "rows": 2, "style": True}, (
         f"Overlay HUD was not visible on first load: {palette_state}"
     )
     _shot(page, "51_multi_overlay")
