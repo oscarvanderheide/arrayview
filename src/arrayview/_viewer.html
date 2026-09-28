@@ -28338,6 +28338,7 @@
                 when: [],
                 run: (ctx, e) => {
                     if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
+                    if (stackMosaicActive && sliceJumpBuffer.length === 0) { _stackMosaicOpenFocused(); return; }
                     // Enter key: jump to buffered slice index (1-based input)
                     if (sliceJumpBuffer.length > 0) {
                         const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
@@ -29130,7 +29131,7 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Shift+U true physical size' },
+                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Enter or double-click opens a tile · Shift+U true physical size' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -35629,6 +35630,10 @@
                         },
                     }),
                 };
+                pane.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    _stackMosaicOpenFocused(i);
+                });
                 pane.addEventListener('mouseenter', () => {
                     stackMosaicHover = i;
                     renderInfo();
@@ -35695,6 +35700,17 @@
             stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === i));
             renderInfo();
             _stackMosaicSyncSharedRange();
+        }
+
+        // Leave the mosaic on the focused case, shown in the normal single view.
+        function _stackMosaicOpenFocused(i = stackMosaicFocus) {
+            if (!stackMosaicActive || !stackMosaicViews[i]) return;
+            const colIdx = stackMosaicViews[i].colIdx;
+            indices[_stackMosaicColDim()] = colIdx;
+            _syncRaggedShapeForCollection();
+            exitStackMosaic();
+            const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
+            showStatus(`opened ${name || '#' + (colIdx + 1)} · Shift+; back to the grid`);
         }
 
         function _stackMosaicSyncSharedRange() {

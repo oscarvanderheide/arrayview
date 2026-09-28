@@ -1212,6 +1212,13 @@ class TestKeyboard:
         page.keyboard.press("Shift+U")
         page.wait_for_function("() => stackMosaicTrueScale === false", timeout=5_000)
 
+        # Enter opens the focused tile's case in the single view.
+        page.evaluate("() => _stackMosaicFocusPane(4)")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+        assert page.evaluate("() => indices[collectionSpatialNdim]") == 4
+        assert page.is_visible("canvas#viewer")
+
     def test_stack_mosaic_ragged_hover_shapes(self, loaded_viewer, client, tmp_path):
         """Ragged stacks: each pane renders its own array's spatial shape, and
         the dimbar spatial sizes follow the hovered pane."""
