@@ -1219,6 +1219,54 @@ class TestKeyboard:
         assert page.evaluate("() => indices[collectionSpatialNdim]") == 4
         assert page.is_visible("canvas#viewer")
 
+    def test_stack_mosaic_paging_and_per_pane_scroll(self, loaded_viewer, client, tmp_path):
+        """Rapid paging always settles on the right cases, a page swaps in all
+        at once, the wheel over one pane moves only that pane's slice, and the
+        wheel outside the panes moves them all."""
+        stack_dir = tmp_path / "stack_page_src"
+        stack_dir.mkdir()
+        for i in range(12):
+            np.save(stack_dir / f"p_{i:02d}.npy", np.full((6, 32, 32), i, dtype=np.float32))
+        resp = client.post("/load", json={"filepath": str(stack_dir)})
+        sid = resp.json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "3")
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "() => stackMosaicViews.length === 3 && stackMosaicViews.every(v => v.lastW > 0)",
+            timeout=10_000,
+        )
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        for _ in range(3):
+            page.keyboard.press("k")
+        page.wait_for_function("() => stackMosaicStart === 9 && !_smPageHold", timeout=10_000)
+        page.wait_for_function(
+            "() => stackMosaicViews.every(v => !v.rendering && !v.pending)", timeout=10_000
+        )
+        # Each pane shows its own case: the frame's value range is the case id.
+        assert page.evaluate("() => stackMosaicViews.map(v => v.colIdx)") == [9, 10, 11]
+        assert page.evaluate("() => stackMosaicViews.map(v => Math.round(v.vmax))") == [9, 10, 11]
+
+        sd = page.evaluate("() => current_slice_dim")
+        pane_slices = f"() => stackMosaicViews.map(v => _smPaneIndices(v)[{sd}])"
+        start = page.evaluate(f"() => indices[{sd}]")
+        page.evaluate(
+            "() => document.querySelectorAll('.sm-pane')[1].dispatchEvent("
+            "new WheelEvent('wheel', {deltaY: -120, bubbles: true, cancelable: true}))"
+        )
+        after_pane = page.evaluate(pane_slices)
+        assert after_pane[0] == after_pane[2] == start and after_pane[1] != start
+        page.evaluate(
+            "() => document.getElementById('stack-mosaic-wrap').dispatchEvent("
+            "new WheelEvent('wheel', {deltaY: -120, bubbles: true, cancelable: true}))"
+        )
+        after_all = page.evaluate(pane_slices)
+        assert all(a != b for a, b in zip(after_all, after_pane))
+
     def test_stack_mosaic_ragged_hover_shapes(self, loaded_viewer, client, tmp_path):
         """Ragged stacks: each pane renders its own array's spatial shape, and
         the dimbar spatial sizes follow the hovered pane."""

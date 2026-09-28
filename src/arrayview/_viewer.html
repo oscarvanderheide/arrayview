@@ -20761,7 +20761,8 @@
             // right extents; the tiled collection dim shows the window range.
             const _smSpatial = stackMosaicActive ? _stackMosaicHoverSpatialShape() : null;
             const sizeOf = (i) => (_smSpatial && i < collectionSpatialNdim && _smSpatial[i] != null) ? _smSpatial[i] : shape[i];
-            const idxParts = indices.map((v, i) => {
+            const _smIdx = stackMosaicActive ? _stackMosaicHoverIndices() : null;
+            const idxParts = (_smIdx || indices).map((v, i) => {
                 if (_isQmriControlDim(i)) return '';
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
@@ -28365,6 +28366,10 @@
                             } else {
                                 showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
                             }
+                        } else if (stackMosaicActive && activeDim === _stackMosaicColDim()) {
+                            const n = shape[activeDim];
+                            if (targetIndex >= 0 && targetIndex < n) _stackMosaicGoTo(targetIndex);
+                            else showStatus(`invalid index: ${targetIndex + 1} (valid range 1–${n})`);
                         } else if (activeDim === dim_x || activeDim === dim_y) {
                             showStatus('cannot jump on display dimension (x/y)');
                         } else {
@@ -29131,7 +29136,7 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Enter or double-click opens a tile · Shift+U true physical size' },
+                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Enter or double-click opens a tile · scroll over a tile moves only its slice · Shift+U true physical size' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -32462,7 +32467,7 @@
         window.addEventListener('wheel', (e) => {
             const el = e.target;
             if (el && el.closest) {
-                if (el.closest('#canvas-viewport, .mv-pane, .compare-canvas-wrap, .compare-canvas-clip, .qv-canvas-clip, canvas, #info')) return;
+                if (el.closest('#stack-mosaic-wrap.active, #canvas-viewport, .mv-pane, .compare-canvas-wrap, .compare-canvas-clip, .qv-canvas-clip, canvas, #info')) return;
                 let node = el;
                 while (node && node !== document.body && node !== document.documentElement) {
                     const pos = window.getComputedStyle(node).position;
@@ -35568,6 +35573,15 @@
             const wrap = document.getElementById('stack-mosaic-wrap');
             wrap.innerHTML = '';
             wrap.classList.add('active');
+            if (!wrap._smWheelBound) {
+                wrap._smWheelBound = true;
+                wrap.addEventListener('wheel', (e) => {
+                    if (!stackMosaicActive) return;
+                    e.preventDefault();
+                    const _s = _wheelIndexDelta(current_slice_dim, e);
+                    if (_s) _smScrollAll(_s);
+                }, { passive: false });
+            }
             const panes = document.createElement('div');
             panes.id = 'stack-mosaic-panes';
             wrap.appendChild(panes);
@@ -35577,7 +35591,6 @@
             _kickInitialRenders(stackMosaicViews, smRender);
             _reconcileUI();
             renderInfo();
-            _stackMosaicPreload();
             showStatus(`stack mosaic: ${stackMosaicN} per window (${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total})`);
         }
 
@@ -35587,6 +35600,8 @@
                 window._smDragCleanup = null;
             }
             stackMosaicViews = [];
+            _smEndPageHold();
+            _smPreloadedStart = -1;
             const nPanes = _stackMosaicWindowPanes();
             for (let i = 0; i < nPanes; i++) {
                 const colIdx = stackMosaicStart + i;
@@ -35616,6 +35631,7 @@
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false,
                     lastW: 0, lastH: 0, lastImageData: null,
+                    sliceOffset: 0, staged: null, reqColIdx: colIdx,
                     pan: new PanManager({
                         getViewport: () => {
                             const r = clip.getBoundingClientRect();
@@ -35649,14 +35665,11 @@
                     if (!view.lastW || !view.lastH) return;
                     view.pan.startDrag(e);
                 });
-                cv.addEventListener('wheel', (e) => {
+                pane.addEventListener('wheel', (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     const _s = _wheelIndexDelta(current_slice_dim, e);
-                    if (!_s) return;
-                    indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + _s));
-                    renderInfo();
-                    stackMosaicViews.forEach(v2 => smRender(v2));
-                    saveState();
+                    if (_s) _smScrollPane(view, _s);
                 }, { passive: false });
                 _attachPinchHandlers(cv);
                 if (!httpTransport) {
@@ -35706,7 +35719,7 @@
         function _stackMosaicOpenFocused(i = stackMosaicFocus) {
             if (!stackMosaicActive || !stackMosaicViews[i]) return;
             const colIdx = stackMosaicViews[i].colIdx;
-            indices[_stackMosaicColDim()] = colIdx;
+            _smPaneIndices(stackMosaicViews[i]).forEach((x, d) => { indices[d] = x; });
             _syncRaggedShapeForCollection();
             exitStackMosaic();
             const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
@@ -35733,6 +35746,7 @@
                 if (v.ws) { v.ws.onclose = null; v.ws.close(); }
             });
             stackMosaicViews = [];
+            _smEndPageHold();
             const wrap = document.getElementById('stack-mosaic-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
@@ -35751,26 +35765,81 @@
 
         function _stackMosaicWindowStep(dir) {
             if (!stackMosaicActive) return;
+            _stackMosaicShowWindow(stackMosaicStart + dir * stackMosaicN, 0);
+        }
+
+        // Page to the window holding case `colIdx` and focus it.
+        function _stackMosaicGoTo(colIdx) {
+            if (!stackMosaicActive) return;
+            const start = Math.floor(colIdx / stackMosaicN) * stackMosaicN;
+            const total = shape[_stackMosaicColDim()];
+            const clampedStart = Math.max(0, Math.min(Math.max(0, total - stackMosaicN), start));
+            _stackMosaicShowWindow(clampedStart, colIdx - clampedStart);
+        }
+
+        function _stackMosaicShowWindow(start, focus) {
             const total = shape[_stackMosaicColDim()];
             const maxStart = Math.max(0, total - stackMosaicN);
-            const nextStart = Math.max(0, Math.min(maxStart, stackMosaicStart + dir * stackMosaicN));
-            if (nextStart === stackMosaicStart) return;
+            const nextStart = Math.max(0, Math.min(maxStart, start));
+            if (nextStart === stackMosaicStart) {
+                if (focus !== stackMosaicFocus) _stackMosaicFocusPane(focus);
+                return;
+            }
             stackMosaicStart = nextStart;
-            stackMosaicFocus = 0;
+            stackMosaicFocus = Math.max(0, Math.min(stackMosaicViews.length - 1, focus));
             indices[_stackMosaicColDim()] = stackMosaicStart;
             _syncRaggedShapeForCollection();
-            // Rebuild pane collection indices and re-render each pane.
+            // Old tiles stay up until every new one has arrived (see
+            // _smReceiveFrame); each new case starts on the shared slice.
+            _smBeginPageHold();
             stackMosaicViews.forEach((v, i) => {
                 v.colIdx = stackMosaicStart + i;
-                _stackMosaicSetLabel(v.label, v.colIdx);
+                v.sliceOffset = 0;
+                v.staged = null;
                 smRender(v);
             });
-            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === 0));
-            smScaleAllCanvases();
+            indices[_stackMosaicColDim()] = stackMosaicStart + stackMosaicFocus;
+            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === stackMosaicFocus));
             renderInfo();
             saveState();
-            _stackMosaicPreload();
             showStatus(`stack mosaic: ${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total}`);
+        }
+
+        // Paging holds the old tiles on screen until every new tile's frame
+        // has arrived, then swaps them all at once. Tiles landing one by one
+        // (each case loads at its own speed) read as a broken grid. The busy
+        // indicator only shows when the wait is long enough to notice.
+        let _smPageHold = false;
+        let _smPageBusyTimer = null;
+        let _smPageBusyVisible = false;
+        let _smPreloadedStart = -1;
+
+        function _smBeginPageHold() {
+            _smPageHold = true;
+            clearTimeout(_smPageBusyTimer);
+            _smPageBusyTimer = setTimeout(() => {
+                if (!_smPageHold) return;
+                _smPageBusyVisible = true;
+                _reconcileUI();
+                // Never wait forever on one pane: show what has arrived.
+                _smPageBusyTimer = setTimeout(_smFlushPageHold, 15000);
+            }, 250);
+        }
+
+        function _smFlushPageHold() {
+            if (!_smPageHold) return;
+            stackMosaicViews.forEach(p => { if (p.staged) { _smApplyFrame(p, p.staged); p.staged = null; } });
+            _smEndPageHold();
+            smScaleAllCanvases();
+            stackMosaicViews.forEach(p => smDrawFrame(p));
+            renderInfo();
+        }
+
+        function _smEndPageHold() {
+            _smPageHold = false;
+            clearTimeout(_smPageBusyTimer);
+            _smPageBusyTimer = null;
+            if (_smPageBusyVisible) { _smPageBusyVisible = false; _reconcileUI(); }
         }
 
         function _stackMosaicResize(n) {
@@ -35786,49 +35855,97 @@
             _kickInitialRenders(stackMosaicViews, smRender);
             _reconcileUI();
             renderInfo();
-            _stackMosaicPreload();
             showStatus(`stack mosaic: ${stackMosaicN} per window`);
         }
 
+        // Warm the server for the next window once the current one is fully
+        // shown, so the next page lands fast. Uses separate HTTP requests: a
+        // pane's socket only keeps its newest request, so a preload sent there
+        // could silently replace the pane's real render and leave it waiting
+        // forever for a frame that never comes.
         function _stackMosaicPreload() {
-            // Request the next window's panes in the background so the first
-            // j/k lands without waiting. Reuses the pane transport (warm LUTs).
-            if (!stackMosaicActive) return;
+            if (!stackMosaicActive || _smPreloadedStart === stackMosaicStart) return;
+            _smPreloadedStart = stackMosaicStart;
             const total = shape[_stackMosaicColDim()];
-            const nextStart = stackMosaicStart + stackMosaicN;
-            if (nextStart >= total) return;
-            stackMosaicViews.forEach((v, i) => {
-                const colIdx = nextStart + i;
-                if (colIdx >= total) return;
-                if (httpTransport) return; // HTTP panes render on demand only
-                if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
-                // Separate seq space so preload responses never collide with
-                // an in-flight render's seq on the same pane.
-                v._pseq = (v._pseq || 0) + 1;
-                const seq = 100000 + v._pseq;
-                const smIndices = [...indices];
-                smIndices[_stackMosaicColDim()] = colIdx;
-                v.ws.send(JSON.stringify({
-                    seq, dim_x, dim_y, dim_z: -1,
-                    indices: smIndices, colormap: currentColormap(),
-                    dr: 0, complex_mode: complexMode, log_scale: logScale,
-                    slice_dim: current_slice_dim, direction: 1,
-                    vmin_override: manualVmin ?? null,
-                    vmax_override: manualVmax ?? null,
-                    overlay_sid: _getVisibleOverlaySids() || null,
-                    overlay_colors: _getVisibleOverlayColors() || null,
-                    overlay_alphas: _getVisibleOverlayAlphas() || null,
-                    overlay_outline: overlayOutlineOnly,
-                    canvas_w: _smRequestSize(v).w,
-                    canvas_h: _smRequestSize(v).h,
-                    projection_mode: projectionMode,
-                    projection_dim: projectionMode > 0 ? projectionDim : -1,
-                    perf: _PERF_ENABLED,
-                }));
-                // Responses to preload seqs are ignored (see smOnMessage) —
-                // they only warm the server render cache.
-                v._preloadSeq = seq;
+            const nextStart = Math.min(stackMosaicStart + stackMosaicN, Math.max(0, total - stackMosaicN));
+            if (nextStart <= stackMosaicStart) return;
+            for (let c = nextStart; c < Math.min(total, nextStart + stackMosaicN); c++) {
+                const idx = [...indices];
+                idx[_stackMosaicColDim()] = c;
+                fetchSliceFrame(_smSliceParams(idx)).catch(() => {});
+            }
+        }
+
+        // Indices one pane renders: its own case, and its own slice when the
+        // wheel moved it away from the shared one (clamped to its depth).
+        function _smPaneIndices(v) {
+            const idx = [...indices];
+            const colDim = _stackMosaicColDim();
+            idx[colDim] = v.colIdx;
+            const sd = current_slice_dim;
+            if (v.sliceOffset && sd >= 0 && sd < colDim) {
+                idx[sd] = Math.max(0, Math.min(_smPaneDepth(v) - 1, indices[sd] + v.sliceOffset));
+            }
+            return idx;
+        }
+
+        function _smPaneDepth(v) {
+            const sp = _stackMosaicCaseSpatialShape(v.colIdx) || [];
+            return Number(sp[current_slice_dim]) || shape[current_slice_dim];
+        }
+
+        // Wheel over one pane moves only that pane's slice.
+        function _smScrollPane(v, step) {
+            const sd = current_slice_dim;
+            if (sd < 0 || sd >= _stackMosaicColDim()) return;
+            const cur = _smPaneIndices(v)[sd];
+            const next = Math.max(0, Math.min(_smPaneDepth(v) - 1, cur + step));
+            if (next === cur) return;
+            v.sliceOffset = next - indices[sd];
+            smRender(v);
+            renderInfo();
+        }
+
+        // Wheel outside the panes moves every pane together, keeping any
+        // per-pane offsets.
+        function _smScrollAll(step) {
+            const sd = current_slice_dim;
+            const next = Math.max(0, Math.min(shape[sd] - 1, indices[sd] + step));
+            if (next === indices[sd]) return;
+            indices[sd] = next;
+            renderInfo();
+            stackMosaicViews.forEach(v => smRender(v));
+            saveState();
+        }
+
+        // Indices shown in the dimbar: the hovered pane's own, if any.
+        function _stackMosaicHoverIndices() {
+            const v = stackMosaicViews[stackMosaicHover];
+            return v ? _smPaneIndices(v) : null;
+        }
+
+        function _smSliceParams(idx) {
+            const params = new URLSearchParams({
+                dim_x: String(dim_x),
+                dim_y: String(dim_y),
+                dim_z: '-1',
+                indices: idx.join(','),
+                colormap: currentColormap(),
+                dr: '0',
+                complex_mode: String(complexMode),
+                log_scale: String(logScale),
+                slice_dim: String(current_slice_dim),
             });
+            _applyOverlayRenderParams(params);
+            if (manualVmin !== null && manualVmax !== null) {
+                params.set('vmin_override', String(manualVmin));
+                params.set('vmax_override', String(manualVmax));
+            }
+            if (projectionMode > 0) {
+                params.set('projection_mode', String(projectionMode));
+                params.set('projection_dim', String(projectionDim));
+            }
+            return params;
         }
 
         // Ask for frames as large as the pane's tile can show (or its zoomed
@@ -35852,12 +35969,11 @@
             v.rendering = true;
             v.seq++;
             v._renderPatientIndex = _currentPatientIndex();
-            const smIndices = [...indices];
-            smIndices[_stackMosaicColDim()] = v.colIdx;
+            v.reqColIdx = v.colIdx;
             const { w: _cw, h: _ch } = _smRequestSize(v);
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
-                indices: smIndices, colormap: currentColormap(),
+                indices: _smPaneIndices(v), colormap: currentColormap(),
                 dr: 0, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: current_slice_dim, direction: 1,
                 vmin_override: manualVmin ?? null,
@@ -35874,38 +35990,33 @@
             }));
         }
 
+        function _smRenderDone(v) {
+            v.rendering = false;
+            if (v.pending) { v.pending = false; smRender(v); }
+            else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+        }
+
         function smOnMessage(v, event) {
             if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, `sm:${v.colIdx}`); return; }
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             const seq = h32[0];
-            // Ignore preload responses (they only warm the server cache).
-            if (v._preloadSeq && seq === v._preloadSeq) {
-                v._preloadSeq = null;
-                return;
-            }
             if (seq === v.seq && stackMosaicActive && stackMosaicViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
-                v.vmin = f32[0]; v.vmax = f32[1];
-                if (v.lockedVmin === undefined || v.lockedVmin === null) {
-                    v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
-                }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const frame = _applyAutoCropIfReady(
                     { imageData: new ImageData(rgba, width, height), width, height },
                     sid, dim_x, dim_y, indices,
                 );
-                v.nativePerPx = _stackMosaicNativePerPixel(v.colIdx, width, height);
-                v.lastImageData = frame.imageData;
-                v.lastW = frame.width; v.lastH = frame.height;
-                smScaleAllCanvases();
-                smDrawFrame(v);
-                if (stackMosaicViews.indexOf(v) === stackMosaicFocus) _stackMosaicSyncSharedRange();
+                _smReceiveFrame(v, {
+                    colIdx: v.reqColIdx,
+                    imageData: frame.imageData, width: frame.width, height: frame.height,
+                    vmin: f32[0], vmax: f32[1],
+                    nativePerPx: _stackMosaicNativePerPixel(v.reqColIdx, width, height),
+                });
             }
-            v.rendering = false;
-            if (v.pending) { v.pending = false; smRender(v); }
-            else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            _smRenderDone(v);
         }
 
         async function smRenderHttp(v) {
@@ -35913,47 +36024,54 @@
             v.rendering = true;
             v.seq++;
             v._renderPatientIndex = _currentPatientIndex();
+            const colIdx = v.reqColIdx = v.colIdx;
             try {
-                const smIndices = [...indices];
-                smIndices[_stackMosaicColDim()] = v.colIdx;
-                const params = new URLSearchParams({
-                    dim_x: String(dim_x),
-                    dim_y: String(dim_y),
-                    dim_z: '-1',
-                    indices: smIndices.join(','),
-                    colormap: currentColormap(),
-                    dr: '0',
-                    complex_mode: String(complexMode),
-                    log_scale: String(logScale),
-                    slice_dim: String(current_slice_dim),
-                });
-                _applyOverlayRenderParams(params);
-                if (manualVmin !== null && manualVmax !== null) {
-                    params.set('vmin_override', String(manualVmin));
-                    params.set('vmax_override', String(manualVmax));
-                }
-                if (projectionMode > 0) {
-                    params.set('projection_mode', String(projectionMode));
-                    params.set('projection_dim', String(projectionDim));
-                }
-                const frame = await fetchSliceFrame(params);
+                const frame = await fetchSliceFrame(_smSliceParams(_smPaneIndices(v)));
                 if (!stackMosaicActive || !stackMosaicViews.includes(v)) return;
-                v.nativePerPx = _stackMosaicNativePerPixel(v.colIdx, frame.width, frame.height);
-                v.vmin = frame.vmin;
-                v.vmax = frame.vmax;
-                if (v.lockedVmin === undefined || v.lockedVmin === null) {
-                    v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
-                }
-                v.lastImageData = frame.imageData;
-                v.lastW = frame.width; v.lastH = frame.height;
+                _smReceiveFrame(v, {
+                    colIdx,
+                    imageData: frame.imageData, width: frame.width, height: frame.height,
+                    vmin: frame.vmin, vmax: frame.vmax,
+                    nativePerPx: _stackMosaicNativePerPixel(colIdx, frame.width, frame.height),
+                });
+            } finally {
+                _smRenderDone(v);
+            }
+        }
+
+        // Every pane frame lands here. A frame rendered for the pane's
+        // previous case (a page change raced it) is dropped; the pane's
+        // pending re-render brings the right one.
+        function _smReceiveFrame(v, frame) {
+            if (frame.colIdx !== v.colIdx) return;
+            if (!_smPageHold) {
+                _smApplyFrame(v, frame);
                 smScaleAllCanvases();
                 smDrawFrame(v);
                 if (stackMosaicViews.indexOf(v) === stackMosaicFocus) _stackMosaicSyncSharedRange();
-            } finally {
-                v.rendering = false;
-                if (v.pending) { v.pending = false; smRender(v); }
-                else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+                if (stackMosaicViews.every(p => p.lastW && (p === v || !p.rendering))) _stackMosaicPreload();
+                return;
             }
+            v.staged = frame;
+            if (!stackMosaicViews.every(p => p.staged)) return;
+            stackMosaicViews.forEach(p => { const f = p.staged; p.staged = null; _smApplyFrame(p, f); });
+            _smEndPageHold();
+            smScaleAllCanvases();
+            stackMosaicViews.forEach(p => smDrawFrame(p));
+            _stackMosaicSyncSharedRange();
+            renderInfo();
+            _stackMosaicPreload();
+        }
+
+        function _smApplyFrame(v, frame) {
+            v.nativePerPx = frame.nativePerPx;
+            v.vmin = frame.vmin; v.vmax = frame.vmax;
+            if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
+            }
+            v.lastImageData = frame.imageData;
+            v.lastW = frame.width; v.lastH = frame.height;
+            _stackMosaicSetLabel(v.label, frame.colIdx);
         }
 
         function smDrawFrame(v) {
@@ -39509,6 +39627,12 @@
             if (isSpatialNormal || isSpatialMv || isSpatialCmv || isSpatialQmriMv || isQmriDim) return;
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
+            if (stackMosaicActive && hoveredDim === _stackMosaicColDim()) {
+                activeDim = hoveredDim;
+                _stackMosaicWindowStep(delta);
+                renderInfo();
+                return;
+            }
             const nextIndex = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
             if (nextIndex === indices[hoveredDim]) return;
             indices[hoveredDim] = nextIndex;
@@ -41186,7 +41310,7 @@
             _reconcileModePicker();
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
-                const busy = _patientLoadingVisible || _slowRenderBusyVisible;
+                const busy = _patientLoadingVisible || _slowRenderBusyVisible || _smPageBusyVisible;
                 busyOverlay.classList.toggle('visible', busy);
                 busyOverlay.setAttribute('aria-hidden', busy ? 'false' : 'true');
             }
