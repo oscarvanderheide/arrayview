@@ -4328,10 +4328,6 @@
         .sm-label { font-size: 13px; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; white-space: nowrap; width: 100%; contain: inline-size; overflow: hidden; text-overflow: ellipsis; text-align: center; }
         .sm-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .sm-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
-        .sm-pane.sm-focused::after {
-            content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
-            box-shadow: inset 0 0 0 2px var(--active-dim); border-radius: 4px; box-sizing: border-box;
-        }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
