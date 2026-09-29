@@ -76,9 +76,16 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
     columns = [cell.bounding_box() for cell in row.locator("td").all()]
     assert columns[0]["width"] < 65
     assert hud_box["width"] < 300
+    heading_pm = page.locator("#roi-stats-hud thead .roi-hud-pm").bounding_box()
+    value_pm = row.locator(".roi-hud-pm").bounding_box()
+    assert abs((heading_pm["x"] + heading_pm["width"] / 2) - (value_pm["x"] + value_pm["width"] / 2)) < 1
     # Details open inline under the row instead of in a separate window.
-    page.evaluate("() => _roiOpenManager()")
+    closed_width = hud_box["width"]
+    row.click()
     page.locator(".roi-hud-detail").wait_for(state="visible")
+    page.screenshot(path=str(output / f"roi_hud_{mode}_expanded.png"))
+    expanded_width = page.locator("#roi-stats-hud").bounding_box()["width"]
+    assert math.isclose(expanded_width, closed_width, abs_tol=1), (mode, closed_width, expanded_width)
     assert "max" in page.locator(".roi-hud-detail").inner_text()
     assert not page.locator("#export-overlay").is_visible()
     page.evaluate("() => { _roiHudExpanded.clear(); _reconcileRoiHud(); }")

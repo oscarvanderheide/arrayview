@@ -1369,9 +1369,7 @@
             z-index: 7;
             display: none;
             box-sizing: border-box;
-            width: max-content;
-            min-width: 216px;
-            max-width: calc(100vw - 20px);
+            width: min(240px, calc(100vw - 20px));
             max-height: min(360px, 50vh);
             overflow: auto;
             padding: 3px 4px 5px;
@@ -1422,6 +1420,9 @@
         #roi-stats-hud th, #roi-stats-hud td { padding: 0 6px; height: 28px; text-align: right; white-space: nowrap; }
         #roi-stats-hud th { height: 18px; color: color-mix(in srgb, var(--text) 40%, var(--muted)); font-weight: normal; font-size: 9.5px; letter-spacing: 0.03em; }
         #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; padding-left: 8px; padding-right: 14px; }
+        #roi-stats-hud .roi-hud-measures { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); column-gap: 5px; }
+        #roi-stats-hud .roi-hud-measures > span:first-child { text-align: right; }
+        #roi-stats-hud .roi-hud-measures > span:last-child { text-align: left; }
         #roi-stats-hud .roi-hud-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
         #roi-stats-hud .roi-hud-row { cursor: pointer; }
         #roi-stats-hud .roi-hud-row td:first-child { border-radius: 7px 0 0 7px; }
@@ -1444,7 +1445,7 @@
         }
         #roi-stats-hud .roi-hud-rename:focus { border-color: var(--roi-color, var(--active-dim)); }
         #roi-stats-hud .roi-hud-std { color: color-mix(in srgb, var(--text) 62%, var(--muted)); }
-        #roi-stats-hud .roi-hud-std:not(:empty)::before { content: '±'; margin: 0 5px 0 6px; color: var(--muted); }
+        #roi-stats-hud .roi-hud-pm { color: var(--muted); text-align: center; }
         #roi-stats-hud .roi-hud-delete { opacity: 0; transition: opacity 120ms ease; }
         #roi-stats-hud .roi-hud-row:hover .roi-hud-delete,
         #roi-stats-hud .roi-hud-row.focused .roi-hud-delete,
@@ -1456,7 +1457,7 @@
             border-radius: 0 0 7px 7px;
             color: color-mix(in srgb, var(--text) 45%, var(--muted)); font-size: 10px;
         }
-        #roi-stats-hud .roi-hud-detail-line { display: flex; gap: 12px; line-height: 17px; }
+        #roi-stats-hud .roi-hud-detail-line { display: flex; flex-wrap: wrap; column-gap: 12px; line-height: 17px; }
         #roi-stats-hud .roi-hud-detail-line b { color: var(--text); font-weight: normal; }
         #roi-stats-hud .roi-hud-detail-map { min-width: 4ch; color: var(--text); }
         #roi-stats-hud .roi-hud-dist { margin: 2px 0 6px; }
@@ -18019,14 +18020,14 @@
             let html = `<div class="roi-hud-head roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span><span class="roi-hud-count">${_rois.length}</span>`
                 + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
                 + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
-            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col">mean ± std</th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
+            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
             _rois.forEach((r, i) => {
                 const stats = all[i];
                 const name = _roiName(i);
                 const open = _roiHudExpanded.has(i);
                 html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
                     + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
-                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></td>`
+                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span></td>`
                     + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
                 if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
             });
