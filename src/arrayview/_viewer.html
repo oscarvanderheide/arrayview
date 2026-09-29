@@ -2161,7 +2161,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 13px;
             display: flex; flex-direction: column;
-            width: min(820px, 92vw); height: min(520px, 86vh);
+            width: min(860px, 92vw); height: min(600px, 86vh);
             overflow: hidden;
         }
         .help-footer kbd {
@@ -2187,9 +2187,21 @@
             color: var(--text);
             border-bottom-color: var(--help-key);
         }
+        .help-tab:focus-visible { outline: 1px solid var(--help-key); outline-offset: -2px; border-radius: 4px; }
+        .help-tab-divider {
+            flex: 0 0 1px; align-self: center; height: 12px; margin: 0 6px;
+            background: var(--border);
+        }
         #help-content {
             flex: 1; min-height: 0; overflow-y: auto;
-            padding-right: 4px;
+            padding-right: 6px; margin-right: -6px;
+            scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+        }
+        /* More rows below the fold: fade the bottom edge so the cut-off
+         * reads as "scroll for more" instead of a clipped row. */
+        #help-content.help-more-below {
+            -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent);
+                    mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent);
         }
         .help-tab-desc {
             color: var(--muted); font-size: 12.5px; line-height: 1.6;
@@ -2214,18 +2226,29 @@
         .help-section { margin-bottom: 18px; }
         .help-columns { display: flex; gap: 28px; }
         .help-column { flex: 1; min-width: 0; }
-        .help-entry { margin-bottom: 8px; }
-        .help-entry-row { display: flex; align-items: baseline; }
+        .help-entry { margin-bottom: 9px; }
+        .help-entry-row { display: flex; align-items: flex-start; }
         .help-entry-key {
-            flex-shrink: 0; width: 100px;
-            color: var(--help-key); font-weight: 600;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            font-size: 12px;
+            flex-shrink: 0; width: 124px; padding-right: 10px; box-sizing: border-box;
+            display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+            color: var(--help-key);
+            font-size: 12px; line-height: 18px;
         }
-        .help-entry-action { color: var(--text); font-size: 12.5px; }
+        .help-entry-key kbd {
+            display: inline-block; box-sizing: border-box;
+            min-width: 19px; height: 19px; padding: 0 5px;
+            border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+            background: var(--surface-2); color: var(--help-key);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            font-size: 11px; font-weight: 600; line-height: 16px; text-align: center;
+        }
+        .help-key-word { font-weight: 500; }
+        .help-key-word.help-key-note { color: var(--muted); font-weight: 400; }
+        .help-key-or { color: var(--muted); font-size: 11px; padding: 0 1px; }
+        .help-entry-action { color: var(--text); font-size: 12.5px; line-height: 19px; }
         .help-entry-hint {
-            color: var(--muted); font-size: 11px;
-            margin-left: 100px; margin-top: 1px;
+            color: var(--muted); font-size: 11px; line-height: 1.45;
+            margin-left: 124px; margin-top: 1px; max-width: 58ch;
         }
         .help-footer {
             flex-shrink: 0; border-top: 1px solid var(--border-subtle);
@@ -2244,8 +2267,8 @@
         @media (max-width: 760px) {
             #help-box { width: min(96vw, 560px); }
             .help-columns { flex-direction: column; gap: 0; }
-            .help-entry-key { width: 76px; }
-            .help-entry-hint { margin-left: 76px; }
+            .help-entry-key { width: 104px; }
+            .help-entry-hint { margin-left: 104px; }
         }
         #roi-stats-tooltip {
             position: fixed; z-index: 20;
@@ -24089,6 +24112,15 @@
             for (let i = 0; i < panels.length; i++) {
                 panels[i].style.display = i === helpTabIdx ? 'block' : 'none';
             }
+            const contentEl = document.getElementById('help-content');
+            contentEl.scrollTop = 0;
+            _updateHelpScrollHint();
+        }
+
+        function _updateHelpScrollHint() {
+            const el = document.getElementById('help-content');
+            if (!el) return;
+            el.classList.toggle('help-more-below', el.scrollHeight - el.scrollTop - el.clientHeight > 4);
         }
 
         let _helpBuilt = false;
@@ -29390,7 +29422,7 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N on entry · [ / ] adjust the window · j/k step by N when the stack dim is active · Enter or double-click opens a tile · scroll over a tile moves only its slice · Shift+U true physical size' },
+                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N · [ ] move the window · Enter opens a tile · Shift+U shows true physical size' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -29404,16 +29436,16 @@
                     {
                         title: 'Info & Modes',
                         entries: [
-                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane; shows value in the pane pill; drag draws a quick outline (mean ± std), repeatable; Backspace removes the last one; hold Ctrl for the loupe; alt+click adds pins; Esc clears all pins' },
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane · drag outlines a quick region (mean ± std) · Ctrl shows the loupe · Alt+click pins a value · Esc clears pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
                             { key: 'Shift+K', action: 'Switch array in file', hint: '.npz / .mat files that hold several arrays' },
-                            { key: '/', action: 'Tool launcher', hint: 'open the transient tool launcher; direct shortcuts still work' },
+                            { key: '/', action: 'Tool launcher', hint: 'pick a tool by name; direct shortcuts keep working' },
                         ]
                     },
                     {
                         title: 'Zoom & Pan', columnBreak: true,
                         entries: [
-                            { key: 'Pinch / ⌘Scroll', action: 'Zoom in / out', hint: 'Ctrl+Scroll on Windows / Linux' },
+                            { key: 'Pinch / ⌘ Scroll', action: 'Zoom in / out', hint: 'Ctrl+Scroll on Windows / Linux' },
                             { key: '= / -', action: 'Zoom in / out (keyboard)' },
                             { key: '0', action: 'Reset zoom to fit' },
                             { key: 'Drag', action: 'Pan the image (when zoomed in)' },
@@ -29424,7 +29456,7 @@
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Open save options', hint: 'opens screenshot, GIF, array, URL, and code exports directly · / also lists tools' },
+                            { key: 's', action: 'Open save options', hint: 'screenshot, GIF, array, URL or code' },
                             { key: 'e', action: 'Copy shareable URL' },
                             { key: 'E', action: 'Copy view as code', hint: 'a view(…) call or arrayview command that reopens this view' },
                         ]
@@ -29478,8 +29510,7 @@
                         title: 'Controls',
                         entries: [
                             { key: 'v', action: 'Enter or exit ortho view' },
-                            { key: 'orientation HUD', action: 'Shows while drag-scrubbing or holding Alt/Option' },
-                            { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
+                                                        { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'Shift+3', action: 'Toggle 3D rendering', hint: 'replaces the normal slice or all three ortho panes; drag to rotate and scroll to slice' },
                             { key: 'o', action: 'Reset to origin' },
@@ -29491,8 +29522,8 @@
                             { key: 'Alt (hold)', action: 'Reveal oblique mode', hint: 'shows the crosshair lines on every pane and flips the colorbar to expose 90\u00b0 Lock / Save planes / Load planes' },
                             { key: 'Alt+Drag line', action: 'Rotate slice plane', hint: 'with 90\u00b0 Lock on (default) all three panes co-rotate to stay orthogonal; off = free tilt on the hovered pane only' },
                             { key: 'Scroll', action: 'Step along the pane normal', hint: 'in oblique mode the wheel moves through slices perpendicular to the hovered pane, even when the plane is tilted off-axis' },
-                            { key: 'Save planes', action: 'Save current plane orientation', hint: 'stored in ~/.arrayview/oblique_recent.json — reloaded by Load planes on this or another array' },
-                            { key: 'Load planes', action: 'Restore last saved orientation', hint: 'applies the most recent preset; works across arrays with compatible rank' },
+                            { key: 'Save planes', action: 'Remember the current plane angles', hint: 'button on the back of the colorbar · Load planes brings them back, also on another array' },
+                            { key: 'Load planes', action: 'Restore the last saved plane angles', hint: 'works on any array with the same number of dimensions' },
                         ]
                     },
                     {
@@ -29530,7 +29561,7 @@
             },
             {
                 id: 'tools', label: 'Tools',
-                desc: 'Tool shortcuts and one-line explanations. Press / for the transient launcher; press ? for this documentation.',
+                desc: 'Every tool at a glance. Press / to pick a tool from the launcher, or use the direct keys below.',
                 columns: 2,
                 sections: [
                     {
@@ -29552,7 +29583,7 @@
                             { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
                             { key: '/ o', action: 'Overlays', hint: 'show mask names and visibility' },
-                            { key: '/ v', action: 'Vector field', hint: 'leader namespace; bare v still toggles ortho-view' },
+                            { key: '/ v', action: 'Vector field', hint: 'v on its own still switches to ortho view' },
                         ]
                     }
                 ]
@@ -29582,29 +29613,14 @@
                 ]
             },
             {
-                id: 'qmri', label: 'qMRI',
-                desc: 'For quantitative MRI parameter maps — T1, T2, FA, and others. Voxel values are shown with proper units and the display adjusts to tissue-specific intensity ranges. Use this when viewing parameter maps to get meaningful readouts instead of raw numbers.',
-                sections: [
-                    {
-                        title: 'Controls',
-                        entries: [
-                            { key: 'q', action: 'Enter or exit qMRI', hint: 'hold Alt/Option for maps and contrasts' },
-                            { key: 'Alt/Option', action: 'Show qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
-                            { key: 'v', action: '3-plane view per map', hint: 'see each parameter map across three orthogonal planes' },
-                        ]
-                    }
-                ]
-            },
-            {
                 id: 'tool-qmri', label: 'qMRI',
-                desc: 'Quantitative MRI mode — display and compare relaxometry maps (T₁, T₂, PD, etc.) across one dimension of your array.',
+                desc: 'For quantitative MRI parameter maps (T₁, T₂, PD and others) stored along one dimension of your array. Each map is shown side by side with its own units and color range.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: 'q', action: 'Exit qMRI' },
+                            { key: 'q', action: 'Enter or exit qMRI' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                             { key: 'v', action: '3-plane view — three views per map' },
@@ -29675,55 +29691,105 @@
             },
             {
                 id: 'tool-crop', label: 'Crop',
-                desc: 'Crop mode — pick a start/end index along one dimension so downstream pipelines (e.g. reconstruction scripts) can trim the array. A yellow polygon highlights the kept region on every visible slice.',
+                desc: 'Pick the range to keep along one axis, for example to trim an array before reconstruction. A yellow outline marks the kept part on every visible slice.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Enter / exit',
                         entries: [
                             { key: 'C', action: 'Toggle crop mode' },
-                            { key: 'Esc', action: 'Exit the tool', hint: 'closes the drawer first, then deactivates crop' },
+                            { key: 'Esc', action: 'Exit crop', hint: 'closes the crop panel first, then leaves crop mode' },
                         ]
                     },
                     {
-                        title: 'Range controls',
+                        title: 'Choosing the range',
                         entries: [
-                            { key: 'direction picker', action: 'Pick which screen axis the crop runs along (x/y in single view; x/y/z in ortho)' },
-                            { key: 'start slider', action: 'Lower bound of the kept range (inclusive)' },
-                            { key: 'end slider', action: 'Upper bound of the kept range (exclusive)' },
-                            { key: 'start / end number', action: 'Type an exact index', hint: 'commits on blur / Enter; updates server state' },
-                            { key: 'drag edge', action: 'Click & drag the yellow edge on any pane to resize the crop live' },
+                            { key: 'Drag edge', action: 'Resize the crop on any pane', hint: 'grab the yellow edge' },
+                            { key: 'Direction', action: 'Choose the axis to crop along', hint: 'x or y in single view, x, y or z in ortho view' },
+                            { key: 'Start / end', action: 'Slide or type the first and last kept index', hint: 'start is kept, end is not; typed values apply on Enter' },
                         ]
                     },
                     {
                         title: 'Actions',
                         entries: [
-                            { key: 'confirm', action: 'Persist to ~/.arrayview/crop_recent.json and mark confirmed on the server' },
-                            { key: 'load recent', action: 'Re-apply the last saved crop on this session' },
-                            { key: 'show / hide overlay', action: 'Toggle the yellow polygon without deactivating the tool' },
+                            { key: 'Confirm', action: 'Save this crop', hint: 'also makes it available to Load recent' },
+                            { key: 'Load recent', action: 'Re-apply the last saved crop' },
+                            { key: 'Show / hide', action: 'Hide the yellow outline without leaving crop mode' },
                         ]
                     },
                     {
-                        title: 'Views',
+                        title: 'Where the outline shows',
                         entries: [
-                            { key: 'single view', action: 'Overlay on main canvas (direction x or y)' },
-                            { key: 'ortho multi-view', action: 'Overlay on each pane (axis-aligned or oblique)' },
-                            { key: 'compare', action: 'Overlay only on the primary sid\u2019s pane; other panes render clean' },
-                            { key: 'compare 3-plane', action: 'Overlay on the primary sid\u2019s 3 panes; other rows render clean' },
-                            { key: 'compare-qMRI', action: 'Crop is disabled in compare-qMRI' },
+                            { key: 'Single view', action: 'On the main image' },
+                            { key: 'Ortho view', action: 'On every pane, also when tilted' },
+                            { key: 'Compare', action: 'Only on the first array; the other panes stay clean' },
+                            { key: 'Compare qMRI', action: 'Crop is not available here' },
                         ]
                     },
                 ]
             },
         ];
 
+        // Keys in help rows are drawn as keycaps; mouse gestures and
+        // on-screen buttons ("Drag", "Save planes") stay plain words.
+        const HELP_NAMED_KEYS = new Set(['Shift', 'Ctrl', 'Alt', 'Option', 'Alt/Option', 'Cmd', '⌘',
+            'Space', 'Enter', 'Esc', 'Tab', 'Delete', 'Backspace', 'Home', 'End']);
+        function _isHelpKeyToken(t) {
+            if (HELP_NAMED_KEYS.has(t)) return true;
+            if ([...t].length === 1) return true;
+            return !/[A-Za-z]{2}/.test(t) && !/^\(/.test(t);
+        }
+        function _renderHelpKeys(el, keyText) {
+            const alts = keyText.split(/\s+\/\s+/);
+            alts.forEach((alt, ai) => {
+                if (ai > 0) {
+                    const sep = document.createElement('span');
+                    sep.className = 'help-key-or';
+                    sep.textContent = '/';
+                    el.appendChild(sep);
+                }
+                let words = [];
+                const flushWords = () => {
+                    if (!words.length) return;
+                    const w = document.createElement('span');
+                    w.className = 'help-key-word' + (words[0].startsWith('(') ? ' help-key-note' : '');
+                    w.textContent = words.join(' ');
+                    el.appendChild(w);
+                    words = [];
+                };
+                for (const tok of alt.split(/\s+/)) {
+                    const parts = tok.length > 1 && tok.includes('+') ? tok.split('+') : [tok];
+                    for (const part of parts) {
+                        if (!part) continue;
+                        if (_isHelpKeyToken(part)) {
+                            flushWords();
+                            const k = document.createElement('kbd');
+                            k.textContent = part;
+                            el.appendChild(k);
+                        } else {
+                            words.push(part);
+                        }
+                    }
+                }
+                flushWords();
+            });
+        }
+
         function buildHelpOverlay() {
             const tabsEl = document.getElementById('help-tabs');
             const contentEl = document.getElementById('help-content');
             tabsEl.innerHTML = '';
             contentEl.innerHTML = '';
+            contentEl.addEventListener('scroll', _updateHelpScrollHint, { passive: true });
 
             for (const [i, tab] of GUIDE_TABS.entries()) {
+                // Everyday tabs first, then one tab per tool, split by a hairline.
+                if (tab.id.startsWith('tool-') && i > 0 && !GUIDE_TABS[i - 1].id.startsWith('tool-')) {
+                    const divider = document.createElement('span');
+                    divider.className = 'help-tab-divider';
+                    divider.setAttribute('aria-hidden', 'true');
+                    tabsEl.appendChild(divider);
+                }
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'help-tab' + (i === 0 ? ' active' : '');
@@ -29796,7 +29862,7 @@
 
                         const keyEl = document.createElement('span');
                         keyEl.className = 'help-entry-key';
-                        keyEl.textContent = entry.key;
+                        _renderHelpKeys(keyEl, entry.key);
 
                         const actionEl = document.createElement('span');
                         actionEl.className = 'help-entry-action';
@@ -29828,6 +29894,10 @@
             preferencesTab.className = 'help-tab';
             preferencesTab.dataset.helpTab = 'preferences';
             preferencesTab.textContent = 'Preferences';
+            const prefDivider = document.createElement('span');
+            prefDivider.className = 'help-tab-divider';
+            prefDivider.setAttribute('aria-hidden', 'true');
+            tabsEl.appendChild(prefDivider);
             preferencesTab.addEventListener('click', (e) => {
                 e.preventDefault();
                 setHelpTab(preferencesIndex);
