@@ -119,6 +119,12 @@
         }
         #wrapper.mode-fade, #info.mode-fade { opacity: 0; }
         #dim-active-underline.mode-fade { opacity: 0 !important; }
+        /* The underline floats above everything so it can glide between
+         * dims; full-screen panels dim the dimbar, so hide it with them. */
+        body:has(#help-overlay.visible, #info-overlay.visible, #cmd-palette.visible,
+                 #preferences-overlay.visible, #export-overlay.visible, #picker-overlay.visible) #dim-active-underline {
+            opacity: 0 !important;
+        }
         body.av-loading #array-name,
         body.av-loading #info,
         body.av-loading #canvas-wrap,
