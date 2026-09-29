@@ -1,11 +1,19 @@
 """ROI HUD interactions against a served viewer and real canvas gestures."""
 
+import math
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
 
 pytestmark = pytest.mark.browser
+
+
+def _assert_row_shows(row, expected):
+    """Mean and std cells show the measured values, rounded for display."""
+    shown = [float(t) for t in row.locator("td").all_text_contents()[1:3]]
+    for got, want in zip(shown, expected):
+        assert math.isclose(got, want, rel_tol=2e-3, abs_tol=1e-4), (shown, expected)
 
 
 @pytest.mark.parametrize("mode", ["normal", "multiview", "qmri"])
@@ -44,10 +52,10 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
     expected = page.evaluate("""() => {
         const r = _rois[0];
         const s = qmriActive ? r.qmriStats?.find(q => q.qmriIdx === qmriViews[0].qmriIdx)?.stats : r.stats;
-        return s ? [_roiStatsFmt(s.mean), _roiStatsFmt(s.std)] : null;
+        return s ? [s.mean, s.std] : null;
     }""")
     assert expected is not None, "Real ROI measurements should reach the HUD"
-    assert row.locator("td").all_text_contents()[1:3] == expected
+    _assert_row_shows(row, expected)
     selected = page.evaluate("() => _selectedRoiIdx")
 
     page.mouse.move((x0+x1)/2, (y0+y1)/2)
@@ -68,11 +76,13 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
     columns = [cell.bounding_box() for cell in row.locator("td").all()]
     assert columns[0]["width"] < 65
     assert hud_box["width"] < 300
-    page.locator(".roi-hud-details").click()
-    page.locator("#export-overlay.visible").wait_for(state="visible")
-    assert page.locator("#export-title").inner_text() == "ROI stats"
-    page.keyboard.press("Escape")
-    page.locator("#export-overlay").wait_for(state="hidden")
+    # Details open inline under the row instead of in a separate window.
+    page.evaluate("() => _roiOpenManager()")
+    page.locator(".roi-hud-detail").wait_for(state="visible")
+    assert "max" in page.locator(".roi-hud-detail").inner_text()
+    assert not page.locator("#export-overlay").is_visible()
+    page.evaluate("() => { _roiHudExpanded.clear(); _reconcileRoiHud(); }")
+    hud_box = page.locator("#roi-stats-hud").bounding_box()
     assert hud_box["x"] + hud_box["width"] <= page.viewport_size["width"]
     if mode == "normal":
         assert hud_box["x"] >= box["x"] + box["width"], "HUD should use available space outside the image"
@@ -119,9 +129,9 @@ def test_roi_hud_linked_hover(page, server_url, sid_3d, sid_4d, mode):
         page.wait_for_function("() => _roiHudMapIdx === qmriViews[1].qmriIdx")
         expected = page.evaluate("""() => {
             const s = _rois[0].qmriStats.find(q => q.qmriIdx === qmriViews[1].qmriIdx).stats;
-            return [_roiStatsFmt(s.mean), _roiStatsFmt(s.std)];
+            return [s.mean, s.std];
         }""")
-        assert row.locator("td").all_text_contents()[1:3] == expected
+        _assert_row_shows(row, expected)
 
     # The header can relocate the HUD, and resize keeps it in the viewport.
     grip = page.locator(".roi-hud-grip").first

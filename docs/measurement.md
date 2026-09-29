@@ -12,7 +12,7 @@ For flood fill, `[` / `]` adjusts tolerance.
 
 Click an existing ROI to select it. `Delete` / `Backspace` removes it.
 
-`Stats` opens the ROI manager: rename/delete ROIs, adjust extent, export CSV, or export a label mask.
+The ROI panel beside the image lists every ROI with its mean and standard deviation. Each row also has a small strip showing where that ROI's values fall; all strips share one value axis, labelled underneath, and the tick marks the mean. Hovering a row highlights its ROI on the image and the other way round. Click a row for its pixel count, min and max (in qMRI: the numbers for every map). Double-click a name to rename it. Drag the panel's header to move it. The `CSV` and `mask` buttons download the numbers or a label mask.
 
 `N` exports the active ROI or segmentation mask as `.npy`.
 

@@ -4863,31 +4863,42 @@ class TestROIDrag:
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 
-    def test_stats_popup_manager_basics(self, loaded_viewer, sid_2d):
+    def test_roi_panel_details_rename_delete(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
         page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=2_000)
         self._draw_roi(page)
 
-        page.locator(".roi-hud-details").click()
-        page.wait_for_selector("#export-overlay.visible", timeout=2_000)
-        assert page.locator("#export-title").inner_text() == "ROI stats"
-        assert page.locator(".roi-manager-row, .roi-manager-row-compact").count() == 2
-        table_text = page.locator("#export-table-wrap").inner_text()
-        assert "MEAN" in table_text
-        assert "STD" in table_text
-        assert page.locator("#export-download").inner_text() == "Download CSV"
-        assert page.locator("#export-mask").is_visible()
+        panel = page.locator("#roi-stats-hud")
+        panel.wait_for(state="visible")
+        assert page.locator(".roi-hud-row").count() == 1
+        assert panel.locator(".roi-hud-export").all_inner_texts() == ["CSV", "mask"]
+        # No separate window: the ROI numbers stay beside the image.
+        assert not page.locator("#export-overlay").is_visible()
 
-        name = page.locator(".roi-manager-name input").first
+        row = page.locator('.roi-hud-row[data-roi-idx="0"]')
+        page.wait_for_function("() => _rois[0] && _rois[0].stats")
+        row.click()
+        detail = page.locator(".roi-hud-detail")
+        detail.wait_for(state="visible")
+        assert "min" in detail.inner_text() and "max" in detail.inner_text()
+        assert not page.locator("#export-overlay").is_visible()
+        row.click()
+        detail.wait_for(state="detached")
+
+        page.locator(".roi-hud-name").first.dblclick()
+        name = page.locator(".roi-hud-rename")
+        name.wait_for(state="visible")
         name.fill("Phantom well")
         name.press("Enter")
         page.wait_for_timeout(200)
         assert page.evaluate("() => _rois[0].name") == "Phantom well"
         assert page.evaluate("() => _roiCanvasLabel(0)") == "Phantom well"
+        assert page.locator(".roi-hud-name").first.inner_text() == "Phantom well"
 
-        page.locator(".roi-manager-actions").get_by_label("Delete Phantom well").click()
+        row.hover()
+        page.get_by_label("Delete ROI Phantom well").click()
         page.wait_for_timeout(300)
         assert page.evaluate("() => _rois.length") == 0
 

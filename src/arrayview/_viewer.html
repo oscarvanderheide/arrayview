@@ -1354,41 +1354,120 @@
         #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
+        /* ROI panel: same family as the overlay legend — a quiet list that
+         * sits beside the image. Each row: name, mean, std, and a strip
+         * showing where that ROI's values fall on an axis shared by all
+         * ROIs (histogram between its min and max, tick at the mean). */
         #roi-stats-hud {
             position: fixed;
             z-index: 7;
             display: none;
             box-sizing: border-box;
             width: max-content;
+            min-width: 216px;
             max-width: calc(100vw - 20px);
-            max-height: min(280px, 40vh);
+            max-height: min(360px, 50vh);
             overflow: auto;
-            padding: 7px;
+            padding: 3px 4px 5px;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
             color: var(--text);
             font: 11px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-variant-numeric: tabular-nums;
             backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
             opacity: 0.9;
+            transition: opacity 160ms ease;
+            scrollbar-width: thin; scrollbar-color: var(--border) transparent;
         }
+        #roi-stats-hud:hover, #roi-stats-hud:focus-within { opacity: 1; }
         #roi-stats-hud.visible { display: block; }
-        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; color: var(--muted); }
+        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; }
         #roi-stats-hud .roi-hud-grip:active { cursor: grabbing; }
-        #roi-stats-hud .roi-hud-delete, #roi-stats-hud .roi-hud-details { display: grid; place-items: center; width: 22px; height: 22px; padding: 3px; border: 0; border-radius: 4px; color: var(--text); background: transparent; cursor: pointer; opacity: 0.65; }
-        #roi-stats-hud .roi-hud-delete:hover, #roi-stats-hud .roi-hud-details:hover { color: var(--text); background: var(--surface-hover); }
-        #roi-stats-hud .roi-hud-row.focused .roi-hud-delete { opacity: 1; }
-        #roi-stats-hud .roi-hud-delete svg, #roi-stats-hud .roi-hud-details svg { width: 13px; height: 13px; }
-        #roi-stats-hud table { border-collapse: collapse; table-layout: auto; width: 100%; }
-        #roi-stats-hud th, #roi-stats-hud td { padding: 5px 7px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #roi-stats-hud th { color: var(--muted); font-weight: normal; font-size: 10px; }
-        #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; }
-        #roi-stats-hud th:last-child { width: 22px; }
-        #roi-stats-hud .roi-hud-name { display: inline-block; max-width: 12ch; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-        #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
-        #roi-stats-hud .roi-hud-row.focused { background: color-mix(in srgb, var(--active-dim) 18%, var(--surface)); box-shadow: inset 2px 0 var(--roi-color); }
+        #roi-stats-hud .roi-hud-head {
+            display: flex; align-items: center; gap: 2px;
+            height: 26px; padding: 0 2px 0 6px; margin-bottom: 1px;
+        }
+        #roi-stats-hud .roi-hud-title { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
+        #roi-stats-hud .roi-hud-count {
+            margin: 0 auto 0 6px; color: var(--muted); font-size: 10px; opacity: 0.7;
+        }
+        #roi-stats-hud button {
+            display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+            height: 20px; min-width: 20px; padding: 0 5px;
+            border: 0; border-radius: 5px; background: transparent;
+            color: var(--muted); font: inherit; font-size: 10px; cursor: pointer;
+        }
+        #roi-stats-hud button:hover { color: var(--text); background: var(--surface-2); }
+        #roi-stats-hud button:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+        #roi-stats-hud button svg { width: 12px; height: 12px; display: block; flex: none; }
+        #roi-stats-hud .roi-hud-export[data-tip] { position: relative; }
+        #roi-stats-hud .roi-hud-export[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute; top: calc(100% + 6px); right: 0;
+            padding: 4px 8px; border-radius: 5px;
+            border: 1px solid var(--border); background: var(--surface); color: var(--text);
+            font-size: 10px; white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 120ms ease; z-index: 2;
+        }
+        #roi-stats-hud .roi-hud-export[data-tip]:hover::after { opacity: 1; transition-delay: 350ms; }
+        #roi-stats-hud table { border-collapse: separate; border-spacing: 0; width: 100%; }
+        #roi-stats-hud th, #roi-stats-hud td { padding: 0 3px; height: 22px; text-align: right; white-space: nowrap; }
+        #roi-stats-hud th { height: 16px; color: color-mix(in srgb, var(--text) 40%, var(--muted)); font-weight: normal; font-size: 9.5px; letter-spacing: 0.03em; }
+        #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; padding-left: 6px; }
+        #roi-stats-hud th.roi-hud-axis { text-align: left; }
+        #roi-stats-hud .roi-hud-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+        #roi-stats-hud .roi-hud-row { cursor: pointer; }
+        #roi-stats-hud .roi-hud-row td:first-child { border-radius: 6px 0 0 6px; }
+        #roi-stats-hud .roi-hud-row td:last-child { border-radius: 0 6px 6px 0; padding-right: 2px; }
+        #roi-stats-hud .roi-hud-row:hover td, #roi-stats-hud .roi-hud-row.focused td { background: var(--surface-2); }
+        #roi-stats-hud .roi-hud-row.open td { background: color-mix(in srgb, var(--roi-color) 9%, var(--surface-2)); }
+        #roi-stats-hud .roi-hud-row.open td:first-child { border-bottom-left-radius: 0; }
+        #roi-stats-hud .roi-hud-row.open td:last-child { border-bottom-right-radius: 0; }
         #roi-stats-hud .roi-hud-row.off { opacity: 0.45; }
-        #roi-stats-hud .roi-hud-row:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+        #roi-stats-hud .roi-hud-row:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; border-radius: 6px; }
+        #roi-stats-hud .roi-hud-name {
+            display: inline-block; max-width: 9ch; overflow: hidden; text-overflow: ellipsis;
+            vertical-align: middle; line-height: 14px;
+        }
+        #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
+        #roi-stats-hud .roi-hud-rename {
+            width: 9ch; box-sizing: border-box; height: 18px; padding: 0 4px; margin-left: -4px;
+            border: 1px solid var(--border); border-radius: 4px; outline: none;
+            background: var(--bg); color: var(--text); font: inherit;
+        }
+        #roi-stats-hud .roi-hud-rename:focus { border-color: var(--roi-color, var(--active-dim)); }
+        #roi-stats-hud .roi-hud-std { color: color-mix(in srgb, var(--text) 62%, var(--muted)); }
+        #roi-stats-hud .roi-hud-stripcell { padding-left: 7px; line-height: 0; }
+        #roi-stats-hud .roi-hud-strip {
+            width: 56px; height: 14px; vertical-align: middle; overflow: visible;
+            background: linear-gradient(var(--border), var(--border)) bottom / 100% 1px no-repeat;
+        }
+        #roi-stats-hud .roi-hud-strip-fill { fill: var(--roi-color); opacity: 0.55; transition: opacity 120ms ease; }
+        #roi-stats-hud .roi-hud-row:hover .roi-hud-strip-fill,
+        #roi-stats-hud .roi-hud-row.focused .roi-hud-strip-fill { opacity: 0.9; }
+        #roi-stats-hud .roi-hud-strip-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        #roi-stats-hud .roi-hud-delete { opacity: 0; transition: opacity 120ms ease; }
+        #roi-stats-hud .roi-hud-row:hover .roi-hud-delete,
+        #roi-stats-hud .roi-hud-row.focused .roi-hud-delete,
+        #roi-stats-hud .roi-hud-row:focus-within .roi-hud-delete { opacity: 1; }
+        #roi-stats-hud .roi-hud-delete svg { width: 13px; height: 13px; }
+        #roi-stats-hud .roi-hud-detail td {
+            height: auto; padding: 3px 8px 6px 21px; text-align: left;
+            background: color-mix(in srgb, var(--roi-color) 9%, var(--surface-2));
+            border-radius: 0 0 6px 6px;
+            color: color-mix(in srgb, var(--text) 45%, var(--muted)); font-size: 10px;
+        }
+        #roi-stats-hud .roi-hud-detail-line { display: flex; gap: 10px; line-height: 16px; }
+        #roi-stats-hud .roi-hud-detail-line b { color: var(--text); font-weight: normal; }
+        #roi-stats-hud .roi-hud-detail-map { min-width: 4ch; color: var(--text); }
+        #roi-stats-hud tfoot td { height: 14px; }
+        #roi-stats-hud .roi-hud-axis-labels { padding-left: 7px; text-align: left; }
+        #roi-stats-hud .roi-hud-axis-labels div {
+            display: flex; justify-content: space-between; gap: 6px; width: 56px;
+            font-size: 9px; line-height: 12px; color: color-mix(in srgb, var(--text) 40%, var(--muted));
+        }
 
         #overlay-palette {
             position: absolute;
@@ -2247,7 +2326,7 @@
         .help-key-or { color: var(--muted); font-size: 11px; padding: 0 1px; }
         .help-entry-action { color: var(--text); font-size: 12.5px; line-height: 19px; }
         .help-entry-hint {
-            color: var(--muted); font-size: 11px; line-height: 1.45;
+            color: color-mix(in srgb, var(--text) 45%, var(--muted)); font-size: 11px; line-height: 1.45;
             margin-left: 124px; margin-top: 1px; max-width: 58ch;
         }
         .help-footer {
@@ -2374,187 +2453,14 @@
         }
         #export-table th { color: var(--help-key); font-weight: 600; }
         #export-table tr:last-child td { border-bottom: none; }
-        .roi-manager-empty {
-            color: var(--muted);
-            text-align: center;
-            padding: 24px 0;
-            font-size: 12px;
-        }
-        .roi-manager-row {
-            display: grid;
-            grid-template-columns: minmax(100px, 1fr) 54px 54px 64px 62px 62px 58px;
-            column-gap: 8px;
-            row-gap: 6px;
-            align-items: center;
-            padding: 7px 6px;
-            border-bottom: 1px solid var(--border-subtle);
-            width: 100%;
-            box-sizing: border-box;
-        }
-        .roi-manager-row-compact {
-            display: grid;
-            grid-template-columns: minmax(100px, 1fr) 54px 54px 64px 62px 62px 58px;
-            column-gap: 8px;
-            row-gap: 6px;
-            align-items: center;
-            padding: 7px 6px;
-            border-bottom: 1px solid var(--border-subtle);
-            width: 100%;
-            box-sizing: border-box;
-        }
-        .roi-manager-expand {
-            display: none;
-            padding: 8px 0 4px;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-        .roi-manager-expand.open {
-            display: block;
-        }
-        .roi-manager-expand .roi-manager-maps {
-            margin-top: 0;
-            padding-top: 0;
-            border-top: none;
-        }
-        .roi-manager-head {
-            color: var(--muted);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            padding-top: 0;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-        .roi-manager-row:last-child,
-        .roi-manager-row-compact:last-child { border-bottom: none; }
-        .roi-manager-tools {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-bottom: 8px;
-            color: var(--muted);
-            font-size: 11px;
-        }
-        .roi-manager-name {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            min-width: 0;
-        }
-        .roi-manager-swatch {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            border: 1px solid var(--border);
-            flex: 0 0 auto;
-        }
-        .roi-manager-name input {
-            width: 8ch;
-            min-width: 0;
-            background: transparent;
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 3px 6px;
-            font: inherit;
-        }
-        .roi-manager-name input:focus {
-            outline: none;
-            border-color: var(--border);
-            box-shadow: none;
-        }
-        .roi-manager-meta,
-        .roi-manager-value-sub,
-        .roi-manager-map-row {
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.45;
-        }
-        .roi-manager-value {
-            color: color-mix(in srgb, var(--muted) 68%, var(--text));
-            font-size: 13px;
-            font-weight: 500;
-            line-height: 1.2;
-            font-variant-numeric: tabular-nums;
-        }
-        .roi-manager-row-compact:hover .roi-manager-value,
-        .roi-manager-row-compact:hover .roi-manager-range {
-            color: var(--text);
-        }
-        .roi-manager-map-row strong {
-            color: var(--text);
-            font-weight: 600;
-        }
-        .roi-manager-range {
-            color: color-mix(in srgb, var(--muted) 68%, var(--text));
-            font-size: 13px;
-            font-weight: 500;
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }
-        .roi-manager-maps {
-            margin-top: 5px;
-            padding-top: 5px;
-            border-top: 1px solid var(--border-subtle);
-        }
-        .roi-manager-actions {
-            display: flex;
-            gap: 6px;
-            justify-content: flex-end;
-            justify-self: end;
-        }
-        .roi-manager-actions button {
-            background: transparent;
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 5px 8px;
-            font: inherit;
-            cursor: pointer;
-        }
-        .roi-manager-actions button {
-            width: 26px;
-            height: 26px;
-            padding: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--muted);
-        }
-        .roi-manager-actions button svg {
-            width: 14px;
-            height: 14px;
-        }
-        .roi-manager-actions button:hover {
-            border-color: var(--muted);
-        }
-        .roi-expand-btn {
-            background: transparent;
-            color: var(--muted);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 5px 7px;
-            font: inherit;
-            font-size: 10px;
-            cursor: pointer;
-            line-height: 1;
-        }
-        .roi-expand-btn:hover {
-            color: var(--text);
-            border-color: var(--muted);
-        }
         @media (max-width: 760px) {
             #export-box {
                 width: min(560px, 94vw);
                 padding: 14px 16px;
             }
-            .roi-manager-head {
-                display: grid;
-            }
         }
         #export-footer { display: flex; justify-content: flex-end; gap: 8px; }
-        #export-download,
-        #export-mask {
+        #export-download {
             background: transparent;
             color: var(--text);
             border: 1px solid var(--border);
@@ -2565,8 +2471,7 @@
             font-weight: 600;
             cursor: pointer;
         }
-        #export-download:hover,
-        #export-mask:hover {
+        #export-download:hover {
             border-color: var(--muted);
             color: var(--active-dim);
         }
@@ -5853,13 +5758,12 @@
     <div id="export-overlay">
         <div id="export-box">
             <div id="export-header">
-                <span id="export-title" class="island-title island-title-roi">Region of interest &middot; export</span>
+                <span id="export-title" class="island-title">Segmentation &middot; export</span>
                 <span id="export-close">&#x2715;</span>
             </div>
             <div id="export-table-wrap"></div>
             <div id="export-footer">
-                <button id="export-mask">Download mask .npy</button>
-                <button id="export-download">Download CSV</button>
+                <button id="export-download">Download .npy</button>
             </div>
         </div>
     </div>
@@ -17761,7 +17665,7 @@
         window._roiSetShape = _roiSetShape;
 
         function _roiOpenManager() {
-            openExportOverlay('roi');
+            _roiHudExpandAll();
         }
         window._roiOpenManager = _roiOpenManager;
 
@@ -17961,8 +17865,8 @@
         window._islandDeleteSeg = _islandDeleteSeg;
 
         function _islandExport() {
-            if (rectRoiMode) openExportOverlay('roi');
-            else if (_segMode) openExportOverlay('seg');
+            if (rectRoiMode) _roiHudExpandAll();
+            else if (_segMode) openExportOverlay();
         }
         window._islandExport = _islandExport;
 
@@ -17988,6 +17892,105 @@
             _redrawRoiOverlays();
             document.querySelector('#roi-stats-hud .roi-hud-row.focused')?.scrollIntoView({ block: 'nearest' });
         }
+        // Rows the user opened for count / min / max (and per-map values in qMRI).
+        const _roiHudExpanded = new Set();
+        let _roiHudRenaming = -1;
+
+        /** One formatter per column so every value in it has the same number
+         *  of decimals and the digits line up. */
+        function _roiHudColumnFormat(values) {
+            const finite = values.filter(v => typeof v === 'number' && Number.isFinite(v));
+            const m = finite.length ? Math.max(...finite.map(Math.abs)) : 0;
+            if (m === 0) return v => (typeof v === 'number' && Number.isFinite(v)) ? '0' : '—';
+            if (m >= 1e5 || m < 1e-3) return v => (typeof v === 'number' && Number.isFinite(v)) ? v.toExponential(2) : '—';
+            const d = Math.max(0, Math.min(6, 3 - Math.floor(Math.log10(m))));
+            return v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(d) : '—';
+        }
+
+        /** Where a ROI's values sit on the value axis shared by all ROIs:
+         *  its histogram between its own min and max, and a tick at the mean. */
+        function _roiHudStripSvg(stats, lo, hi) {
+            const W = 56, H = 14;
+            if (!stats || !(hi > lo) || !Number.isFinite(stats.min) || !Number.isFinite(stats.max)) {
+                return `<svg class="roi-hud-strip" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
+            }
+            const x = v => Math.max(0, Math.min(W, (v - lo) / (hi - lo) * W));
+            const x0 = x(stats.min), x1 = Math.max(x(stats.max), x0 + 1);
+            const hist = Array.isArray(stats.hist) ? stats.hist : [];
+            const peak = hist.length ? Math.max(...hist) : 0;
+            let body;
+            if (peak > 0) {
+                const bw = (x1 - x0) / hist.length;
+                let d = `M${x0.toFixed(2)} ${H}`;
+                hist.forEach((c, b) => {
+                    const y = (H - 1 - (c / peak) * (H - 2)).toFixed(2);
+                    d += `V${y}H${(x0 + (b + 1) * bw).toFixed(2)}`;
+                });
+                d += `V${H}Z`;
+                body = `<path class="roi-hud-strip-fill" d="${d}"/>`;
+            } else {
+                body = `<rect class="roi-hud-strip-fill" x="${x0.toFixed(2)}" y="${H - 4}" width="${(x1 - x0).toFixed(2)}" height="3"/>`;
+            }
+            const mx = Number.isFinite(stats.mean) ? x(stats.mean).toFixed(2) : null;
+            const tick = mx === null ? '' : `<line class="roi-hud-strip-tick" x1="${mx}" x2="${mx}" y1="0" y2="${H}"/>`;
+            return `<svg class="roi-hud-strip" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${body}${tick}</svg>`;
+        }
+
+        function _roiHudStats(r, map) {
+            return map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
+        }
+
+        function _roiHudDetailHtml(r) {
+            const fmt = _roiStatsFmt;
+            const line = s => `<span>n <b>${s.n ?? '—'}</b></span><span>min <b>${fmt(s.min)}</b></span><span>max <b>${fmt(s.max)}</b></span>`;
+            if (Array.isArray(r.qmriStats) && r.qmriStats.length) {
+                return r.qmriStats.filter(q => q && q.stats).map(q => {
+                    const label = QMRI_LABELS[q.colormap] || q.colormap || `map ${(q.qmriIdx ?? 0) + 1}`;
+                    return `<div class="roi-hud-detail-line"><span class="roi-hud-detail-map">${_roiHtmlEscape(label)}</span><span><b>${fmt(q.stats.mean)}</b> ± ${fmt(q.stats.std)}</span>${line(q.stats)}</div>`;
+                }).join('');
+            }
+            return r.stats ? `<div class="roi-hud-detail-line">${line(r.stats)}</div>` : '<div class="roi-hud-detail-line">measuring…</div>';
+        }
+
+        function _roiHudStartRename(idx) {
+            const hud = document.getElementById('roi-stats-hud');
+            const cell = hud?.querySelector(`.roi-hud-row[data-roi-idx="${idx}"] .roi-hud-name`);
+            if (!cell) return;
+            _roiHudRenaming = idx;
+            const input = document.createElement('input');
+            input.className = 'roi-hud-rename';
+            input.value = _roiName(idx);
+            input.setAttribute('aria-label', 'ROI name');
+            input.spellcheck = false;
+            cell.replaceWith(input);
+            input.focus();
+            input.select();
+            let done = false;
+            const finish = commit => {
+                if (done) return;
+                done = true;
+                _roiHudRenaming = -1;
+                if (commit) _roiManagerRename(idx, input.value);
+                hud._content = null;
+                _reconcileRoiHud();
+                sink?.focus();
+            };
+            input.addEventListener('keydown', e => {
+                e.stopPropagation();
+                if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+                else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+            });
+            input.addEventListener('blur', () => finish(true));
+            input.addEventListener('pointerdown', e => e.stopPropagation());
+        }
+
+        function _roiHudExpandAll() {
+            _rois.forEach((_, i) => _roiHudExpanded.add(i));
+            const hud = document.getElementById('roi-stats-hud');
+            if (hud) hud._content = null;
+            _reconcileRoiHud();
+        }
+
         function _reconcileRoiHud() {
             const hud = document.getElementById('roi-stats-hud');
             if (!hud) return;
@@ -17996,27 +17999,69 @@
             hud.classList.toggle('visible', !!visible);
             hud.setAttribute('aria-hidden', String(!visible));
             if (!visible) { _roiHudHoverIdx = -1; return; }
+            if (_roiHudRenaming >= 0) return;  // keep the name field alive while typing
+            for (const i of [..._roiHudExpanded]) if (i >= _rois.length) _roiHudExpanded.delete(i);
             const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
             const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI';
-            let html = `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col" class="roi-hud-grip" title="Drag to move">${_roiHtmlEscape(heading)}</th><th scope="col" class="roi-hud-grip" title="Drag to move">mean</th><th scope="col" class="roi-hud-grip" title="Drag to move">std</th><th scope="col"><button type="button" class="roi-hud-details" title="ROI details" aria-label="ROI details">${_ROI_ACTION_ICONS.stats}</button></th></tr></thead><tbody>`;
+            const all = _rois.map(r => _roiHudStats(r, map));
+            const shown = all.filter((st, i) => st && _rois[i].visible !== false);
+            const fmtMean = _roiHudColumnFormat(all.map(st => st?.mean));
+            const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
+            const lo = shown.length ? Math.min(...shown.map(st => st.min).filter(Number.isFinite)) : NaN;
+            const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
+            const axisFmt = v => Number.isFinite(v) ? (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2) ? v.toExponential(1) : parseFloat(v.toPrecision(3)).toString()) : '';
+            const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
+            let html = `<div class="roi-hud-head roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span><span class="roi-hud-count">${_rois.length}</span>`
+                + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
+                + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
+            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col">mean</th><th scope="col">std</th><th scope="col" class="roi-hud-axis">values</th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
             _rois.forEach((r, i) => {
-                const stats = map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
+                const stats = all[i];
                 const name = _roiName(i);
-                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}" data-roi-idx="${i}" tabindex="0" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)}">${_roiHtmlEscape(name)}</span></td><td title="${_roiStatsFmt(stats?.mean)}">${_roiStatsFmt(stats?.mean)}</td><td title="${_roiStatsFmt(stats?.std)}">${_roiStatsFmt(stats?.std)}</td><td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                const open = _roiHudExpanded.has(i);
+                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
+                    + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
+                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)}">${stats ? fmtMean(stats.mean) : '…'}</td>`
+                    + `<td class="roi-hud-num roi-hud-std" title="${_roiStatsFmt(stats?.std)}">${stats ? fmtStd(stats.std) : ''}</td>`
+                    + `<td class="roi-hud-stripcell">${_roiHudStripSvg(r.visible === false ? null : stats, lo, hi)}</td>`
+                    + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="5">${_roiHudDetailHtml(r)}</td></tr>`;
             });
-            html += '</tbody></table>';
+            html += '</tbody>';
+            if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
+                html += `<tfoot><tr><td colspan="3"></td><td class="roi-hud-axis-labels" colspan="2"><div><span>${axisFmt(lo)}</span><span>${axisFmt(hi)}</span></div></td></tr></tfoot>`;
+            }
+            html += '</table>';
             if (hud._content !== html) {
                 hud._content = html;
                 hud.innerHTML = html;
-                hud.querySelector('.roi-hud-details').addEventListener('click', () => _roiOpenManager());
+                hud.querySelectorAll('.roi-hud-export').forEach(btn => btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    if (btn.dataset.export === 'csv') _exportRoisCsv();
+                    else _exportRoiMask();
+                }));
                 hud.querySelectorAll('.roi-hud-row').forEach(row => {
                     const idx = Number(row.dataset.roiIdx);
                     row.addEventListener('pointerenter', () => _setRoiHudHover(idx));
                     row.addEventListener('focus', () => _setRoiHudHover(idx));
                     row.addEventListener('blur', () => _setRoiHudHover(-1));
+                    row.addEventListener('click', e => {
+                        if (e.target.closest('button, input')) return;
+                        if (_roiHudExpanded.has(idx)) _roiHudExpanded.delete(idx); else _roiHudExpanded.add(idx);
+                        _reconcileRoiHud();
+                    });
+                    row.addEventListener('keydown', e => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); row.click(); }
+                        else if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); _roiHudStartRename(idx); }
+                    });
+                    row.querySelector('.roi-hud-name').addEventListener('dblclick', e => {
+                        e.stopPropagation();
+                        _roiHudStartRename(idx);
+                    });
                     row.querySelector('.roi-hud-delete').addEventListener('click', e => {
                         e.stopPropagation();
                         _roiHudHoverIdx = -1;
+                        _roiHudExpanded.clear();
                         _islandDeleteRoi(idx);
                     });
                 });
@@ -18042,7 +18087,7 @@
                 hud.style.top = `${Math.max(gap, Math.min(innerHeight - height - gap, position.y))}px`;
             }
             hud.onpointerdown = e => {
-                if (e.button !== 0 || !e.target.closest('.roi-hud-grip')) return;
+                if (e.button !== 0 || !e.target.closest('.roi-hud-grip') || e.target.closest('button')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 const rect = hud.getBoundingClientRect();
@@ -18631,65 +18676,6 @@
             }[type] || type || 'ROI';
         }
 
-        function _roiStatsLine(stats) {
-            if (!stats) return 'stats pending';
-            const fmt = _roiStatsFmt;
-            const n = stats.n !== undefined && stats.n !== null ? `count ${fmt(stats.n)} · ` : '';
-            return `${n}mean ${fmt(stats.mean)} · std ${fmt(stats.std)} · min ${fmt(stats.min)} · max ${fmt(stats.max)}`;
-        }
-
-        function _roiQmriDetails(r) {
-            if (!Array.isArray(r.qmriStats) || !r.qmriStats.length) return '';
-            let html = '<div class="roi-manager-maps">';
-            for (const q of r.qmriStats) {
-                if (!q || !q.stats) continue;
-                const label = QMRI_LABELS[q.colormap] || q.colormap || `map ${(q.qmriIdx ?? 0) + 1}`;
-                html += `<div class="roi-manager-map-row"><strong>${_roiHtmlEscape(label)}</strong> ${_roiHtmlEscape(_roiStatsLine(q.stats))}</div>`;
-            }
-            html += '</div>';
-            return html;
-        }
-
-        function _roiMetric(stats, key) {
-            return stats ? _roiStatsFmt(stats[key]) : '—';
-        }
-
-        function _buildRoiExportTable() {
-            if (!_rois.length) {
-                return '<div class="roi-manager-empty">No ROIs yet. Use Shift+R, then drag on the canvas.</div>';
-            }
-            let html = '<div id="roi-manager-rows">';
-            html += '<div class="roi-manager-row roi-manager-head">';
-            html += '<div>ROI</div><div>Mean</div><div>Std</div><div>Count</div><div>Min</div><div>Max</div><div></div>';
-            html += '</div>';
-            for (let i = 0; i < _rois.length; i++) {
-                const r = _rois[i];
-                if (!r) continue;
-                const c = _roiColors[i % _roiColors.length];
-                const hasExpand = !!(Array.isArray(r.qmriStats) && r.qmriStats.length);
-                html += `<div class="roi-manager-row-compact">`;
-                html += `<div class="roi-manager-name"><span class="roi-manager-swatch" style="background:${c.stroke}"></span><input value="${_roiHtmlEscape(_roiName(i))}" onchange="_roiManagerRename(${i}, this.value)" onkeydown="event.stopPropagation(); if (event.key === 'Enter') this.blur()"></div>`;
-                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'mean'))}</div>`;
-                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'std'))}</div>`;
-                html += `<div class="roi-manager-value">${_roiHtmlEscape(_roiMetric(r.stats, 'n'))}</div>`;
-                html += `<div class="roi-manager-range">${_roiHtmlEscape(_roiMetric(r.stats, 'min'))}</div>`;
-                html += `<div class="roi-manager-range">${_roiHtmlEscape(_roiMetric(r.stats, 'max'))}</div>`;
-                html += `<div class="roi-manager-actions">`;
-                html += `<button type="button" onclick="event.stopPropagation(); _roiManagerDelete(${i})" title="Delete ${_roiHtmlEscape(_roiName(i))}" aria-label="Delete ${_roiHtmlEscape(_roiName(i))}">${_ROI_ACTION_ICONS.clear}</button>`;
-                if (hasExpand) {
-                    html += `<button type="button" class="roi-expand-btn" onclick="event.stopPropagation(); _roiManagerToggleExpand(${i}, this)" title="Details">&#x25BC;</button>`;
-                }
-                html += `</div></div>`;
-                if (hasExpand) {
-                    html += `<div class="roi-manager-expand" id="roi-expand-${i}">`;
-                    html += _roiQmriDetails(r);
-                    html += `</div>`;
-                }
-            }
-            html += '</div>';
-            return html;
-        }
-
         function _buildSegExportTable() {
             if (!_segLabels || !_segLabels.length) {
                 return '<div style="color: var(--muted); text-align: center; padding: 24px 0;">No segments to export.</div>';
@@ -18714,27 +18700,14 @@
             }).catch(err => showToast(`segmentation export: ${err.message}`));
         }
 
-        let _exportMode = 'roi';  // 'roi' | 'seg' — which exporter the modal is currently serving
-        function openExportOverlay(mode) {
+        // Segmentation export window. ROI numbers live in the ROI panel itself.
+        function openExportOverlay() {
             const ov = document.getElementById('export-overlay');
             const wrap = document.getElementById('export-table-wrap');
-            const title = document.getElementById('export-title');
             if (!ov || !wrap) return;
-            _exportMode = mode || 'roi';
-            if (title) {
-                title.textContent = _exportMode === 'seg'
-                    ? 'Segmentation \u00B7 export'
-                    : 'ROI stats';
-            }
-            wrap.innerHTML = _exportMode === 'seg' ? _buildSegExportTable() : _buildRoiExportTable();
+            wrap.innerHTML = _buildSegExportTable();
             ov.classList.add('visible');
-            const btn = document.getElementById('export-download');
-            const maskBtn = document.getElementById('export-mask');
-            if (btn) {
-                btn.textContent = _exportMode === 'seg' ? 'Download .npy' : 'Download CSV';
-                btn.focus();
-            }
-            if (maskBtn) maskBtn.style.display = _exportMode === 'roi' ? '' : 'none';
+            document.getElementById('export-download')?.focus();
         }
         function closeExportOverlay() {
             const ov = document.getElementById('export-overlay');
@@ -18746,21 +18719,12 @@
             const ov = document.getElementById('export-overlay');
             const closeBtn = document.getElementById('export-close');
             const dlBtn = document.getElementById('export-download');
-            const maskBtn = document.getElementById('export-mask');
             if (ov) {
                 ov.addEventListener('click', e => { if (e.target === ov) closeExportOverlay(); });
             }
             if (closeBtn) closeBtn.addEventListener('click', closeExportOverlay);
             if (dlBtn) dlBtn.addEventListener('click', () => {
-                try {
-                    if (_exportMode === 'seg') _exportSegMask();
-                    else _exportRoisCsv();
-                } finally { closeExportOverlay(); }
-            });
-            if (maskBtn) maskBtn.addEventListener('click', () => {
-                try {
-                    if (_exportMode === 'roi') _exportRoiMask();
-                } finally { closeExportOverlay(); }
+                try { _exportSegMask(); } finally { closeExportOverlay(); }
             });
             document.addEventListener('keydown', e => {
                 if (e.key === 'Escape' && ov && ov.classList.contains('visible')) {
@@ -19688,7 +19652,7 @@
                         body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
                     }
                     body += `</div>`;
-                    const exportTitle = isRoi ? 'Export table' : 'Export segments';
+                    const exportTitle = isRoi ? 'Show details for every ROI' : 'Export segments';
                     body += `<span class="island-modal-btn" onclick="_islandExport()" title="${exportTitle}">${_MAGNIFIER_ICON}</span>`;
                     body += `</div>`;
                     if (!isRoi) {
@@ -26264,11 +26228,6 @@
             _reconcileRoiHud();
             renderIsland();
             _reconcileRoiColorbarControls();
-            const ov = document.getElementById('export-overlay');
-            const wrap = document.getElementById('export-table-wrap');
-            if (ov && wrap && ov.classList.contains('visible') && _exportMode === 'roi') {
-                wrap.innerHTML = _buildRoiExportTable();
-            }
         }
 
         function _roiManagerRename(idx, value) {
@@ -26290,14 +26249,6 @@
         }
         window._roiManagerDelete = _roiManagerDelete;
 
-        function _roiManagerToggleExpand(idx, btn) {
-            const el = document.getElementById('roi-expand-' + idx);
-            if (!el) return;
-            const open = el.classList.toggle('open');
-            btn.innerHTML = open ? '&#x25B2;' : '&#x25BC;';
-            btn.setAttribute('title', open ? 'Hide details' : 'Details');
-        }
-        window._roiManagerToggleExpand = _roiManagerToggleExpand;
 
         async function _exportRoiMask() {
             if (!_rois.length) return;
@@ -29666,25 +29617,31 @@
             },
             {
                 id: 'tool-roi', label: 'ROI',
-                desc: 'Region of interest mode — draw circular, rectangular, freehand, or flood-filled regions and manage measurements in the stats popup.',
+                desc: 'Measure regions: draw circles, rectangles, freehand shapes or flood-filled areas. The panel beside the image lists every region with its mean, its spread and where its values fall.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Drawing',
                         entries: [
-                            { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'turning off hides ROI marks but keeps session measurements' },
+                            { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'hiding keeps your regions and their numbers' },
                             { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
-                            { key: 'Drag', action: 'Draw ROI on canvas' },
-                            { key: 'Colorbar controls', action: 'Switch shape', hint: 'circle · rectangle · freehand · flood fill' },
-                            { key: 'Click ROI', action: 'Select an existing ROI' },
-                            { key: 'Delete / Backspace', action: 'Delete selected ROI' },
+                            { key: 'Drag', action: 'Draw a region' },
+                            { key: 'Shape buttons', action: 'Switch shape', hint: 'below the image · circle, rectangle, freehand, flood fill' },
+                            { key: 'Click ROI', action: 'Select a region' },
+                            { key: 'Double-click ROI', action: 'Rename a region' },
+                            { key: 'Delete / Backspace', action: 'Delete the selected region' },
                         ]
                     },
                     {
-                        title: 'Statistics',
+                        title: 'The ROI panel',
                         entries: [
-                            { key: 'Stats', action: 'Open ROI manager', hint: 'rename, delete, adjust extent, export CSV, or export mask' },
-                            { key: 'N', action: 'Export ROI mask as .npy' },
+                            { key: 'Hover row', action: 'Highlight that region on the image', hint: 'hovering a region on the image highlights its row' },
+                            { key: 'Click row', action: 'Show pixel count, min and max', hint: 'in qMRI also the mean ± std for every map' },
+                            { key: 'Double-click name', action: 'Rename' },
+                            { key: 'Values strip', action: 'Where each region\u2019s values fall', hint: 'all rows share one value axis, labelled underneath · the tick is the mean' },
+                            { key: 'Drag header', action: 'Move the panel' },
+                            { key: 'CSV / mask', action: 'Download the numbers or the region mask' },
+                            { key: 'N', action: 'Export the region mask as .npy' },
                         ]
                     },
                 ]

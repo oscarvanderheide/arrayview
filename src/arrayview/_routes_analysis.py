@@ -347,12 +347,14 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         results = []
         for roi_idx, roi in enumerate(rois):
             rows = []
+            values = []
             for idx in _roi_scope_indices(roi, indices, session.shape, {dim_x, dim_y}):
                 raw = extract_slice(session, dim_x, dim_y, idx)
                 data = apply_complex_mode(raw, complex_mode)
                 mask = _roi_mask_for_shape(roi, data.shape, idx)
                 finite = _roi_finite_values(data, mask)
                 if finite.size:
+                    values.append(finite)
                     rows.append(
                         {
                             "indices": list(idx),
@@ -365,6 +367,8 @@ def register_analysis_routes(app, get_session_or_404) -> None:
                         }
                     )
             combined = _combine_roi_rows(rows)
+            if combined is not None:
+                combined["hist"] = _roi_value_histogram(values, combined["min"], combined["max"])
             results.append(
                 {
                     "roi": roi.get("id", roi_idx),
@@ -896,6 +900,23 @@ def _roi_finite_values(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
         return np.array([])
     roi = data[mask]
     return roi[np.isfinite(roi)]
+
+
+_ROI_HIST_BINS = 24
+
+
+def _roi_value_histogram(values: list[np.ndarray], lo, hi) -> list[int]:
+    """Pixel counts in equal bins between the ROI's own min and max.
+
+    The viewer places each ROI's bins on one value axis shared by all ROIs,
+    so only the counts travel; the edges follow from min/max.
+    """
+    if not values or lo is None or hi is None:
+        return []
+    counts, _ = np.histogram(
+        np.concatenate(values), bins=_ROI_HIST_BINS, range=(float(lo), float(hi) if hi > lo else float(lo) + 1.0)
+    )
+    return [int(c) for c in counts]
 
 
 def _combine_roi_rows(rows: list[dict]) -> dict | None:
