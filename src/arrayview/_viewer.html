@@ -1419,60 +1419,57 @@
         }
         #roi-stats-hud .roi-hud-export[data-tip]:hover::after { opacity: 1; transition-delay: 350ms; }
         #roi-stats-hud table { border-collapse: separate; border-spacing: 0; width: 100%; }
-        #roi-stats-hud th, #roi-stats-hud td { padding: 0 3px; height: 22px; text-align: right; white-space: nowrap; }
-        #roi-stats-hud th { height: 16px; color: color-mix(in srgb, var(--text) 40%, var(--muted)); font-weight: normal; font-size: 9.5px; letter-spacing: 0.03em; }
-        #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; padding-left: 6px; }
-        #roi-stats-hud th.roi-hud-axis { text-align: left; }
+        #roi-stats-hud th, #roi-stats-hud td { padding: 0 6px; height: 28px; text-align: right; white-space: nowrap; }
+        #roi-stats-hud th { height: 18px; color: color-mix(in srgb, var(--text) 40%, var(--muted)); font-weight: normal; font-size: 9.5px; letter-spacing: 0.03em; }
+        #roi-stats-hud th:first-child, #roi-stats-hud td:first-child { text-align: left; padding-left: 8px; padding-right: 14px; }
         #roi-stats-hud .roi-hud-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
         #roi-stats-hud .roi-hud-row { cursor: pointer; }
-        #roi-stats-hud .roi-hud-row td:first-child { border-radius: 6px 0 0 6px; }
-        #roi-stats-hud .roi-hud-row td:last-child { border-radius: 0 6px 6px 0; padding-right: 2px; }
+        #roi-stats-hud .roi-hud-row td:first-child { border-radius: 7px 0 0 7px; }
+        #roi-stats-hud .roi-hud-row td:last-child { border-radius: 0 7px 7px 0; padding: 0 3px 0 4px; }
         #roi-stats-hud .roi-hud-row:hover td, #roi-stats-hud .roi-hud-row.focused td { background: var(--surface-2); }
         #roi-stats-hud .roi-hud-row.open td { background: color-mix(in srgb, var(--roi-color) 9%, var(--surface-2)); }
         #roi-stats-hud .roi-hud-row.open td:first-child { border-bottom-left-radius: 0; }
         #roi-stats-hud .roi-hud-row.open td:last-child { border-bottom-right-radius: 0; }
         #roi-stats-hud .roi-hud-row.off { opacity: 0.45; }
-        #roi-stats-hud .roi-hud-row:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; border-radius: 6px; }
+        #roi-stats-hud .roi-hud-row:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; border-radius: 7px; }
         #roi-stats-hud .roi-hud-name {
-            display: inline-block; max-width: 9ch; overflow: hidden; text-overflow: ellipsis;
+            display: inline-block; max-width: 12ch; overflow: hidden; text-overflow: ellipsis;
             vertical-align: middle; line-height: 14px;
         }
-        #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--roi-color); }
+        #roi-stats-hud .roi-hud-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--roi-color); }
         #roi-stats-hud .roi-hud-rename {
-            width: 9ch; box-sizing: border-box; height: 18px; padding: 0 4px; margin-left: -4px;
+            width: 12ch; box-sizing: border-box; height: 20px; padding: 0 4px; margin-left: -4px;
             border: 1px solid var(--border); border-radius: 4px; outline: none;
             background: var(--bg); color: var(--text); font: inherit;
         }
         #roi-stats-hud .roi-hud-rename:focus { border-color: var(--roi-color, var(--active-dim)); }
         #roi-stats-hud .roi-hud-std { color: color-mix(in srgb, var(--text) 62%, var(--muted)); }
-        #roi-stats-hud .roi-hud-stripcell { padding-left: 7px; line-height: 0; }
-        #roi-stats-hud .roi-hud-strip {
-            width: 56px; height: 14px; vertical-align: middle; overflow: visible;
-            background: linear-gradient(var(--border), var(--border)) bottom / 100% 1px no-repeat;
-        }
-        #roi-stats-hud .roi-hud-strip-fill { fill: var(--roi-color); opacity: 0.55; transition: opacity 120ms ease; }
-        #roi-stats-hud .roi-hud-row:hover .roi-hud-strip-fill,
-        #roi-stats-hud .roi-hud-row.focused .roi-hud-strip-fill { opacity: 0.9; }
-        #roi-stats-hud .roi-hud-strip-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        #roi-stats-hud .roi-hud-std:not(:empty)::before { content: '±'; margin: 0 5px 0 6px; color: var(--muted); }
         #roi-stats-hud .roi-hud-delete { opacity: 0; transition: opacity 120ms ease; }
         #roi-stats-hud .roi-hud-row:hover .roi-hud-delete,
         #roi-stats-hud .roi-hud-row.focused .roi-hud-delete,
         #roi-stats-hud .roi-hud-row:focus-within .roi-hud-delete { opacity: 1; }
         #roi-stats-hud .roi-hud-delete svg { width: 13px; height: 13px; }
         #roi-stats-hud .roi-hud-detail td {
-            height: auto; padding: 3px 8px 6px 21px; text-align: left;
+            height: auto; padding: 2px 10px 9px 24px; text-align: left;
             background: color-mix(in srgb, var(--roi-color) 9%, var(--surface-2));
-            border-radius: 0 0 6px 6px;
+            border-radius: 0 0 7px 7px;
             color: color-mix(in srgb, var(--text) 45%, var(--muted)); font-size: 10px;
         }
-        #roi-stats-hud .roi-hud-detail-line { display: flex; gap: 10px; line-height: 16px; }
+        #roi-stats-hud .roi-hud-detail-line { display: flex; gap: 12px; line-height: 17px; }
         #roi-stats-hud .roi-hud-detail-line b { color: var(--text); font-weight: normal; }
         #roi-stats-hud .roi-hud-detail-map { min-width: 4ch; color: var(--text); }
-        #roi-stats-hud tfoot td { height: 14px; }
-        #roi-stats-hud .roi-hud-axis-labels { padding-left: 7px; text-align: left; }
-        #roi-stats-hud .roi-hud-axis-labels div {
-            display: flex; justify-content: space-between; gap: 6px; width: 56px;
-            font-size: 9px; line-height: 12px; color: color-mix(in srgb, var(--text) 40%, var(--muted));
+        #roi-stats-hud .roi-hud-dist { margin: 2px 0 6px; }
+        #roi-stats-hud .roi-hud-dist-title { line-height: 16px; letter-spacing: 0.03em; }
+        #roi-stats-hud .roi-hud-strip {
+            display: block; width: 100%; max-width: 180px; height: 30px; overflow: visible;
+            background: linear-gradient(var(--border), var(--border)) bottom / 100% 1px no-repeat;
+        }
+        #roi-stats-hud .roi-hud-strip-fill { fill: var(--roi-color); opacity: 0.7; }
+        #roi-stats-hud .roi-hud-strip-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        #roi-stats-hud .roi-hud-dist-axis {
+            display: flex; justify-content: space-between; max-width: 180px;
+            font-size: 9px; line-height: 13px;
         }
 
         #overlay-palette {
@@ -17915,11 +17912,8 @@
 
         /** Where a ROI's values sit on the value axis shared by all ROIs:
          *  its histogram between its own min and max, and a tick at the mean. */
-        function _roiHudStripSvg(stats, lo, hi) {
-            const W = 56, H = 14;
-            if (!stats || !(hi > lo) || !Number.isFinite(stats.min) || !Number.isFinite(stats.max)) {
-                return `<svg class="roi-hud-strip" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
-            }
+        function _roiHudStripSvg(stats, lo, hi, W = 180, H = 30) {
+            if (!stats || !(hi > lo) || !Number.isFinite(stats.min) || !Number.isFinite(stats.max)) return '';
             const x = v => Math.max(0, Math.min(W, (v - lo) / (hi - lo) * W));
             const x0 = x(stats.min), x1 = Math.max(x(stats.max), x0 + 1);
             const hist = Array.isArray(stats.hist) ? stats.hist : [];
@@ -17939,15 +17933,21 @@
             }
             const mx = Number.isFinite(stats.mean) ? x(stats.mean).toFixed(2) : null;
             const tick = mx === null ? '' : `<line class="roi-hud-strip-tick" x1="${mx}" x2="${mx}" y1="0" y2="${H}"/>`;
-            return `<svg class="roi-hud-strip" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${body}${tick}</svg>`;
+            return `<svg class="roi-hud-strip" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${body}${tick}</svg>`;
         }
 
         function _roiHudStats(r, map) {
             return map ? (r.qmriStats || []).find(q => q.qmriIdx === map.qmriIdx)?.stats : r.stats;
         }
 
-        function _roiHudDetailHtml(r) {
+        function _roiHudDetailHtml(r, lo, hi) {
             const fmt = _roiStatsFmt;
+            const axisFmt = v => Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2) ? v.toExponential(1) : parseFloat(v.toPrecision(3)).toString();
+            const plot = r.stats && Array.isArray(r.stats.hist) && r.stats.hist.length && !(Array.isArray(r.qmriStats) && r.qmriStats.length)
+                ? _roiHudStripSvg(r.stats, lo, hi) : '';
+            const dist = plot
+                ? `<div class="roi-hud-dist"><div class="roi-hud-dist-title">distribution</div>${plot}<div class="roi-hud-dist-axis"><span>${axisFmt(lo)}</span><span>${axisFmt(hi)}</span></div></div>`
+                : '';
             const line = s => `<span>n <b>${s.n ?? '—'}</b></span><span>min <b>${fmt(s.min)}</b></span><span>max <b>${fmt(s.max)}</b></span>`;
             if (Array.isArray(r.qmriStats) && r.qmriStats.length) {
                 return r.qmriStats.filter(q => q && q.stats).map(q => {
@@ -17955,7 +17955,7 @@
                     return `<div class="roi-hud-detail-line"><span class="roi-hud-detail-map">${_roiHtmlEscape(label)}</span><span><b>${fmt(q.stats.mean)}</b> ± ${fmt(q.stats.std)}</span>${line(q.stats)}</div>`;
                 }).join('');
             }
-            return r.stats ? `<div class="roi-hud-detail-line">${line(r.stats)}</div>` : '<div class="roi-hud-detail-line">measuring…</div>';
+            return r.stats ? `${dist}<div class="roi-hud-detail-line">${line(r.stats)}</div>` : '<div class="roi-hud-detail-line">measuring…</div>';
         }
 
         function _roiHudStartRename(idx) {
@@ -18015,29 +18015,22 @@
             const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
             const lo = shown.length ? Math.min(...shown.map(st => st.min).filter(Number.isFinite)) : NaN;
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
-            const axisFmt = v => Number.isFinite(v) ? (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2) ? v.toExponential(1) : parseFloat(v.toPrecision(3)).toString()) : '';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
             let html = `<div class="roi-hud-head roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span><span class="roi-hud-count">${_rois.length}</span>`
                 + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
                 + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
-            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col">mean</th><th scope="col">std</th><th scope="col" class="roi-hud-axis">values</th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
+            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col">mean ± std</th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
             _rois.forEach((r, i) => {
                 const stats = all[i];
                 const name = _roiName(i);
                 const open = _roiHudExpanded.has(i);
                 html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
                     + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
-                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)}">${stats ? fmtMean(stats.mean) : '…'}</td>`
-                    + `<td class="roi-hud-num roi-hud-std" title="${_roiStatsFmt(stats?.std)}">${stats ? fmtStd(stats.std) : ''}</td>`
-                    + `<td class="roi-hud-stripcell">${_roiHudStripSvg(r.visible === false ? null : stats, lo, hi)}</td>`
+                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></td>`
                     + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
-                if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="5">${_roiHudDetailHtml(r)}</td></tr>`;
+                if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
             });
-            html += '</tbody>';
-            if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
-                html += `<tfoot><tr><td colspan="3"></td><td class="roi-hud-axis-labels" colspan="2"><div><span>${axisFmt(lo)}</span><span>${axisFmt(hi)}</span></div></td></tr></tfoot>`;
-            }
-            html += '</table>';
+            html += '</tbody></table>';
             if (hud._content !== html) {
                 hud._content = html;
                 hud.innerHTML = html;
@@ -25643,12 +25636,12 @@
          *  closely as a canvas shape can — same background/border colors,
          *  corner radius, padding, font — so this reads as the same pill
          *  rather than a separate ROI-tool-styled chip of its own. */
-        function _infoQuickDrawPill(ctx, text, cx, y0, y1) {
+        function _infoQuickDrawPill(ctx, text, cx, y0, y1, color = null) {
             if (!text) return;
             const light = document.documentElement.classList.contains('light');
             const bg = light ? 'rgba(240,240,240,0.8)' : 'rgba(30,30,30,0.75)';
             const border = 'rgba(255,255,255,0.08)';
-            const valueColor = getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim()
+            const valueColor = color || getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim()
                 || _INFO_QUICK_ROI_COLOR.stroke;
             const GAP = 5, PAD_X = 7, H = 18, RAD = 4;
             ctx.save();
@@ -25676,6 +25669,23 @@
             ctx.textBaseline = 'middle';
             ctx.fillText(text, cx, top + H / 2 + 0.5);
             ctx.restore();
+        }
+
+        /** Mean ± std beside a real ROI while it is hovered (on the image or
+         *  in the ROI panel), in the same pill as the quick-measure outline.
+         *  Only the hovered ROI gets one so several ROIs never stack labels. */
+        function _roiDrawHoverPill(ctx, r, i, sx, sy, statsOf, flip = null) {
+            const stats = i === _roiHudHoverIdx ? statsOf(r) : null;
+            if (!stats || !Number.isFinite(stats.mean)) return;
+            // Round like the ROI panel column so both show the same digits.
+            const all = _rois.map(statsOf);
+            const fmtMean = _roiHudColumnFormat(all.map(st => st?.mean));
+            const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
+            const a = _infoQuickPillAnchor(r, sx, sy);
+            if (flip && flip.x) a.cx = flip.w - a.cx;
+            if (flip && flip.y) [a.y0, a.y1] = [flip.h - a.y1, flip.h - a.y0];
+            const text = `${fmtMean(stats.mean)} \u00B1 ${fmtStd(stats.std)}`;
+            _infoQuickDrawPill(ctx, text, a.cx, a.y0, a.y1, _roiColors[i % _roiColors.length].stroke);
         }
 
         // ── Hover-info quick-measure overlays for compare mode ──────────────
@@ -25873,6 +25883,7 @@
                         if (flip_y) ly = dH - ly;
                     }
                     _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
+                    _roiDrawHoverPill(roiOverlayCtx, r, i, sx, sy, rr => rr?.stats, ffDs ? { x: flip_x, y: flip_y, w: dW, h: dH } : null);
                 }
             }
             // Draw in-progress real-ROI-tool preview (same border treatment as committed ROIs)
@@ -25980,6 +25991,7 @@
                             if (vfy) ly = dH - ly;
                         }
                         _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
+                        if (!is3d) _roiDrawHoverPill(rctx, r, i, sx, sy, rr => rr?.stats, ffDs ? { x: vfx, y: vfy, w: dW, h: dH } : null);
                     }
                 }
                 if (previewForView) {
@@ -26060,6 +26072,7 @@
                         const lbl = _roiCanvasLabel(i);
                         const [lx, ly] = _roiLabelPoint(r, sx, sy);
                         _roiDrawLabel(rctx, lbl, lx, ly, c.stroke);
+                        _roiDrawHoverPill(rctx, r, i, sx, sy, rr => (rr?.qmriStats || []).find(q => q.qmriIdx === view.qmriIdx)?.stats);
                     }
                 }
                 if (realPreview) {
@@ -29623,7 +29636,7 @@
             },
             {
                 id: 'tool-roi', label: 'ROI',
-                desc: 'Measure regions: draw circles, rectangles, freehand shapes or flood-filled areas. The panel beside the image lists every region with its mean, its spread and where its values fall.',
+                desc: 'Measure regions: draw circles, rectangles, freehand shapes or flood-filled areas. The panel beside the image lists every region with its mean and standard deviation.',
                 columns: 1,
                 sections: [
                     {
@@ -29641,10 +29654,9 @@
                     {
                         title: 'The ROI panel',
                         entries: [
-                            { key: 'Hover row', action: 'Highlight that region on the image', hint: 'hovering a region on the image highlights its row' },
-                            { key: 'Click row', action: 'Show pixel count, min and max', hint: 'in qMRI also the mean ± std for every map' },
+                            { key: 'Hover row', action: 'Highlight that region and show its mean ± std on the image', hint: 'hovering the region itself does the same and highlights its row' },
+                            { key: 'Click row', action: 'Show distribution, pixel count, min and max', hint: 'every region\u2019s distribution uses the same value axis · in qMRI: mean ± std for every map' },
                             { key: 'Double-click name', action: 'Rename' },
-                            { key: 'Values strip', action: 'Where each region\u2019s values fall', hint: 'all rows share one value axis, labelled underneath · the tick is the mean' },
                             { key: 'Drag header', action: 'Move the panel' },
                             { key: 'CSV / mask', action: 'Download the numbers or the region mask' },
                             { key: 'N', action: 'Export the region mask as .npy' },

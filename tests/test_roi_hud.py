@@ -11,7 +11,7 @@ pytestmark = pytest.mark.browser
 
 def _assert_row_shows(row, expected):
     """Mean and std cells show the measured values, rounded for display."""
-    shown = [float(t) for t in row.locator("td").all_text_contents()[1:3]]
+    shown = [float(row.locator(sel).inner_text()) for sel in (".roi-hud-mean", ".roi-hud-std")]
     for got, want in zip(shown, expected):
         assert math.isclose(got, want, rel_tol=2e-3, abs_tol=1e-4), (shown, expected)
 
