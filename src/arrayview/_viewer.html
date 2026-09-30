@@ -523,6 +523,13 @@
            `.cb-island`, so the variable alone never reaches them. */
         .cb-island.cb-has-ticks, .cb-wrap.cb-has-ticks, #mv-cb-wrap.cb-has-ticks { --cb-base-pad-bottom: 18px; padding-bottom: 18px; }
         body.fullscreen-mode #slim-cb-wrap.cb-has-ticks { padding-bottom: 18px; }
+        /* qMRI panes sit in a centred row, so an island that grows when its
+           ticks peek on hover re-centres the row and every pane jumps. Keep
+           the tick room under the island as margin while ticks are hidden,
+           and swap it for padding when they show (7px base bottom pad from
+           .cb-wrap → 18px with ticks), so the pane never changes size. */
+        .qv-canvas-wrap > .qv-cb-island:not(.qmri-mv-vcb-island):not(.fs-overlay) { margin-bottom: 11px; }
+        .qv-canvas-wrap > .qv-cb-island.cb-has-ticks:not(.qmri-mv-vcb-island):not(.fs-overlay) { margin-bottom: 0; }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;

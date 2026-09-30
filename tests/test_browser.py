@@ -2899,6 +2899,25 @@ class TestKeyboard:
             f"got: {state}"
         )
 
+    def test_qmri_colorbar_hover_does_not_move_panes(self, loaded_viewer, sid_4d):
+        """Hovering one qMRI colorbar peeks its ticks without shifting any pane."""
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_selector("#qmri-view-wrap.active .qv-canvas", timeout=5_000)
+        page.wait_for_timeout(1_500)
+        rects = """() => [...document.querySelectorAll('#qmri-view-wrap .qv-pane')]
+            .map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })"""
+        before = page.evaluate(rects)
+        assert len(before) >= 2
+        island = page.locator("#qmri-view-wrap .qv-cb-island").first.bounding_box()
+        page.mouse.move(island["x"] + island["width"] / 2, island["y"] + island["height"] / 2)
+        page.wait_for_timeout(500)
+        assert page.evaluate(rects) == before
+        page.mouse.move(5, 5)
+        page.wait_for_timeout(500)
+        assert page.evaluate(rects) == before
+
     def test_qmri_synthetic_hover_does_not_hit_pixel_500(self, loaded_viewer, sid_4d):
         bad_pixel_responses = []
         page = loaded_viewer(sid_4d)
