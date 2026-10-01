@@ -69,7 +69,13 @@ work and `.claude/skills/iterative-debug`.
 
 ## Execution
 
-Work in **feature branches**. Use a subagent only for a bounded, independent
+Work directly on `main` in this folder. Do **not** create branches or git
+worktrees (or separate copies of the repo) unless I explicitly ask for one —
+not for safety, not to avoid uncommitted changes, not for "isolation". If there
+are uncommitted changes that aren't yours, leave them alone and commit only your
+own files.
+
+Use a subagent only for a bounded, independent
 task when it clearly saves time or improves the result. Give it only the context
 it needs; work directly on short or single-area tasks.
 
