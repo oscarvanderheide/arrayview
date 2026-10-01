@@ -2921,6 +2921,34 @@ class TestKeyboard:
         page.wait_for_timeout(600)
         assert page.evaluate(rect) == before
 
+    def test_ortho_colorbar_drag_does_not_move_ui(self, loaded_viewer, client, tmp_path):
+        """In ortho, dragging the colorbar must not move the bar or the panes."""
+        from conftest import register_array
+        rng = np.random.default_rng(0)
+        arr = (rng.gamma(2.0, 0.002, (16, 32, 32))).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "ortho_small_vals"))
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(800)
+        rect = """() => [...document.querySelectorAll('#mv-cb, #mv-cb-wrap, .mv-pane, #mv-cb-vmin, #mv-cb-vmax')]
+            .map(e => { const r = e.getBoundingClientRect();
+                return [e.id || e.className, Math.round(r.x*10)/10, Math.round(r.y*10)/10, Math.round(r.width*10)/10, Math.round(r.height*10)/10]; })"""
+        bar = page.locator("#mv-cb").bounding_box()
+        page.mouse.move(bar["x"] + bar["width"] / 2, bar["y"] + bar["height"] / 2)
+        page.wait_for_timeout(600)
+        before = page.evaluate(rect)
+        page.wait_for_timeout(1500)
+        assert page.evaluate(rect) == before, "moved on its own while hovering"
+        page.mouse.down()
+        for i in range(6):
+            page.mouse.move(bar["x"] + bar["width"] * (0.5 + 0.04 * i), bar["y"] + bar["height"] / 2)
+            page.wait_for_timeout(60)
+            _a = page.evaluate(rect); assert _a == before, "\n".join(f"{x} -> {y}" for x, y in zip(before, _a) if x != y)
+        page.mouse.up()
+        page.wait_for_timeout(600)
+        _a = page.evaluate(rect); assert _a == before, "\n".join(f"{x} -> {y}" for x, y in zip(before, _a) if x != y)
+
     def test_qmri_colorbar_hover_does_not_move_panes(self, loaded_viewer, sid_4d):
         """Hovering one qMRI colorbar peeks its ticks without shifting any pane."""
         page = loaded_viewer(sid_4d)

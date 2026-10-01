@@ -7429,7 +7429,7 @@
             const cbWrap = document.getElementById('mv-cb-wrap');
             const ready = mvViews.filter(v => v && v.lastW && v.lastH);
             const labelH = ready.length ? (Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8) : 28;
-            const cbH = cbWrap ? cbWrap.offsetHeight : 30;
+            const cbH = _mvCbLayoutH(cbWrap);
             const uiReserveH = uiReserveV() + (cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE) * (1 - _crossfadeCollapseP);
             const profile = _layoutViewportProfile({
                 totalW: window.innerWidth - 80,
@@ -39455,12 +39455,19 @@
             showStatus('promoted view');
         }
 
+        // Colorbar height for sizing the ortho panes, without the tick row: hover
+        // and drag peek the ticks, and the panes must not resize when they do.
+        function _mvCbLayoutH(cbWrap) {
+            if (!cbWrap) return 30;
+            return cbWrap.offsetHeight - (cbWrap.classList.contains('cb-has-ticks') ? 13 : 0);
+        }
+
         function mvScaleAllCanvases() {
             const ready = mvViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
-            const cbH = cbWrap ? cbWrap.offsetHeight : 30;
+            const cbH = _mvCbLayoutH(cbWrap);
             const uiReserveH = uiReserveV() + (cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE) * (1 - _crossfadeCollapseP);
             const gap = 16;
             const absMaxT = Math.min(
