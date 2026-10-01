@@ -2899,6 +2899,28 @@ class TestKeyboard:
             f"got: {state}"
         )
 
+    def test_colorbar_drag_does_not_move_bar(self, loaded_viewer, client, tmp_path):
+        """Dragging the colorbar shows more digits; the bar itself must not move."""
+        from conftest import register_array
+        rng = np.random.default_rng(0)
+        arr = (rng.gamma(2.0, 0.002, (10, 64, 64))).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "small_vals"))
+        page.wait_for_timeout(1_000)
+        rect = """() => { const r = document.getElementById('slim-cb').getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.width)]; }"""
+        bar = page.locator("#slim-cb").bounding_box()
+        page.mouse.move(bar["x"] + bar["width"] / 2, bar["y"] + bar["height"] / 2)
+        page.wait_for_timeout(600)
+        before = page.evaluate(rect)
+        page.mouse.down()
+        for i in range(6):
+            page.mouse.move(bar["x"] + bar["width"] * (0.5 + 0.04 * i), bar["y"] + bar["height"] / 2)
+            page.wait_for_timeout(40)
+            assert page.evaluate(rect) == before
+        page.mouse.up()
+        page.wait_for_timeout(600)
+        assert page.evaluate(rect) == before
+
     def test_qmri_colorbar_hover_does_not_move_panes(self, loaded_viewer, sid_4d):
         """Hovering one qMRI colorbar peeks its ticks without shifting any pane."""
         page = loaded_viewer(sid_4d)
