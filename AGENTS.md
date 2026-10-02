@@ -63,6 +63,7 @@ work and `.claude/skills/iterative-debug`.
 - Keep `_viewer.html` as a single file — no build step
 - UI visibility changes go through reconcilers (`_reconcileUI` / `_reconcileLayout` / etc.), not inline `style.display` or `classList` toggles
 - Keybind changes must update both the command registry and `GUIDE_TABS`
+- Anything drawn on top of image content (arrows, ticks, letters, markers) needs a thin black outline so it reads on bright and dark pixels alike — never a bare colour on the image
 - Do not regress working display paths when fixing another
 - Avoid orphan processes; shutdown must be automatic
 - For animation changes, verify with frame captures before claiming completion (see `.mex/patterns/animation-verify.md`); propose 2–3 options before implementing

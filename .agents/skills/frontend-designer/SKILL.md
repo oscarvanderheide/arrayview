@@ -29,6 +29,7 @@ Minimal chrome. The array is the product.
 - Keep inactive UI dimmed with color/opacity, not permanent visibility.
 - Prefer opacity/color transitions over motion that changes layout.
 - Canvas dimensions are owned by JS layout functions, not CSS.
+- Anything drawn over image content (arrows, ticks, letters, markers) gets a thin black outline so it reads on bright and dark pixels alike.
 - Test themes with `T`.
 
 ## Defaults

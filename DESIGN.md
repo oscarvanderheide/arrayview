@@ -37,6 +37,7 @@ Normal, multiview, compare, diff, registration, qMRI, and MIP are different *len
 - Never hardcode hex values — always use CSS custom properties.
 - Backdrop blur on floating panels (`backdrop-filter: blur(16px)`).
 - No decorative shadows, gradients, or icons without function.
+- Anything drawn over image content (arrows, ticks, letters, markers) gets a thin black outline so it reads on bright and dark pixels alike.
 
 See `.agents/skills/frontend-designer/SKILL.md` for the full theme system and CSS constraints.
 
