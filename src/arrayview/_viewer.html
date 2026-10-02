@@ -20996,6 +20996,20 @@
             return `<span class="${cls}">${_dimIndexHtml(shownValue, maxValue)}</span>`;
         }
 
+        // Axis letters follow the data, not the screen: the array axis that
+        // started out as x keeps the letter x after t / r, so the DimBar and the
+        // orientation cross both show which way each axis now runs. Remembered
+        // per pair of displayed dims; picking different dims starts over.
+        let _axisIdent = null;
+        function _axisLetter(d) {
+            const key = Math.min(dim_x, dim_y) + ',' + Math.max(dim_x, dim_y);
+            if (!_axisIdent || _axisIdent.key !== key) {
+                _axisIdent = { key, letters: { [dim_x]: 'x', [dim_y]: 'y' } };
+            }
+            if (d === dim_z) return 'z';
+            return _axisIdent.letters[d] || (d === dim_x ? 'x' : 'y');
+        }
+
         function renderInfo() {
             _ensureQmriActiveDimVisible();
             _syncOverlayPaletteSlice();
@@ -21048,13 +21062,13 @@
                 }
                 if (i === dim_x) {
                     const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + '<span class="dim-axis-letter">x</span>' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
+                    const inner = sign + `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + '<span class="dim-axis-letter">y</span>' + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
+                    const inner = sign + `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
@@ -21290,7 +21304,7 @@
                 const letter = (d) => ['x', 'y', 'z'][Math.max(0, dims.indexOf(d))];
                 (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v)));
             };
-            const plain = (cvs) => cvs.forEach(cv => add(cv, 'x', 'y', flip_x, flip_y));
+            const plain = (cvs) => cvs.forEach(cv => add(cv, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y));
             if (stackMosaicActive) plain((stackMosaicViews || []).map(v => v.canvas));
             else if (compareQmriActive) plain((compareQmriViews || []).map(v => v.canvas));
             else if (compareMvActive) grid(compareMvViews, compareMvDims);
