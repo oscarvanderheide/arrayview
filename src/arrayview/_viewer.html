@@ -236,22 +236,23 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        /* Orientation arrow — hovering a dim label in the DimBar shows a
-           small arrow near that dimension's zero point, pointing toward
-           increasing values. See _showOrientEdgeHighlight(). */
-        .orient-arrow {
-            position: absolute; width: 32px; height: 32px;
+        /* Orientation cross — hovering the DimBar shows a small axis cross in
+           the origin corner of each image, one arrow per in-plane direction
+           with its letter. See _showOrientEdgeHighlight(). Yellow with a black
+           outline so it reads on bright and dark image content alike. */
+        .orient-cross {
+            position: absolute; width: 64px; height: 64px;
             pointer-events: none; z-index: 5;
             opacity: 0; transition: opacity 0.15s ease;
         }
-        .orient-arrow.showing { opacity: 0.9; }
-        /* Dark halo so the arrow reads against bright/washed-out image content
-           regardless of the active colormap (same technique used elsewhere
-           for on-canvas markers). A single polygon (not a separate shaft +
-           head) so the outline wraps one shape with no seam down the middle. */
-        .orient-arrow polygon {
-            paint-order: stroke;
-            stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round;
+        .orient-cross.showing { opacity: 1; }
+        .orient-cross .oc-halo { stroke: rgba(0, 0, 0, 0.7); stroke-width: 4px; fill: none; stroke-linecap: round; }
+        .orient-cross .oc-ln { stroke: var(--active-dim); stroke-width: 1.5px; fill: none; stroke-linecap: round; }
+        .orient-cross .oc-hd { fill: var(--active-dim); stroke: rgba(0, 0, 0, 0.7); stroke-width: 2.5px; stroke-linejoin: round; paint-order: stroke; }
+        .orient-cross text {
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 12px; font-weight: 600; fill: var(--active-dim);
+            stroke: rgba(0, 0, 0, 0.7); stroke-width: 3px; stroke-linejoin: round; paint-order: stroke;
         }
         #slim-cb-wrap {
             text-align: center;
@@ -21273,59 +21274,63 @@
             return true;
         }
         function _clearOrientEdgeHighlight() {
-            document.querySelectorAll('.orient-arrow.showing').forEach(el => {
+            document.querySelectorAll('.orient-cross.showing').forEach(el => {
                 el.classList.remove('showing');
             });
         }
-        const _ORIENT_ARROW_MARGIN = 10;
-        function _orientArrowEl(container) {
+        const _ORIENT_CROSS_BOX = 64;
+        const _ORIENT_CROSS_MARGIN = 8;
+        function _orientCrossEl(container) {
             if (!container) return null;
-            let el = container.querySelector(':scope > .orient-arrow');
+            let el = container.querySelector(':scope > .orient-cross');
             if (!el) {
-                const NS = 'http://www.w3.org/2000/svg';
-                el = document.createElementNS(NS, 'svg');
-                el.setAttribute('class', 'orient-arrow');
-                el.setAttribute('viewBox', '0 0 32 32');
-                el.innerHTML = '<polygon points="3,14.5 21,14.5 21,10 31,16 21,22 21,17.5 3,17.5" fill="var(--active-dim)"/>';
+                el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                el.setAttribute('class', 'orient-cross');
+                el.setAttribute('viewBox', `0 0 ${_ORIENT_CROSS_BOX} ${_ORIENT_CROSS_BOX}`);
                 container.appendChild(el);
             }
             return el;
         }
-        // Places a small arrow near the (flipX, flipY) origin corner of `container`,
-        // pointing along `axis` ('x' or 'y') in the direction that dim increases.
-        // `flipOwn` is the flip of `axis` itself (picks the arrow's direction and
-        // which edge it hugs along that axis); `flipOther` is the flip of the
-        // perpendicular axis (picks where along that axis the arrow sits).
-        function _placeOrientArrow(container, axis, flipOwn, flipOther) {
-            const el = _orientArrowEl(container);
+        // Draws the cross in the (flipX, flipY) origin corner of `container`:
+        // the x arrow runs along the top (bottom when flipped) edge toward
+        // increasing x, the y arrow along the left (right when flipped) edge
+        // toward increasing y. Flips mirror the direction so the arrows keep
+        // pointing the way the index grows.
+        function _placeOrientCross(container, letterX, letterY, flipX, flipY) {
+            const el = _orientCrossEl(container);
             if (!el) return;
-            const m = _ORIENT_ARROW_MARGIN + 'px';
+            const B = _ORIENT_CROSS_BOX, o = 8, len = 30, hl = 7, hw = 3.6;
+            const sx = flipX ? -1 : 1, sy = flipY ? -1 : 1;
+            const ox = flipX ? B - o : o, oy = flipY ? B - o : o;
+            const xTip = ox + sx * len, yTip = oy + sy * len;
+            const xHead = `${xTip},${oy} ${xTip - sx * hl},${oy - hw} ${xTip - sx * hl},${oy + hw}`;
+            const yHead = `${ox},${yTip} ${ox - hw},${yTip - sy * hl} ${ox + hw},${yTip - sy * hl}`;
+            const xs = [[ox, oy, xTip - sx * 4, oy], [ox, oy, ox, yTip - sy * 4]];
+            el.innerHTML = xs.map(([x1, y1, x2, y2]) => `<line class="oc-halo" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
+                    + `<line class="oc-ln" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`).join('')
+                + `<polygon class="oc-hd" points="${xHead}"/><polygon class="oc-hd" points="${yHead}"/>`
+                + `<circle class="oc-hd" cx="${ox}" cy="${oy}" r="2"/>`
+                + `<text x="${xTip + sx * 9}" y="${oy + 4}" text-anchor="${flipX ? 'end' : 'start'}">${letterX}</text>`
+                + `<text x="${ox}" y="${yTip + sy * 13}" text-anchor="middle">${letterY}</text>`;
+            const m = _ORIENT_CROSS_MARGIN + 'px';
             el.style.left = el.style.right = el.style.top = el.style.bottom = '';
-            if (axis === 'x') {
-                if (flipOwn) el.style.right = m; else el.style.left = m;
-                if (flipOther) el.style.bottom = m; else el.style.top = m;
-                el.style.transform = flipOwn ? 'rotate(180deg)' : 'rotate(0deg)';
-            } else {
-                if (flipOwn) el.style.bottom = m; else el.style.top = m;
-                if (flipOther) el.style.right = m; else el.style.left = m;
-                el.style.transform = flipOwn ? 'rotate(-90deg)' : 'rotate(90deg)';
-            }
+            if (flipX) el.style.right = m; else el.style.left = m;
+            if (flipY) el.style.bottom = m; else el.style.top = m;
             el.classList.add('showing');
         }
-        function _showOrientEdgeHighlight(dim) {
+        // Shown for every image pane while the pointer is over the DimBar.
+        function _showOrientEdgeHighlight() {
             _clearOrientEdgeHighlight();
-            if (!_orientEdgeAllowed() || dim == null || dim < 0) return;
+            if (!_orientEdgeAllowed()) return;
             if (multiViewActive) {
                 if (!Array.isArray(mvViews)) return;
+                const letter = (d) => ['x', 'y', 'z'][Math.max(0, mvDims.indexOf(d))];
                 mvViews.forEach(v => {
-                    if (v.dimX === dim) _placeOrientArrow(v.cvBox, 'x', _mvFlipX(v), _mvFlipY(v));
-                    else if (v.dimY === dim) _placeOrientArrow(v.cvBox, 'y', _mvFlipY(v), _mvFlipX(v));
+                    _placeOrientCross(v.cvBox, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v));
                 });
                 return;
             }
-            const viewport = document.getElementById('canvas-viewport');
-            if (dim === dim_x) _placeOrientArrow(viewport, 'x', flip_x, flip_y);
-            else if (dim === dim_y) _placeOrientArrow(viewport, 'y', flip_y, flip_x);
+            _placeOrientCross(document.getElementById('canvas-viewport'), 'x', 'y', flip_x, flip_y);
         }
 
         function setStatus(msg) {
@@ -39887,9 +39892,9 @@
         let _histDimHovering = false;
         infoEl.addEventListener('mouseover', (e) => {
             const span = e.target.closest('[data-dim]');
+            _showOrientEdgeHighlight();
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
-                _showOrientEdgeHighlight(hoveredDim);
                 if (_histDimControlsVisible()) {
                     _histDimHovering = true;
                     _showHistTooltip(_tooltipTextForDim(hoveredDim), infoEl.getBoundingClientRect());
@@ -39905,7 +39910,6 @@
                     return;
                 }
                 _histDimHovering = false;
-                _clearOrientEdgeHighlight();
                 _hideHistTooltip();
                 if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
                     _restartHistAutoDismiss();
