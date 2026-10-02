@@ -236,13 +236,14 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        /* Orientation cross — hovering the DimBar shows a small axis cross in
-           the origin corner of each image, one arrow per in-plane direction
-           with its letter. See _showOrientEdgeHighlight(). Yellow with a black
-           outline so it reads on bright and dark image content alike. */
+        /* Orientation cross — hovering the DimBar (or pressing r / t) shows a
+           small axis cross in the origin corner of every image pane, one arrow
+           per in-plane direction with its letter. See _showOrientEdgeHighlight().
+           Yellow with a black outline so it reads on bright and dark image
+           content alike. */
         .orient-cross {
-            position: absolute; width: 64px; height: 64px;
-            pointer-events: none; z-index: 5;
+            position: fixed; left: 0; top: 0; width: 64px; height: 64px;
+            transform-origin: 0 0; pointer-events: none; z-index: 60;
             opacity: 0; transition: opacity 0.15s ease;
         }
         .orient-cross.showing { opacity: 1; }
@@ -21273,64 +21274,122 @@
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
             return true;
         }
-        function _clearOrientEdgeHighlight() {
-            document.querySelectorAll('.orient-cross.showing').forEach(el => {
-                el.classList.remove('showing');
-            });
-        }
         const _ORIENT_CROSS_BOX = 64;
         const _ORIENT_CROSS_MARGIN = 8;
-        function _orientCrossEl(container) {
-            if (!container) return null;
-            let el = container.querySelector(':scope > .orient-cross');
-            if (!el) {
-                el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                el.setAttribute('class', 'orient-cross');
-                el.setAttribute('viewBox', `0 0 ${_ORIENT_CROSS_BOX} ${_ORIENT_CROSS_BOX}`);
-                container.appendChild(el);
-            }
-            return el;
+        let _orientCrossEls = [];
+        let _orientShown = false;
+        let _orientHovering = false;
+        let _orientRaf = 0;
+        let _orientFlashTimer = 0;
+        // Every image pane in the current mode: its canvas, the letters of its
+        // horizontal / vertical dims, and which way each axis is flipped.
+        function _orientPanes() {
+            const out = [];
+            const add = (cv, lx, ly, fx, fy) => { if (cv) out.push({ cv, lx, ly, fx: !!fx, fy: !!fy }); };
+            const grid = (views, dims) => {
+                const letter = (d) => ['x', 'y', 'z'][Math.max(0, dims.indexOf(d))];
+                (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v)));
+            };
+            const plain = (cvs) => cvs.forEach(cv => add(cv, 'x', 'y', flip_x, flip_y));
+            if (stackMosaicActive) plain((stackMosaicViews || []).map(v => v.canvas));
+            else if (compareQmriActive) plain((compareQmriViews || []).map(v => v.canvas));
+            else if (compareMvActive) grid(compareMvViews, compareMvDims);
+            else if (multiViewActive) grid(mvViews, mvDims);
+            else if (compareActive) plain([...document.querySelectorAll('#compare-panes .compare-canvas')]);
+            else if (qmriMvActive) grid(qmriMvViews, qmriMvDims);
+            else if (qmriActive) plain((qmriViews || []).map(v => v.canvas));
+            else if (mipActive || cutawayActive) return out;
+            // Mosaic tiles are flipped one by one, so the whole canvas has no single origin corner.
+            else if (!(dim_z >= 0 && (flip_x || flip_y))) plain([canvas]);
+            return out;
         }
-        // Draws the cross in the (flipX, flipY) origin corner of `container`:
-        // the x arrow runs along the top (bottom when flipped) edge toward
-        // increasing x, the y arrow along the left (right when flipped) edge
-        // toward increasing y. Flips mirror the direction so the arrows keep
-        // pointing the way the index grows.
-        function _placeOrientCross(container, letterX, letterY, flipX, flipY) {
-            const el = _orientCrossEl(container);
-            if (!el) return;
+        // The part of `cv` that is actually on screen: its box clipped by every scrolling/clipping ancestor.
+        function _orientVisibleRect(cv) {
+            const r = cv.getBoundingClientRect();
+            let l = r.left, t = r.top, rt = r.right, bt = r.bottom;
+            for (let el = cv.parentElement; el && el !== document.body; el = el.parentElement) {
+                const cs = getComputedStyle(el);
+                if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+                const pr = el.getBoundingClientRect();
+                l = Math.max(l, pr.left); t = Math.max(t, pr.top);
+                rt = Math.min(rt, pr.right); bt = Math.min(bt, pr.bottom);
+            }
+            return (rt - l > 8 && bt - t > 8) ? { left: l, top: t, right: rt, bottom: bt } : null;
+        }
+        function _orientCrossSvg(el, letterX, letterY, flipX, flipY) {
+            const key = letterX + letterY + (flipX ? 1 : 0) + (flipY ? 1 : 0);
+            if (el._ocKey === key) return;
+            el._ocKey = key;
             const B = _ORIENT_CROSS_BOX, o = 8, len = 30, hl = 7, hw = 3.6;
             const sx = flipX ? -1 : 1, sy = flipY ? -1 : 1;
             const ox = flipX ? B - o : o, oy = flipY ? B - o : o;
             const xTip = ox + sx * len, yTip = oy + sy * len;
             const xHead = `${xTip},${oy} ${xTip - sx * hl},${oy - hw} ${xTip - sx * hl},${oy + hw}`;
             const yHead = `${ox},${yTip} ${ox - hw},${yTip - sy * hl} ${ox + hw},${yTip - sy * hl}`;
-            const xs = [[ox, oy, xTip - sx * 4, oy], [ox, oy, ox, yTip - sy * 4]];
-            el.innerHTML = xs.map(([x1, y1, x2, y2]) => `<line class="oc-halo" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
+            const segs = [[ox, oy, xTip - sx * 4, oy], [ox, oy, ox, yTip - sy * 4]];
+            el.innerHTML = segs.map(([x1, y1, x2, y2]) => `<line class="oc-halo" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
                     + `<line class="oc-ln" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`).join('')
                 + `<polygon class="oc-hd" points="${xHead}"/><polygon class="oc-hd" points="${yHead}"/>`
                 + `<circle class="oc-hd" cx="${ox}" cy="${oy}" r="2"/>`
                 + `<text x="${xTip + sx * 9}" y="${oy + 4}" text-anchor="${flipX ? 'end' : 'start'}">${letterX}</text>`
                 + `<text x="${ox}" y="${yTip + sy * 13}" text-anchor="middle">${letterY}</text>`;
-            const m = _ORIENT_CROSS_MARGIN + 'px';
-            el.style.left = el.style.right = el.style.top = el.style.bottom = '';
-            if (flipX) el.style.right = m; else el.style.left = m;
-            if (flipY) el.style.bottom = m; else el.style.top = m;
-            el.classList.add('showing');
+        }
+        // Puts one cross in the origin corner of each pane: the x arrow runs
+        // along the top (bottom when flipped) edge toward increasing x, the y
+        // arrow along the left (right when flipped) edge toward increasing y.
+        function _placeOrientCrosses() {
+            const panes = _orientPanes().map(p => ({ p, r: _orientVisibleRect(p.cv) })).filter(q => q.r);
+            while (_orientCrossEls.length < panes.length) {
+                const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                el.setAttribute('class', 'orient-cross');
+                el.setAttribute('viewBox', `0 0 ${_ORIENT_CROSS_BOX} ${_ORIENT_CROSS_BOX}`);
+                document.body.appendChild(el);
+                _orientCrossEls.push(el);
+            }
+            _orientCrossEls.forEach((el, i) => {
+                const q = panes[i];
+                if (!q) { el.classList.remove('showing'); return; }
+                const { p, r } = q;
+                _orientCrossSvg(el, p.lx, p.ly, p.fx, p.fy);
+                const w = r.right - r.left, h = r.bottom - r.top;
+                // Small panes (grids, mosaics) get a proportionally smaller cross.
+                const k = Math.max(0.55, Math.min(1, Math.min(w, h) / 230));
+                const size = _ORIENT_CROSS_BOX * k, m = _ORIENT_CROSS_MARGIN * k;
+                const x = p.fx ? r.right - m - size : r.left + m;
+                const y = p.fy ? r.bottom - m - size : r.top + m;
+                el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${k})`;
+                el.classList.add('showing');
+            });
+        }
+        // Panes can still be moving or re-rendering when this starts (after
+        // r / t, or while zooming), so keep the crosses glued to them.
+        function _orientLoop() {
+            _orientRaf = 0;
+            if (!_orientShown) return;
+            _placeOrientCrosses();
+            _orientRaf = requestAnimationFrame(_orientLoop);
+        }
+        function _clearOrientEdgeHighlight() {
+            _orientShown = false;
+            if (_orientRaf) { cancelAnimationFrame(_orientRaf); _orientRaf = 0; }
+            if (_orientFlashTimer) { clearTimeout(_orientFlashTimer); _orientFlashTimer = 0; }
+            _orientCrossEls.forEach(el => el.classList.remove('showing'));
         }
         // Shown for every image pane while the pointer is over the DimBar.
         function _showOrientEdgeHighlight() {
-            _clearOrientEdgeHighlight();
+            if (!_orientEdgeAllowed()) { _clearOrientEdgeHighlight(); return; }
+            _orientShown = true;
+            if (!_orientRaf) _orientLoop();
+        }
+        // Brief look after r / t so a rotate or transpose can be read off the cross.
+        function _flashOrientCross(ms = 1400) {
             if (!_orientEdgeAllowed()) return;
-            if (multiViewActive) {
-                if (!Array.isArray(mvViews)) return;
-                const letter = (d) => ['x', 'y', 'z'][Math.max(0, mvDims.indexOf(d))];
-                mvViews.forEach(v => {
-                    _placeOrientCross(v.cvBox, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v));
-                });
-                return;
-            }
-            _placeOrientCross(document.getElementById('canvas-viewport'), 'x', 'y', flip_x, flip_y);
+            _showOrientEdgeHighlight();
+            if (_orientFlashTimer) clearTimeout(_orientFlashTimer);
+            _orientFlashTimer = setTimeout(() => {
+                _orientFlashTimer = 0;
+                if (!_orientHovering) _clearOrientEdgeHighlight();
+            }, ms);
         }
 
         function setStatus(msg) {
@@ -27762,6 +27821,7 @@
                         _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         renderInfo(); saveState();
+                        _flashOrientCross();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
@@ -27777,6 +27837,7 @@
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                     renderInfo(); saveState();
+                    _flashOrientCross();
                 },
             },
             'view.rotateOrFlip': {
@@ -27807,6 +27868,7 @@
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                    _flashOrientCross();
                 },
             },
             'theme.cycle': {
@@ -39892,6 +39954,7 @@
         let _histDimHovering = false;
         infoEl.addEventListener('mouseover', (e) => {
             const span = e.target.closest('[data-dim]');
+            _orientHovering = true;
             _showOrientEdgeHighlight();
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
@@ -39919,6 +39982,7 @@
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
             _histDimHovering = false;
+            _orientHovering = false;
             _clearOrientEdgeHighlight();
             _hideHistTooltip();
             if (!_lebesgueManual && primaryCb && primaryCb._expanded && !_histAutoDismissTimer) {
