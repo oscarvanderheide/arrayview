@@ -130,6 +130,54 @@ try {
         'post-navigation rendering failures must not reload the VS Code window'
     );
 
+    // A launch whose blank-tab retries ran out is retried once in a fresh tab.
+    const blank = () => {
+        const e = new Error(exact.message);
+        e.code = exact.code;
+        e.arrayviewIntegratedBrowserOpened = true;
+        e.arrayviewRetainSession = true;
+        return e;
+    };
+    const retryData = requestData('fresh-tab-retry', 'window-before-reload');
+    assert.strictEqual(__test.claimProtocolRequest(retryData), 'acquired');
+    const op = { cancelled: false };
+    let runs = 0;
+    await __test._runWithFreshTabRetry(retryData, op, async () => {
+        runs += 1;
+        if (runs === 1) throw blank();
+    }, () => true);
+    assert.strictEqual(runs, 2, 'a dead blank-tab ladder must retry once in a fresh tab');
+
+    runs = 0;
+    await assert.rejects(
+        __test._runWithFreshTabRetry(retryData, op, async () => {
+            runs += 1;
+            throw blank();
+        }, () => true),
+        /kept failing/
+    );
+    assert.strictEqual(runs, 2, 'the fresh-tab retry happens once, not repeatedly');
+
+    runs = 0;
+    await assert.rejects(
+        __test._runWithFreshTabRetry(retryData, op, async () => {
+            runs += 1;
+            throw blank();
+        }, () => false),
+        /kept failing/
+    );
+    assert.strictEqual(runs, 1, 'no retry while another request holds the queue');
+
+    runs = 0;
+    await assert.rejects(
+        __test._runWithFreshTabRetry(retryData, op, async () => {
+            runs += 1;
+            throw new Error('Viewer did not render a frame');
+        }, () => true),
+        /did not render/
+    );
+    assert.strictEqual(runs, 1, 'other failures are not retried');
+
     const enoughTime = requestData('enough-time', 'window-before-reload');
     assert.strictEqual(__test._hasReloadRecoveryBudget(enoughTime), true);
     const almostExpired = requestData('almost-expired', 'window-before-reload');

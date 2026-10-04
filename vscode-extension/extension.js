@@ -4147,6 +4147,31 @@ async function resolveRemoteViewerUrl(
     return null;
 }
 
+// VS Code's integrated browser sometimes never delivers a tab's first request
+// (microsoft/vscode#331909). The in-tab retries cover most of these, but the
+// drops come in bursts that can outlast them. A launch that ran out of retries
+// has already closed its blank tab, so a second tab is the one remaining thing
+// that costs the user nothing; asking them to click again does the same, later.
+async function _runWithFreshTabRetry(data, operation, runBody, reacquireQueue) {
+    try {
+        return await runBody();
+    } catch (error) {
+        if (
+            !_isIntegratedBrowserNavigationWedge(error)
+            || data.reloadRecovery
+            || operation.cancelled
+            || isExpiredSignal(data)
+            || !_hasReloadRecoveryBudget(data)
+            || !_ownsProtocolClaim(data)
+            || !reacquireQueue()
+        ) {
+            throw error;
+        }
+        log('RECOVERY: opening this array in a fresh tab');
+        return runBody();
+    }
+}
+
 async function processSignalData(data) {
     const queueTicket = Symbol('signal-queue');
     isProcessingSignal = true;
@@ -4165,6 +4190,16 @@ async function processSignalData(data) {
         isProcessingSignal = false;
         log(`UNLOCK: isProcessingSignal=false (${reason})`);
     };
+    // The body releases the queue once the panel is up. A fresh-tab retry
+    // creates another panel, so it needs the queue back, and must not take it
+    // from a request that has started since.
+    const reacquireQueue = () => {
+        if (isProcessingSignal) return false;
+        isProcessingSignal = true;
+        signalQueueOwner = queueTicket;
+        log('LOCK: isProcessingSignal=true (fresh-tab retry)');
+        return true;
+    };
     // Hard safety net: if any await inside the body hangs (e.g. VS Code's
     // createWebviewPanel / openInWebviewPanel never resolves when the
     // extension host is degraded), the finally below would never run and
@@ -4182,7 +4217,12 @@ async function processSignalData(data) {
     let hardTimer = null;
     try {
         await Promise.race([
-            _processSignalDataBody(data, operation, releaseQueue),
+            _runWithFreshTabRetry(
+                data,
+                operation,
+                () => _processSignalDataBody(data, operation, releaseQueue),
+                reacquireQueue
+            ),
             new Promise((_, reject) =>
                 hardTimer = setTimeout(() => {
                     operation.cancelled = true;
@@ -5033,6 +5073,7 @@ module.exports = {
         _executeReloadRecovery,
         _resumeReloadRecoveries,
         _isIntegratedBrowserNavigationWedge,
+        _runWithFreshTabRetry,
         _hasReloadRecoveryBudget,
         _ownsProtocolClaim,
         _expireProtocolRequest,

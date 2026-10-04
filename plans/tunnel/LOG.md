@@ -3827,3 +3827,19 @@ first frame at 19:23:11.504Z / 19:23:14.178Z. Existing original Julia was not
 restarted; gate processes used its environment with --startup-file=no. No
 release, reinstall, or VS Code reload was required. Actual recurrence under a
 stalled physical Mac tunnel remains an observation to collect, not a guarantee.
+
+## 2026-10-04 — fresh-tab retry when the blank-tab ladder is exhausted
+
+Yesterday (Oct 3) 7 of 20 launches hit a blank tab; 5 recovered in-tab, 2 gave
+up ("kept failing to load"): one with 5 attempts and no page request reaching
+the backend (20:26Z), one where the page arrived but its script never loaded in
+10 s (06:59Z). Oct 2: 7 blanks of 28, 4 gave up. Upstream VS Code bug
+(#331909, PR #331912) is still open. Both gave-up launches succeeded when the
+user clicked again moments later.
+
+Change: an exhausted launch (blank tab already closed) is now retried once,
+automatically, in a fresh tab before the user is told. Skipped if another
+request holds the queue, the request is expiring, or it is a reload recovery.
+
+Evidence: `component` only (`test_reload_recovery.js` + 5 neighbouring extension
+suites pass). Not installed into the active profile; real-host status unknown.
