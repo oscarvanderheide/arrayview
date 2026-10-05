@@ -4249,6 +4249,13 @@
         /* qMRI 3-plane multiview: one map per row (3 planes) + a vertical colorbar on the right */
         .qmri-mv-row { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
         .qmri-mv-row .qv-canvas-clip { align-items: center; justify-content: center; }
+        /* qMRI ortho: the 3x3 panes touch and read as one block, so only the
+           outer corners of the block are rounded. */
+        body.rounded-panes .qmri-mv-row .qv-canvas-clip { border-radius: 0; }
+        body.rounded-panes .qmri-mv-row .qv-canvas-clip.qmv-tl { border-top-left-radius: 10px; }
+        body.rounded-panes .qmri-mv-row .qv-canvas-clip.qmv-tr { border-top-right-radius: 10px; }
+        body.rounded-panes .qmri-mv-row .qv-canvas-clip.qmv-bl { border-bottom-left-radius: 10px; }
+        body.rounded-panes .qmri-mv-row .qv-canvas-clip.qmv-br { border-bottom-right-radius: 10px; }
         .qmri-mv-row > .qv-row { flex: 0 1 auto; }
         .qmri-mv-cb { display: flex; align-items: center; flex-shrink: 0; }
         .qmri-mv-vcb-island { padding: 4px 8px; margin-top: 0; flex-direction: column !important; gap: 3px; }
@@ -7509,6 +7516,7 @@
         let _cmvCrosshairAnim = null;  // animation frame id for compare-mv crosshair fade
         let _qmvCrosshairAlpha = 0;    // current crosshair opacity for qMRI multiview
         let _qmvCrosshairTarget = 0;   // target opacity for qMRI multiview
+        let _qmvCrosshairMap = null;   // map row the lines are limited to (click-hold); null = every row
         let _qmvCrosshairAnim = null;  // animation frame id for qMRI-mv crosshair fade
         let _qmvScrollHintTimer = null; // fade-out timer after scrolling a qMRI-mv pane
         let _qmvScrollHintDir = -1;    // plane being scrolled (its own lines stay hidden)
@@ -37852,6 +37860,7 @@
                         if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
                         sink.focus();
                         _qmriMvDragView = view;
+                        _qmvCrosshairMap = view.qmriIdx;
                         _qmvRecomputeCrosshairTarget();
                         handleQmriMvPointer(view, e);
                         const onMove = (me) => { if (_qmriMvDragView === view) handleQmriMvPointer(view, me); };
@@ -38004,7 +38013,7 @@
             _hoveredQmriMvView = null;
             if (_qmvCrosshairAnim) { cancelAnimationFrame(_qmvCrosshairAnim); _qmvCrosshairAnim = null; }
             if (_qmvScrollHintTimer) { clearTimeout(_qmvScrollHintTimer); _qmvScrollHintTimer = null; }
-            _qmvCrosshairAlpha = 0; _qmvCrosshairTarget = 0; _qmvScrollHintDir = -1;
+            _qmvCrosshairAlpha = 0; _qmvCrosshairTarget = 0; _qmvScrollHintDir = -1; _qmvCrosshairMap = null;
             _reconcileOrthoCursorHidden();
             _reconcileMvOrientationVisibility();
             qmriMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
@@ -38178,7 +38187,9 @@
         }
         /** Position lines on the pane's overlay, like compareMvDrawFrame. */
         function _qmvDrawCrosshair(v) {
-            const alpha = (_qmvScrollHintTimer && v.sliceDir === _qmvScrollHintDir) ? 0 : _qmvCrosshairAlpha;
+            const alpha = (_qmvScrollHintTimer && v.sliceDir === _qmvScrollHintDir) ? 0
+                : (_qmvCrosshairMap !== null && v.qmriIdx !== _qmvCrosshairMap) ? 0
+                : _qmvCrosshairAlpha;
             const ov = _getMvCrosshairOverlay(v);
             if (!ov) return;
             const metrics = _getMvCrosshairMetrics(v);
@@ -38211,8 +38222,8 @@
             if (!ready.length) return;
             const nRows = Math.max(1, Math.round(qmriMvViews.length / 3));
             const nCols = 3;
-            const colGap = 24;
-            const rowGap = 14;
+            const colGap = 0;
+            const rowGap = 0;
             const sidePad = 120;
             const vcbW = 80;  // vertical colorbar island horizontal footprint (bar + padding)
             const bottomPad = 16;
@@ -38228,6 +38239,13 @@
             const baseScale = absMaxT / maxSide;
             const panStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
+                const qi = qmriMvViews.indexOf(v), qr = Math.floor(qi / 3), qc = qi % 3;
+                if (v.clip) {
+                    v.clip.classList.toggle('qmv-tl', qr === 0 && qc === 0);
+                    v.clip.classList.toggle('qmv-tr', qr === 0 && qc === 2);
+                    v.clip.classList.toggle('qmv-bl', qr === nRows - 1 && qc === 0);
+                    v.clip.classList.toggle('qmv-br', qr === nRows - 1 && qc === 2);
+                }
                 _scalePane(
                     { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: panStub },
                     v.clip || null,
@@ -39236,6 +39254,7 @@
          *  scrolled plane's own lines stay put, so they are left hidden. */
         function _qmvScrollHint(view) {
             _qmvScrollHintDir = view ? view.sliceDir : -1;
+            if (!_qmriMvDragView && view) _qmvCrosshairMap = view.qmriIdx;
             if (_qmvScrollHintTimer) clearTimeout(_qmvScrollHintTimer);
             _qmvScrollHintTimer = setTimeout(() => {
                 _qmvScrollHintTimer = null;
