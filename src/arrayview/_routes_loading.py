@@ -96,10 +96,12 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         result = []
         for session in SESSIONS.values():
             dtype_str = str(getattr(session.data, "dtype", "unknown"))
+            code = getattr(session, "code_source", None) or {}
             result.append(
                 {
                     "sid": session.sid,
                     "name": session.name,
+                    "var": code.get("name") or None,
                     "shape": [int(x) for x in session.shape],
                     "filepath": session.filepath,
                     "dtype": dtype_str,

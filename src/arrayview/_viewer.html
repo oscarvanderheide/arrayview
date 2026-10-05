@@ -2089,6 +2089,18 @@
         .drop-action:hover:not(:disabled) { color: var(--active-dim); background: var(--surface-2); }
         .drop-action:disabled { color: var(--muted); cursor: default; opacity: 0.5; }
         .drop-action-reason { display: block; margin-top: 2px; font-size: 9px; color: var(--muted); }
+        #compare-with-menu {
+            display: none; position: fixed; z-index: 70; left: 50%; top: 50%;
+            transform: translate(-50%, -50%); width: min(340px, calc(100vw - 24px));
+            max-height: calc(100vh - 48px); overflow-y: auto;
+            padding: 8px; background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); color: var(--text); font: 11px var(--mono);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+        }
+        #compare-with-menu.visible { display: block; }
+        #compare-with-title { padding: 4px 6px 2px; }
+        #compare-with-summary { color: var(--muted); padding: 0 6px 7px; font-size: 10px; }
+        .compare-with-key { color: var(--muted); margin-right: 8px; }
         .mode-badge {
             display: inline-block; font-size: 0.62em; font-weight: 600;
             letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
@@ -5749,6 +5761,11 @@
         <div id="drop-action-title"></div>
         <div id="drop-action-summary"></div>
         <div id="drop-action-list"></div>
+    </div>
+    <div id="compare-with-menu" aria-hidden="true">
+        <div id="compare-with-title">Compare with…</div>
+        <div id="compare-with-summary"></div>
+        <div id="compare-with-list"></div>
     </div>
     <div id="help-overlay">
         <div id="help-box">
@@ -23403,6 +23420,79 @@
             }
         }, true);
 
+        // ── Compare with an array that is open in another tab ─────────
+        let _compareWithMenuVisible = false;
+        let _compareWithChoices = [];
+
+        function _closeCompareWithMenu() {
+            if (!_compareWithMenuVisible) return;
+            _compareWithMenuVisible = false;
+            _compareWithChoices = [];
+            _reconcileUI();
+            try { document.getElementById('keyboard-sink').focus(); } catch (_) {}
+        }
+
+        async function _pickCompareWith(choice) {
+            if (!choice || !choice.enabled) return;
+            _closeCompareWithMenu();
+            const ok = await enterCompareModeBySid(choice.sid, choice.label);
+            if (ok !== false) showStatus(`Compare: ${choice.label}`);
+        }
+
+        async function openCompareWithMenu() {
+            let sessions = [];
+            try {
+                const res = await proxyFetch('/sessions');
+                if (res.ok) sessions = await res.json();
+            } catch (_) {}
+            const ownShape = JSON.stringify((shape || []).map(Number));
+            _compareWithChoices = sessions
+                .filter(s => s.sid && s.sid !== sid)
+                .map(s => {
+                    const sameShape = JSON.stringify((s.shape || []).map(Number)) === ownShape;
+                    const label = s.var || s.name || s.sid.slice(0, 8);
+                    if (s.name) compareNameBySid[s.sid] = label;
+                    return {
+                        sid: s.sid,
+                        label,
+                        detail: `${(s.shape || []).join(' x ')}${s.var && s.name ? ` · ${s.name}` : ''}`,
+                        enabled: sameShape,
+                    };
+                });
+            if (!_compareWithChoices.length) {
+                showStatus('No other open arrays to compare with');
+                return;
+            }
+            const list = document.getElementById('compare-with-list');
+            list.innerHTML = _compareWithChoices.map((c, i) => {
+                const keyHint = i < 9 ? `<span class="compare-with-key">${i + 1}</span>` : '';
+                const reason = c.enabled ? c.detail : `${c.detail} · needs shape ${(shape || []).join(' x ')}`;
+                return `<button class="drop-action" data-compare-with="${i}" ${c.enabled ? '' : 'disabled'}>${keyHint}${_escapeHtml(c.label)}<span class="drop-action-reason">${_escapeHtml(reason)}</span></button>`;
+            }).join('');
+            list.querySelectorAll('.drop-action:not(:disabled)').forEach(button => {
+                button.addEventListener('click', () => _pickCompareWith(_compareWithChoices[Number(button.dataset.compareWith)]));
+            });
+            document.getElementById('compare-with-summary').textContent =
+                'Arrays open in your other tabs · click or press a number · Esc to cancel';
+            _compareWithMenuVisible = true;
+            _reconcileUI();
+        }
+
+        document.addEventListener('pointerdown', (event) => {
+            if (_compareWithMenuVisible && !document.getElementById('compare-with-menu').contains(event.target)) {
+                _closeCompareWithMenu();
+            }
+        });
+        window.addEventListener('keydown', (event) => {
+            if (!_compareWithMenuVisible) return;
+            if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.key === 'Escape') { _closeCompareWithMenu(); return; }
+            const n = Number(event.key);
+            if (Number.isInteger(n) && n >= 1 && n <= 9) _pickCompareWith(_compareWithChoices[n - 1]);
+        }, true);
+
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
@@ -29173,6 +29263,11 @@
                     commands['qmri.cycle'].run(ctx, e);
                 },
             },
+            'compare.withOpenArray': {
+                title: 'Compare with an array open in another tab',
+                when: [],
+                run: (ctx, e) => { openCompareWithMenu(); },
+            },
             'tool.comparecenterDirect': {
                 title: 'Cycle compare center mode',
                 when: [],
@@ -29604,11 +29699,12 @@
             },
             {
                 id: 'compare', label: 'Compare',
-                desc: 'View two or more arrays side by side, blend them together, or compute a difference map. Useful for checking registration, comparing model outputs, or inspecting before-and-after changes. Open multiple arrays with the file picker first.',
+                desc: 'View two or more arrays side by side, blend them together, or compute a difference map. Useful for checking registration, comparing model outputs, or inspecting before-and-after changes. Press / then c to compare with an array open in another tab.',
                 sections: [
                     {
                         title: 'Layout',
                         entries: [
+                            { key: '/ c', action: 'Compare with…', hint: 'pick an array that is open in another tab; it must have the same shape' },
                             { key: 'g', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
                             { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
                         ]
@@ -29647,6 +29743,7 @@
                     {
                         title: 'After /', columnBreak: true,
                         entries: [
+                            { key: '/ c', action: 'Compare with…', hint: 'side by side with an array open in another tab' },
                             { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
                             { key: '/ o', action: 'Overlays', hint: 'show mask names and visibility' },
@@ -30072,6 +30169,16 @@
                 { key: 'q', toolId: 'qmri', command: 'tool.qmriDirect' },
                 { key: 's', toolId: 'save', command: 'saveMenu.open' },
                 { key: 'C', toolId: 'crop', command: 'tool.cropDirect' },
+                {
+                    key: 'c',
+                    id: 'comparewith',
+                    label: 'Compare with…',
+                    command: 'compare.withOpenArray',
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="8" height="14" rx="1"/><rect x="13" y="5" width="8" height="14" rx="1"/></svg>',
+                    enabled: () => !isInlineEmbed,
+                    active: () => compareActive,
+                    unavailableReason: () => 'Not available in notebook output.',
+                },
                 { key: 'P', toolId: 'comparecenter', command: 'tool.comparecenterDirect' },
                 { key: 'r', toolId: 'roi', command: 'tool.roiDirect' },
                 { key: 'S', toolId: 'segmentation', command: 'tool.segmentationDirect' },
@@ -41744,6 +41851,11 @@
             if (dropMenu) {
                 dropMenu.classList.toggle('visible', _dropMenuVisible);
                 dropMenu.setAttribute('aria-hidden', _dropMenuVisible ? 'false' : 'true');
+            }
+            const compareWithMenu = document.getElementById('compare-with-menu');
+            if (compareWithMenu) {
+                compareWithMenu.classList.toggle('visible', _compareWithMenuVisible);
+                compareWithMenu.setAttribute('aria-hidden', _compareWithMenuVisible ? 'false' : 'true');
             }
             if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
