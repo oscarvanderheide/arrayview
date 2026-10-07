@@ -4803,6 +4803,7 @@ def _serve_daemon(
             array_choice_placeholder,
             load_data,
             load_data_with_meta,
+            align_overlay_to_base,
             load_dir_collection,
             list_array_keys,
         )
@@ -4928,6 +4929,7 @@ def _serve_daemon(
             ):
                 try:
                     ov_data = load_data(ov_path)
+                    ov_data = align_overlay_to_base(ov_path, ov_data, spatial_meta)
                     ov_session = _session_mod.Session(
                         ov_data, filepath=ov_path, name=ov_name
                     )

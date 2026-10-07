@@ -172,3 +172,26 @@ def test_explicit_ras_conversion_reorients_native_volume(client, tmp_path):
     reverted = client.post(f"/resample_ras/{sid}", json={"enabled": False})
     reverted.raise_for_status()
     assert reverted.json()["shape"] == [3, 4, 5]
+
+
+def test_overlay_on_different_grid_is_resampled_onto_base(tmp_path):
+    from arrayview._io import align_overlay_to_base, load_data, load_data_with_meta
+
+    base_affine = np.diag([1.0, 1.0, 2.0, 1.0])
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 6), np.float32), base_affine), tmp_path / "base.nii.gz")
+    # Mask has one slice fewer and starts one base slice (2 mm) higher.
+    mask = np.zeros((8, 8, 5), np.uint8)
+    mask[2:4, 3:5, 1] = 1
+    mask_affine = base_affine.copy()
+    mask_affine[2, 3] = 2.0
+    nib.save(nib.Nifti1Image(mask, mask_affine), tmp_path / "mask.nii.gz")
+
+    _base, meta = load_data_with_meta(str(tmp_path / "base.nii.gz"))
+    path = str(tmp_path / "mask.nii.gz")
+    aligned = align_overlay_to_base(path, load_data(path), meta)
+
+    assert aligned.shape == (8, 8, 6)
+    assert aligned.dtype == np.uint8
+    expected = np.zeros((8, 8, 6), np.uint8)
+    expected[2:4, 3:5, 2] = 1
+    np.testing.assert_array_equal(aligned, expected)

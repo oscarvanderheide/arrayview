@@ -1863,3 +1863,37 @@ def _peek_file_shape(fpath: str, ext: str):
     except Exception:
         pass
     return None
+
+
+def align_overlay_to_base(ov_path, ov_data, base_meta):
+    """Resample a NIfTI overlay onto the base volume's voxel grid.
+
+    Only used when the overlay's spatial shape differs from the base, which
+    otherwise leaves the overlay undisplayable. Both files' affines place the
+    voxels in world space; label data uses nearest-neighbour so mask values
+    stay exact. Returns ``ov_data`` unchanged when alignment does not apply.
+    """
+    if not base_meta or not (ov_path.endswith(".nii") or ov_path.endswith(".nii.gz")):
+        return ov_data
+    base_shape = base_meta.get("spatial_shape")
+    base_affine = base_meta.get("data_affine")
+    if base_shape is None or base_affine is None:
+        return ov_data
+    ov_shape = tuple(int(v) for v in ov_data.shape)
+    if len(ov_shape) != 3 or ov_shape == tuple(base_shape):
+        return ov_data
+    from scipy.ndimage import affine_transform
+
+    ov_affine = np.asarray(_nib().load(ov_path).affine, dtype=np.float64)
+    base_to_ov = np.linalg.inv(ov_affine) @ np.asarray(base_affine, dtype=np.float64)
+    src = np.asarray(ov_data)
+    is_label = np.issubdtype(src.dtype, np.integer) or src.dtype == bool
+    return affine_transform(
+        src.astype(np.float32) if not is_label else src,
+        base_to_ov[:3, :3],
+        offset=base_to_ov[:3, 3],
+        output_shape=tuple(base_shape),
+        order=0 if is_label else 1,
+        mode="constant",
+        cval=0,
+    )
