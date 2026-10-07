@@ -7844,3 +7844,23 @@ class TestViewDisplayRouting:
         finally:
             for sid in set(session_mod.SESSIONS) - before_sids:
                 session_mod.SESSIONS.pop(sid, None)
+
+
+def test_load_aligns_nifti_overlay_to_requested_base_grid(client, tmp_path):
+    nib = pytest.importorskip("nibabel")
+    import arrayview._session as session_mod
+
+    affine = np.diag([1.0, 1.0, 2.0, 1.0])
+    base = tmp_path / "base.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((6, 6, 5), np.float32), affine), str(base))
+    mask = tmp_path / "mask.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((6, 6, 4), np.uint8), affine), str(mask))
+
+    plain = client.post("/load", json={"filepath": str(mask)}).json()["sid"]
+    aligned = client.post(
+        "/load", json={"filepath": str(mask), "align_to": str(base)}
+    ).json()["sid"]
+
+    assert aligned != plain
+    assert session_mod.SESSIONS[plain].shape == (6, 6, 4)
+    assert session_mod.SESSIONS[aligned].shape == (6, 6, 5)

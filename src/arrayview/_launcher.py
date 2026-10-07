@@ -1314,6 +1314,7 @@ def _load_session_from_filepath(
     watch: bool = False,
     initial_view: dict | None = None,
     code_source: dict | None = None,
+    align_to: str | None = None,
 ) -> dict:
     requested_sid = uuid.uuid4().hex
     payload = {
@@ -1329,6 +1330,8 @@ def _load_session_from_filepath(
     }
     if source_staging_dir:
         payload["source_staging_dir"] = source_staging_dir
+    if align_to:
+        payload["align_to"] = align_to
     if watch:
         payload["watch"] = True
     if initial_view:
@@ -1686,6 +1689,7 @@ def _register_cli_session_with_existing_server_impl(
             ov_name,
             expected_server_id=expected_server_id,
             source_staging_dir=(source_staging_dirs or {}).get(ov_path),
+            align_to=os.path.abspath(base_file),
         )
         if "error" in ov_result:
             raise RuntimeError(

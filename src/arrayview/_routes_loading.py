@@ -277,6 +277,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     and os.path.abspath(existing.filepath) == abs_path
                     and current_signature is not None
                     and getattr(existing, "file_signature", None) == current_signature
+                    and getattr(existing, "aligned_to", None) == body.get("align_to")
                 ):
                     if acquire_session_leases([existing.sid]):
                         return {"sid": existing.sid, "name": existing.name, "notified": False}
@@ -458,6 +459,17 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         key=_key,
                         select=body.get("select"),
                     )
+                    if body.get("align_to"):
+                        from ._io import align_overlay_to_base, nifti_grid_meta
+
+                        base_meta = await asyncio.to_thread(
+                            nifti_grid_meta, str(body["align_to"])
+                        )
+                        aligned = await asyncio.to_thread(
+                            align_overlay_to_base, filepath, data, base_meta
+                        )
+                        if aligned is not data:
+                            data, spatial_meta = aligned, base_meta
             except Exception as e:
                 if staging_dir:
                     cleanup_staging_directory(staging_dir)
@@ -479,6 +491,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 str(value) for value in body.get("related_sids", [])
             ]
             apply_launch_view(session, body)
+            session.aligned_to = body.get("align_to")
             if staging_dir:
                 session._source_staging_dirs = [str(staging_dir)]
             if not dir_patterns:

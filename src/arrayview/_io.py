@@ -1865,6 +1865,13 @@ def _peek_file_shape(fpath: str, ext: str):
     return None
 
 
+def nifti_grid_meta(filepath):
+    """Return a NIfTI file's native-order spatial metadata (header only), or None."""
+    if not (filepath.endswith(".nii") or filepath.endswith(".nii.gz")):
+        return None
+    return _nifti_header_with_meta(filepath, native=True)[1]
+
+
 def align_overlay_to_base(ov_path, ov_data, base_meta):
     """Resample a NIfTI overlay onto the base volume's voxel grid.
 
