@@ -765,6 +765,12 @@ def upgrade_memmap_in_background(session) -> bool:
                 from ._io import _nifti_display_array
 
                 loaded = _nifti_display_array(data)
+                # An uncompressed proxy whose dtype needs no conversion comes
+                # back as a view of the file map, so nothing was read yet and
+                # every new orientation would still fault from disk. Copy in
+                # file order to make it one sequential read.
+                if not loaded.flags.owndata:
+                    loaded = np.array(loaded, copy=True, order="K")
         except Exception:
             return  # keep serving from the lazy source
         # A /reload or a released session must not be clobbered by a read that
