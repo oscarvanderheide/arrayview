@@ -37,7 +37,7 @@ def _response_payload() -> dict:
     if not native_available:
         defaults["window"]["default"] = "browser"
         defaults["window"]["terminal"] = "browser"
-        for key in ("default", "terminal", "vscode", "jupyter", "julia"):
+        for key in ("terminal", "vscode", "jupyter", "julia"):
             schema["window"][key] = [
                 value for value in schema["window"][key] if value != "native"
             ]
