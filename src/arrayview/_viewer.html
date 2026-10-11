@@ -7086,6 +7086,7 @@
         let _mvPrevZoom = 1.0;
         let _cmvPrevSquareStretch = false;
         let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
+        let _qmriPrevActiveDim = null;  // scroll dim before qMRI moved it off the map dim; null while rebuilding keeps the original
         let _comparePrevZoom = 1.0;  // saved on enterCompareMode, restored on exitCompareMode
         let _comparePrevNormalView = null; // Phase 4: saved primary View, restored on exitCompareMode
         let _eggsVisible = true;
@@ -35472,6 +35473,7 @@
             if (multiViewActive) exitMultiView();
             if (stackMosaicActive) exitStackMosaic();
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
+            if (_qmriPrevActiveDim === null) _qmriPrevActiveDim = activeDim;
             userZoom = 1.0;
             qvPan.reset();
             // Opening straight into qMRI never draws the main canvas, so its
@@ -35994,6 +35996,10 @@
             wrap.innerHTML = '';
             wrap.className = '';
             userZoom = _qmriPrevZoom;  // restore prior zoom (mirrors exitMultiView line 10521)
+            if (!_qmriSyntheticRebuilding && _qmriPrevActiveDim !== null) {
+                if (_qmriPrevActiveDim < shape.length) activeDim = _qmriPrevActiveDim;
+                _qmriPrevActiveDim = null;
+            }
             if (!_qmriSyntheticRebuilding) updateView();
             _reconcileUI();
             renderInfo();
