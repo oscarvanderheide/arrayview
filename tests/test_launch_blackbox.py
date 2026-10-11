@@ -535,16 +535,20 @@ def test_cli_browser_launch_renders_and_leaves_nothing_running(browser, tmp_path
     np.save(array_path, np.linspace(0, 1, 32 * 24, dtype=np.float32).reshape(32, 24))
 
     # Stand-in for the system browser: record the URL, the test opens it.
+    # macOS opens URLs with `open`, Linux with `xdg-open` or $BROWSER.
     url_file = tmp_path / "opened-url.txt"
-    opener = tmp_path / "open-url.sh"
-    opener.write_text(f'#!/bin/sh\necho "$1" >> "{url_file}"\n')
-    opener.chmod(0o755)
+    opener_bin = tmp_path / "bin"
+    opener_bin.mkdir()
+    for name in ("open", "xdg-open"):
+        opener = opener_bin / name
+        opener.write_text(f'#!/bin/sh\necho "$1" >> "{url_file}"\n')
+        opener.chmod(0o755)
 
     home = tmp_path / "home"
     home.mkdir()
     runtime = tmp_path / "runtime"
     env = {
-        "PATH": os.environ["PATH"],
+        "PATH": f"{opener_bin}{os.pathsep}{os.environ['PATH']}",
         "HOME": str(home),
         "USER": os.environ.get("USER", "arrayview-test"),
         "BROWSER": str(opener),
