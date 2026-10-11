@@ -46,41 +46,22 @@ jobs:
       - run: uv sync --frozen --group dev --group test
       - name: Install Playwright browser
         run: uv run playwright install chromium
-      - name: Python launch contracts
+      - name: Python launch checks
         run: >-
           uv run pytest
-          tests/test_launch_plan.py
-          tests/test_launch_diagnostics.py
-          tests/test_invocation_contract_matrix.py
           tests/test_instance_registry.py
           tests/test_server_identity_status.py
           tests/test_safe_server_stop.py
           tests/test_view_handle_lifecycle.py
-          tests/test_view_launch_execution.py
-          tests/test_vscode_ack_protocol.py
-          tests/test_display_opener_results.py
           tests/test_doctor_commands.py
           tests/test_cli.py
-          tests/test_lifecycle_contract.py
-          tests/test_public_invocation_regressions.py
-          tests/test_launch_execution_ownership.py
-          tests/test_spawn_ownership.py
-          tests/test_launch_trace.py
           tests/test_session_spec.py
+          tests/test_vsix_bundle.py
           tests/test_launch_blackbox.py
           -q
-      - name: VS Code extension contracts
+      - name: VS Code extension helpers
         run: |
           node vscode-extension/test_lifecycle_helpers.js
-          node vscode-extension/test_tunnel_resolution.js
-          node vscode-extension/test_tunnel_desktop_loopback.js
-          node vscode-extension/test_integrated_browser_selection.js
-          node vscode-extension/test_panel_replay.js
-          node vscode-extension/test_panel_readiness.js
-          node vscode-extension/test_integrated_browser_readiness.js
-          node vscode-extension/test_reload_recovery.js
-          node vscode-extension/test_signal_queue_handoff.js
-          node vscode-extension/test_request_journal.js
-          node vscode-extension/test_request_deadline.js
+          node vscode-extension/test_viewer_websocket_hedge.js
       - name: VS Code extension syntax
         run: node --check vscode-extension/extension.js

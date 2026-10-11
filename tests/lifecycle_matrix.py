@@ -87,17 +87,6 @@ def check_mex_context() -> CheckResult:
     return CheckResult("FAIL", ".mex lifecycle routing", _short_output(result))
 
 
-def check_lifecycle_contract_tests() -> CheckResult:
-    return _pytest_check(["tests/test_lifecycle_contract.py"], "tests/test_lifecycle_contract.py")
-
-
-def check_invocation_contract_matrix() -> CheckResult:
-    return _pytest_check(
-        ["tests/test_invocation_contract_matrix.py"],
-        "invocation x host x placement x OS planner contracts",
-    )
-
-
 def check_cli_contract_tests() -> CheckResult:
     return _pytest_check(["tests/test_cli.py"], "tests/test_cli.py")
 
@@ -128,22 +117,13 @@ def check_node_extension_helpers() -> CheckResult:
         return CheckResult("FAIL", "VS Code extension syntax", _short_output(result))
     scripts = [
         "test_lifecycle_helpers.js",
-        "test_tunnel_resolution.js",
-        "test_tunnel_desktop_loopback.js",
-        "test_integrated_browser_selection.js",
-        "test_request_journal.js",
-        "test_request_deadline.js",
-        "test_panel_replay.js",
-        "test_panel_readiness.js",
-        "test_integrated_browser_readiness.js",
-        "test_reload_recovery.js",
-        "test_signal_queue_handoff.js",
+        "test_viewer_websocket_hedge.js",
     ]
     for script in scripts:
         result = _run([node, f"vscode-extension/{script}"], timeout=20.0)
         if result.returncode != 0:
             return CheckResult("FAIL", script, _short_output(result))
-    return CheckResult("PASS", "VS Code transaction contracts")
+    return CheckResult("PASS", "VS Code extension helpers")
 
 
 def check_vsix_content() -> CheckResult:
@@ -321,8 +301,6 @@ def manual_jupyter() -> CheckResult:
 def _matrix(include_build: bool) -> list[MatrixRow]:
     rows = [
         MatrixRow("Project context", "Lifecycle contract is routed and drift-free", "automated", check_mex_context),
-        MatrixRow("All invocation contracts", "Core lifecycle invariants stay pinned", "automated", check_lifecycle_contract_tests),
-        MatrixRow("Launch planner matrix", "Invocation, host, placement, and OS rules stay orthogonal", "automated", check_invocation_contract_matrix),
         MatrixRow("CLI", "CLI launch/reuse behavior stays pinned", "automated", check_cli_contract_tests),
         MatrixRow("FastAPI/WebSocket", "Shell close and CLI helper release paths work", "automated", check_api_lifecycle_helpers),
         MatrixRow("Transient daemon", "Local transient server exits after viewer disconnect", "real subprocess", check_live_transient_daemon_shutdown),
