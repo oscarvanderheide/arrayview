@@ -120,7 +120,7 @@ Run `_composite_overlay_mask(rgba, ov_raw, is_label=True)` on a test RGBA and ma
 - [ ] No `nan` or `inf` values after `extract_slice` (they are replaced by `nan_to_num`)
 - [ ] `LUTS` is non-empty after calling `_init_luts()`
 - [ ] `uv run python` on `tests/visual_smoke.py` passes
-- [ ] `uv run pytest` on `tests/test_mode_consistency.py` passes
+- [ ] `uv run pytest` on `tests/test_mode_roundtrip.py` passes
 
 ## Update Scaffold
 - [ ] If a new failure mode was discovered, add it to the Gotchas section above

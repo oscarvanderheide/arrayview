@@ -52,7 +52,6 @@ The repository already has useful foundations:
 - the VS Code extension registers windows, forwards ports, resolves external
   URIs, and opens webview panels;
 - `.mex/context/lifecycle.md` defines ownership and shutdown expectations;
-- `tests/lifecycle_matrix.py` groups several lifecycle checks.
 
 The foundation is incomplete:
 

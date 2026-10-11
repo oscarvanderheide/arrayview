@@ -36,7 +36,7 @@ last_updated: 2026-09-18
   the viewport, and provides per-row deletion. Content-sized columns share one
   heading row with the details button; the drawing toolbar omits global delete. It replaces cursor-side ROI
   statistics. qMRI values follow the hovered map. Compare retains its existing
-  ROI guard. Served-browser coverage lives in `tests/test_roi_hud.py`.
+  ROI guard.
 
 - No-argument CLI startup opens a generated, action-gated interactive tutorial.
   It presents as a single whisper line — one key named at a time, with no panel,
@@ -77,8 +77,7 @@ last_updated: 2026-09-18
   swap), so the tour stores the main session's query under
   `arrayview:tutorial:home` and parks its step index before leaving.
 - Tutorial step key labels are literal keymap characters (`v` and `V` are
-  different commands). `tests/test_tutorial_browser.py` cross-checks every step
-  against `keybinds`; do not hand-edit a label without that check passing.
+  different commands); check each label against `keybinds` when editing.
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
 - Linux CLI file launches classify source mounts from procfs before target
   access. Known-disconnected CIFS sources fail before server startup; healthy

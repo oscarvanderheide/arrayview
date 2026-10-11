@@ -50,12 +50,8 @@ jobs:
         run: >-
           uv run pytest
           tests/test_instance_registry.py
-          tests/test_server_identity_status.py
           tests/test_safe_server_stop.py
-          tests/test_view_handle_lifecycle.py
-          tests/test_doctor_commands.py
           tests/test_cli.py
-          tests/test_session_spec.py
           tests/test_vsix_bundle.py
           tests/test_launch_blackbox.py
           -q

@@ -134,8 +134,7 @@ Report every affected row as one of:
 - `unavailable`: host not accessible.
 - `failed`: real gate did not satisfy the success contract.
 
-Only `real host` closes host-dependent rows. `tests/lifecycle_matrix.py` may exit
-successfully while showing `MANUAL`; those rows remain open.
+Only `real host` closes host-dependent rows.
 
 ## 7. Handoff record
 

@@ -63,7 +63,7 @@ Section separators are the navigation primitive:
 - [ ] Help overlay updated if a keyboard shortcut was added or changed
 - [ ] Narrow verification for the touched behavior completed
 - [ ] If full visual audit was requested, or this is release validation, `ui-consistency-audit` and `uv run python` on `tests/visual_smoke.py` pass
-- [ ] If mode routing/layout behavior changed across modes, `uv run pytest` on `tests/test_mode_consistency.py` passes
+- [ ] If mode routing/layout behavior changed across modes, `uv run pytest` on `tests/test_mode_roundtrip.py` passes
 
 ## Debug
 

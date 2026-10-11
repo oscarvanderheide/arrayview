@@ -34,6 +34,21 @@ def isolated_runtime_directory(tmp_path_factory, monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def no_leaked_fake_sessions():
+    """Drop anything a test put in the shared session table that isn't a session.
+
+    The test server is shared by the whole run, so one stray placeholder makes
+    every later load in every later file fail.
+    """
+    from arrayview._session import SESSIONS, Session
+
+    yield
+    for sid, value in list(SESSIONS.items()):
+        if not isinstance(value, Session):
+            SESSIONS.pop(sid, None)
+
+
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------

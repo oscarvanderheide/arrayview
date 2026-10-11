@@ -191,7 +191,6 @@ proxy carries both privately.
 
 - Start with the exact public command in the real environment being changed. Success means the intended display opens, its first array frame renders, caller blocking/return behavior is correct, a second launch works, and closing it releases the session/process as designed.
 - Classify evidence as `real host`, `real process`, `component`, or `unavailable`. Never report component or simulated coverage as real-host validation.
-- `tests/lifecycle_matrix.py` records automated, real-process, local-state, and manual-only checks separately. A green exit with `MANUAL` rows does not prove those rows and is not a complete launch gate.
 - `tests/test_launch_blackbox.py` runs real launches (CLI to a headless browser, ipykernel, nbclassic) and passes only on a rendered first frame. The CLI case skips when started from a VS Code terminal; run it detached (`setsid -f env -i ...`) to exercise it locally.
 - `tests/test_vsix_bundle.py` checks the bundled VSIX matches `vscode-extension/` source.
 - Do not add tests that assert on source text or emulate VS Code's request/ACK files; they were removed (2026-10-11) because they broke on every refactor and missed real launch bugs.

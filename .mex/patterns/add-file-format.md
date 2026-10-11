@@ -102,7 +102,7 @@ The server and CLI must not import format libraries directly. They may call gene
 - [ ] CLI daemon and in-process paths use generic `_io` helpers for key selection instead of duplicating format rules
 - [ ] `view(load_data("myfile.myext"))` opens the viewer without errors
 - [ ] If full-load format, added to `FULL_LOAD_EXTS`
-- [ ] `uv run pytest` on `tests/test_mode_consistency.py` still passes (no dtype regressions)
+- [ ] `uv run pytest` on `tests/test_mode_roundtrip.py` still passes (no dtype regressions)
 
 ## Update Scaffold
 - [ ] Update `.mex/ROUTER.md` "Current Project State" if what's working/not built has changed
