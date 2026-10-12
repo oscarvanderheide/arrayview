@@ -667,7 +667,7 @@ class _FileSeries:
     """Lazy 4D/5D view over a directory of same-shape array files.
 
     Like ``_NiftiSeries`` but works with any supported file format
-    (.npy, .npz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat).
+    (.npy, .npz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat, .gipl).
     Uses ``load_data`` for each volume — no nibabel reorientation.
     """
 
@@ -940,6 +940,8 @@ def _get_ext(filepath):
         return ".nii.gz"
     if lower.endswith(".zarr.zip"):
         return ".zarr.zip"
+    if lower.endswith(".gipl.gz"):
+        return ".gipl.gz"
     return os.path.splitext(lower)[1]
 
 
@@ -950,7 +952,7 @@ def _is_supported_collection_path(filepath):
 def _strip_array_ext(filepath):
     base = os.path.basename(filepath)
     lower = base.lower()
-    for suffix in (".nii.gz", ".zarr.zip"):
+    for suffix in (".nii.gz", ".zarr.zip", ".gipl.gz"):
         if lower.endswith(suffix):
             return base[: -len(suffix)]
     return os.path.splitext(base)[0]
@@ -1738,6 +1740,8 @@ def load_data(filepath, key=None, *, progress=None):
         import tifffile
 
         return tifffile.imread(filepath)
+    elif filepath.lower().endswith((".gipl", ".gipl.gz")):
+        return _load_gipl(filepath)
     elif filepath.endswith(".mat"):
         try:
             import scipy.io
@@ -1783,8 +1787,66 @@ def load_data(filepath, key=None, *, progress=None):
             return data
         raise ValueError(
             "Unsupported format. Supported: .npy, .npz, .nii/.nii.gz, .zarr, "
-            ".pt/.pth, .h5/.hdf5, .tif/.tiff, .mat"
+            ".pt/.pth, .h5/.hdf5, .tif/.tiff, .mat, .gipl/.gipl.gz"
         )
+
+
+# GIPL (Guys Image Processing Lab) image types -> numpy dtypes. Data is
+# big-endian; complex types store interleaved real/imaginary components.
+_GIPL_DTYPES = {
+    1: ">u1",  # binary, one value per byte
+    7: ">i1",
+    8: ">u1",
+    15: ">i2",
+    16: ">u2",
+    31: ">u4",
+    32: ">i4",
+    64: ">f4",
+    65: ">f8",
+    144: ">i2",  # complex short
+    160: ">i4",  # complex int
+    192: ">f4",  # complex float
+    193: ">f8",  # complex double
+}
+_GIPL_COMPLEX = frozenset([144, 160, 192, 193])
+_GIPL_MAGIC = (4026526128, 719555000)
+_GIPL_HEADER_SIZE = 256
+
+
+def _load_gipl(filepath):
+    """Read a .gipl/.gipl.gz file into an array indexed (x, y, z, t).
+
+    Trailing singleton dimensions are dropped, matching how a NIfTI volume
+    of the same data is shown.
+    """
+    import gzip
+
+    opener = gzip.open if filepath.lower().endswith(".gz") else open
+    with opener(filepath, "rb") as f:
+        raw = f.read()
+    if len(raw) < _GIPL_HEADER_SIZE:
+        raise ValueError(f"{filepath!r} is too short to be a GIPL file.")
+    header = raw[:_GIPL_HEADER_SIZE]
+    magic = int(np.frombuffer(header, ">u4", count=1, offset=252)[0])
+    if magic not in _GIPL_MAGIC:
+        raise ValueError(f"{filepath!r} is not a GIPL file (bad magic number).")
+    dims = [int(d) for d in np.frombuffer(header, ">u2", count=4, offset=0)]
+    image_type = int(np.frombuffer(header, ">u2", count=1, offset=8)[0])
+    if image_type not in _GIPL_DTYPES:
+        raise ValueError(f"{filepath!r} has unsupported GIPL image type {image_type}.")
+    dims = [max(d, 1) for d in dims]
+    is_complex = image_type in _GIPL_COMPLEX
+    count = int(np.prod(dims)) * (2 if is_complex else 1)
+    data = np.frombuffer(raw, _GIPL_DTYPES[image_type], count=count, offset=_GIPL_HEADER_SIZE)
+    data = data.astype(data.dtype.newbyteorder("="))
+    if is_complex:
+        data = data.astype(np.float64 if data.itemsize == 8 else np.float32)
+        data = data[0::2] + 1j * data[1::2]
+    # x varies fastest on disk.
+    arr = data.reshape(dims[::-1]).transpose(3, 2, 1, 0)
+    while arr.ndim > 2 and arr.shape[-1] == 1:
+        arr = arr[..., 0]
+    return np.ascontiguousarray(arr)
 
 
 def _tensor_to_numpy(obj, source="object"):
@@ -1823,13 +1885,15 @@ _SUPPORTED_EXTS = frozenset(
         ".tif",
         ".tiff",
         ".mat",
+        ".gipl",
+        ".gipl.gz",
         ".dcm",
     ]
 )
 
 # Formats that load the entire array into RAM (no mmap/lazy access).
 # RAM guard only applies to these.
-FULL_LOAD_EXTS = frozenset([".pt", ".pth", ".tif", ".tiff", ".mat"])
+FULL_LOAD_EXTS = frozenset([".pt", ".pth", ".tif", ".tiff", ".mat", ".gipl", ".gipl.gz"])
 
 
 def _peek_file_shape(fpath: str, ext: str):

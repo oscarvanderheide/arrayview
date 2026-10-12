@@ -12,6 +12,7 @@
 | `.h5` / `.hdf5` | h5py | Must contain one dataset |
 | `.tif` / `.tiff` | tifffile | Full load |
 | `.mat` | scipy / h5py | Multi-array: in-viewer picker for array selection |
+| `.gipl` / `.gipl.gz` | built in | Full load |
 
 Optional libraries are imported only when needed.
 

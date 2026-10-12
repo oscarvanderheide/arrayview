@@ -4974,7 +4974,7 @@ function activate(context) {
                 canSelectFiles: true,
                 canSelectMany: false,
                 filters: {
-                    'Array files': ['npy', 'npz', 'nii', 'gz', 'h5', 'hdf5', 'zarr', 'mat', 'tif', 'tiff', 'pt', 'pth'],
+                    'Array files': ['npy', 'npz', 'nii', 'gz', 'h5', 'hdf5', 'zarr', 'mat', 'tif', 'tiff', 'pt', 'pth', 'gipl'],
                 },
             });
             if (!selected || !selected.length) return;

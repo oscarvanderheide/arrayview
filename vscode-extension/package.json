@@ -61,7 +61,7 @@
         },
         {
           "command": "arrayview.openFile",
-          "when": "!explorerResourceIsFolder && resourceFilename =~ /\\.(npy|npz|nii(\\.gz)?|h5|hdf5|mat|tif|tiff|pt|pth|zarr\\.zip)$/",
+          "when": "!explorerResourceIsFolder && resourceFilename =~ /\\.(npy|npz|nii(\\.gz)?|h5|hdf5|mat|tif|tiff|pt|pth|zarr\\.zip|gipl(\\.gz)?)$/",
           "group": "navigation@29"
         }
       ],
@@ -90,7 +90,9 @@
           { "filenamePattern": "*.tiff" },
           { "filenamePattern": "*.pt" },
           { "filenamePattern": "*.pth" },
-          { "filenamePattern": "*.zarr.zip" }
+          { "filenamePattern": "*.zarr.zip" },
+          { "filenamePattern": "*.gipl" },
+          { "filenamePattern": "*.gipl.gz" }
         ],
         "priority": "default"
       }

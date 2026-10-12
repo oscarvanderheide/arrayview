@@ -53,6 +53,8 @@ _KNOWN_LOCAL_STAGE_FILESYSTEMS = frozenset(
     }
 )
 _SELF_CONTAINED_FILE_EXTENSIONS = (
+    ".gipl",
+    ".gipl.gz",
     ".h5",
     ".hdf5",
     ".mat",

@@ -40,7 +40,7 @@ Stacked patient collections and masks: [Stack and Overlay Collections](stack-ove
 
 ## Formats
 
-`.npy` `.npz` `.nii` `.nii.gz` `.zarr` `.pt` `.h5` `.tif` `.mat`
+`.npy` `.npz` `.nii` `.nii.gz` `.zarr` `.pt` `.h5` `.tif` `.mat` `.gipl`
 
 Optional libraries (nibabel, zarr, torch, h5py, tifffile, scipy) are imported only when needed.
 

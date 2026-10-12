@@ -95,7 +95,7 @@ last_updated: 2026-09-18
   Runtime registry paths prefer `$XDG_RUNTIME_DIR/arrayview` and otherwise use
   `/tmp/arrayview-<uid>` with private registry and log directories.
 - Real-host launch evidence has passed for local native CLI, Python-script native, Julia/PythonCall native, a real ipykernel inline view, and plain SSH with `ssh -L`. VS Code local, Remote SSH, and VS Code tunnel are separate acceptance rows and must be reverified independently after opener or routing changes.
-- File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.dcm`/DICOM series directories, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
+- File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.dcm`/DICOM series directories, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`, `.gipl`/`.gipl.gz`
 - DICOM series use physical patient-position ordering, canonical RAS geometry,
   modality rescale, explicit multi-series selection, and a privacy-filtered
   MRI-aware Shift+I tab with header/derived provenance.
