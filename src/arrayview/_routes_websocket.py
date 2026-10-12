@@ -81,9 +81,11 @@ def _render_progress_reporter(
     Anything finishing inside `quiet_for_s` therefore shows nothing at all,
     which is what keeps a fast load from flashing a bar on its way past.
     """
-    state = {"started": time.perf_counter(), "last": 0.0}
+    state = {"started": time.perf_counter(), "last": 0.0, "closed": False}
 
     def report(done, total):
+        if state["closed"]:
+            return
         now = time.perf_counter()
         if now - state["started"] < quiet_for_s:
             return
@@ -98,15 +100,24 @@ def _render_progress_reporter(
             "total": int(total),
             "label": label,
         }
+        def _send():
+            # Checked again on the loop: an update queued just before the
+            # frame was sent would otherwise arrive after it, and the viewer
+            # (which clears its bar when a frame lands) kept the bar up.
+            if not state["closed"]:
+                asyncio.ensure_future(_send_json_quietly(ws, payload))
+
         try:
-            loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(_send_json_quietly(ws, payload))
-            )
+            loop.call_soon_threadsafe(_send)
         except RuntimeError:
             # Loop already closed (viewer went away mid-render); progress is
             # never worth raising over.
             pass
 
+    def close():
+        state["closed"] = True
+
+    report.close = close
     return report
 
 
@@ -694,7 +705,12 @@ def register_websocket_routes(app) -> None:
 
                 # The pixels exist; nothing after this point reads the array,
                 # and the viewer clears its indicator when the frame lands.
+                # Closing the reporter also drops updates still queued for
+                # the socket, which would otherwise land after the frame.
+                sink = session.progress_sink
                 session.progress_sink = None
+                if hasattr(sink, "close"):
+                    sink.close()
                 render_ms = (time.perf_counter() - render_t0) * 1000.0
                 post_t0 = time.perf_counter()
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()

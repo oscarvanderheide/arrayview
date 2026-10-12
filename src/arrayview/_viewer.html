@@ -15943,7 +15943,12 @@
                         } else if (msg.type === 'render_timing' && _PERF_ENABLED) {
                             _perfHandleTimingMessage(event.data, 'main');
                         } else if (msg.type === 'render_progress') {
-                            _showRenderProgress(msg.done, msg.total, msg.label);
+                            // Only while a frame is actually awaited: a late
+                            // report for a frame already drawn would show a
+                            // bar that nothing then clears.
+                            if (isRendering || !_reportedFirstFrame) {
+                                _showRenderProgress(msg.done, msg.total, msg.label);
+                            }
                         } else if (msg.type === 'warm_path') {
                             _warmClientPath(msg.connections);
                         } else if (msg.type === 'render_error') {
