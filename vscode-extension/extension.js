@@ -1373,8 +1373,8 @@ function launchArrayViewFile(filePath, title) {
         // click tab says it is starting rather than sitting plain.
         const pending = _pendingPlaceholders.get(path.resolve(filePath));
         if (pending) {
-            pending.message = 'Starting ArrayView…';
-            try { pending.panel.webview.html = _clickTabHtml(title, pending.message); } catch (_) {}
+            pending.message = 'Starting ArrayView';
+            try { pending.panel.webview.html = _clickTabHtml(title, pending.message, false); } catch (_) {}
         }
         await _spawnPythonForFile(filePath, title);
     })();
@@ -1695,13 +1695,14 @@ function _startIntegratedBrowserOpeningProgress(title) {
 // therefore must not show that logo itself (logo, empty, logo read as a
 // flicker): it is plain, in the editor background the empty tab also shows.
 // When ArrayView first has to start (1-3 s), a plain screen looks stuck, so
-// the click tab says what is happening instead — in VS Code's own text style,
+// the click tab says "Starting ArrayView" instead — in VS Code's own text style,
 // clearly a different screen from the viewer's loading logo.
 // Any other open that is still waiting after a second (a big folder, a slow
 // drive) gets the same treatment with "Opening…".
-function _clickTabHtml(title, message = null) {
+function _clickTabHtml(title, message = null, showName = true) {
     const body = message
-        ? `<div class="msg">${_escapeHtml(message)}</div><div class="name">${_escapeHtml(title)}</div>`
+        ? `<div class="msg">${_escapeHtml(message)}</div>`
+            + (showName ? `<div class="name">${_escapeHtml(title)}</div>` : '')
         : '';
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 html, body { margin: 0; padding: 0; height: 100%; background: var(--vscode-editor-background); }
