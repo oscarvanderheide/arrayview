@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import functools
 import gzip
 import glob
 import os
@@ -1676,22 +1677,48 @@ def prefetch_first_frame_pages(mapped, filepath) -> bool:
     if len(shape) < 3 or _default_start_dims_for_data(mapped) is not None:
         return False
     dims = _viewer_start_dims_for_shape(shape)
-    if dims is None or not _on_known_local_disk(filepath):
+    if dims is None:
         return False
-    index = _viewer_start_index(shape, dims)
-    strides = mapped.strides
-    base = int(mapped.offset) + sum(
-        index[i] * int(strides[i]) for i in range(len(shape)) if i not in dims
+    return prefetch_slice_pages(mapped, filepath, dims, _viewer_start_index(shape, dims))
+
+
+@functools.lru_cache(maxsize=64)
+def _on_known_local_disk_cached(filepath) -> bool:
+    return _on_known_local_disk(filepath)
+
+
+def prefetch_slice_pages(mapped, filepath, dims, index) -> bool:
+    """Fetch the pages of one 2-D slice of a memmap with parallel reads.
+
+    Faulting such a slice in through the map is the slow way: readahead drags
+    in the pages between the wanted elements (6 s for one slice of a 1.6 GB
+    C-order file), and without readahead each page is its own wait (7.7 s).
+    Many small reads in flight take ~0.7 s on a local disk. Only worth it when
+    the slice is scattered one element per page; returns False otherwise, or
+    off a known local disk, having read nothing.
+    """
+    shape = tuple(int(s) for s in mapped.shape)
+    strides = tuple(int(s) for s in mapped.strides)
+    runs, _faulted = first_frame_fault_cost(
+        shape, mapped.dtype.itemsize, strides, dims, mapped.nbytes
     )
-    rows = np.arange(shape[dims[0]], dtype=np.int64) * int(strides[dims[0]])
-    cols = np.arange(shape[dims[1]], dtype=np.int64) * int(strides[dims[1]])
+    if runs <= 1024 or not _on_known_local_disk_cached(str(filepath)):
+        return False
+    base = int(mapped.offset) + sum(
+        int(index[i]) * strides[i] for i in range(len(shape)) if i not in dims
+    )
+    rows = np.arange(shape[dims[0]], dtype=np.int64) * strides[dims[0]]
+    cols = np.arange(shape[dims[1]], dtype=np.int64) * strides[dims[1]]
     starts = (base + rows[:, None] + cols[None, :]).ravel()
     ends = starts + (mapped.dtype.itemsize - 1)
     pages = np.unique(np.concatenate((starts, ends)) // _MMAP_PAGE_BYTES)
     if pages.size > _FIRST_FRAME_PREFETCH_MAX_PAGES:
         return False
 
-    fd = os.open(filepath, os.O_RDONLY)
+    try:
+        fd = os.open(filepath, os.O_RDONLY)
+    except OSError:
+        return False
     try:
         # Only the pages asked for: readahead around each would multiply the I/O.
         try:
@@ -1705,7 +1732,7 @@ def prefetch_first_frame_pages(mapped, filepath) -> bool:
             for offset in part:
                 os.pread(fd, _MMAP_PAGE_BYTES, offset)
 
-        with ThreadPoolExecutor(max_workers=n, thread_name_prefix="arrayview-frame-prefetch") as pool:
+        with ThreadPoolExecutor(max_workers=n, thread_name_prefix="arrayview-slice-prefetch") as pool:
             for _ in pool.map(_warm, [offsets[k::n] for k in range(n)]):
                 pass
     except OSError:
@@ -1869,9 +1896,11 @@ def load_data(filepath, key=None, *, progress=None, fast_first_frame=False):
         # read runs behind it (see mmap_first_frame_is_cheap) or the viewer shows
         # a spinner until the read completes.
         size = os.path.getsize(filepath)
-        if size >= npy_eager_limit():
-            return np.load(filepath, mmap_mode="r")
         mapped = np.load(filepath, mmap_mode="r")
+        if size >= npy_eager_limit():
+            if fast_first_frame:
+                prefetch_first_frame_pages(mapped, filepath)
+            return mapped
         if mmap_first_frame_is_cheap(mapped, size):
             # Session creation upgrades this to an in-RAM array in the background.
             return mapped

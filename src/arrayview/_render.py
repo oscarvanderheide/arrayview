@@ -207,7 +207,17 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
     # already served from cache.
     if progress is None:
         progress = getattr(session, 'progress_sink', None)
-    extracted = _extract_with_progress(session.data, slicer, progress)
+    data = session.data
+    if isinstance(data, np.memmap) and data.filename:
+        # A slice scattered one element per page reads far faster as many
+        # parallel small reads than by faulting through the map (local disks).
+        from ._io import prefetch_slice_pages
+
+        try:
+            prefetch_slice_pages(data, data.filename, (dim_x, dim_y), idx_list)
+        except Exception:
+            pass
+    extracted = _extract_with_progress(data, slicer, progress)
     if dim_x < dim_y:
         extracted = extracted.T
     # scipy.io.loadmat returns complex arrays as structured dtypes; convert here.

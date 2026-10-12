@@ -201,6 +201,7 @@ def test_fast_first_frame_maps_large_c_order_npy_on_local_disk(tmp_path, monkeyp
     np.save(path, expected)
 
     monkeypatch.setattr(_io, "_on_known_local_disk", lambda _p: True)
+    _io._on_known_local_disk_cached.cache_clear()
     loaded = _io.load_data(str(path), fast_first_frame=True)
     assert isinstance(loaded, np.memmap)
     np.testing.assert_array_equal(loaded, expected)
@@ -208,4 +209,21 @@ def test_fast_first_frame_maps_large_c_order_npy_on_local_disk(tmp_path, monkeyp
     # Off a local disk, or without the flag, it is read whole as before.
     assert not isinstance(_io.load_data(str(path)), np.memmap)
     monkeypatch.setattr(_io, "_on_known_local_disk", lambda _p: False)
+    _io._on_known_local_disk_cached.cache_clear()
     assert not isinstance(_io.load_data(str(path), fast_first_frame=True), np.memmap)
+    _io._on_known_local_disk_cached.cache_clear()
+
+
+def test_slice_prefetch_skips_slices_that_are_already_cheap(tmp_path, monkeypatch):
+    from arrayview import _io
+
+    path = tmp_path / "c_order.npy"
+    np.save(path, np.zeros((48, 40, 1100), dtype=np.float32))
+    mapped = np.load(path, mmap_mode="r")
+    monkeypatch.setattr(_io, "_on_known_local_disk", lambda _p: True)
+    _io._on_known_local_disk_cached.cache_clear()
+    # Trailing axes are one contiguous block: nothing to gain.
+    assert not _io.prefetch_slice_pages(mapped, str(path), (1, 2), (24, 0, 0))
+    # Leading axes, one element per page: fetched.
+    assert _io.prefetch_slice_pages(mapped, str(path), (0, 1), (0, 0, 550))
+    _io._on_known_local_disk_cached.cache_clear()
