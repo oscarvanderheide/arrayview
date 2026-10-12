@@ -228,20 +228,6 @@ async function _runIntegratedBrowserCommand(operation) {
     }
 }
 
-// Trial switch for opening the viewer tab in the background (see the
-// integrated-browser handover). Read per launch so it can be flipped without a
-// window reload: ~/.arrayview/browser-open-trial.json, e.g.
-//   {"background": true, "args": {"inactive": true, "preserveFocus": true}}
-function _browserOpenTrial() {
-    try {
-        const raw = fs.readFileSync(path.join(SIGNAL_DIR, 'browser-open-trial.json'), 'utf8');
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
-        return null;
-    }
-}
-
 function _visibleEditorTabs() {
     const groups = vscode.window?.tabGroups?.all;
     if (!Array.isArray(groups)) return [];
@@ -1383,6 +1369,13 @@ function launchArrayViewFile(filePath, title) {
     return (async () => {
         const fast = await _fastLoadViaDaemon(filePath, title);
         if (fast) return;
+        // No ArrayView running yet: this open takes a few seconds, so the
+        // click tab says it is starting rather than sitting plain.
+        const pending = _pendingPlaceholders.get(path.resolve(filePath));
+        if (pending) {
+            pending.message = 'Starting ArrayView…';
+            try { pending.panel.webview.html = _clickTabHtml(title, pending.message); } catch (_) {}
+        }
         await _spawnPythonForFile(filePath, title);
     })();
 }
@@ -1696,38 +1689,38 @@ function _startIntegratedBrowserOpeningProgress(title) {
 // Without a placeholder the folder command would show nothing at all while the
 // backend walks the tree — the exact case that hurts most, since enumerating a
 // DICOM folder on a network mount is the slowest thing ArrayView does.
-// The click tab shows exactly what the viewer's own startup screen shows —
-// same background, pulsing logo and name, in the same place — so handing over
-// to the viewer tab is not a visible change of screen. Keep in step with
-// #loading-overlay in _viewer.html (colours, sizes, pulse timing, and the
-// space its progress line takes, which keeps the logo at the same height).
-function _startupScreenHtml(title) {
-    const blocks = [
-        ['b0', 2, 2, '#3a0ca3', 0.00], ['b1', 6.5, 2, '#560bad', 0.15],
-        ['b2', 11, 2, '#c77dff', 0.30], ['b5', 11, 6.5, '#f5c842', 0.45],
-        ['b8', 11, 11, '#f8961e', 0.60], ['b7', 6.5, 11, '#80ed99', 0.75],
-        ['b6', 2, 11, '#4895ef', 0.90], ['b3', 2, 6.5, '#4361ee', 1.05],
-    ];
-    const rects = blocks.map(([, x, y, fill, delay]) =>
-        `<rect x="${x}" y="${y}" width="3" height="3" fill="${fill}" style="animation:av-logo-pulse 1.2s ${delay}s ease-in-out infinite"/>`
-    ).join('');
+// What the click tab shows before the viewer tab replaces it. VS Code's
+// built-in browser cannot open a tab in the background, so the viewer tab is
+// always empty for ~0.5 s before its page paints its own logo. The click tab
+// therefore must not show that logo itself (logo, empty, logo read as a
+// flicker): it is plain, in the editor background the empty tab also shows.
+// When ArrayView first has to start (1-3 s), a plain screen looks stuck, so
+// the click tab says what is happening instead — in VS Code's own text style,
+// clearly a different screen from the viewer's loading logo.
+// Any other open that is still waiting after a second (a big folder, a slow
+// drive) gets the same treatment with "Opening…".
+function _clickTabHtml(title, message = null) {
+    const body = message
+        ? `<div class="msg">${_escapeHtml(message)}</div><div class="name">${_escapeHtml(title)}</div>`
+        : '';
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-html, body { margin: 0; padding: 0; height: 100%; background: #1A1D1F; }
+html, body { margin: 0; padding: 0; height: 100%; background: var(--vscode-editor-background); }
 body { display: flex; flex-direction: column; align-items: center; justify-content: center;
-       font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; }
-.name { margin-top: 14px; font-size: 11px; color: #5a5a5a; letter-spacing: 0.1em;
-        text-transform: uppercase; min-height: 1.2em; }
-@keyframes av-logo-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
-</style></head><body>
-<svg width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>${rects}<rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/></svg>
-<div class="name">${_escapeHtml(title)}</div>
-<div style="margin-top:12px;width:120px;height:2px"></div>
-</body></html>`;
+       font-family: var(--vscode-font-family); color: var(--vscode-descriptionForeground); }
+.msg { font-size: 13px; opacity: 0; animation: av-in 0.3s ease 0.15s forwards; }
+.name { margin-top: 6px; font-size: 11px; opacity: 0; animation: av-in 0.3s ease 0.15s forwards; }
+@keyframes av-in { to { opacity: 0.8; } }
+</style></head><body>${body}</body></html>`;
 }
 
 function _registerHandoffPlaceholder(webviewPanel, sourcePath, title, logTag) {
     webviewPanel.webview.options = { enableScripts: true };
-    webviewPanel.webview.html = _startupScreenHtml(title);
+    webviewPanel.webview.html = _clickTabHtml(title);
+    setTimeout(() => {
+        if (_pendingPlaceholders.get(path.resolve(sourcePath)) !== placeholder || placeholder.message) return;
+        placeholder.message = 'Opening…';
+        try { webviewPanel.webview.html = _clickTabHtml(title, placeholder.message); } catch (_) {}
+    }, 1000);
     const placeholderKey = path.resolve(sourcePath);
     const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
     _pendingPlaceholders.set(placeholderKey, placeholder);
@@ -3642,26 +3635,6 @@ async function openInIntegratedBrowser(
         requestTab = null;
         return Boolean(await vscode.window.tabGroups.close(tab, true));
     };
-    // Bring the request's own browser tab to the front (it may have been
-    // opened in the background). Works on that tab's position in its group.
-    const activateExactRequestTab = async () => {
-        const tab = requestTab;
-        if (!tab || !_visibleEditorTabs().includes(tab)) return false;
-        if (tab.isActive && tab.group?.isActive) return true;
-        const group = tab.group;
-        const index = Array.isArray(group?.tabs) ? group.tabs.indexOf(tab) : -1;
-        if (index < 0) return false;
-        try {
-            if (group.viewColumn && !group.isActive) {
-                await vscode.commands.executeCommand('workbench.action.focusEditorGroup', group.viewColumn);
-            }
-            await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', index);
-        } catch (error) {
-            log(`PANEL: could not activate viewer tab: ${error.message || error}`);
-            return false;
-        }
-        return true;
-    };
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
@@ -3707,12 +3680,10 @@ async function openInIntegratedBrowser(
         );
         if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
         const tabsBefore = _visibleEditorTabs();
-        const trial = _browserOpenTrial();
         beforeNavigate();
         const commandPromise = _runIntegratedBrowserCommand(
             () => _withTimeout(
                 vscode.commands.executeCommand('workbench.action.browser.open', {
-                    ...(navigationAttempt === 0 && trial && trial.args ? trial.args : {}),
                     url: launchUrl,
                     // Each invocation gets a new browser tab in the preferred group.
                     // openToSide=true creates and locks a new editor group per launch,
@@ -3785,7 +3756,6 @@ async function openInIntegratedBrowser(
     return {
         scriptLoaded,
         closeExactRequestTab,
-        activateExactRequestTab,
         viewerReady: waitForBackendViewerReady(
             backendUrl,
             sid,
@@ -4626,14 +4596,6 @@ async function _processSignalDataBody(
                 );
                 return integratedBrowserProgress;
             };
-            // Normally the click tab (logo + name) closes in the moment before
-            // the viewer tab opens. Under the background trial (see
-            // _browserOpenTrial) the viewer tab is opened behind whatever is
-            // on screen, the click tab stays up, and the viewer tab is brought
-            // forward once its page has loaded — so the new tab's empty screen
-            // is never shown.
-            const backgroundTrial = Boolean(_browserOpenTrial()?.background);
-            let heldPlaceholder = null;
             const handOverTab = () => {
                 beginOpeningProgress();
                 if (!integratedBrowserPlaceholder) return;
@@ -4642,16 +4604,9 @@ async function _processSignalDataBody(
                 if (_pendingPlaceholders.get(filePath) === placeholder) {
                     _pendingPlaceholders.delete(filePath);
                 }
-                heldPlaceholder = placeholder;
-                if (!backgroundTrial) disposeHeldPlaceholder('before navigation');
-            };
-            const disposeHeldPlaceholder = (reason) => {
-                const placeholder = heldPlaceholder;
-                heldPlaceholder = null;
-                if (!placeholder) return;
                 try {
                     placeholder.panel.dispose();
-                    log(`CUSTOM-EDITOR: handed over ${placeholder.basename} to the viewer tab (${reason})`);
+                    log(`CUSTOM-EDITOR: handed over ${placeholder.basename} to the viewer tab`);
                 } catch (error) {
                     log(`CUSTOM-EDITOR: tab for ${placeholder.basename} already closed at handover: ${error.message}`);
                 }
@@ -4675,24 +4630,7 @@ async function _processSignalDataBody(
                 if (integratedBrowserProgress) {
                     integratedBrowserProgress.settle('launch failed');
                 }
-                disposeHeldPlaceholder('launch failed');
                 throw error;
-            }
-            if (backgroundTrial) {
-                const openedAt = Date.now();
-                const loaded = Promise.resolve(opened.scriptLoaded).then(() => 'loaded');
-                const settled = Promise.resolve(opened.viewerReady).then(() => 'settled', () => 'settled');
-                void Promise.race([
-                    loaded,
-                    settled,
-                    new Promise(resolve => setTimeout(() => resolve('timeout'), 1200)),
-                ]).then(async (first) => {
-                    const shown = await opened.activateExactRequestTab();
-                    log(
-                        `PANEL: background trial — viewer tab shown=${shown} after ${Date.now() - openedAt} ms (${first})`
-                    );
-                    disposeHeldPlaceholder(`background trial, ${first}`);
-                });
             }
             viewerReady = opened.viewerReady;
             closeIntegratedBrowserTab = opened.closeExactRequestTab;
