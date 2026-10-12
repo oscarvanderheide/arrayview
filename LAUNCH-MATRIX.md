@@ -52,6 +52,24 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-10-12 early viewer connection
+
+The page head now opens the viewer's WebSocket while the viewer script is
+still downloading; the viewer adopts it if the address matches. Affects every
+WebSocket viewer: rows 1–4, 16, 19–20, 23–26, 29, 35 (tunnel), 5–10 and
+21–22 (browser, native, other VS Code), 12–14 (Jupyter). Jupyter proxy pages
+(34), HTTP transport and the relay hedge skip it and connect as before.
+
+- `real host`: VS Code tunnel, public CLI from the window's own terminal
+  environment, fresh working-tree server on port 8962: small.npy (cold start,
+  23), then medium.npy and maps.nii (289 MB) while earlier tabs stayed open
+  (24, 25) all rendered on navigation attempt 0. Page-side navigation→first
+  frame: 0.71 → 0.50 s (first open) and 0.46 → 0.30–0.36 s (repeat).
+- `real process`: headless Chromium against a real served session; browser
+  suite (23 tests) passes.
+- Not exercised: Explorer clicks (19–20), Julia (35), Jupyter (12–14),
+  native (8–10), Remote SSH (6, 21).
+
 ### 2026-09-16 bounded background checks
 
 Branch `fix/tunnel-background-checks` changes the integrated-browser viewer's

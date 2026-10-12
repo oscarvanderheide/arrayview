@@ -247,6 +247,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                         request_id=request_id,
                         navigation_attempt=journal.get("navigation_attempt"),
                         phase=phase,
+                        client_ms=body.get("client_ms"),
                     )
                 except Exception:
                     pass

@@ -52,6 +52,45 @@
             } catch (_) {}
         })();
 
+        // Open the viewer's WebSocket now, while the rest of this page and the
+        // large viewer script are still arriving. Through a VS Code tunnel a
+        // new connection takes ~0.2 s to set up, and the viewer used to start
+        // it only once its whole script had loaded and run. initWebSocket()
+        // adopts this socket if the address matches and replays anything it
+        // received in the meantime; otherwise it is closed and a fresh one made.
+        (function () {
+            try {
+                var params = new URLSearchParams(__ARRAYVIEW_QUERY__ || location.search);
+                var sid = params.get('sid');
+                if (
+                    !sid
+                    || params.get('transport') === 'http'
+                    || params.get('_av_relay_hedge') === '1'
+                    || typeof window.__ARRAYVIEW_SERVER_ORIGIN__ === 'string'
+                    || /\/proxy\/\d+(?:\/|$)/.test(location.pathname)
+                ) return;
+                var target = '/ws/' + sid;
+                var nativeRequestId = params.get('native_request_id');
+                if (nativeRequestId) {
+                    target += '?native_request_id=' + encodeURIComponent(nativeRequestId);
+                }
+                var requestId = params.get('_av_launch_request_id');
+                var token = params.get('_av_launch_token');
+                if (requestId && token) {
+                    target += (target.indexOf('?') >= 0 ? '&' : '?')
+                        + 'launch_request_id=' + encodeURIComponent(requestId)
+                        + '&launch_token=' + encodeURIComponent(token);
+                }
+                var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                var url = proto + '//' + location.host + target;
+                var early = { url: url, ws: new WebSocket(url), opened: false, events: [] };
+                early.ws.binaryType = 'arraybuffer';
+                early.ws.onopen = function () { early.opened = true; };
+                early.ws.onmessage = function (event) { early.events.push(event); };
+                window.__avEarlySocket = early;
+            } catch (_) {}
+        })();
+
         // Name the tab at parse time. Without this the tab shows the host
         // ("localhost:8000") until metadata arrives over the WebSocket, and
         // that wait is the array load — seconds for a large file. The name
@@ -6215,7 +6254,36 @@
             return proxy;
         }
 
-        function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
+        // Hand over the socket the page head opened early (see the head
+        // script), if it is for this exact address and still usable. Its
+        // open event and any messages that arrived before the viewer's own
+        // handlers existed are replayed once those handlers are attached,
+        // which happens synchronously after this returns.
+        function _takeEarlySocket(url) {
+            const early = window.__avEarlySocket;
+            window.__avEarlySocket = null;
+            if (!early) return null;
+            const usable = early.url === url
+                && (early.ws.readyState === WebSocket.CONNECTING
+                    || early.ws.readyState === WebSocket.OPEN);
+            if (!usable) {
+                try { early.ws.onopen = null; early.ws.onmessage = null; early.ws.close(); } catch (_) {}
+                return null;
+            }
+            const ws = early.ws;
+            ws.onopen = null;
+            ws.onmessage = null;
+            queueMicrotask(() => {
+                if (early.opened && ws.onopen) ws.onopen(new Event('open'));
+                for (const event of early.events) {
+                    if (ws.onmessage) ws.onmessage(event);
+                }
+                early.events.length = 0;
+            });
+            return ws;
+        }
+
+        function createTransport(transportSid, onMessage, onOpen, onClose, onError, adoptEarly = false) {
             let wsTarget = resolveServerPath(`/ws/${transportSid}`);
             const nativeRequestId = urlParams.get('native_request_id');
             if (nativeRequestId) {
@@ -6232,23 +6300,21 @@
                 wsTarget += `${separator}launch_request_id=${encodeURIComponent(launchRequestId)}`;
                 wsTarget += `&launch_token=${encodeURIComponent(launchToken)}`;
             }
-            const makeSocket = () => {
+            const socketUrl = () => {
                 if (_embeddedServerOrigin) {
                     const wsUrl = new URL(wsTarget);
                     const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-                    return new WebSocket(
-                        `${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`
-                    );
+                    return `${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`;
                 }
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                return new WebSocket(`${proto}//${location.host}${wsTarget}`);
+                return `${proto}//${location.host}${wsTarget}`;
             };
-            const ws = (
-                _relayWsHedgeEnabled
-                && transportSid === sid
-            )
-                ? _createHedgedWebSocket(makeSocket)
-                : makeSocket();
+            const makeSocket = () => new WebSocket(socketUrl());
+            const hedged = _relayWsHedgeEnabled && transportSid === sid;
+            const early = (adoptEarly && transportSid === sid && !hedged)
+                ? _takeEarlySocket(socketUrl())
+                : null;
+            const ws = early || (hedged ? _createHedgedWebSocket(makeSocket) : makeSocket());
             ws.binaryType = 'arraybuffer';
             if (onOpen) ws.onopen = onOpen;
             if (onMessage) ws.onmessage = onMessage;
@@ -6310,6 +6376,10 @@
                 const phaseBody = JSON.stringify({
                     phase,
                     detail: detail || null,
+                    // When it happened on the page's own clock (ms since
+                    // navigation start): reports are sent one after another,
+                    // so their arrival time at the server lags the event.
+                    client_ms: Math.round(performance.now()),
                     server_id: _launchPhaseServerId,
                     window_id: _launchPhaseWindowId,
                     token: _launchPhaseToken,
@@ -15798,7 +15868,7 @@
             }
             if (_wsRetryTimer) { clearTimeout(_wsRetryTimer); _wsRetryTimer = null; }
             if (_wsGaveUp) return;
-            ws = createTransport(sid, null, null, null, null);
+            ws = createTransport(sid, null, null, null, null, true);
 
             // Only the first connection is bounded. Once a socket has opened,
             // a later drop is a reconnect — the server may be restarting, and
