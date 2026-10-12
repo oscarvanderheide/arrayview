@@ -129,9 +129,11 @@ async def _await_session_reporting_read_progress(ws, sid):
     holding a line to the viewer while the wait happens.
 
     Silent for the first stretch, so an ordinary fast open never flashes a
-    bar on its way past — the same rule the render progress reporter uses.
+    bar on its way past. Shorter than the viewer's own 0.6 s before it shows
+    its loading screen (counted from page load, which starts later), so the
+    line is ready when the screen appears rather than coming after it.
     """
-    quiet_for_s = 0.6
+    quiet_for_s = 0.3
     started = time.perf_counter()
     waiter = asyncio.ensure_future(wait_for_session_ready(sid))
     last = None

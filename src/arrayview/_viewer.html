@@ -4482,9 +4482,17 @@
             box-shadow: none;
         }
         .qmri-synth-param-value { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+        /* Hidden for the first 600 ms of the page: most opens draw their
+           first frame within that, and a logo that flashes past reads as
+           noise. Only a slower open gets the loading screen (see the script
+           after the overlay markup). */
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             position: fixed; inset: 0; z-index: 5; pointer-events: none;
+            visibility: hidden; opacity: 0;
+        }
+        #loading-overlay.av-load-shown {
+            visibility: visible; opacity: 1; transition: opacity 0.15s ease;
         }
         #loading-overlay .av-load-logo {
             width: 64px; height: 64px;
@@ -4496,8 +4504,8 @@
         }
         #loading-overlay .av-load-name.visible { opacity: 1; }
         /* The startup screen is the only loading signal until the first frame:
-           logo, name, and — once a wait has lasted a second — this line under
-           the name. The top-edge hairline and the busy panel stay hidden
+           logo, name, and — whenever there is progress to report — this line
+           under the name. The top-edge hairline and the busy panel stay hidden
            meanwhile (see _reconcileUI), so a slow open never stacks three
            different indicators. */
         #loading-overlay .av-load-progress {
@@ -5740,8 +5748,18 @@
         <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
         <div id="busy-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading…</span></div></div>
         <script>
-            // The array's name under the startup logo from the first paint,
-            // so the loading screen does not change while it is up.
+            // Show the loading screen only if the first frame has not arrived
+            // 600 ms into the page (a switch between arrays shows its panel
+            // at once). Timed from navigation start, here rather than in the
+            // main script, which may itself take longer than that to arrive.
+            try {
+                const ol = document.getElementById('loading-overlay');
+                setTimeout(() => {
+                    if (document.body.classList.contains('av-loading')) ol.classList.add('av-load-shown');
+                }, Math.max(0, 600 - performance.now()));
+            } catch (_) {}
+            // The array's name under the startup logo, so the loading screen
+            // does not change while it is up.
             try {
                 const name = new URLSearchParams(__ARRAYVIEW_QUERY__ || location.search).get('av_name');
                 const el = document.querySelector('#loading-overlay .av-load-name');
@@ -5758,7 +5776,7 @@
                     const panel = document.querySelector('#busy-overlay .av-loading-panel').cloneNode(true);
                     panel.querySelector('span').textContent = `Loading ${key}…`;
                     panel.classList.add('av-array-switch-panel');
-                    ol.classList.add('av-array-switch');
+                    ol.classList.add('av-array-switch', 'av-load-shown');
                     ol.appendChild(panel);
                 }
             } catch (_) {}
@@ -7054,11 +7072,6 @@
         let _startupAnimTl = null;
         const _loadingShowTime = performance.now(); // page load = spinner visible
         const _MIN_SPINNER_MS = 0; // first rendered frame wins; no artificial startup dwell
-        // A quick open never shows a progress line; a slow one shows it under
-        // the startup name once the page has been up for a second (the delay
-        // is checked in _reconcileUI; this makes sure it is re-checked then).
-        setTimeout(() => { if (document.body.classList.contains('av-loading')) _reconcileUI(); },
-            Math.max(0, 1000 - performance.now()));
 
         function _clearStartupChromeReveal() {
             const arrayName = document.getElementById('array-name');
@@ -41932,16 +41945,11 @@
             _reconcileInfoCursor();
             _reconcileModePicker();
             // Until the first frame the startup screen owns every loading
-            // signal; its own line stands in for the hairline, and only once
-            // the wait has lasted a second.
+            // signal; its own line stands in for the hairline.
             const startupScreen = document.body.classList.contains('av-loading');
             const startupProgress = document.querySelector('#loading-overlay .av-load-progress');
             if (startupProgress) {
-                startupProgress.classList.toggle(
-                    'visible',
-                    startupScreen && _renderProgressVisible
-                        && performance.now() >= 1000  // ms since the page started loading
-                );
+                startupProgress.classList.toggle('visible', startupScreen && _renderProgressVisible);
             }
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
