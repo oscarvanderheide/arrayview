@@ -1295,7 +1295,11 @@ async function _fastLoadViaDaemon(filePath, title) {
         url, title: title || `ArrayView: ${path.basename(filePath)}`,
         maxAgeMs: 240000, protocolVersion: 1, requestId, ackPath,
         requiredExtensionVersion: version,
-        remoteOnly: true,
+        // Same rule as the Python launcher: only a remote host marks its
+        // request remote-only. This request is queued for this very window, so
+        // on a local desktop host the mark made the window refuse its own
+        // request until the ack timeout sent the click down the Python path.
+        remoteOnly: Boolean(vscode.env.remoteName),
         windowId: logWindowId,
         serverId,
         handoffPath: filePath || undefined,
