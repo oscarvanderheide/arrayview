@@ -44,9 +44,9 @@ uvx arrayview --version                     # print version
 
 ### Network-mounted source files
 
-By default, ArrayView opens network-mounted files (CIFS/SMB, NFS, SSHFS, and
-other recognized network filesystems on Linux) the same as local ones: direct
-access, no copy, no size or format restriction. This is fast but has a real
+By default, ArrayView opens network-mounted files and `--match` collections
+(CIFS/SMB, NFS, SSHFS, and other recognized network filesystems on Linux) the
+same as local ones: direct access, no copy, no size or format restriction. This is fast but has a real
 risk — if the network mount drops or hangs while a file is open, the process
 can wedge in a way that not even `kill -9` recovers from. Linux tasks already
 sleeping in uninterruptible `D` state cannot be stopped; the mount has to
@@ -61,10 +61,10 @@ connection state in this mode, so a mount reported as disconnected or
 reconnecting fails immediately with a clear error, instead of hanging.
 
 With staging enabled, network directory collections are still not scanned
-directly (copy them locally before using `--stack`), network DICOM inputs
+directly (copy them locally before using `--match`), network DICOM inputs
 must be copied as a local series directory, and network HDF5/MATLAB/PyTorch
-containers are refused outright — copy any of those locally first regardless
-of the staging setting; only self-contained NumPy and NIfTI files can be
+containers are refused outright — copy any of those locally first when staging
+is enabled; only self-contained NumPy and NIfTI files can be
 staged automatically. `--watch` is disabled for network sources either way,
 because polling a mount that disconnects later can block inside the kernel.
 The staging deadline defaults to 30 seconds and can be changed with

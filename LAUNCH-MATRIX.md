@@ -182,6 +182,18 @@ handoff before a frame (row 5), separately from the measured frame transport.
 The no-display CLI command loaded and released this file before and after the
 change (`real host`, row 11). Test servers on ports 8192–8195 were stopped.
 
+2026-10-12 network collection fix: rows 4 and 20 are affected by allowing
+`--match` collections to follow the existing direct-loading default. The shared
+`/load` route also affects collection loading into any existing display. Their
+GUI boundaries remain `unavailable` for this fix. Row 11 is the real-host gate:
+`uv run arrayview --match '/smb/user/oheide/DS-Data/Radiotherapie/Research/Project/MRSTAT/studies/securo/recons/SEC_00*/low_rank/parameter_maps.nii' --window none --port 8237`
+loaded and released nine cases, twice, and reported no remaining server.
+The original command without the separate port reached an already-running
+older server and reproduced its collection refusal; it was left untouched.
+Focused CLI and `/load` tests (`component`) cover default direct access,
+explicit direct access, and enabled staging for direct and nested mounts,
+plus ordinary local collections. Single-file display routing is unchanged.
+
 ### CLI
 
 | # | Environment | Window | Array / storage | Status |

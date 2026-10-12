@@ -6211,17 +6211,18 @@ def arrayview():
             pattern for _name, pattern in _normalize_dir_overlay_specs(args.overlay or [])
         )
         collection_inputs.extend(args.overlay_dir or [])
-        for pattern in collection_inputs:
-            pattern = lexical_abspath(pattern)
-            probe_prefix = scan_root_before_magic(pattern)
-            mount = direct_network_mount(probe_prefix)
-            nested_mount = network_mount_below(probe_prefix)
-            if mount is not None or nested_mount is not None:
-                _print_failure(
-                    "network directory collections are not accessed directly. "
-                    "Copy the collection to local storage before using --match."
-                )
-                sys.exit(1)
+        if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING", "1") == "0":
+            for pattern in collection_inputs:
+                pattern = lexical_abspath(pattern)
+                probe_prefix = scan_root_before_magic(pattern)
+                mount = direct_network_mount(probe_prefix)
+                nested_mount = network_mount_below(probe_prefix)
+                if mount is not None or nested_mount is not None:
+                    _print_failure(
+                        "network directory collections are not accessed directly. "
+                        "Copy the collection to local storage before using --match."
+                    )
+                    sys.exit(1)
         if len(dir_patterns) == 1 and os.path.isdir(dir_patterns[0]):
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
         dir_overlay_specs = [

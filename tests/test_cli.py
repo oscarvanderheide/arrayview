@@ -477,6 +477,34 @@ def test_cli_dir_dry_run_prints_collection_summary(monkeypatch, tmp_path):
     assert "caseA, caseB" in text
 
 
+@pytest.mark.parametrize("staging", [None, "1", "0"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_cli_network_collection_respects_staging_setting(monkeypatch, tmp_path, staging, nested):
+    images = tmp_path / "images"
+    images.mkdir()
+    np.save(images / "case_a.npy", np.ones((4, 5, 6), dtype=np.float32))
+    mountpoint = images if nested else tmp_path
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(f"42 31 0:55 / {mountpoint} rw - cifs //server/share rw\n")
+    monkeypatch.setenv("_ARRAYVIEW_TEST_MOUNTINFO", str(mountinfo))
+    if staging is None:
+        monkeypatch.delenv("ARRAYVIEW_SKIP_SOURCE_STAGING", raising=False)
+    else:
+        monkeypatch.setenv("ARRAYVIEW_SKIP_SOURCE_STAGING", staging)
+    pattern = str(tmp_path / "*" / "case_a.npy") if nested else str(images / "*.npy")
+    monkeypatch.setattr(sys, "argv", ["arrayview", "--match", pattern, "--dry-run"])
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+    if staging == "0":
+        with pytest.raises(SystemExit) as exc:
+            appmod.arrayview()
+        assert exc.value.code == 1
+        assert "network directory collections" in stdout.getvalue()
+    else:
+        appmod.arrayview()
+        assert "cases: 1" in stdout.getvalue()
+
+
 def test_cli_stack_can_continue_with_only_cases_that_have_overlays(
     monkeypatch, tmp_path
 ):

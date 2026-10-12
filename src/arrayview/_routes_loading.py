@@ -167,17 +167,17 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                             f"{nested_sibling_mount.mountpoint!r}; copy the series locally first."
                         )
                     }
-        for pattern in dir_patterns or []:
-            pattern_path = lexical_abspath(str(pattern))
-            scan_root = scan_root_before_magic(pattern_path)
-            unsafe_mount = direct_network_mount(scan_root) or network_mount_below(scan_root)
-            if unsafe_mount is not None:
-                return {
-                    "error": (
-                        f"Directory scan would enter network mount "
-                        f"{unsafe_mount.mountpoint!r}; copy the collection locally first."
-                    )
-                }
+            for pattern in dir_patterns or []:
+                pattern_path = lexical_abspath(str(pattern))
+                scan_root = scan_root_before_magic(pattern_path)
+                unsafe_mount = direct_network_mount(scan_root) or network_mount_below(scan_root)
+                if unsafe_mount is not None:
+                    return {
+                        "error": (
+                            f"Directory scan would enter network mount "
+                            f"{unsafe_mount.mountpoint!r}; copy the collection locally first."
+                        )
+                    }
         if requested_sid in CANCELLED_PENDING_SESSIONS:
             CANCELLED_PENDING_SESSIONS.discard(requested_sid)
             raise HTTPException(status_code=409, detail="load request was cancelled")

@@ -79,16 +79,16 @@ last_updated: 2026-09-18
 - Tutorial step key labels are literal keymap characters (`v` and `V` are
   different commands); check each label against `keybinds` when editing.
 - Public CLI and Python entry points exist and have focused component coverage. Launch convergence remains active work; do not describe an invocation as stable without current real-host first-frame, repeat-launch, and cleanup evidence.
-- Linux CLI file launches classify source mounts from procfs before target
-  access. Known-disconnected CIFS sources fail before server startup; healthy
-  network files are staged through a bounded helper and served from a local
-  snapshot. A per-mount guard prevents concurrent helpers and remains fenced to
-  an unreaped helper PID after a timeout, then keeps a short cooldown after that
-  exact helper exits, so retries cannot accumulate more ArrayView workers
-  against that mount. Direct network collection scans and
-  network `--watch` polling are rejected. This prevents ArrayView-owned
-  long-lived servers from retaining the source path, but cannot reap a task
-  already stuck in kernel `D` state.
+- Network files and `--match` collections load directly by default. With
+  `ARRAYVIEW_SKIP_SOURCE_STAGING=0`, Linux CLI launches classify source mounts
+  from procfs before target access; known-disconnected CIFS files fail early,
+  healthy self-contained files are staged through a bounded helper, and network
+  collections are refused. The per-mount guard prevents accumulating helpers
+  after timeouts, but cannot reap a task already stuck in kernel `D` state.
+  Network `--watch` polling remains rejected regardless of staging policy.
+  2026-10-12: removed unconditional collection restrictions from both CLI and
+  `/load`; the nine real SMB NIfTI cases passed no-display loading and release.
+  Actual GUI opening with this collection remains unverified.
 - Local server reuse is Unix-user-fenced: `/ping` publishes the server UID,
   callers only reuse a compatible server owned by their effective UID, and a
   different user's listener causes local launch planning to select a new port.

@@ -423,6 +423,30 @@ class TestLoad:
         assert "Direct server access" in response.json()["error"]
         assert time.monotonic() - started < 2
 
+    @pytest.mark.parametrize("staging", [None, "1", "0"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_network_collection_respects_staging_setting(self, client, tmp_path, monkeypatch, staging, nested):
+        images = tmp_path / "images"
+        images.mkdir()
+        np.save(images / "case_a.npy", np.ones((4, 5, 6), dtype=np.float32))
+        mountpoint = images if nested else tmp_path
+        mountinfo = tmp_path / "mountinfo"
+        mountinfo.write_text(f"42 31 0:55 / {mountpoint} rw - cifs //server/share rw\n")
+        monkeypatch.setenv("_ARRAYVIEW_TEST_MOUNTINFO", str(mountinfo))
+        if staging is None:
+            monkeypatch.delenv("ARRAYVIEW_SKIP_SOURCE_STAGING", raising=False)
+        else:
+            monkeypatch.setenv("ARRAYVIEW_SKIP_SOURCE_STAGING", staging)
+        pattern = str(tmp_path / "*" / "case_a.npy") if nested else str(images / "*.npy")
+        body = client.post("/load", json={"dir_patterns": [pattern]}).json()
+        if staging == "0":
+            assert "network mount" in body["error"]
+        else:
+            assert "error" not in body
+            meta = client.get(f"/metadata/{body['sid']}").json()
+            assert meta["shape"] == [4, 5, 6, 1]
+            assert meta["case_names"] == ["case_a"]
+
     def test_load_rejects_arbitrary_staging_cleanup_authority(
         self, client, arr_2d, tmp_path, monkeypatch
     ):
