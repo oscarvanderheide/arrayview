@@ -7,6 +7,7 @@ import gzip
 import glob
 import os
 import re
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
@@ -1629,6 +1630,91 @@ def mmap_first_frame_is_cheap(arr, total_bytes) -> bool:
     return runs <= max_runs and faulted <= fraction * total_bytes
 
 
+# Fetching the first frame's pages one by one beats reading the whole file
+# only on a local disk: on an SMB share the same 65k small reads of a 1.6 GB
+# file took 11 s against 0.7 s locally.
+_FIRST_FRAME_PREFETCH_MAX_PAGES = 1 << 17
+_FIRST_FRAME_PREFETCH_THREADS = 16
+
+
+def _on_known_local_disk(filepath) -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        from ._source_safety import _KNOWN_LOCAL_STAGE_FILESYSTEMS, mount_for_path
+
+        mount = mount_for_path(os.path.realpath(filepath))
+    except Exception:
+        return False
+    return mount is not None and mount.filesystem in _KNOWN_LOCAL_STAGE_FILESYSTEMS
+
+
+def _viewer_start_index(shape, dims):
+    """The slice the viewer opens on; mirrors its ``_initialIndices``."""
+    ref = max(shape[dims[0]], shape[dims[1]])
+    return tuple(
+        size // 2 if (i in dims or size >= 0.25 * ref) else 0
+        for i, size in enumerate(shape)
+    )
+
+
+def prefetch_first_frame_pages(mapped, filepath) -> bool:
+    """Pull just the pages of the viewer's first frame into memory, in parallel.
+
+    When the first frame is one element per page across the whole file (a
+    C-order array viewed along its leading axes), reading the file first made
+    a 1.6 GB array wait 3-4 s cold for its picture. Fetching only the pages the
+    frame touches, many at a time, takes ~0.7 s; the memmap then renders the
+    frame from memory while the full read continues in the background.
+
+    Returns False, having read nothing, when this would not pay off: not a
+    known local disk, the viewer would start elsewhere, or too many pages.
+    """
+    from ._session import _default_start_dims_for_data, _viewer_start_dims_for_shape
+
+    shape = tuple(int(s) for s in mapped.shape)
+    if len(shape) < 3 or _default_start_dims_for_data(mapped) is not None:
+        return False
+    dims = _viewer_start_dims_for_shape(shape)
+    if dims is None or not _on_known_local_disk(filepath):
+        return False
+    index = _viewer_start_index(shape, dims)
+    strides = mapped.strides
+    base = int(mapped.offset) + sum(
+        index[i] * int(strides[i]) for i in range(len(shape)) if i not in dims
+    )
+    rows = np.arange(shape[dims[0]], dtype=np.int64) * int(strides[dims[0]])
+    cols = np.arange(shape[dims[1]], dtype=np.int64) * int(strides[dims[1]])
+    starts = (base + rows[:, None] + cols[None, :]).ravel()
+    ends = starts + (mapped.dtype.itemsize - 1)
+    pages = np.unique(np.concatenate((starts, ends)) // _MMAP_PAGE_BYTES)
+    if pages.size > _FIRST_FRAME_PREFETCH_MAX_PAGES:
+        return False
+
+    fd = os.open(filepath, os.O_RDONLY)
+    try:
+        # Only the pages asked for: readahead around each would multiply the I/O.
+        try:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_RANDOM)
+        except (AttributeError, OSError):
+            pass
+        offsets = (pages * _MMAP_PAGE_BYTES).tolist()
+        n = _FIRST_FRAME_PREFETCH_THREADS
+
+        def _warm(part):
+            for offset in part:
+                os.pread(fd, _MMAP_PAGE_BYTES, offset)
+
+        with ThreadPoolExecutor(max_workers=n, thread_name_prefix="arrayview-frame-prefetch") as pool:
+            for _ in pool.map(_warm, [offsets[k::n] for k in range(n)]):
+                pass
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    return True
+
+
 def _h5_contiguous_memmap(filepath, ds):
     """Map an HDF5 dataset straight from the file, or None if it can't be.
 
@@ -1731,7 +1817,7 @@ def read_npy_into_ram(mapped, progress=None):
 
 
 def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select=None,
-                        progress=None):
+                        progress=None, fast_first_frame=False):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
@@ -1757,10 +1843,12 @@ def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select
         return _load_file_series(filepath, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
-    return load_data(filepath, key=key, progress=progress), None
+    return load_data(
+        filepath, key=key, progress=progress, fast_first_frame=fast_first_frame
+    ), None
 
 
-def load_data(filepath, key=None, *, progress=None):
+def load_data(filepath, key=None, *, progress=None, fast_first_frame=False):
     if filepath.lower().endswith(".dcm"):
         from ._dicom import load_dicom_series
 
@@ -1786,6 +1874,10 @@ def load_data(filepath, key=None, *, progress=None):
         mapped = np.load(filepath, mmap_mode="r")
         if mmap_first_frame_is_cheap(mapped, size):
             # Session creation upgrades this to an in-RAM array in the background.
+            return mapped
+        if fast_first_frame and prefetch_first_frame_pages(mapped, filepath):
+            # Same as above: the first frame's pages are already in memory, and
+            # the full read runs behind the viewer.
             return mapped
         return read_npy_into_ram(mapped, progress)
     elif filepath.endswith(".npz"):

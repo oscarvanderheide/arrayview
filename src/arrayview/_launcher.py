@@ -4853,6 +4853,7 @@ def _serve_daemon(
                     key=_load_key,
                     load=collection_load,
                     stack=collection_stack,
+                    fast_first_frame=True,
                 )
                 dir_overlay_items = None
                 collection_spatial_ndim = None

@@ -182,3 +182,30 @@ def test_read_npy_into_ram_matches_np_load(tmp_path, monkeypatch):
         with open(path, "r+b") as fh:
             fh.truncate(path.stat().st_size - 100)
         _io.read_npy_into_ram(mapped)
+
+
+def test_viewer_start_index_mirrors_viewer_rule():
+    from arrayview._io import _viewer_start_index
+
+    # Displayed and comparably sized axes start in the middle; small ones at 0.
+    assert _viewer_start_index((256, 256, 192, 4, 4), (0, 1)) == (128, 128, 96, 0, 0)
+    assert _viewer_start_index((5, 204, 240, 224), (2, 3)) == (0, 102, 120, 112)
+
+
+def test_fast_first_frame_maps_large_c_order_npy_on_local_disk(tmp_path, monkeypatch):
+    from arrayview import _io
+
+    path = tmp_path / "c_order.npy"
+    # One element per page along the viewer's starting axes: not cheap to map.
+    expected = np.arange(48 * 40 * 1100, dtype=np.float32).reshape(48, 40, 1100)
+    np.save(path, expected)
+
+    monkeypatch.setattr(_io, "_on_known_local_disk", lambda _p: True)
+    loaded = _io.load_data(str(path), fast_first_frame=True)
+    assert isinstance(loaded, np.memmap)
+    np.testing.assert_array_equal(loaded, expected)
+
+    # Off a local disk, or without the flag, it is read whole as before.
+    assert not isinstance(_io.load_data(str(path)), np.memmap)
+    monkeypatch.setattr(_io, "_on_known_local_disk", lambda _p: False)
+    assert not isinstance(_io.load_data(str(path), fast_first_frame=True), np.memmap)

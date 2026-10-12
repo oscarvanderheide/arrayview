@@ -341,6 +341,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         filepath,
                         select=body.get("select"),
                         progress=_report_read_progress,
+                        fast_first_frame=True,
                     )
                     session = Session(data, filepath=filepath, name=name)
                     session.sid = sid
