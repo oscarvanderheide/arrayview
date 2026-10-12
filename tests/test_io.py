@@ -146,3 +146,39 @@ def test_mat_v73_compressed_array_still_loads(tmp_path):
     loaded = load_data(str(path))
     assert not isinstance(loaded, np.memmap)
     np.testing.assert_array_equal(loaded, expected)
+
+
+def test_read_npy_into_ram_matches_np_load(tmp_path, monkeypatch):
+    import pytest
+
+    from arrayview import _io
+
+    # Tiny chunks so every array spans many parallel reads.
+    monkeypatch.setattr(_io, "_NPY_READ_CHUNK_BYTES", 4096)
+    rng = np.random.default_rng(0)
+    cases = {
+        "c.npy": rng.random((7, 33, 41), dtype=np.float32),
+        "f.npy": np.asfortranarray(rng.random((7, 33, 41))),
+        "be.npy": rng.random((5, 300)).astype(">f4"),
+        "cx.npy": (rng.random((3, 70, 50)) + 1j).astype(np.complex64),
+        "empty.npy": np.zeros((0, 4), dtype=np.int16),
+    }
+    for name, expected in cases.items():
+        path = tmp_path / name
+        np.save(path, expected)
+        mapped = np.load(path, mmap_mode="r")
+        seen = []
+        loaded = _io.read_npy_into_ram(mapped, lambda d, t: seen.append((d, t)))
+        assert not isinstance(loaded, np.memmap)
+        assert loaded.dtype == expected.dtype
+        assert loaded.flags.f_contiguous == mapped.flags.f_contiguous
+        np.testing.assert_array_equal(loaded, expected)
+        if expected.nbytes:
+            assert seen[-1] == (expected.nbytes, expected.nbytes)
+    with pytest.raises(OSError):
+        path = tmp_path / "truncated.npy"
+        np.save(path, np.zeros((64, 64), dtype=np.float64))
+        mapped = np.load(path, mmap_mode="r")
+        with open(path, "r+b") as fh:
+            fh.truncate(path.stat().st_size - 100)
+        _io.read_npy_into_ram(mapped)

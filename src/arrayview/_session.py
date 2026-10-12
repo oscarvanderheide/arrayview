@@ -757,7 +757,9 @@ def upgrade_memmap_in_background(session) -> bool:
     def _upgrade():
         try:
             if is_memmap and filepath.endswith(".npy"):
-                loaded = np.load(filepath)
+                from ._io import read_npy_into_ram
+
+                loaded = read_npy_into_ram(data)
             elif is_memmap:
                 # A block mapped out of a larger file (.mat v7.3): copy it in
                 # file order, which is one sequential read.
