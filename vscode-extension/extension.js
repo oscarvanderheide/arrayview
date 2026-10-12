@@ -228,6 +228,20 @@ async function _runIntegratedBrowserCommand(operation) {
     }
 }
 
+// Trial switch for opening the viewer tab in the background (see the
+// integrated-browser handover). Read per launch so it can be flipped without a
+// window reload: ~/.arrayview/browser-open-trial.json, e.g.
+//   {"background": true, "args": {"inactive": true, "preserveFocus": true}}
+function _browserOpenTrial() {
+    try {
+        const raw = fs.readFileSync(path.join(SIGNAL_DIR, 'browser-open-trial.json'), 'utf8');
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
 function _visibleEditorTabs() {
     const groups = vscode.window?.tabGroups?.all;
     if (!Array.isArray(groups)) return [];
@@ -3628,6 +3642,26 @@ async function openInIntegratedBrowser(
         requestTab = null;
         return Boolean(await vscode.window.tabGroups.close(tab, true));
     };
+    // Bring the request's own browser tab to the front (it may have been
+    // opened in the background). Works on that tab's position in its group.
+    const activateExactRequestTab = async () => {
+        const tab = requestTab;
+        if (!tab || !_visibleEditorTabs().includes(tab)) return false;
+        if (tab.isActive && tab.group?.isActive) return true;
+        const group = tab.group;
+        const index = Array.isArray(group?.tabs) ? group.tabs.indexOf(tab) : -1;
+        if (index < 0) return false;
+        try {
+            if (group.viewColumn && !group.isActive) {
+                await vscode.commands.executeCommand('workbench.action.focusEditorGroup', group.viewColumn);
+            }
+            await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', index);
+        } catch (error) {
+            log(`PANEL: could not activate viewer tab: ${error.message || error}`);
+            return false;
+        }
+        return true;
+    };
     const prepareNavigation = async (navigationAttempt = 0, deadline = null) => {
         ensureActive();
         const token = crypto.randomBytes(16).toString('hex');
@@ -3673,10 +3707,12 @@ async function openInIntegratedBrowser(
         );
         if (!launchUrl) throw new Error('Unable to build integrated browser launch URL');
         const tabsBefore = _visibleEditorTabs();
+        const trial = _browserOpenTrial();
         beforeNavigate();
         const commandPromise = _runIntegratedBrowserCommand(
             () => _withTimeout(
                 vscode.commands.executeCommand('workbench.action.browser.open', {
+                    ...(navigationAttempt === 0 && trial && trial.args ? trial.args : {}),
                     url: launchUrl,
                     // Each invocation gets a new browser tab in the preferred group.
                     // openToSide=true creates and locks a new editor group per launch,
@@ -3721,7 +3757,8 @@ async function openInIntegratedBrowser(
         if (captured) requestTab = captured;
         if (captured) {
             log(
-                `PANEL: captured exact request tab label=${JSON.stringify(captured.label || '')}`
+                `PANEL: captured exact request tab active=${captured.isActive}`
+                + ` label=${JSON.stringify(captured.label || '')}`
                 + ` input=${_tabInputType(captured)}`
             );
         } else if (requestTab) {
@@ -3748,6 +3785,7 @@ async function openInIntegratedBrowser(
     return {
         scriptLoaded,
         closeExactRequestTab,
+        activateExactRequestTab,
         viewerReady: waitForBackendViewerReady(
             backendUrl,
             sid,
@@ -4588,17 +4626,13 @@ async function _processSignalDataBody(
                 );
                 return integratedBrowserProgress;
             };
-            // The click tab (logo + name) is kept in front of the new
-            // viewer tab until the viewer page has loaded behind it. A new
-            // browser tab is empty, in a slightly different colour, until
-            // its page arrives through the tunnel (0.4-0.7 s measured), and
-            // showing that between two identical logo screens read as a
-            // flicker. handOverTab only starts the progress now; the click
-            // tab is brought back to the front once the viewer tab exists,
-            // and closed when its page has loaded (closing it shows the
-            // viewer tab, the most recently used one). If the page does not
-            // load while hidden, the viewer tab is shown after a short wait
-            // and the click tab is closed later, behind it.
+            // Normally the click tab (logo + name) closes in the moment before
+            // the viewer tab opens. Under the background trial (see
+            // _browserOpenTrial) the viewer tab is opened behind whatever is
+            // on screen, the click tab stays up, and the viewer tab is brought
+            // forward once its page has loaded — so the new tab's empty screen
+            // is never shown.
+            const backgroundTrial = Boolean(_browserOpenTrial()?.background);
             let heldPlaceholder = null;
             const handOverTab = () => {
                 beginOpeningProgress();
@@ -4609,6 +4643,7 @@ async function _processSignalDataBody(
                     _pendingPlaceholders.delete(filePath);
                 }
                 heldPlaceholder = placeholder;
+                if (!backgroundTrial) disposeHeldPlaceholder('before navigation');
             };
             const disposeHeldPlaceholder = (reason) => {
                 const placeholder = heldPlaceholder;
@@ -4643,46 +4678,21 @@ async function _processSignalDataBody(
                 disposeHeldPlaceholder('launch failed');
                 throw error;
             }
-            if (heldPlaceholder) {
-                const held = heldPlaceholder;
-                const heldSince = Date.now();
-                let shownBehind = true;
-                try {
-                    held.panel.reveal(held.panel.viewColumn, false);
-                } catch (error) {
-                    shownBehind = false;
-                    log(`CUSTOM-EDITOR: could not keep click tab in front: ${error.message}`);
-                }
-                if (!shownBehind) {
-                    disposeHeldPlaceholder('immediate');
-                } else {
-                    const loaded = Promise.resolve(opened.scriptLoaded).then(() => 'loaded');
-                    const settled = Promise.resolve(opened.viewerReady).then(() => 'settled', () => 'settled');
-                    void Promise.race([
-                        loaded,
-                        settled,
-                        new Promise(resolve => setTimeout(() => resolve('timeout'), 1200)),
-                    ]).then(async (first) => {
-                        if (first !== 'timeout') {
-                            disposeHeldPlaceholder(`viewer page ${first} after ${Date.now() - heldSince} ms`);
-                            return;
-                        }
-                        // The hidden page did not load: show the viewer tab
-                        // anyway, and close the click tab once it has.
-                        log('CUSTOM-EDITOR: viewer page not loaded behind click tab in 1200 ms; showing viewer tab');
-                        try {
-                            await vscode.commands.executeCommand(
-                                'workbench.action.openPreviousRecentlyUsedEditorInGroup'
-                            );
-                        } catch (error) {
-                            log(`CUSTOM-EDITOR: could not switch to viewer tab: ${error.message}`);
-                            disposeHeldPlaceholder('switch failed');
-                            return;
-                        }
-                        const later = await Promise.race([loaded, settled]);
-                        disposeHeldPlaceholder(`viewer page ${later} after ${Date.now() - heldSince} ms, shown first`);
-                    });
-                }
+            if (backgroundTrial) {
+                const openedAt = Date.now();
+                const loaded = Promise.resolve(opened.scriptLoaded).then(() => 'loaded');
+                const settled = Promise.resolve(opened.viewerReady).then(() => 'settled', () => 'settled');
+                void Promise.race([
+                    loaded,
+                    settled,
+                    new Promise(resolve => setTimeout(() => resolve('timeout'), 1200)),
+                ]).then(async (first) => {
+                    const shown = await opened.activateExactRequestTab();
+                    log(
+                        `PANEL: background trial — viewer tab shown=${shown} after ${Date.now() - openedAt} ms (${first})`
+                    );
+                    disposeHeldPlaceholder(`background trial, ${first}`);
+                });
             }
             viewerReady = opened.viewerReady;
             closeIntegratedBrowserTab = opened.closeExactRequestTab;
