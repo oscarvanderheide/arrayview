@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import threading
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 
@@ -465,12 +466,100 @@ def _load_nifti_with_meta(filepath):
     random-access, but it is no longer silently reordered.
     """
     img, meta = _nifti_header_with_meta(filepath, native=True)
-    arr = (
-        img.dataobj
-        if filepath.endswith(".nii")
-        else _nifti_display_array(img.dataobj)
-    )
-    return arr, meta
+    if filepath.endswith(".nii"):
+        return img.dataobj, meta
+    source = img
+    if _nifti_voxel_bytes(img) <= npy_eager_limit():
+        raw = read_gzip_file_parallel(filepath)
+        if raw is not None:
+            try:
+                source = type(img).from_bytes(raw)
+            except Exception:
+                source = img
+    return _nifti_display_array(source.dataobj), meta
+
+
+def _nifti_voxel_bytes(img) -> int:
+    try:
+        return int(np.prod(img.shape)) * np.dtype(img.get_data_dtype()).itemsize
+    except Exception:
+        return 1 << 62
+
+
+_GZIP_READ_CHUNK_BYTES = 8 << 20
+_GZIP_READ_THREADS = 8
+
+
+def read_gzip_file_parallel(filepath):
+    """Decompress a whole .gz file, reading it with several reads in flight.
+
+    A gzip stream can only be decoded front to back, so the decode is one
+    thread; but the bytes can arrive out of order. Reading 8 MB chunks in
+    parallel and decoding each as soon as its turn comes overlaps the two, so
+    on an SMB share the wait is close to the parallel read alone (~1.3 s for a
+    110 MB file) instead of a single slow reader followed by the decode.
+    Handles multi-member files. Returns None on any read or decode error so
+    the caller can fall back to its ordinary reader.
+    """
+    try:
+        size = os.path.getsize(filepath)
+        fd = os.open(filepath, os.O_RDONLY)
+    except OSError:
+        return None
+    buf = bytearray(size)
+    view = memoryview(buf)
+    starts = list(range(0, size, _GZIP_READ_CHUNK_BYTES))
+    ready = [threading.Event() for _ in starts]
+    failed = []
+
+    def _read(i):
+        start = starts[i]
+        stop = min(start + _GZIP_READ_CHUNK_BYTES, size)
+        pos = start
+        try:
+            while pos < stop:
+                n = os.preadv(fd, [view[pos:stop]], pos)
+                if n <= 0:
+                    raise OSError("unexpected end of file")
+                pos += n
+        except Exception as exc:  # noqa: BLE001 - reported to the decoder
+            failed.append(exc)
+        finally:
+            ready[i].set()
+
+    out = []
+    try:
+        with ThreadPoolExecutor(
+            max_workers=max(1, min(_GZIP_READ_THREADS, len(starts))),
+            thread_name_prefix="arrayview-gzip-read",
+        ) as pool:
+            for i in range(len(starts)):
+                pool.submit(_read, i)
+            decoder = zlib.decompressobj(wbits=31)
+            fed = False
+            for i, start in enumerate(starts):
+                ready[i].wait()
+                if failed:
+                    return None
+                chunk = view[start:min(start + _GZIP_READ_CHUNK_BYTES, size)]
+                while chunk:
+                    fed = True
+                    out.append(decoder.decompress(chunk))
+                    if not decoder.eof:
+                        break
+                    # End of one gzip member: any rest starts the next one.
+                    chunk = decoder.unused_data
+                    decoder = zlib.decompressobj(wbits=31)
+                    fed = False
+            if fed and not decoder.eof:
+                return None  # truncated: let the ordinary reader report it
+            if not out:
+                return None
+    except (zlib.error, OSError):
+        return None
+    finally:
+        os.close(fd)
+    return b"".join(out)
 
 
 # ---------------------------------------------------------------------------

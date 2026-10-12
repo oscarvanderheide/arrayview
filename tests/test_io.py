@@ -227,3 +227,38 @@ def test_slice_prefetch_skips_slices_that_are_already_cheap(tmp_path, monkeypatc
     # Leading axes, one element per page: fetched.
     assert _io.prefetch_slice_pages(mapped, str(path), (0, 1), (0, 0, 550))
     _io._on_known_local_disk_cached.cache_clear()
+
+
+def test_read_gzip_file_parallel_matches_gzip(tmp_path, monkeypatch):
+    import gzip
+
+    from arrayview import _io
+
+    monkeypatch.setattr(_io, "_GZIP_READ_CHUNK_BYTES", 1000)
+    payload = np.random.default_rng(1).integers(0, 50, 200_000, dtype=np.uint8).tobytes()
+    single = tmp_path / "one.gz"
+    single.write_bytes(gzip.compress(payload))
+    assert _io.read_gzip_file_parallel(str(single)) == payload
+
+    multi = tmp_path / "multi.gz"
+    multi.write_bytes(gzip.compress(payload[:70_000]) + gzip.compress(payload[70_000:]))
+    assert _io.read_gzip_file_parallel(str(multi)) == payload
+
+    truncated = tmp_path / "cut.gz"
+    truncated.write_bytes(gzip.compress(payload)[:-500])
+    assert _io.read_gzip_file_parallel(str(truncated)) is None
+
+
+def test_nii_gz_loads_through_parallel_reader(tmp_path):
+    import nibabel as nib
+
+    from arrayview._io import load_data_with_meta
+
+    expected = np.arange(20 * 24 * 7, dtype=np.float32).reshape(20, 24, 7)
+    path = tmp_path / "vol.nii.gz"
+    img = nib.Nifti1Image(expected, np.diag([2.0, 1.5, 3.0, 1.0]))
+    img.header.set_slope_inter(2.0, 1.0)
+    nib.save(img, path)
+    loaded, meta = load_data_with_meta(str(path))
+    np.testing.assert_allclose(loaded, np.asarray(nib.load(path).dataobj))
+    assert meta is not None
