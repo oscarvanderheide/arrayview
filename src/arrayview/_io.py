@@ -1748,7 +1748,7 @@ def _viewer_start_index(shape, dims):
     )
 
 
-def prefetch_first_frame_pages(mapped, filepath) -> bool:
+def prefetch_first_frame_pages(mapped, filepath, progress=None) -> bool:
     """Pull just the pages of the viewer's first frame into memory, in parallel.
 
     When the first frame is one element per page across the whole file (a
@@ -1768,7 +1768,9 @@ def prefetch_first_frame_pages(mapped, filepath) -> bool:
     dims = _viewer_start_dims_for_shape(shape)
     if dims is None:
         return False
-    return prefetch_slice_pages(mapped, filepath, dims, _viewer_start_index(shape, dims))
+    return prefetch_slice_pages(
+        mapped, filepath, dims, _viewer_start_index(shape, dims), progress=progress
+    )
 
 
 @functools.lru_cache(maxsize=64)
@@ -1776,7 +1778,7 @@ def _on_known_local_disk_cached(filepath) -> bool:
     return _on_known_local_disk(filepath)
 
 
-def prefetch_slice_pages(mapped, filepath, dims, index) -> bool:
+def prefetch_slice_pages(mapped, filepath, dims, index, progress=None) -> bool:
     """Fetch the pages of one 2-D slice of a memmap with parallel reads.
 
     Faulting such a slice in through the map is the slow way: readahead drags
@@ -1784,7 +1786,9 @@ def prefetch_slice_pages(mapped, filepath, dims, index) -> bool:
     C-order file), and without readahead each page is its own wait (7.7 s).
     Many small reads in flight take ~0.7 s on a local disk. Only worth it when
     the slice is scattered one element per page; returns False otherwise, or
-    off a known local disk, having read nothing.
+    off a known local disk, having read nothing. *progress*, if given, is
+    called with ``(pages_done, pages_total)`` as batches of pages land — this
+    fetch is the whole wait, so it is what a progress line should follow.
     """
     shape = tuple(int(s) for s in mapped.shape)
     strides = tuple(int(s) for s in mapped.strides)
@@ -1815,14 +1819,28 @@ def prefetch_slice_pages(mapped, filepath, dims, index) -> bool:
         except (AttributeError, OSError):
             pass
         offsets = (pages * _MMAP_PAGE_BYTES).tolist()
+        total = len(offsets)
         n = _FIRST_FRAME_PREFETCH_THREADS
+        # Interleaved batches: each one spans the file, so batches finish at
+        # a steady rate and the progress they report moves evenly.
+        batches = max(n, 64)
+        lock = threading.Lock()
+        done = [0]
 
         def _warm(part):
             for offset in part:
                 os.pread(fd, _MMAP_PAGE_BYTES, offset)
+            if progress is not None:
+                with lock:
+                    done[0] += len(part)
+                    finished = done[0]
+                try:
+                    progress(finished, total)
+                except Exception:
+                    pass
 
         with ThreadPoolExecutor(max_workers=n, thread_name_prefix="arrayview-slice-prefetch") as pool:
-            for _ in pool.map(_warm, [offsets[k::n] for k in range(n)]):
+            for _ in pool.map(_warm, [offsets[k::batches] for k in range(batches)]):
                 pass
     except OSError:
         return False
@@ -1988,12 +2006,12 @@ def load_data(filepath, key=None, *, progress=None, fast_first_frame=False):
         mapped = np.load(filepath, mmap_mode="r")
         if size >= npy_eager_limit():
             if fast_first_frame:
-                prefetch_first_frame_pages(mapped, filepath)
+                prefetch_first_frame_pages(mapped, filepath, progress)
             return mapped
         if mmap_first_frame_is_cheap(mapped, size):
             # Session creation upgrades this to an in-RAM array in the background.
             return mapped
-        if fast_first_frame and prefetch_first_frame_pages(mapped, filepath):
+        if fast_first_frame and prefetch_first_frame_pages(mapped, filepath, progress):
             # Same as above: the first frame's pages are already in memory, and
             # the full read runs behind the viewer.
             return mapped

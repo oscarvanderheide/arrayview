@@ -214,7 +214,9 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
         from ._io import prefetch_slice_pages
 
         try:
-            prefetch_slice_pages(data, data.filename, (dim_x, dim_y), idx_list)
+            prefetch_slice_pages(
+                data, data.filename, (dim_x, dim_y), idx_list, progress=progress
+            )
         except Exception:
             pass
     extracted = _extract_with_progress(data, slicer, progress)
