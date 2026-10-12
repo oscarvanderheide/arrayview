@@ -1629,7 +1629,12 @@ function _startIntegratedBrowserOpeningProgress(title) {
         try {
             task = Promise.resolve(vscode.window.withProgress(
                 {
-                    location: vscode.ProgressLocation.Notification,
+                    // Status bar, never a notification: VS Code pauses its
+                    // built-in browser while a notification popup covers it,
+                    // so a popup over the viewer tab froze the very page it
+                    // was announcing before its first frame — and the
+                    // failure's own error popup then froze the next open.
+                    location: vscode.ProgressLocation.Window,
                     title: progressTitle,
                     cancellable: false,
                 },
