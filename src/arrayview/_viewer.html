@@ -4492,11 +4492,28 @@
         #loading-overlay .av-load-name {
             margin-top: 14px; font-size: 11px; color: var(--muted);
             letter-spacing: 0.1em; text-transform: uppercase;
-            opacity: 0; transition: opacity 0.4s ease;
+            min-height: 1.2em; opacity: 0;
         }
         #loading-overlay .av-load-name.visible { opacity: 1; }
+        /* The startup screen is the only loading signal until the first frame:
+           logo, name, and — once a wait has lasted a second — this line under
+           the name. The top-edge hairline and the busy panel stay hidden
+           meanwhile (see _reconcileUI), so a slow open never stacks three
+           different indicators. */
+        #loading-overlay .av-load-progress {
+            margin-top: 12px; width: 120px; height: 2px; border-radius: 1px;
+            background: color-mix(in srgb, var(--muted) 35%, transparent);
+            overflow: hidden; opacity: 0; transition: opacity 0.25s ease;
+        }
+        #loading-overlay .av-load-progress.visible { opacity: 1; }
+        #loading-overlay .av-load-progress .bar {
+            height: 100%; width: 0%;
+            background: var(--accent, #4cc9f0);
+            transition: width 0.25s linear;
+        }
         #loading-overlay.av-array-switch .av-load-logo,
-        #loading-overlay.av-array-switch .av-load-name { display: none; }
+        #loading-overlay.av-array-switch .av-load-name,
+        #loading-overlay.av-array-switch .av-load-progress { display: none; }
         /* Deliberately outside #loading-overlay. The overlay is centred over the
            canvas, so anything drawn in it sits on top of the slice — wrong for
            progress that continues after the viewer is live and showing data.
@@ -5717,12 +5734,19 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="stack-mosaic-wrap"></div>
-        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
+        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div><div class="av-load-progress"><div class="bar"></div></div></div>
         <div id="render-progress"><div class="bar"></div></div>
         <div id="render-progress-text"></div>
         <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
         <div id="busy-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading…</span></div></div>
         <script>
+            // The array's name under the startup logo from the first paint,
+            // so the loading screen does not change while it is up.
+            try {
+                const name = new URLSearchParams(__ARRAYVIEW_QUERY__ || location.search).get('av_name');
+                const el = document.querySelector('#loading-overlay .av-load-name');
+                if (el && name) { el.textContent = name; el.classList.add('visible'); }
+            } catch (_) {}
             // After a switch between arrays of a multi-array file the page
             // reloads. Show the same small loading panel the switch used, not
             // the startup splash, so no second, larger logo flashes by.
@@ -5920,6 +5944,17 @@
         // server could not answer immediately (still loading), in which case
         // the viewer asks over the socket exactly as it always has.
         const BOOT_METADATA = __ARRAYVIEW_BOOT_METADATA__;
+        // Launches without ?av_name= still have the name in the page itself.
+        (function () {
+            try {
+                const el = document.querySelector('#loading-overlay .av-load-name');
+                const name = BOOT_METADATA && BOOT_METADATA.name;
+                if (el && !el.textContent && name && name !== 'welcome') {
+                    el.textContent = name;
+                    el.classList.add('visible');
+                }
+            } catch (_) {}
+        })();
         /* __AV_STATIC_SCRIPT_BELOW__ — nothing after this line is substituted at serve time. */
         const urlParams = new URLSearchParams(_arrayViewLaunchSearch);
         const _isIntegratedBrowserViewer = (
@@ -7019,6 +7054,11 @@
         let _startupAnimTl = null;
         const _loadingShowTime = performance.now(); // page load = spinner visible
         const _MIN_SPINNER_MS = 0; // first rendered frame wins; no artificial startup dwell
+        // A quick open never shows a progress line; a slow one shows it under
+        // the startup name once the page has been up for a second (the delay
+        // is checked in _reconcileUI; this makes sure it is re-checked then).
+        setTimeout(() => { if (document.body.classList.contains('av-loading')) _reconcileUI(); },
+            Math.max(0, 1000 - performance.now()));
 
         function _clearStartupChromeReveal() {
             const arrayName = document.getElementById('array-name');
@@ -7028,6 +7068,7 @@
             [arrayName, info, cbWrap, helpHint].forEach(el => {
                 if (!el) return;
                 el.style.removeProperty('opacity');
+                el.style.removeProperty('transition');
                 el.style.removeProperty('--fly-y');
                 el.style.removeProperty('scale');
                 el.style.removeProperty('transformOrigin');
@@ -7086,15 +7127,11 @@
             const helpHint   = document.getElementById('help-hint');
             const cbVisible  = cbWrap && getComputedStyle(cbWrap).display !== 'none';
 
-            // Seize opacity immediately so CSS transition doesn't race GSAP
-            gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0 });
-            if (cbVisible) gsap.set(cbWrap, { opacity: 0 });
-
-            // Set starting transforms for Act 3 (chrome assembly)
-            if (arrayName) gsap.set(arrayName, { '--fly-y': '-8px' });
-            if (info)      gsap.set(info,      { '--fly-y': '-8px' });
-            if (cbVisible) gsap.set(cbWrap,    { '--fly-y': '12px' });
-            if (helpHint)  gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
+            // Seize opacity immediately, and switch off their CSS opacity
+            // transition: left on, it re-eases every step of the fade below
+            // and stretches it to twice its length.
+            gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0, transition: 'none' });
+            if (cbVisible) gsap.set(cbWrap, { opacity: 0, transition: 'none' });
 
             _startupAnimTl = gsap.timeline({ onComplete: () => {
                 clearTimeout(_safety);
@@ -7103,47 +7140,28 @@
                 if (ol) ol.style.display = 'none';
             }});
 
-            // ── Act 1: Logo settles (stops pulsing, all blocks snap to full) ──
+            // The logo stops pulsing, and the loading screen hands over to the
+            // viewer in one short cross-fade: picture and its labels arrive
+            // together. (They used to arrive in two waves, the labels flying in
+            // after the picture, which read as yet another loading step.)
             _startupAnimTl.call(() => {
                 if (loadLogo) loadLogo.classList.remove('av-logo-loading');
             }, null, 0);
-
-            // ── Act 2: Overlay exits, canvas revealed ──────────────────────
-            if (loadLogo) {
-                _startupAnimTl.to(loadLogo, {
-                    opacity: 0, scale: 0.6, duration: 0.18, ease: 'power2.in'
-                }, 0.05);
+            const loadProgress = ol ? ol.querySelector('.av-load-progress') : null;
+            const leaving = [loadLogo, loadName, loadProgress].filter(Boolean);
+            if (leaving.length) {
+                _startupAnimTl.to(leaving, { opacity: 0, duration: 0.16, ease: 'power2.in' }, 0);
             }
-            if (loadName) {
-                _startupAnimTl.to(loadName, {
-                    opacity: 0, duration: 0.14, ease: 'power2.in'
-                }, 0.05);
-            }
-            _startupAnimTl.to(canvasWrap, {
-                opacity: 1, duration: 0.22, ease: 'power2.out'
-            }, 0.08);
+            const arriving = [canvasWrap, arrayName, info, helpHint].filter(Boolean);
+            if (cbVisible) arriving.push(cbWrap);
+            _startupAnimTl.to(arriving, { opacity: 1, duration: 0.2, ease: 'power2.out' }, 0.06);
             _startupAnimTl.call(() => {
                 document.body.classList.remove('av-loading');
                 _reconcileUI();
-            }, null, 0.08);
+            }, null, 0.06);
             _startupAnimTl.call(() => {
                 if (ol) ol.style.display = 'none';
-            }, null, 0.30);
-
-            // ── Act 3: Chrome assembles around canvas ──────────────────────
-            _startupAnimTl
-                .to(arrayName, { opacity: 1, '--fly-y': '0px', duration: 0.26, ease: 'power3.out' }, 0.32)
-                .to(info,      { opacity: 1, '--fly-y': '0px', duration: 0.26, ease: 'power3.out' }, 0.38);
-            if (cbVisible) {
-                _startupAnimTl.to(cbWrap, {
-                    opacity: 1, '--fly-y': '0px', duration: 0.24, ease: 'power3.out'
-                }, 0.48);
-            }
-            if (helpHint) {
-                _startupAnimTl.to(helpHint, {
-                    opacity: 1, scale: 1, duration: 0.22, ease: 'back.out(1.7)'
-                }, 0.58);
-            }
+            }, null, 0.26);
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
         let _immTargetZoom = 1.0; // cached zoom target at start of transition
@@ -17037,6 +17055,8 @@
         }
         function _showRenderProgress(done, total, label) {
             if (!total || done > total) return;
+            const startupBar = document.querySelector('#loading-overlay .av-load-progress .bar');
+            if (startupBar) startupBar.style.width = ((done / total) * 100).toFixed(1) + '%';
             const bar = document.querySelector('#render-progress .bar');
             const text = document.getElementById('render-progress-text');
             if (!bar || !text) return;
@@ -41906,22 +41926,34 @@
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
             _reconcileModePicker();
+            // Until the first frame the startup screen owns every loading
+            // signal; its own line stands in for the hairline, and only once
+            // the wait has lasted a second.
+            const startupScreen = document.body.classList.contains('av-loading');
+            const startupProgress = document.querySelector('#loading-overlay .av-load-progress');
+            if (startupProgress) {
+                startupProgress.classList.toggle(
+                    'visible',
+                    startupScreen && _renderProgressVisible
+                        && performance.now() >= 1000  // ms since the page started loading
+                );
+            }
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
-                const busy = _patientLoadingVisible || _slowRenderBusyVisible || _smPageBusyVisible;
+                const busy = !startupScreen
+                    && (_patientLoadingVisible || _slowRenderBusyVisible || _smPageBusyVisible);
                 busyOverlay.classList.toggle('visible', busy);
                 busyOverlay.setAttribute('aria-hidden', busy ? 'false' : 'true');
             }
+            const hairline = _renderProgressVisible && !startupScreen;
             const renderProgress = document.getElementById('render-progress');
             if (renderProgress) {
-                renderProgress.classList.toggle('visible', _renderProgressVisible);
-                renderProgress.setAttribute(
-                    'aria-hidden', _renderProgressVisible ? 'false' : 'true'
-                );
+                renderProgress.classList.toggle('visible', hairline);
+                renderProgress.setAttribute('aria-hidden', hairline ? 'false' : 'true');
             }
             const renderProgressText = document.getElementById('render-progress-text');
             if (renderProgressText) {
-                renderProgressText.classList.toggle('visible', _renderProgressVisible);
+                renderProgressText.classList.toggle('visible', hairline);
             }
             const dropMenu = document.getElementById('drop-action-menu');
             if (dropMenu) {
