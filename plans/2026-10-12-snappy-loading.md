@@ -56,3 +56,23 @@ in parallel; a 4 KB random read costs ~40 ms.
 ## Log
 
 - 2026-10-12: baseline recorded (see below).
+
+### Baseline 2026-10-12 (fresh server, headless stopwatch, seconds to first frame)
+
+Every open pays ~1.2–1.5 s of fixed startup (CLI start, server start, page
+load) and then a ~0.3 s fade-in. On top of that:
+
+| file | local | SMB cold |
+|------|------:|---------:|
+| Fortran-order .npy (Julia-written; all test-set npys) | 1.2–1.5 | 1.2–1.6 |
+| C-order .npy, 220 MB (real file) | — | 6–9 |
+| .mat v7.3, 220 MB / 440 MB complex (real files) | — | 11.2 / 18.2 |
+| .mat v5 compressed, 88 MB (real file) | — | 5.7 |
+| maps.nii | 1.5 | 1.8–3.0 |
+| maps.nii.gz | 2.0–2.4 | 5–19 |
+
+### Changes
+
+- .mat v7.3 mapped like .npy: 11.2 → 1.6 s, 18.2 → 1.7 s (SMB cold).
+- .mat v5 no longer read twice: 5.7 → 3.3–4.7 s.
+- Whole-file .npy reads use 8 parallel readers: 6–9 → 3.7 s; local unchanged.
