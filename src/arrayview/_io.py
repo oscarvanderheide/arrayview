@@ -1601,6 +1601,49 @@ def mmap_first_frame_is_cheap(arr, total_bytes) -> bool:
     return runs <= max_runs and faulted <= fraction * total_bytes
 
 
+def _h5_contiguous_memmap(filepath, ds):
+    """Map an HDF5 dataset straight from the file, or None if it can't be.
+
+    MATLAB v7.3 writes large arrays as one uncompressed contiguous block, so
+    the same first-frame shortcut as .npy applies: the viewer can draw a slice
+    without reading the whole file first. Chunked, compressed or filtered
+    datasets are not one block and return None.
+    """
+    try:
+        if ds.chunks is not None or ds.compression is not None:
+            return None
+        offset = ds.id.get_offset()
+        if offset is None:
+            return None
+        dtype = ds.dtype
+        if dtype.names:
+            # MATLAB complex: {real, imag} of one float type, packed, which is
+            # byte-for-byte numpy's complex layout.
+            if set(dtype.names) != {"real", "imag"}:
+                return None
+            real_t, real_off = dtype.fields["real"][:2]
+            imag_t, imag_off = dtype.fields["imag"][:2]
+            # Only single precision: the eager path downcasts complex to
+            # complex64, and the mapped array must come out the same.
+            if (
+                real_t != imag_t
+                or real_t.kind != "f"
+                or real_t.itemsize != 4
+                or real_off != 0
+                or imag_off != real_t.itemsize
+                or dtype.itemsize != 2 * real_t.itemsize
+            ):
+                return None
+            dtype = np.dtype(f"{real_t.byteorder}c{2 * real_t.itemsize}")
+        elif dtype.kind not in "biuf":
+            return None
+        if offset + int(np.prod(ds.shape)) * dtype.itemsize > os.path.getsize(filepath):
+            return None
+        return np.memmap(filepath, dtype=dtype, mode="r", offset=offset, shape=ds.shape)
+    except Exception:
+        return None
+
+
 def _read_npy_reporting_progress(mapped, progress):
     """Copy a memmapped .npy into RAM in chunks, saying how far along it is.
 
@@ -1766,10 +1809,13 @@ def load_data(filepath, key=None, *, progress=None):
 
             f = h5py.File(filepath, "r")
             arrays = {k: f[k] for k in f.keys() if _is_viewable_h5_dataset(f[k])}
-            if key is not None:
-                return _fix_mat_complex(np.array(arrays[key]))
-            if len(arrays) == 1:
-                return _fix_mat_complex(np.array(next(iter(arrays.values()))))
+            if key is not None or len(arrays) == 1:
+                ds = arrays[key] if key is not None else next(iter(arrays.values()))
+                mapped = _h5_contiguous_memmap(filepath, ds)
+                if mapped is not None and mmap_first_frame_is_cheap(mapped, mapped.nbytes):
+                    # Session creation upgrades this to an in-RAM array in the background.
+                    return mapped
+                return _fix_mat_complex(np.array(ds))
             raise ValueError(
                 f".mat (v7.3) file contains multiple datasets: {list(arrays.keys())}. "
                 "Select one in the viewer or pass a key."

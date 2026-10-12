@@ -743,12 +743,9 @@ def upgrade_memmap_in_background(session) -> bool:
         return False
 
     if is_memmap:
-        if not filepath.endswith(".npy"):
+        if not filepath.endswith((".npy", ".mat")):
             return False
-        try:
-            nbytes = os.path.getsize(filepath)
-        except OSError:
-            return False
+        nbytes = int(data.nbytes)
     else:
         nbytes = _nifti_proxy_nbytes(data)
     if nbytes >= npy_eager_limit():
@@ -759,8 +756,12 @@ def upgrade_memmap_in_background(session) -> bool:
 
     def _upgrade():
         try:
-            if is_memmap:
+            if is_memmap and filepath.endswith(".npy"):
                 loaded = np.load(filepath)
+            elif is_memmap:
+                # A block mapped out of a larger file (.mat v7.3): copy it in
+                # file order, which is one sequential read.
+                loaded = np.array(data, copy=True, order="K")
             else:
                 from ._io import _nifti_display_array
 
