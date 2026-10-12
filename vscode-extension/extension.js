@@ -1301,7 +1301,7 @@ async function _fastLoadViaDaemon(filePath, title) {
         handoffPath: filePath || undefined,
         sentAtMs: Date.now(),
     };
-    const signalWritten = _writeSignalFile(signalPayload, logWindowId);
+    const signalWritten = _writeSignalFile(signalPayload);
     if (!signalWritten) return false;
 
     let ackOk = false;
@@ -1337,11 +1337,15 @@ async function _fastLoadViaDaemon(filePath, title) {
     return true;
 }
 
-function _writeSignalFile(payload, windowId) {
+function _writeSignalFile(payload) {
     try { fs.mkdirSync(SIGNAL_DIR, { recursive: true }); } catch (_) {}
     const requestId = payload.requestId;
-    if (!requestId) return false;
-    const prefix = `open-request-ipc-${windowId}`;
+    if (!requestId || !TARGETED_SIGNAL_FILE) return false;
+    // Queue onto the file this window's watcher reads. Without an IPC hook that
+    // is the pid-based name, not an ipc-<windowId> one — a name the watcher
+    // never matched, so every click with the server running sat out the ack
+    // timeout and then spawned Python anyway.
+    const prefix = path.basename(TARGETED_SIGNAL_FILE, '.json');
     const filename = `${prefix}.request-${requestId}.json`;
     const signalFile = path.join(SIGNAL_DIR, filename);
     const tmpFile = signalFile + '.tmp';
@@ -5095,6 +5099,7 @@ module.exports = {
         _startIntegratedBrowserOpeningProgress,
         _coldStartPort,
         _fastLoadViaDaemon,
+        _writeSignalFile,
         launchArrayViewFile,
         openFolderInArrayView,
         pendingPlaceholders: _pendingPlaceholders,
