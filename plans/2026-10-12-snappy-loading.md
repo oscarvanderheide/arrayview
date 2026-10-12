@@ -76,3 +76,26 @@ load) and then a ~0.3 s fade-in. On top of that:
 - .mat v7.3 mapped like .npy: 11.2 → 1.6 s, 18.2 → 1.7 s (SMB cold).
 - .mat v5 no longer read twice: 5.7 → 3.3–4.7 s.
 - Whole-file .npy reads use 8 parallel readers: 6–9 → 3.7 s; local unchanged.
+- Viewer opens its WebSocket from the page head: tunnel page-side time to
+  first frame 0.71 → 0.50 s (first open), 0.46 → 0.33 s (repeat).
+- Big C-order .npy on local disk: only the first frame's pages are fetched
+  (parallel small reads) before drawing: 1.6 GB file ~5 s → 1.7 s cold.
+  Every scattered slice of a mapped file uses the same fetch: scrolling
+  6 s → 0.7 s per new slice while the full read runs; >2 GB files too.
+- .nii.gz read with parallel reads and decoded as chunks land: SMB 5–19 → 3 s.
+
+### Tunnel breakdown after these changes (server already running, small array)
+
+~0.2 s CLI start, ~0.1 s to hand the request to VS Code, ~0.4 s extension +
+tab creation + tunnel, ~0.3–0.5 s page to first frame, then the 0.3 s fade.
+
+### Not done / open
+
+- Explorer clicks on files outside this repo run the published release
+  (`uv run --with arrayview`), so these fixes reach them only after a release.
+- Extension waits 100 ms after noticing a request (needs an extension update).
+- First open after all viewer tabs closed re-downloads the 440 KB viewer
+  script over the tunnel (new port = new cache key); risky to change.
+- Phase reports are sent one after another and the opener checks their
+  order, so the terminal prompt returns ~0.3 s after the picture appears.
+
