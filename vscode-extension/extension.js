@@ -1677,10 +1677,38 @@ function _startIntegratedBrowserOpeningProgress(title) {
 // Without a placeholder the folder command would show nothing at all while the
 // backend walks the tree — the exact case that hurts most, since enumerating a
 // DICOM folder on a network mount is the slowest thing ArrayView does.
+// The click tab shows exactly what the viewer's own startup screen shows —
+// same background, pulsing logo and name, in the same place — so handing over
+// to the viewer tab is not a visible change of screen. Keep in step with
+// #loading-overlay in _viewer.html (colours, sizes, pulse timing, and the
+// space its progress line takes, which keeps the logo at the same height).
+function _startupScreenHtml(title) {
+    const blocks = [
+        ['b0', 2, 2, '#3a0ca3', 0.00], ['b1', 6.5, 2, '#560bad', 0.15],
+        ['b2', 11, 2, '#c77dff', 0.30], ['b5', 11, 6.5, '#f5c842', 0.45],
+        ['b8', 11, 11, '#f8961e', 0.60], ['b7', 6.5, 11, '#80ed99', 0.75],
+        ['b6', 2, 11, '#4895ef', 0.90], ['b3', 2, 6.5, '#4361ee', 1.05],
+    ];
+    const rects = blocks.map(([, x, y, fill, delay]) =>
+        `<rect x="${x}" y="${y}" width="3" height="3" fill="${fill}" style="animation:av-logo-pulse 1.2s ${delay}s ease-in-out infinite"/>`
+    ).join('');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+html, body { margin: 0; padding: 0; height: 100%; background: #1A1D1F; }
+body { display: flex; flex-direction: column; align-items: center; justify-content: center;
+       font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; }
+.name { margin-top: 14px; font-size: 11px; color: #5a5a5a; letter-spacing: 0.1em;
+        text-transform: uppercase; min-height: 1.2em; }
+@keyframes av-logo-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+</style></head><body>
+<svg width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>${rects}<rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/></svg>
+<div class="name">${_escapeHtml(title)}</div>
+<div style="margin-top:12px;width:120px;height:2px"></div>
+</body></html>`;
+}
+
 function _registerHandoffPlaceholder(webviewPanel, sourcePath, title, logTag) {
     webviewPanel.webview.options = { enableScripts: true };
-    webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:ui-monospace,monospace">
-            <div>Opening ${_escapeHtml(title)} in ArrayView...</div></body></html>`;
+    webviewPanel.webview.html = _startupScreenHtml(title);
     const placeholderKey = path.resolve(sourcePath);
     const placeholder = { panel: webviewPanel, basename: title, filePath: placeholderKey };
     _pendingPlaceholders.set(placeholderKey, placeholder);
