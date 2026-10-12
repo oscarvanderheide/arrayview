@@ -114,6 +114,23 @@ def list_npz_keys(filepath):
     return keys
 
 
+# MATLAB class -> dtype scipy.io.loadmat returns for it (complex is not
+# visible in the header; the picker only shows this when several arrays exist).
+_MAT_CLASS_DTYPES = {
+    "double": "float64",
+    "single": "float32",
+    "int8": "int8",
+    "uint8": "uint8",
+    "int16": "int16",
+    "uint16": "uint16",
+    "int32": "int32",
+    "uint32": "uint32",
+    "int64": "int64",
+    "uint64": "uint64",
+    "logical": "uint8",
+}
+
+
 def list_mat_keys(filepath):
     """Return [{key, shape, dtype}] for each array in a .mat file.
 
@@ -123,6 +140,17 @@ def list_mat_keys(filepath):
     try:
         import scipy.io
 
+        # The headers alone settle the common single-array file, whose array
+        # is loaded right after this anyway; reading it here too doubled the
+        # wait on network shares.
+        numeric = [
+            (name, shape, cls)
+            for name, shape, cls in scipy.io.whosmat(filepath)
+            if cls in _MAT_CLASS_DTYPES
+        ]
+        if len(numeric) == 1:
+            name, shape, cls = numeric[0]
+            return [{"key": name, "shape": list(shape), "dtype": _MAT_CLASS_DTYPES[cls]}]
         mat = scipy.io.loadmat(filepath)
         keys = []
         for k, v in mat.items():
