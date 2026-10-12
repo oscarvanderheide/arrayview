@@ -52,6 +52,21 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-10-12 loading screens and click handover (opener 0.15.66–0.15.70)
+
+Rows 19–20 (Explorer clicks) and every integrated-browser row: the opening
+progress moved from a notification to the status bar (a notification over
+the built-in browser paused it and stalled first frames), the click tab is
+plain / "Starting ArrayView", and the viewer shows its loading screen only
+after 0.6 s.
+
+- `real host`: owner clicked arrays (small and large_array.npy) in the VS Code
+  tunnel window after reloading to 0.15.70 and confirmed the sequence. CLI
+  launches from the window's terminal environment rendered on attempt 0.
+- `real process`: headless Chromium state captures for quick, large local and
+  SMB opens; browser suite passes.
+- Not exercised: folder clicks (20), local VS Code / Remote SSH (6, 21–22).
+
 ### 2026-10-12 early viewer connection
 
 The page head now opens the viewer's WebSocket while the viewer script is

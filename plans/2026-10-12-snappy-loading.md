@@ -93,9 +93,28 @@ tab creation + tunnel, ~0.3–0.5 s page to first frame, then the 0.3 s fade.
 
 - Explorer clicks on files outside this repo run the published release
   (`uv run --with arrayview`), so these fixes reach them only after a release.
-- Extension waits 100 ms after noticing a request (needs an extension update).
+- Extension waits 100 ms after noticing a request.
 - First open after all viewer tabs closed re-downloads the 440 KB viewer
   script over the tunnel (new port = new cache key); risky to change.
 - Phase reports are sent one after another and the opener checks their
   order, so the terminal prompt returns ~0.3 s after the picture appears.
+
+### Loading screens (2026-10-12, opener 0.15.70)
+
+- One loading signal until the first frame: the viewer's logo + name, shown
+  only if the frame has not arrived 0.6 s into the page, with a progress line
+  under the name when there is progress (scattered-slice fetches now report).
+- No busy panel or top hairline during startup; late progress reports no
+  longer leave the hairline stuck after a frame.
+- Picture and labels fade in together in one short cross-fade.
+- Click tab: plain editor background; "Starting ArrayView" when ArrayView has
+  to start first; "Opening…" if still waiting after 1 s.
+- The "Opening … in ArrayView" notification is now a status-bar item: VS Code
+  pauses its built-in browser while a notification covers it, which froze
+  opens before their first frame.
+- VS Code's built-in browser cannot open a tab in the background (tried
+  `inactive`, `preserveFocus`, `background`, `activate`, nested options), so
+  the new tab's ~0.5 s empty moment cannot be hidden; the plain click tab
+  makes it read as one continuous wait.
+- Verified by the owner in the real tunnel window.
 
