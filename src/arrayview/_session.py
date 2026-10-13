@@ -294,14 +294,44 @@ def _get_overlay_prefetch_pool():
         return _OVERLAY_PREFETCH_POOL
 
 
-def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
+def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=None):
     """Warm raw_cache for the next PREFETCH_NEIGHBORS slices in *direction*.
 
     Runs in a low-priority background thread so it never blocks WS responses.
     Skips prefetch when the estimated byte cost exceeds PREFETCH_BUDGET_BYTES.
+
+    Lookahead is tracked per lane (display dims + scrolled dim), not per
+    session. qMRI maps and multiview planes are several panes of one session;
+    a single session-wide generation let each pane's request cancel the
+    lookahead its siblings had just queued, so only the last pane was ever
+    warmed. Panes at the same position in a lane now share one generation,
+    and only moving the lane to a new position supersedes queued work.
+    ``direction=None`` infers it from the lane's previous position (stateless
+    HTTP callers), keeping the last known direction when sibling panes
+    re-request the same position.
     """
     # Import here to avoid circular dependency — extract_slice lives in _render
     from arrayview._render import extract_slice
+
+    current = idx_list[slice_dim]
+    lanes = getattr(session, "_prefetch_lanes", None)
+    if lanes is None:
+        lanes = {}
+        session._prefetch_lanes = lanes
+    lane = (dim_x, dim_y, slice_dim)
+    state = lanes.get(lane)
+    if direction is None:
+        if state is None:
+            direction = 1
+        elif current != state["pos"]:
+            direction = 1 if current > state["pos"] else -1
+        else:
+            direction = state["dir"]
+    if state is None or current != state["pos"]:
+        state = {"gen": (state["gen"] + 1) if state else 1, "pos": current}
+        lanes[lane] = state
+    state["dir"] = direction
+    generation = state["gen"]
 
     n = session.shape[slice_dim]
     # A neighboring collection index can mean decompressing an entire .nii.gz
@@ -312,7 +342,6 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
     if slice_bytes * neighbor_count > PREFETCH_BUDGET_BYTES:
         return  # data too large; skip prefetch to avoid memory pressure
 
-    current = idx_list[slice_dim]
     targets = []
     for step in range(1, neighbor_count + 1):
         nxt = current + direction * step
@@ -322,15 +351,12 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
     if not targets:
         return
 
-    # Supersede queued work from older scroll positions. A gzip operation that
-    # is already running cannot be cancelled safely, but stale queued jobs now
-    # return without touching disk.
-    generation = getattr(session, "_prefetch_generation", 0) + 1
-    session._prefetch_generation = generation
-
+    # Supersede queued work from older scroll positions in this lane. A gzip
+    # operation that is already running cannot be cancelled safely, but stale
+    # queued jobs now return without touching disk.
     def _warm():
         for t in targets:
-            if generation != getattr(session, "_prefetch_generation", 0):
+            if generation != lanes[lane]["gen"]:
                 return
             idx = list(idx_list)
             idx[slice_dim] = t

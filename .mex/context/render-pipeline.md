@@ -99,7 +99,9 @@ await _render(loop, lambda: extract_slice(session, dim_x, dim_y, idx))
 
 ## Prefetch Pool
 
-Separate 1-thread `ThreadPoolExecutor` (`arrayview-prefetch`). Warms `raw_cache` for the next `PREFETCH_NEIGHBORS` (3) slices in the scroll direction. Budget-gated: skips if `slice_bytes * PREFETCH_NEIGHBORS > PREFETCH_BUDGET_BYTES` (16 MB). Errors are silently swallowed.
+Shared `ThreadPoolExecutor` (`arrayview-prefetch`, 2–4 workers). Warms `raw_cache` for the next `PREFETCH_NEIGHBORS` (3) slices in the scroll direction. Budget-gated: skips if `slice_bytes * PREFETCH_NEIGHBORS > PREFETCH_BUDGET_BYTES` (16 MB). Errors are silently swallowed.
+
+Lookahead is tracked per lane `(dim_x, dim_y, slice_dim)` in `session._prefetch_lanes`, not per session: qMRI maps and multiview planes are several panes of one session and must not cancel each other. Only moving a lane to a new position supersedes its queued work. HTTP callers pass no direction; the lane infers it.
 
 ## Special Array Types
 

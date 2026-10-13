@@ -1074,3 +1074,34 @@ def test_scattered_region_warm_follows_the_channel_axis(tmp_path):
         time.sleep(0.01)
     with series._region_lock:
         assert (0, 1, ()) in series._region_cache
+
+
+def test_sibling_panes_do_not_cancel_each_others_prefetch(monkeypatch):
+    """qMRI maps / multiview planes share a session; each pane must stay warmed."""
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    queued = []
+    warmed = []
+    session = SimpleNamespace(shape=(5, 80, 32, 32), data=SimpleNamespace(), raw_cache={})
+
+    class QueuedPool:
+        def submit(self, fn):
+            queued.append(fn)
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: QueuedPool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_slice",
+        lambda _session, _dx, _dy, idx: warmed.append((idx[0], idx[1])),
+    )
+
+    # Scroll backward one step, then every map pane requests that position.
+    session_mod._schedule_prefetch(session, 3, 2, [0, 41, 0, 0], 1)
+    for qmri_index in range(5):
+        session_mod._schedule_prefetch(session, 3, 2, [qmri_index, 40, 0, 0], 1)
+    for job in queued:
+        job()
+
+    for qmri_index in range(5):
+        assert {(qmri_index, z) for z in (39, 38, 37)} <= set(warmed)
