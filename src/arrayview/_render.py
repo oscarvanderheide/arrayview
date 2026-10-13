@@ -190,11 +190,13 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
     # slicer below, so the extracted data doesn't depend on them.
     key_idx = tuple(None if i in (dim_x, dim_y) else idx_list[i] for i in range(len(idx_list)))
     key = (dim_x, dim_y, key_idx)
-    with session._raw_lock:
-        if key in session.raw_cache:
-            session.raw_cache.move_to_end(key)
-            return session.raw_cache[key]
+    return _cache_once(
+        session, session._raw_lock, "raw_cache", "_raw_bytes", "RAW_CACHE_BYTES",
+        key, lambda: _read_slice(session, dim_x, dim_y, idx_list, progress),
+    )
 
+
+def _read_slice(session, dim_x, dim_y, idx_list, progress):
     slicer = [
         slice(None) if i in (dim_x, dim_y) else idx_list[i]
         for i in range(len(session.shape))
@@ -244,12 +246,6 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
         # buffer as too small. Present the single axis as one row so that
         # invariant holds everywhere instead of at each call site.
         result = result.reshape(1, -1)
-
-    with session._raw_lock:
-        if key not in session.raw_cache:  # double-check: another worker may have populated it
-            session.raw_cache[key] = result
-            session._raw_bytes += result.nbytes
-            _evict_lru(session, "_raw_bytes", "raw_cache", "RAW_CACHE_BYTES")
     return result
 
 
@@ -876,37 +872,52 @@ def render_mosaic(
 
 
 def _mosaic_once(session, key, build):
-    """Return mosaic_cache[key], building it once even under concurrent asks.
+    return _cache_once(
+        session, session._mosaic_lock, "mosaic_cache", "_mosaic_bytes",
+        "MOSAIC_CACHE_BYTES", key, build,
+    )
 
-    The lookahead and the request it anticipated can ask for the same grid
-    at the same moment; without this the request rebuilt a grid the
-    lookahead was half-way through, doubling the wait it was meant to hide.
+
+def _cache_once(session, lock, cache_attr, bytes_attr, budget_attr, key, build):
+    """Return session.<cache_attr>[key], building it once under concurrent asks.
+
+    Lookahead and the request it anticipated, a hedged duplicate request, or
+    several panes can ask for the same entry at the same moment; without this
+    each rebuilt (re-read from disk) what another was half-way through,
+    doubling the wait it was meant to hide. Later askers wait for the builder
+    and take its result; if the builder fails, the next one builds it itself.
     """
+    cache = getattr(session, cache_attr)
     while True:
-        with session._mosaic_lock:
-            if key in session.mosaic_cache:
-                session.mosaic_cache.move_to_end(key)
-                return session.mosaic_cache[key]
-            inflight = getattr(session, "_mosaic_inflight", None)
+        with lock:
+            if key in cache:
+                cache.move_to_end(key)
+                return cache[key]
+            inflight_attr = f"_{cache_attr}_inflight"
+            inflight = getattr(session, inflight_attr, None)
             if inflight is None:
-                inflight = session._mosaic_inflight = {}
+                inflight = {}
+                setattr(session, inflight_attr, inflight)
             event = inflight.get(key)
             owner = event is None
             if owner:
                 event = inflight[key] = threading.Event()
         if not owner:
             event.wait()
-            continue  # re-check; if the builder failed, build it here
+            if hasattr(event, "value"):
+                return event.value  # even if too big to have stayed cached
+            continue  # builder failed: build it here
         try:
-            rgba = build()
-            with session._mosaic_lock:
-                if key not in session.mosaic_cache:
-                    session.mosaic_cache[key] = rgba
-                    session._mosaic_bytes += rgba.nbytes
-                    _evict_lru(session, "_mosaic_bytes", "mosaic_cache", "MOSAIC_CACHE_BYTES")
-            return rgba
+            value = build()
+            event.value = value
+            with lock:
+                if key not in cache:
+                    cache[key] = value
+                    setattr(session, bytes_attr, getattr(session, bytes_attr) + value.nbytes)
+                    _evict_lru(session, bytes_attr, cache_attr, budget_attr)
+            return value
         finally:
-            with session._mosaic_lock:
+            with lock:
                 inflight.pop(key, None)
             event.set()
 

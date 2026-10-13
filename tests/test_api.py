@@ -4451,3 +4451,34 @@ def test_fitted_mosaic_matches_shrinking_the_full_grid():
     np.testing.assert_array_equal(fitted, fit_rgba(full, 60, 50))
     assert max(fitted.shape[0] / 50, fitted.shape[1] / 60) <= 1
     assert render_mosaic(session, 1, 0, 2, (0, 0, 0, 1), "gray", 0, fit=(60, 50)) is fitted
+
+
+def test_concurrent_requests_for_one_slice_read_it_once():
+    import threading
+    import time as _time
+    from arrayview import _session as session_mod
+    from arrayview._render import extract_slice
+
+    reads = []
+
+    class SlowData:
+        def __init__(self, a):
+            self.a, self.shape, self.dtype, self.ndim = a, a.shape, a.dtype, a.ndim
+
+        def __getitem__(self, key):
+            reads.append(key)
+            _time.sleep(0.2)
+            return self.a[key]
+
+    session = session_mod.Session(SlowData(np.ones((4, 8, 8), np.float32)), name="slow")
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(extract_slice(session, 2, 1, [2, 0, 0])))
+        for _ in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len([k for k in reads if k[0] == 2]) == 1
+    assert len(results) == 3 and all(r is results[0] for r in results)
