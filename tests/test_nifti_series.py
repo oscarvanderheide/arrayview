@@ -1105,3 +1105,24 @@ def test_sibling_panes_do_not_cancel_each_others_prefetch(monkeypatch):
 
     for qmri_index in range(5):
         assert {(qmri_index, z) for z in (39, 38, 37)} <= set(warmed)
+
+
+def test_prefetch_direction_follows_scrolling_without_a_hint(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    warmed = []
+    session = SimpleNamespace(shape=(80, 32, 32), data=SimpleNamespace(), raw_cache={})
+
+    class ImmediatePool:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
+    monkeypatch.setattr(
+        render_mod, "extract_slice", lambda _s, _dx, _dy, idx: warmed.append(idx[0])
+    )
+
+    session_mod._schedule_prefetch(session, 2, 1, [40, 0, 0], 0)
+    session_mod._schedule_prefetch(session, 2, 1, [39, 0, 0], 0)
+    assert warmed[-3:] == [38, 37, 36]
