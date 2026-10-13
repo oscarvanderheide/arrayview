@@ -38,6 +38,7 @@ BUILTIN_PREFERENCES = {
     "viewer": {
         "theme": "dark",
         "rounded_panes": True,
+        "qmri_gapless": False,
         "ortho_layout": None,
         "dimbar_mode": "compact",
     },
@@ -47,6 +48,7 @@ PREFERENCE_SCHEMA = {
     "viewer": {
         "theme": sorted(_VALID_THEMES),
         "rounded_panes": "boolean",
+        "qmri_gapless": "boolean",
         "colormaps": "non-empty list of names",
         "ortho_layout": sorted(_VALID_ORTHO_LAYOUTS),
         "dimbar_mode": sorted(_VALID_DIMBAR_MODES),
@@ -118,9 +120,9 @@ def _validate_preference(section: str, key: str, value):
         )
     if section == "viewer" and key == "theme":
         return _normalized_string(value, _VALID_THEMES, "viewer.theme")
-    if section == "viewer" and key == "rounded_panes":
+    if section == "viewer" and key in ("rounded_panes", "qmri_gapless"):
         if not isinstance(value, bool):
-            raise InvalidPreferenceError("viewer.rounded_panes must be a boolean")
+            raise InvalidPreferenceError(f"viewer.{key} must be a boolean")
         return value
     if section == "viewer" and key == "colormaps":
         if (
@@ -236,6 +238,12 @@ def get_viewer_rounded_panes() -> bool | None:
         if s in ("false", "0", "no", "off"):
             return False
     return None
+
+
+def get_viewer_qmri_gapless() -> bool:
+    """Whether qMRI maps are laid out touching, with no space between them."""
+    viewer_cfg = load_config().get("viewer", {})
+    return isinstance(viewer_cfg, dict) and viewer_cfg.get("qmri_gapless") is True
 
 
 def get_viewer_ortho_layout() -> str | None:

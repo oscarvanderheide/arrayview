@@ -10,6 +10,7 @@ from arrayview._config import (
     get_viewer_dimbar_mode,
     get_viewer_colormaps,
     get_viewer_ortho_layout,
+    get_viewer_qmri_gapless,
     get_viewer_rounded_panes,
     get_window_default,
     load_config,
@@ -85,6 +86,13 @@ class TestSaveConfig:
         tmp_config.write_text('[viewer]\ntheme = "dark"\nrounded_panes = false\n')
         update_preferences({"viewer": {"theme": None}})
         assert load_config() == {"viewer": {"rounded_panes": False}}
+
+    def test_qmri_gapless_preference_roundtrip(self, tmp_config):
+        assert get_viewer_qmri_gapless() is False
+        update_preferences({"viewer": {"qmri_gapless": True}})
+        assert get_viewer_qmri_gapless() is True
+        with pytest.raises(Exception):
+            update_preferences({"viewer": {"qmri_gapless": "yes"}})
 
     def test_update_refuses_to_overwrite_malformed_file(self, tmp_config):
         original = "not valid [[[ toml"

@@ -569,8 +569,8 @@
            the tick room under the island as margin while ticks are hidden,
            and swap it for padding when they show (7px base bottom pad from
            .cb-wrap → 18px with ticks), so the pane never changes size. */
-        .qv-canvas-wrap > .qv-cb-island:not(.qmri-mv-vcb-island):not(.fs-overlay) { margin-bottom: 11px; }
-        .qv-canvas-wrap > .qv-cb-island.cb-has-ticks:not(.qmri-mv-vcb-island):not(.fs-overlay) { margin-bottom: 0; }
+        .qv-canvas-wrap > .qv-cb-island:not(.qmri-mv-vcb-island):not(.fs-overlay):not(.qv-cb-inset) { margin-bottom: 11px; }
+        .qv-canvas-wrap > .qv-cb-island.cb-has-ticks:not(.qmri-mv-vcb-island):not(.fs-overlay):not(.qv-cb-inset) { margin-bottom: 0; }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
@@ -4870,6 +4870,28 @@
             pointer-events: none !important;
         }
         body.fullscreen-mode .qv-cb-island.fs-overlay > * { pointer-events: auto; }
+        /* qMRI maps touching (Preferences): no gaps; with two rows the
+           colour bars float inside the maps like the immersive islands. */
+        body.qmri-gapless #qmri-view-wrap.active { gap: 0 !important; }
+        body.qmri-gapless #qmri-view-wrap > .qv-row:not(.qmri-mosaic-row) { gap: 0 !important; }
+        body.qmri-gapless #qmri-view-wrap .qv-pane { gap: 0; }
+        body.qmri-gapless #qmri-view-wrap .qv-canvas-clip { border-radius: 0 !important; }
+        #qmri-view-wrap .qv-cb-island.qv-cb-inset {
+            opacity: 1 !important; position: absolute !important; bottom: 8px !important;
+            left: 50% !important; transform: translateX(-50%) !important;
+            margin: 0 !important; padding: 3px 8px !important;
+            background: rgba(30, 30, 30, 0.8) !important;
+            backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            border-radius: 8px !important; z-index: 2;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
+            pointer-events: none !important;
+        }
+        #qmri-view-wrap .qv-cb-island.qv-cb-inset > * { pointer-events: auto; }
+        :root.light #qmri-view-wrap .qv-cb-island.qv-cb-inset .qv-cb-val { color: #fff; }
+        /* Floating islands are narrow: the value labels must not take the
+           bar's room with their 10ch strip-layout reservation. */
+        #qmri-view-wrap .qv-cb-island.qv-cb-inset .slim-cb-val { min-width: 5ch !important; }
         /* qMRI pane titles as text-stroke corner labels in immersive */
         body.fullscreen-mode .qmri-pane > .qv-label {
             top: 4px; left: 4px;
@@ -5954,6 +5976,7 @@
         // browser as one cacheable script instead of re-sending ~2 MB each time.
         const DEFAULT_THEME_IDX = __DEFAULT_THEME_IDX__;
         const DEFAULT_ROUNDED_PANES = __DEFAULT_ROUNDED_PANES__;
+        const DEFAULT_QMRI_GAPLESS = __DEFAULT_QMRI_GAPLESS__;
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
         // The array's description, written into the page by the server when it
@@ -7441,6 +7464,7 @@
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = true; // toggled by 'b' key
         let roundedPanes = DEFAULT_ROUNDED_PANES; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
+        let qmriGapless = DEFAULT_QMRI_GAPLESS; // Preferences → qMRI maps touching (viewer.qmri_gapless)
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -24190,6 +24214,7 @@
         const PREFERENCE_COPY = {
             'viewer.theme': ['Theme', 'Applies immediately and to future viewers.'],
             'viewer.rounded_panes': ['Rounded panes', 'Applies immediately across viewer modes.'],
+            'viewer.qmri_gapless': ['qMRI maps touching', 'No space between qMRI maps, so they can be larger. With two rows, colour bars move inside the maps.'],
             'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
@@ -24245,6 +24270,10 @@
             } else if (key === 'rounded_panes') {
                 roundedPanes = !!value;
                 _reconcileLayout();
+            } else if (key === 'qmri_gapless') {
+                qmriGapless = !!value;
+                _reconcileLayout();
+                if (qmriActive) qvScaleAllCanvases();
             } else if (key === 'ortho_layout' && _getOrthoPreset(value)) {
                 orthoLayoutMode = value;
                 _orthoAutoLayoutMode = null;
@@ -27794,6 +27823,13 @@
                 run: (ctx, e) => {
                     if (multiViewActive || compareMvActive) {
                         showStatus('immersive: not available in ortho view');
+                        return;
+                    }
+                    if (qmriActive) {
+                        // Three maps side by side are limited by width, which
+                        // immersive does not free up; it would only add chrome
+                        // motion for no bigger maps.
+                        showStatus('immersive: not available in qMRI');
                         return;
                     }
                     if (_fullscreenActive) {
@@ -38831,6 +38867,16 @@
             mosaicPan.endDrag();
         });
 
+        // Touching qMRI maps in more than one row leave no room for a colour
+        // bar under each map, so the bars float inside the maps instead, as
+        // they do in immersive view.
+        function _qmriColorbarsInset() {
+            if (!qmriActive || !qmriGapless || qmriMosaicActive || _fullscreenActive) return false;
+            const rows = Array.from(document.querySelectorAll('#qmri-view-wrap > .qv-row'))
+                .filter(r => Array.from(r.children).some(el => !el.classList.contains('qv-placeholder')));
+            return rows.length > 1;
+        }
+
         function qvScaleAllCanvases() {
             const ready = qmriViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
@@ -38912,18 +38958,25 @@
             const rowPaneCounts = domRows.map(r => Array.from(r.children).filter(el => !el.classList.contains('qv-placeholder')).length).filter(Boolean);
             const rows = Math.max(1, rowPaneCounts.length || ((n === 5 || n === 6) ? 2 : 1));
             const cols = Math.max(1, ...(rowPaneCounts.length ? rowPaneCounts : [((n === 5 || n === 6) ? 3 : n)]));
-            const colGap = 24;  // matches .qv-row gap
-            const rowGap = 14;  // matches #qmri-view-wrap gap
-            const sidePad = 120; // 40px padding + colorbar label flanks
+            _reconcileCbVisibility();
+            const cbInset = _qmriColorbarsInset();
+            const colGap = qmriGapless ? 0 : 24;  // matches .qv-row gap
+            const rowGap = qmriGapless ? 0 : 14;  // matches #qmri-view-wrap gap
+            const sidePad = qmriGapless ? 80 : 120; // 40px padding (+ colorbar label flanks)
             const labelH = 0;   // qMRI labels are overlaid inside each pane
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
             const hasSynthControls = ready.some(v => v.syntheticId && v.paramControls);
-            const cbH = hasSynthControls ? 60 : (anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33);
+            const cbH = hasSynthControls ? 60
+                : cbInset ? 0
+                : (anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33);
             const bottomPad = 24; // breathing room below last colorbar
+            // With inset colour bars only the contrast row keeps a strip of
+            // sliders below it; the map rows need nothing.
+            const belowRows = cbInset ? (hasSynthControls ? 60 : 0) : rows * (labelH + cbH);
             const totalH = window.innerHeight - uiReserveV()
-                         - rows * (labelH + cbH)
+                         - belowRows
                          - (rows - 1) * rowGap
                          - bottomPad;
             const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
@@ -38960,7 +39013,11 @@
                 // Keep colorbar island width clamped to target
                 if (v._colorBar && v._colorBar.wrap) {
                     const qvPaneW = fittedViewport.w;
-                    const qvCbW = cbTargetWidth(qvPaneW);
+                    // A bar floating inside the map (touching maps in two rows)
+                    // is an island, not a strip: keep it narrower than the map.
+                    const qvCbW = cbInset && cbTargetWidth(qvPaneW) != null
+                        ? Math.min(Math.round(qvPaneW * 0.7), 360)
+                        : cbTargetWidth(qvPaneW);
                     v._colorBar.wrap.style.display = qvCbW == null ? 'none' : '';
                     if (qvCbW != null) v._colorBar.wrap.style.width = qvCbW + 'px';
                 }
@@ -41156,6 +41213,7 @@
             // i.e. the vertical space limits fit-zoom more than horizontal.
             // Immersive reclaims the bottom chrome reserve; if width was
             // already limiting, entering immersive gains nothing.
+            if (qmriActive) return false;  // see the immersive.toggle command
             let w, h;
             if (compareActive && compareFrames.length) {
                 // In compare mode, use first frame dimensions × column count
@@ -42139,6 +42197,7 @@
 
             // 6. Rounded panes — single body-level class drives CSS across all modes
             document.body.classList.toggle('rounded-panes', roundedPanes);
+            document.body.classList.toggle('qmri-gapless', qmriGapless);
 
             // 7. qMRI options hint — lives with the bottom-right help/tool hints
             const qmriHint = document.getElementById('qmri-hint');
@@ -42255,8 +42314,10 @@
                 : animPhase === 'exit-3' ? false
                 : _fullscreenActive;
             if (qmriActive) {
+                const inset = !animPhase && _qmriColorbarsInset();
                 document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
                     el.classList.toggle('fs-overlay', showQmriFsOverlay);
+                    el.classList.toggle('qv-cb-inset', inset && !showQmriFsOverlay);
                 });
             }
 
