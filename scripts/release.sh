@@ -176,6 +176,30 @@ fi
 run git add pyproject.toml uv.lock
 run git commit -m "release: $TAG"
 run git push origin main
+
+# Check this exact release commit before publishing its tag or release.
+# A successful check of an earlier commit does not cover this release.
+if [[ "$DRY_RUN" == false ]]; then
+    RELEASE_SHA=$(git rev-parse HEAD)
+    echo "Waiting for release checks before publishing $TAG..."
+    CHECK_RUN=""
+    for ((attempt = 0; attempt < 60; attempt++)); do
+        CHECK_RUN=$(gh run list --workflow launch-contracts.yml \
+            --commit "$RELEASE_SHA" --event push --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')
+        [[ -n "$CHECK_RUN" ]] && break
+        sleep 5
+    done
+    if [[ -z "$CHECK_RUN" ]]; then
+        echo "Error: release checks did not appear. No tag or release was published."
+        exit 1
+    fi
+    if ! gh run watch "$CHECK_RUN" --exit-status; then
+        echo "Error: release checks did not pass. No tag or release was published."
+        exit 1
+    fi
+fi
+
 run git tag "$TAG"
 run git push origin "$TAG"
 

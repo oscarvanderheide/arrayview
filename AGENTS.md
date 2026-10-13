@@ -70,6 +70,12 @@ work and `.claude/skills/iterative-debug`.
 
 ## Execution
 
+Before publishing a release, require a successful Launch contracts run for the
+exact release commit, on both Linux and macOS. Use `scripts/release.sh`, which
+waits for that result before publishing. Never bypass failed, cancelled, queued,
+or missing checks. If GitHub cannot acquire a hosted runner, retry the affected
+job; do not change tests or suppress failures to hide a capacity problem.
+
 Work directly on `main` in this folder. Do **not** create branches or git
 worktrees (or separate copies of the repo) unless I explicitly ask for one —
 not for safety, not to avoid uncommitted changes, not for "isolation". If there
