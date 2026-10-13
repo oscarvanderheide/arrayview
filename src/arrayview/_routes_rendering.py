@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
 from arrayview._overlays import _composite_mosaic_overlays, _composite_overlays
 from arrayview._render import (
+    lut_rgba,
     LUTS,
     _build_mosaic_grid,
     _compute_vmin_vmax,
@@ -65,7 +66,7 @@ def render_rgba_from_data(data, colormap, vmin, vmax):
         normalized = np.zeros_like(data)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    return lut[(normalized * 255).astype(np.uint8)]
+    return lut_rgba(lut, (normalized * 255).astype(np.uint8))
 
 
 def register_rendering_routes(app, *, get_session_or_404) -> None:
@@ -495,7 +496,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
             normalized = np.clip((sampled - vmin) / (vmax - vmin), 0, 1)
         else:
             normalized = np.zeros_like(sampled)
-        rgba = lut[(normalized * 255).astype(np.uint8)]
+        rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
 
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
         if draft and (grid_w != size_w or grid_h != size_h):
@@ -569,7 +570,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
 
         _init_luts()
         lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
-        rgba = lut[(normalized * 255).astype(np.uint8)]
+        rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
         rgba[nan_mask] = [22, 22, 22, 255]
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
         buf = io.BytesIO()
@@ -630,7 +631,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 normalized = np.clip((frame - vmin) / (vmax - vmin), 0, 1)
             else:
                 normalized = np.zeros_like(frame)
-            rgba = lut[(normalized * 255).astype(np.uint8)]
+            rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
             gif_frames.append(_pil_image().fromarray(rgba[:, :, :3], mode="RGB"))
 
         buf = io.BytesIO()

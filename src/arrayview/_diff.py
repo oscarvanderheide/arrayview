@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from arrayview._render import (
+    lut_rgba,
     LUTS,
     _build_mosaic_grid,
     _compute_vmin_vmax,
@@ -192,7 +193,7 @@ def _render_diff_rgba(
         normalized = np.zeros_like(raw)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
     if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
         rgba[nan_mask] = [22, 22, 22, 255]
     return rgba

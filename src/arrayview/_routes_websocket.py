@@ -11,6 +11,7 @@ from arrayview._analysis import _build_metadata
 from arrayview._lifecycle import release_session
 from arrayview._overlays import _composite_mosaic_overlays, _composite_overlays
 from arrayview._render import (
+    lut_rgba,
     LUTS,
     _prepare_display,
     _ensure_lut,
@@ -246,7 +247,7 @@ def _render_rgba_from_data(data, colormap, vmin, vmax):
         normalized = np.zeros_like(data)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    return lut[(normalized * 255).astype(np.uint8)]
+    return lut_rgba(lut, (normalized * 255).astype(np.uint8))
 
 
 def _render_qmri_rgba(
@@ -287,7 +288,7 @@ def _render_qmri_rgba(
         normalized = np.zeros_like(data)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
     alpha_on = getattr(session, "alpha_level", 0) > 0
     if alpha_on:
         if vmax > vmin:

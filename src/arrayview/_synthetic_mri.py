@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arrayview._render import LUTS, _build_mosaic_grid, _ensure_lut, apply_complex_mode, extract_slice
+from arrayview._render import LUTS, lut_rgba, _build_mosaic_grid, _ensure_lut, apply_complex_mode, extract_slice
 
 
 QMRI_ROLE_ORDER: dict[int, list[str]] = {
@@ -202,6 +202,6 @@ def render_qmri_mosaic_rgba(
         normalized = np.zeros_like(filled)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
     rgba[nan_mask] = [22, 22, 22, 255]
     return rgba, vmin, vmax

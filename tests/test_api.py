@@ -4402,3 +4402,13 @@ def test_load_aligns_nifti_overlay_to_requested_base_grid(client, tmp_path):
     assert aligned != plain
     assert session_mod.SESSIONS[plain].shape == (6, 6, 4)
     assert session_mod.SESSIONS[aligned].shape == (6, 6, 5)
+
+
+def test_lut_rgba_matches_plain_indexing_for_any_memory_order():
+    from arrayview._render import LUTS, _ensure_lut, lut_rgba
+
+    _ensure_lut("viridis")
+    lut = LUTS["viridis"]
+    idx = np.random.default_rng(0).integers(0, 256, (7, 5)).astype(np.uint8)
+    for indices in (idx, idx.T, idx[::2, ::-1]):
+        np.testing.assert_array_equal(lut_rgba(lut, indices), lut[indices])

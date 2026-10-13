@@ -358,6 +358,20 @@ def _prepare_display(
     return data, vmin, vmax
 
 
+def lut_rgba(lut: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """Return ``lut[indices]`` as (..., 4) uint8, gathering whole pixels.
+
+    Indexing the (256, 4) table copies four bytes one channel at a time; the
+    same table viewed as 256 uint32 gathers each pixel in one step, ~4x
+    faster on a large mosaic and byte-for-byte identical. The gather keeps
+    the index array's memory order, so a transposed slice is made C-order
+    first or the uint8 view cannot be taken.
+    """
+    table = np.ascontiguousarray(lut, dtype=np.uint8).view(np.uint32).reshape(-1)
+    indices = np.ascontiguousarray(indices)
+    return table[indices].view(np.uint8).reshape(*indices.shape, 4)
+
+
 def _ensure_lut(name: str) -> bool:
     """Ensure name is in LUTS. Returns True if valid."""
     _init_luts()
@@ -404,7 +418,7 @@ def apply_colormap_rgba(
         normalized = np.zeros_like(data)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
     alpha_on = getattr(session, "alpha_level", 0) > 0
     if alpha_on:
         if vmax > vmin:
@@ -873,24 +887,29 @@ def render_mosaic(
     elif complex_mode == 1 and np.iscomplexobj(session.data):
         vmin, vmax = -float(np.pi), float(np.pi)
     else:
-        vmin = float(np.percentile(all_data, 1))
-        vmax = float(np.percentile(all_data, 99))
+        # One call partitions once for both ends; two calls sorted the whole
+        # stack twice (~0.14 s of a 240-slice mosaic step).
+        vmin, vmax = (float(v) for v in np.percentile(all_data, [1, 99]))
 
     if mosaic_cols is not None:
         grid, rows, cols = _build_mosaic_grid(all_data, n, cols=mosaic_cols)
     else:
         grid, rows, cols = _build_mosaic_grid(all_data, n)
 
+    # Map to LUT indices in place: a mosaic is tens of millions of pixels, and
+    # each full-size temporary of the where/clip/divide chain cost ~50 ms.
     nan_mask = np.isnan(grid)
-    filled = np.where(nan_mask, vmin, grid)
     if vmax > vmin:
-        normalized = np.clip((filled - vmin) / (vmax - vmin), 0, 1)
+        grid -= vmin
+        grid *= 255.0 / (vmax - vmin)
+        np.clip(grid, 0, 255, out=grid)
+        grid[nan_mask] = 0
     else:
-        normalized = np.zeros_like(filled)
+        grid[:] = 0
 
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut_rgba(lut, grid.astype(np.uint8))
     rgba[nan_mask] = [22, 22, 22, 255]
     with session._mosaic_lock:
         if key not in session.mosaic_cache:
