@@ -6,6 +6,10 @@ The default view. Shows a single 2D slice. Scroll to move through slices. `h`/`l
 
 `r` rotates 90 degrees or flips the axis. `t` transposes x and y.
 
+`Shift+P` steps through the three views of a volume (axial → coronal → sagittal), the same planes the multi-view shows. The new view cuts through the pixel under the mouse, and each view keeps its own `r`/`t` rotation and flip. NIfTI views are named from the file's orientation. For arrays without one (e.g. `.npy`), `Shift+A` lets you name the current view and give the voxel size, e.g. `axial 1 1 3`.
+
+When the voxel size is known (NIfTI, or set with `Shift+A`), images are drawn in their true proportions, so thick slices look tall rather than squashed. `a` (stretch to square) overrides this.
+
 ## Multi-view
 
 `v` — splits the canvas into three orthogonal planes (axial, coronal, sagittal). Drag the crosshair to navigate. Shift+drag for oblique rotation. `V` opens custom dimension selection; `o` resets the orientation.

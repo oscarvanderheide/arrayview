@@ -315,6 +315,46 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
+def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
+    path = tmp_path / "vol.npy"
+    np.save(path, np.random.rand(30, 40, 50).astype(np.float32))
+    sid = client.post("/load", json={"filepath": str(path), "name": "vol"}).json()["sid"]
+    page.goto(f"{server_url}/?sid={sid}")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    page.wait_for_timeout(400)
+    state = "() => [dim_x, dim_y, current_slice_dim, flip_x, flip_y]"
+
+    seen = []
+    for _ in range(3):
+        page.keyboard.press("Shift+P")
+        page.wait_for_timeout(200)
+        seen.append(page.evaluate(state))
+    assert sorted(s[2] for s in seen) == [0, 1, 2], "three different slice directions"
+
+    # A rotation made in one view is still there after a full cycle.
+    page.keyboard.press("r")
+    page.wait_for_timeout(200)
+    rotated = page.evaluate(state)
+    for _ in range(3):
+        page.keyboard.press("Shift+P")
+        page.wait_for_timeout(200)
+    assert page.evaluate(state) == rotated
+
+    # Naming the view and giving a voxel size draws thick voxels taller.
+    page.keyboard.press("Shift+A")
+    page.fill("#inline-prompt-input", "axial 1 1 3")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(200)
+    page.keyboard.press("Shift+P")
+    page.wait_for_timeout(400)
+    assert page.evaluate("() => document.getElementById('status').textContent") == "coronal"
+    w, h, bw, bh = page.evaluate(
+        "() => [parseFloat(canvas.style.width), parseFloat(canvas.style.height), canvas.width, canvas.height]"
+    )
+    sx, sy = page.evaluate("() => [_voxelSizeOf(dim_x), _voxelSizeOf(dim_y)]")
+    assert abs((h / w) - (bh * sy) / (bw * sx)) < 0.02
+
+
 def _enter_compare(page, partner_sid, timeout=5000):
     """Enter compare mode with a given partner sid.
 
