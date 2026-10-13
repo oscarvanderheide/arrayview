@@ -349,9 +349,14 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=Non
     # volume, not reading another small slice. Keep that work conservative.
     stack_axes = tuple(getattr(session.data, "_stack_axes", ()))
     neighbor_count = 1 if slice_dim in stack_axes else PREFETCH_NEIGHBORS
-    slice_bytes = session.shape[dim_y] * session.shape[dim_x] * 4  # float32
-    if slice_bytes * neighbor_count > PREFETCH_BUDGET_BYTES:
-        return  # data too large; skip prefetch to avoid memory pressure
+    itemsize = 8 if np.iscomplexobj(np.empty(0, getattr(session.data, "dtype", np.float32))) else 4
+    slice_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
+    # Big images look fewer slices ahead rather than none: switching lookahead
+    # off left every step of a 2k x 2k stack waiting on its own read. Only a
+    # slice that would crowd the raw cache is never warmed.
+    neighbor_count = min(neighbor_count, max(1, PREFETCH_BUDGET_BYTES // slice_bytes))
+    if slice_bytes > getattr(session, "RAW_CACHE_BYTES", 4 * PREFETCH_BUDGET_BYTES) // 4:
+        return
 
     targets = []
     for step in range(1, neighbor_count + 1):

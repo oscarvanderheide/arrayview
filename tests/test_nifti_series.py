@@ -1152,3 +1152,25 @@ def test_projection_lookahead_warms_next_projection_not_slices(monkeypatch):
     # Scrolling the projected dim itself changes nothing on screen: no work.
     session_mod._schedule_projection_prefetch(session, 1, 0, [0, 0, 5, 4], 2, 2, 1)
     assert warmed == [(5, 2, 1)]
+
+
+def test_big_images_still_look_one_slice_ahead(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    warmed = []
+    session = SimpleNamespace(
+        shape=(30, 2100, 2100), data=SimpleNamespace(dtype=np.float32), raw_cache={},
+        RAW_CACHE_BYTES=1 << 30,
+    )
+
+    class ImmediatePool:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
+    monkeypatch.setattr(
+        render_mod, "extract_slice", lambda _s, _dx, _dy, idx: warmed.append(idx[0])
+    )
+    session_mod._schedule_prefetch(session, 2, 1, [10, 0, 0], 0, 1)
+    assert warmed == [11]
