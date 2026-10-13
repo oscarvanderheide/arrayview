@@ -32,7 +32,9 @@ jobs:
         # launch-trace failures, a node contract test, an ipykernel test) plus a
         # stray console interrupt ~15s in. A job that always fails teaches
         # nothing, so it is out until someone ports those paths deliberately.
-        os: [ubuntu-latest, macos-latest]
+        # Apple Silicon hosted runners have failed to acquire a machine during
+        # capacity shortages. Keep macOS checks on the standard Intel pool.
+        os: [ubuntu-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
