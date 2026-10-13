@@ -270,11 +270,13 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
         for i in range(len(idx_list))
     )
     key = ("proj", dim_x, dim_y, key_idx, proj_dim, proj_mode)
-    with session._raw_lock:
-        if key in session.raw_cache:
-            session.raw_cache.move_to_end(key)
-            return session.raw_cache[key]
+    return _cache_once(
+        session, session._raw_lock, "raw_cache", "_raw_bytes", "RAW_CACHE_BYTES",
+        key, lambda: _compute_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode),
+    )
 
+
+def _compute_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
     # Build slicer: display dims + projection dim get slice(None), rest use idx
     slicer = []
     for i in range(len(session.shape)):
@@ -313,11 +315,6 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
         result = np.nan_to_num(result).astype(np.complex64)
     else:
         result = np.nan_to_num(result).astype(np.float32)
-    with session._raw_lock:
-        if key not in session.raw_cache:
-            session.raw_cache[key] = result
-            session._raw_bytes += result.nbytes
-            _evict_lru(session, "_raw_bytes", "raw_cache", "RAW_CACHE_BYTES")
     return result
 
 

@@ -428,6 +428,41 @@ def _schedule_mosaic_prefetch(session, dim_x, dim_y, dim_z, idx_list, slice_dim,
         pass  # pool shutting down
 
 
+def _schedule_projection_prefetch(session, dim_x, dim_y, idx_list, slice_dim, proj_dim, proj_mode):
+    """Compute the next projection along *slice_dim* into raw_cache.
+
+    A projection collapses a whole sub-volume, so on a lazily read file each
+    step waits for a volume read; single-slice lookahead neither predicts it
+    nor helps (scrolling the projected dim does not change the picture).
+    One step ahead: each costs a full sub-volume read.
+    """
+    if slice_dim < 0 or slice_dim in (dim_x, dim_y, proj_dim):
+        return
+    current = idx_list[slice_dim]
+    lane = ("proj", dim_x, dim_y, slice_dim, proj_dim, proj_mode)
+    lanes, generation, direction = _prefetch_lane_step(session, lane, current, None)
+    target = current + direction
+    if not 0 <= target < session.shape[slice_dim]:
+        return
+
+    def _warm():
+        if generation != lanes[lane]["gen"]:
+            return
+        idx = list(idx_list)
+        idx[slice_dim] = target
+        try:
+            from arrayview._render import extract_projection
+
+            extract_projection(session, dim_x, dim_y, idx, proj_dim, proj_mode)
+        except Exception:
+            pass  # prefetch errors are silent
+
+    try:
+        _get_prefetch_pool().submit(_warm)
+    except RuntimeError:
+        pass  # pool shutting down
+
+
 def _schedule_overlay_prefetch(
     session,
     overlay_sid_str,

@@ -30,6 +30,7 @@ from arrayview._session import (
     _schedule_overlay_prefetch,
     _schedule_mosaic_prefetch,
     _schedule_prefetch,
+    _schedule_projection_prefetch,
     _vprint,
     wait_for_session_ready,
 )
@@ -769,7 +770,15 @@ def register_websocket_routes(app) -> None:
                         }
                     )
 
-                if slice_dim >= 0 and not (dim_z >= 0):
+                if (
+                    dim_z < 0 and projection_mode > 0 and projection_dim >= 0
+                    and not synthetic_mri and session.rgb_axis is None
+                ):
+                    _schedule_projection_prefetch(
+                        session, dim_x, dim_y, list(idx_tuple), slice_dim,
+                        projection_dim, projection_mode,
+                    )
+                elif slice_dim >= 0 and not (dim_z >= 0):
                     # The lane infers direction from where it last was. Panes
                     # that hard-code the message's direction (qMRI, compare
                     # qMRI) would otherwise always read ahead forward.

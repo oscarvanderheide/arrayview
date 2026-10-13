@@ -24,7 +24,12 @@ from arrayview._render import (
     render_rgb_rgba,
     render_rgba,
 )
-from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS, _schedule_prefetch
+from arrayview._session import (
+    HEAVY_OP_LIMIT_BYTES,
+    SESSIONS,
+    _schedule_prefetch,
+    _schedule_projection_prefetch,
+)
 from arrayview._synthetic_mri import (
     _qmri_adjust_vmin_vmax,
     qmri_display_slice,
@@ -281,7 +286,12 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         # scroll step (the live WS path has its own prefetch call). No
         # per-request direction field here (stateless HTTP), so the prefetch
         # lane infers it from the position it last saw.
-        if slice_dim >= 0 and dim_z < 0:
+        if projection_mode > 0 and projection_dim >= 0 and not synthetic_mri and session.rgb_axis is None:
+            _schedule_projection_prefetch(
+                session, dim_x, dim_y, list(idx_tuple), slice_dim,
+                projection_dim, projection_mode,
+            )
+        elif slice_dim >= 0 and dim_z < 0:
             _schedule_prefetch(session, dim_x, dim_y, list(idx_tuple), slice_dim)
         encode_t0 = time.perf_counter()
         img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")

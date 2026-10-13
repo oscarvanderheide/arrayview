@@ -1126,3 +1126,29 @@ def test_prefetch_direction_follows_scrolling_without_a_hint(monkeypatch):
     session_mod._schedule_prefetch(session, 2, 1, [40, 0, 0], 0)
     session_mod._schedule_prefetch(session, 2, 1, [39, 0, 0], 0)
     assert warmed[-3:] == [38, 37, 36]
+
+
+def test_projection_lookahead_warms_next_projection_not_slices(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    warmed = []
+    session = SimpleNamespace(shape=(16, 16, 12, 10), data=SimpleNamespace(), raw_cache={})
+
+    class ImmediatePool:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
+    monkeypatch.setattr(
+        render_mod,
+        "extract_projection",
+        lambda _s, _dx, _dy, idx, pd, pm: warmed.append((idx[3], pd, pm)),
+    )
+
+    # Scrolling time (dim 3) with a max projection along dim 2 warms the next time point.
+    session_mod._schedule_projection_prefetch(session, 1, 0, [0, 0, 0, 4], 3, 2, 1)
+    assert warmed == [(5, 2, 1)]
+    # Scrolling the projected dim itself changes nothing on screen: no work.
+    session_mod._schedule_projection_prefetch(session, 1, 0, [0, 0, 5, 4], 2, 2, 1)
+    assert warmed == [(5, 2, 1)]
