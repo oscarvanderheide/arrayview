@@ -294,6 +294,33 @@ def _get_overlay_prefetch_pool():
         return _OVERLAY_PREFETCH_POOL
 
 
+def _prefetch_lane_step(session, lane, current, direction):
+    """Record that *lane* is now at *current*; return (lanes, generation, direction).
+
+    Panes at the same position in a lane share one generation; moving the
+    lane to a new position starts a new one, which stale queued jobs check.
+    ``direction=None`` infers it from the previous position, keeping the last
+    known direction when sibling panes re-request the same position.
+    """
+    lanes = getattr(session, "_prefetch_lanes", None)
+    if lanes is None:
+        lanes = {}
+        session._prefetch_lanes = lanes
+    state = lanes.get(lane)
+    if direction is None:
+        if state is None:
+            direction = 1
+        elif current != state["pos"]:
+            direction = 1 if current > state["pos"] else -1
+        else:
+            direction = state["dir"]
+    if state is None or current != state["pos"]:
+        state = {"gen": (state["gen"] + 1) if state else 1, "pos": current}
+        lanes[lane] = state
+    state["dir"] = direction
+    return lanes, state["gen"], direction
+
+
 def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=None):
     """Warm raw_cache for the next PREFETCH_NEIGHBORS slices in *direction*.
 
@@ -314,24 +341,8 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=Non
     from arrayview._render import extract_slice
 
     current = idx_list[slice_dim]
-    lanes = getattr(session, "_prefetch_lanes", None)
-    if lanes is None:
-        lanes = {}
-        session._prefetch_lanes = lanes
     lane = (dim_x, dim_y, slice_dim)
-    state = lanes.get(lane)
-    if direction is None:
-        if state is None:
-            direction = 1
-        elif current != state["pos"]:
-            direction = 1 if current > state["pos"] else -1
-        else:
-            direction = state["dir"]
-    if state is None or current != state["pos"]:
-        state = {"gen": (state["gen"] + 1) if state else 1, "pos": current}
-        lanes[lane] = state
-    state["dir"] = direction
-    generation = state["gen"]
+    lanes, generation, direction = _prefetch_lane_step(session, lane, current, direction)
 
     n = session.shape[slice_dim]
     # A neighboring collection index can mean decompressing an entire .nii.gz
@@ -367,6 +378,49 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=Non
                     extract_slice(session, dim_x, dim_y, idx)
                 except Exception:
                     pass  # prefetch errors are silent
+
+    try:
+        _get_prefetch_pool().submit(_warm)
+    except RuntimeError:
+        pass  # pool shutting down
+
+
+def _schedule_mosaic_prefetch(session, dim_x, dim_y, dim_z, idx_list, slice_dim, render_args):
+    """Render the next mosaic along *slice_dim* into mosaic_cache.
+
+    A mosaic step re-reads and re-colours every slice along *dim_z*, which
+    for a large volume is far slower than the hand scrolling it, and the
+    slice lookahead does not apply (it warms single slices, not grids).
+    One step ahead only: each grid is tens of MB and a CPU-heavy render.
+    ``render_args`` are render_mosaic's remaining positional/keyword inputs
+    (colormap, dr, complex_mode, log_scale, mosaic_cols, vmin/vmax overrides)
+    so the warmed grid hits the same cache key as the real request.
+    """
+    if slice_dim < 0 or slice_dim == dim_z:
+        return
+    current = idx_list[slice_dim]
+    lane = ("mosaic", dim_x, dim_y, dim_z, slice_dim)
+    lanes, generation, direction = _prefetch_lane_step(session, lane, current, None)
+    target = current + direction
+    if not 0 <= target < session.shape[slice_dim]:
+        return
+    frames = session.shape[dim_z]
+    grid_bytes = frames * session.shape[dim_x] * session.shape[dim_y] * 4
+    # Never let the warmed grid push the one on screen out of the cache.
+    if 2 * grid_bytes > getattr(session, "MOSAIC_CACHE_BYTES", 0):
+        return
+
+    def _warm():
+        if generation != lanes[lane]["gen"]:
+            return
+        idx = list(idx_list)
+        idx[slice_dim] = target
+        try:
+            from arrayview._render import render_mosaic
+
+            render_mosaic(session, dim_x, dim_y, dim_z, tuple(idx), **render_args)
+        except Exception:
+            pass  # prefetch errors are silent
 
     try:
         _get_prefetch_pool().submit(_warm)

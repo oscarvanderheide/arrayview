@@ -103,6 +103,8 @@ Shared `ThreadPoolExecutor` (`arrayview-prefetch`, 2–4 workers). Warms `raw_ca
 
 Lookahead is tracked per lane `(dim_x, dim_y, slice_dim)` in `session._prefetch_lanes`, not per session: qMRI maps and multiview planes are several panes of one session and must not cancel each other. Only moving a lane to a new position supersedes its queued work. HTTP callers pass no direction; the lane infers it.
 
+Mosaic lookahead (`_schedule_mosaic_prefetch`) renders the next grid along the scrolled dim into `mosaic_cache`, already fitted to the canvas (`render_mosaic(..., fit=(w, h))`), one step ahead and only if two grids fit the budget. `_mosaic_once` makes a request wait for a grid the lookahead is still building instead of rebuilding it.
+
 ## Special Array Types
 
 - **RGB arrays** — detected by `_setup_rgb()`. Skip colormap; go directly to `render_rgb_rgba()`. `session.rgb_axis` holds the axis index; `session.spatial_shape` is shape without that axis.

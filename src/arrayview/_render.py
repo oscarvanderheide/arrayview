@@ -849,15 +849,87 @@ def render_mosaic(
     vmin_override=None,
     vmax_override=None,
     progress=None,
+    fit=None,
 ):
+    """Render the mosaic grid of every slice along *dim_z*.
+
+    ``fit=(w, h)`` returns the grid already shrunk to the viewer's canvas
+    (as the live socket would before sending) and caches it that way, so a
+    grid warmed ahead of time is ready to send: the shrink of a 240-slice
+    grid costs as much as rendering it.
+    """
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
     key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override)
-    with session._mosaic_lock:
-        if key in session.mosaic_cache:
-            session.mosaic_cache.move_to_end(key)
-            return session.mosaic_cache[key]
 
+    def build_full():
+        return _build_mosaic_rgba(
+            session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
+            log_scale, mosaic_cols, vmin_override, vmax_override, progress,
+        )
+
+    full = lambda: _mosaic_once(session, key, build_full)
+    if not fit:
+        return full()
+    fit_w, fit_h = int(fit[0]), int(fit[1])
+    return _mosaic_once(session, key + (("fit", fit_w, fit_h),), lambda: fit_rgba(full(), fit_w, fit_h))
+
+
+def _mosaic_once(session, key, build):
+    """Return mosaic_cache[key], building it once even under concurrent asks.
+
+    The lookahead and the request it anticipated can ask for the same grid
+    at the same moment; without this the request rebuilt a grid the
+    lookahead was half-way through, doubling the wait it was meant to hide.
+    """
+    while True:
+        with session._mosaic_lock:
+            if key in session.mosaic_cache:
+                session.mosaic_cache.move_to_end(key)
+                return session.mosaic_cache[key]
+            inflight = getattr(session, "_mosaic_inflight", None)
+            if inflight is None:
+                inflight = session._mosaic_inflight = {}
+            event = inflight.get(key)
+            owner = event is None
+            if owner:
+                event = inflight[key] = threading.Event()
+        if not owner:
+            event.wait()
+            continue  # re-check; if the builder failed, build it here
+        try:
+            rgba = build()
+            with session._mosaic_lock:
+                if key not in session.mosaic_cache:
+                    session.mosaic_cache[key] = rgba
+                    session._mosaic_bytes += rgba.nbytes
+                    _evict_lru(session, "_mosaic_bytes", "mosaic_cache", "MOSAIC_CACHE_BYTES")
+            return rgba
+        finally:
+            with session._mosaic_lock:
+                inflight.pop(key, None)
+            event.set()
+
+
+def fit_rgba(rgba, canvas_w, canvas_h):
+    """Shrink an RGBA frame to fit the viewer's canvas; unchanged if it fits."""
+    h, w = rgba.shape[:2]
+    if not (canvas_w and canvas_h and (w > canvas_w or h > canvas_h)):
+        return rgba
+    from ._imaging import ensure_image
+
+    image_cls = ensure_image()
+    pil = image_cls.fromarray(
+        rgba.astype(np.uint8) if rgba.dtype != np.uint8 else rgba, mode="RGBA"
+    )
+    pil.thumbnail((canvas_w, canvas_h), image_cls.LANCZOS)
+    return np.array(pil)
+
+
+def _build_mosaic_rgba(
+    session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
+    log_scale, mosaic_cols, vmin_override, vmax_override, progress,
+):
     n = session.shape[dim_z]
     # Reported per slice rather than estimated: each slice faults in roughly the
     # same number of pages, so slice i of n is an honest fraction of the wait.
@@ -911,11 +983,6 @@ def render_mosaic(
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut_rgba(lut, grid.astype(np.uint8))
     rgba[nan_mask] = [22, 22, 22, 255]
-    with session._mosaic_lock:
-        if key not in session.mosaic_cache:
-            session.mosaic_cache[key] = rgba
-            session._mosaic_bytes += rgba.nbytes
-            _evict_lru(session, "_mosaic_bytes", "mosaic_cache", "MOSAIC_CACHE_BYTES")
     return rgba
 
 

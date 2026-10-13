@@ -11,6 +11,7 @@ from arrayview._analysis import _build_metadata
 from arrayview._lifecycle import release_session
 from arrayview._overlays import _composite_mosaic_overlays, _composite_overlays
 from arrayview._render import (
+    fit_rgba,
     lut_rgba,
     LUTS,
     _prepare_display,
@@ -27,6 +28,7 @@ from arrayview._session import (
     SHELL_SOCKETS,
     _render,
     _schedule_overlay_prefetch,
+    _schedule_mosaic_prefetch,
     _schedule_prefetch,
     _vprint,
     wait_for_session_ready,
@@ -560,6 +562,13 @@ def register_websocket_routes(app) -> None:
                         )
                         h, w = rgba.shape[:2]
                     else:
+                        # Overlays are drawn onto the full-size grid, so only a
+                        # bare mosaic can come back already fitted to the canvas.
+                        mosaic_fit = (
+                            (canvas_w, canvas_h)
+                            if canvas_w and canvas_h and not msg.get("overlay_sid")
+                            else None
+                        )
                         rgba = await _render(
                             loop,
                             lambda: render_mosaic(
@@ -576,6 +585,7 @@ def register_websocket_routes(app) -> None:
                                 vmin_override=vmin_override,
                                 vmax_override=vmax_override,
                                 progress=_render_progress_reporter(loop, ws, label='Building mosaic'),
+                                fit=mosaic_fit,
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
@@ -718,12 +728,7 @@ def register_websocket_routes(app) -> None:
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
                 vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
                 if canvas_w and canvas_h and (w > canvas_w or h > canvas_h):
-                    pil = _pil_image().fromarray(
-                        rgba.astype(np.uint8) if rgba.dtype != np.uint8 else rgba,
-                        mode="RGBA",
-                    )
-                    pil.thumbnail((canvas_w, canvas_h), _pil_image().LANCZOS)
-                    rgba = np.array(pil)
+                    rgba = fit_rgba(rgba, canvas_w, canvas_h)
                     h, w = rgba.shape[:2]
                     header = np.array([seq, w, h], dtype=np.uint32).tobytes()
                 payload = header + vminmax + rgba.tobytes()
@@ -770,6 +775,16 @@ def register_websocket_routes(app) -> None:
                     # qMRI) would otherwise always read ahead forward.
                     _schedule_prefetch(
                         session, dim_x, dim_y, list(idx_tuple), slice_dim
+                    )
+                elif dim_z >= 0 and not qmri_role and not synthetic_mri and session.rgb_axis is None:
+                    _schedule_mosaic_prefetch(
+                        session, dim_x, dim_y, dim_z, list(idx_tuple), slice_dim,
+                        dict(
+                            colormap=colormap, dr=dr, complex_mode=complex_mode,
+                            log_scale=log_scale, mosaic_cols=mosaic_cols,
+                            vmin_override=vmin_override, vmax_override=vmax_override,
+                            fit=mosaic_fit,
+                        ),
                     )
                 stack_axes = tuple(getattr(session.data, "_stack_axes", ()))
                 if stack_axes:

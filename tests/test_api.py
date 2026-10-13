@@ -4412,3 +4412,42 @@ def test_lut_rgba_matches_plain_indexing_for_any_memory_order():
     idx = np.random.default_rng(0).integers(0, 256, (7, 5)).astype(np.uint8)
     for indices in (idx, idx.T, idx[::2, ::-1]):
         np.testing.assert_array_equal(lut_rgba(lut, indices), lut[indices])
+
+
+def test_mosaic_lookahead_warms_the_next_grid(monkeypatch):
+    from arrayview import _session as session_mod
+    from arrayview._render import render_mosaic
+
+    class ImmediatePool:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
+    session = session_mod.Session(
+        np.random.default_rng(1).standard_normal((16, 16, 6, 4)).astype(np.float32),
+        name="mosaic",
+    )
+    args = dict(colormap="gray", dr=0, complex_mode=0, log_scale=False,
+                mosaic_cols=None, vmin_override=None, vmax_override=None)
+    render_mosaic(session, 1, 0, 2, (0, 0, 0, 2), **args)
+    session_mod._schedule_mosaic_prefetch(session, 1, 0, 2, [0, 0, 0, 2], 3, args)
+    session_mod._schedule_mosaic_prefetch(session, 1, 0, 2, [0, 0, 0, 1], 3, args)
+
+    # Scrolling down from 2 to 1 warms 0, the next grid in that direction.
+    cached = {key[3][3] for key in session.mosaic_cache}
+    assert 0 in cached
+
+
+def test_fitted_mosaic_matches_shrinking_the_full_grid():
+    from arrayview import _session as session_mod
+    from arrayview._render import fit_rgba, render_mosaic
+
+    session = session_mod.Session(
+        np.random.default_rng(2).standard_normal((40, 40, 12, 2)).astype(np.float32),
+        name="fit",
+    )
+    full = render_mosaic(session, 1, 0, 2, (0, 0, 0, 1), "gray", 0)
+    fitted = render_mosaic(session, 1, 0, 2, (0, 0, 0, 1), "gray", 0, fit=(60, 50))
+    np.testing.assert_array_equal(fitted, fit_rgba(full, 60, 50))
+    assert max(fitted.shape[0] / 50, fitted.shape[1] / 60) <= 1
+    assert render_mosaic(session, 1, 0, 2, (0, 0, 0, 1), "gray", 0, fit=(60, 50)) is fitted
