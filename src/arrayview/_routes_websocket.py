@@ -271,9 +271,10 @@ def _render_qmri_rgba(
     Kept separate from the generic path so the slice read and the window
     computation happen exactly once, and so multi-pane qMRI/ortho renders run in
     the render thread pool instead of blocking the event loop serially. The
-    colour map is applied with the unadjusted window (matching the previous
-    synchronous path); the returned window is the qMRI-role-adjusted value sent
-    in the frame header.
+    colour map is applied with the qMRI-role-adjusted window, the same one sent
+    in the frame header: the viewer locks that window and sends it back on the
+    next slice, so colouring with anything else made the first scroll step
+    visibly change the contrast while the colorbar labels stayed put.
     """
     raw = qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
     data, vmin, vmax = _prepare_display(
@@ -285,6 +286,7 @@ def _render_qmri_rgba(
         vmin_override=vmin_override,
         vmax_override=vmax_override,
     )
+    vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
     else:
@@ -301,7 +303,6 @@ def _render_qmri_rgba(
         if transparent.any():
             rgba = rgba.copy()
             rgba[transparent, 3] = 0
-    vmin, vmax = _qmri_adjust_vmin_vmax(vmin, vmax, qmri_role)
     return rgba, vmin, vmax
 
 

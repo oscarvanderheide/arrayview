@@ -2291,6 +2291,20 @@ class TestSyntheticQmri:
         assert float(resp.headers["X-ArrayView-Vmin"]) == 0.0
         assert float(resp.headers["X-ArrayView-Vmax"]).is_integer()
 
+    def test_qmri_first_frame_is_coloured_with_reported_window(self, client, tmp_path):
+        # The viewer locks the reported window and sends it back on the next
+        # slice; the first frame must already look like that, or the contrast
+        # jumps on the first scroll while the colorbar labels stay put.
+        sid = self._register_qmri(client, tmp_path, n=3, seconds=False)
+        params = {"dim_x": 2, "dim_y": 1, "indices": "0,0,0", "colormap": "gray", "qmri_role": "t1"}
+        first = client.get(f"/slice/{sid}", params=params)
+        locked = client.get(f"/slice/{sid}", params={
+            **params,
+            "vmin_override": first.headers["X-ArrayView-Vmin"],
+            "vmax_override": first.headers["X-ArrayView-Vmax"],
+        })
+        assert first.content == locked.content
+
     def test_synthetic_render_changes_with_te(self, client, tmp_path):
         sid = self._register_qmri(client, tmp_path, n=5, seconds=False)
         base = {

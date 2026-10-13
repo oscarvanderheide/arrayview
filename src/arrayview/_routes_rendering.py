@@ -226,6 +226,16 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     if qmri_role
                     else extract_slice(session, dim_x, dim_y, list(idx_tuple))
                 )
+                if qmri_role and (vmin_override is None or vmax_override is None):
+                    # Colour with the role-adjusted window reported back to the
+                    # viewer, which locks it for later slices; otherwise the
+                    # first scroll step visibly changes contrast.
+                    _, _lo, _hi = _prepare_display(
+                        session, raw, complex_mode, dr, log_scale
+                    )
+                    vmin_override, vmax_override = _qmri_adjust_vmin_vmax(
+                        _lo, _hi, qmri_role
+                    )
                 rgba = (
                     render_rgba_from_prepared(
                         session,
