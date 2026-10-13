@@ -315,7 +315,14 @@ def _prefetch_lane_step(session, lane, current, direction):
         else:
             direction = state["dir"]
     if state is None or current != state["pos"]:
-        state = {"gen": (state["gen"] + 1) if state else 1, "pos": current}
+        now = _time.monotonic()
+        state = {
+            "gen": (state["gen"] + 1) if state else 1,
+            "pos": current,
+            "moved_at": now,
+            "interval": (now - state["moved_at"]) if state else None,
+            "queued": state["queued"] if state else set(),
+        }
         lanes[lane] = state
     state["dir"] = direction
     return lanes, state["gen"], direction
@@ -342,13 +349,21 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=Non
 
     current = idx_list[slice_dim]
     lane = (dim_x, dim_y, slice_dim)
-    lanes, generation, direction = _prefetch_lane_step(session, lane, current, direction)
+    lanes, _generation, direction = _prefetch_lane_step(session, lane, current, direction)
+    state = lanes[lane]
 
     n = session.shape[slice_dim]
     # A neighboring collection index can mean decompressing an entire .nii.gz
     # volume, not reading another small slice. Keep that work conservative.
     stack_axes = tuple(getattr(session.data, "_stack_axes", ()))
-    neighbor_count = 1 if slice_dim in stack_axes else PREFETCH_NEIGHBORS
+    if slice_dim in stack_axes:
+        neighbor_count = 1
+    elif state.get("interval") is not None and state["interval"] < FAST_SCROLL_INTERVAL_S:
+        # A held key outruns a 3-slice window on a slow drive: every step
+        # landed on a slice whose read had only just started.
+        neighbor_count = FAST_PREFETCH_NEIGHBORS
+    else:
+        neighbor_count = PREFETCH_NEIGHBORS
     itemsize = 8 if np.iscomplexobj(np.empty(0, getattr(session.data, "dtype", np.float32))) else 4
     slice_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
     # Big images look fewer slices ahead rather than none: switching lookahead
@@ -358,36 +373,45 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction=Non
     if slice_bytes > getattr(session, "RAW_CACHE_BYTES", 4 * PREFETCH_BUDGET_BYTES) // 4:
         return
 
-    targets = []
-    for step in range(1, neighbor_count + 1):
-        nxt = current + direction * step
-        if 0 <= nxt < n:
-            targets.append(nxt)
+    def _key(t):
+        idx = list(idx_list)
+        idx[slice_dim] = t
+        return idx, (dim_x, dim_y, tuple(None if i in (dim_x, dim_y) else idx[i] for i in range(len(idx))))
 
-    if not targets:
-        return
-
-    # Supersede queued work from older scroll positions in this lane. A gzip
-    # operation that is already running cannot be cancelled safely, but stale
-    # queued jobs now return without touching disk.
-    def _warm():
-        for t in targets:
-            if generation != lanes[lane]["gen"]:
+    # One job per slice so several reads are in flight (a network drive
+    # serves parallel readers ~2x faster). A queued job is dropped once the
+    # lane has moved past it or turned around; jobs still ahead survive new
+    # steps instead of being cancelled and requeued on every key repeat.
+    def _warm(t, key, idx):
+        try:
+            live = lanes[lane]
+            if (t - live["pos"]) * live["dir"] <= 0:
                 return
-            idx = list(idx_list)
-            idx[slice_dim] = t
-            key_idx = tuple(None if i in (dim_x, dim_y) else idx[i] for i in range(len(idx)))
-            key = (dim_x, dim_y, key_idx)
+            if abs(t - live["pos"]) > FAST_PREFETCH_NEIGHBORS:
+                return
             if key not in session.raw_cache:
                 try:
                     extract_slice(session, dim_x, dim_y, idx)
                 except Exception:
                     pass  # prefetch errors are silent
+        finally:
+            state["queued"].discard(key)
 
-    try:
-        _get_prefetch_pool().submit(_warm)
-    except RuntimeError:
-        pass  # pool shutting down
+    pool = None
+    for step in range(1, neighbor_count + 1):
+        t = current + direction * step
+        if not 0 <= t < n:
+            break
+        idx, key = _key(t)
+        if key in session.raw_cache or key in state["queued"]:
+            continue
+        state["queued"].add(key)
+        try:
+            pool = pool or _get_prefetch_pool()
+            pool.submit(_warm, t, key, idx)
+        except RuntimeError:
+            state["queued"].discard(key)
+            return  # pool shutting down
 
 
 def _schedule_mosaic_prefetch(session, dim_x, dim_y, dim_z, idx_list, slice_dim, render_args):
@@ -934,6 +958,8 @@ ZARR_T_DEPTH = 2  # T-frames per chunk for 4D+ arrays
 # Neighbor prefetch (Phase 3)
 # ---------------------------------------------------------------------------
 PREFETCH_NEIGHBORS = 3  # slices to prefetch in the scroll direction
+FAST_PREFETCH_NEIGHBORS = 8  # ... while steps come faster than the interval below
+FAST_SCROLL_INTERVAL_S = 0.15
 PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024  # 16 MB max prefetch per request
 
 # ---------------------------------------------------------------------------

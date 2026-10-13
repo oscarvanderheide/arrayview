@@ -4419,8 +4419,8 @@ def test_mosaic_lookahead_warms_the_next_grid(monkeypatch):
     from arrayview._render import render_mosaic
 
     class ImmediatePool:
-        def submit(self, fn):
-            fn()
+        def submit(self, fn, *args):
+            fn(*args)
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
     session = session_mod.Session(

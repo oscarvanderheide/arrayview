@@ -479,8 +479,8 @@ def test_collection_prefetch_only_warms_one_neighbor(monkeypatch):
     )
 
     class ImmediatePool:
-        def submit(self, fn):
-            fn()
+        def submit(self, fn, *args):
+            fn(*args)
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
     monkeypatch.setattr(
@@ -507,8 +507,8 @@ def test_stale_collection_prefetch_is_coalesced(monkeypatch):
     )
 
     class QueuedPool:
-        def submit(self, fn):
-            queued.append(fn)
+        def submit(self, fn, *args):
+            queued.append(lambda: fn(*args))
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: QueuedPool())
     monkeypatch.setattr(
@@ -1086,8 +1086,8 @@ def test_sibling_panes_do_not_cancel_each_others_prefetch(monkeypatch):
     session = SimpleNamespace(shape=(5, 80, 32, 32), data=SimpleNamespace(), raw_cache={})
 
     class QueuedPool:
-        def submit(self, fn):
-            queued.append(fn)
+        def submit(self, fn, *args):
+            queued.append(lambda: fn(*args))
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: QueuedPool())
     monkeypatch.setattr(
@@ -1115,8 +1115,8 @@ def test_prefetch_direction_follows_scrolling_without_a_hint(monkeypatch):
     session = SimpleNamespace(shape=(80, 32, 32), data=SimpleNamespace(), raw_cache={})
 
     class ImmediatePool:
-        def submit(self, fn):
-            fn()
+        def submit(self, fn, *args):
+            fn(*args)
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
     monkeypatch.setattr(
@@ -1125,7 +1125,7 @@ def test_prefetch_direction_follows_scrolling_without_a_hint(monkeypatch):
 
     session_mod._schedule_prefetch(session, 2, 1, [40, 0, 0], 0)
     session_mod._schedule_prefetch(session, 2, 1, [39, 0, 0], 0)
-    assert warmed[-3:] == [38, 37, 36]
+    assert warmed[3:6] == [38, 37, 36]
 
 
 def test_projection_lookahead_warms_next_projection_not_slices(monkeypatch):
@@ -1136,8 +1136,8 @@ def test_projection_lookahead_warms_next_projection_not_slices(monkeypatch):
     session = SimpleNamespace(shape=(16, 16, 12, 10), data=SimpleNamespace(), raw_cache={})
 
     class ImmediatePool:
-        def submit(self, fn):
-            fn()
+        def submit(self, fn, *args):
+            fn(*args)
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
     monkeypatch.setattr(
@@ -1165,8 +1165,8 @@ def test_big_images_still_look_one_slice_ahead(monkeypatch):
     )
 
     class ImmediatePool:
-        def submit(self, fn):
-            fn()
+        def submit(self, fn, *args):
+            fn(*args)
 
     monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: ImmediatePool())
     monkeypatch.setattr(
@@ -1174,3 +1174,28 @@ def test_big_images_still_look_one_slice_ahead(monkeypatch):
     )
     session_mod._schedule_prefetch(session, 2, 1, [10, 0, 0], 0, 1)
     assert warmed == [11]
+
+
+def test_fast_scrolling_looks_further_ahead_and_keeps_jobs_still_ahead(monkeypatch):
+    from arrayview import _session as session_mod
+    import arrayview._render as render_mod
+
+    queued = []
+    warmed = []
+    session = SimpleNamespace(shape=(80, 32, 32), data=SimpleNamespace(), raw_cache={})
+
+    class QueuedPool:
+        def submit(self, fn, *args):
+            queued.append(lambda: fn(*args))
+
+    monkeypatch.setattr(session_mod, "_get_prefetch_pool", lambda: QueuedPool())
+    monkeypatch.setattr(
+        render_mod, "extract_slice", lambda _s, _dx, _dy, idx: warmed.append(idx[0])
+    )
+    for z in (10, 11, 12):  # key repeat: steps well under the fast interval
+        session_mod._schedule_prefetch(session, 2, 1, [z, 0, 0], 0)
+    for job in queued:
+        job()
+    # Nothing at or behind the current slice is read; the window reaches 8 ahead.
+    assert min(warmed) == 13 and max(warmed) == 20
+    assert len(warmed) == len(set(warmed))
