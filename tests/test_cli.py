@@ -14,6 +14,7 @@ import arrayview._app as appmod
 import arrayview._launch_plan as _launch_plan_mod
 import arrayview._launcher as _launcher_mod
 import arrayview._platform as _platform_mod
+import arrayview._source_safety as _source_safety_mod
 
 
 class _DummyResponse:
@@ -484,9 +485,12 @@ def test_cli_network_collection_respects_staging_setting(monkeypatch, tmp_path, 
     images.mkdir()
     np.save(images / "case_a.npy", np.ones((4, 5, 6), dtype=np.float32))
     mountpoint = images if nested else tmp_path
-    mountinfo = tmp_path / "mountinfo"
-    mountinfo.write_text(f"42 31 0:55 / {mountpoint} rw - cifs //server/share rw\n")
-    monkeypatch.setenv("_ARRAYVIEW_TEST_MOUNTINFO", str(mountinfo))
+    # Supply mount records directly: macOS does not read Linux mountinfo,
+    # including the test-only override, so that fixture hid the network drive.
+    records = _source_safety_mod.parse_mountinfo(
+        f"42 31 0:55 / {mountpoint} rw - cifs //server/share rw\n"
+    )
+    monkeypatch.setattr(_source_safety_mod, "read_mountinfo", lambda: records)
     if staging is None:
         monkeypatch.delenv("ARRAYVIEW_SKIP_SOURCE_STAGING", raising=False)
     else:
