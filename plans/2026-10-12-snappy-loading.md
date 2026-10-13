@@ -118,3 +118,21 @@ tab creation + tunnel, ~0.3–0.5 s page to first frame, then the 0.3 s fade.
   makes it read as one continuous wait.
 - Verified by the owner in the real tunnel window.
 
+
+### Scrolling in every mode (2026-10-13)
+
+Measured with a stand-in array whose every read takes a fixed time (in-process
+server, headless; component evidence, not the SMB drive or the real viewer).
+
+- qMRI maps and 3-plane panes stopped cancelling each other's read-ahead;
+  qMRI backward scrolling reads ahead backward. qMRI step 89 -> 36 ms.
+- Mosaic: next grid drawn ahead, stored already shrunk to the window; mosaic
+  drawing ~2x faster. Big mosaic step 629 -> 21 ms at a looking pace.
+- A slice already being read is not read again (compare diff re-asks, panes,
+  read-ahead). Slow diff: 6 reads -> 2.
+- Projection reads the next projection ahead: slow file 326 -> 7 ms per step.
+- Big images (2k x 2k) look one slice ahead instead of none: 320 -> 277 ms.
+- Held key on a slow file: look 8 ahead in parallel: 61 -> 9 ms per step.
+- Not done: background warm-up in 3-plane view. Files are read into memory in
+  the background anyway, after which a 3-plane frame costs 2–7 ms; a warm-up
+  would only compete with that read.
