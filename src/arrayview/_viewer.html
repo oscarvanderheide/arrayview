@@ -6979,19 +6979,30 @@
         let _mainRenderPatientIndex = null;
         let _compareRenderPatientIndex = null;
 
-        function _currentPatientIndex() {
+        // One number per case: the patient index, combined with the channel
+        // index when files were also stacked as channels. Stepping either one
+        // swaps every pane's source file, so both count as a case change.
+        function _caseIndexFromIndices(idx) {
             if (!Number.isInteger(collectionSpatialNdim) || collectionSpatialNdim < 0
-                    || collectionSpatialNdim >= indices.length) return null;
-            const value = Number(indices[collectionSpatialNdim]);
-            return Number.isInteger(value) ? value : null;
+                    || collectionSpatialNdim >= idx.length) return null;
+            let key = 0;
+            for (let k = collectionSpatialNdim; k < idx.length; k++) {
+                const value = Number(idx[k]);
+                if (!Number.isInteger(value)) return null;
+                key = key * Math.max(1, Number(shape[k]) || 1) + value;
+            }
+            return key;
+        }
+
+        function _currentPatientIndex() {
+            return _caseIndexFromIndices(indices);
         }
 
         function _patientIndexFromRenderParams(params) {
             if (!params || !Number.isInteger(collectionSpatialNdim) || collectionSpatialNdim < 0) return null;
             const raw = params.get('indices');
             if (!raw) return null;
-            const value = Number(raw.split(',')[collectionSpatialNdim]);
-            return Number.isInteger(value) ? value : null;
+            return _caseIndexFromIndices(raw.split(','));
         }
 
         function _beginPatientLoading() {
@@ -7016,6 +7027,59 @@
                 _patientLoadingVisible = true;
                 _reconcileUI();
             }, PATIENT_LOADING_THRESHOLD_MS);
+        }
+
+        // On a patient change every pane of a multi-pane mode (qMRI maps,
+        // ortho views) fetches its own frame, and off a slow share they land
+        // seconds apart: one map flipped to the new patient while the rest
+        // still showed the old one. Hold each new-patient frame until every
+        // pane has one, then draw them together. Nothing new is drawn while
+        // holding, so the patient-loading overlay stays up meanwhile.
+        const PATIENT_GROUP_HOLD_MAX_MS = 15000;
+        let _patientHold = null;
+        let _patientHoldReleasing = false;
+
+        function _releasePatientHold(views, draw, p) {
+            _patientHoldReleasing = true;
+            try {
+                views.forEach(o => {
+                    if (o._framePatientIndex === p && o.lastImageData !== o._shownImageData) draw(o);
+                });
+            } finally {
+                _patientHoldReleasing = false;
+            }
+        }
+
+        // True when *v*'s new frame must wait; the caller then skips drawing.
+        function _holdForPatientGroup(v, views, draw) {
+            // A redraw of what is already on screen (resize, zoom) never waits.
+            if (v.lastImageData === v._shownImageData) return false;
+            const p = v._renderPatientIndex;
+            v._framePatientIndex = p;
+            const hold = !_patientHoldReleasing
+                && Number.isInteger(p) && p !== _displayedPatientIndex
+                && views.length > 1 && views.includes(v)
+                && !views.every(o => o._framePatientIndex === p);
+            if (!hold) {
+                v._shownImageData = v.lastImageData;
+                if (!_patientHoldReleasing && _patientHold && _patientHold.p === p) {
+                    clearTimeout(_patientHold.timer);
+                    _patientHold = null;
+                    _releasePatientHold(views.filter(o => o !== v), draw, p);
+                }
+                return false;
+            }
+            if (!_patientHold || _patientHold.p !== p || _patientHold.views !== views) {
+                if (_patientHold) clearTimeout(_patientHold.timer);
+                // A pane whose frame never comes must not freeze the others.
+                const timer = setTimeout(() => {
+                    if (!_patientHold || _patientHold.timer !== timer) return;
+                    _patientHold = null;
+                    _releasePatientHold(views, draw, p);
+                }, PATIENT_GROUP_HOLD_MAX_MS);
+                _patientHold = { p, views, timer };
+            }
+            return true;
         }
 
         function _patientFrameDisplayed(framePatientIndex) {
@@ -37209,6 +37273,7 @@
 
         function compareQmriDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (_holdForPatientGroup(v, compareQmriViews, compareQmriDrawFrame)) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
@@ -37798,6 +37863,7 @@
 
         function compareMvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (_holdForPatientGroup(v, compareMvViews, compareMvDrawFrame)) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
@@ -38396,6 +38462,7 @@
 
         function qmriMvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (_holdForPatientGroup(v, qmriMvViews, qmriMvDrawFrame)) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
@@ -38609,6 +38676,7 @@
 
         function qvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (_holdForPatientGroup(v, qmriViews, qvDrawFrame)) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
@@ -39519,6 +39587,7 @@
 
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (_holdForPatientGroup(v, mvViews, mvDrawFrame)) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;

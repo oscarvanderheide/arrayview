@@ -699,10 +699,11 @@ class TestDirCollection:
 
         data, spatial_meta, _overlays, summary = _io.load_dir_collection(paths)
 
-        assert data.shape == (3, 4, 5, 2, 2, 1, 4)
+        # Plain file paths are one case each (what an unquoted glob expands to).
+        assert data.shape == (3, 4, 5, 2, 2, 4)
         assert summary["spatial_shape"] == (3, 4, 5, 2, 2)
         expected = np.asarray(nib.as_closest_canonical(nib.load(paths[2])).dataobj)
-        assert np.array_equal(data[:, :, 1, 1, 0, 0, 2], expected[:, :, 1, 1, 0])
+        assert np.array_equal(data[:, :, 1, 1, 0, 2], expected[:, :, 1, 1, 0])
 
         session = Session(data, filepath=None, name="matched parameters")
         session.spatial_meta = spatial_meta
@@ -1001,3 +1002,75 @@ class TestDirCollection:
         assert data.shape == (4, 5, 6, 1)
         assert overlays[0]["data"].shape == (4, 5, 6, 1)
         assert summary["cases"] == ["case-a"]
+
+
+@pytest.mark.parametrize("affine", [
+    np.diag([1.0, 1.0, 1.0, 1.0]),
+    # Stored I/A/L like real scanner exports: the canonical view is flipped
+    # and transposed, so every display direction strides differently.
+    np.array([[0, 0, -1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1.0]]),
+])
+def test_scattered_slices_of_uncompressed_nifti_read_whole_maps(tmp_path, affine):
+    """Slices across the storage order come from maps read whole into RAM,
+    and match a plain read in every direction."""
+    shape = (96, 112, 104, 3)  # 4.5 MB per map: above the whole-map threshold
+    rng = np.random.default_rng(0)
+    paths = []
+    for p in range(2):
+        data = rng.standard_normal(shape).astype(np.float32)
+        paths.append([_save_nifti(tmp_path / f"case{p}.nii", data, affine)])
+    ref = [np.asarray(nib.as_closest_canonical(nib.load(row[0])).dataobj) for row in paths]
+    vol_shape = ref[0].shape
+    series = _NiftiSeries(paths, vol_shape, np.float32)
+
+    S = slice(None)
+    for p in range(2):
+        for q in range(shape[3]):
+            for key in [(S, S, 50), (S, 40, S), (30, S, S)]:
+                got = np.asarray(series[key + (q, p)])
+                np.testing.assert_array_equal(got, ref[p][key + (q,)])
+    with series._region_lock:
+        cached = set(series._region_cache)
+    assert {(p, 0, (q,)) for p in range(2) for q in range(shape[3])} <= cached
+    from arrayview._io import _mapped_file_span
+
+    assert all(_mapped_file_span(arr) is None for arr in series._region_cache.values())
+
+
+def test_shell_expanded_match_pattern_gives_one_case_per_file(tmp_path):
+    """An unquoted --match glob arrives as one literal path per case; those
+    are patients, not channels of a single patient."""
+    from arrayview._io import load_dir_collection
+
+    paths = []
+    for name in ("SEC_002", "SEC_001", "SEC_003"):
+        d = tmp_path / name / "low_rank"
+        d.mkdir(parents=True)
+        paths.append(_save_nifti(d / "maps.nii", np.zeros((4, 5, 6), np.float32)))
+    data, _meta, _ov, summary = load_dir_collection(paths)
+    assert data.shape == (4, 5, 6, 3)
+    assert summary["cases"] == ["SEC_001", "SEC_002", "SEC_003"]
+
+
+def test_scattered_region_warm_follows_the_channel_axis(tmp_path):
+    """Files stacked as channels of one case pre-load the next channel, just
+    as patients pre-load the next patient."""
+    shape = (96, 112, 104)
+    rng = np.random.default_rng(1)
+    affine = np.array([[0, 0, -1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1.0]])
+    row = [
+        _save_nifti(tmp_path / f"c{m}.nii", rng.standard_normal(shape).astype(np.float32), affine)
+        for m in range(3)
+    ]
+    vol_shape = nib.as_closest_canonical(nib.load(row[0])).shape
+    series = _NiftiSeries([row], vol_shape, np.float32)
+    S = slice(None)
+    np.asarray(series[(S, 40, S, 0, 0)])
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with series._region_lock:
+            if (0, 1, ()) in series._region_cache:
+                break
+        time.sleep(0.01)
+    with series._region_lock:
+        assert (0, 1, ()) in series._region_cache

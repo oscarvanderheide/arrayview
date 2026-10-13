@@ -11,7 +11,7 @@ import re
 import sys
 import threading
 import zlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from collections import OrderedDict
 
 import numpy as np
@@ -563,6 +563,310 @@ def read_gzip_file_parallel(filepath):
 
 
 # ---------------------------------------------------------------------------
+# Scattered slices of mapped files — read the whole region instead
+# ---------------------------------------------------------------------------
+
+# A slice that cuts across a file's storage order touches every page of the
+# volume it lives in. Faulted in through the map that is a long chain of small
+# waits: one map of a (224,240,204,6) float32 file took 2.1 s off an SMB share,
+# where 4 MB reads, several in flight, fetched the same 42 MB in 0.45 s (the
+# link's ~100 MB/s). Small targeted reads lost too: 204 single-row reads took
+# 0.46 s even 64 at a time, because each one is a ~13 ms round trip.
+_REGION_READ_CHUNK_BYTES = 4 * 1024 * 1024
+_REGION_READ_THREADS = 8
+_REGION_READ_POOL = None
+_REGION_WARM_POOL = None
+_REGION_POOL_LOCK = threading.Lock()
+
+
+def _region_pools():
+    global _REGION_READ_POOL, _REGION_WARM_POOL
+    with _REGION_POOL_LOCK:
+        if _REGION_READ_POOL is None:
+            _REGION_READ_POOL = ThreadPoolExecutor(
+                max_workers=_REGION_READ_THREADS, thread_name_prefix="arrayview-region-read"
+            )
+            # One background lane, so warming never competes with itself for
+            # the link the visible frame is waiting on.
+            _REGION_WARM_POOL = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="arrayview-region-warm"
+            )
+    return _REGION_READ_POOL, _REGION_WARM_POOL
+
+
+def _mapped_file_span(view):
+    """Where the bytes behind a view of an ``np.memmap`` sit in its file.
+
+    Returns ``(filename, file_offset, nbytes, first_element_offset)``, or None
+    when *view* is not backed by a file map.
+    """
+    if not isinstance(view, np.ndarray) or view.size == 0:
+        return None
+    root = view
+    while isinstance(root.base, np.ndarray):
+        root = root.base
+    if not isinstance(root, np.memmap) or not getattr(root, "filename", None):
+        return None
+    ptr = view.__array_interface__["data"][0]
+    lo = ptr + sum(min(0, (n - 1) * s) for n, s in zip(view.shape, view.strides))
+    hi = ptr + sum(max(0, (n - 1) * s) for n, s in zip(view.shape, view.strides))
+    hi += view.itemsize
+    root_ptr = root.__array_interface__["data"][0]
+    return root.filename, int(root.offset) + (lo - root_ptr), hi - lo, ptr - lo
+
+
+def _mapped_slice_is_scattered(view) -> bool:
+    """Whether reading *view* through its map drags in far more than it holds."""
+    span = _mapped_file_span(view)
+    if span is None:
+        return False
+    nbytes = span[2]
+    return nbytes > 4 * view.nbytes and nbytes > _REGION_READ_CHUNK_BYTES
+
+
+def _pread_into(fd, buf, offset):
+    if hasattr(os, "preadv"):
+        return os.preadv(fd, [buf], offset)
+    data = os.pread(fd, len(buf), offset)
+    buf[: len(data)] = data
+    return len(data)
+
+
+def read_mapped_region(view, progress=None):
+    """Read the file bytes behind memmap view *view* into RAM with large parallel reads.
+
+    Returns an in-memory array equal to *view*. *progress*, if given, is called
+    with ``(bytes_done, bytes_total)`` as chunks land.
+    """
+    span = _mapped_file_span(view)
+    if span is None:
+        return np.array(view)
+    filename, file_lo, nbytes, first = span
+    buf = np.empty(nbytes, dtype=np.uint8)
+    mv = memoryview(buf)
+    lock = threading.Lock()
+    done = [0]
+    fd = os.open(filename, os.O_RDONLY)
+    try:
+
+        def _read(start):
+            stop = min(start + _REGION_READ_CHUNK_BYTES, nbytes)
+            pos = start
+            while pos < stop:
+                n = _pread_into(fd, mv[pos:stop], file_lo + pos)
+                if n <= 0:
+                    raise OSError(f"short read from {filename}")
+                pos += n
+            if progress is not None:
+                with lock:
+                    done[0] += stop - start
+                    finished = done[0]
+                try:
+                    progress(finished, nbytes)
+                except Exception:
+                    pass
+
+        pool, _warm = _region_pools()
+        for _ in pool.map(_read, range(0, nbytes, _REGION_READ_CHUNK_BYTES)):
+            pass
+    finally:
+        os.close(fd)
+    return np.ndarray(view.shape, view.dtype, buffer=buf, offset=first, strides=view.strides)
+
+
+class _ScatteredRegionMixin:
+    """Serve scattered slices of mapped NIfTI files from regions held in RAM.
+
+    A region is one whole spatial volume of a file: all of a 3D file, or one
+    map of a 4D one. When a requested slice would be scattered across its
+    region, the region is read in one go (see ``read_mapped_region``) and kept;
+    every later slice of it, in any direction, is then served from memory.
+    Afterwards the case's other regions and the neighbouring case are read in
+    the background, so the next step — another map, the next patient — is
+    usually already there.
+    """
+
+    def _init_region_cache(self):
+        self._region_cache: OrderedDict = OrderedDict()
+        self._region_cache_bytes = 0
+        self._region_cache_max_bytes = int(
+            os.environ.get("ARRAYVIEW_NIFTI_REGION_CACHE_BYTES", 2 * 1024**3)
+        )
+        self._region_lock = threading.Lock()
+        self._region_jobs = {}
+        self._region_generation = 0
+        self._region_last_case = None
+        self._mapped_vols = {}
+
+    def _mapped_volume(self, p_idx, m_idx, vol):
+        """*vol* as a memmap-backed array, or None if it is not one."""
+        if isinstance(vol, np.ndarray):
+            return vol if _mapped_file_span(vol) is not None else None
+        key = (p_idx, m_idx)
+        with self._region_lock:
+            if key in self._mapped_vols:
+                return self._mapped_vols[key]
+        mapped = None
+        # An uncompressed, unscaled proxy maps without reading anything.
+        slope = getattr(vol, "slope", None)
+        inter = getattr(vol, "inter", None)
+        if (
+            getattr(vol, "is_proxy", False)
+            and slope == 1
+            and inter == 0
+            and str(getattr(vol, "file_like", "")).endswith(".nii")
+        ):
+            try:
+                arr = np.asanyarray(vol)
+                if _mapped_file_span(arr) is not None:
+                    mapped = arr
+            except Exception:
+                mapped = None
+        with self._region_lock:
+            self._mapped_vols[key] = mapped
+        return mapped
+
+    @staticmethod
+    def _region_split(mapped, spatial_key):
+        """Split *spatial_key* into the region's key and the key within it."""
+        n_sp = min(3, mapped.ndim)
+        rest = tuple(spatial_key[n_sp:])
+        if not all(isinstance(r, (int, np.integer)) for r in rest):
+            return None
+        return tuple(int(r) for r in rest), tuple(spatial_key[:n_sp])
+
+    def _region_view(self, mapped, rest):
+        n_sp = min(3, mapped.ndim)
+        return mapped[(slice(None),) * n_sp + rest]
+
+    def _cached_region(self, key):
+        with self._region_lock:
+            arr = self._region_cache.get(key)
+            if arr is not None:
+                self._region_cache.move_to_end(key)
+            return arr
+
+    def _load_region(self, key, view, progress=None):
+        with self._region_lock:
+            arr = self._region_cache.get(key)
+            if arr is not None:
+                self._region_cache.move_to_end(key)
+                return arr
+            fut = self._region_jobs.get(key)
+            owner = fut is None
+            if owner:
+                fut = Future()
+                self._region_jobs[key] = fut
+        if not owner:
+            return fut.result()
+        try:
+            arr = read_mapped_region(view, progress)
+        except BaseException as exc:
+            fut.set_exception(exc)
+            raise
+        finally:
+            with self._region_lock:
+                self._region_jobs.pop(key, None)
+        with self._region_lock:
+            self._region_cache[key] = arr
+            self._region_cache_bytes += arr.nbytes
+            while (
+                self._region_cache_bytes > self._region_cache_max_bytes
+                and len(self._region_cache) > 1
+            ):
+                _old, evicted = self._region_cache.popitem(last=False)
+                self._region_cache_bytes -= evicted.nbytes
+        fut.set_result(arr)
+        return arr
+
+    def _scattered_region_slice(self, p_idx, m_idx, vol, spatial_key, progress=None):
+        """``vol[spatial_key]`` from a region in RAM, or None to read it as usual."""
+        mapped = self._mapped_volume(p_idx, m_idx, vol)
+        if mapped is None:
+            return None
+        split = self._region_split(mapped, spatial_key)
+        if split is None:
+            return None
+        rest, inner = split
+        key = (p_idx, m_idx, rest)
+        region = self._cached_region(key)
+        if region is None:
+            try:
+                if not _mapped_slice_is_scattered(mapped[tuple(spatial_key)]):
+                    return None
+                view = self._region_view(mapped, rest)
+                if view.nbytes > self._region_cache_max_bytes // 2:
+                    return None
+                region = self._load_region(key, view, progress)
+            except Exception:
+                return None
+        self._schedule_region_warm(p_idx, m_idx, rest, spatial_key)
+        return region[inner]
+
+    def _schedule_region_warm(self, p_idx, m_idx, rest, spatial_key):
+        case = (p_idx, m_idx)
+        with self._region_lock:
+            last = self._region_last_case
+            if last == case:
+                return
+            self._region_last_case = case
+            self._region_generation += 1
+            generation = self._region_generation
+        n_p = len(self._file_matrix)
+        n_m = len(self._file_matrix[0]) if self._file_matrix else 0
+        # Neighbours along whichever stack axis was stepped: patients, or
+        # channels when separate files were stacked that way.
+        along_m = (n_p == 1 and n_m > 1) or (
+            last is not None and last[0] == p_idx and last[1] != m_idx
+        )
+        if along_m:
+            step = -1 if last is not None and last[1] > m_idx else 1
+            neighbours = [(p_idx, m_idx + step), (p_idx, m_idx - step)]
+        else:
+            step = -1 if last is not None and last[0] > p_idx else 1
+            neighbours = [(p_idx + step, m_idx), (p_idx - step, m_idx)]
+        # Which axes are on screen is all that carries over to another case;
+        # the indices along the others may not fit a differently-sized one.
+        probe = tuple(
+            slice(None) if isinstance(k, slice) else 0 for k in spatial_key[: min(3, len(spatial_key))]
+        )
+        plan = [(p_idx, m_idx)] + [
+            (p, m) for p, m in neighbours if 0 <= p < n_p and 0 <= m < n_m
+        ]
+        first_rest = rest
+
+        def _warm():
+            budget = self._region_cache_max_bytes // 2
+            for p, m in plan:
+                with self._region_lock:
+                    if generation != self._region_generation:
+                        return
+                try:
+                    if self._file_matrix[p][m] is None:
+                        continue
+                    mapped = self._mapped_volume(p, m, self._get_volume(p, m))
+                    if mapped is None or not _mapped_slice_is_scattered(mapped[probe + first_rest]):
+                        continue
+                    n_sp = min(3, mapped.ndim)
+                    rests = list(np.ndindex(*mapped.shape[n_sp:])) or [()]
+                    # The visible map first, then the case's others.
+                    rests.sort(key=lambda r: r != first_rest)
+                    for r in rests:
+                        with self._region_lock:
+                            if generation != self._region_generation:
+                                return
+                        view = self._region_view(mapped, tuple(int(i) for i in r))
+                        budget -= view.nbytes
+                        if budget < 0:
+                            return
+                        self._load_region((p, m, tuple(int(i) for i in r)), view)
+                except Exception:
+                    continue
+
+        _region_pools()[1].submit(_warm)
+
+
+# ---------------------------------------------------------------------------
 # File series — lazy 4D/5D view over a directory of same-shape volumes
 # ---------------------------------------------------------------------------
 
@@ -646,7 +950,7 @@ class _ProgressiveNiftiSeriesMixin:
             return None
 
 
-class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
+class _NiftiSeries(_ProgressiveNiftiSeriesMixin, _ScatteredRegionMixin):
     """Lazy 4D/5D view over a directory of same-shape NIfTI files.
 
     ``file_matrix`` is a P x M list-of-lists of filepaths (P patients,
@@ -682,6 +986,7 @@ class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
         self._cache_lock = threading.Lock()
         self._load_locks = {}
         self._init_progressive_loading()
+        self._init_region_cache()
 
     @property
     def dtype(self):
@@ -724,6 +1029,10 @@ class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
             return vol
 
     def __getitem__(self, key):
+        return self.read_slice(key)
+
+    def read_slice(self, key, progress=None):
+        """``self[key]``; *progress* follows any whole-region read it needs."""
         if not isinstance(key, tuple):
             key = (key,)
         has_special = any(k is None or k is Ellipsis for k in key)
@@ -765,6 +1074,11 @@ class _NiftiSeries(_ProgressiveNiftiSeriesMixin):
                         if plane is not None:
                             return plane
                 vol = self._get_volume(p_idx, m_idx)
+                region = self._scattered_region_slice(
+                    p_idx, m_idx, vol, spatial_key, progress
+                )
+                if region is not None:
+                    return region
                 return vol[spatial_key]
         return np.asarray(self)[key]
 
@@ -873,7 +1187,7 @@ class _FileSeries:
         return result
 
 
-class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
+class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin, _ScatteredRegionMixin):
     """Lazy collection view over same-rank, same-dtype files with varying shapes.
 
     The public ``shape`` is a max-spatial-shape facade so existing viewer
@@ -923,6 +1237,7 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
         self._cache_lock = threading.Lock()
         self._load_locks = {}
         self._init_progressive_loading()
+        self._init_region_cache()
 
     @property
     def dtype(self):
@@ -1000,6 +1315,10 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
             return vol
 
     def __getitem__(self, key):
+        return self.read_slice(key)
+
+    def read_slice(self, key, progress=None):
+        """``self[key]``; *progress* follows any whole-region read it needs."""
         if not isinstance(key, tuple):
             key = (key,)
         has_special = any(k is None or k is Ellipsis for k in key)
@@ -1040,7 +1359,14 @@ class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin):
                         plane = self._get_progressive_plane(p_idx, m_idx, z_index)
                         if plane is not None:
                             return plane
-                return self._get_volume(p_idx, m_idx)[tuple(spatial_key)]
+                vol = self._get_volume(p_idx, m_idx)
+                if self._all_nifti:
+                    region = self._scattered_region_slice(
+                        p_idx, m_idx, vol, tuple(spatial_key), progress
+                    )
+                    if region is not None:
+                        return region
+                return vol[tuple(spatial_key)]
         raise TypeError("Ragged collections require concrete collection indices.")
 
     def __array__(self, dtype=None):
@@ -1105,6 +1431,38 @@ def _collection_pattern_paths(pattern):
     if not paths:
         raise ValueError(f"No supported array files match pattern {pattern!r}.")
     return paths
+
+
+def _explicit_case_files(patterns):
+    """Plain file paths given as several patterns, or None.
+
+    An unquoted ``--match dir/*/maps.nii`` reaches us already expanded by the
+    shell: one literal path per case. Read as separate image patterns, that
+    became one case with a channel per file — every patient on the channel
+    axis, where patient navigation and prefetch never see them.
+    """
+    if len(patterns) < 2:
+        return None
+    if any(_GLOB_MAGIC.search(str(p)) or not os.path.isfile(p) for p in patterns):
+        return None
+    paths = [os.path.abspath(p) for p in patterns if _is_supported_collection_path(p)]
+    if len(paths) != len(patterns) or len(set(paths)) != len(paths):
+        return None
+    return sorted(paths)
+
+
+def _distinguishing_path_parts(paths):
+    """Name each path by the first path component in which the paths differ."""
+    split = [os.path.normpath(p).split(os.sep) for p in paths]
+    if len({len(parts) for parts in split}) == 1:
+        for i in range(len(split[0])):
+            names = [parts[i] for parts in split]
+            if len(set(names)) == len(names):
+                return [_strip_array_ext(n) if i == len(split[0]) - 1 else n for n in names]
+    return [_default_collection_case_key(p) for p in paths]
+
+
+_GLOB_MAGIC = re.compile(r"[*?[]")
 
 
 def _collection_pattern_map(pattern, case_regex):
@@ -1339,6 +1697,7 @@ def load_dir_collection(
     overlays = overlays or []
 
     inferred_case_depth = None
+    explicit_cases = None
     if case_regex:
         base_maps = [
             _collection_pattern_map(pattern, case_regex=case_regex)
@@ -1354,11 +1713,21 @@ def load_dir_collection(
             raise ValueError("; ".join(missing))
         base_matrix = [[by_case[case] for by_case in base_maps] for case in case_ids]
     else:
-        base_lists = [_collection_pattern_paths(pattern) for pattern in base_patterns]
-        inferred_maps, inferred_case_depth = _infer_collection_layout_maps(
-            base_lists, base_patterns
+        explicit_cases = _explicit_case_files(base_patterns)
+        base_lists = (
+            [explicit_cases]
+            if explicit_cases is not None
+            else [_collection_pattern_paths(pattern) for pattern in base_patterns]
         )
-        if inferred_maps is not None:
+        inferred_maps, inferred_case_depth = (
+            (None, None)
+            if explicit_cases is not None
+            else _infer_collection_layout_maps(base_lists, base_patterns)
+        )
+        if explicit_cases is not None:
+            case_ids = _distinguishing_path_parts(explicit_cases)
+            base_matrix = [[path] for path in explicit_cases]
+        elif inferred_maps is not None:
             case_ids = sorted(inferred_maps[0])
             base_matrix = [
                 [by_case[case] for by_case in inferred_maps] for case in case_ids
@@ -1490,7 +1859,11 @@ def load_dir_collection(
 
     summary = {
         "cases": case_ids,
-        "base_patterns": list(base_patterns),
+        "base_patterns": (
+            [f"{len(explicit_cases)} files, one per case"]
+            if not case_regex and explicit_cases is not None
+            else list(base_patterns)
+        ),
         "overlays": overlay_reports,
         "shape": tuple(int(s) for s in data.shape),
         "spatial_shape": tuple(int(s) for s in spatial_shape),

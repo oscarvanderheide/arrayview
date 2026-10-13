@@ -219,7 +219,12 @@ def extract_slice(session, dim_x, dim_y, idx_list, progress=None):
             )
         except Exception:
             pass
-    extracted = _extract_with_progress(data, slicer, progress)
+    if hasattr(data, "read_slice"):
+        # NIfTI collections read scattered slices as whole regions and report
+        # that read themselves; blocking it here would hide the wait.
+        extracted = np.array(data.read_slice(tuple(slicer), progress))
+    else:
+        extracted = _extract_with_progress(data, slicer, progress)
     if dim_x < dim_y:
         extracted = extracted.T
     # scipy.io.loadmat returns complex arrays as structured dtypes; convert here.
