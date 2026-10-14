@@ -10295,6 +10295,7 @@
                         });
                     },
                     fetchHistogram: () => _fetchHistogramCompare(),
+                    getHistogramVersion: () => _compareHistogramVersion(),
                     onWindowChange: () => { compareRender(); },
                 }));
             }
@@ -14049,7 +14050,7 @@
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } } },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
-            getHistogramVersion: () => compareActive ? null : _volumeHistCacheKey(_volHistSpatialOpts()),
+            getHistogramVersion: () => compareActive ? _compareHistogramVersion() : _volumeHistCacheKey(_volHistSpatialOpts()),
             onAnimFrame: (cb) => {
                 // Layout recalculation during expand/collapse animation
                 if (multiViewActive || compareMvActive) {
@@ -14843,6 +14844,18 @@
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
+        /**
+         * Identity of the slice histogram `_fetchHistogramCompare` builds.
+         * Without it the colorbars kept the first histogram for good, so after
+         * moving to another map `d` cut presets from the old map's values.
+         */
+        function _compareHistogramVersion() {
+            return [
+                getCompareRenderSids().join('/'), indices.join(','),
+                dim_x, dim_y, complexMode,
+            ].join('|');
+        }
+
         async function _fetchHistogramCompare() {
             if (_histFetching) return;
             _histFetching = true;
