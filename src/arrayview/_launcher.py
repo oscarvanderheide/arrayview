@@ -3543,7 +3543,7 @@ def view(
     """
     Launch the viewer. Does not block the main Python process.
 
-    Accepts one to four arrays::
+    Accepts one to six arrays (the same limit as the command line)::
 
         handle = arrayview.view(a)
         ha, hb = arrayview.view(a, b)
@@ -3617,8 +3617,8 @@ def view(
     n_arrays = len(arrays)
     if n_arrays == 0:
         raise ValueError("view() requires at least one array.")
-    if n_arrays > 4:
-        raise ValueError(f"view() accepts at most 4 arrays, got {n_arrays}.")
+    if n_arrays > 6:
+        raise ValueError(f"view() accepts at most 6 arrays, got {n_arrays}.")
 
     # --- Normalise per-array kwargs (name, rgb) ---
     if isinstance(name, list):
