@@ -4883,6 +4883,22 @@
         body.qmri-gapless #qmri-view-wrap > .qv-row:not(.qmri-mosaic-row) { gap: 0 !important; }
         body.qmri-gapless #qmri-view-wrap .qv-pane { gap: 0; }
         body.qmri-gapless #qmri-view-wrap .qv-canvas-clip { border-radius: 0 !important; }
+        /* Compare panes touching (Preferences): no gaps, rows packed together;
+           with more than one row the names sit inside the images like the
+           qMRI map labels, so the rows can touch too. A centre view (A−B,
+           overlay, wipe…) keeps its gaps. */
+        #compare-view-wrap.compare-touching #compare-panes { gap: 0 !important; align-content: center; }
+        #compare-view-wrap.compare-touching .compare-canvas-area { padding: 0; }
+        #compare-view-wrap.compare-touching .compare-canvas-clip { border-radius: 0 !important; }
+        #compare-view-wrap.compare-titles-inset .compare-pane { position: relative; }
+        #compare-view-wrap.compare-titles-inset .compare-title {
+            position: absolute; top: 8px; left: 10px; z-index: 3;
+            margin: 0; max-width: calc(100% - 20px); justify-content: flex-start;
+            color: rgba(255,255,255,0.92);
+            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
+            paint-order: stroke fill;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+        }
         #qmri-view-wrap .qv-cb-island.qv-cb-inset {
             opacity: 1 !important; position: absolute !important; bottom: 8px !important;
             left: 50% !important; transform: translateX(-50%) !important;
@@ -5984,6 +6000,7 @@
         const DEFAULT_THEME_IDX = __DEFAULT_THEME_IDX__;
         const DEFAULT_ROUNDED_PANES = __DEFAULT_ROUNDED_PANES__;
         const DEFAULT_QMRI_GAPLESS = __DEFAULT_QMRI_GAPLESS__;
+        const DEFAULT_COMPARE_GAPLESS = __DEFAULT_COMPARE_GAPLESS__;
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
         // The array's description, written into the page by the server when it
@@ -7513,6 +7530,7 @@
         let canvasBorders = true; // toggled by 'b' key
         let roundedPanes = DEFAULT_ROUNDED_PANES; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
         let qmriGapless = DEFAULT_QMRI_GAPLESS; // Preferences → qMRI maps touching (viewer.qmri_gapless)
+        let compareGapless = DEFAULT_COMPARE_GAPLESS; // Preferences → compare panes touching (viewer.compare_gapless)
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -9558,6 +9576,23 @@
 
         /* ── JS: Compare Mode ─────────────────────────────────────── */
 
+        // Columns and rows the compare panes are sized for. The centre pane
+        // (diff, overlay, wipe…) only appears with two arrays and adds a column.
+        function _compareGridShape(paneCount) {
+            const resolvedCompareLayout = _resolvedCompareLayoutMode();
+            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+            const bigLeft = _isCompareBigLeftLayout() && hasCenterPane && paneCount === 2;
+            const baseCols = bigLeft ? 2
+                : resolvedCompareLayout === 'horizontal' ? paneCount
+                : resolvedCompareLayout === 'vertical'   ? 1
+                : resolvedCompareLayout === 'grid'       ? 2
+                : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+            const cols = bigLeft ? 2 : (hasCenterPane && paneCount === 2) ? 3 : baseCols;
+            const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
+            const rows = bigLeft ? 2 : Math.max(1, Math.ceil(visiblePaneCount / cols));
+            return { hasCenterPane, bigLeft, cols, rows };
+        }
+
         function compareScaleCanvases() {
             function _ensureClipWrapper(inner, vpW, vpH) {
                 let clip = inner.parentElement;
@@ -9577,10 +9612,11 @@
             }
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
-            const resolvedCompareLayout = _resolvedCompareLayoutMode();
+            _reconcileCompareTitlesInset();
             const bigLeftTitleReserve = _isCompareBigLeftLayout() ? 0 : 28 * (1 - _crossfadeCollapseP);
-            const titleReserve = _fullscreenActive ? 0 : bigLeftTitleReserve;
-            const panePadX = _fullscreenActive ? 0 : 16 * (1 - _crossfadeCollapseP);
+            const titleReserve = (_fullscreenActive || _compareTitlesInset()) ? 0 : bigLeftTitleReserve;
+            // Touching panes drop the canvas-area padding (see .compare-touching CSS).
+            const panePadX = (_fullscreenActive || _compareTouching()) ? 0 : 16 * (1 - _crossfadeCollapseP);
             // .compare-canvas-area vertical padding; reserve colorbar height whenever any
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
@@ -9589,7 +9625,7 @@
                 ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP)
                 : 0;
             const cbExtra = compareCenterCbReserve;
-            const panePadY = (_fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP)) + cbExtra;
+            const panePadY = ((_fullscreenActive || _compareTouching()) ? 0 : 12 * (1 - _crossfadeCollapseP)) + cbExtra;
             const fitSlack = 0.96 + 0.04 * (_fullscreenActive ? 1 : _crossfadeCollapseP);
             // Layout-only sizes in on-screen proportions (thick voxels draw taller).
             const _cmpAspect = _pixelAspect(dim_x, dim_y);
@@ -9597,19 +9633,12 @@
                 .map(f => _cmpAspect === 1 ? f : { ...f, height: f.height * _cmpAspect });
             const paneCount = activeFrames.length;
             if (!paneCount) return;
-            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-            const bigLeftCompare = _isCompareBigLeftLayout() && hasCenterPane && paneCount === 2;
-            const baseCols = bigLeftCompare ? 2
-                : resolvedCompareLayout === 'horizontal' ? paneCount
-                : resolvedCompareLayout === 'vertical'   ? 1
-                : resolvedCompareLayout === 'grid'       ? 2
-                : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-            const cols = bigLeftCompare ? 2 : (hasCenterPane && paneCount === 2) ? 3 : baseCols;
-            const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
-            const rows = bigLeftCompare ? 2 : Math.max(1, Math.ceil(visiblePaneCount / cols));
+            const { hasCenterPane, bigLeft: bigLeftCompare, cols, rows } = _compareGridShape(paneCount);
             const cs = getComputedStyle(panesEl);
-            const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
-            const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
+            // A gap of 0 (touching panes) is a real value, not a missing one.
+            const _gapPx = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 18; };
+            const colGap = _gapPx(cs.columnGap || cs.gap);
+            const rowGap = _gapPx(cs.rowGap || cs.gap);
             // Use the full compare area; overflow is handled by per-pane clipping
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
@@ -9882,6 +9911,15 @@
                     panesEl.style.flexWrap = 'nowrap';
                 } else {
                     panesEl.style.flexWrap = '';
+                }
+                // Without gaps a row has room for one pane more than planned;
+                // hold the planned column count so the rows tile into a block.
+                if (_compareTouching() && rows > 1) {
+                    const widest = Math.max(0, ...comparePaneEls.slice(0, paneCount)
+                        .map(p => (p && parseFloat(p.style.width)) || 0));
+                    panesEl.style.maxWidth = Math.round(widest * cols + (cols - 1) * colGap) + 'px';
+                    panesEl.style.marginLeft = 'auto';
+                    panesEl.style.marginRight = 'auto';
                 }
             }
             // Pan overflow recenter + clamp/apply are handled inside
@@ -24616,6 +24654,7 @@
             'viewer.theme': ['Theme', 'Applies immediately and to future viewers.'],
             'viewer.rounded_panes': ['Rounded panes', 'Applies immediately across viewer modes.'],
             'viewer.qmri_gapless': ['qMRI maps touching', 'No space between qMRI maps, so they can be larger. With two rows, colour bars move inside the maps.'],
+            'viewer.compare_gapless': ['Compare panes touching', 'No space between arrays shown side by side, so they can be larger. With two rows, array names move inside the images.'],
             'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
@@ -24676,6 +24715,10 @@
                 qmriGapless = !!value;
                 _reconcileLayout();
                 if (qmriActive) qvScaleAllCanvases();
+            } else if (key === 'compare_gapless') {
+                compareGapless = !!value;
+                _reconcileLayout();
+                if (compareActive) compareScaleCanvases();
             } else if (key === 'ortho_layout' && _getOrthoPreset(value)) {
                 orthoLayoutMode = value;
                 _orthoAutoLayoutMode = null;
@@ -29929,23 +29972,6 @@
                     return;
                 },
             },
-            'compare.toggleDiffMode': {
-                // Split view runs on the compare machinery, so compareActive is
-                // true there too and this binding would shadow the earlier
-                // Shift+D → dimbar.toggleExtents. Compare centre is X's job.
-                when: ['compareActive', '!detachedDimMode'],
-                run: (ctx, e) => {
-                    if (!_compareCenterSupported()) return;
-                    if (compareCenterMode > 0) {
-                        _setCompareCenterMode(0);
-                        return;
-                    }
-                    const rememberedDiffMode = (_lastCompareCenterMode >= 1 && _lastCompareCenterMode <= 3)
-                        ? _lastCompareCenterMode
-                        : 1;
-                    _setCompareCenterMode(rememberedDiffMode);
-                },
-            },
             'compare.toggleDetachedSplit': {
                 when: [],
                 run: async (ctx, e) => {
@@ -30056,7 +30082,6 @@
             // Use the physical key so Shift+4 works on every keyboard layout.
             { code: 'Digit4', shift: true, command: 'autocrop.toggle' },
             { key: 'S', shift: true, command: 'compare.toggleDetachedSplit' },
-            { key: 'D', shift: true, command: 'compare.toggleDiffMode' },
             { key: 'X', shift: true, command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
@@ -42694,6 +42719,7 @@
             // 6. Rounded panes — single body-level class drives CSS across all modes
             document.body.classList.toggle('rounded-panes', roundedPanes);
             document.body.classList.toggle('qmri-gapless', qmriGapless);
+            _reconcileCompareTitlesInset();
 
             // 7. qMRI options hint — lives with the bottom-right help/tool hints
             const qmriHint = document.getElementById('qmri-hint');
@@ -42777,8 +42803,28 @@
             if (panesEl) {
                 panesEl.style.flexWrap = (compareActive && isCenter && compareDisplaySids.length === 2) ? 'nowrap' : '';
             }
+            _reconcileCompareTitlesInset();
             _reconcileCompareCenterModeBadge();
             _syncCompareParamControl();
+        }
+
+        // Compare panes touch only while the arrays are shown on their own;
+        // a centre view (A−B, overlay, wipe…) keeps the gaps around it.
+        function _compareTouching() {
+            return compareActive && compareGapless
+                && !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
+        }
+
+        // Touching compare panes in more than one row leave no room for the
+        // array names between the rows, so the names sit inside the images.
+        function _compareTitlesInset() {
+            if (!_compareTouching() || _fullscreenActive) return false;
+            return _compareGridShape(compareFrames.filter(Boolean).length).rows > 1;
+        }
+
+        function _reconcileCompareTitlesInset() {
+            compareWrap.classList.toggle('compare-touching', _compareTouching());
+            compareWrap.classList.toggle('compare-titles-inset', _compareTitlesInset());
         }
 
         // ── Centralized CB / island visibility reconciler ────────────

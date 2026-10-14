@@ -613,6 +613,42 @@ class TestKeyboard:
         )
 
 
+    def test_compare_panes_touching_tiles_four_arrays_into_a_block(
+        self, page, server_url, sid_2d, arr_2d, client, tmp_path
+    ):
+        compare_sids = []
+        for i in range(3):
+            path = tmp_path / f"arr2d_touch_{i}.npy"
+            np.save(path, arr_2d * (0.3 + 0.2 * i))
+            compare_sids.append(client.post(
+                "/load", json={"filepath": str(path), "name": f"arr2d_touch_{i}"}
+            ).json()["sid"])
+
+        page.goto(
+            f"{server_url}/?sid={sid_2d}&compare_sid={compare_sids[0]}&compare_sids={','.join(compare_sids)}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => _applyViewerPreference('compare_gapless', true)")
+        page.wait_for_timeout(300)
+
+        rects = page.evaluate(
+            """() => [...document.querySelectorAll('#compare-panes .compare-pane.active .compare-canvas-clip')]
+                .map(e => { const r = e.getBoundingClientRect();
+                            return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; })"""
+        )
+        assert len(rects) == 4
+        (l0, t0, r0, b0), (l1, t1, r1, b1), (l2, t2, r2, b2), _ = rects
+        # 2×2 block: side by side and stacked panes share an edge.
+        assert t0 == t1 and r0 == l1, f"top row panes do not touch: {rects}"
+        assert l2 == l0 and t2 == b0, f"rows do not touch: {rects}"
+        # With two rows the array names sit inside the images.
+        title_top = page.evaluate(
+            "() => document.getElementById('compare-left-title').getBoundingClientRect().top"
+        )
+        assert t0 <= title_top < b0
+
+
     def test_d_opens_without_selector_then_cycles_a_stable_percentile_overlay(
         self, loaded_viewer, sid_2d
     ):
