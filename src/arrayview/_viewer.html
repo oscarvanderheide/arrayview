@@ -36234,7 +36234,12 @@
         // when there is none.
         let _lastQmriDim = -1;
         function _pickQmriDim(prefer = -1) {
-            const ok = i => Number.isInteger(i) && i >= 0 && i < shape.length && !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]);
+            // A --match collection's channel dim (one entry per image
+            // pattern, e.g. T1/T2/PD) can hold the maps; its case dim cannot.
+            const channelDim = collectionSpatialNdim >= 0 && !Array.isArray(raggedSpatialShapes)
+                ? collectionSpatialNdim + 1 : -1;
+            const ok = i => Number.isInteger(i) && i >= 0 && i < shape.length
+                && (!_isCollectionDim(i) || i === channelDim) && [3, 4, 5, 6].includes(shape[i]);
             if (ok(prefer)) return prefer;
             const candidates = shape.map((_, i) => i).filter(ok);
             if (candidates.length === 1) return candidates[0];

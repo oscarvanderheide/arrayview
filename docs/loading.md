@@ -209,15 +209,15 @@ never takes over the startup plane.
 
 ## Directory Pattern Collections
 
-Use `--stack` when you need explicit patterns — several channels per case, named
+Use `--match` when you need explicit patterns — several channels per case, named
 overlays, or a case id regex. For a plain folder it is equivalent to passing the
 folder directly.
 
 ```bash
-uvx arrayview --stack scans/
-uvx arrayview --stack scans/ --load eager
-uvx arrayview --stack scans/ --stack-policy dense
-uvx arrayview --stack scans/ --stack-policy ragged
+uvx arrayview --match scans/
+uvx arrayview --match scans/ --load eager
+uvx arrayview --match scans/ --stack-policy dense
+uvx arrayview --match scans/ --stack-policy ragged
 ```
 
 Directory loading is lazy by default. Same-shaped files form a dense virtual
@@ -226,7 +226,7 @@ dense` requires matching shapes, while `--stack-policy ragged` forces collection
 semantics. `--load eager` is intended for small datasets that should be loaded
 up front. In the dimbar, `·` separates ordinary array dimensions while `│`
 marks the boundary before collection dimensions created by a folder or
-`--stack`.
+`--match`.
 
 Pattern collections, named overlays, multiple overlays, and `--overlay-dir`:
 [Stack and Overlay Collections](stack-overlays.md).
@@ -247,10 +247,10 @@ Discovers `.nii`/`.nii.gz` recursively, groups by immediate parent folder
 One file per patient → 4D `(*vol, P)`. The viewer opens with X/Y on screen,
 Z as primary scroll, patient index as a slider.
 
-For multiple files per patient, use explicit `--stack` patterns:
+For multiple files per patient, use explicit `--match` patterns:
 
 ```bash
-uvx arrayview --stack \
+uvx arrayview --match \
   "patients/*/*t1*.nii.gz" \
   "patients/*/*t2*.nii.gz" \
   "patients/*/*flair*.nii.gz"
@@ -270,7 +270,7 @@ A slice path discovers sibling images from the same series. A directory with
 multiple series requires `--series INDEX`; SeriesNumber and exact
 SeriesInstanceUID selectors are also accepted.
 
-Pass the DICOM folder on its own — do **not** add `--stack`. `--stack` globs
+Pass the DICOM folder on its own — do **not** add `--match`. `--match` globs
 every matching file into its own case, so a DICOM folder becomes N duplicate
 copies of the same series, one per slice. Plain `arrayview <folder>` and the
 VS Code **Open Folder in ArrayView** entry detect DICOM and load one series.

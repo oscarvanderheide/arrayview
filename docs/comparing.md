@@ -47,11 +47,11 @@ uvx arrayview volume.nii.gz --overlay mask.nii.gz
 
 Binary mask (0/1), same spatial shape. `[`/`]` adjusts blend opacity. Multiple overlays get automatic palette colors. Hover an overlay HUD row to focus that mask while dimming the others. Use the overlay HUD or `/ o` to switch between filled masks and outline-only contours.
 
-For cohort review, use `--stack` so image and overlay patterns are paired into
+For cohort review, use `--match` so image and overlay patterns are paired into
 aligned stacks:
 
 ```bash
-uvx arrayview --stack "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz"
+uvx arrayview --match "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii.gz"
 ```
 
 ## Vector field

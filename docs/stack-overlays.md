@@ -5,26 +5,26 @@ Review many arrays with aligned image and mask patterns.
 ## Patient Stack
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz"
+uvx arrayview --match "data/*/T1w.nii.gz"
 ```
 
 `*` matches one path segment. `**` matches recursively:
 
 ```bash
-uvx arrayview --stack "data/**/*.nii.gz"
+uvx arrayview --match "data/**/*.nii.gz"
 ```
 
 ArrayView sorts matches and adds a collection index dimension. Use `--dry-run`
 to inspect pairings without opening the viewer:
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" --dry-run
+uvx arrayview --match "data/*/T1w.nii.gz" --dry-run
 ```
 
 ## MR Contrasts
 
 ```bash
-uvx arrayview --stack \
+uvx arrayview --match \
   "data/*/T1w.nii.gz" \
   "data/*/T2w.nii.gz" \
   "data/*/FLAIR.nii.gz"
@@ -34,17 +34,20 @@ Each positional pattern becomes a contrast dimension. The first `T1w`, first
 `T2w`, and first `FLAIR` belong to patient 1; the second match from each pattern
 belongs to patient 2.
 
+Three to six patterns holding parameter maps (for example T1, T2 and PD) can be
+shown as qMRI maps side by side: press `q`, or open with `--mode qmri`.
+
 For ambiguous layouts, define the patient key:
 
 ```bash
-uvx arrayview --stack "data/**/*.nii.gz" \
+uvx arrayview --match "data/**/*.nii.gz" \
   --case-regex "(?P<case>sub-[0-9]+)"
 ```
 
 ## Ragged Shapes
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" --stack-policy ragged
+uvx arrayview --match "data/*/T1w.nii.gz" --stack-policy ragged
 ```
 
 `--stack-policy auto` uses a dense stack when shapes match and ragged mode when
@@ -53,7 +56,7 @@ they do not. `--stack-policy dense` requires matching shapes.
 ## One Overlay
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" \
+uvx arrayview --match "data/*/T1w.nii.gz" \
   --overlay "lesion=data/*/masks/lesion.nii.gz"
 ```
 
@@ -63,7 +66,7 @@ stem is used.
 ## Multiple Overlays
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" \
+uvx arrayview --match "data/*/T1w.nii.gz" \
   --overlay "gt=data/*/masks/gt.nii.gz" \
   --overlay "pred=data/*/masks/pred.nii.gz"
 ```
@@ -74,7 +77,7 @@ provided.
 ## Overlay Directories
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" \
+uvx arrayview --match "data/*/T1w.nii.gz" \
   --overlay-dir "data/*/masks"
 ```
 
@@ -84,7 +87,7 @@ directory. Missing masks are shown as empty overlays.
 Repeat it to combine mask folders:
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" \
+uvx arrayview --match "data/*/T1w.nii.gz" \
   --overlay-dir "data/*/manual_masks" \
   --overlay-dir "data/*/model_masks"
 ```
@@ -105,7 +108,7 @@ data/
 ```
 
 ```bash
-uvx arrayview --stack \
+uvx arrayview --match \
   "data/*/anat/T1w.nii.gz" \
   "data/*/anat/T2w.nii.gz" \
   --overlay-dir "data/*/masks" \
@@ -125,5 +128,5 @@ For repeated review, prefer uncompressed `.nii`, chunked `.zarr`, or a local
 fast disk cache. Use `--load eager` only for small collections that fit in RAM:
 
 ```bash
-uvx arrayview --stack "data/*/T1w.nii.gz" --load eager
+uvx arrayview --match "data/*/T1w.nii.gz" --load eager
 ```
