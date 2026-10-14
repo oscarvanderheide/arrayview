@@ -65,7 +65,7 @@ def test_compute_diff_modes_and_histogram():
         dr=1, complex_mode=0, log_scale=False, diff_mode=1,
     )
     assert raw.shape == (8, 8)
-    assert colormap == "RdBu_r"
+    assert colormap == "icefire"
     assert nan_mask is None
     assert vmin == -vmax
     assert vmax > 0
@@ -85,6 +85,28 @@ def test_compute_diff_modes_and_histogram():
     assert vmin_abs == 0.0
     assert vmax_abs > 0
     assert colormap_abs == "afmhot"
+
+
+def test_compute_diff_is_true_a_minus_b():
+    # Brightness varies by slice and B is A scaled by 0.9: the diff must be the
+    # real 0.1·A, not something that rescaling each side per slice cancels out.
+    rng = np.random.default_rng(0)
+    data = rng.random((4, 16, 16)).astype(np.float32) * np.arange(1, 5)[:, None, None]
+    data[:, :4] = 0
+    a, b = Session(data), Session(data * 0.9)
+    for z in range(4):
+        raw, vmin, vmax, _, _ = _compute_diff(
+            a, b, dim_x=2, dim_y=1, indices=f"{z},0,0", dim_z=-1,
+            dr=0, complex_mode=0, log_scale=False, diff_mode=1,
+        )
+        np.testing.assert_allclose(raw, data[z] - data[z] * 0.9, atol=1e-6)
+        assert np.all(raw[:4] == 0)
+    raw, _, _, _, nan_mask = _compute_diff(
+        a, b, dim_x=2, dim_y=1, indices="0,0,0", dim_z=0,
+        dr=0, complex_mode=0, log_scale=False, diff_mode=1,
+    )
+    assert nan_mask is not None and nan_mask.shape == raw.shape
+    np.testing.assert_allclose(np.nanmax(raw), (data * 0.1).max(), rtol=1e-5)
 
 
 def test_composite_overlays_uses_shared_session_lookup():

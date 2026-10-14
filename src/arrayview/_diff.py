@@ -85,6 +85,43 @@ def _resize_normalized_like(source: np.ndarray, target: np.ndarray) -> np.ndarra
     return np.array(image, dtype=np.float32) / 255.0
 
 
+def _render_values(session, dim_x, dim_y, idx_tuple, complex_mode, log_scale):
+    """Extract a slice in the array's own units (complex/log applied, no rescale)."""
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    if log_scale:
+        data = np.log1p(np.abs(data))
+    return np.asarray(data, dtype=np.float32)
+
+
+def _render_values_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, complex_mode, log_scale):
+    """Mosaic of every dim_z slice in the array's own units, plus separator mask."""
+    idx_list = list(idx_tuple)
+    frames = [
+        _render_values(
+            session,
+            dim_x,
+            dim_y,
+            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
+            complex_mode,
+            log_scale,
+        )
+        for i in range(session.shape[dim_z])
+    ]
+    all_data = np.stack(frames)
+    grid, _, _ = _build_mosaic_grid(all_data, len(frames))
+    return grid.astype(np.float32), np.isnan(grid)
+
+
+def _resize_values_like(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Resize float source data to target shape without quantising it."""
+    if source.shape == target.shape:
+        return source
+    image = _pil_image().fromarray(np.nan_to_num(source).astype(np.float32), mode="F")
+    image = image.resize((target.shape[1], target.shape[0]), _pil_image().BILINEAR)
+    return np.array(image, dtype=np.float32)
+
+
 def _compute_diff(
     session_a,
     session_b,
@@ -114,49 +151,25 @@ def _compute_diff(
     idx_b = _parse_indices(indices_b)[:ndim_b] if indices_b is not None else idx_tuple[:ndim_b]
     nan_mask = None
 
+    # True A−B in the arrays' own units. Each side used to be rescaled to its
+    # own per-slice display range first, which cancelled real differences
+    # (B = 0.9·A showed as zero) and made the map flicker while scrolling.
     if dim_z >= 0:
-        a, nan_mask_a = _render_normalized_mosaic(
-            session_a,
-            dim_x,
-            dim_y,
-            dim_z,
-            idx_a,
-            dr,
-            complex_mode,
-            log_scale,
+        a, nan_mask_a = _render_values_mosaic(
+            session_a, dim_x, dim_y, dim_z, idx_a, complex_mode, log_scale
         )
-        b, nan_mask_b = _render_normalized_mosaic(
-            session_b,
-            dim_x,
-            dim_y,
-            dim_z,
-            idx_b,
-            dr,
-            complex_mode,
-            log_scale,
+        b, nan_mask_b = _render_values_mosaic(
+            session_b, dim_x, dim_y, dim_z, idx_b, complex_mode, log_scale
         )
-        nan_mask = nan_mask_a | nan_mask_b
+        b = _resize_values_like(b, a)
+        if nan_mask_b.shape == nan_mask_a.shape:
+            nan_mask = nan_mask_a | nan_mask_b
+        else:
+            nan_mask = nan_mask_a
     else:
-        a = _render_normalized(
-            session_a,
-            dim_x,
-            dim_y,
-            idx_a,
-            dr,
-            complex_mode,
-            log_scale,
-        )
-        b = _render_normalized(
-            session_b,
-            dim_x,
-            dim_y,
-            idx_b,
-            dr,
-            complex_mode,
-            log_scale,
-        )
-
-    b = _resize_normalized_like(b, a)
+        a = _render_values(session_a, dim_x, dim_y, idx_a, complex_mode, log_scale)
+        b = _render_values(session_b, dim_x, dim_y, idx_b, complex_mode, log_scale)
+        b = _resize_values_like(b, a)
     if diff_mode == 1:
         raw = a - b
         lo = float(np.nanpercentile(raw, 1))
@@ -166,13 +179,13 @@ def _compute_diff(
         colormap = "icefire"
     elif diff_mode == 2:
         raw = np.abs(a - b)
-        vmax = float(raw.max()) or 1.0
+        vmax = float(np.nanmax(raw)) or 1.0
         vmin = 0.0
         colormap = "afmhot"
     else:
         raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
         raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
-        vmax = float(raw.max()) or 1.0
+        vmax = float(np.nanmax(raw)) or 1.0
         vmin = 0.0
         colormap = "afmhot"
 
@@ -188,7 +201,7 @@ def _render_diff_rgba(
 ) -> np.ndarray:
     """Map raw diff data to RGBA."""
     if vmax > vmin:
-        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
+        normalized = np.clip(np.nan_to_num((raw - vmin) / (vmax - vmin)), 0, 1)
     else:
         normalized = np.zeros_like(raw)
     _ensure_lut(colormap)
@@ -201,9 +214,12 @@ def _render_diff_rgba(
 
 def _diff_histogram(raw: np.ndarray, bins: int) -> dict[str, object]:
     """Return histogram payload for raw diff data."""
+    raw = raw[np.isfinite(raw)]
+    if raw.size == 0:
+        raw = np.zeros(1, dtype=np.float32)
     vmin = float(raw.min())
     vmax = float(raw.max())
-    counts, edges = np.histogram(raw.ravel(), bins=bins)
+    counts, edges = np.histogram(raw, bins=bins)
     return {
         "counts": counts.tolist(),
         "edges": edges.tolist(),
