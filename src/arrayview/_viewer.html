@@ -7535,7 +7535,7 @@
         let _diffAutoRangeKey = null;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
-        const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
+        const DIFF_COLORMAPS = ['icefire', 'RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
         let compareFrames = [];
@@ -10405,7 +10405,7 @@
                     hoverValueInEggs: true,
                     hoverValueAnchor: () => modeManager.getViewById('compare-diff-center')?.canvas
                         || document.getElementById('compare-diff-pane'),
-                    getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                    getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'icefire' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
                     getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
                     setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } } },

@@ -34,6 +34,43 @@ _mpl_colormaps = None
 _luts_lock = threading.Lock()
 
 
+_ICEFIRE_STOPS = [
+    (0.7394, 0.9044, 0.8576),
+    (0.6645, 0.8497, 0.8387),
+    (0.5749, 0.7908, 0.8202),
+    (0.4818, 0.734, 0.8084),
+    (0.3863, 0.6778, 0.8043),
+    (0.3052, 0.6184, 0.8053),
+    (0.2418, 0.5555, 0.8106),
+    (0.2141, 0.4873, 0.8157),
+    (0.2487, 0.4134, 0.7887),
+    (0.2831, 0.3444, 0.715),
+    (0.2846, 0.2908, 0.6028),
+    (0.2577, 0.2497, 0.4821),
+    (0.2205, 0.2121, 0.3737),
+    (0.182, 0.1769, 0.2809),
+    (0.1492, 0.1465, 0.2053),
+    (0.1276, 0.1254, 0.1501),
+    (0.1213, 0.1183, 0.1188),
+    (0.1538, 0.1167, 0.1227),
+    (0.2063, 0.1255, 0.1416),
+    (0.2734, 0.1407, 0.1703),
+    (0.3514, 0.157, 0.2039),
+    (0.4375, 0.1703, 0.2357),
+    (0.5298, 0.1784, 0.2601),
+    (0.6251, 0.1832, 0.2686),
+    (0.7138, 0.2028, 0.2533),
+    (0.7898, 0.2469, 0.2268),
+    (0.85, 0.3142, 0.2058),
+    (0.8971, 0.3932, 0.2012),
+    (0.9279, 0.482, 0.2415),
+    (0.9479, 0.5722, 0.3318),
+    (0.9659, 0.659, 0.4438),
+    (0.9829, 0.7447, 0.5597),
+    (0.9992, 0.831, 0.6764),
+]
+
+
 def _init_luts():
     """Build colourmap LUTs on first use (defers matplotlib + qmricolors import)."""
     global _mpl_colormaps
@@ -46,6 +83,12 @@ def _init_luts():
         from matplotlib import colormaps
         from matplotlib.colors import LinearSegmentedColormap
 
+        if "icefire" not in colormaps:
+            # seaborn's icefire (blue → near-black → red), sampled at 33 stops so
+            # we don't depend on seaborn. Default for the A−B compare center.
+            colormaps.register(
+                LinearSegmentedColormap.from_list("icefire", _ICEFIRE_STOPS)
+            )
         _mpl_colormaps = colormaps
         for name in COLORMAPS:
             lut = np.concatenate(

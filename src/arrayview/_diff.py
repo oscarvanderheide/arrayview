@@ -163,7 +163,7 @@ def _compute_diff(
         hi = float(np.nanpercentile(raw, 99))
         vmax = max(abs(lo), abs(hi)) or 1.0
         vmin = -vmax
-        colormap = "RdBu_r"
+        colormap = "icefire"
     elif diff_mode == 2:
         raw = np.abs(a - b)
         vmax = float(raw.max()) or 1.0
