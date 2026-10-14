@@ -210,6 +210,12 @@ def _read_slice(session, dim_x, dim_y, idx_list, progress):
     if progress is None:
         progress = getattr(session, 'progress_sink', None)
     data = session.data
+    if not getattr(session, "_ram_upgrade_started", False):
+        # Not every loading route asks for this (compare arrays, for one), and
+        # without it a scattered plane is re-read from the file on every step.
+        from ._session import upgrade_memmap_in_background
+
+        upgrade_memmap_in_background(session)
     if isinstance(data, np.memmap) and data.filename:
         # A slice scattered one element per page reads far faster as many
         # parallel small reads than by faulting through the map (local disks).

@@ -870,6 +870,9 @@ def upgrade_memmap_in_background(session) -> bool:
     identical, so a render already holding the lazy array stays correct and the
     slice caches stay valid.
     """
+    if getattr(session, "_ram_upgrade_started", False):
+        return False
+    session._ram_upgrade_started = True
     data = getattr(session, "data", None)
     filepath = getattr(session, "filepath", None)
     if data is None or not filepath:
