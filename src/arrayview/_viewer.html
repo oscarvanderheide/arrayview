@@ -8659,13 +8659,8 @@
         // The ColorBar class (interactive: true) now handles wheel zoom, pan drag,
         // and dblclick expand/collapse. onWindowChange callback handles updateView.
 
-        // Shift+P keeps the hovered point only while the mouse is really on
-        // the page; a stale position from before it left must not count.
-        let _mouseOutsidePage = true;
-        document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) _mouseOutsidePage = true; });
         window.addEventListener('mousemove', (e) => {
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
-            _mouseOutsidePage = false;
             _syncLoupeModifierState(e);
             _maybeActivateMainLoupe(e);
             _updateMainLoupe(e);
@@ -8823,19 +8818,36 @@
             return ranked.slice(0, 3).sort((a, b) => a - b);
         }
 
+        /** Anatomical axes of a NIfTI's three spatial dims, from its stored
+         *  orientation (any order, e.g. RAS or IAL): {R, A, S} each
+         *  {dim, positive}, where positive means the index grows toward R / A / S.
+         *  null when the orientation is unknown or the dims are not 0, 1, 2. */
+        function _labelAnatomy(dims) {
+            const labels = spatialMeta && spatialMeta.axis_labels;
+            if (!Array.isArray(labels) || labels.length < 3) return null;
+            if (!(dims[0] === 0 && dims[1] === 1 && dims[2] === 2)) return null;
+            const axes = {};
+            for (let d = 0; d < 3; d++) {
+                const l = String(labels[d]).toUpperCase();
+                const key = (l === 'R' || l === 'L') ? 'R' : (l === 'A' || l === 'P') ? 'A' : (l === 'S' || l === 'I') ? 'S' : null;
+                if (!key || axes[key]) return null;
+                axes[key] = { dim: d, positive: l === key };
+            }
+            return axes;
+        }
+
         function multiViewPlaneDefs(dims) {
-            // NIfTI volumes are reoriented to RAS before they reach the viewer.
-            // Keep their three clinical planes upright: axial R/L × A/P,
-            // coronal R/L × S/I, and sagittal A/P × S/I. Canvas y grows
-            // downward, so the two planes containing S/I need a vertical flip.
-            const rasSpatialDims = spatialMeta && Array.isArray(spatialMeta.axis_labels)
-                && spatialMeta.axis_labels.join(',') === 'R,A,S'
-                && dims[0] === 0 && dims[1] === 1 && dims[2] === 2;
-            if (rasSpatialDims) {
+            // NIfTI volumes: keep the three clinical planes upright whatever
+            // order the file stores its axes in: axial R/L × A/P, coronal
+            // R/L × S/I, sagittal A/P × S/I. R and A grow toward screen
+            // right/down as in RAS; canvas y grows downward, so S/I axes are
+            // flipped when needed to put superior at the top.
+            const ax = _labelAnatomy(dims);
+            if (ax) {
                 return [
-                    { dimX: dims[0], dimY: dims[1], sliceDir: dims[2], flipX: false, flipY: false },
-                    { dimX: dims[0], dimY: dims[2], sliceDir: dims[1], flipX: false, flipY: true },
-                    { dimX: dims[1], dimY: dims[2], sliceDir: dims[0], flipX: false, flipY: true },
+                    { dimX: ax.R.dim, dimY: ax.A.dim, sliceDir: ax.S.dim, flipX: !ax.R.positive, flipY: !ax.A.positive },
+                    { dimX: ax.R.dim, dimY: ax.S.dim, sliceDir: ax.A.dim, flipX: !ax.R.positive, flipY: ax.S.positive },
+                    { dimX: ax.A.dim, dimY: ax.S.dim, sliceDir: ax.R.dim, flipX: !ax.A.positive, flipY: ax.S.positive },
                 ];
             }
             // Preserve the established generic-array layout where no anatomical
@@ -8882,12 +8894,6 @@
             return dims.length === 3 && dims.every(d => shape[d] > 1) ? dims : null;
         }
 
-        function _isRasSpatialDims(dims) {
-            return !!(spatialMeta && Array.isArray(spatialMeta.axis_labels)
-                && spatialMeta.axis_labels.join(',') === 'R,A,S'
-                && dims[0] === 0 && dims[1] === 1 && dims[2] === 2);
-        }
-
         function _userAnatomyFits(dims) {
             if (!_userAnatomy) return false;
             const named = [_userAnatomy.R, _userAnatomy.A, _userAnatomy.S];
@@ -8908,7 +8914,7 @@
                     { dimX: A, dimY: S, sliceDir: R, flipX: false, flipY: false, name: 'sagittal' },
                 ];
             }
-            const named = _isRasSpatialDims(dims);
+            const named = !!_labelAnatomy(dims);
             return multiViewPlaneDefs(dims).map((p, i) => ({
                 dimX: p.dimX, dimY: p.dimY, sliceDir: p.sliceDir,
                 flipX: !!p.flipX, flipY: !!p.flipY,
@@ -8924,29 +8930,6 @@
 
         function _planeLabel(planes, i) {
             return planes[i].name || `view ${i + 1} of 3`;
-        }
-
-        /** Array position under the mouse in the shared single-plane canvases,
-         *  as {x, y} along dim_x / dim_y, or null when the mouse isn't on one. */
-        function _hoveredPlanePoint() {
-            if (dim_z >= 0 || autoCropActive || _mouseOutsidePage) return null;
-            const candidates = [canvas];
-            if (qmriActive) qmriViews.forEach(v => { if (v.canvas) candidates.push(v.canvas); });
-            if (compareQmriActive) compareQmriViews.forEach(v => { if (v.canvas) candidates.push(v.canvas); });
-            if (compareActive) compareCanvases.forEach(cv => { if (cv) candidates.push(cv); });
-            for (const cv of candidates) {
-                const r = cv.getBoundingClientRect();
-                if (!r.width || !r.height) continue;
-                const fx = (_lastMouseX - r.left) / r.width;
-                const fy = (_lastMouseY - r.top) / r.height;
-                if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) continue;
-                const W = shape[dim_x], H = shape[dim_y];
-                let x = Math.floor(fx * W), y = Math.floor(fy * H);
-                if (flip_x) x = W - 1 - x;
-                if (flip_y) y = H - 1 - y;
-                return { x, y };
-            }
-            return null;
         }
 
         /** Physical size (mm) of one step along `dim`, or null when unknown. */
@@ -28360,9 +28343,6 @@
                     const cur = _currentPlaneIndex(planes);
                     if (cur >= 0) {
                         _viewMemory[planes[cur].sliceDir] = { dimX: dim_x, dimY: dim_y, flipX: flip_x, flipY: flip_y };
-                        // Cut the next plane through the pixel under the mouse.
-                        const pt = _hoveredPlanePoint();
-                        if (pt) { indices[dim_x] = pt.x; indices[dim_y] = pt.y; }
                     }
                     const next = (cur + 1) % planes.length;
                     const plane = planes[next];
@@ -30052,7 +30032,7 @@
                         entries: [
                             { key: '← → ↑ ↓', action: 'Step through slices' },
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
-                            { key: 'Shift+P', action: 'Next view — axial → coronal → sagittal', hint: 'cuts through the pixel under the mouse · each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size' },
+                            { key: 'Shift+P', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N · [ ] move the window · Enter opens a tile · Shift+U shows true physical size' },
