@@ -8951,6 +8951,55 @@
             return Math.max(0.05, Math.min(20, sy / sx));
         }
 
+        /** Shift+P: show the plane after the current one, keeping each plane's
+         *  remembered screen axes and flips. */
+        function _switchToNextPlane(planes) {
+            const cur = _currentPlaneIndex(planes);
+            if (cur >= 0) {
+                _viewMemory[planes[cur].sliceDir] = { dimX: dim_x, dimY: dim_y, flipX: flip_x, flipY: flip_y };
+            }
+            const next = (cur + 1) % planes.length;
+            const plane = planes[next];
+            const mem = _viewMemory[plane.sliceDir];
+            const pick = (mem && [mem.dimX, mem.dimY].every(d => d === plane.dimX || d === plane.dimY)) ? mem : plane;
+            const wasSliceActive = activeDim === current_slice_dim || activeDim === dim_x || activeDim === dim_y;
+            dim_x = pick.dimX; dim_y = pick.dimY;
+            flip_x = !!pick.flipX; flip_y = !!pick.flipY;
+            current_slice_dim = plane.sliceDir;
+            if (wasSliceActive) activeDim = current_slice_dim;
+            if (projectionMode > 0) projectionDim = current_slice_dim;
+            _roiClearOnDimChange();
+            if (qmriActive || compareQmriActive) qvScaleAllCanvases();
+            updateView();
+            if (!qmriActive && !compareQmriActive) triggerPreload();
+            if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+            renderInfo(); saveState();
+            showStatus(_planeLabel(planes, next));
+        }
+
+        /** Briefly fade the dimbar out, run `change`, and fade it back in, so
+         *  its labels don't jump. Runs `change` straight away when the dimbar
+         *  is hidden or a fade is already under way. */
+        let _dimbarFadeAnim = null;
+        function _fadeDimbarAround(change) {
+            const info = document.getElementById('info');
+            if (!info || typeof info.animate !== 'function' || _dimbarFadeAnim
+                || parseFloat(getComputedStyle(info).opacity) < 0.5) { change(); return; }
+            const out = info.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 70, easing: 'ease-in', fill: 'forwards' });
+            _dimbarFadeAnim = out;
+            const done = () => { _dimbarFadeAnim = null; };
+            out.oncancel = done;
+            out.onfinish = () => {
+                change();
+                out.oncancel = null;
+                out.cancel();
+                const back = info.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 110, easing: 'ease-out' });
+                _dimbarFadeAnim = back;
+                back.onfinish = done;
+                back.oncancel = done;
+            };
+        }
+
         /** Shift+A on an array without stored orientation: name the current
          *  view and/or give the voxel size, e.g. "axial 1 1 3". */
         async function _describeArrayOrientation() {
@@ -28340,27 +28389,7 @@
                     if (rgbMode || hasVectorfield) { showStatus('views: not available for this array'); return; }
                     const planes = _cyclePlanes();
                     if (!planes) { showStatus('views: need three spatial dimensions'); return; }
-                    const cur = _currentPlaneIndex(planes);
-                    if (cur >= 0) {
-                        _viewMemory[planes[cur].sliceDir] = { dimX: dim_x, dimY: dim_y, flipX: flip_x, flipY: flip_y };
-                    }
-                    const next = (cur + 1) % planes.length;
-                    const plane = planes[next];
-                    const mem = _viewMemory[plane.sliceDir];
-                    const pick = (mem && [mem.dimX, mem.dimY].every(d => d === plane.dimX || d === plane.dimY)) ? mem : plane;
-                    const wasSliceActive = activeDim === current_slice_dim || activeDim === dim_x || activeDim === dim_y;
-                    dim_x = pick.dimX; dim_y = pick.dimY;
-                    flip_x = !!pick.flipX; flip_y = !!pick.flipY;
-                    current_slice_dim = plane.sliceDir;
-                    if (wasSliceActive) activeDim = current_slice_dim;
-                    if (projectionMode > 0) projectionDim = current_slice_dim;
-                    _roiClearOnDimChange();
-                    if (qmriActive || compareQmriActive) qvScaleAllCanvases();
-                    updateView();
-                    if (!qmriActive && !compareQmriActive) triggerPreload();
-                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
-                    renderInfo(); saveState();
-                    showStatus(_planeLabel(planes, next));
+                    _fadeDimbarAround(() => _switchToNextPlane(planes));
                 },
             },
             'view.transpose': {
