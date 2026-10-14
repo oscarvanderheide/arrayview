@@ -14466,44 +14466,53 @@
             } else if (rangeLocked) {
                 return;
             }
-            if (!vminLocked) {
+            _clearDisplayWindows(!vminLocked, !vmaxLocked);
+        }
+
+        /**
+         * Forget the display window everywhere it is kept — the main view,
+         * compare panes and every multi-pane mode — so the next render of each
+         * pane picks a fresh one from its own data.
+         */
+        function _clearDisplayWindows(clearVmin = true, clearVmax = true) {
+            if (clearVmin) {
                 manualVmin = null;
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) _dv.displayState.vmin = null; }
                 cmpManualVmin.fill(null);
             }
-            if (!vmaxLocked) {
+            if (clearVmax) {
                 manualVmax = null;
                 { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) _dv.displayState.vmax = null; }
                 cmpManualVmax.fill(null);
             }
             if (multiViewActive) {
                 mvViews.forEach((v, i) => {
-                    if (!vminLocked) { v.lockedVmin = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = null; }
-                    if (!vmaxLocked) { v.lockedVmax = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = null; }
+                    if (clearVmin) { v.lockedVmin = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = null; }
+                    if (clearVmax) { v.lockedVmax = null; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = null; }
                 });
             }
             if (qmriActive) {
                 qmriViews.forEach((v, i) => {
-                    if (!vminLocked) { v.lockedVmin = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmin = null; }
-                    if (!vmaxLocked) { v.lockedVmax = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmax = null; }
+                    if (clearVmin) { v.lockedVmin = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmin = null; }
+                    if (clearVmax) { v.lockedVmax = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmax = null; }
                 });
             }
             if (qmriMvActive) {
                 qmriMvViews.forEach((v, i) => {
-                    if (!vminLocked) { v.lockedVmin = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmin = null; }
-                    if (!vmaxLocked) { v.lockedVmax = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmax = null; }
+                    if (clearVmin) { v.lockedVmin = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmin = null; }
+                    if (clearVmax) { v.lockedVmax = null; const qv = modeManager.currentViews[i]; if (qv) qv.displayState.vmax = null; }
                 });
             }
             if (compareMvActive) {
                 compareMvViews.forEach(v => {
-                    if (!vminLocked) v.lockedVmin = null;
-                    if (!vmaxLocked) v.lockedVmax = null;
+                    if (clearVmin) v.lockedVmin = null;
+                    if (clearVmax) v.lockedVmax = null;
                 });
             }
             if (compareQmriActive) {
                 compareQmriViews.forEach(v => {
-                    if (!vminLocked) v.lockedVmin = null;
-                    if (!vmaxLocked) v.lockedVmax = null;
+                    if (clearVmin) v.lockedVmin = null;
+                    if (clearVmax) v.lockedVmax = null;
                 });
             }
         }
@@ -17785,15 +17794,29 @@
             }
             void _seedInitialScopedVolumeRange();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
-            const restoredCompositeMode = restoreCompositeModeFromSnapshot();
-            if (!restoredCompositeMode) triggerPreload();
-            if (!multiViewActive && !qmriActive && !_isTutorialSession) {
-                if (compareSidList.length) {
-                    const bootCompareSids = [sid, ...compareSidList.filter(s => s && s !== sid)];
-                    if (bootCompareSids.length >= 2) enterCompareModeByMultipleSids(bootCompareSids);
-                } else if (compareSid) {
-                    enterCompareModeBySid(compareSid);
-                }
+            const bootCompareSids = _isTutorialSession ? []
+                : compareSidList.length ? [sid, ...compareSidList.filter(s => s && s !== sid)]
+                : compareSid ? [sid, compareSid] : [];
+            if (bootCompareSids.length >= 2) {
+                // Several arrays always open side by side. A requested view
+                // (--mode ortho / qmri, or a saved compare 3-plane) becomes
+                // its compare variant instead of replacing the comparison.
+                const bootMode = pendingViewMode;
+                pendingViewMode = null;
+                pendingMvDims = null;
+                pendingQmriDim = null;
+                pendingQmriMosaicZ = null;
+                triggerPreload();
+                const entered = compareSidList.length
+                    ? enterCompareModeByMultipleSids(bootCompareSids)
+                    : enterCompareModeBySid(compareSid);
+                Promise.resolve(entered).then(() => {
+                    if (!compareActive) return;
+                    if (bootMode === 'multiview' || bootMode === 'compare-mv') enterCompareMv();
+                    else if (bootMode === 'qmri' || bootMode === 'qmri-mv' || bootMode === 'compare-qmri') enterCompareQmri();
+                });
+            } else if (!restoreCompositeModeFromSnapshot()) {
+                triggerPreload();
             }
             _reconcileUI();
             _tutorialMaybeStart();
@@ -29190,7 +29213,9 @@
                     }
                     logScale = !logScale;
                     if (_view) _view.displayState.logScale = logScale;  // Phase 12: dual-write
-                    manualVmin = manualVmax = null;
+                    // A window picked on the old scale is meaningless on the
+                    // new one, in every pane — not just the main view.
+                    _clearDisplayWindows();
                     if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
                     _eggsVisible = true;
                     proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
@@ -29372,7 +29397,10 @@
                 when: [],
                 run: (ctx, e) => {
                     if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
-                    if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                    if (compareActive) {
+                        crossfade(() => { if (compareQmriActive) exitCompareQmri(); enterCompareMv(); });
+                        return;
+                    }
                     if (qmriMvActive) { crossfade(() => exitQmriMv()); return; }
                     if (qmriActive) { crossfade(() => enterQmriMv()); return; }
                     const activeTool = _activeToolId();
@@ -29520,6 +29548,9 @@
                         if (compareQmriActive) {
                             exitCompareQmri();
                         } else if (compareActive) {
+                            // Compare 3-plane and compare qMRI share one
+                            // container: switch, never stack them.
+                            if (compareMvActive) exitCompareMv();
                             _qmriVisibleMaps = null;
                             enterCompareQmri();
                         } else if (qmriActive) {
@@ -29554,7 +29585,10 @@
                 when: [],
                 run: (ctx, e) => {
                     if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
-                    if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                    if (compareActive) {
+                        crossfade(() => { if (compareQmriActive) exitCompareQmri(); enterCompareMv(); });
+                        return;
+                    }
                     if (qmriMvActive) { crossfade(() => exitQmriMv()); return; }
                     if (qmriActive) { crossfade(() => enterQmriMv()); return; }
                     crossfade(() => {
@@ -29569,7 +29603,7 @@
                     if (e) e.preventDefault();
                     if (stackMosaicActive) { exitStackMosaic(); return; }
                     if (!_stackMosaicHasStack()) {
-                        showStatus('stack mosaic: needs a stack (use --stack or open a folder)');
+                        showStatus('stack mosaic: needs a stack (use --match or open a folder)');
                         return;
                     }
                     const total = shape[_stackMosaicColDim()];
@@ -36110,13 +36144,27 @@
         function _cutawayOnWindowChange() { if (cutawayActive) _cutawayRender(); }
 
         // --------------- qMRI mode ---------------
+        // The dim holding the qMRI maps: the only dim of size 3–6, or the
+        // selected dim when several qualify. Explains itself and returns -1
+        // when there is none.
+        function _pickQmriDim() {
+            const ok = i => i >= 0 && i < shape.length && !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]);
+            const candidates = shape.map((_, i) => i).filter(ok);
+            if (candidates.length === 1) return candidates[0];
+            if (ok(activeDim)) return activeDim;
+            if (!candidates.length) {
+                showStatus('qMRI: needs a dim of 3–6 maps — this array has none');
+            } else {
+                showStatus('qMRI: several dims could hold the maps — select one with h/l, then press q');
+            }
+            return -1;
+        }
+
         function enterQmri() {
             _qmriRenderGeneration++;
-            // Auto-detect: if exactly one dim has size 3–6, use it; otherwise fall back to activeDim
-            const candidates = shape.map((s, i) => i).filter(i => !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]));
-            const targetDim = candidates.length === 1 ? candidates[0] : (_isCollectionDim(activeDim) ? -1 : activeDim);
+            const targetDim = _pickQmriDim();
+            if (targetDim < 0) return;
             const n = shape[targetDim];
-            if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
             if (stackMosaicActive) exitStackMosaic();
@@ -36710,7 +36758,7 @@
 
         function enterStackMosaic(n) {
             if (!_stackMosaicHasStack()) {
-                showStatus('stack mosaic: needs a stack (use --stack or open a folder)');
+                showStatus('stack mosaic: needs a stack (use --match or open a folder)');
                 return;
             }
             if (multiViewActive) exitMultiView();
@@ -37488,11 +37536,9 @@
         function enterCompareQmri() {
             if (!compareActive) return;
             _qmriRenderGeneration++;
-            // Detect qMRI dim
-            const candidates = shape.map((s, i) => i).filter(i => !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]));
-            const targetDim = candidates.length === 1 ? candidates[0] : (_isCollectionDim(activeDim) ? -1 : activeDim);
+            const targetDim = _pickQmriDim();
+            if (targetDim < 0) return;
             const n = shape[targetDim];
-            if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             compareQmriDim = targetDim;
             // Collect SIDs being compared
             const cmpSids = getCompareRenderSids();
@@ -39434,8 +39480,20 @@
                 const baseScale = Math.max(fitScale, minTileScale);
                 const effectiveScale = Math.max(0.01, baseScale * userZoom);
                 for (const v of ready) {
-                    v.canvas.style.width  = Math.round(v.lastW * effectiveScale) + 'px';
-                    v.canvas.style.height = Math.round(v.lastH * effectiveScale) + 'px';
+                    const cw = Math.round(v.lastW * effectiveScale) + 'px';
+                    const ch = Math.round(v.lastH * effectiveScale) + 'px';
+                    v.canvas.style.width = cw;
+                    v.canvas.style.height = ch;
+                    // The pane frame keeps the size the normal qMRI layout gave
+                    // it; fit it to the strip or the strip is cropped.
+                    const clip = v.canvas.closest('.qv-canvas-clip');
+                    if (clip) { clip.style.width = cw; clip.style.height = ch; }
+                    // The vertical bar beside each strip takes its height from here.
+                    const mcb = v._mosaicColorBar;
+                    if (mcb && mcb.canvas) {
+                        mcb.canvas.style.height = ch;
+                        if (mcb.colWrap) mcb.colWrap.style.height = ch;
+                    }
                 }
                 // Detect overflow and toggle pan mode
                 const wrap = document.getElementById('qmri-view-wrap');
