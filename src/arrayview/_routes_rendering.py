@@ -441,6 +441,54 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
             return Response(status_code=422)
         return _diff_histogram(raw, bins)
 
+    @app.get("/diff-values/{sid_a}/{sid_b}")
+    def get_diff_values(
+        sid_a: str,
+        sid_b: str,
+        dim_x: int,
+        dim_y: int,
+        indices: str,
+        indices_a: str | None = None,
+        indices_b: str | None = None,
+        dim_z: int = -1,
+        dr: int = 1,
+        complex_mode: int = 0,
+        log_scale: bool = False,
+        diff_mode: int = 1,
+    ):
+        """Raw float32 diff values, so hovering a histogram bin can highlight pixels."""
+        session_a = SESSIONS.get(sid_a)
+        session_b = SESSIONS.get(sid_b)
+        if not session_a or not session_b:
+            return Response(status_code=404)
+        try:
+            raw, _, _, _, _ = _compute_diff(
+                session_a,
+                session_b,
+                dim_x,
+                dim_y,
+                indices,
+                dim_z,
+                dr,
+                complex_mode,
+                log_scale,
+                diff_mode,
+                indices_a=indices_a,
+                indices_b=indices_b,
+            )
+        except Exception:
+            return Response(status_code=422)
+        raw = np.ascontiguousarray(raw, dtype=np.float32)
+        return Response(
+            content=raw.tobytes(),
+            media_type="application/octet-stream",
+            headers={
+                "X-ArrayView-Width": str(raw.shape[1]),
+                "X-ArrayView-Height": str(raw.shape[0]),
+                "Cache-Control": "no-cache",
+            },
+        )
+
     @app.get("/oblique/{sid}")
     def get_oblique(
         sid: str,

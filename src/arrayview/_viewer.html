@@ -10417,6 +10417,11 @@
                     fetchHistogram: () => _fetchDiffHistogram(),
                     getHistogramVersion: () => _diffHistogramVersion(),
                     onWindowChange: () => { fetchAndDrawDiff(); },
+                    onMouseEnter: () => { _colorbarLebesgueHover = true; },
+                    onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                    onDragStart: () => { _stopColorbarLebesgueHover(); },
+                    onDragEnd: () => { if (_diffCenterCb?._mouseOver) _colorbarLebesgueHover = true; },
+                    onBinHover: (binIdx) => { _drawLebesgueHighlightForColorbar(_diffCenterCb, binIdx); },
                 });
             }
         }
@@ -14989,7 +14994,8 @@
             ].join('|');
         }
 
-        async function _fetchDiffHistogram() {
+        /** sids + query shared by the diff histogram and diff value requests. */
+        function _diffAnalysisQuery() {
             if (!diffMode || !compareActive || compareDisplaySids.length < 2) return null;
             const [sid_a, sid_b] = compareDisplaySids;
             const params = new URLSearchParams({
@@ -15000,7 +15006,6 @@
                 complex_mode: String(complexMode),
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
-                bins: '64',
             });
             if (detachedDimMode && detachedDim >= 0) {
                 const indicesA = [...indices];
@@ -15010,8 +15015,14 @@
                 params.set('indices_a', indicesA.join(','));
                 params.set('indices_b', indicesB.join(','));
             }
+            return { path: `${sid_a}/${sid_b}?${params}` };
+        }
+
+        async function _fetchDiffHistogram() {
+            const q = _diffAnalysisQuery();
+            if (!q) return null;
             try {
-                const resp = await proxyFetch(`/diff-histogram/${sid_a}/${sid_b}?${params}`);
+                const resp = await proxyFetch(`/diff-histogram/${q.path}&bins=64`);
                 if (!resp.ok) return null;
                 return await resp.json();
             } catch (_) { return null; }
@@ -15236,7 +15247,7 @@
         }
 
         /** Draw Lebesgue highlight on a single overlay canvas using the given slice data. */
-        function _drawLebesgueOnCanvas(overlayCv, targetCv, sliceData, sliceW, sliceH, binLow, binHigh) {
+        function _drawLebesgueOnCanvas(overlayCv, targetCv, sliceData, sliceW, sliceH, binLow, binHigh, flipLikeDiff = false) {
             const octx = overlayCv.getContext('2d');
             if (!octx) return;
             const cw = targetCv.width, ch = targetCv.height;
@@ -15246,7 +15257,9 @@
             }
             overlayCv.style.width = targetCv.style.width;
             overlayCv.style.height = targetCv.style.height;
-            const fx = flip_x, fy = flip_y;
+            // The diff pane flips through applyFlips (per mosaic tile), so its
+            // mask is built unflipped and flipped the same way afterwards.
+            const fx = flipLikeDiff ? false : flip_x, fy = flipLikeDiff ? false : flip_y;
             if (!overlayCv._lebesgueMask) overlayCv._lebesgueMask = document.createElement('canvas');
             const maskCv = overlayCv._lebesgueMask;
             if (maskCv.width !== sliceW || maskCv.height !== sliceH) {
@@ -15255,7 +15268,7 @@
             }
             const mctx = maskCv.getContext('2d');
             if (!mctx) return;
-            const img = mctx.createImageData(sliceW, sliceH);
+            let img = mctx.createImageData(sliceW, sliceH);
             const buf = img.data;
             const alpha = Math.round(255 * 0.55);
             for (let y = 0; y < sliceH; y++) {
@@ -15269,6 +15282,7 @@
                     buf[i + 3] = alpha;
                 }
             }
+            if (flipLikeDiff && (flip_x || flip_y)) img = applyFlips(img, sliceW, sliceH);
             mctx.putImageData(img, 0, 0);
             octx.clearRect(0, 0, cw, ch);
             octx.imageSmoothingEnabled = false;
@@ -15290,11 +15304,11 @@
             return overlay;
         }
 
-        function _drawLebesgueHighlightOnCanvas(targetCv, sliceEntry, binLow, binHigh) {
+        function _drawLebesgueHighlightOnCanvas(targetCv, sliceEntry, binLow, binHigh, flipLikeDiff = false) {
             if (!targetCv || !sliceEntry || !sliceEntry.slice || !sliceEntry.w || !sliceEntry.h) return false;
             const overlay = _getLebesgueOverlay(targetCv);
             if (!overlay) return false;
-            _drawLebesgueOnCanvas(overlay, targetCv, sliceEntry.slice, sliceEntry.w, sliceEntry.h, binLow, binHigh);
+            _drawLebesgueOnCanvas(overlay, targetCv, sliceEntry.slice, sliceEntry.w, sliceEntry.h, binLow, binHigh, flipLikeDiff);
             return true;
         }
 
@@ -15322,6 +15336,41 @@
             }
         }
 
+        // Raw diff values for the centre pane, keyed by the diff query they answer.
+        let _diffLebesgueEntry = null;
+        let _diffLebesguePending = null;
+
+        async function _fetchDiffLebesgueValues(path) {
+            try {
+                const resp = await proxyFetch(`/diff-values/${path}`);
+                if (!resp.ok) return null;
+                const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
+                const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
+                return { slice: new Float32Array(await resp.arrayBuffer()), w, h, key: path };
+            } catch (_) { return null; }
+        }
+
+        function _drawDiffLebesgueHighlight(cb, binIdx, binLow, binHigh) {
+            const q = _diffAnalysisQuery();
+            const target = document.getElementById('compare-diff-canvas');
+            if (!q || !target) return;
+            if (_diffLebesgueEntry && _diffLebesgueEntry.key === q.path) {
+                _drawLebesgueHighlightOnCanvas(target, _diffLebesgueEntry, binLow, binHigh, true);
+                return;
+            }
+            if (_diffLebesguePending === q.path) return;
+            _diffLebesguePending = q.path;
+            _fetchDiffLebesgueValues(q.path).then(entry => {
+                if (_diffLebesguePending === q.path) _diffLebesguePending = null;
+                if (!entry) return;
+                _diffLebesgueEntry = entry;
+                // Still hovering the diff colorbar → draw the bin under the cursor now.
+                if (_colorbarLebesgueHoverActive() && _lastLebesgueColorBar === cb && _lastLebesgueBin >= 0) {
+                    _drawLebesgueHighlightForColorbar(cb, _lastLebesgueBin, true);
+                }
+            });
+        }
+
         function _drawLebesgueHighlightForColorbar(cb, binIdx, force = false) {
             if (!_colorbarLebesgueHoverActive()) return;
             const hd = cb?._histData;
@@ -15340,6 +15389,7 @@
             const binLow = edges[binIdx];
             const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
             if (cb?._lebesgueView) _drawLebesgueHighlightForQmriPane(cb._lebesgueView, binLow, binHigh);
+            else if (cb && cb === _diffCenterCb) _drawDiffLebesgueHighlight(cb, binIdx, binLow, binHigh);
             else _drawLebesgueHighlight(binLow, binHigh);
             if (cb === primaryCb) _highlightHistBin(binIdx);
         }
