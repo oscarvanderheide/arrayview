@@ -7875,8 +7875,24 @@
             return 0;
         }
 
+        let _qmriPrevSliceDim = null;  // scroll dim before qMRI moved it off the maps dim
         function _ensureQmriActiveDimVisible() {
             if (_isQmriControlDim(activeDim)) activeDim = _firstVisibleQmriDim();
+            // The wheel scrolls current_slice_dim. Left on the maps dim it
+            // would step through maps every pane already shows: nothing moves.
+            if (_isQmriControlDim(current_slice_dim)) {
+                const d = shape.findIndex((n, i) => i !== dim_x && i !== dim_y && n > 1
+                    && !_isQmriControlDim(i) && !_isCollectionDim(i));
+                if (d >= 0) {
+                    if (_qmriPrevSliceDim === null) _qmriPrevSliceDim = current_slice_dim;
+                    current_slice_dim = d;
+                }
+            }
+        }
+
+        function _restoreQmriSliceDim() {
+            if (_qmriPrevSliceDim !== null && _qmriPrevSliceDim < shape.length) current_slice_dim = _qmriPrevSliceDim;
+            _qmriPrevSliceDim = null;
         }
 
         function _skipQmriControlDim(direction) {
@@ -28716,8 +28732,9 @@
                             && activeDim !== qmriDim
                             && !_isCollectionDim(activeDim)) ? activeDim : -1;
                         if (qmriMosaicActive && (_zCandidate < 0 || _zCandidate === _qmriMosaicZDim)) {
-                            // Exit qMRI mosaic
+                            // Exit qMRI mosaic; like plain mosaic, scrolling returns to the gridded dim.
                             qmriMosaicActive = false;
+                            if (_qmriMosaicZDim >= 0) current_slice_dim = _qmriMosaicZDim;
                             _qmriMosaicZDim = -1;
                             primaryCb._expanded = false;
                             renderInfo();
@@ -28746,6 +28763,12 @@
                             if (zd < 0) { showStatus('mosaic: no z-dim available'); return; }
                             qmriMosaicActive = true;
                             _qmriMosaicZDim = zd;
+                            // Scroll the next free dim; the gridded one is all on screen.
+                            if (current_slice_dim === zd) {
+                                const d = shape.findIndex((n, i) => i !== dim_x && i !== dim_y && i !== zd && n > 1
+                                    && !_isQmriControlDim(i) && !_isCollectionDim(i));
+                                if (d >= 0) current_slice_dim = d;
+                            }
                             _rebuildQmriMosaicLayout();
                             qvScaleAllCanvases();
                             qmriViews.forEach(v => qvRender(v));
@@ -36757,6 +36780,7 @@
                 if (_qmriPrevActiveDim < shape.length) activeDim = _qmriPrevActiveDim;
                 _qmriPrevActiveDim = null;
             }
+            if (!_qmriSyntheticRebuilding) _restoreQmriSliceDim();
             if (!_qmriSyntheticRebuilding) updateView();
             _reconcileUI();
             renderInfo();
@@ -37816,6 +37840,7 @@
         function exitCompareQmri() {
             _qmriRenderGeneration++;
             compareQmriActive = false;
+            _restoreQmriSliceDim();
             compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
             compareQmriViews = [];
             compareQmriSids = [];

@@ -1133,3 +1133,22 @@ class TestModeCombinations:
         _focus_kb(page)
         page.keyboard.press("z")
         page.wait_for_function("() => dim_z === -1", timeout=5_000)
+
+    def test_wheel_scrolls_slices_in_qmri(self, page, server_url, client, tmp_path):
+        """qMRI used to leave the wheel on the maps dim, so scrolling did nothing."""
+        from conftest import register_array
+        arr = np.random.default_rng(5).random((3, 12, 32, 32)).astype(np.float32)
+        sid = register_array(client, arr, tmp_path, "qwheel")
+        page.goto(f"{server_url}/?sid={sid}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive", timeout=5_000)
+        page.wait_for_timeout(500)
+        box = page.locator("#qmri-view-wrap canvas.qv-canvas").first.bounding_box()
+        before = page.evaluate("() => JSON.stringify(indices)")
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        for _ in range(3):
+            page.mouse.wheel(0, 120)
+            page.wait_for_timeout(100)
+        page.wait_for_function("b => JSON.stringify(indices) !== b", arg=before, timeout=3_000)
