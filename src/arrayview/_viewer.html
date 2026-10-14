@@ -33758,6 +33758,11 @@
                     && Array.isArray(cmpMeta.shape)
                     && baseMeta.shape.length === cmpMeta.shape.length
                     && baseMeta.shape.every((v, i) => Number(v) === Number(cmpMeta.shape[i]));
+                if (Array.isArray(baseMeta.shape) && Array.isArray(cmpMeta.shape)
+                    && baseMeta.shape.length !== cmpMeta.shape.length) {
+                    showStatus(`compare: arrays need the same number of dims ([${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}])`, 4000);
+                    return false;
+                }
                 if (!sameShape) {
                     showStatus(`shape mismatch [${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}]`, 4000);
                 }
@@ -33831,6 +33836,8 @@
         // Unlike enterCompareModeBySid(), this does NOT auto-prepend the current sid.
         async function enterCompareModeByMultipleSids(sids) {
             if (!sids || sids.length < 1) return false;
+            const mismatch = await _compareDimMismatch(sids);
+            if (mismatch) { showStatus(mismatch); return false; }
             try {
                 if (multiViewActive) exitMultiView();
                 if (qmriActive) exitQmri();
@@ -34382,17 +34389,30 @@
             });
         }
 
+        const _compareShapeBySid = {};
         async function _ensureCompareNames(sids) {
             if (_sessionName && !compareNameBySid[sid]) compareNameBySid[sid] = _sessionName;
-            if (sids.every(s => compareNameBySid[s])) return;
+            if (sids.every(s => compareNameBySid[s] && _compareShapeBySid[s])) return;
             try {
                 const res = await proxyFetch('/sessions');
                 if (!res.ok) return;
                 for (const s of await res.json()) {
                     if (s.sid && s.name) compareNameBySid[s.sid] = s.name;
+                    if (s.sid && Array.isArray(s.shape)) _compareShapeBySid[s.sid] = s.shape;
                 }
             } catch (_) { return; }
             if (compareActive) updateCompareTitles();
+        }
+
+        // Side-by-side panes share one set of dims, so every array needs the
+        // same number of them. Returns a message when they do not.
+        async function _compareDimMismatch(sids) {
+            await _ensureCompareNames(sids);
+            const known = [...new Set(sids)].filter(s => _compareShapeBySid[s]);
+            const ndims = new Set(known.map(s => _compareShapeBySid[s].length));
+            if (ndims.size <= 1) return null;
+            const desc = known.map(s => `${compareNameBySid[s] || s.slice(0, 8)} is ${_compareShapeBySid[s].length}-D`);
+            return `compare: arrays need the same number of dims (${desc.join(', ')})`;
         }
 
         async function getCompareCandidates() {
