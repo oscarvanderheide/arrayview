@@ -36182,11 +36182,15 @@
         // The dim holding the qMRI maps: the only dim of size 3–6, or the
         // selected dim when several qualify. Explains itself and returns -1
         // when there is none.
-        function _pickQmriDim() {
-            const ok = i => i >= 0 && i < shape.length && !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]);
+        let _lastQmriDim = -1;
+        function _pickQmriDim(prefer = -1) {
+            const ok = i => Number.isInteger(i) && i >= 0 && i < shape.length && !_isCollectionDim(i) && [3, 4, 5, 6].includes(shape[i]);
+            if (ok(prefer)) return prefer;
             const candidates = shape.map((_, i) => i).filter(ok);
             if (candidates.length === 1) return candidates[0];
             if (ok(activeDim)) return activeDim;
+            // Coming back to qMRI after browsing other dims: reuse the maps dim.
+            if (ok(_lastQmriDim)) return _lastQmriDim;
             if (!candidates.length) {
                 showStatus('qMRI: needs a dim of 3–6 maps — this array has none');
             } else {
@@ -36197,8 +36201,10 @@
 
         function enterQmri() {
             _qmriRenderGeneration++;
-            const targetDim = _pickQmriDim();
+            // Rebuilding after qMRI 3-plane keeps the dim already in use.
+            const targetDim = _pickQmriDim(qmriActive ? qmriDim : -1);
             if (targetDim < 0) return;
+            _lastQmriDim = targetDim;
             const n = shape[targetDim];
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
@@ -37573,6 +37579,7 @@
             _qmriRenderGeneration++;
             const targetDim = _pickQmriDim();
             if (targetDim < 0) return;
+            _lastQmriDim = targetDim;
             const n = shape[targetDim];
             compareQmriDim = targetDim;
             // Collect SIDs being compared
