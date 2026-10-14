@@ -14255,13 +14255,9 @@
             if (qmriRole) params.set('qmri_role', qmriRole);
             if (excludeZeros) params.set('exclude_zeros', '1');
             const request = (async () => {
-                try {
-                    const resp = await proxyFetch(`/volume-histogram/${fetchSid}?${params}`);
-                    if (!resp.ok) return null;
-                    const data = await resp.json();
-                    _volHistCache[cacheKey] = data;
-                    return data;
-                } catch (_) { return null; }
+                const data = await _fetchHistogramJson(`/volume-histogram/${fetchSid}?${params}`);
+                if (data) _volHistCache[cacheKey] = data;
+                return data;
             })();
             _volHistInFlight.set(cacheKey, request);
             try {
@@ -14912,8 +14908,34 @@
             ].join('|');
         }
 
-        async function _fetchHistogramCompare() {
-            if (_histFetching) return;
+        // `d` waits on the histogram request in flight, and every later press
+        // joins that same request. One lost on a forwarded link never settles,
+        // which left `d` dead for the rest of the session, so cap the wait;
+        // the next press then asks again.
+        const _HIST_FETCH_TIMEOUT_MS = 15000;
+        async function _fetchHistogramJson(url) {
+            const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+            const timer = ctl ? setTimeout(() => ctl.abort(), _HIST_FETCH_TIMEOUT_MS) : null;
+            try {
+                const resp = await proxyFetch(url, ctl ? { signal: ctl.signal } : undefined);
+                return resp.ok ? await resp.json() : null;
+            } catch (_) {
+                return null;
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+
+        let _histCompareInFlight = null;
+        function _fetchHistogramCompare() {
+            if (_histCompareInFlight) return _histCompareInFlight;
+            const request = _fetchHistogramCompareOnce();
+            _histCompareInFlight = request;
+            request.finally(() => { if (_histCompareInFlight === request) _histCompareInFlight = null; });
+            return request;
+        }
+
+        async function _fetchHistogramCompareOnce() {
             _histFetching = true;
             const allSids = getCompareRenderSids();
             const fetchDimX = dim_x;
@@ -14926,12 +14948,10 @@
                 bins: 64,
             });
             try {
-                const histPromises = allSids.map(s =>
-                    proxyFetch(`/histogram/${s}?${params}`).then(r => r.ok ? r.json() : null)
-                );
+                const histPromises = allSids.map(s => _fetchHistogramJson(`/histogram/${s}?${params}`));
                 const allHists = await Promise.all(histPromises);
                 const valid = allHists.filter(Boolean);
-                if (!valid.length) { _histFetching = false; return; }
+                if (!valid.length) { _histFetching = false; return null; }
                 // Start from first valid result, then sum counts from the rest
                 const merged = JSON.parse(JSON.stringify(valid[0]));
                 for (let i = 1; i < valid.length; i++) {
