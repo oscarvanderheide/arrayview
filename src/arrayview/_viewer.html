@@ -7536,6 +7536,11 @@
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
         const DIFF_COLORMAPS = ['icefire', 'RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
+        // A−B default follows the theme: icefire's dark centre blends into the
+        // dark viewport (masked voxels stay dark); light theme keeps RdBu_r.
+        function _diffDefaultColormap() {
+            return diffMode === 1 ? (isDark ? 'icefire' : 'RdBu_r') : 'afmhot';
+        }
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
         let compareFrames = [];
@@ -10405,7 +10410,7 @@
                     hoverValueInEggs: true,
                     hoverValueAnchor: () => modeManager.getViewById('compare-diff-center')?.canvas
                         || document.getElementById('compare-diff-pane'),
-                    getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'icefire' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                    getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[_diffDefaultColormap()] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
                     getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
                     setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } } },
@@ -17195,7 +17200,7 @@
                 params.set('indices_a', indicesA.join(','));
                 params.set('indices_b', indicesB.join(','));
             }
-            if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
+            params.set('diff_colormap', _diffCenterColormap || _diffDefaultColormap());
             const requestVmin = _diffManualVmin ?? _diffAutoVmin;
             const requestVmax = _diffManualVmax ?? _diffAutoVmax;
             if (requestVmin !== null) params.set('vmin_override', String(requestVmin));
@@ -24612,6 +24617,7 @@
                 if (idx >= 0) {
                     applyTheme(idx);
                     _reconcileLayout();
+                    if (compareActive && diffMode === 1 && !_diffCenterColormap) fetchAndDrawDiff();
                 }
             } else if (key === 'rounded_panes') {
                 roundedPanes = !!value;
@@ -28073,7 +28079,7 @@
                         // Only diff modes 1-3 have their own center colorbar; overlay/wipe/flicker/checker do not
                         if (diffMode === 0) return;
                         const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
-                        const idx = pool.indexOf(_diffCenterColormap);
+                        const idx = pool.indexOf(_diffCenterColormap || _diffDefaultColormap());
                         const next = (idx + 1) % pool.length;
                         _diffCenterColormap = pool[next];
                         _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
@@ -28554,6 +28560,7 @@
                 run: (ctx, e) => {
                     applyTheme((themeIdx + 1) % THEMES.length);
                     drawSlimColorbar(cbMarkerFrac);
+                    if (compareActive && diffMode === 1 && !_diffCenterColormap) fetchAndDrawDiff();
                     showStatus(`theme: ${THEMES[themeIdx]}`);
                     saveState();
                 },
@@ -29559,7 +29566,7 @@
                     if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
                         if (_cmapStripMode === 'diff-center') {
                             const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
-                            const idx = pool.indexOf(_diffCenterColormap);
+                            const idx = pool.indexOf(_diffCenterColormap || _diffDefaultColormap());
                             _diffCenterColormap = pool[(idx <= 0 ? pool.length - 1 : idx - 1)];
                             _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
                             fetchAndDrawDiff();
@@ -29629,7 +29636,7 @@
                     if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
                         if (_cmapStripMode === 'diff-center') {
                             const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
-                            const idx = pool.indexOf(_diffCenterColormap);
+                            const idx = pool.indexOf(_diffCenterColormap || _diffDefaultColormap());
                             _diffCenterColormap = pool[(idx + 1) % pool.length];
                             _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
                             fetchAndDrawDiff();
@@ -42970,7 +42977,7 @@
                         preview: _ensureCmapPreviewEl(host),
                         pool,
                         currentIdx: () => {
-                            const idx = pool.indexOf(_diffCenterColormap);
+                            const idx = pool.indexOf(_diffCenterColormap || _diffDefaultColormap());
                             return idx >= 0 ? idx : 0;
                         },
                         captureState: () => ({
