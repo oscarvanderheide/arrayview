@@ -33870,6 +33870,9 @@
                 renderInfo();
                 updateView();
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
+                // Opened straight from the command line, nothing has looked
+                // the names up yet and the panes would be titled with ids.
+                await _ensureCompareNames(sids);
                 const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
                 showStatus(`compare: ${names.join(' · ')}`);
                 return true;
@@ -34358,6 +34361,19 @@
                     }
                 };
             });
+        }
+
+        async function _ensureCompareNames(sids) {
+            if (_sessionName && !compareNameBySid[sid]) compareNameBySid[sid] = _sessionName;
+            if (sids.every(s => compareNameBySid[s])) return;
+            try {
+                const res = await proxyFetch('/sessions');
+                if (!res.ok) return;
+                for (const s of await res.json()) {
+                    if (s.sid && s.name) compareNameBySid[s.sid] = s.name;
+                }
+            } catch (_) { return; }
+            if (compareActive) updateCompareTitles();
         }
 
         async function getCompareCandidates() {
