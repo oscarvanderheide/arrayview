@@ -50,6 +50,47 @@ _RECOVERABLE_DISCONNECT_GRACE_SECONDS = float(
 )
 
 
+# Leading word of a compressed frame: b"AVZ1" read as a little-endian uint32.
+# A raw frame starts with its sequence number, which never gets this large.
+_FRAME_Z_MAGIC = b"AVZ1"
+# Below this a frame crosses any link quickly enough as it is.
+_FRAME_Z_MIN_BYTES = 32 * 1024
+_frame_z_remote = None
+
+
+def _frame_compression_wanted() -> bool:
+    """True when frames should be deflated before they are sent.
+
+    Over a VS Code tunnel or Remote-SSH forward every frame crosses the network
+    as raw RGBA: three compared 224x224 slices are 600 KB per scroll step, and
+    that transfer, not rendering, is the lag. Locally the bytes are free, so
+    frames stay raw. ``ARRAYVIEW_FRAME_COMPRESS=1``/``0`` forces either way.
+    """
+    global _frame_z_remote
+    forced = os.environ.get("ARRAYVIEW_FRAME_COMPRESS")
+    if forced in ("0", "1"):
+        return forced == "1"
+    if _frame_z_remote is None:
+        try:
+            from arrayview._platform import _is_vscode_remote
+
+            _frame_z_remote = bool(_is_vscode_remote())
+        except Exception:
+            _frame_z_remote = False
+    return _frame_z_remote
+
+
+def _pack_frame(payload: bytes) -> bytes:
+    """Deflate *payload* behind the magic word, or return it unchanged when
+    that does not save at least a third (noise-like images barely shrink)."""
+    import zlib
+
+    packed = zlib.compress(payload, 1)
+    if len(packed) * 3 > len(payload) * 2:
+        return payload
+    return _FRAME_Z_MAGIC + packed
+
+
 def _advance_viewer_epoch(sid: str) -> int:
     epoch = _session_mod.VIEWER_CONNECTION_EPOCHS.get(sid, 0) + 1
     _session_mod.VIEWER_CONNECTION_EPOCHS[sid] = epoch
@@ -368,6 +409,10 @@ def register_websocket_routes(app) -> None:
         native_request_id = ws.query_params.get("native_request_id")
         launch_request_id = ws.query_params.get("launch_request_id")
         launch_token = ws.query_params.get("launch_token")
+        # Only viewers that can inflate frames ask for them packed.
+        compress_frames = (
+            ws.query_params.get("frame_z") == "1" and _frame_compression_wanted()
+        )
         # Answer the handshake before the array is ready.  Holding it closed
         # until the load finished made the viewer decide the backend was dead:
         # it gives up after three attempts and shows "could not connect", which
@@ -752,6 +797,9 @@ def register_websocket_routes(app) -> None:
                         ).tobytes()
                         vf_scale = np.array([vf_result["scale"]], dtype=np.float32).tobytes()
                         payload += vf_hdr + vf_scale + arrows.tobytes()
+                if compress_frames and len(payload) >= _FRAME_Z_MIN_BYTES:
+                    raw_payload = payload
+                    payload = await _render(loop, lambda: _pack_frame(raw_payload))
                 await ws.send_bytes(payload)
                 if perf:
                     total_ms = (time.perf_counter() - total_t0) * 1000.0

@@ -81,6 +81,9 @@
                         + 'launch_request_id=' + encodeURIComponent(requestId)
                         + '&launch_token=' + encodeURIComponent(token);
                 }
+                if (typeof DecompressionStream === 'function') {
+                    target += (target.indexOf('?') >= 0 ? '&' : '?') + 'frame_z=1';
+                }
                 var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 var url = proto + '//' + location.host + target;
                 var early = { url: url, ws: new WebSocket(url), opened: false, events: [] };
@@ -6359,6 +6362,41 @@
             return ws;
         }
 
+        const _FRAME_Z_SUPPORTED = typeof DecompressionStream === 'function';
+        const _FRAME_Z_MAGIC = 0x315A5641;  // "AVZ1" read little-endian
+
+        function _inflateFrame(buf) {
+            const body = new Blob([new Uint8Array(buf, 4)]).stream()
+                .pipeThrough(new DecompressionStream('deflate'));
+            return new Response(body).arrayBuffer();
+        }
+
+        /**
+         * Wrap a socket message handler so deflated frames arrive as the raw
+         * frames every handler expects. Inflating is asynchronous, so while
+         * one is in flight later messages queue behind it and keep their
+         * order; with none pending a message is handed over synchronously.
+         */
+        function _inflatingMessageHandler(handler) {
+            let pending = null;
+            return function (event) {
+                const data = event.data;
+                const packed = data instanceof ArrayBuffer && data.byteLength >= 8
+                    && new Uint32Array(data, 0, 1)[0] === _FRAME_Z_MAGIC;
+                if (!packed && !pending) { handler.call(this, event); return; }
+                const self = this;
+                const ready = packed ? _inflateFrame(data) : null;
+                const step = (pending || Promise.resolve())
+                    .then(() => ready)
+                    .then(raw => {
+                        handler.call(self, raw ? new MessageEvent('message', { data: raw }) : event);
+                    })
+                    .catch(err => console.error('frame inflate failed', err));
+                pending = step;
+                step.then(() => { if (pending === step) pending = null; });
+            };
+        }
+
         function createTransport(transportSid, onMessage, onOpen, onClose, onError, adoptEarly = false) {
             let wsTarget = resolveServerPath(`/ws/${transportSid}`);
             const nativeRequestId = urlParams.get('native_request_id');
@@ -6375,6 +6413,12 @@
                 const separator = wsTarget.includes('?') ? '&' : '?';
                 wsTarget += `${separator}launch_request_id=${encodeURIComponent(launchRequestId)}`;
                 wsTarget += `&launch_token=${encodeURIComponent(launchToken)}`;
+            }
+            // Ask for frames deflated; the server only does so over a remote
+            // link. Must stay last so the URL matches the early socket's.
+            if (_FRAME_Z_SUPPORTED) {
+                const separator = wsTarget.includes('?') ? '&' : '?';
+                wsTarget += `${separator}frame_z=1`;
             }
             const socketUrl = () => {
                 if (_embeddedServerOrigin) {
@@ -6393,7 +6437,7 @@
             const ws = early || (hedged ? _createHedgedWebSocket(makeSocket) : makeSocket());
             ws.binaryType = 'arraybuffer';
             if (onOpen) ws.onopen = onOpen;
-            if (onMessage) ws.onmessage = onMessage;
+            if (onMessage) ws.onmessage = _inflatingMessageHandler(onMessage);
             if (onClose) ws.onclose = onClose;
             if (onError) ws.onerror = onError;
             return ws;
@@ -16278,7 +16322,7 @@
                 if (_metadataProcessed) updateView();  // reconnect: metadata already known
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = _inflatingMessageHandler((event) => {
                 // Text message: server pushes metadata as first JSON message
                 if (typeof event.data === 'string') {
                     try {
@@ -16409,7 +16453,7 @@
                 } else if (isPlaying) {
                     playNext();
                 }
-            };
+            });
 
             ws.onclose = () => {
                 _clearWsOpenTimer();
