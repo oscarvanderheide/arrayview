@@ -23379,7 +23379,7 @@
             if (dimsOk && mode !== 'ortho') { dim_x = dims[0]; dim_y = dims[1]; }
             const free = () => shape.findIndex((n, i) => ![dim_x, dim_y, dim_z].includes(i) && !_isCollectionDim(i) && n > 1);
             if ([dim_x, dim_y].includes(current_slice_dim) && free() >= 0) current_slice_dim = activeDim = free();
-            if (mode === 'mosaic' && shape.length >= 4) {
+            if (mode === 'mosaic' && shape.length >= 3) {
                 // Without a third dim, grid the dim that was scrolling, as `z` does.
                 dim_z = dimsOk && dims.length === 3 ? dims[2] : current_slice_dim;
                 if (current_slice_dim === dim_z && free() >= 0) current_slice_dim = activeDim = free();
@@ -28757,10 +28757,18 @@
                         current_slice_dim = dim_z;
                         dim_z = -1;
                     } else {
-                        if (shape.length < 4) return;
+                        if (shape.length < 3 || _isCollectionDim(current_slice_dim)) {
+                            showStatus('mosaic: needs a slice dim to tile');
+                            return;
+                        }
                         dim_z = current_slice_dim;
-                        do { current_slice_dim = (current_slice_dim + 1) % shape.length; }
-                        while (current_slice_dim === dim_x || current_slice_dim === dim_y || current_slice_dim === dim_z || _isCollectionDim(current_slice_dim));
+                        // Scroll the next free dim after the gridded one. A
+                        // plain volume has none left: its mosaic shows every
+                        // slice and scrolling has nothing to step through.
+                        for (let k = 1; k < shape.length; k++) {
+                            const d = (dim_z + k) % shape.length;
+                            if (d !== dim_x && d !== dim_y && !_isCollectionDim(d)) { current_slice_dim = d; break; }
+                        }
                     }
                     activeDim = current_slice_dim;
                     _invalidateVolHistCache();

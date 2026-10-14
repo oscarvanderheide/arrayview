@@ -16,7 +16,7 @@ When the voxel size is known (NIfTI, or set with `Shift+A`), images are drawn in
 
 ## Mosaic
 
-`z` — lays out a grid of slices along the next dimension. Scrolling then steps through the dimension after that.
+`z` — lays out a grid of slices along the next dimension. Scrolling then steps through the dimension after that; a plain 3-D volume shows all its slices at once.
 
 ## Projections
 
