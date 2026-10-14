@@ -3604,6 +3604,11 @@ def view(
         complex=complex,
     )
     _code_name = _caller_variable_name(arrays[0]) if arrays else None
+    # Several arrays side by side need telling apart; the caller's variable
+    # names do that better than identical "Array (shape)" labels.
+    _var_names = (
+        [_caller_variable_name(arr) for arr in arrays] if len(arrays) > 1 else []
+    )
 
     height = _normalize_inline_height(height)
     _inline_mode_heights = _normalize_inline_mode_heights(mode_heights)
@@ -3664,6 +3669,8 @@ def view(
     arrays = tuple(_convert_array(arr) for arr in arrays)
 
     # --- Apply name defaults after conversion (shape is available now) ---
+    if len(set(filter(None, _var_names))) == n_arrays:
+        names = [names[i] if names[i] is not None else _var_names[i] for i in range(n_arrays)]
     names = [
         (f"Array {getattr(arrays[i], 'shape', '?')}" if names[i] is None else names[i])
         for i in range(n_arrays)
