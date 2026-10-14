@@ -227,6 +227,26 @@ Focused CLI and `/load` tests (`component`) cover default direct access,
 explicit direct access, and enabled staging for direct and nested mounts,
 plus ordinary local collections. Single-file display routing is unchanged.
 
+### 2026-10-15 mode-combination cleanup (branch cleanup/mode-combinations)
+
+Rows changed: none directly. Two edits sit near launch code:
+
+- The viewer's start-up for **several arrays plus `--mode`** now opens the
+  comparison in that mode (`--mode ortho` → compare 3-plane, `--mode qmri` →
+  compare qMRI) instead of dropping the other arrays. It runs after the first
+  frame path, so it can affect every row's multi-array launch. Seen working
+  2026-10-15 `real process`: `uv run arrayview a.npy b.npy --mode ortho
+  --window browser` on Linux, opened in a headless browser through the
+  `BROWSER` hand-off, first frame rendered in compare 3-plane with file names.
+  Single-array launches unchanged (same headless check).
+- The process-liveness check used for VS Code window registrations and the
+  extension-install lock no longer calls `os.kill(pid, 0)` on Windows (signal
+  0 is Ctrl+C there, so every window looked dead). Linux/macOS take the same
+  path as before. Windows evidence: `component` only (unit test with the
+  Windows branch forced); no Windows host was available. Rows that could be
+  affected on Windows: any VS Code terminal launch on a Windows desktop (not
+  yet a row) and row 10.
+
 ### CLI
 
 | # | Environment | Window | Array / storage | Status |
