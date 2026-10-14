@@ -7877,7 +7877,6 @@
 
         let _qmriPrevSliceDim = null;  // scroll dim before qMRI moved it off the maps dim
         function _ensureQmriActiveDimVisible() {
-            if (_isQmriControlDim(activeDim)) activeDim = _firstVisibleQmriDim();
             // The wheel scrolls current_slice_dim. Left on the maps dim it
             // would step through maps every pane already shows: nothing moves.
             if (_isQmriControlDim(current_slice_dim)) {
@@ -7887,6 +7886,13 @@
                     if (_qmriPrevSliceDim === null) _qmriPrevSliceDim = current_slice_dim;
                     current_slice_dim = d;
                 }
+            }
+            // Select the scroll dim so j/k step slices, as in the normal view,
+            // rather than landing on x where they flip the image.
+            if (_isQmriControlDim(activeDim)) {
+                const scrollable = current_slice_dim !== dim_x && current_slice_dim !== dim_y
+                    && !_isQmriControlDim(current_slice_dim);
+                activeDim = scrollable ? current_slice_dim : _firstVisibleQmriDim();
             }
         }
 
@@ -28769,6 +28775,7 @@
                                     && !_isQmriControlDim(i) && !_isCollectionDim(i));
                                 if (d >= 0) current_slice_dim = d;
                             }
+                            if (activeDim === zd && current_slice_dim !== zd) activeDim = current_slice_dim;
                             _rebuildQmriMosaicLayout();
                             qvScaleAllCanvases();
                             qmriViews.forEach(v => qvRender(v));
