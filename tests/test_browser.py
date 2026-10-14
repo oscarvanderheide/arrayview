@@ -1084,3 +1084,52 @@ class TestNormalInspectInteractions:
 # Pixel-diff visual regression was removed: tests/snapshots/ is gitignored, so
 # the baseline never survives a fresh clone and every run took the
 # "create baseline, then skip" path. It never once compared anything.
+
+
+class TestModeCombinations:
+    """Several arrays combined with ortho / qMRI / mosaic."""
+
+    def _two(self, client, tmp_path, arr, name):
+        from conftest import register_array
+        return [register_array(client, arr * (1 + i), tmp_path, f"{name}{i}") for i in range(2)]
+
+    def test_requested_ortho_with_two_arrays_keeps_the_comparison(
+        self, page, server_url, client, tmp_path, arr_3d
+    ):
+        from arrayview._session import SESSIONS
+        a, b = self._two(client, tmp_path, arr_3d, "cmportho")
+        SESSIONS[a].initial_view = {"mode": "ortho"}
+        page.goto(f"{server_url}/?sid={a}&compare_sid={b}&compare_sids={b}")
+        page.wait_for_function("() => compareActive && compareMvActive", timeout=15_000)
+        # Panes are titled with the file names, not session ids.
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('.cq-row-label')].map(e => e.textContent).join(' ').includes('cmportho0')",
+            timeout=5_000,
+        )
+
+    def test_compare_qmri_and_compare_3plane_switch_without_blanking(
+        self, page, server_url, client, tmp_path
+    ):
+        arr = np.random.default_rng(3).random((3, 12, 32, 32)).astype(np.float32)
+        a, b = self._two(client, tmp_path, arr, "cq")
+        page.goto(f"{server_url}/?sid={a}&compare_sid={b}&compare_sids={b}")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        for key, check in [
+            ("q", "compareQmriActive && !compareMvActive"),
+            ("v", "compareMvActive && !compareQmriActive"),
+            ("q", "compareQmriActive && !compareMvActive"),
+        ]:
+            _focus_kb(page)
+            page.keyboard.press(key)
+            page.wait_for_function(f"() => {check}", timeout=5_000)
+            page.wait_for_timeout(300)
+            assert page.locator("#qmri-view-wrap canvas:visible").count() > 0
+
+    def test_z_tiles_a_plain_volume(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z >= 0", timeout=5_000)
+        _focus_kb(page)
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z === -1", timeout=5_000)
