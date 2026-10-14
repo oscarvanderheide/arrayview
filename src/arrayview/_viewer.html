@@ -28298,7 +28298,7 @@
                         showStatus('immersive: not available in ortho view');
                         return;
                     }
-                    if (qmriActive) {
+                    if (qmriActive || compareQmriActive) {
                         // Three maps side by side are limited by width, which
                         // immersive does not free up; it would only add chrome
                         // motion for no bigger maps.
@@ -41854,7 +41854,7 @@
             // i.e. the vertical space limits fit-zoom more than horizontal.
             // Immersive reclaims the bottom chrome reserve; if width was
             // already limiting, entering immersive gains nothing.
-            if (qmriActive) return false;  // see the immersive.toggle command
+            if (qmriActive || compareQmriActive) return false;  // see the immersive.toggle command
             let w, h;
             if (compareActive && compareFrames.length) {
                 // In compare mode, use first frame dimensions × column count
