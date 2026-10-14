@@ -14198,7 +14198,8 @@
             const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
             const qmriRole = opts.qmriRole || '';
             const numBins = opts.bins || 64;
-            return `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
+            const sidKey = opts.sid && opts.sid !== sid ? `${opts.sid}|` : '';
+            return `${sidKey}${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
         }
 
         async function _fetchVolumeHistogram(opts = {}) {
@@ -14230,7 +14231,9 @@
             const qmriRole = opts.qmriRole || '';
             const numBins = opts.bins || 64;
             const exclZ = excludeZeros ? '1' : '0';
-            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}:ez${exclZ}`;
+            const fetchSid = opts.sid || sid;
+            const sidKey = fetchSid !== sid ? `${fetchSid}|` : '';
+            const cacheKey = `${sidKey}${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}:ez${exclZ}`;
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
@@ -14253,7 +14256,7 @@
             if (excludeZeros) params.set('exclude_zeros', '1');
             const request = (async () => {
                 try {
-                    const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
+                    const resp = await proxyFetch(`/volume-histogram/${fetchSid}?${params}`);
                     if (!resp.ok) return null;
                     const data = await resp.json();
                     _volHistCache[cacheKey] = data;
@@ -14661,12 +14664,7 @@
             if (!normalized) return null;
             const lo = normalized.vmin;
             const hi = normalized.vmax;
-            view.lockedVmin = lo;
-            view.lockedVmax = hi;
-            const ownerViews = compareQmriActive ? compareQmriViews : qmriViews;
-            const idx = ownerViews.indexOf(view);
-            const qv = idx >= 0 ? modeManager.currentViews[idx] : null;
-            if (qv) { qv.displayState.vmin = lo; qv.displayState.vmax = hi; }
+            _qmriStoreWindow(view, lo, hi);
             return { vmin: lo, vmax: hi };
         }
 
@@ -14691,6 +14689,11 @@
                         vmax: range.vmin + span * preset.hi,
                     };
                 }
+            } else if (compareQmriActive) {
+                hist = await _cqFetchColumnHistogram(view);
+                if (generation != null && generation !== _qmriPresetCycleGeneration) return false;
+                win = _quantileWindowFromHistogram(hist, preset);
+                hist = _normalizeQmriHistogramForColorbar(view, hist);
             } else {
                 const fixedIndices = `${qmriDim}:${view.qmriIdx}`;
                 hist = await _fetchVolumeHistogram({
@@ -14729,14 +14732,17 @@
                 });
             }
             if (view._colorBar) { view._colorBar.draw(); view._colorBar.updateLabels(); }
-            if (compareQmriActive) compareQmriRender(view);
-            else qvRender(view);
+            _qmriRenderWindowOwners(view);
             return true;
         }
 
         async function _cycleQmriPaneRangePreset() {
             if (qmriMvActive) { await _cycleQmriMvRangePreset(); return true; }
-            const view = _hoveredQmriView;
+            // In compare-qMRI only the bottom row shows colorbars, and each map
+            // column shares one range, so act through the column's bottom pane.
+            const view = compareQmriActive && _hoveredQmriView
+                ? _cqColumnLead(_hoveredQmriView)
+                : _hoveredQmriView;
             const activeCb = view
                 ? (qmriMosaicActive && view._mosaicColorBar ? view._mosaicColorBar : view._colorBar)
                 : null;
@@ -14761,7 +14767,9 @@
             if (view) {
                 await _applyQmriRangePresetToView(view, preset, generation);
             } else {
-                const paneViews = compareQmriActive ? compareQmriViews : qmriViews;
+                const paneViews = compareQmriActive
+                    ? compareQmriViews.filter(v => _cqColumnLead(v) === v)
+                    : qmriViews;
                 await Promise.all(paneViews.map(v => _applyQmriRangePresetToView(v, preset, generation)));
                 if (!compareQmriActive) qvScaleAllCanvases();
             }
@@ -25079,11 +25087,8 @@
             const nextVmin = center - w / 2;
             const nextVmax = center + w / 2;
             if (_bcTargetView) {
-                _bcTargetView.lockedVmin = nextVmin;
-                _bcTargetView.lockedVmax = nextVmax;
-                const _qv = modeManager.currentViews.find(v => v && v.qmriIdx === _bcTargetView.qmriIdx);
-                if (_qv) { _qv.displayState.vmin = nextVmin; _qv.displayState.vmax = nextVmax; }
-                qvRender(_bcTargetView);
+                _qmriStoreWindow(_bcTargetView, nextVmin, nextVmax);
+                _qmriRenderWindowOwners(_bcTargetView);
             } else {
                 manualVmin = nextVmin;
                 manualVmax = nextVmax;
@@ -25423,6 +25428,7 @@
         }
         function _qmriArmWindowLevel(view, e) {
             if (_pixelInfoHeld) { _pixelInfoHeld = false; hideAllPixelInfo(); }
+            if (compareQmriActive) view = _cqColumnLead(view);
             const pending = _bcPendingDrag = {
                 startX: e.clientX, startY: e.clientY,
                 targetView: view, targetCb: view._colorBar,
@@ -25469,7 +25475,7 @@
                 ? under.closest(_INFO_CURSOR_CANVAS_SELECTOR)
                 : null;
             _reconcileInfoCursor();
-            if (targetView) qvRender(targetView);
+            if (targetView) _qmriRenderWindowOwners(targetView);
             else updateView();
             saveState();
             // The drag has definitively ended (this is mouseup, not a hover
@@ -37287,6 +37293,96 @@
 
         // --------------- Compare + qMRI combined mode ---------------
         // Layout: rows = compared arrays, columns = parameter maps
+        // Each map column shares one display range across the compared arrays:
+        // only the bottom row shows colorbars, so that one bar must be true
+        // for every pane above it.
+
+        function _cqColumnViews(view) {
+            return compareQmriViews.filter(v => v.qmriIdx === view.qmriIdx);
+        }
+
+        /** The bottom-row pane of a column — the one whose colorbar is shown. */
+        function _cqColumnLead(view) {
+            const col = _cqColumnViews(view);
+            return col.length ? col[col.length - 1] : view;
+        }
+
+        /** Store a display window on a qMRI pane; in compare-qMRI on its whole column. */
+        function _qmriStoreWindow(view, lo, hi) {
+            const ownerViews = compareQmriActive ? compareQmriViews : qmriViews;
+            const targets = compareQmriActive && ownerViews.includes(view) ? _cqColumnViews(view) : [view];
+            targets.forEach(t => {
+                t.lockedVmin = lo;
+                t.lockedVmax = hi;
+                const idx = ownerViews.indexOf(t);
+                const qv = idx >= 0 ? modeManager.currentViews[idx] : null;
+                if (qv && qv.displayState) { qv.displayState.vmin = lo; qv.displayState.vmax = hi; }
+            });
+        }
+
+        function _qmriRenderWindowOwners(view) {
+            if (compareQmriActive && compareQmriViews.includes(view)) {
+                _cqColumnViews(view).forEach(v => {
+                    compareQmriRender(v);
+                    if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
+                });
+            } else {
+                qvRender(view);
+            }
+        }
+
+        /** First frame of a pane: once every pane in its column has reported
+         *  its own range, lock the column to the union so all arrays share it. */
+        function _cqNoteFrameRange(v, lo, hi) {
+            if (v.lockedVmin != null) return;
+            v._cqNaturalRange = { vmin: lo, vmax: hi };
+            const col = _cqColumnViews(v);
+            if (!col.every(c => c._cqNaturalRange)) return;
+            const win = _normalizeQmriWindowPolicy(v, {
+                vmin: Math.min(...col.map(c => c._cqNaturalRange.vmin)),
+                vmax: Math.max(...col.map(c => c._cqNaturalRange.vmax)),
+            });
+            if (!win) return;
+            _qmriStoreWindow(v, win.vmin, win.vmax);
+            col.forEach(c => compareQmriRender(c));
+        }
+
+        function _cqHistogramOpts(view, sidVal) {
+            return {
+                sid: sidVal,
+                dimX: dim_x, dimY: dim_y,
+                scrollDim: current_slice_dim,
+                complexMode: complexMode,
+                fixedIndices: compareQmriDim + ':' + view.qmriIdx,
+                qmriRole: view.qmriRole,
+                bins: 128,
+            };
+        }
+
+        /** One histogram of a map across every compared array, re-binned
+         *  onto a common range so presets and the shown bar cover them all. */
+        async function _cqFetchColumnHistogram(view) {
+            const sids = _cqColumnViews(view).map(v => v.sid);
+            const hists = (await Promise.all(sids.map(s => _fetchVolumeHistogram(_cqHistogramOpts(view, s)))))
+                .filter(h => h && h.counts && h.counts.length && h.edges && h.edges.length === h.counts.length + 1);
+            if (!hists.length) return null;
+            if (hists.length === 1) return hists[0];
+            const lo = Math.min(...hists.map(h => Number(h.vmin)));
+            const hi = Math.max(...hists.map(h => Number(h.vmax)));
+            if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return hists[0];
+            const bins = 128;
+            const step = (hi - lo) / bins;
+            const counts = new Array(bins).fill(0);
+            for (const h of hists) {
+                for (let i = 0; i < h.counts.length; i++) {
+                    const c = (Number(h.edges[i]) + Number(h.edges[i + 1])) / 2;
+                    const b = Math.max(0, Math.min(bins - 1, Math.floor((c - lo) / step)));
+                    counts[b] += h.counts[i];
+                }
+            }
+            const edges = Array.from({ length: bins + 1 }, (_, i) => lo + i * step);
+            return { counts, edges, vmin: lo, vmax: hi };
+        }
         function enterCompareQmri() {
             if (!compareActive) return;
             _qmriRenderGeneration++;
@@ -37389,35 +37485,19 @@
                         getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
-                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        setWindow: (lo, hi) => { _qmriStoreWindow(view, lo, hi); },
                         fetchHistogram: async () => {
-                            const fixedPairs = [];
-                            fixedPairs.push(compareQmriDim + ':' + view.qmriIdx);
-                            const fixedIndices = fixedPairs.join(',');
-                            const hist = await _fetchVolumeHistogram({
-                                dimX: dim_x, dimY: dim_y,
-                                scrollDim: current_slice_dim,
-                                complexMode: complexMode,
-                                fixedIndices,
-                                qmriRole: view.qmriRole,
-                                bins: 128,
-                            });
+                            const hist = await _cqFetchColumnHistogram(view);
                             return _normalizeQmriHistogramForColorbar(view, hist);
                         },
-                        getHistogramVersion: () => _volumeHistCacheKey({
-                            dimX: dim_x, dimY: dim_y,
-                            scrollDim: current_slice_dim,
-                            complexMode: complexMode,
-                            fixedIndices: compareQmriDim + ':' + view.qmriIdx,
-                            qmriRole: view.qmriRole,
-                            bins: 128,
-                        }),
+                        getHistogramVersion: () => _cqColumnViews(view)
+                            .map(v => _volumeHistCacheKey(_cqHistogramOpts(view, v.sid))).join(';'),
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
                         onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                         onDragStart: () => { _stopColorbarLebesgueHover(); },
                         onDragEnd: () => { if (cqCb && cqCb._mouseOver) _startColorbarLebesgueHover(); },
                         onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_cqCb, binIdx); },
-                        onWindowChange: () => { compareQmriRender(view); },
+                        onWindowChange: () => { _cqColumnViews(view).forEach(v => compareQmriRender(v)); },
                         onAnimFrame: () => { compareQmriScaleAllCanvases(); },
                     });
                     _cqCb._lebesgueView = view;
@@ -37583,6 +37663,8 @@
                 canvas_h: _qch,
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
+                vmin_override: v.lockedVmin != null && v.lockedVmax != null ? v.lockedVmin : undefined,
+                vmax_override: v.lockedVmin != null && v.lockedVmax != null ? v.lockedVmax : undefined,
                 perf: _PERF_ENABLED,
             }));
         }
@@ -37622,10 +37704,7 @@
                 const frameWindow = _normalizeQmriWindowPolicy(v, { vmin: frame.vmin, vmax: frame.vmax }) || frame;
                 v.vmin = frameWindow.vmin;
                 v.vmax = frameWindow.vmax;
-                if (v.lockedVmin === undefined || v.lockedVmin === null) {
-                    v.lockedVmin = v.vmin;
-                    v.lockedVmax = v.vmax;
-                }
+                _cqNoteFrameRange(v, v.vmin, v.vmax);
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width;
                 v.lastH = frame.height;
@@ -37737,7 +37816,9 @@
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq && compareQmriActive && v._qmriGeneration === _qmriRenderGeneration && compareQmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
-                v.vmin = f32[0]; v.vmax = f32[1];
+                const frameWindow = _normalizeQmriWindowPolicy(v, { vmin: f32[0], vmax: f32[1] }) || { vmin: f32[0], vmax: f32[1] };
+                v.vmin = frameWindow.vmin; v.vmax = frameWindow.vmax;
+                _cqNoteFrameRange(v, v.vmin, v.vmax);
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 const drawT0 = _perfNow();
                 const frame = _applyAutoCropIfReady(
