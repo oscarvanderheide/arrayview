@@ -1203,13 +1203,13 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
         except Exception:
             continue
 
+    from arrayview._platform import _process_is_alive
+
     for wid, data in list(registrations.items()):
         pid = data.get("pid")
         if pid is None:
             continue
-        try:
-            os.kill(pid, 0)
-        except (ProcessLookupError, PermissionError):
+        if not _process_is_alive(pid):
             try:
                 os.unlink(os.path.join(signal_dir, f"window-{wid}.json"))
                 removed += 1

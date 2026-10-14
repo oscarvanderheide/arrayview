@@ -336,7 +336,7 @@ def _extension_registered(base: str, version: str) -> bool:
         os.path.join(base, f"arrayview.arrayview-opener-{version}")
     )
     try:
-        with open(registry) as handle:
+        with open(registry, encoding="utf-8") as handle:
             entries = json.load(handle)
     except (OSError, ValueError, TypeError):
         return False

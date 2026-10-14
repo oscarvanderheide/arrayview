@@ -183,3 +183,18 @@ def test_import_does_not_load_heavy_dependencies():
     code = "import sys; import arrayview._instance_registry; print('fastapi' in sys.modules, 'numpy' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == "False False"
+
+
+def test_process_alive_check_never_signals_on_windows(monkeypatch):
+    """Signal 0 is Ctrl+C on Windows; the liveness check must not send it."""
+    import arrayview._instance_registry as registry
+    import arrayview._platform as platform_mod
+
+    def _no_kill(*_args):
+        raise AssertionError("os.kill must not be used on Windows")
+
+    monkeypatch.setattr(platform_mod.os, "name", "nt")
+    monkeypatch.setattr(platform_mod.os, "kill", _no_kill)
+    monkeypatch.setattr(registry, "process_start_identity", lambda pid: "windows:1" if pid == 42 else None)
+    assert platform_mod._process_is_alive(42) is True
+    assert platform_mod._process_is_alive(43) is False

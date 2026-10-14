@@ -452,8 +452,17 @@ def _has_vscode_window_registration() -> bool:
 def _process_is_alive(pid: object) -> bool:
     try:
         numeric_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if os.name == "nt":
+        # Signal 0 is CTRL_C_EVENT on Windows: os.kill would try to interrupt
+        # a console process group rather than test whether the pid exists.
+        from arrayview._instance_registry import process_start_identity
+
+        return process_start_identity(numeric_pid) is not None
+    try:
         os.kill(numeric_pid, 0)
-    except (OSError, TypeError, ValueError):
+    except OSError:
         return False
     if sys.platform.startswith("linux"):
         try:
