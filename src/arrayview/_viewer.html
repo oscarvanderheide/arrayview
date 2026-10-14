@@ -10484,8 +10484,14 @@
             _updateComparePaneSyncPairing();
         }
 
+        // Compare 3-plane and compare qMRI replace the compare panes, so the
+        // center pane (and the chrome placed over it) is not on screen there.
+        function _comparePanesShown() {
+            return compareActive && !compareMvActive && !compareQmriActive;
+        }
+
         function _compareCenterActive() {
-            return compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+            return _comparePanesShown() && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
         }
 
         function _compareCenterAnchorRect() {
@@ -28695,7 +28701,8 @@
                 when: [],
                 run: (ctx, e) => {
                     if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; } // kept inline: emits toast
-                    if (multiViewActive || qmriMvActive) { showStatus('mosaic: not available in multi-view'); return; } // kept inline: emits toast
+                    if (multiViewActive || qmriMvActive || compareMvActive) { showStatus('mosaic: not available in multi-view'); return; } // kept inline: emits toast
+                    if (compareQmriActive) { showStatus('mosaic: not available in qMRI compare'); return; }
                     if (qmriActive) {
                         if (!qmriMosaicActive && _qmriSyntheticViews.length) {
                             showStatus('qMRI mosaic: turn synthetic MRI off first');
@@ -29995,6 +30002,10 @@
             'compare.cycleCenterMode': {
                 when: ['compareActive'],
                 run: (ctx, e) => {
+                    if (!_comparePanesShown()) {
+                        showToast('center mode: not available in 3-plane or qMRI compare');
+                        return;
+                    }
                     if (!_compareCenterSupported()) {
                         showToast('center-mode cycle: only available in 2-pane compare');
                         return;
