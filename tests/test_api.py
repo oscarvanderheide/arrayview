@@ -3490,7 +3490,9 @@ class TestDiff:
         })
         assert r.status_code == 200
         assert "image/jpeg" in r.headers["content-type"]
-        assert r.headers.get("X-ArrayView-Colormap") == "RdBu_r"
+        assert r.headers.get("X-ArrayView-Colormap") == "icefire"
+        # The new headers behind the A−B title numbers.
+        assert float(r.headers["X-ArrayView-Diff-Rmse"]) >= 0
 
     def test_diff_mode2_uses_afmhot(self, client, tmp_path):
         sid_a, sid_b = self._make_pair(client, tmp_path)
