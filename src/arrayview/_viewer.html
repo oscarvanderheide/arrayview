@@ -18713,8 +18713,10 @@
             const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
             const lo = shown.length ? Math.min(...shown.map(st => st.min).filter(Number.isFinite)) : NaN;
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
+            const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
             let html = `<div class="roi-hud-head roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span><span class="roi-hud-count">${_rois.length}</span>`
+                + `<button type="button" class="roi-hud-export" data-export="copy" data-tip="Copy the table · paste into a spreadsheet" aria-label="Copy ROI statistics table">${copyIcon}copy</button>`
                 + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
                 + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
             html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
@@ -18734,7 +18736,8 @@
                 hud.innerHTML = html;
                 hud.querySelectorAll('.roi-hud-export').forEach(btn => btn.addEventListener('click', e => {
                     e.stopPropagation();
-                    if (btn.dataset.export === 'csv') _exportRoisCsv();
+                    if (btn.dataset.export === 'copy') _copyRoiTable();
+                    else if (btn.dataset.export === 'csv') _exportRoisCsv();
                     else _exportRoiMask();
                 }));
                 hud.querySelectorAll('.roi-hud-row').forEach(row => {
@@ -27177,72 +27180,61 @@
                 showToast(`ROI mask export: ${err.message}`);
             }
         }
-        async function _exportRoisCsv() {
+        /** The ROI numbers as one table: a row per ROI, the same values the
+         *  ROI panel shows. In qMRI each map gets its own mean/std/min/max
+         *  columns. Shared by the copy button (tab-separated) and CSV download. */
+        function _roiTableRows() {
+            const num = v => (typeof v === 'number' && Number.isFinite(v))
+                ? (Number.isInteger(v) ? String(v) : parseFloat(v.toPrecision(6)).toString())
+                : '';
+            const shown = _rois.map((r, i) => [r, i]).filter(([r]) => r && r.visible !== false);
+            const useMaps = qmriActive && shown.some(([r]) => Array.isArray(r.qmriStats) && r.qmriStats.length);
+            if (!useMaps) {
+                const rows = [['ROI', 'mean', 'std', 'min', 'max', 'pixels']];
+                for (const [r, i] of shown) {
+                    const st = r.stats || {};
+                    rows.push([_roiName(i), num(st.mean), num(st.std), num(st.min), num(st.max), num(st.n)]);
+                }
+                return rows;
+            }
+            const maps = [];
+            for (const [r] of shown) {
+                for (const q of (r.qmriStats || [])) {
+                    if (q && !maps.some(m => m.qmriIdx === q.qmriIdx)) {
+                        // Plain column names (T1, PD) so scripts can address them.
+                        const label = String(QMRI_LABELS[q.colormap] || q.colormap || `map ${(q.qmriIdx ?? 0) + 1}`)
+                            .replace(/[\u2080-\u2089]/g, c => String(c.charCodeAt(0) - 0x2080)).replace(/\|/g, '');
+                        maps.push({ qmriIdx: q.qmriIdx, label });
+                    }
+                }
+            }
+            maps.sort((a, b) => (a.qmriIdx ?? 0) - (b.qmriIdx ?? 0));
+            const header = ['ROI', 'pixels'];
+            for (const m of maps) header.push(`${m.label} mean`, `${m.label} std`, `${m.label} min`, `${m.label} max`);
+            const rows = [header];
+            for (const [r, i] of shown) {
+                const byMap = new Map((r.qmriStats || []).filter(q => q && q.stats).map(q => [q.qmriIdx, q.stats]));
+                const counts = [...byMap.values()].map(st => st.n).filter(Number.isFinite);
+                const row = [_roiName(i), counts.length ? num(Math.max(...counts)) : ''];
+                for (const m of maps) {
+                    const st = byMap.get(m.qmriIdx) || {};
+                    row.push(num(st.mean), num(st.std), num(st.min), num(st.max));
+                }
+                rows.push(row);
+            }
+            return rows;
+        }
+        function _copyRoiTable() {
             if (!_rois.length) return;
-            showStatus('exporting ROI stats...');
-            const rows = [['roi', 'name', 'shape', 'map', 'scope', 'indices', 'mean', 'std', 'min', 'max', 'n_pixels'].join(',')];
-
-            if (qmriActive && _rois.some(r => Array.isArray(r.qmriStats) && r.qmriStats.length)) {
-                for (let i = 0; i < _rois.length; i++) {
-                    const r = _rois[i];
-                    if (!r || r.visible === false || !Array.isArray(r.qmriStats)) continue;
-                    for (const q of r.qmriStats) {
-                        if (!q || !q.stats) continue;
-                        const s = q.stats;
-                        rows.push([
-                            r.id || `roi-${i + 1}`,
-                            _roiName(i),
-                            r.type,
-                            QMRI_LABELS[q.colormap] || q.colormap || q.qmriIdx,
-                            (r.scope && r.scope.broadcast_dims || []).join('|'),
-                            (r.scope && r.scope.indices || indices).join('|'),
-                            s.mean, s.std, s.min, s.max, s.n,
-                        ].map(_roiCsvEscape).join(','));
-                    }
-                }
-                const csvText = rows.join('\n');
-                const dataUrl = 'data:text/csv;base64,' + btoa(csvText);
-                _downloadFile(dataUrl, 'roi_stats.csv');
-                showStatus('ROI stats exported');
-                return;
-            }
-
-            try {
-                const resp = await proxyFetch(`/roi_stats/${sid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({
-                        dim_x, dim_y,
-                        indices: indices.slice(),
-                        complex_mode: complexMode,
-                        rois: _roiPayload(),
-                    }),
-                });
-                const data = await resp.json();
-                for (const result of (data.results || [])) {
-                    const statRows = result.rows && result.rows.length ? result.rows : (result.stats ? [{indices: '', dims: '', ...result.stats}] : []);
-                    for (const row of statRows) {
-                        rows.push([
-                            result.roi,
-                            result.name,
-                            result.shape,
-                            '',
-                            row.dims,
-                            Array.isArray(row.indices) ? row.indices.join('|') : '',
-                            row.mean,
-                            row.std,
-                            row.min,
-                            row.max,
-                            row.n,
-                        ].map(_roiCsvEscape).join(','));
-                    }
-                }
-            } catch (err) {
-                showToast(`export error: ${err.message}`);
-            }
-
-            const csvText = rows.join('\n');
-            const dataUrl = 'data:text/csv;base64,' + btoa(csvText);
+            const text = _roiTableRows().map(row => row.map(c => String(c).replace(/[\t\n]/g, ' ')).join('\t')).join('\n');
+            navigator.clipboard.writeText(text)
+                .then(() => showToast('ROI table copied · paste into a spreadsheet'))
+                .catch(() => showToast('clipboard unavailable'));
+        }
+        function _exportRoisCsv() {
+            if (!_rois.length) return;
+            const csvText = _roiTableRows().map(row => row.map(_roiCsvEscape).join(',')).join('\n') + '\n';
+            const dataUrl = 'data:text/csv;base64,' + btoa(unescape(encodeURIComponent(csvText)));  // UTF-8 safe for ROI names
             _downloadFile(dataUrl, 'roi_stats.csv');
             showStatus('ROI stats exported');
         }

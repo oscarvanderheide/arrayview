@@ -12,7 +12,7 @@ For flood fill, `[` / `]` adjusts tolerance.
 
 Click an existing ROI to select it. `Delete` / `Backspace` removes it.
 
-The ROI panel beside the image lists every ROI with its mean ± standard deviation. Hovering a row, or the ROI itself, highlights that ROI and shows its mean ± std next to it on the image. Click a row for its distribution (a histogram on a value axis shared by all ROIs, with a tick at the mean), pixel count, min and max; in qMRI it lists the numbers for every map. Double-click a name to rename it. Drag the panel's header to move it. The `CSV` and `mask` buttons download the numbers or a label mask.
+The ROI panel beside the image lists every ROI with its mean ± standard deviation. Hovering a row, or the ROI itself, highlights that ROI and shows its mean ± std next to it on the image. Click a row for its distribution (a histogram on a value axis shared by all ROIs, with a tick at the mean), pixel count, min and max; in qMRI it lists the numbers for every map. Double-click a name to rename it. Drag the panel's header to move it. `copy` puts the numbers on the clipboard as a table that pastes straight into a spreadsheet; `CSV` downloads the same table. It has one row per ROI with its mean, std, min, max and pixel count; in qMRI each map gets its own mean/std/min/max columns. `mask` downloads a label mask.
 
 `N` exports the active ROI or segmentation mask as `.npy`.
 
