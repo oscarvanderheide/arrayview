@@ -40,6 +40,7 @@ BUILTIN_PREFERENCES = {
         "rounded_panes": True,
         "qmri_gapless": False,
         "compare_gapless": False,
+        "remember_view": False,
         "ortho_layout": None,
         "dimbar_mode": "compact",
     },
@@ -51,6 +52,7 @@ PREFERENCE_SCHEMA = {
         "rounded_panes": "boolean",
         "qmri_gapless": "boolean",
         "compare_gapless": "boolean",
+        "remember_view": "boolean",
         "colormaps": "non-empty list of names",
         "ortho_layout": sorted(_VALID_ORTHO_LAYOUTS),
         "dimbar_mode": sorted(_VALID_DIMBAR_MODES),
@@ -122,7 +124,7 @@ def _validate_preference(section: str, key: str, value):
         )
     if section == "viewer" and key == "theme":
         return _normalized_string(value, _VALID_THEMES, "viewer.theme")
-    if section == "viewer" and key in ("rounded_panes", "qmri_gapless", "compare_gapless"):
+    if section == "viewer" and key in ("rounded_panes", "qmri_gapless", "compare_gapless", "remember_view"):
         if not isinstance(value, bool):
             raise InvalidPreferenceError(f"viewer.{key} must be a boolean")
         return value
@@ -252,6 +254,14 @@ def get_viewer_compare_gapless() -> bool:
     """Whether arrays compared side by side touch, with no space between them."""
     viewer_cfg = load_config().get("viewer", {})
     return isinstance(viewer_cfg, dict) and viewer_cfg.get("compare_gapless") is True
+
+
+def get_viewer_remember_view() -> bool:
+    """Whether reopening a file brings back the view it was last left in."""
+    viewer_cfg = load_config().get("viewer", {})
+    val = viewer_cfg.get("remember_view") if isinstance(viewer_cfg, dict) else None
+    # `arrayview config set` stores the word "true"; the Preferences menu a boolean.
+    return val is True or (isinstance(val, str) and val.strip().lower() in ("true", "1", "yes", "on"))
 
 
 def get_viewer_ortho_layout() -> str | None:

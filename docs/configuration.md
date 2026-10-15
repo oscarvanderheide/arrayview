@@ -61,3 +61,13 @@ Explicit `--window` flag > `ARRAYVIEW_WINDOW` env var > config file > built-in d
 
 MATLAB uses the detected terminal, VS Code, SSH, or remote route. Local MATLAB
 prefers a native window when available. See [MATLAB and Julia](foreign-hosts.md).
+
+## Reopen where you left off
+
+Turn on **Reopen where you left off** in the Preferences menu (or
+`arrayview config set viewer.remember_view true`) and opening a file again
+brings back its slice, view (normal, 3-plane, qMRI), colormap and rotation.
+The display range comes back too, unless the file has changed since. Options
+given at launch, such as `--index` or `--cmap`, take precedence. Views are
+kept in `~/.arrayview/view_memory.json`; a comparison of several arrays is not
+remembered.

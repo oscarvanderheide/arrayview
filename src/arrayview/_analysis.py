@@ -60,6 +60,15 @@ def _build_metadata(session) -> dict:
     }
     if getattr(session, "initial_view", None):
         meta["initial_view"] = session.initial_view
+    if meta["has_source_file"]:
+        from arrayview._config import get_viewer_remember_view
+
+        if get_viewer_remember_view():
+            from arrayview._view_memory import remembered_view
+
+            remembered = remembered_view(session)
+            if remembered:
+                meta["remembered_view"] = remembered
     code_source = _code_source(session)
     if code_source is not None:
         meta["code_source"] = code_source

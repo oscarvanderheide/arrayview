@@ -56,6 +56,7 @@ from arrayview._config import (
     get_viewer_rounded_panes,
     get_viewer_qmri_gapless,
     get_viewer_compare_gapless,
+    get_viewer_remember_view,
     get_viewer_theme,
 )
 
@@ -486,6 +487,7 @@ def _viewer_ui_response(
         .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__DEFAULT_QMRI_GAPLESS__", "true" if get_viewer_qmri_gapless() else "false")
         .replace("__DEFAULT_COMPARE_GAPLESS__", "true" if get_viewer_compare_gapless() else "false")
+        .replace("__DEFAULT_REMEMBER_VIEW__", "true" if get_viewer_remember_view() else "false")
         .replace("__DEFAULT_ORTHO_LAYOUT__", _default_ortho_layout)
         .replace("__DEFAULT_DIMBAR_MODE__", _default_dimbar_mode)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")

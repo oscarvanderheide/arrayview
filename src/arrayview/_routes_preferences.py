@@ -68,6 +68,28 @@ def register_preferences_routes(app) -> None:
             return JSONResponse({"error": "session_not_found"}, status_code=404)
         return _response_payload()
 
+    @app.post("/view-memory/{sid}")
+    async def view_memory_post(sid: str, request: Request):
+        """Store the view a file was left in (Preferences → Reopen where you left off)."""
+        session = SESSIONS.get(sid)
+        if session is None:
+            return JSONResponse({"error": "session_not_found"}, status_code=404)
+        from arrayview._config import get_viewer_remember_view
+        from arrayview._view_memory import remember_view
+
+        if not get_viewer_remember_view():
+            return {"saved": False}
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+        view = body.get("view") if isinstance(body, dict) else None
+        try:
+            saved = remember_view(session, view)
+        except OSError:
+            saved = False
+        return {"saved": saved}
+
     @app.patch("/preferences/{sid}")
     async def preferences_patch(sid: str, request: Request):
         if SESSIONS.get(sid) is None:

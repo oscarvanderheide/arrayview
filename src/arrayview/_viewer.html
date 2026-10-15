@@ -6003,6 +6003,7 @@
         const DEFAULT_ROUNDED_PANES = __DEFAULT_ROUNDED_PANES__;
         const DEFAULT_QMRI_GAPLESS = __DEFAULT_QMRI_GAPLESS__;
         const DEFAULT_COMPARE_GAPLESS = __DEFAULT_COMPARE_GAPLESS__;
+        const DEFAULT_REMEMBER_VIEW = __DEFAULT_REMEMBER_VIEW__;
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
         // The array's description, written into the page by the server when it
@@ -7533,6 +7534,8 @@
         let roundedPanes = DEFAULT_ROUNDED_PANES; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
         let qmriGapless = DEFAULT_QMRI_GAPLESS; // Preferences → qMRI maps touching (viewer.qmri_gapless)
         let compareGapless = DEFAULT_COMPARE_GAPLESS; // Preferences → compare panes touching (viewer.compare_gapless)
+        let rememberViewEnabled = DEFAULT_REMEMBER_VIEW; // Preferences → reopen where you left off (viewer.remember_view)
+        let _hasSourceFile = false;
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -17845,7 +17848,15 @@
             await modeManager.enterMode(new NormalLayout(), [_bootSession]);
             reportParent('initial-layout-ready', { sid });
             const _restoredSavedView = restoreStateFromSessionStorage();
-            if (!_restoredSavedView && !stateParam) _applyInitialView(data.initial_view);
+            _hasSourceFile = !!data.has_source_file;
+            if (!_restoredSavedView && !stateParam) {
+                // A view asked for at launch (--index, --cmap, --dims …) wins
+                // over the one this file was last left in.
+                const _askedForView = (data.initial_view && Object.keys(data.initial_view).length)
+                    || urlParams.has('dim_x');
+                if (data.remembered_view && !_askedForView) applyStateSnapshot(data.remembered_view);
+                else _applyInitialView(data.initial_view);
+            }
             _syncRaggedShapeForCollection();
             _ensureViewingDimsAreSpatial();
             if (stateParam) {
@@ -23817,8 +23828,45 @@
             return false;
         }
 
+        // Preferences → Reopen where you left off. Only what belongs to this one
+        // array is kept: no compare partners, theme or zoom.
+        const _REMEMBERED_VIEW_KEYS = [
+            'colormap_idx', 'customColormap', 'indices', 'logScale', 'cbTickLevel',
+            'projectionMode', 'projectionDim', 'complexMode', 'complexModeEverUsed',
+            'flip_x', 'flip_y', 'flipDims', 'dim_x', 'dim_y', 'dim_z',
+            'current_slice_dim', 'activeDim', 'viewMemory', 'userAnatomy', 'userVoxelSizes',
+            'viewMode', 'mvDims', 'orthoLayoutMode', 'qmriDim', 'manualVmin', 'manualVmax',
+        ];
+        let _rememberViewTimer = null;
+        function _rememberedViewSnapshot() {
+            const all = collectStateSnapshot();
+            const view = {};
+            for (const k of _REMEMBERED_VIEW_KEYS) if (all[k] !== undefined) view[k] = all[k];
+            if (!['multiview', 'qmri', 'qmri-mv'].includes(view.viewMode)) delete view.viewMode;
+            return view;
+        }
+        function _sendRememberedView(keepalive = false) {
+            if (_rememberViewTimer) { clearTimeout(_rememberViewTimer); _rememberViewTimer = null; }
+            if (!rememberViewEnabled || !_hasSourceFile || !sid || !_metadataProcessed) return;
+            // A comparison mixes several arrays; the view to remember is a single one.
+            if (compareActive || compareMvActive || compareQmriActive) return;
+            proxyFetch(`/view-memory/${sid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ view: _rememberedViewSnapshot() }),
+                keepalive,
+            }).catch(() => {});
+        }
+        function _scheduleRememberView() {
+            if (!rememberViewEnabled || !_hasSourceFile) return;
+            if (_rememberViewTimer) clearTimeout(_rememberViewTimer);
+            _rememberViewTimer = setTimeout(() => _sendRememberedView(), 1200);
+        }
+        window.addEventListener('pagehide', () => { if (_rememberViewTimer) _sendRememberedView(true); });
+
         function saveState() {
             if (!sid) return;
+            _scheduleRememberView();
             try {
                 sessionStorage.setItem('av_' + sid, JSON.stringify(collectStateSnapshot()));
             } catch (e) {
@@ -24752,6 +24800,7 @@
             'viewer.rounded_panes': ['Rounded panes', 'Applies immediately across viewer modes.'],
             'viewer.qmri_gapless': ['qMRI maps touching', 'No space between qMRI maps, so they can be larger. With two rows, colour bars move inside the maps.'],
             'viewer.compare_gapless': ['Compare panes touching', 'No space between arrays shown side by side, so they can be larger. With two rows, array names move inside the images.'],
+            'viewer.remember_view': ['Reopen where you left off', 'Opening a file again brings back its slice, view, colormap and rotation, and its display range if the file has not changed.'],
             'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
@@ -24812,6 +24861,9 @@
                 qmriGapless = !!value;
                 _reconcileLayout();
                 if (qmriActive) qvScaleAllCanvases();
+            } else if (key === 'remember_view') {
+                rememberViewEnabled = !!value;
+                if (rememberViewEnabled) _scheduleRememberView();
             } else if (key === 'compare_gapless') {
                 compareGapless = !!value;
                 _reconcileLayout();
