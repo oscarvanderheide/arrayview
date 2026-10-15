@@ -132,9 +132,8 @@ needed to override the automatic size.
 
 ## File Picker
 
-`Shift+O` (or `Cmd/Ctrl+O` outside VS Code) opens the file picker. It lists
-the array files in the folder ArrayView was started from. When overlays are
-loaded, `Shift+O` cycles them instead.
+`Shift+Y` (or `Cmd/Ctrl+O` outside VS Code) opens the file picker. It lists
+the array files in the folder ArrayView was started from.
 
 ## Drag and Drop
 
