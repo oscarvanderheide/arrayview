@@ -1152,3 +1152,17 @@ class TestModeCombinations:
             page.mouse.wheel(0, 120)
             page.wait_for_timeout(100)
         page.wait_for_function("b => JSON.stringify(indices) !== b", arg=before, timeout=3_000)
+
+    def test_same_named_arrays_get_folder_in_pane_titles(self, page, server_url, client, tmp_path, arr_3d):
+        sids = []
+        for folder in ("pat_a", "pat_b"):
+            (tmp_path / folder).mkdir()
+            path = tmp_path / folder / "t1.npy"
+            np.save(path, arr_3d)
+            sids.append(client.post("/load", json={"filepath": str(path), "name": "t1.npy"}).json()["sid"])
+        page.goto(f"{server_url}/?sid={sids[0]}&compare_sid={sids[1]}&compare_sids={sids[1]}")
+        page.wait_for_function(
+            """() => { const t = document.getElementById('compare-left-title')?.textContent || '';
+                       return t.includes('pat_a/t1.npy'); }""",
+            timeout=15_000,
+        )

@@ -10029,6 +10029,7 @@
         }
 
         function comparePaneLabelForSid(sidVal) {
+            if (_compareLabelBySid[sidVal]) return _compareLabelBySid[sidVal];
             // The live name map wins for every pane, including the base. Its
             // label used to come from the compareBaseName snapshot, which is
             // taken once on entering compare — so a name that arrived later
@@ -33790,6 +33791,8 @@
                     && Array.isArray(cmpMeta.shape)
                     && baseMeta.shape.length === cmpMeta.shape.length
                     && baseMeta.shape.every((v, i) => Number(v) === Number(cmpMeta.shape[i]));
+                if (cmpMeta.name) compareNameBySid[targetSid] = cmpMeta.name;
+                await _ensureCompareNames([sid, targetSid]);
                 if (Array.isArray(baseMeta.shape) && Array.isArray(cmpMeta.shape)
                     && baseMeta.shape.length !== cmpMeta.shape.length) {
                     showStatus(`compare: arrays need the same number of dims ([${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}])`, 4000);
@@ -33931,7 +33934,7 @@
                 // Opened straight from the command line, nothing has looked
                 // the names up yet and the panes would be titled with ids.
                 await _ensureCompareNames(sids);
-                const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
+                const names = sids.map(s => comparePaneLabelForSid(s));
                 showStatus(`compare: ${names.join(' · ')}`);
                 return true;
             } catch (e) {
@@ -34422,18 +34425,56 @@
         }
 
         const _compareShapeBySid = {};
+        const _compareFilepathBySid = {};
+        const _compareLabelBySid = {};  // pane titles, made unique among the compared arrays
         async function _ensureCompareNames(sids) {
             if (_sessionName && !compareNameBySid[sid]) compareNameBySid[sid] = _sessionName;
-            if (sids.every(s => compareNameBySid[s] && _compareShapeBySid[s])) return;
-            try {
-                const res = await proxyFetch('/sessions');
-                if (!res.ok) return;
-                for (const s of await res.json()) {
-                    if (s.sid && s.name) compareNameBySid[s.sid] = s.name;
-                    if (s.sid && Array.isArray(s.shape)) _compareShapeBySid[s.sid] = s.shape;
-                }
-            } catch (_) { return; }
+            const known = s => compareNameBySid[s] && _compareShapeBySid[s] && (s in _compareFilepathBySid);
+            if (!sids.every(known)) {
+                try {
+                    const res = await proxyFetch('/sessions');
+                    if (res.ok) {
+                        for (const s of await res.json()) {
+                            if (!s.sid) continue;
+                            if (s.name) compareNameBySid[s.sid] = s.name;
+                            if (Array.isArray(s.shape)) _compareShapeBySid[s.sid] = s.shape;
+                            _compareFilepathBySid[s.sid] = s.filepath || null;
+                        }
+                    }
+                } catch (_) { /* titles fall back to plain names */ }
+            }
+            _setUniqueCompareLabels(sids);
             if (compareActive) updateCompareTitles();
+        }
+
+        // Two arrays with the same name get just enough of their folder path
+        // to tell them apart (p1/t1.npy vs p2/t1.npy). Still equal — the same
+        // file twice, or arrays without a file — they are numbered.
+        function _setUniqueCompareLabels(sids) {
+            const ids = [...new Set(sids)];
+            const base = s => compareNameBySid[s] || (s === sid && _sessionName) || s.slice(0, 8);
+            const groups = {};
+            for (const s of ids) { _compareLabelBySid[s] = base(s); (groups[base(s)] ||= []).push(s); }
+            for (const group of Object.values(groups)) {
+                if (group.length < 2) continue;
+                const dirs = group.map(s => {
+                    const fp = _compareFilepathBySid[s];
+                    return fp ? String(fp).split(/[\\/]+/).filter(Boolean).slice(0, -1) : [];
+                });
+                const depth = Math.max(...dirs.map(d => d.length));
+                const withDirs = k => group.map((s, i) => [...dirs[i].slice(Math.max(0, dirs[i].length - k)), base(s)].join('/'));
+                let labels = group.map(base);
+                for (let k = 1; k <= depth; k++) {
+                    const tried = withDirs(k);
+                    if (new Set(tried).size === tried.length) { labels = tried; break; }
+                }
+                const seen = {};
+                const count = labels.reduce((m, l) => (m[l] = (m[l] || 0) + 1, m), {});
+                group.forEach((s, i) => {
+                    const l = labels[i];
+                    _compareLabelBySid[s] = count[l] > 1 ? `${l} (${seen[l] = (seen[l] || 0) + 1})` : l;
+                });
+            }
         }
 
         // Side-by-side panes share one set of dims, so every array needs the
@@ -38226,7 +38267,12 @@
                 const rowLabel = document.createElement('div');
                 rowLabel.className = 'cq-row-label';
                 const _rawLabel = comparePaneLabelForSid(sidVal);
-                rowLabel.textContent = _rawLabel.split('/').pop().split('\\').pop().replace(/\.[^.]+$/, '') || _rawLabel;
+                const _shortLabel = l => l.split('/').pop().split('\\').pop().replace(/\.[^.]+$/, '') || l;
+                // Basenames alone, unless that would make two rows look alike;
+                // then keep the folders the pane titles use to tell them apart.
+                const _shorts = compareMvSids.map(x => _shortLabel(comparePaneLabelForSid(x)));
+                rowLabel.textContent = _shorts.filter(x => x === _shorts[si]).length > 1
+                    ? _rawLabel.replace(/\.[^./\\\s]+(\s\(\d+\))?$/, '$1') : _shorts[si];
                 rowLabel.title = _rawLabel; // full name on hover
                 rowDiv.appendChild(rowLabel);
                 // 3 planes per row
