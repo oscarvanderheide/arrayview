@@ -284,6 +284,29 @@ async def _send_json_quietly(ws, payload):
         pass
 
 
+# Viewer tabs whose slice position follows the other linked tabs (Shift+L).
+# Rides on each viewer's existing socket: VS Code tabs share one channel with
+# a small socket budget, so linking must not open connections of its own.
+_LINKED_VIEWER_SOCKETS: set = set()
+
+
+def _handle_link_message(ws, msg: dict) -> None:
+    action = msg.get("action")
+    if action == "join":
+        _LINKED_VIEWER_SOCKETS.add(ws)
+    elif action == "leave":
+        _LINKED_VIEWER_SOCKETS.discard(ws)
+    elif action == "position" and ws in _LINKED_VIEWER_SOCKETS:
+        indices = msg.get("indices")
+        shape = msg.get("shape")
+        if not isinstance(indices, list) or not isinstance(shape, list):
+            return
+        payload = {"type": "link", "indices": indices, "shape": shape}
+        for other in list(_LINKED_VIEWER_SOCKETS):
+            if other is not ws:
+                asyncio.ensure_future(_send_json_quietly(other, payload))
+
+
 def _render_rgba_from_data(data, colormap, vmin, vmax):
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
@@ -503,6 +526,11 @@ def register_websocket_routes(app) -> None:
             try:
                 while True:
                     msg = await ws.receive_json()
+                    if isinstance(msg, dict) and msg.get("type") == "link":
+                        # Not a frame request: answer here so it never
+                        # displaces (or is displaced by) a pending render.
+                        _handle_link_message(ws, msg)
+                        continue
                     try:
                         _pending.get_nowait()
                     except asyncio.QueueEmpty:
@@ -904,6 +932,7 @@ def register_websocket_routes(app) -> None:
                 _session_mod.LIVE_VIEWER_SOCKETS.remove(ws)
             except ValueError:
                 pass
+            _LINKED_VIEWER_SOCKETS.discard(ws)
             try:
                 from arrayview import _extra_ports
 

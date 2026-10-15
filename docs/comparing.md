@@ -65,3 +65,11 @@ uvx arrayview volume.nii.gz --vectorfield disp.nii.gz
 ```
 
 Deformation field with arrow overlay. `U` toggles arrows. `[`/`]` adjusts density. `{`/`}` adjusts arrow length.
+
+## Linking tabs
+
+Press `/` then `l` (**Link tabs**) in two or more viewer tabs. Moving through
+slices in one linked tab then moves the others to the same position, for every
+dimension the arrays have in common (same number of dimensions, same size).
+A link icon in the lower-left corner shows the tab is linked; click it, or
+`/ l` again, to unlink.

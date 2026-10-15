@@ -2627,6 +2627,15 @@
         #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
         #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
+        #link-hint {
+            position: fixed; bottom: 14px; left: 16px; z-index: 6; cursor: pointer;
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 1px solid var(--active-dim); color: var(--active-dim);
+            display: none; align-items: center; justify-content: center; user-select: none;
+        }
+        #link-hint.visible { display: flex; }
+        #link-hint svg { width: 13px; height: 13px; }
+        #link-hint:hover { color: var(--text); border-color: var(--muted); }
         #help-hint:hover, #tool-hint:hover, #qmri-hint:hover, #ras-hint:hover { color: var(--text); border-color: var(--muted); }
         #ras-hint {
             right: 106px; display: none; position: fixed;
@@ -4759,7 +4768,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker, body.zen-mode #mode-picker-dim,
-        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #link-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5872,6 +5881,7 @@
     </div>
     <div id="help-hint">?</div>
     <div id="tool-hint" title="Tool launcher (/)">/</div>
+    <div id="link-hint" role="button" tabindex="-1" title="Linked: slices follow other linked tabs · click to unlink" aria-label="Unlink this tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg></div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
     <div id="ras-hint" title="Convert to RAS orientation — aligns axes so every view scrolls fast, not just the native one (Shift+A)">RAS</div>
@@ -16515,6 +16525,8 @@
                 reportParent('ws-open', { host: location.host });
                 _wsEverConnected = true;
                 wsReady = true;
+                // The server forgets links when a socket drops; rejoin.
+                if (_tabLinkOn) _tabLinkSend({ action: 'join' });
                 if (_wsOpenedResolve) { _wsOpenedResolve(); _wsOpenedResolve = null; }
                 setStatus('');
                 sink.focus();
@@ -16540,6 +16552,8 @@
                             }
                         } else if (msg.type === 'warm_path') {
                             _warmClientPath(msg.connections);
+                        } else if (msg.type === 'link') {
+                            _tabLinkApply(msg);
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
@@ -23866,6 +23880,7 @@
 
         function saveState() {
             if (!sid) return;
+            _tabLinkMaybeSend();
             _scheduleRememberView();
             try {
                 sessionStorage.setItem('av_' + sid, JSON.stringify(collectStateSnapshot()));
@@ -24200,6 +24215,61 @@
             }
         }, true);
 
+        // ── Linked tabs (/ l) ─────────────────────────────────────────
+        // Slice position follows every other linked tab, for dimensions of the
+        // same size. Messages ride on this viewer's existing socket and the
+        // server passes them on; no extra connection is opened.
+        let _tabLinkOn = false;
+        let _tabLinkLastSent = '';
+        const LINK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg>';
+        function _tabLinkSend(payload) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+            try { ws.send(JSON.stringify({ type: 'link', ...payload })); return true; }
+            catch (_) { return false; }
+        }
+        function _tabLinkMaybeSend() {
+            if (!_tabLinkOn || !Array.isArray(indices) || !indices.length) return;
+            const key = indices.join(',');
+            if (key === _tabLinkLastSent) return;
+            _tabLinkLastSent = key;
+            _tabLinkSend({ action: 'position', indices: [...indices], shape: [...shape] });
+        }
+        function _tabLinkApply(msg) {
+            if (!_tabLinkOn || !_metadataProcessed) return;
+            if (!Array.isArray(msg.indices) || !Array.isArray(msg.shape) || msg.shape.length !== shape.length) return;
+            let changed = false;
+            msg.shape.forEach((n, i) => {
+                if (Number(n) !== shape[i] || _isCollectionDim(i)) return;
+                const v = Math.round(Number(msg.indices[i]));
+                if (!Number.isFinite(v) || v < 0 || v >= shape[i] || v === indices[i]) return;
+                indices[i] = v;
+                changed = true;
+            });
+            _tabLinkLastSent = indices.join(',');
+            if (!changed) return;
+            renderInfo();
+            updateView();
+            saveState();
+        }
+        function setTabLinked(on) {
+            on = !!on;
+            if (on === _tabLinkOn) return;
+            if (on && !_tabLinkSend({ action: 'join' })) {
+                showToast('linking needs a live connection to the server');
+                return;
+            }
+            if (!on) _tabLinkSend({ action: 'leave' });
+            _tabLinkOn = on;
+            // Joining does not move the other tabs; the next slice change does.
+            _tabLinkLastSent = on ? indices.join(',') : '';
+            showStatus(on ? 'linked: slices follow other linked tabs' : 'unlinked');
+            _reconcileUI();
+        }
+        function _reconcileTabLinkHint() {
+            const hint = document.getElementById('link-hint');
+            if (hint) hint.classList.toggle('visible', _tabLinkOn);
+        }
+
         // ── Compare with an array that is open in another tab ─────────
         let _compareWithMenuVisible = false;
         let _compareWithChoices = [];
@@ -24277,6 +24347,7 @@
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
+            _tabLinkMaybeSend();
             _syncRaggedShapeForCollection();
             _beginPatientLoading();
             const view = modeManager.currentViews[0];
@@ -30094,6 +30165,11 @@
                     commands['qmri.cycle'].run(ctx, e);
                 },
             },
+            'tabs.toggleLink': {
+                title: 'Link slice position with other tabs',
+                when: [],
+                run: (ctx, e) => { setTabLinked(!_tabLinkOn); },
+            },
             'compare.withOpenArray': {
                 title: 'Compare with an array open in another tab',
                 when: [],
@@ -30563,6 +30639,7 @@
                         title: 'After /', columnBreak: true,
                         entries: [
                             { key: '/ c', action: 'Compare with…', hint: 'side by side with an array open in another tab' },
+                            { key: '/ l', action: 'Link tabs', hint: 'slice position follows the other linked tabs (dimensions of the same size) · the link icon bottom-left unlinks' },
                             { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
                             { key: '/ o', action: 'Overlays', hint: 'show mask names and visibility' },
@@ -30997,6 +31074,16 @@
                     enabled: () => !isInlineEmbed,
                     active: () => compareActive,
                     unavailableReason: () => 'Not available in notebook output.',
+                },
+                {
+                    key: 'l',
+                    id: 'linktabs',
+                    label: 'Link tabs',
+                    command: 'tabs.toggleLink',
+                    icon: LINK_ICON_SVG,
+                    enabled: () => true,
+                    active: () => _tabLinkOn,
+                    unavailableReason: () => '',
                 },
                 { key: 'P', toolId: 'comparecenter', command: 'tool.comparecenterDirect' },
                 { key: 'r', toolId: 'roi', command: 'tool.roiDirect' },
@@ -41024,6 +41111,7 @@
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
+        document.getElementById('link-hint').addEventListener('click', () => setTabLinked(false));
         document.getElementById('tool-hint').addEventListener('click', () => {
             openToolMenu();
         });
@@ -42881,6 +42969,7 @@
             _reconcileMainLoupeState();
             _reconcileInfoCursor();
             _reconcileModePicker();
+            _reconcileTabLinkHint();
             // Until the first frame the startup screen owns every loading
             // signal; its own line stands in for the hairline.
             const startupScreen = document.body.classList.contains('av-loading');
