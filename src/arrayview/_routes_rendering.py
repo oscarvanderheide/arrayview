@@ -360,6 +360,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         session_b = SESSIONS.get(sid_b)
         if not session_a or not session_b:
             return Response(status_code=404)
+        stats: dict[str, float] = {}
         try:
             raw, vmin, vmax, colormap, nan_mask = _compute_diff(
                 session_a,
@@ -374,6 +375,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 diff_mode,
                 indices_a=indices_a,
                 indices_b=indices_b,
+                stats_out=stats,
             )
         except Exception:
             return Response(status_code=422)
@@ -399,6 +401,11 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 "X-ArrayView-Vmin": str(vmin),
                 "X-ArrayView-Vmax": str(vmax),
                 "X-ArrayView-Colormap": colormap,
+                # Numbers for the A−B title: RMS difference, largest
+                # difference, RMS difference relative to A.
+                "X-ArrayView-Diff-Rmse": str(stats.get("rmse", "nan")),
+                "X-ArrayView-Diff-Max": str(stats.get("max_abs", "nan")),
+                "X-ArrayView-Diff-Rel": str(stats.get("rel", "nan")),
             },
         )
 

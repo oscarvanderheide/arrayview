@@ -32,6 +32,10 @@ different shape are listed but greyed out. This works in VS Code tabs, where
 - **Flicker** — rapid A/B toggle
 - **Checkerboard** — alternating tiles
 
+In the three difference views the center pane's title shows numbers for
+what is on screen: **rmse** (root-mean-square of A−B), **max** (largest
+|A−B|) and **rel** (rmse relative to the RMS of A, as a percentage).
+
 `Z` zooms into the center pane.
 
 ## Layouts

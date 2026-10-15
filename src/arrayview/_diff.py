@@ -135,8 +135,13 @@ def _compute_diff(
     diff_mode,
     indices_a=None,
     indices_b=None,
+    stats_out=None,
 ):
-    """Return raw diff, display range, colormap, and optional separator mask."""
+    """Return raw diff, display range, colormap, and optional separator mask.
+
+    When *stats_out* is a dict it is filled with summary numbers for the
+    compared view (see `_diff_summary`).
+    """
     def _parse_indices(raw_indices):
         if raw_indices is None:
             return ()
@@ -170,6 +175,8 @@ def _compute_diff(
         a = _render_values(session_a, dim_x, dim_y, idx_a, complex_mode, log_scale)
         b = _render_values(session_b, dim_x, dim_y, idx_b, complex_mode, log_scale)
         b = _resize_values_like(b, a)
+    if stats_out is not None:
+        stats_out.update(_diff_summary(a, b, nan_mask))
     if diff_mode == 1:
         raw = a - b
         lo = float(np.nanpercentile(raw, 1))
@@ -190,6 +197,29 @@ def _compute_diff(
         colormap = "afmhot"
 
     return raw, vmin, vmax, colormap, nan_mask
+
+
+def _diff_summary(a: np.ndarray, b: np.ndarray, nan_mask: np.ndarray | None) -> dict[str, float]:
+    """RMS of A−B, largest |A−B|, and RMS of A−B relative to the RMS of A.
+
+    Pixels that are not finite in either array (or are mosaic separators)
+    are left out. Empty or all-zero inputs give NaN for what is undefined.
+    """
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    valid = np.isfinite(a) & np.isfinite(b)
+    if nan_mask is not None and nan_mask.shape == valid.shape:
+        valid &= ~nan_mask
+    if not valid.any():
+        return {"rmse": float("nan"), "max_abs": float("nan"), "rel": float("nan")}
+    d = a[valid] - b[valid]
+    rmse = float(np.sqrt(np.mean(d * d)))
+    rms_a = float(np.sqrt(np.mean(a[valid] ** 2)))
+    return {
+        "rmse": rmse,
+        "max_abs": float(np.max(np.abs(d))),
+        "rel": rmse / rms_a if rms_a > 0 else float("nan"),
+    }
 
 
 def _render_diff_rgba(
