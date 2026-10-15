@@ -28817,7 +28817,7 @@
             },
             'overlay.cycleVisibility': {
                 title: 'Cycle overlay visibility',
-                when: [],
+                when: ['hasOverlayLayers'],
                 run: (ctx, e) => {
                     const hasOv = _overlaySids.length > 0;
                     const hasVf = hasVectorfield;
@@ -30275,6 +30275,9 @@
                 isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
+                // Shift+O cycles overlays only when there are some; otherwise it opens the file picker.
+                hasOverlayLayers: ((typeof _overlaySids !== 'undefined') && _overlaySids.length > 0)
+                    || ((typeof hasVectorfield !== 'undefined') && !!hasVectorfield),
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
                 modePickerOpen: (typeof _modePicker !== 'undefined') ? !!_modePicker : false,
                 cutawayActive: (typeof cutawayActive !== 'undefined') ? !!cutawayActive : false,
@@ -30335,6 +30338,7 @@
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane · drag outlines a quick region (mean ± std) · Ctrl shows the loupe · Alt+click pins a value · Esc clears pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
+                            { key: 'Shift+O', action: 'Open file picker', hint: 'files in the folder ArrayView was started from · Space selects several to compare · Ctrl/Cmd+O also works outside VS Code · with overlays loaded, Shift+O cycles them instead' },
                             { key: 'Shift+K', action: 'Switch array in file', hint: '.npz / .mat files that hold several arrays' },
                             { key: '/', action: 'Tool launcher', hint: 'pick a tool by name; direct shortcuts keep working' },
                         ]

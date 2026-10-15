@@ -7,7 +7,7 @@ uvx arrayview base.npy moving.npy           # 2 arrays
 uvx arrayview base.npy a.npy b.npy c.npy    # up to 6
 ```
 
-Or use the file picker (`Cmd/Ctrl+O`) or drag-and-drop.
+Or use the file picker (`Shift+O`) or drag-and-drop.
 
 ## Comparing arrays from other tabs
 
