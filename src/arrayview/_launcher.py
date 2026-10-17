@@ -3539,6 +3539,7 @@ def view(
     vmax: float | None = None,
     log: bool = False,
     complex: str | None = None,
+    voxel_size=None,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -3588,6 +3589,10 @@ def view(
     ``"imag"`` (``"mag"`` shows the absolute value of real data). Pressing
     ``E`` in the viewer copies the current view as such a call.
 
+    ``voxel_size`` — physical size of one step along each dimension, e.g.
+    ``(1, 1, 2)`` for 1 mm pixels and 2 mm slices. Slices then show their
+    true proportions. Leading dimensions only; later ones keep size 1.
+
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). In inline/Jupyter mode with
     multiple arrays, the IFrame is displayed automatically and a uniform tuple
@@ -3601,7 +3606,7 @@ def view(
 
     _initial_view = _session_mod.initial_view_spec(
         mode=mode, dims=dims, index=index, cmap=cmap, vmin=vmin, vmax=vmax, log=log,
-        complex=complex,
+        complex=complex, voxel_size=voxel_size,
     )
     _code_name = _caller_variable_name(arrays[0]) if arrays else None
     # Several arrays side by side need telling apart; the caller's variable
@@ -3686,6 +3691,13 @@ def view(
             raise ValueError(
                 f"index has {len(_initial_view['index'])} entries but the array "
                 f"has {_ndim} dimensions"
+            )
+    if _initial_view and "voxel_size" in _initial_view:
+        _ndim = len(getattr(data, "shape", ()))
+        if len(_initial_view["voxel_size"]) > _ndim:
+            raise ValueError(
+                f"voxel_size has {len(_initial_view['voxel_size'])} entries but the "
+                f"array has {_ndim} dimensions"
             )
 
     # --- Normalise string window modes ---

@@ -690,6 +690,7 @@ def initial_view_spec(
     vmax=None,
     log=False,
     complex=None,
+    voxel_size=None,
 ) -> dict | None:
     """Validate how a caller asks the viewer to open; None when nothing is set.
 
@@ -734,6 +735,14 @@ def initial_view_spec(
         if complex not in COMPLEX_PARTS:
             raise ValueError(f"complex must be one of: {', '.join(COMPLEX_PARTS)}")
         spec["complex"] = complex
+    if voxel_size is not None:
+        try:
+            sizes = [float(v) for v in voxel_size]
+        except (TypeError, ValueError):
+            raise ValueError("voxel_size must be one size per dimension, e.g. (1, 1, 2)")
+        if not sizes or not all(np.isfinite(v) and v > 0 for v in sizes):
+            raise ValueError("voxel_size must be positive numbers, e.g. (1, 1, 2)")
+        spec["voxel_size"] = sizes
     return spec or None
 
 

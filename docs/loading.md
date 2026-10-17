@@ -12,7 +12,7 @@
 | `.h5` / `.hdf5` | h5py | Must contain one dataset |
 | `.tif` / `.tiff` | tifffile | Full load |
 | `.mat` | scipy / h5py | Multi-array: in-viewer picker for array selection |
-| `.gipl` / `.gipl.gz` | built in | Full load |
+| `.gipl` / `.gipl.gz` | built in | Full load; voxel size from the header |
 
 Optional libraries are imported only when needed.
 
@@ -113,6 +113,7 @@ Key parameters:
 | `vmin`, `vmax` | float | Display range (give both) |
 | `log` | bool | Open with log scale on |
 | `complex` | str | `"mag"`, `"phase"`, `"real"` or `"imag"` (`"mag"` shows the absolute value of real data) |
+| `voxel_size` | tuple of float | Physical size of one step per dimension, e.g. `(1, 1, 2)`; slices show true proportions |
 
 Press `E` in the viewer to copy the current view as such a call.
 

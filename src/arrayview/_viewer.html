@@ -23407,6 +23407,14 @@
             } else if (mode === 'qmri-ortho') {
                 pendingViewMode = 'qmri-mv';
             }
+            if (Array.isArray(v.voxel_size)) {
+                const vs = {};
+                v.voxel_size.forEach((n, i) => {
+                    n = Number(n);
+                    if (i < shape.length && Number.isFinite(n) && n > 0) vs[i] = n;
+                });
+                _userVoxelSizes = Object.keys(vs).length ? vs : null;
+            }
             if (Array.isArray(v.index) && v.index.length === shape.length) {
                 indices = v.index.map((n, i) => {
                     n = Number(n);
@@ -23485,6 +23493,12 @@
             if (manualVmin !== null && manualVmax !== null && !qmri) {
                 opts.push(['vmin', num(manualVmin)]);
                 opts.push(['vmax', num(manualVmax)]);
+            }
+            // Python only: files carry their own voxel size, and the CLI and
+            // Julia have no such option.
+            if (src.kind !== 'file' && src.kind !== 'julia' && _userVoxelSizes) {
+                const n = Math.max(...Object.keys(_userVoxelSizes).map(Number)) + 1;
+                opts.push(['voxel_size', Array.from({ length: n }, (_, i) => num(_userVoxelSizes[i] || 1))]);
             }
             if (src.kind === 'file') {
                 const flags = opts.map(([k, v]) => {

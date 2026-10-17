@@ -290,3 +290,14 @@ def test_nii_gz_loads_through_parallel_reader(tmp_path):
     loaded, meta = load_data_with_meta(str(path))
     np.testing.assert_allclose(loaded, np.asarray(nib.load(path).dataobj))
     assert meta is not None
+
+
+def test_view_voxel_size_is_checked_and_passed_to_the_viewer():
+    import pytest
+
+    from arrayview._session import initial_view_spec
+
+    assert initial_view_spec(voxel_size=(1, 1, 2)) == {"voxel_size": [1.0, 1.0, 2.0]}
+    for bad in ((1, 0, 2), (1, -1), "abc", ()):
+        with pytest.raises(ValueError, match="voxel_size"):
+            initial_view_spec(voxel_size=bad)
