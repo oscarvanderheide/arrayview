@@ -2350,6 +2350,9 @@ def load_data_with_meta(filepath, key=None, *, load="lazy", stack="auto", select
         return _load_file_series(filepath, load=load, stack=stack)
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
+    if filepath.lower().endswith((".gipl", ".gipl.gz")):
+        arr = _load_gipl(filepath)
+        return arr, _gipl_spatial_meta(filepath, arr)
     return load_data(
         filepath, key=key, progress=progress, fast_first_frame=fast_first_frame
     ), None
@@ -2544,6 +2547,31 @@ def _load_gipl(filepath):
     while arr.ndim > 2 and arr.shape[-1] == 1:
         arr = arr[..., 0]
     return np.ascontiguousarray(arr)
+
+
+def _gipl_spatial_meta(filepath, arr):
+    """Voxel sizes from a GIPL header, so the viewer shows true proportions.
+
+    GIPL stores no orientation, so axis labels stay empty. Returns None when
+    the header has no usable voxel sizes.
+    """
+    import gzip
+
+    opener = gzip.open if filepath.lower().endswith(".gz") else open
+    with opener(filepath, "rb") as f:
+        header = f.read(_GIPL_HEADER_SIZE)
+    pixdim = np.frombuffer(header, ">f4", count=4, offset=10).astype(float)
+    n = min(arr.ndim, 3)
+    voxel_sizes = tuple(float(v) for v in pixdim[:n])
+    if not all(np.isfinite(v) and v > 0 for v in voxel_sizes):
+        return None
+    return {
+        "voxel_sizes": voxel_sizes,
+        "axis_labels": (),
+        "is_oblique": False,
+        "is_canonical": True,
+        "spatial_shape": tuple(int(v) for v in arr.shape[:n]),
+    }
 
 
 def _tensor_to_numpy(obj, source="object"):

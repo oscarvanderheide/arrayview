@@ -8807,6 +8807,10 @@
          *  orientation (any order, e.g. RAS or IAL): {R, A, S} each
          *  {dim, positive}, where positive means the index grows toward R / A / S.
          *  null when the orientation is unknown or the dims are not 0, 1, 2. */
+        function _hasStoredOrientation() {
+            return !!(spatialMeta && Array.isArray(spatialMeta.axis_labels) && spatialMeta.axis_labels.length >= 3);
+        }
+
         function _labelAnatomy(dims) {
             const labels = spatialMeta && spatialMeta.axis_labels;
             if (!Array.isArray(labels) || labels.length < 3) return null;
@@ -8889,7 +8893,7 @@
         function _cyclePlanes() {
             const dims = _cycleSpatialDims();
             if (!dims) return null;
-            if (!spatialMeta && _userAnatomyFits(dims)) {
+            if (!_hasStoredOrientation() && _userAnatomyFits(dims)) {
                 const { R, A, S } = _userAnatomy;
                 // Same screen layout as NIfTI planes; directions are unknown,
                 // so no flips until the user sets them with r/t.
@@ -28592,7 +28596,7 @@
                 run: (ctx, e) => {
                     if (_rasResampleLoading) return;
                     // Arrays with no stored orientation: describe it instead.
-                    if (!spatialMeta) { _describeArrayOrientation(); return; }
+                    if (!_hasStoredOrientation()) { _describeArrayOrientation(); return; }
                     if (compareActive || qmriActive) {
                         showToast('RAS resample not supported in compare/qMRI mode');
                         return;
@@ -29381,7 +29385,7 @@
                             if (d.spatial_meta) {
                                 if (d.spatial_meta.voxel_sizes) rows.push(['Voxel size', _formatMmList(d.spatial_meta.voxel_sizes)]);
                                 if (d.spatial_meta.field_of_view) rows.push(['Field of view', _formatMmList(d.spatial_meta.field_of_view)]);
-                                if (d.spatial_meta.axis_labels) rows.push(['Axes', d.spatial_meta.axis_labels.join(' / ')]);
+                                if (d.spatial_meta.axis_labels && d.spatial_meta.axis_labels.length) rows.push(['Axes', d.spatial_meta.axis_labels.join(' / ')]);
                                 rows.push(['Oblique', d.spatial_meta.is_oblique ? 'yes' : 'no']);
                             }
                             if (d.filepath) {
@@ -43012,9 +43016,9 @@
             // NIfTI spatial metadata (single .nii/.nii.gz sessions).
             const rasHint = document.getElementById('ras-hint');
             if (rasHint) {
-                rasHint.classList.toggle('visible', !!spatialMeta);
+                rasHint.classList.toggle('visible', _hasStoredOrientation());
                 rasHint.classList.toggle('active', rasResampleActive);
-                rasHint.setAttribute('aria-hidden', spatialMeta ? 'false' : 'true');
+                rasHint.setAttribute('aria-hidden', _hasStoredOrientation() ? 'false' : 'true');
             }
             _updateMvPaneFill();
         }

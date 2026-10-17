@@ -53,11 +53,13 @@ def test_mat_loader_returns_key_list_for_multiple_numeric_arrays(tmp_path):
 
 
 
-def _write_gipl(path, xyz, image_type, opener=open):
+def _write_gipl(path, xyz, image_type, opener=open, pixdim=None):
     header = bytearray(256)
     dims = list(xyz.shape) + [1] * (4 - xyz.ndim)
     header[0:8] = np.array(dims, ">u2").tobytes()
     header[8:10] = np.array([image_type], ">u2").tobytes()
+    if pixdim is not None:
+        header[10:26] = np.array(list(pixdim) + [1] * (4 - len(pixdim)), ">f4").tobytes()
     header[252:256] = np.array([4026526128], ">u4").tobytes()
     with opener(path, "wb") as f:
         f.write(bytes(header) + xyz.T.astype(xyz.dtype.newbyteorder(">")).tobytes())
@@ -78,6 +80,19 @@ def test_gipl_loader_reads_x_y_z_order_plain_and_gzipped(tmp_path):
         loaded = load_data(path)
         assert loaded.dtype == np.int16
         np.testing.assert_array_equal(loaded, expected)
+
+
+def test_gipl_voxel_sizes_reach_the_viewer(tmp_path):
+    from arrayview._io import load_data_with_meta
+
+    vol = np.zeros((4, 5, 3), dtype=np.int16)
+    _write_gipl(tmp_path / "aniso.gipl", vol, 15, pixdim=(0.5, 0.5, 2.0))
+    _write_gipl(tmp_path / "nosize.gipl", vol, 15)
+
+    _, meta = load_data_with_meta(str(tmp_path / "aniso.gipl"))
+    assert meta["voxel_sizes"] == (0.5, 0.5, 2.0)
+    assert meta["axis_labels"] == ()
+    assert load_data_with_meta(str(tmp_path / "nosize.gipl"))[1] is None
 
 
 def test_gipl_loader_rejects_non_gipl_file(tmp_path):
