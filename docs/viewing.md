@@ -6,7 +6,7 @@ The default view. Shows a single 2D slice. Scroll to move through slices. `h`/`l
 
 `r` rotates 90 degrees or flips the axis. `t` transposes x and y.
 
-`Shift+P` steps through the three views of a volume (axial → coronal → sagittal), the same planes the multi-view shows. Each view keeps its own `r`/`t` rotation and flip. NIfTI views are named and set upright from the file's stored orientation, whatever order it stores its axes in. For arrays without one (e.g. `.npy`), `Shift+A` lets you name the current view and give the voxel size, e.g. `axial 1 1 3`.
+`p` steps through the three views of a volume (axial → coronal → sagittal), the same planes the multi-view shows. Each view keeps its own `r`/`t` rotation and flip. NIfTI views are named and set upright from the file's stored orientation, whatever order it stores its axes in. For arrays without one (e.g. `.npy`), `Shift+A` lets you name the current view and give the voxel size, e.g. `axial 1 1 3`.
 
 When the voxel size is known (NIfTI, or set with `Shift+A`), images are drawn in their true proportions, so thick slices look tall rather than squashed. `a` (stretch to square) overrides this.
 
@@ -20,7 +20,7 @@ When the voxel size is known (NIfTI, or set with `Shift+A`), images are drawn in
 
 ## Projections
 
-`p` — cycles through statistical projections along the scroll axis: MAX, MIN, MEAN, STD, SOS. 
+`Shift+P` — cycles through statistical projections along the scroll axis: MAX, MIN, MEAN, STD, SOS. 
 
 ## FFT
 

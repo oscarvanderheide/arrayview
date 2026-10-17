@@ -315,7 +315,7 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
-def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
+def test_p_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
     path = tmp_path / "vol.npy"
     np.save(path, np.random.rand(30, 40, 50).astype(np.float32))
     sid = client.post("/load", json={"filepath": str(path), "name": "vol"}).json()["sid"]
@@ -326,7 +326,7 @@ def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, t
 
     seen = []
     for _ in range(3):
-        page.keyboard.press("Shift+P")
+        page.keyboard.press("p")
         page.wait_for_timeout(200)
         seen.append(page.evaluate(state))
     assert sorted(s[2] for s in seen) == [0, 1, 2], "three different slice directions"
@@ -336,7 +336,7 @@ def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, t
     page.wait_for_timeout(200)
     rotated = page.evaluate(state)
     for _ in range(3):
-        page.keyboard.press("Shift+P")
+        page.keyboard.press("p")
         page.wait_for_timeout(200)
     assert page.evaluate(state) == rotated
 
@@ -345,7 +345,7 @@ def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, t
     page.fill("#inline-prompt-input", "axial 1 1 3")
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
-    page.keyboard.press("Shift+P")
+    page.keyboard.press("p")
     page.wait_for_timeout(400)
     assert page.evaluate("() => document.querySelector('#mode-eggs .percentile-preset-value').textContent") == "coronal"
     lit = page.evaluate("() => [...document.querySelectorAll('#mode-eggs .percentile-preset-dot')].map(d => d.classList.contains('active'))")

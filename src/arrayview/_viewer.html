@@ -8849,7 +8849,7 @@
         }
 
         // ── View Cycling & Physical Proportions ──
-        // Shift+P steps a single view through the same three planes the
+        // p steps a single view through the same three planes the
         // 3-plane view shows. Per array, the viewer keeps:
         //  - _viewMemory: screen axes + flips last used for each plane, keyed
         //    by the plane's slice dim, so r/t adjustments survive cycling.
@@ -8940,7 +8940,7 @@
             return Math.max(0.05, Math.min(20, sy / sx));
         }
 
-        /** Shift+P: show the plane after the current one, keeping each plane's
+        /** p: show the plane after the current one, keeping each plane's
          *  remembered screen axes and flips. */
         function _switchToNextPlane(planes) {
             const cur = _currentPlaneIndex(planes);
@@ -9018,7 +9018,7 @@
             if (words.length) {
                 name = _PLANE_NAMES.find(n => n.startsWith(words[0]));
                 if (!name) { showStatus('view name must be axial, coronal or sagittal'); return; }
-                if (cur < 0) { showStatus('show one of the three views first (Shift+P)'); return; }
+                if (cur < 0) { showStatus('show one of the three views first (p)'); return; }
             }
             if (!tokens.length) {
                 _userAnatomy = null; _userVoxelSizes = null;
@@ -17888,7 +17888,7 @@
             _showCycleOverlay(_percentilePresetLabel(preset), index, _QUANTILE_PRESETS.length, anchorEl);
         }
 
-        // The little label-over-dots pill (d presets, Shift+P views): `label`
+        // The little label-over-dots pill (d presets, p views): `label`
         // on top, `count` dots below with dot `index` lit. Fades after a moment.
         function _showCycleOverlay(label, index, count, anchorEl, cube = null) {
             if (_percentilePresetOverlayTimer) clearTimeout(_percentilePresetOverlayTimer);
@@ -30291,7 +30291,7 @@
             { key: 'T', command: 'theme.cycle' },
             { key: 'r', command: 'view.rotateOrFlip' },
             { key: 't', command: 'view.transpose' },
-            { key: 'P', shift: true, command: 'view.cyclePlane' },
+            { key: 'p', command: 'view.cyclePlane' },
             { key: 'b', command: 'borders.toggle' },
             { key: 'B', command: 'panes.rounded.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
@@ -30317,7 +30317,7 @@
             { key: 'w', command: 'colorbar.cycleTicks' },
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
-            { key: 'p', command: 'projection.cycle' },
+            { key: 'P', shift: true, command: 'projection.cycle' },
             { key: '3', code: 'Digit3', shift: true, command: 'mode.toggleCutaway' },
             { key: 'I', command: 'info.toggle' },
             { key: 'e', command: 'url.copyReusable' },
@@ -30401,7 +30401,7 @@
                         entries: [
                             { key: '← → ↑ ↓', action: 'Step through slices' },
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
-                            { key: 'Shift+P', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size' },
+                            { key: 'p', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N · [ ] move the window · Enter opens a tile · Shift+U shows true physical size' },
@@ -30479,7 +30479,7 @@
                         title: 'Transforms', columnBreak: true,
                         entries: [
                             { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
-                            { key: 'p', action: 'Cycle projections', hint: 'reduces along the selected slice dimension (nothing happens with x or y selected) · first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
+                            { key: 'Shift+P', action: 'Cycle projections', hint: 'reduces along the selected slice dimension (nothing happens with x or y selected) · first press shows the options, then MAX → MIN → MEAN → STD → SOS → SUM → off · click an option to jump to it · Enter or Esc closes the row' },
                             { key: 'm', action: 'Complex mode cycle', hint: 'complex data: first press shows the options, then magnitude → phase → real → imaginary · click an option to jump to it · Enter or Esc closes the row · real data: toggles real ↔ magnitude' },
                         ]
                     }
@@ -33039,11 +33039,11 @@
                         expect: ['slice.toggleMosaic'],
                     },
                     {
-                        key: 'p',
-                        text: 'Press p to squash the underlined dimension into one image.\nIt shows the maximum, minimum, mean or spread.\nPress p again to step through them.',
-                        note: 'Keep pressing p until it turns off.',
+                        key: 'P',
+                        text: 'Press P (shift+p) to squash the underlined dimension into one image.\nIt shows the maximum, minimum, mean or spread.\nPress P again to step through them.',
+                        note: 'Keep pressing P until it turns off.',
                         expect: ['projection.cycle'],
-                        // `p` only works on a dimension you step through,
+                        // `P` only works on a dimension you step through,
                         // not on the two drawn across the screen.
                         onEnter: () => {
                             if (activeDim === dim_x || activeDim === dim_y) {
