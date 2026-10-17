@@ -1106,11 +1106,12 @@ class _FileSeries:
 
     _av_lazy = True
 
-    def __init__(self, file_matrix, vol_shape, dtype, spatial_meta=None):
+    def __init__(self, file_matrix, vol_shape, dtype, spatial_meta=None, spacing_matrix=None):
         self._file_matrix = file_matrix
         self._vol_shape = tuple(vol_shape)
         self._dtype = np.dtype(dtype)
         self._spatial_meta = spatial_meta
+        self._spacing_matrix = spacing_matrix
         n_patients = len(file_matrix)
         n_modalities = len(file_matrix[0]) if file_matrix else 0
         if n_modalities <= 1:
@@ -1125,6 +1126,10 @@ class _FileSeries:
             os.environ.get("ARRAYVIEW_FILE_SERIES_VOL_CACHE", 3)
         )
         self._cache_lock = threading.Lock()
+
+    @property
+    def case_voxel_spacings(self):
+        return self._spacing_matrix
 
     @property
     def dtype(self):
@@ -1378,6 +1383,11 @@ def _is_nifti_path(filepath):
     return filepath.endswith(".nii") or filepath.endswith(".nii.gz")
 
 
+def _is_gipl_path(filepath):
+    """True if *filepath* ends with .gipl or .gipl.gz."""
+    return filepath.lower().endswith((".gipl", ".gipl.gz"))
+
+
 def _get_ext(filepath):
     """Return the extension of *filepath*, normalising .nii.gz and .zarr.zip."""
     lower = filepath.lower()
@@ -1596,11 +1606,15 @@ def _series_from_file_matrix(
         return series, spatial_meta
 
     spatial_shapes = []
+    # GIPL headers carry a voxel size; use it when every file has one.
+    gipl_metas = [] if all(_is_gipl_path(path) for path in all_paths) else None
     for fpath in all_paths:
         arr = load_data(fpath)
         shape = arr.shape
         dtype = arr.dtype
         spatial_shapes.append(shape)
+        if gipl_metas is not None:
+            gipl_metas.append(_gipl_spatial_meta(fpath, arr))
         if ref_shape is None:
             ref_shape = shape
             ref_dtype = dtype
@@ -1616,30 +1630,47 @@ def _series_from_file_matrix(
             )
         if scan_progress is not None:
             scan_progress(scan_label, fpath)
+    spacing_matrix = None
+    if gipl_metas and all(meta is not None for meta in gipl_metas):
+        spatial_meta = gipl_metas[0]
+        spacing_matrix = []
     shape_matrix = []
     pos = 0
     for row in file_matrix:
         row_shapes = []
+        row_spacings = []
         for path in row:
             if path is None:
                 row_shapes.append(ref_shape)
+                if spacing_matrix is not None:
+                    row_spacings.append(gipl_metas[0]["voxel_sizes"])
             else:
                 row_shapes.append(spatial_shapes[pos])
+                if spacing_matrix is not None:
+                    row_spacings.append(gipl_metas[pos]["voxel_sizes"])
                 pos += 1
         shape_matrix.append(row_shapes)
+        if spacing_matrix is not None:
+            spacing_matrix.append(row_spacings)
     shapes_differ = any(shape != ref_shape for shape in spatial_shapes)
     if stack == "dense" and shapes_differ:
         raise ValueError("Dense stacking requires every file to have the same shape.")
     if stack == "ragged" or shapes_differ:
-        series = _RaggedFileSeries(file_matrix, shape_matrix, ref_dtype, spatial_meta=None)
+        series = _RaggedFileSeries(
+            file_matrix, shape_matrix, ref_dtype,
+            spatial_meta=spatial_meta, spacing_matrix=spacing_matrix,
+        )
     else:
-        series = _FileSeries(file_matrix, ref_shape, ref_dtype, spatial_meta=None)
+        series = _FileSeries(
+            file_matrix, ref_shape, ref_dtype,
+            spatial_meta=spatial_meta, spacing_matrix=spacing_matrix,
+        )
     if load == "eager":
         for p, row in enumerate(file_matrix):
             for m, path in enumerate(row):
                 if path is not None:
                     series._get_volume(p, m)
-    return series, None
+    return series, spatial_meta
 
 
 def _collection_scan_workers():

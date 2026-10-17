@@ -95,6 +95,19 @@ def test_gipl_voxel_sizes_reach_the_viewer(tmp_path):
     assert load_data_with_meta(str(tmp_path / "nosize.gipl"))[1] is None
 
 
+def test_gipl_folder_keeps_voxel_sizes(tmp_path):
+    from arrayview._io import load_data_with_meta
+
+    folder = tmp_path / "cases"
+    folder.mkdir()
+    _write_gipl(folder / "a.gipl", np.zeros((4, 5, 3), np.int16), 15, pixdim=(0.5, 0.5, 2.0))
+    _write_gipl(folder / "b.gipl", np.zeros((4, 5, 3), np.int16), 15, pixdim=(0.6, 0.6, 3.0))
+
+    data, meta = load_data_with_meta(str(folder))
+    assert meta["voxel_sizes"] == (0.5, 0.5, 2.0)
+    np.testing.assert_allclose([row[0] for row in data.case_voxel_spacings], [(0.5, 0.5, 2.0), (0.6, 0.6, 3.0)])
+
+
 def test_gipl_loader_rejects_non_gipl_file(tmp_path):
     import pytest
 
