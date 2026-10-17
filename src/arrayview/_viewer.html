@@ -328,17 +328,7 @@
         }
 
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
-        #slim-cb-wrap.roi-active {
-            padding: 5px 8px;
-            min-height: 42px;
-            background: transparent;
-            border-color: transparent;
-            box-shadow: none;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-        }
-
-        /* 3-D flip faces for ROI colorbar */
+        /* Colorbar inner row (once the ROI flip faces; kept as the layout wrapper) */
         #roi-cb-flip-inner {
             position: relative;
             display: flex;
@@ -349,9 +339,6 @@
             transform-style: preserve-3d;
             -webkit-transform-style: preserve-3d;
             transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        #slim-cb-wrap.roi-active #roi-cb-flip-inner {
-            transform: rotateX(180deg);
         }
         .roi-cb-front {
             display: flex;
@@ -365,118 +352,6 @@
         .roi-cb-front > * {
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
-        }
-        #slim-cb-wrap.roi-active .roi-cb-front {
-            opacity: 0;
-            visibility: hidden;
-        }
-        .roi-cb-back {
-            position: absolute;
-            inset: 0;
-            transform: rotateX(180deg);
-            backface-visibility: hidden;
-            -webkit-backface-visibility: hidden;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            padding: 2px 8px;
-            box-sizing: border-box;
-            border-radius: 15px;
-            overflow: visible;
-            pointer-events: auto;
-        }
-        #slim-cb-wrap.roi-active .roi-cb-back {
-            display: flex;
-        }
-        #slim-cb-wrap.roi-active .roi-cb-front {
-            pointer-events: none;
-        }
-
-        /* Class: horizontal flex layout shared by every ROI toolbar instance
-           (single-view island + v-mode flip-back). The id selector below adds
-           the island shell (border/bg/shadow/padding) for the single-view
-           instance only — the v-mode instance lives inside .roi-flip-back,
-           which already provides the island shell. */
-        .roi-cb-controls {
-            display: flex;
-            align-items: center;
-            flex-wrap: nowrap;
-            gap: 6px;
-            font-family: var(--mono);
-            font-size: 11px;
-            white-space: nowrap;
-        }
-        #roi-cb-controls {
-            padding: 3px 6px;
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            background: var(--surface);
-            color: var(--text);
-            box-shadow: var(--surface-shadow);
-        }
-        .roi-cb-label {
-            color: var(--active-dim);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            padding: 0 2px;
-        }
-        .roi-cb-shapes {
-            display: flex;
-            align-items: center;
-            gap: 3px;
-        }
-        .roi-cb-btn {
-            min-width: 26px;
-            height: 26px;
-            padding: 0 7px;
-            border: 1px solid transparent;
-            border-radius: var(--radius);
-            background: transparent;
-            color: var(--muted);
-            font-family: var(--mono);
-            font-size: 11px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-        }
-        .roi-cb-btn.icon {
-            width: 26px;
-            padding: 0;
-        }
-        .roi-cb-btn svg {
-            width: 16px;
-            height: 16px;
-            display: block;
-            margin: auto;
-        }
-        .roi-cb-btn.on {
-            color: var(--active-dim);
-            border-color: var(--active-dim);
-            background: var(--border-subtle);
-        }
-        .roi-cb-btn:hover {
-            color: var(--text);
-            border-color: var(--muted);
-            background: var(--border-subtle);
-        }
-        .roi-cb-btn:disabled {
-            color: var(--muted);
-            opacity: 0.38;
-            cursor: default;
-        }
-        .roi-cb-btn:disabled:hover {
-            border-color: transparent;
-            background: transparent;
-        }
-        .roi-cb-sep {
-            width: 1px;
-            height: 18px;
-            background: var(--border);
-            opacity: 0.9;
         }
         #roi-fill-gauge {
             position: fixed; z-index: 100; display: none; pointer-events: none;
@@ -1421,9 +1296,9 @@
             display: none;
             box-sizing: border-box;
             width: min(240px, calc(100vw - 20px));
-            max-height: min(360px, 50vh);
-            overflow: auto;
-            padding: 3px 4px 5px;
+            max-height: min(400px, 55vh);
+            overflow: hidden;
+            padding: 4px;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1437,16 +1312,45 @@
             scrollbar-width: thin; scrollbar-color: var(--border) transparent;
         }
         #roi-stats-hud:hover, #roi-stats-hud:focus-within { opacity: 1; }
-        #roi-stats-hud.visible { display: block; }
+        #roi-stats-hud.visible { display: flex; flex-direction: column; }
+        #roi-stats-hud .roi-hud-tools {
+            display: flex; align-items: center; gap: 1px; flex: none;
+            height: 28px; padding: 0 2px 0 6px;
+        }
+        #roi-stats-hud .roi-hud-tools .roi-hud-title { margin-right: auto; }
+        #roi-stats-hud button.roi-hud-tool { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
+        #roi-stats-hud button.roi-hud-tool svg { width: 14px; height: 14px; }
+        #roi-stats-hud button.roi-hud-tool.on {
+            color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 14%, transparent);
+        }
+        #roi-stats-hud .roi-hud-tool-sep { width: 1px; height: 14px; margin: 0 3px; background: var(--border); }
+        #roi-stats-hud .roi-hud-body {
+            flex: 1 1 auto; min-height: 0; overflow: auto; margin-top: 4px;
+            scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+        }
+        #roi-stats-hud .roi-hud-help {
+            list-style: none; margin: 2px 0 4px; padding: 0 8px;
+            color: var(--muted); font-size: 10px; line-height: 18px;
+            white-space: nowrap;
+        }
+        #roi-stats-hud .roi-hud-help kbd {
+            font: inherit; color: var(--text);
+            padding: 0 4px; border: 1px solid var(--border); border-radius: 4px;
+        }
+        #roi-stats-hud button:disabled { opacity: 0.4; cursor: default; }
+        #roi-stats-hud button:disabled:hover { color: var(--muted); background: transparent; }
+        #roi-stats-hud button:disabled::after { display: none; }
+        #roi-stats-hud .roi-hud-foot {
+            display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none;
+            height: 26px; padding: 2px 2px 0; margin-top: 3px;
+            border-top: 1px solid var(--border);
+        }
         #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; }
         #roi-stats-hud .roi-hud-grip:active { cursor: grabbing; }
-        #roi-stats-hud .roi-hud-head {
-            display: flex; align-items: center; gap: 2px;
-            height: 26px; padding: 0 2px 0 6px; margin-bottom: 1px;
-        }
-        #roi-stats-hud .roi-hud-title { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
-        #roi-stats-hud .roi-hud-count {
-            margin: 0 auto 0 6px; color: var(--muted); font-size: 10px; opacity: 0.7;
+        #roi-stats-hud .roi-hud-title {
+            color: color-mix(in srgb, var(--text) 70%, var(--muted));
+            font-size: 10.5px; letter-spacing: 0.04em;
         }
         #roi-stats-hud button {
             display: inline-flex; align-items: center; justify-content: center; gap: 3px;
@@ -1460,7 +1364,7 @@
         #roi-stats-hud .roi-hud-export[data-tip] { position: relative; }
         #roi-stats-hud .roi-hud-export[data-tip]::after {
             content: attr(data-tip);
-            position: absolute; top: calc(100% + 6px); right: 0;
+            position: absolute; bottom: calc(100% + 6px); right: 0;
             padding: 4px 8px; border-radius: 5px;
             border: 1px solid var(--border); background: var(--surface); color: var(--text);
             font-size: 10px; white-space: nowrap; pointer-events: none;
@@ -3791,34 +3695,6 @@
         }
         :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
 
-        /* ROI back face for the multiview colorbar flip — revealed instead of
-           the oblique back face when ROI mode is active in v-mode. Shrinks to
-           fit its buttons and centers over the colorbar, so the v-mode ROI
-           island matches the normal-view #roi-cb-controls island exactly
-           (same shell, same width) rather than stretching to the full
-           colorbar width. overflow visible so the toolbar isn't clipped. */
-        .roi-flip-back {
-            position: absolute;
-            top: 50%; left: 50%;
-            width: fit-content;
-            transform: translate(-50%, -50%) rotateX(180deg);
-            backface-visibility: hidden; -webkit-backface-visibility: hidden;
-            border-radius: 14px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            box-shadow: var(--surface-shadow);
-            padding: 3px 6px;
-            display: none;
-            align-items: center; justify-content: center;
-            gap: 6px;
-            box-sizing: border-box;
-            overflow: visible;
-        }
-        :root.light .roi-flip-back { background: var(--surface); border-color: var(--border); }
-        /* ROI takes priority over the oblique back face when both could show. */
-        .oblique-flip-inner.roi-flipped .roi-flip-back { display: flex; }
-        .oblique-flip-inner.roi-flipped .oblique-flip-back { display: none; }
-
         .ob-label {
             font-size: 10px; color: var(--active-dim);
             letter-spacing: normal; text-transform: none;
@@ -5627,9 +5503,6 @@
                     <span class="slim-cb-val" id="slim-cb-vmax"></span>
                     <div id="slim-cb-labels"></div>
                     <div id="slim-cb-tooltip"></div>
-                </div>
-                <div id="roi-cb-back" class="roi-cb-back">
-                    <div id="roi-cb-controls" class="roi-cb-controls" aria-label="ROI controls"></div>
                 </div>
             </div>
         </div>
@@ -18450,7 +18323,7 @@
             if (rectRoiMode) showStatus(`ROI mode: ${shape} · ${modeHint}`);
             if (shape !== 'floodfill') _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false);
             if (rectRoiMode) renderInfo();
-            _reconcileRoiColorbarControls();
+            _reconcileRoiHud();
             renderIsland();
             renderToolMenu();
         }
@@ -18790,14 +18663,17 @@
             const hud = document.getElementById('roi-stats-hud');
             if (!hud) return;
             if (hud.parentElement !== document.body) document.body.appendChild(hud);
-            const visible = rectRoiMode && _roiVisible && _rois.length > 0 && !compareActive && !compareMvActive;
+            // The panel opens with ROI mode: shape buttons on top straight
+            // away, the table and its footer once there is something to list.
+            const visible = rectRoiMode && !compareActive && !compareMvActive;
             hud.classList.toggle('visible', !!visible);
             hud.setAttribute('aria-hidden', String(!visible));
             if (!visible) { _roiHudHoverIdx = -1; return; }
+            const hasRows = _roiVisible && _rois.length > 0;
             if (_roiHudRenaming >= 0) return;  // keep the name field alive while typing
             for (const i of [..._roiHudExpanded]) if (i >= _rois.length) _roiHudExpanded.delete(i);
             const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
-            const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI';
+            const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI analysis';
             const all = _rois.map(r => _roiHudStats(r, map));
             const shown = all.filter((st, i) => st && _rois[i].visible !== false);
             const fmtMean = _roiHudColumnFormat(all.map(st => st?.mean));
@@ -18806,25 +18682,47 @@
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
             const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
-            let html = `<div class="roi-hud-head roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span><span class="roi-hud-count">${_rois.length}</span>`
-                + `<button type="button" class="roi-hud-export" data-export="copy" data-tip="Copy the table · paste into a spreadsheet" aria-label="Copy ROI statistics table">${copyIcon}copy</button>`
-                + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
-                + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
-            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
-            _rois.forEach((r, i) => {
-                const stats = all[i];
-                const name = _roiName(i);
-                const open = _roiHudExpanded.has(i);
-                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
-                    + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
-                    + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span></td>`
-                    + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
-                if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
-            });
-            html += '</tbody></table>';
+            let html = `<div class="roi-hud-tools roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span>`;
+            for (const shapeName of ['circle', 'rect', 'freehand', 'floodfill']) {
+                if (shapeName === 'floodfill') html += '<span class="roi-hud-tool-sep" aria-hidden="true"></span>';
+                const label = _roiShapeLabel(shapeName);
+                html += `<button type="button" class="roi-hud-tool${shapeName === _roiShape ? ' on' : ''}" data-shape="${shapeName}" aria-label="${label}" aria-pressed="${shapeName === _roiShape}" title="${label}">${_ROI_SHAPE_ICONS[shapeName]}</button>`;
+            }
+            html += '</div>';
+            html += '<div class="roi-hud-body">';
+            if (hasRows) {
+                html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
+                _rois.forEach((r, i) => {
+                    const stats = all[i];
+                    const name = _roiName(i);
+                    const open = _roiHudExpanded.has(i);
+                    html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
+                        + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
+                        + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span></td>`
+                        + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                    if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
+                });
+                html += '</tbody></table>';
+            } else {
+                const how = _roiShape === 'floodfill'
+                    ? 'Hold to fill · drag \u2195 to spread'
+                    : 'Pick a shape, drag on the image';
+                html += `<ul class="roi-hud-help"><li>${how}</li>`
+                    + '<li>Click a row for its details</li>'
+                    + '<li><kbd>Backspace</kbd> deletes the selected ROI</li></ul>';
+            }
+            html += '</div>';
+            html += '<div class="roi-hud-foot roi-hud-grip" title="Drag to move">'
+                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="copy" data-tip="Copy the table · paste into a spreadsheet" aria-label="Copy ROI statistics table">${copyIcon}copy</button>`
+                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
+                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
             if (hud._content !== html) {
                 hud._content = html;
                 hud.innerHTML = html;
+                hud.querySelectorAll('.roi-hud-tool').forEach(btn => btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    _roiSetShape(btn.dataset.shape);
+                }));
                 hud.querySelectorAll('.roi-hud-export').forEach(btn => btn.addEventListener('click', e => {
                     e.stopPropagation();
                     if (btn.dataset.export === 'copy') _copyRoiTable();
@@ -18865,13 +18763,15 @@
             let position = _roiHudPosition;
             if (!position && rects.length) {
                 const rect = { left: Math.min(...rects.map(r => r.left)), top: Math.min(...rects.map(r => r.top)), right: Math.max(...rects.map(r => r.right)), bottom: Math.max(...rects.map(r => r.bottom)) };
+                // Beside the image, top-aligned; failing that, its top-left
+                // corner. Never above/below: those spots move as it grows.
                 const candidates = [
                     { x: rect.right + gap, y: rect.top },
                     { x: rect.left - width - gap, y: rect.top },
-                    { x: rect.left, y: rect.top - height - gap },
-                    { x: rect.left, y: rect.bottom + gap },
                 ];
-                position = candidates.find(p => p.x >= gap && p.y >= gap && p.x + width <= innerWidth - gap && p.y + height <= innerHeight - gap) || { x: rect.left + gap, y: rect.top + gap };
+                // Choose the side by width only: the panel grows downwards as
+                // ROIs are added, and must not hop to another side when it does.
+                position = candidates.find(p => p.x >= gap && p.y >= gap && p.x + width <= innerWidth - gap) || { x: rect.left + gap, y: rect.top + gap };
             }
             if (position) {
                 hud.style.left = `${Math.max(gap, Math.min(innerWidth - width - gap, position.x))}px`;
@@ -20591,12 +20491,8 @@
             const inner = document.querySelector('.oblique-flip-inner');
             if (!inner) return;
             const mv = multiViewActive && !compareMvActive;
-            // ROI mode is persistent — it owns the back face when active. The
-            // oblique Alt-hold reveal is still available while ROI is off.
-            const roiFlip = mv && rectRoiMode;
             const obFlip = mv && (_obliqueAltHeld || _obliqueBackHovered);
-            inner.classList.toggle('flipped', roiFlip || obFlip);
-            inner.classList.toggle('roi-flipped', roiFlip);
+            inner.classList.toggle('flipped', obFlip);
         }
 
         /** Build the flip wrapper around an existing `.cb-island` node, insert
@@ -20645,19 +20541,6 @@
                 + '</div>';
             inner.appendChild(back);
 
-            // Build the ROI back face — shown when ROI mode is active in
-            // v-mode (takes priority over the oblique back face via the
-            // .roi-flipped class on the inner). Reuses .roi-cb-controls so
-            // _renderRoiColorbarControls() populates it alongside the
-            // single-view instance.
-            const roiBack = document.createElement('div');
-            roiBack.className = 'roi-flip-back';
-            const roiControls = document.createElement('div');
-            roiControls.className = 'roi-cb-controls';
-            roiControls.id = 'roi-cb-controls-mv';
-            roiControls.setAttribute('aria-label', 'ROI controls');
-            roiBack.appendChild(roiControls);
-            inner.appendChild(roiBack);
             const btnLock = back.querySelector('#oblique-lock-btn');
             const btnSave = back.querySelector('#oblique-save-btn');
             const btnReset = back.querySelector('#oblique-reset-btn');
@@ -27321,7 +27204,6 @@
         function _updateRoiPanel() {
             _reconcileRoiHud();
             renderIsland();
-            _reconcileRoiColorbarControls();
         }
 
         function _roiManagerRename(idx, value) {
@@ -42974,46 +42856,12 @@
         // ── Unified UI reconciler ────────────────────────────────────
         // Single entry point that reconciles all UI state from current flags.
         // Call after any mode state change.
-        function _renderRoiColorbarControls() {
-            const containers = document.querySelectorAll('.roi-cb-controls');
-            if (!containers.length) return;
-            const shapes = ['circle', 'rect', 'freehand', 'floodfill'];
-            let html = '<span class="roi-cb-label">ROI:</span><div class="roi-cb-shapes">';
-            for (const shapeName of shapes) {
-                if (shapeName === 'floodfill') html += '<div class="roi-cb-sep" aria-hidden="true"></div>';
-                const icon = _ROI_SHAPE_ICONS[shapeName] || shapeName;
-                const active = shapeName === _roiShape ? ' on' : '';
-                html += `<button type="button" class="roi-cb-btn icon${active}" title="${_roiShapeLabel(shapeName)}" aria-label="${_roiShapeLabel(shapeName)}" onclick="event.stopPropagation(); _roiSetShape('${shapeName}')">${icon}</button>`;
-            }
-            html += '</div>';
-            containers.forEach(el => { el.innerHTML = html; });
-        }
-
-        function _reconcileRoiColorbarControls() {
-            const singleVisible = !!(rectRoiMode && _sharedCbVisible && colorbarVisible() && !compareActive && !multiViewActive && !compareMvActive && !qmriActive && !compareQmriActive);
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) {
-                cbWrap.classList.toggle('roi-active', singleVisible);
-                if (rectRoiMode) cbWrap.style.display = singleVisible ? '' : 'none';
-            }
-            // In v-mode the ROI toolbar lives on the back face of the mv
-            // colorbar flip (built by _buildObliqueFlipWrap). ROI takes
-            // priority over the oblique Alt-hold reveal.
-            const mvRoiActive = !!(rectRoiMode && multiViewActive && !compareMvActive);
-            if (rectRoiMode) _renderRoiColorbarControls();
-            document.querySelectorAll('.roi-cb-controls').forEach(el => {
-                el.setAttribute('aria-hidden', (singleVisible || mvRoiActive) ? 'false' : 'true');
-            });
-            if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
-        }
-
         function _reconcileUI() {
             _reconcileLayout();
             _reconcilePlaybackHud();
             _reconcileCompareState();
             _reconcileCbVisibility();
             _reconcileDimbarExtent();
-            _reconcileRoiColorbarControls();
             _reconcileRoiHud();
             _reconcileFloodfillSensitivityHud();
             _reconcileMainLoupeState();

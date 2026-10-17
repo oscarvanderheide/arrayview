@@ -842,14 +842,16 @@ class TestROIDrag:
         page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
         page.wait_for_timeout(400)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector(".oblique-flip-inner.roi-flipped", timeout=2_000)
+        page.wait_for_selector("#roi-stats-hud .roi-hud-tool", timeout=2_000)
         page.evaluate("() => _roiSetShape('circle')")
         page.wait_for_timeout(200)
 
+        # The ROI panel sits over the top-left of the first pane when the
+        # panes fill the window, so draw clear of it.
         pane = page.locator(".mv-canvas").nth(0)
         box = pane.bounding_box()
-        x0, y0 = box["x"] + box["width"] * 0.2, box["y"] + box["height"] * 0.2
-        x1, y1 = box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.6
+        x0, y0 = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.4
+        x1, y1 = box["x"] + box["width"] * 0.8, box["y"] + box["height"] * 0.8
         page.mouse.move(x0, y0)
         page.mouse.down()
         page.mouse.move(x1, y1, steps=10)
@@ -874,7 +876,7 @@ class TestROIDrag:
         page = loaded_viewer(sid)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#slim-cb-wrap.roi-active", timeout=3_000)
+        page.wait_for_selector("#roi-stats-hud .roi-hud-tool", timeout=3_000)
         page.evaluate("_roiSetShape('rect')"); page.wait_for_timeout(150)
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
