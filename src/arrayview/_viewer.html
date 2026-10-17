@@ -2251,9 +2251,13 @@
         :root.light .percentile-preset-overlay { background-color: rgba(240, 240, 240, 0.8); }
         .percentile-preset-overlay.fading { animation: none; opacity: 0; }
         .percentile-preset-value {
-            width: 9ch; text-align: center; white-space: nowrap;
+            min-width: 9ch; text-align: center; white-space: nowrap;
             font-size: 11px; line-height: 1; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums;
+        }
+        .percentile-preset-cube {
+            display: block; background: transparent; border: none;
+            border-radius: 0; box-shadow: none; margin: -1px 0;
         }
         .percentile-preset-dots { display: flex; align-items: center; gap: 5px; }
         .percentile-preset-dot {
@@ -9037,7 +9041,7 @@
         }
 
         function _planeLabel(planes, i) {
-            return planes[i].name || `view ${i + 1} of 3`;
+            return planes[i].name || '';
         }
 
         /** Physical size (mm) of one step along `dim`, or null when unknown. */
@@ -9082,7 +9086,11 @@
             if (!qmriActive && !compareQmriActive) triggerPreload();
             if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
             renderInfo(); saveState();
-            showStatus(_planeLabel(planes, next));
+            // Named views speak for themselves; the little box stands in only
+            // when there is no anatomical name to show.
+            _showCycleOverlay(_planeLabel(planes, next), next, planes.length, null,
+                plane.name ? null
+                    : { dims: [...new Set(planes.map(p => p.sliceDir))].sort((a, b) => a - b), sliceDim: plane.sliceDir });
         }
 
         /** Briefly fade the dimbar out, run `change`, and fade it back in, so
@@ -18000,14 +18008,22 @@
 
         function _showPercentilePresetOverlay(preset, index, anchorEl) {
             if (!preset) return;
+            _showCycleOverlay(_percentilePresetLabel(preset), index, _QUANTILE_PRESETS.length, anchorEl);
+        }
+
+        // The little label-over-dots pill (d presets, Shift+P views): `label`
+        // on top, `count` dots below with dot `index` lit. Fades after a moment.
+        function _showCycleOverlay(label, index, count, anchorEl, cube = null) {
             if (_percentilePresetOverlayTimer) clearTimeout(_percentilePresetOverlayTimer);
             if (_percentilePresetOverlayFadeTimer) clearTimeout(_percentilePresetOverlayFadeTimer);
             if (_percentilePresetCrossfadeTimer) clearTimeout(_percentilePresetCrossfadeTimer);
             const eggs = document.getElementById('mode-eggs');
             const crossfadeBadges = !_percentilePresetOverlay && !!eggs?.querySelector('.mode-badge');
             _percentilePresetOverlay = {
-                preset,
-                index: Math.max(0, Math.min(_QUANTILE_PRESETS.length - 1, Number(index) || 0)),
+                label,
+                count,
+                cube,
+                index: Math.max(0, Math.min(count - 1, Number(index) || 0)),
                 anchorEl: anchorEl || _percentilePresetAnchorElement(),
                 fading: false,
                 pending: crossfadeBadges,
@@ -18216,19 +18232,29 @@
             if (_percentilePresetOverlay) {
                 if (_percentilePresetOverlay.pending) return;
                 let overlay = el.querySelector('.percentile-preset-overlay');
+                if (overlay && (overlay.querySelectorAll('.percentile-preset-dot').length !== _percentilePresetOverlay.count
+                        || !!overlay.querySelector('.percentile-preset-cube') !== !!_percentilePresetOverlay.cube)) {
+                    overlay = null;
+                }
                 if (!overlay) {
-                    const dots = _QUANTILE_PRESETS.map(() =>
-                        '<span class="percentile-preset-dot"></span>'
-                    ).join('');
+                    const dots = '<span class="percentile-preset-dot"></span>'.repeat(_percentilePresetOverlay.count);
                     el.innerHTML = '<div class="percentile-preset-overlay">'
+                        + (_percentilePresetOverlay.cube ? '<canvas class="percentile-preset-cube"></canvas>' : '')
                         + '<div class="percentile-preset-value"></div>'
                         + `<div class="percentile-preset-dots" aria-hidden="true">${dots}</div>`
                         + '</div>';
                     overlay = el.querySelector('.percentile-preset-overlay');
                 }
                 overlay.classList.toggle('fading', _percentilePresetOverlay.fading);
-                overlay.querySelector('.percentile-preset-value').textContent =
-                    _percentilePresetLabel(_percentilePresetOverlay.preset);
+                const valueEl = overlay.querySelector('.percentile-preset-value');
+                valueEl.textContent = _percentilePresetOverlay.label;
+                valueEl.style.display = _percentilePresetOverlay.label ? '' : 'none';
+                const cube = _percentilePresetOverlay.cube;
+                if (cube) {
+                    const cv = overlay.querySelector('.percentile-preset-cube');
+                    _drawSliceCube(cv, 52, cube.dims, cube.dims.indexOf(cube.sliceDim));
+                    cv.style.width = cv.style.height = '52px';
+                }
                 overlay.querySelectorAll('.percentile-preset-dot').forEach((dot, i) => {
                     dot.classList.toggle('active', i === _percentilePresetOverlay.index);
                 });
@@ -40217,8 +40243,15 @@
                 : compareMvActive ? compareMvDims
                 : qmriMvActive ? qmriMvDims : [];
             if (!cv || _oriDims.length < 3) return;
+            _drawSliceCube(cv, 120, _oriDims, -1);
+        }
+
+        /** The little wireframe box with its three slice planes (red, green,
+         *  blue = perpendicular to dims[0], dims[1], dims[2]). With
+         *  `highlight` >= 0 only that plane is drawn in colour, at the current
+         *  slice; the other two are faint ghosts through the middle. */
+        function _drawSliceCube(cv, cssSize, _oriDims, highlight) {
             const dpr = window.devicePixelRatio || 1;
-            const cssSize = 120;
             if (cv.width !== cssSize * dpr || cv.height !== cssSize * dpr) {
                 cv.width = cssSize * dpr;
                 cv.height = cssSize * dpr;
@@ -40239,8 +40272,17 @@
             // Isometric projection: 3D (x,y,z) in [0,W]×[0,H]×[0,D] → canvas 2D
             const A = Math.PI / 6; // 30°
             const cosA = Math.cos(A), sinA = Math.sin(A);
-            const scale = cssSize * 0.38;
-            const cx = cssSize * 0.5, cy = cssSize * 0.54;
+            let scale = cssSize * 0.38;
+            let cx = cssSize * 0.5, cy = cssSize * 0.54;
+            if (highlight >= 0) {
+                // In the small pill, fit the box's own outline and centre it:
+                // a fixed anchor only looks centred for a perfect cube.
+                const minX = -D * cosA, maxX = W * cosA;
+                const minY = -H, maxY = (W + D) * sinA;
+                scale = cssSize * 0.9 / Math.max(maxX - minX, maxY - minY);
+                cx = cssSize / 2 - (minX + maxX) / 2 * scale;
+                cy = cssSize / 2 - (minY + maxY) / 2 * scale;
+            }
             const iso = (x, y, z) => ({
                 sx: cx + (x - z) * cosA * scale,
                 sy: cy + ((x + z) * sinA - y) * scale
@@ -40276,16 +40318,16 @@
 
             // Three slice planes
             // Slice fractions: position within each dim's extent
-            const f0 = (shape[_oriDims[0]] > 1) ? indices[_oriDims[0]] / (shape[_oriDims[0]] - 1) : 0.5;
-            const f1 = (shape[_oriDims[1]] > 1) ? indices[_oriDims[1]] / (shape[_oriDims[1]] - 1) : 0.5;
-            const f2 = (shape[_oriDims[2]] > 1) ? indices[_oriDims[2]] / (shape[_oriDims[2]] - 1) : 0.5;
+            const _frac = i => (highlight >= 0 && highlight !== i) ? 0.5
+                : (shape[_oriDims[i]] > 1) ? indices[_oriDims[i]] / (shape[_oriDims[i]] - 1) : 0.5;
+            const f0 = _frac(0), f1 = _frac(1), f2 = _frac(2);
             const planeColors = [
                 { fill: 'rgba(255,90,90,0.30)',   stroke: 'rgba(255,90,90,0.7)' },
                 { fill: 'rgba(100,210,130,0.28)', stroke: 'rgba(100,210,130,0.65)' },
                 { fill: 'rgba(80,170,255,0.28)',  stroke: 'rgba(80,170,255,0.65)' },
             ];
             let planes;
-            if (obliqueVecs) {
+            if (obliqueVecs && highlight < 0) {
                 // Oblique planes: draw a quad centered at crosshair, extending along bh/bv.
                 // Basis vectors are unit vecs in (dim0,dim1,dim2) voxel space.
                 // Mapping to widget (x,y,z) space: widget_x=vox_dim2/maxDim, etc.
@@ -40313,6 +40355,14 @@
                 ];
             }
 
+            if (highlight >= 0) {
+                const ghostFill = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)';
+                const ghostStroke = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.16)';
+                planes = planes.map((p, i) => i === highlight ? p
+                    : { ...p, fill: ghostFill, stroke: ghostStroke });
+                // Shown plane last, so it sits on top of the ghosts.
+                planes.push(planes.splice(highlight, 1)[0]);
+            }
             planes.forEach(({ fill, stroke, pts }) => {
                 ctx.beginPath();
                 ctx.moveTo(pts[0].sx, pts[0].sy);

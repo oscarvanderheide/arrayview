@@ -347,7 +347,10 @@ def test_shift_p_cycles_views_and_remembers_each_one(page, client, server_url, t
     page.wait_for_timeout(200)
     page.keyboard.press("Shift+P")
     page.wait_for_timeout(400)
-    assert page.evaluate("() => document.getElementById('status').textContent") == "coronal"
+    assert page.evaluate("() => document.querySelector('#mode-eggs .percentile-preset-value').textContent") == "coronal"
+    lit = page.evaluate("() => [...document.querySelectorAll('#mode-eggs .percentile-preset-dot')].map(d => d.classList.contains('active'))")
+    assert lit == [False, True, False]
+    assert page.locator("#mode-eggs canvas.percentile-preset-cube").count() == 0
     w, h, bw, bh = page.evaluate(
         "() => [parseFloat(canvas.style.width), parseFloat(canvas.style.height), canvas.width, canvas.height]"
     )
