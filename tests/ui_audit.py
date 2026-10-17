@@ -562,11 +562,11 @@ K_FLICKER = [("Shift+X", 800)] * 6
 K_CHECKER = [("Shift+X", 800)] * 7
 
 # Projection: p cycles 0→MAX→MIN→MEAN→STD→SOS→off
-K_PROJ_MAX = [("Shift+P", 800)]
-K_PROJ_MIN = [("Shift+P", 800)] * 2
-K_PROJ_MEAN = [("Shift+P", 800)] * 3
-K_PROJ_STD = [("Shift+P", 800)] * 4
-K_PROJ_SOS = [("Shift+P", 800)] * 5
+K_PROJ_MAX = [("p", 800)]
+K_PROJ_MIN = [("p", 800)] * 2
+K_PROJ_MEAN = [("p", 800)] * 3
+K_PROJ_STD = [("p", 800)] * 4
+K_PROJ_SOS = [("p", 800)] * 5
 
 # Theme: T cycles dark→light
 K_THEME_LIGHT = [("Shift+T", 400)]

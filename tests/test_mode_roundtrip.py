@@ -168,10 +168,10 @@ def _exit_qmri(page):
 
 # --- projection ---
 def _enter_projection(page):
-    # The first `Shift+P` only opens the option row; the second steps to MAX.
-    page.keyboard.press("Shift+P")
+    # The first `p` only opens the option row; the second steps to MAX.
+    page.keyboard.press("p")
     _wait(page, 250)
-    page.keyboard.press("Shift+P")
+    page.keyboard.press("p")
     _wait(page, 250)
 
 
@@ -183,7 +183,7 @@ def _exit_projection(page):
     for _ in range(n_labels + 2):
         if page.evaluate("() => projectionMode") == 0:
             break
-        page.keyboard.press("Shift+P")
+        page.keyboard.press("p")
         _wait(page, 100)
     _wait(page, 200)
 
