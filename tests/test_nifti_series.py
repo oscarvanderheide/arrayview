@@ -1076,6 +1076,26 @@ def test_scattered_region_warm_follows_the_channel_axis(tmp_path):
         assert (0, 1, ()) in series._region_cache
 
 
+def test_slices_along_the_storage_order_still_load_the_case(tmp_path):
+    """Viewing a case along its storage order loads its maps in the background
+    too, so scrolling and a later crossing view do not wait on the drive."""
+    shape = (96, 112, 104, 3)
+    rng = np.random.default_rng(2)
+    path = _save_nifti(tmp_path / "case0.nii", rng.standard_normal(shape).astype(np.float32))
+    series = _NiftiSeries([[path]], shape, np.float32)
+    S = slice(None)
+    np.asarray(series[(S, S, 50, 0, 0)])  # contiguous: read straight from the file
+    wanted = {(0, 0, (q,)) for q in range(shape[3])}
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with series._region_lock:
+            if wanted <= set(series._region_cache):
+                break
+        time.sleep(0.01)
+    with series._region_lock:
+        assert wanted <= set(series._region_cache)
+
+
 def test_sibling_panes_do_not_cancel_each_others_prefetch(monkeypatch):
     """qMRI maps / multiview planes share a session; each pane must stay warmed."""
     from arrayview import _session as session_mod

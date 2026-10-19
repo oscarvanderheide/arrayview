@@ -681,9 +681,9 @@ class _ScatteredRegionMixin:
     map of a 4D one. When a requested slice would be scattered across its
     region, the region is read in one go (see ``read_mapped_region``) and kept;
     every later slice of it, in any direction, is then served from memory.
-    Afterwards the case's other regions and the neighbouring case are read in
-    the background, so the next step — another map, the next patient — is
-    usually already there.
+    Whichever way the case is first viewed, its regions and the neighbouring
+    case's are then read in the background, so the next step — scrolling,
+    another map, a crossing view, the next patient — is usually already there.
     """
 
     def _init_region_cache(self):
@@ -793,6 +793,9 @@ class _ScatteredRegionMixin:
         if region is None:
             try:
                 if not _mapped_slice_is_scattered(mapped[tuple(spatial_key)]):
+                    # Cheap to read now, but the next scroll steps and any
+                    # switch to a crossing view are not: load the case anyway.
+                    self._schedule_region_warm(p_idx, m_idx, rest, spatial_key)
                     return None
                 view = self._region_view(mapped, rest)
                 if view.nbytes > self._region_cache_max_bytes // 2:
@@ -825,11 +828,6 @@ class _ScatteredRegionMixin:
         else:
             step = -1 if last is not None and last[0] > p_idx else 1
             neighbours = [(p_idx + step, m_idx), (p_idx - step, m_idx)]
-        # Which axes are on screen is all that carries over to another case;
-        # the indices along the others may not fit a differently-sized one.
-        probe = tuple(
-            slice(None) if isinstance(k, slice) else 0 for k in spatial_key[: min(3, len(spatial_key))]
-        )
         plan = [(p_idx, m_idx)] + [
             (p, m) for p, m in neighbours if 0 <= p < n_p and 0 <= m < n_m
         ]
@@ -845,7 +843,7 @@ class _ScatteredRegionMixin:
                     if self._file_matrix[p][m] is None:
                         continue
                     mapped = self._mapped_volume(p, m, self._get_volume(p, m))
-                    if mapped is None or not _mapped_slice_is_scattered(mapped[probe + first_rest]):
+                    if mapped is None:
                         continue
                     n_sp = min(3, mapped.ndim)
                     rests = list(np.ndindex(*mapped.shape[n_sp:])) or [()]
