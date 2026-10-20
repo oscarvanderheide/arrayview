@@ -97,7 +97,7 @@ def _vscode_extension_install_lock(
             break
         except FileExistsError:
             try:
-                with open(path) as handle:
+                with open(path, encoding="utf-8") as handle:
                     owner = json.load(handle)
                 owner_pid = owner.get("pid")
                 created_at = owner.get("createdAt")
@@ -131,7 +131,7 @@ def _vscode_extension_install_lock(
     finally:
         if acquired:
             try:
-                with open(path) as handle:
+                with open(path, encoding="utf-8") as handle:
                     owner = json.load(handle)
                 if owner.get("token") == token:
                     os.unlink(path)
@@ -174,7 +174,7 @@ def _write_extension_install_failure_guard(
     tmp = f"{path}.tmp-{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(tmp, "w") as handle:
+        with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(payload, handle)
         os.replace(tmp, path)
         return True
@@ -207,7 +207,7 @@ def _clear_extension_install_failure_guards(version: str, code: str) -> None:
             continue
         path = os.path.join(signal_dir, filename)
         try:
-            with open(path) as handle:
+            with open(path, encoding="utf-8") as handle:
                 payload = json.load(handle)
             if (
                 payload.get("version") == version
@@ -234,7 +234,7 @@ def _extension_install_failure_guard(
     key = _extension_install_guard_key(version, code, registration_marker)
     path = _extension_install_guard_path(key)
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, ValueError, TypeError):
         return None
@@ -288,7 +288,7 @@ def _patch_vscode_extension_metadata(
         if not os.path.isfile(package_json):
             continue
         try:
-            with open(package_json) as f:
+            with open(package_json, encoding="utf-8") as f:
                 data = json.load(f)
             metadata = data.get("__metadata")
             if (
@@ -296,7 +296,7 @@ def _patch_vscode_extension_metadata(
                 and metadata.get("targetPlatform") == "undefined"
             ):
                 del metadata["targetPlatform"]
-                with open(package_json, "w") as f:
+                with open(package_json, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=8)
                     f.write("\n")
         except Exception as exc:
@@ -450,7 +450,7 @@ def _extension_on_disk(
             return True  # can't read VSIX, assume installed is fine
         hash_file = os.path.join(ext_dir, ".vsix_hash")
         try:
-            installed_hash = open(hash_file).read().strip()
+            installed_hash = open(hash_file, encoding="utf-8").read().strip()
         except OSError:
             installed_hash = None
         if installed_hash == vsix_hash:
@@ -460,7 +460,7 @@ def _extension_on_disk(
             # Backfill it after a verified VS Code install so ordinary launches
             # do not force a redundant --force install and window reload.
             try:
-                with open(hash_file, "w") as f:
+                with open(hash_file, "w", encoding="utf-8") as f:
                     f.write(vsix_hash)
             except OSError as exc:
                 _vprint(
@@ -871,7 +871,7 @@ def _write_vscode_extension_hash(
     for base in bases:
         ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
         if os.path.isdir(ext_dir):
-            with open(os.path.join(ext_dir, ".vsix_hash"), "w") as f:
+            with open(os.path.join(ext_dir, ".vsix_hash"), "w", encoding="utf-8") as f:
                 f.write(vsix_hash)
 
 
@@ -1285,7 +1285,7 @@ def _configure_vscode_port_preview(
         if not os.path.exists(path):
             return {}
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 raw = f.read()
             cleaned = _strip_json_comments(raw)
             return json.loads(cleaned) if cleaned.strip() else {}
@@ -1312,7 +1312,7 @@ def _configure_vscode_port_preview(
         for key in stale:
             attrs.pop(key, None)
         attrs[str(port)] = updated
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
 
@@ -1351,7 +1351,7 @@ def _configure_vscode_port_preview(
                             attrs.pop(key)
                             changed = True
                     if changed:
-                        with open(settings_path, "w") as f:
+                        with open(settings_path, "w", encoding="utf-8") as f:
                             json.dump(settings, f, indent=2)
                             f.write("\n")
             return True

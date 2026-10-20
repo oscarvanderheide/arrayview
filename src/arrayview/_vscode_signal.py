@@ -273,7 +273,7 @@ def _find_current_vscode_window_id() -> str | None:
             if not (filename.startswith("window-") and filename.endswith(".json")):
                 continue
             try:
-                with open(os.path.join(signal_dir, filename)) as f:
+                with open(os.path.join(signal_dir, filename), encoding="utf-8") as f:
                     data = json.load(f)
                 window_id = filename[7:-5]
                 ext_pid = data.get("pid")
@@ -761,7 +761,7 @@ def _write_vscode_signal(
                 signal_dir, f"window-{current_ipc_wid}.json"
             )
             try:
-                with open(current_ipc_registration) as registration_file:
+                with open(current_ipc_registration, encoding="utf-8") as registration_file:
                     current_ipc_data = json.load(registration_file)
                 from arrayview._platform import _process_is_alive
 
@@ -783,7 +783,7 @@ def _write_vscode_signal(
             reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
             if os.path.isfile(reg_file):
                 try:
-                    with open(reg_file) as _rf:
+                    with open(reg_file, encoding="utf-8") as _rf:
                         _reg_data = json.load(_rf)
                     uses_pid = _reg_data.get("fallbackId", False)
                 except Exception:
@@ -818,7 +818,7 @@ def _write_vscode_signal(
                 if len(_all_windows) == 1:
                     _sole_wid = _all_windows[0][7:-5]
                     try:
-                        with open(os.path.join(signal_dir, _all_windows[0])) as _rf:
+                        with open(os.path.join(signal_dir, _all_windows[0]), encoding="utf-8") as _rf:
                             _sole_reg = json.load(_rf)
                         _uses_pid_sole = _sole_reg.get("fallbackId", False)
                     except Exception:
@@ -856,7 +856,7 @@ def _write_vscode_signal(
             try:
                 for _fname in os.listdir(signal_dir):
                     if _fname.startswith("window-") and _fname.endswith(".json"):
-                        with open(os.path.join(signal_dir, _fname)) as _f:
+                        with open(os.path.join(signal_dir, _fname), encoding="utf-8") as _f:
                             _reg = json.load(_f)
                         if _reg.get("hookTag") == own_tag:
                             ext_uses_hook = True
@@ -980,7 +980,7 @@ def _write_vscode_signal(
                     signal_dir, f"window-{ipc_wid}.json"
                 )
                 try:
-                    with open(ipc_registration) as registration:
+                    with open(ipc_registration, encoding="utf-8") as registration:
                         registration_data = json.load(registration)
                     if (
                         registration_data.get("remoteName")
@@ -1001,7 +1001,7 @@ def _write_vscode_signal(
                 reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
                 if os.path.isfile(reg_file):
                     try:
-                        with open(reg_file) as _rf:
+                        with open(reg_file, encoding="utf-8") as _rf:
                             _reg_data = json.load(_rf)
                         _uses_pid = _reg_data.get("fallbackId", False)
                     except Exception:
@@ -1031,7 +1031,7 @@ def _write_vscode_signal(
                     if len(_all_windows_r) == 1:
                         _sole_wid_r = _all_windows_r[0][7:-5]
                         try:
-                            with open(os.path.join(signal_dir, _all_windows_r[0])) as _rf:
+                            with open(os.path.join(signal_dir, _all_windows_r[0]), encoding="utf-8") as _rf:
                                 _sole_reg_r = json.load(_rf)
                             _uses_pid_r = _sole_reg_r.get("fallbackId", False)
                         except Exception:
@@ -1067,7 +1067,7 @@ def _write_vscode_signal(
                 if len(_all_windows_r) == 1:
                     _sole_wid_r = _all_windows_r[0][7:-5]
                     try:
-                        with open(os.path.join(signal_dir, _all_windows_r[0])) as _rf:
+                        with open(os.path.join(signal_dir, _all_windows_r[0]), encoding="utf-8") as _rf:
                             _sole_reg_r = json.load(_rf)
                         _uses_pid_r = _sole_reg_r.get("fallbackId", False)
                     except Exception:
@@ -1140,7 +1140,7 @@ def _write_vscode_signal(
                     return False
             for registration_name in registration_names:
                 try:
-                    with open(os.path.join(signal_dir, registration_name)) as registration:
+                    with open(os.path.join(signal_dir, registration_name), encoding="utf-8") as registration:
                         if json.load(registration).get("signalQueueVersion", 0) < 1:
                             return False
                 except (OSError, TypeError, ValueError):
@@ -1168,7 +1168,7 @@ def _write_vscode_signal(
                     pass
             signal_file = os.path.join(signal_dir, filename)
             tmp_file = signal_file + ".tmp"
-            with open(tmp_file, "w") as f:
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             os.replace(tmp_file, signal_file)  # atomic on POSIX + Windows
         return True
@@ -1198,7 +1198,7 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
             continue
         wid = fn[7:-5]
         try:
-            with open(os.path.join(signal_dir, fn)) as f:
+            with open(os.path.join(signal_dir, fn), encoding="utf-8") as f:
                 registrations[wid] = json.load(f)
         except Exception:
             continue
