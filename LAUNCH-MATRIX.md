@@ -247,6 +247,25 @@ Rows changed: none directly. Two edits sit near launch code:
   affected on Windows: any VS Code terminal launch on a Windows desktop (not
   yet a row) and row 10.
 
+### 2026-10-20 Windows robustness pass (static review, no Windows host)
+
+Rows changed: row 10 and every Windows launch that is not yet a row. Linux
+and macOS behaviour is unchanged by each edit below; each Windows branch is
+`component` evidence only.
+
+- `.npy` files whose first view is not cheap from disk, and gzip NIfTI, read
+  without `os.pread`/`os.preadv` (Windows has neither; the load raised).
+- `arrayview stop` / `instances` and the startup lock share one per-user
+  folder on Windows instead of a folder per process.
+- The CLI replaces unencodable characters on Windows output instead of
+  raising, and background servers start without a console window.
+- VS Code registration/settings files are read and written as UTF-8.
+
+Linux recheck the same day, `real process`: `uv run arrayview <file>
+--window browser` against a running server, opened in headless Chromium at
+100 %, 125 % and 150 % display scaling; first frame rendered in every mode
+tried, no page errors.
+
 ### CLI
 
 | # | Environment | Window | Array / storage | Status |
