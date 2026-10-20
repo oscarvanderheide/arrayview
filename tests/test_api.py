@@ -4318,12 +4318,12 @@ class TestViewValidation:
         with pytest.raises(ValueError, match="at least one array"):
             view()
 
-    def test_five_arrays_raises(self):
+    def test_seven_arrays_raises(self):
         from arrayview._launcher import view
 
         a = np.zeros((3, 3))
-        with pytest.raises(ValueError, match="at most 4"):
-            view(a, a, a, a, a)
+        with pytest.raises(ValueError, match="at most 6"):
+            view(a, a, a, a, a, a, a)
 
     def test_mismatched_name_list_raises(self):
         from arrayview._launcher import view
