@@ -260,6 +260,8 @@ and macOS behaviour is unchanged by each edit below; each Windows branch is
 - The CLI replaces unencodable characters on Windows output instead of
   raising, and background servers start without a console window.
 - VS Code registration/settings files are read and written as UTF-8.
+- Server ports are bound exclusively on Windows, so a second server can no
+  longer bind a port another one already holds.
 
 Linux recheck the same day, `real process`: `uv run arrayview <file>
 --window browser` against a running server, opened in headless Chromium at
