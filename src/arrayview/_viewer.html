@@ -6373,6 +6373,18 @@
             return fetch(resolveServerPath(url), options);
         }
 
+        // Every pixel-value lookup goes through here. A pane without a frame
+        // yet gives NaN coordinates or indices, which the server rejects; such
+        // a lookup answers "no value" without asking, in every mode.
+        function fetchPixelValue(sid, query) {
+            const params = new URLSearchParams(query);
+            const coords = [params.get('px'), params.get('py'), ...(params.get('indices') || '').split(',')];
+            if (coords.some(v => v === null || !Number.isFinite(Number(v)))) {
+                return Promise.resolve(new Response('null', { status: 422 }));
+            }
+            return proxyFetch('/pixel/' + sid + '?' + params);
+        }
+
         const _launchPhaseRequestId = urlParams.get('_av_launch_request_id');
         const _launchPhaseServerId = urlParams.get('_av_launch_server_id');
         const _launchPhaseWindowId = urlParams.get('_av_launch_window_id');
@@ -22307,7 +22319,7 @@
                         complex_mode: complexMode,
                     });
                     if (logScale) params.set('log_scale', '1');
-                    const resp = await proxyFetch(`/pixel/${sid}?${params}`);
+                    const resp = await fetchPixelValue(sid, params);
                     const data = await resp.json();
                     if (refreshToken !== _hoverPinsRefreshToken) return;
                     if (data && Number.isFinite(data.value)) {
@@ -22895,7 +22907,7 @@
                 if (v.qmriRole) params.set('qmri_role', v.qmriRole);
                 if (logScale) params.set('log_scale', '1');
                 const seq = _nextPixelSeq(v);
-                proxyFetch('/pixel/' + sidForFetch + '?' + params)
+                fetchPixelValue(sidForFetch, params)
                     .then(r => r.ok ? r.json() : null).then(rd => {
                         if (!rd || !_pixelInfoActive() || !_acceptPixelReply(v, seq)) return;
                         const fmt = _pixelHoverFormat(rd.value, vCtx);
@@ -23046,7 +23058,7 @@
             const _fpKey = opts.canvas || opts.displayEl;
             const _fpSeq = _nextPixelSeq(_fpKey);
 
-            proxyFetch('/pixel/' + opts.sid + '?' + params)
+            fetchPixelValue(opts.sid, params)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
@@ -27675,7 +27687,7 @@
                     // clobbering a fresher one, and draw at the live cursor
                     // position rather than the stale one from request time.
                     const _mpGen = ++_mainPixelInfoGen;
-                    proxyFetch('/pixel/' + sid + '?' + params)
+                    fetchPixelValue(sid, params)
                         .then(r => r.ok ? r.json() : null)
                         .then(d => {
                             if (!d) return;
@@ -27781,7 +27793,7 @@
         }
         async function _copyPixelValue(cvSid, cvDimX, cvDimY, cvIndices, px, py) {
             try {
-                const resp = await proxyFetch(`/pixel/${cvSid}?dim_x=${cvDimX}&dim_y=${cvDimY}&indices=${cvIndices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`);
+                const resp = await fetchPixelValue(cvSid, `dim_x=${cvDimX}&dim_y=${cvDimY}&indices=${cvIndices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`);
                 const d = await resp.json();
                 if (d.value === undefined || d.value === null || !isFinite(d.value)) return;
                 const txt = _fmtPixelForCopy(d.value);

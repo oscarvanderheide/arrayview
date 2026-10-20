@@ -580,6 +580,32 @@ class TestKeyboard:
         assert info["nonBgPixels"] > 0, "Direct compare boot left compare canvas blank"
 
 
+    def test_compare_mosaic_hover_toggle_sends_no_rejected_pixel_request(
+        self, page, server_url, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_mosaic.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_compare_mosaic"}
+        ).json()["sid"]
+        rejected = []
+        page.on(
+            "response",
+            lambda r: rejected.append(r.url) if "/pixel/" in r.url and r.status >= 400 else None,
+        )
+        page.goto(
+            f"{server_url}/?sid={sid_3d}&compare_sid={sid_compare}&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("canvas#compare-left-canvas:visible", timeout=15_000)
+        page.keyboard.press("z")
+        page.wait_for_timeout(700)
+        for _ in range(2):
+            page.keyboard.press("i")
+            page.wait_for_timeout(400)
+        page.mouse.move(400, 300)
+        page.wait_for_timeout(400)
+        assert rejected == []
+
     # test_B_is_locked_for_multi_array_launch removed: the B keybind has
     # been retired entirely, so "B is locked" is meaningless. The
     # multi-array URL launch path is still covered by
