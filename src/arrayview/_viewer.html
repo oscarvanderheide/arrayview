@@ -152,6 +152,10 @@
             background: var(--bg); margin: 0; padding: 0;
             width: 100%; height: 100%; overflow: hidden;
         }
+        /* Windows and Linux draw thick light scrollbars unless told otherwise;
+           lists without their own styling get the same thin, themed bar. */
+        html { scrollbar-color: var(--border) transparent; }
+        * { scrollbar-width: thin; }
         #wrapper {
             background: var(--bg); color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
