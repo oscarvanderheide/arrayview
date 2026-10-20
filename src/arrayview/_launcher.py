@@ -74,10 +74,15 @@ def _detached_child_kwargs() -> dict[str, object]:
     control event raised for that group reaches *every* process attached to it,
     so a child being shut down can deliver a KeyboardInterrupt to the process
     that spawned it — under pytest, to the test runner itself.  Both branches
-    state the same intent: the child gets its own group.
+    state the same intent: the child gets its own group.  On Windows it also
+    gets no console of its own: started from a notebook or a GUI app, a
+    background server would otherwise pop up an empty black console window.
     """
     if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        return {
+            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.CREATE_NO_WINDOW
+        }
     return {"start_new_session": True}
 
 
@@ -5652,8 +5657,26 @@ def _handle_management_command(argv: list[str]) -> bool:
     return True
 
 
+def _replace_unprintable_output() -> None:
+    """Keep messages with arrows or ticks from crashing a Windows console.
+
+    Output redirected to a file or pipe on Windows uses an old code page that
+    cannot encode such characters, so printing them raised instead of showing
+    the message. The servers this command starts inherit the same setting.
+    """
+    if os.name != "nt":
+        return
+    os.environ.setdefault("PYTHONIOENCODING", ":replace")
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
+    _replace_unprintable_output()
     # Handle "arrayview config ..." subcommand before argparse
     if len(sys.argv) > 1 and sys.argv[1] == "config":
         _handle_config_command(sys.argv[2:])

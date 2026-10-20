@@ -151,7 +151,8 @@ def emit_launch_event(event: str, **attrs: object) -> None:
                 encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode()
             fd = os.open(_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
             try:
-                os.fchmod(fd, 0o600)
+                if hasattr(os, "fchmod"):  # Windows has none before Python 3.13
+                    os.fchmod(fd, 0o600)
                 os.write(fd, encoded)
             finally:
                 os.close(fd)
