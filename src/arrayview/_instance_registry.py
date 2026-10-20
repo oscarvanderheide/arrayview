@@ -70,7 +70,10 @@ def runtime_directory() -> Path:
         return Path(base) / "arrayview"
     if hasattr(os, "getuid"):
         return Path(tempfile.gettempdir()) / f"arrayview-{os.getuid()}"
-    return Path(tempfile.gettempdir()) / f"arrayview-{os.getpid()}"
+    # Windows: no uid, but the temp folder is already per user. One shared
+    # name lets every command see the servers the others started.
+    user = "".join(c for c in os.environ.get("USERNAME", "") if c.isalnum() or c in "-_.")
+    return Path(tempfile.gettempdir()) / f"arrayview-{user or 'user'}"
 
 
 def process_start_identity(pid: int) -> str | None:

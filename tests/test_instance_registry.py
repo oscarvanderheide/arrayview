@@ -179,6 +179,18 @@ def test_runtime_directory_is_per_uid_without_override(monkeypatch, tmp_path):
     assert first.name == f"arrayview-{current_uid}"
 
 
+def test_runtime_directory_is_shared_across_processes_without_uid(monkeypatch, tmp_path):
+    """Windows has no uid; every process of one user must find the same folder."""
+    monkeypatch.delenv("ARRAYVIEW_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delattr("arrayview._instance_registry.os.getuid", raising=False)
+    monkeypatch.setattr("arrayview._instance_registry.tempfile.gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("USERNAME", "Jos\u00e9 K")
+    first = runtime_directory()
+    monkeypatch.setattr("arrayview._instance_registry.os.getpid", lambda: 12345)
+    assert runtime_directory() == first == tmp_path / "arrayview-Jos\u00e9K"
+
+
 def test_import_does_not_load_heavy_dependencies():
     code = "import sys; import arrayview._instance_registry; print('fastapi' in sys.modules, 'numpy' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
