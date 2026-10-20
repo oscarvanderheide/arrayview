@@ -1,11 +1,18 @@
 import asyncio
 import io
+import re
 
 import numpy as np
 from fastapi import Body, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from arrayview._render import render_rgba
+
+
+def _safe_filename(name: str, default: str) -> str:
+    """A bare file name every OS accepts: no folders, no reserved characters."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f\s]+', "_", str(name or "")).strip("._")
+    return name or default
 
 
 def register_export_routes(app, *, get_session_or_404, pil_image) -> None:
@@ -20,8 +27,7 @@ def register_export_routes(app, *, get_session_or_404, pil_image) -> None:
         buf = io.BytesIO()
         np.save(buf, data)
         buf.seek(0)
-        name_stem = (session.name or "array").replace(" ", "_").replace("/", "_")
-        filename = f"{name_stem}.npy"
+        filename = f"{_safe_filename(session.name, 'array')}.npy"
         if save_to_downloads:
             import pathlib
 
@@ -39,7 +45,7 @@ def register_export_routes(app, *, get_session_or_404, pil_image) -> None:
     async def save_file(request: Request):
         """Save a client-generated file to the Downloads folder."""
         body = await request.json()
-        filename = body.get("filename", "arrayview_export")
+        filename = _safe_filename(body.get("filename"), "arrayview_export")
         data_b64 = body.get("data", "")
         if "," in data_b64:
             data_b64 = data_b64.split(",", 1)[1]

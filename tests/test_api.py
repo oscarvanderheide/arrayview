@@ -1959,6 +1959,19 @@ class TestExportRoutes:
         assert r.json()["path"] == str(saved_path)
         assert saved_path.read_bytes() == b"hello export"
 
+    def test_save_file_stays_inside_downloads(self, client, tmp_path, monkeypatch):
+        import pathlib
+
+        downloads = tmp_path / "Downloads"
+        downloads.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+        payload = base64.b64encode(b"x").decode("ascii")
+        r = client.post("/save_file", json={"filename": "../../evil:name?.png", "data": payload})
+
+        assert r.status_code == 200
+        assert pathlib.Path(r.json()["path"]).parent == downloads
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["Downloads"]
+
     def test_exploded_returns_requested_slice_previews(self, client, sid_3d):
         r = client.post(
             f"/exploded/{sid_3d}",
