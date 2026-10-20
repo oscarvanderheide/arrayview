@@ -396,6 +396,19 @@ def _build_inline_shell_html(url: str, shell_port: int) -> str | None:
         return None
 
 
+def _set_listen_reuse(sock: "socket.socket") -> None:
+    """Let a restarted server rebind its port at once, without sharing it.
+
+    On Windows ``SO_REUSEADDR`` lets a second process bind a port another
+    listener already holds, so two servers could answer on one port; the
+    exclusive option there is what the POSIX flag means elsewhere.
+    """
+    if sys.platform == "win32":
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+
 def _make_loopback_socket(port: int) -> "socket.socket":
     """Bind a single TCP listener on the same loopback host the viewer URLs use."""
     for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
@@ -406,7 +419,7 @@ def _make_loopback_socket(port: int) -> "socket.socket":
         sock = None
         try:
             sock = socket.socket(family, socktype, proto)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            _set_listen_reuse(sock)
             sock.bind(sockaddr)
             sock.listen(128)
             sock.set_inheritable(True)
@@ -444,7 +457,7 @@ def _make_loopback_sockets(port: int) -> list["socket.socket"]:
         sock = None
         try:
             sock = socket.socket(family, socktype, proto)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            _set_listen_reuse(sock)
             # On Linux, binding ::1 first then 127.0.0.1 on the same port is
             # fine (different addresses). IPV6_V6ONLY stays default (off on
             # Linux) which is harmless since we bind explicit addresses.
