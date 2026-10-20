@@ -503,7 +503,7 @@ def read_gzip_file_parallel(filepath):
     """
     try:
         size = os.path.getsize(filepath)
-        fd = os.open(filepath, os.O_RDONLY)
+        fd = os.open(filepath, _O_RDONLY_BINARY)
     except OSError:
         return None
     buf = bytearray(size)
@@ -518,7 +518,7 @@ def read_gzip_file_parallel(filepath):
         pos = start
         try:
             while pos < stop:
-                n = os.preadv(fd, [view[pos:stop]], pos)
+                n = _pread_into(fd, view[pos:stop], pos)
                 if n <= 0:
                     raise OSError("unexpected end of file")
                 pos += n
@@ -624,10 +624,21 @@ def _mapped_slice_is_scattered(view) -> bool:
     return nbytes > 4 * view.nbytes and nbytes > _REGION_READ_CHUNK_BYTES
 
 
+# Windows has neither pread nor preadv: reads there seek and read under one
+# lock, so they are correct but no longer run in parallel.
+_SEEK_READ_LOCK = threading.Lock()
+_O_RDONLY_BINARY = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+
+
 def _pread_into(fd, buf, offset):
     if hasattr(os, "preadv"):
         return os.preadv(fd, [buf], offset)
-    data = os.pread(fd, len(buf), offset)
+    if hasattr(os, "pread"):
+        data = os.pread(fd, len(buf), offset)
+    else:
+        with _SEEK_READ_LOCK:
+            os.lseek(fd, offset, os.SEEK_SET)
+            data = os.read(fd, len(buf))
     buf[: len(data)] = data
     return len(data)
 
@@ -646,7 +657,7 @@ def read_mapped_region(view, progress=None):
     mv = memoryview(buf)
     lock = threading.Lock()
     done = [0]
-    fd = os.open(filename, os.O_RDONLY)
+    fd = os.open(filename, _O_RDONLY_BINARY)
     try:
 
         def _read(start):
@@ -2211,7 +2222,7 @@ def prefetch_slice_pages(mapped, filepath, dims, index, progress=None) -> bool:
         return False
 
     try:
-        fd = os.open(filepath, os.O_RDONLY)
+        fd = os.open(filepath, _O_RDONLY_BINARY)
     except OSError:
         return False
     try:
@@ -2321,13 +2332,13 @@ def read_npy_into_ram(mapped, progress=None):
     lock = threading.Lock()
     done = [0]
 
-    fd = os.open(mapped.filename, os.O_RDONLY)
+    fd = os.open(mapped.filename, _O_RDONLY_BINARY)
     try:
         def _read(start):
             stop = min(start + _NPY_READ_CHUNK_BYTES, total)
             pos = start
             while pos < stop:
-                n = os.preadv(fd, [dst[pos:stop]], offset + pos)
+                n = _pread_into(fd, dst[pos:stop], offset + pos)
                 if n <= 0:
                     raise OSError(f"unexpected end of file reading {mapped.filename!r}")
                 pos += n

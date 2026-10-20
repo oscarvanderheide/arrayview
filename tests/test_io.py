@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 
@@ -210,6 +212,28 @@ def test_read_npy_into_ram_matches_np_load(tmp_path, monkeypatch):
         with open(path, "r+b") as fh:
             fh.truncate(path.stat().st_size - 100)
         _io.read_npy_into_ram(mapped)
+
+
+def test_parallel_readers_work_without_pread(tmp_path, monkeypatch):
+    """Windows has no os.pread/os.preadv; the parallel readers must still work."""
+    import gzip
+
+    from arrayview import _io
+
+    monkeypatch.delattr(os, "preadv", raising=False)
+    monkeypatch.delattr(os, "pread", raising=False)
+    monkeypatch.setattr(_io, "_NPY_READ_CHUNK_BYTES", 4096)
+    monkeypatch.setattr(_io, "_GZIP_READ_CHUNK_BYTES", 4096)
+    expected = np.random.default_rng(1).random((9, 40, 50))
+    path = tmp_path / "a.npy"
+    np.save(path, expected)
+    mapped = np.load(path, mmap_mode="r")
+    np.testing.assert_array_equal(_io.read_npy_into_ram(mapped), expected)
+    np.testing.assert_array_equal(_io.read_mapped_region(mapped[2:5, :, ::3]), expected[2:5, :, ::3])
+    payload = expected.tobytes()
+    gz = tmp_path / "a.gz"
+    gz.write_bytes(gzip.compress(payload))
+    assert _io.read_gzip_file_parallel(str(gz)) == payload
 
 
 def test_viewer_start_index_mirrors_viewer_rule():
