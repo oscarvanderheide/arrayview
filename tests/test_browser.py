@@ -580,6 +580,33 @@ class TestKeyboard:
         assert info["nonBgPixels"] > 0, "Direct compare boot left compare canvas blank"
 
 
+    def test_file_picker_lists_open_arrays_and_arrow_keys_walk_the_list(
+        self, page, server_url, sid_2d, sid_3d
+    ):
+        page.goto(f"{server_url}/?sid={sid_2d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+Y")
+        page.wait_for_selector("#uni-picker.visible", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        assert page.locator("#uni-picker img").count() == 0
+        open_rows = page.locator(".cp-tab-mark")
+        assert open_rows.count() >= 2
+        assert page.locator(".cp-item-current").count() == 1
+
+        visited = []
+        for _ in range(3):
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(100)
+            visited.append(page.evaluate(
+                "() => [...document.querySelectorAll('#uni-picker-list .cp-item')].indexOf(document.activeElement)"
+            ))
+        assert visited == [0, 1, 2]
+
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#uni-picker", state="hidden", timeout=2_000)
+
     def test_compare_mosaic_hover_toggle_sends_no_rejected_pixel_request(
         self, page, server_url, sid_3d, arr_3d, client, tmp_path
     ):

@@ -134,7 +134,10 @@ needed to override the automatic size.
 ## File Picker
 
 `Shift+Y` (or `Cmd/Ctrl+O` outside VS Code) opens the file picker. It lists
-the array files in the folder ArrayView was started from.
+the arrays already open, then the array files in the folder ArrayView was
+started from, each with its shape. Type to filter. Enter opens the highlighted
+file; Space ticks files to compare, and files of a different shape fade out.
+Esc or a click outside closes it.
 
 ## Drag and Drop
 
