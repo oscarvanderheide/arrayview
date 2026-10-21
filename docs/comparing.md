@@ -9,12 +9,13 @@ uvx arrayview base.npy a.npy b.npy c.npy    # up to 6
 
 Or use the file picker (`Shift+Y`) or drag-and-drop.
 
-## Comparing arrays from other tabs
+## Comparing with the array on screen
 
-Press `/` then `c` (**Compare with…**) to pick an array that is open in
-another tab. It opens side by side with the current one. Arrays with a
-different shape are listed but greyed out. This works in VS Code tabs, where
-`Cmd/Ctrl+O` is taken by VS Code.
+Press `/` then `c` (**Compare with…**). The file picker opens with the array
+on screen ticked as the first pane. Press `1`–`9` to compare with one of the
+open arrays straight away, or tick several open arrays or files (up to six
+panes) and press Enter. Arrays of a different shape fade out. This works in
+VS Code tabs, where `Cmd/Ctrl+O` is taken by VS Code.
 
 ## Switching between arrays
 

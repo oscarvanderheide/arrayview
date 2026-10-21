@@ -591,8 +591,8 @@ class TestKeyboard:
         page.wait_for_timeout(300)
 
         assert page.locator("#uni-picker img").count() == 0
-        open_rows = page.locator(".cp-tab-mark")
-        assert open_rows.count() >= 2
+        assert page.locator(f'.cp-item[data-key="{sid_2d}"]').count() == 1
+        assert page.locator(f'.cp-item[data-key="{sid_3d}"]').count() == 1
         assert page.locator(".cp-item-current").count() == 1
 
         visited = []
@@ -606,6 +606,36 @@ class TestKeyboard:
 
         page.keyboard.press("Escape")
         page.wait_for_selector("#uni-picker", state="hidden", timeout=2_000)
+
+    def test_compare_with_picker_locks_shown_array_and_number_key_compares(
+        self, page, server_url, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_twin.npy"
+        np.save(path, arr_3d * 0.5)
+        twin = client.post("/load", json={"filepath": str(path), "name": "arr3d_twin"}).json()["sid"]
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("/")
+        page.wait_for_timeout(200)
+        page.keyboard.press("c")
+        page.wait_for_selector("#uni-picker.visible", timeout=5_000)
+        page.wait_for_timeout(300)
+        box = page.locator("#uni-picker-box").bounding_box()
+        assert box["y"] < page.viewport_size["height"] / 3, box  # floats near the top, not below the image
+
+        assert page.inner_text("#uni-picker-mode-pill") == "Compare with"
+        own = page.locator(f'.cp-item[data-key="{sid_3d}"]')
+        assert "cp-item-locked" in own.get_attribute("class")
+        assert own.locator(".cp-item-cb.checked").count() == 1
+        own.locator(".cp-item-cb").click()  # locked: stays ticked
+        assert own.locator(".cp-item-cb.checked").count() == 1
+        twin_row = page.locator(f'.cp-item[data-key="{twin}"]')
+        assert twin_row.get_attribute("data-number") is not None
+
+        page.keyboard.press(twin_row.get_attribute("data-number"))
+        page.wait_for_function("() => compareActive === true", timeout=5_000)
+        assert page.evaluate("() => getCompareRenderSids()") == [sid_3d, twin]
 
     def test_compare_mosaic_hover_toggle_sends_no_rejected_pixel_request(
         self, page, server_url, sid_3d, arr_3d, client, tmp_path

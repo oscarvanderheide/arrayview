@@ -1169,11 +1169,11 @@
         .cp-item-warn { color: var(--picker-dim); font-size: 10px; white-space: nowrap; }
         .cp-item-incompat { color: #c87575; font-size: 11px; white-space: nowrap; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
-        .cp-item-current { cursor: default; }
-        .cp-item-current .cp-item-name { color: var(--active-dim); }
-        .cp-tab-mark { flex-shrink: 0; width: 14px; display: flex; justify-content: center; }
-        .cp-tab-mark::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--picker-dim); }
-        .cp-item-current .cp-tab-mark::before { background: var(--active-dim); }
+        .cp-item-current .cp-item-right::before { content: ''; width: 5px; height: 5px; border-radius: 50%;
+            background: var(--active-dim); }
+        .cp-item-num { flex-shrink: 0; width: 10px; font-size: 10px; color: var(--picker-dim); text-align: right; }
+        .cp-item-locked { cursor: default; }
+        .cp-item-locked .cp-item-cb { opacity: 0.6; }
         .cp-item-cb {
             flex-shrink: 0; width: 14px; height: 14px; box-sizing: border-box; border-radius: 4px;
             border: 1px solid var(--picker-dim); display: flex; align-items: center; justify-content: center;
@@ -2032,22 +2032,6 @@
         .drop-action:hover:not(:disabled) { color: var(--active-dim); background: var(--surface-2); }
         .drop-action:disabled { color: var(--muted); cursor: default; opacity: 0.5; }
         .drop-action-reason { display: block; margin-top: 2px; font-size: 9px; color: var(--muted); }
-        #compare-with-menu {
-            display: none; position: fixed; z-index: 70; left: 50%; top: 50%;
-            transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px));
-            max-height: calc(100vh - 48px); overflow-y: auto;
-            padding: 8px; background: var(--surface); border: 1px solid var(--border);
-            border-radius: var(--radius-lg); color: var(--text); font: 9px var(--mono);
-            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-        }
-        #compare-with-menu.visible { display: block; }
-        #compare-with-title { padding: 4px 6px 2px; }
-        #compare-with-summary { color: var(--muted); padding: 0 6px 7px; font-size: 9px; }
-        #compare-with-title { font-size: 10px; }
-        #compare-with-list { font-size: 10px; }
-        .compare-with-path { word-break: break-all; }
-        #compare-with-list .drop-action-reason { font-size: 8px; }
-        .compare-with-key { color: var(--muted); margin-right: 8px; }
         .mode-badge {
             display: inline-block; font-size: 0.62em; font-weight: 600;
             letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
@@ -5770,11 +5754,6 @@
         <div id="drop-action-title"></div>
         <div id="drop-action-summary"></div>
         <div id="drop-action-list"></div>
-    </div>
-    <div id="compare-with-menu" aria-hidden="true">
-        <div id="compare-with-title">Compare with…</div>
-        <div id="compare-with-summary"></div>
-        <div id="compare-with-list"></div>
     </div>
     <div id="help-overlay">
         <div id="help-box">
@@ -24206,80 +24185,6 @@
             if (hint) hint.classList.toggle('visible', _tabLinkOn);
         }
 
-        // ── Compare with an array that is open in another tab ─────────
-        let _compareWithMenuVisible = false;
-        let _compareWithChoices = [];
-
-        function _closeCompareWithMenu() {
-            if (!_compareWithMenuVisible) return;
-            _compareWithMenuVisible = false;
-            _compareWithChoices = [];
-            _reconcileUI();
-            try { document.getElementById('keyboard-sink').focus(); } catch (_) {}
-        }
-
-        async function _pickCompareWith(choice) {
-            if (!choice || !choice.enabled) return;
-            _closeCompareWithMenu();
-            const ok = await enterCompareModeBySid(choice.sid, choice.label);
-            if (ok !== false) showStatus(`Compare: ${choice.label}`);
-        }
-
-        async function openCompareWithMenu() {
-            let sessions = [];
-            try {
-                const res = await proxyFetch('/sessions');
-                if (res.ok) sessions = await res.json();
-            } catch (_) {}
-            const ownShape = JSON.stringify((shape || []).map(Number));
-            _compareWithChoices = sessions
-                .filter(s => s.sid && s.sid !== sid)
-                .map(s => {
-                    const sameShape = JSON.stringify((s.shape || []).map(Number)) === ownShape;
-                    const label = s.var || s.name || s.sid.slice(0, 8);
-                    if (s.name) compareNameBySid[s.sid] = label;
-                    return {
-                        sid: s.sid,
-                        label,
-                        display: s.filepath || label,
-                        detail: `${(s.shape || []).join(' x ')}${s.var && s.name ? ` · ${s.name}` : ''}`,
-                        enabled: sameShape,
-                    };
-                });
-            if (!_compareWithChoices.length) {
-                showStatus('No other open arrays to compare with');
-                return;
-            }
-            const list = document.getElementById('compare-with-list');
-            list.innerHTML = _compareWithChoices.map((c, i) => {
-                const keyHint = i < 9 ? `<span class="compare-with-key">${i + 1}</span>` : '';
-                const reason = c.enabled ? c.detail : `${c.detail} · needs shape ${(shape || []).join(' x ')}`;
-                return `<button class="drop-action" data-compare-with="${i}" ${c.enabled ? '' : 'disabled'}>${keyHint}<span class="compare-with-path">${_escapeHtml(c.display)}</span><span class="drop-action-reason">${_escapeHtml(reason)}</span></button>`;
-            }).join('');
-            list.querySelectorAll('.drop-action:not(:disabled)').forEach(button => {
-                button.addEventListener('click', () => _pickCompareWith(_compareWithChoices[Number(button.dataset.compareWith)]));
-            });
-            document.getElementById('compare-with-summary').textContent =
-                'Arrays open in your other tabs · click or press a number · Esc to cancel';
-            _compareWithMenuVisible = true;
-            _reconcileUI();
-        }
-
-        document.addEventListener('pointerdown', (event) => {
-            if (_compareWithMenuVisible && !document.getElementById('compare-with-menu').contains(event.target)) {
-                _closeCompareWithMenu();
-            }
-        });
-        window.addEventListener('keydown', (event) => {
-            if (!_compareWithMenuVisible) return;
-            if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            if (event.key === 'Escape') { _closeCompareWithMenu(); return; }
-            const n = Number(event.key);
-            if (Number.isInteger(n) && n >= 1 && n <= 9) _pickCompareWith(_compareWithChoices[n - 1]);
-        }, true);
-
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
@@ -27605,7 +27510,7 @@
             if (menu && menu.classList.contains('visible') && !menu.contains(e.target)) _hideRoiContextMenu();
         });
         window.addEventListener('focus', () => {
-            const _pkr = document.getElementById('uni-picker') || document.getElementById('compare-picker');
+            const _pkr = document.getElementById('uni-picker');
             if (_pkr && _pkr.classList.contains('visible')) return;
             const _cmap = document.getElementById('cmap-picker');
             if ((_cmap && _cmap.classList.contains('visible')) || (typeof _cmapPickerFocusLock !== 'undefined' && _cmapPickerFocusLock)) return;
@@ -30102,9 +30007,9 @@
                 run: (ctx, e) => { setTabLinked(!_tabLinkOn); },
             },
             'compare.withOpenArray': {
-                title: 'Compare with an array open in another tab',
+                title: 'Compare with an open array or a file',
                 when: [],
-                run: (ctx, e) => { openCompareWithMenu(); },
+                run: (ctx, e) => { if (!isInlineEmbed) enterComparePrompt(); },
             },
             'tool.comparecenterDirect': {
                 title: 'Cycle compare center mode',
@@ -30424,7 +30329,7 @@
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'or double-click a pane · drag outlines a quick region (mean ± std) · Ctrl shows the loupe · Alt+click pins a value · Esc clears pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: 'Shift+Y', action: 'Open file picker', hint: 'files in the folder ArrayView was started from · Space selects several to compare · Ctrl/Cmd+O also works outside VS Code' },
+                            { key: 'Shift+Y', action: 'Open file picker', hint: 'open arrays and files in the folder ArrayView was started from · Space ticks several to compare · Ctrl/Cmd+O also works outside VS Code' },
                             { key: 'Shift+K', action: 'Switch array in file', hint: '.npz / .mat files that hold several arrays' },
                             { key: '/', action: 'Tool launcher', hint: 'pick a tool by name; direct shortcuts keep working' },
                         ]
@@ -30529,7 +30434,7 @@
                     {
                         title: 'Layout',
                         entries: [
-                            { key: '/ c', action: 'Compare with…', hint: 'pick an array that is open in another tab; it must have the same shape' },
+                            { key: '/ c', action: 'Compare with…', hint: 'tick open arrays or files of the same shape · 1–9 picks an open one' },
                             { key: 'g', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
                             { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
                         ]
@@ -30568,7 +30473,7 @@
                     {
                         title: 'After /', columnBreak: true,
                         entries: [
-                            { key: '/ c', action: 'Compare with…', hint: 'side by side with an array open in another tab' },
+                            { key: '/ c', action: 'Compare with…', hint: 'side by side with open arrays or files of the same shape' },
                             { key: '/ l', action: 'Link tabs', hint: 'slice position follows the other linked tabs (dimensions of the same size) · the link icon bottom-left unlinks' },
                             { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
                             { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
@@ -34097,13 +34002,18 @@
 
         /* ── JS: File Picker and Session Management ────────────────── */
 
+        // One picker for opening arrays and choosing what to compare.
+        // mode 'open'    — Shift+Y: Enter opens; ticking two or more compares.
+        // mode 'compare' — / c: the shown array is ticked and locked as the
+        //                  first pane; Enter or 1–9 compares with it.
+        // mode 'overlay' — files only; Enter adds the file as an overlay.
+        const _PICKER_MAX_PANES = 6;
         function showUnifiedPicker(mode) {
             return new Promise(async resolve => {
                 const { sessions, fileEntries } = await _fetchPickerData();
                 for (const s of sessions) { if (s.name) compareNameBySid[s.sid] = s.name; }
 
                 const overlay   = document.getElementById('uni-picker');
-                if (mode === 'compare') overlay.id = 'compare-picker';
                 const listEl    = document.getElementById('uni-picker-list');
                 const titleEl   = document.getElementById('uni-picker-mode-pill');
                 const hintEl    = document.getElementById('uni-picker-tab-hint');
@@ -34111,15 +34021,22 @@
                 const memEl     = document.getElementById('uni-picker-mem');
                 const pickerBox = document.getElementById('uni-picker-box');
                 const inShell   = window.parent !== window && window.parent.__arrayviewShell;
+                const compareWith = mode === 'compare';
+                const canTick = mode !== 'overlay';
 
                 let done = false;
                 let _searchTimer = null;
-                // Map from sid/filepath → { sid|null, filepath|null, name, isFile, fileObj }
-                const _selected = new Map(); // key = sid or filepath → item descriptor
+                // key (sid for open arrays, path for files) → { sid|null, filepath|null, name }.
+                // Insertion order is pane order.
+                const _selected = new Map();
+                const _lockedKey = compareWith && sid ? sid : null;
+                if (_lockedKey) {
+                    const own = sessions.find(s => s.sid === sid);
+                    _selected.set(sid, { sid, filepath: null, name: (own && own.name) || _sessionName || '' });
+                }
 
                 function cleanup() {
                     overlay.classList.remove('visible');
-                    overlay.id = 'uni-picker'; // restore original id
                     overlay.onkeydown = null;
                     overlay.onmousedown = null;
                     searchEl.oninput = null;
@@ -34134,6 +34051,17 @@
                 overlay.onmousedown = e => { if (!pickerBox.contains(e.target)) finish(null); };
 
                 function _selCount() { return _selected.size; }
+                const _fmtShape = sh => sh.join(' × ');
+
+                function _refShape() {
+                    for (const [key] of _selected) {
+                        const el = listEl.querySelector(`[data-key="${CSS.escape(key)}"]`);
+                        const shapeAttr = el && el.dataset.shape;
+                        if (shapeAttr && shapeAttr !== 'null') return shapeAttr;
+                    }
+                    if (_lockedKey && Array.isArray(shape)) return JSON.stringify(shape.map(Number));
+                    return null;
+                }
 
                 function _updateHint() {
                     const n = _selCount();
@@ -34142,24 +34070,25 @@
                         hintEl.textContent = 'enter adds';
                         return;
                     }
+                    if (compareWith) {
+                        titleEl.textContent = 'Compare with';
+                        const ref = _refShape();
+                        const need = ref ? `same shape, ${_fmtShape(JSON.parse(ref))}` : '';
+                        hintEl.textContent = n <= 1
+                            ? [need, 'enter or 1–9 compares'].filter(Boolean).join(' · ')
+                            : `${n} panes · enter compares`;
+                        return;
+                    }
                     titleEl.textContent = n >= 2 ? 'Compare' : 'Open';
-                    if (n === 0) hintEl.textContent = 'space selects · enter opens';
-                    else if (n === 1) hintEl.textContent = '1 selected · space adds another';
-                    else hintEl.textContent = `${n} selected · enter compares`;
+                    if (n === 0) hintEl.textContent = 'space ticks to compare · enter opens';
+                    else if (n === 1) hintEl.textContent = '1 ticked · tick another to compare';
+                    else hintEl.textContent = `${n} ticked · enter compares`;
                 }
 
                 function _updateDimming() {
-                    // Find reference shape from first selected item that has a known shape
-                    let refShape = null;
-                    for (const [key] of _selected) {
-                        const el = listEl.querySelector(`[data-key="${CSS.escape(key)}"]`);
-                        const shapeAttr = el && el.dataset.shape;
-                        if (shapeAttr && shapeAttr !== 'null') { refShape = shapeAttr; break; }
-                    }
+                    const refShape = _refShape();
                     listEl.querySelectorAll('.cp-item[data-key]').forEach(el => {
-                        if (_selected.has(el.dataset.key)) {
-                            el.classList.remove('cp-item-dim');
-                        } else if (refShape === null) {
+                        if (_selected.has(el.dataset.key) || refShape === null) {
                             el.classList.remove('cp-item-dim');
                         } else {
                             const elShape = el.dataset.shape;
@@ -34169,7 +34098,7 @@
                     });
                 }
 
-                const escapeHtml = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                const escapeHtml = _escapeHtml;
                 function _section(title) {
                     const hdr = document.createElement('div');
                     hdr.className = 'cp-section-header'; hdr.textContent = title;
@@ -34183,126 +34112,144 @@
                 }
                 const _checkSvg = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2L8 3"/></svg>';
 
+                // A row for an open array or a file. `entry` is what gets
+                // ticked; `open()` is what Enter or a click does when nothing
+                // is being compared.
+                function _addRow({ key, label, shapeArr, sizeText, extra, entry, isCurrent, number, open }) {
+                    const item = document.createElement('div');
+                    item.className = 'cp-item' + (isCurrent ? ' cp-item-current' : '') + (key === _lockedKey ? ' cp-item-locked' : '');
+                    item.tabIndex = 0;
+                    item.dataset.key = key;
+                    if (Array.isArray(shapeArr)) item.dataset.shape = JSON.stringify(shapeArr.map(Number));
+                    if (number) item.dataset.number = String(number);
+                    item.title = isCurrent ? `${label} (shown now)` : label;
+                    const lead = canTick
+                        ? `<span class="cp-item-cb" title="Tick to compare">${_checkSvg}</span>`
+                        : '';
+                    const numHtml = compareWith ? `<span class="cp-item-num">${number || ''}</span>` : '';
+                    const shapeText = Array.isArray(shapeArr) ? _fmtShape(shapeArr) : (sizeText || '');
+                    item.innerHTML = `${numHtml}${lead}<span class="cp-item-name">${_nameHtml(label)}</span>`
+                        + `<span class="cp-item-right"><span class="cp-item-shape">${escapeHtml(shapeText)}${extra || ''}</span></span>`;
+
+                    function refresh() {
+                        const sel = _selected.has(key);
+                        const cb = item.querySelector('.cp-item-cb');
+                        if (cb) cb.classList.toggle('checked', sel);
+                        item.classList.toggle('cp-item-selected', sel);
+                        item.setAttribute('aria-selected', sel ? 'true' : 'false');
+                    }
+                    function toggle(e) {
+                        e && e.preventDefault();
+                        if (!canTick || key === _lockedKey) return;
+                        if (_selected.has(key)) {
+                            _selected.delete(key);
+                        } else if (_selCount() < _PICKER_MAX_PANES) {
+                            _selected.set(key, { ...entry });
+                        } else {
+                            showToast(`at most ${_PICKER_MAX_PANES} arrays side by side`);
+                            return;
+                        }
+                        refresh(); _updateHint(); _updateDimming();
+                    }
+                    function choose() {
+                        if (mode === 'overlay') { open(item); return; }
+                        // Comparing: this row joins the ticked ones.
+                        if (compareWith || _selCount() >= 1 && !(_selCount() === 1 && _selected.has(key))) {
+                            if (key === _lockedKey) return;
+                            if (!_selected.has(key)) {
+                                if (_selCount() >= _PICKER_MAX_PANES) { showToast(`at most ${_PICKER_MAX_PANES} arrays side by side`); return; }
+                                _selected.set(key, { ...entry });
+                            }
+                            if (_selCount() >= 2) { _commitCompare(); return; }
+                        }
+                        open(item);
+                    }
+                    item.row = { choose };
+                    const cb = item.querySelector('.cp-item-cb');
+                    if (cb) cb.onclick = e => { e.stopPropagation(); toggle(e); };
+                    item.onclick = choose;
+                    item.onmouseenter = () => _setActive(item, false);
+                    item.onkeydown = e => {
+                        if (e.key === ' ') { e.stopPropagation(); toggle(e); return; }
+                        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); choose(); }
+                    };
+                    refresh();
+                    listEl.appendChild(item);
+                }
+
+                function _markLoading(item) {
+                    item.classList.add('cp-item-loading');
+                    item.querySelector('.cp-item-right').insertAdjacentHTML('afterbegin', '<span class="cp-item-warn">loading…</span>');
+                }
+                async function _loadFile(item, f) {
+                    _markLoading(item);
+                    let data;
+                    try { data = await _loadWithArraySupport(f.path, f.name); }
+                    catch (_) { showToast('load failed'); finish(null); return null; }
+                    if (data.error === 'insufficient_memory') {
+                        item.classList.remove('cp-item-loading');
+                        await _showRamBlockDialog(pickerBox, data.filename, data.estimated_bytes, data.available_bytes);
+                        return null;
+                    }
+                    if (data.error) { if (data.error !== 'cancelled') showToast(`load error: ${data.error}`); finish(null); return null; }
+                    return data;
+                }
+
                 function populate(filtSessions, filtFiles) {
                     filtSessions = filtSessions ?? sessions;
                     filtFiles    = filtFiles    ?? fileEntries;
                     listEl.innerHTML = '';
                     const inSearch = !!searchEl.value.trim();
 
-                    // Arrays already open: switch to one.
+                    // Arrays already open.
                     if (filtSessions.length && mode !== 'overlay') {
                         _section('Open');
-                        filtSessions.forEach(s => {
+                        // The shown array first: in compare it is the first pane.
+                        const ordered = [...filtSessions].sort((a, b) => (b.sid === sid) - (a.sid === sid));
+                        const ownShape = compareWith && Array.isArray(shape) ? JSON.stringify(shape.map(Number)) : null;
+                        let number = 0;
+                        ordered.forEach(s => {
                             const isCurrent = s.sid === sid;
-                            const item = document.createElement('div');
-                            item.className = 'cp-item' + (isCurrent ? ' cp-item-current' : '');
-                            item.tabIndex = 0;
-                            const shapeStr = Array.isArray(s.shape) ? s.shape.join(' × ') : '';
-                            const dtype = s.dtype ? ` · ${escapeHtml(s.dtype)}` : '';
-                            item.innerHTML = `<span class="cp-tab-mark"></span><span class="cp-item-name">${_nameHtml(s.name || '(unnamed)')}</span>`
-                                + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}${dtype}</span></span>`;
-                            item.title = isCurrent ? `${s.name || '(unnamed)'} (shown now)` : (s.name || '');
-                            item.onclick = () => {
-                                if (isCurrent) { finish(null); return; }
-                                finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
-                                if (inShell) window.parent.addTab(s.sid, s.name || '(unnamed)');
-                                else window.location.href = '/?sid=' + s.sid;
-                            };
-                            item.onmouseenter = () => _setActive(item, false);
-                            item.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); item.onclick(); } };
-                            listEl.appendChild(item);
+                            const fits = !ownShape || JSON.stringify((s.shape || []).map(Number)) === ownShape;
+                            const name = s.name || '(unnamed)';
+                            _addRow({
+                                key: s.sid, label: name, shapeArr: s.shape,
+                                extra: s.dtype ? ` · ${escapeHtml(s.dtype)}` : '',
+                                entry: { sid: s.sid, filepath: null, name: s.name || '' },
+                                isCurrent,
+                                number: compareWith && !isCurrent && fits && number < 9 ? ++number : 0,
+                                open: () => {
+                                    if (isCurrent) { finish(null); return; }
+                                    finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
+                                    if (inShell) window.parent.addTab(s.sid, name);
+                                    else window.location.href = '/?sid=' + s.sid;
+                                },
+                            });
                         });
                     }
 
-                    // Files section
+                    // Files in the folder ArrayView was started from.
                     if (filtFiles.length) {
                         _section('Files');
                         filtFiles.forEach(f => {
-                            const key = f.path || f.name;
-                            const shapeStr = Array.isArray(f.shape) ? f.shape.join(' × ')
-                                : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
-                            const shapeKey = Array.isArray(f.shape) ? JSON.stringify(f.shape) : null;
-                            const item = document.createElement('div');
-                            item.className = 'cp-item'; item.tabIndex = 0;
-                            item.dataset.key = key;
-                            if (shapeKey) item.dataset.shape = shapeKey;
-                            item.title = f.name;
-                            const cbHtml = `<span class="cp-item-cb" title="Select to compare">${_checkSvg}</span>`;
-                            item.innerHTML = `${cbHtml}<span class="cp-item-name">${_nameHtml(f.name)}</span>`
-                                + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
-
-                            function _refreshSelMark() {
-                                const sel = _selected.has(key);
-                                item.querySelector('.cp-item-cb').classList.toggle('checked', sel);
-                                item.classList.toggle('cp-item-selected', sel);
-                                item.setAttribute('aria-selected', sel ? 'true' : 'false');
-                            }
-                            function _markLoading() {
-                                item.classList.add('cp-item-loading');
-                                item.querySelector('.cp-item-right').insertAdjacentHTML('afterbegin', '<span class="cp-item-warn">loading…</span>');
-                            }
-                            function toggleSel(e) {
-                                e && e.preventDefault();
-                                if (mode === 'overlay') return;  // one overlay at a time
-                                if (_selected.has(key)) {
-                                    _selected.delete(key);
-                                } else if (_selCount() < 4) {
-                                    // Mark for selection only — actual load happens on Enter
-                                    _selected.set(key, { sid: null, filepath: f.path, name: f.name });
-                                } else {
-                                    showToast('max 4 arrays in compare');
-                                    return;
-                                }
-                                _refreshSelMark(); _updateHint(); _updateDimming();
-                            }
-                            function openFile() {
-                                if (mode === 'overlay') {
-                                    _markLoading();
-                                    _loadWithArraySupport(f.path, f.name).then(async data => {
-                                        if (data.error === 'insufficient_memory') {
-                                            item.classList.remove('cp-item-loading');
-                                            await _showRamBlockDialog(pickerBox, data.filename, data.estimated_bytes, data.available_bytes);
-                                            return;
-                                        }
-                                        if (data.error) { if (data.error !== 'cancelled') showToast(`load error: ${data.error}`); finish(null); return; }
+                            _addRow({
+                                key: f.path || f.name, label: f.name,
+                                shapeArr: Array.isArray(f.shape) ? f.shape : null,
+                                sizeText: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
+                                entry: { sid: null, filepath: f.path, name: f.name },
+                                open: async item => {
+                                    const data = await _loadFile(item, f);
+                                    if (!data) return;
+                                    if (mode === 'overlay') {
                                         finish({ action: 'add-overlay', sid: data.sid, name: data.name || f.name });
-                                    }).catch(() => { showToast('load failed'); finish(null); });
-                                    return;
-                                }
-                                if (_selCount() <= 1) {
-                                    // Open directly
-                                    _markLoading();
-                                    _loadWithArraySupport(f.path, f.name).then(async data => {
-                                        if (data.error === 'insufficient_memory') {
-                                            item.classList.remove('cp-item-loading');
-                                            await _showRamBlockDialog(pickerBox, data.filename, data.estimated_bytes, data.available_bytes);
-                                            return;
-                                        }
-                                        if (data.error) { showToast(`load error: ${data.error}`); finish(null); return; }
-                                        finish({ action: 'open', sids: [data.sid], names: [data.name || f.name] });
-                                        if (!sid) {
-                                            window.location.href = '/?sid=' + data.sid;
-                                        } else if (inShell) {
-                                            window.parent.addTab(data.sid, data.name || f.name);
-                                        } else {
-                                            window.open('/?sid=' + data.sid, '_blank');
-                                        }
-                                    }).catch(() => { showToast('load failed'); finish(null); });
-                                } else {
-                                    // multi-compare: mark selected, _commitCompare handles loading
-                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: null, filepath: f.path, name: f.name });
-                                    _commitCompare();
-                                }
-                            }
-                            item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
-                            item.onclick = openFile;
-                            item.onmouseenter = () => _setActive(item, false);
-                            item.onkeydown = e => {
-                                if (e.key === ' ') { toggleSel(e); return; }
-                                if (e.key === 'Enter') { e.preventDefault(); openFile(); }
-                            };
-                            _refreshSelMark();
-                            listEl.appendChild(item);
+                                        return;
+                                    }
+                                    finish({ action: 'open', sids: [data.sid], names: [data.name || f.name] });
+                                    if (!sid) window.location.href = '/?sid=' + data.sid;
+                                    else if (inShell) window.parent.addTab(data.sid, data.name || f.name);
+                                    else window.open('/?sid=' + data.sid, '_blank');
+                                },
+                            });
                         });
                     }
 
@@ -34317,9 +34264,8 @@
                 }
 
                 async function _loadSelectedFiles() {
-                    // Load any files that were selected but not yet loaded (sid === null)
-                    const items = [..._selected.entries()];
-                    for (const [key, item] of items) {
+                    // Load any ticked files that are not open yet (sid === null)
+                    for (const [key, item] of [..._selected.entries()]) {
                         if (item.sid) continue;
                         try {
                             const data = await _loadWithArraySupport(item.filepath, item.name);
@@ -34336,13 +34282,15 @@
                     return true;
                 }
 
+                let _committing = false;
                 async function _commitCompare() {
-                    const items = [..._selected.values()];
-                    if (items.length < 2) return;
-                    if (!await _loadSelectedFiles()) return;
-                    const sids = items.map(i => i.sid).filter(Boolean);
-                    const names = items.map(i => i.name);
-                    finish({ action: 'compare', sids, names });
+                    if (_committing || _selCount() < 2) return;
+                    _committing = true;
+                    try {
+                        if (!await _loadSelectedFiles()) return;
+                        const items = [..._selected.values()];
+                        finish({ action: 'compare', sids: items.map(i => i.sid).filter(Boolean), names: items.map(i => i.name) });
+                    } finally { _committing = false; }
                 }
 
                 // ── Search wiring ──────────────────────────────────────────
@@ -34373,6 +34321,7 @@
                     : '';
 
                 pickerBox.classList.toggle('picker-overlay-mode', mode === 'overlay');
+                pickerBox.classList.toggle('picker-compare-mode', compareWith);
                 overlay.classList.add('visible');
                 searchEl.value = '';
                 populate();
@@ -34389,20 +34338,26 @@
                     }
                     if (e.key === 'Escape') { e.preventDefault(); finish(null); return; }
                     if (e.key === 'q' && !inSearch) { e.preventDefault(); finish(null); return; }
-                    if (e.key === 'Enter' && !inSearch && _selCount() >= 2) { e.preventDefault(); _commitCompare(); return; }
-                    if (e.key === 'Enter' && _selCount() === 1 && !inSearch) {
-                        e.preventDefault();
-                        (async () => {
-                            if (!await _loadSelectedFiles()) return;
-                            const [item] = _selected.values();
-                            if (!item.sid) return;
-                            finish({ action: 'open', sids: [item.sid], names: [item.name] });
-                            if (inShell) {
-                                window.parent.addTab(item.sid, item.name || '(unnamed)');
-                            } else {
-                                window.location.href = '/?sid=' + item.sid;
-                            }
-                        })();
+                    // 1–9 picks a numbered open array, unless a filter is being typed.
+                    if (compareWith && /^[1-9]$/.test(e.key) && !searchEl.value) {
+                        const row = listEl.querySelector(`.cp-item[data-number="${e.key}"]:not(.cp-item-dim)`);
+                        if (row) { e.preventDefault(); row.row.choose(); }
+                        return;
+                    }
+                    if (e.key === 'Enter') {
+                        if (_selCount() >= 2) { e.preventDefault(); _commitCompare(); return; }
+                        if (inSearch && items.length === 1 && searchEl.value.trim()) { e.preventDefault(); items[0].row.choose(); return; }
+                        if (!compareWith && _selCount() === 1) {
+                            e.preventDefault();
+                            (async () => {
+                                if (!await _loadSelectedFiles()) return;
+                                const [item] = _selected.values();
+                                if (!item || !item.sid) return;
+                                finish({ action: 'open', sids: [item.sid], names: [item.name] });
+                                if (inShell) window.parent.addTab(item.sid, item.name || '(unnamed)');
+                                else if (item.sid !== sid) window.location.href = '/?sid=' + item.sid;
+                            })();
+                        }
                         return;
                     }
                     const idx = items.indexOf(document.activeElement);
@@ -42814,11 +42769,6 @@
             if (dropMenu) {
                 dropMenu.classList.toggle('visible', _dropMenuVisible);
                 dropMenu.setAttribute('aria-hidden', _dropMenuVisible ? 'false' : 'true');
-            }
-            const compareWithMenu = document.getElementById('compare-with-menu');
-            if (compareWithMenu) {
-                compareWithMenu.classList.toggle('visible', _compareWithMenuVisible);
-                compareWithMenu.setAttribute('aria-hidden', _compareWithMenuVisible ? 'false' : 'true');
             }
             if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
