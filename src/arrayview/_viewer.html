@@ -4755,6 +4755,16 @@
         body.qmri-gapless #qmri-view-wrap > .qv-row:not(.qmri-mosaic-row) { gap: 0 !important; }
         body.qmri-gapless #qmri-view-wrap .qv-pane { gap: 0; }
         body.qmri-gapless #qmri-view-wrap .qv-canvas-clip { border-radius: 0 !important; }
+        /* Touching panes read as one block: only its outer corners stay
+           rounded (corner classes set by _markBlockCorners). */
+        body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-tl,
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tl { border-top-left-radius: 10px !important; }
+        body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-tr,
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tr { border-top-right-radius: 10px !important; }
+        body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-bl,
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-bl { border-bottom-left-radius: 10px !important; }
+        body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-br,
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-br { border-bottom-right-radius: 10px !important; }
         /* Compare panes touching (Preferences): no gaps, rows packed together;
            with more than one row the names sit inside the images like the
            qMRI map labels, so the rows can touch too. A centre view (A−B,
@@ -9503,6 +9513,27 @@
             return { hasCenterPane, bigLeft, cols, rows };
         }
 
+        // Touching panes form one block; a corner is outer (keeps its rounding)
+        // when no other pane sits just beside, above/below or diagonal to it.
+        function _markBlockCorners(clips) {
+            clips = Array.from(clips).filter(c => c.offsetWidth && c.offsetHeight);
+            const rects = clips.map(c => c.getBoundingClientRect());
+            const d = 3;
+            const covered = (x, y, self) => rects.some((r, j) => j !== self
+                && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+            clips.forEach((c, i) => {
+                const r = rects[i];
+                for (const [cls, x, y, sx, sy] of [
+                    ['block-tl', r.left, r.top, -1, -1], ['block-tr', r.right, r.top, 1, -1],
+                    ['block-bl', r.left, r.bottom, -1, 1], ['block-br', r.right, r.bottom, 1, 1],
+                ]) {
+                    const outer = !covered(x + sx * d, y - sy * d, i)
+                        && !covered(x - sx * d, y + sy * d, i)
+                        && !covered(x + sx * d, y + sy * d, i);
+                    c.classList.toggle(cls, outer);
+                }
+            });
+        }
         function compareScaleCanvases() {
             function _ensureClipWrapper(inner, vpW, vpH) {
                 let clip = inner.parentElement;
@@ -9873,6 +9904,7 @@
                     if (_needsSettle) _queueCompareBigLeftSettle();
                 }
             }
+            if (_compareTouching()) _markBlockCorners(document.querySelectorAll('.compare-pane.active .compare-canvas-clip'));
         }
 
         function compareLuma(imgData, i) {
@@ -39717,6 +39749,7 @@
                 });
             }
             fixWrapperAlignment();
+            if (qmriGapless) _markBlockCorners(document.querySelectorAll('#qmri-view-wrap .qv-canvas-clip'));
             if (rectRoiMode) _drawAllQvRois();
             _reconcileQvZoomCursor();
             updateMiniMap();

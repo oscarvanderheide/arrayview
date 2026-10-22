@@ -1266,6 +1266,30 @@ class TestModeCombinations:
             page.wait_for_timeout(100)
         page.wait_for_function("b => JSON.stringify(indices) !== b", arg=before, timeout=3_000)
 
+    def test_touching_compare_panes_keep_outer_rounded_corners(self, page, server_url, client, tmp_path):
+        """Touching panes used to lose every rounded corner, outer ones too."""
+        from conftest import register_array
+        rng = np.random.default_rng(7)
+        sids = [register_array(client, rng.random((8, 32, 32)).astype(np.float32), tmp_path, f"t{i}")
+                for i in range(4)]
+        page.goto(f"{server_url}/?sid={sids[0]}&compare_sid={sids[1]}&compare_sids={','.join(sids[1:])}")
+        page.wait_for_function("() => compareActive && compareFrames.filter(Boolean).length === 4", timeout=15_000)
+        page.evaluate("() => { roundedPanes = true; compareGapless = true; _reconcileLayout(); compareScaleCanvases(); }")
+        page.wait_for_timeout(300)
+        radii = page.evaluate("""() => [...document.querySelectorAll('.compare-pane.active .compare-canvas-clip')]
+            .map(c => { const s = getComputedStyle(c); const r = c.getBoundingClientRect();
+                return { x: r.left, y: r.top, tl: s.borderTopLeftRadius, tr: s.borderTopRightRadius,
+                         bl: s.borderBottomLeftRadius, br: s.borderBottomRightRadius }; })""")
+        assert len(radii) == 4
+        xs, ys = sorted({round(r["x"]) for r in radii}), sorted({round(r["y"]) for r in radii})
+        assert len(xs) == 2 and len(ys) == 2
+        for r in radii:
+            left, top = round(r["x"]) == xs[0], round(r["y"]) == ys[0]
+            assert (r["tl"] != "0px") == (left and top)
+            assert (r["tr"] != "0px") == (not left and top)
+            assert (r["bl"] != "0px") == (left and not top)
+            assert (r["br"] != "0px") == (not left and not top)
+
     def test_same_named_arrays_get_folder_in_pane_titles(self, page, server_url, client, tmp_path, arr_3d):
         sids = []
         for folder in ("pat_a", "pat_b"):
