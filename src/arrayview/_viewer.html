@@ -34778,6 +34778,9 @@
                 _mvCutawayAttachEvents(view);
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
+                    // Trackpad pinch (Ctrl/Cmd+wheel) must not scrub slices;
+                    // ortho panes are always fit-sized, so it is a no-op here.
+                    if ((e.metaKey || (e.ctrlKey && !_mainLoupeInspecting())) && !e.shiftKey && !e.altKey) return;
                     _mvSetCurrentView(view);
                     _mvScrollHint(view);
                     if (obliqueVecs) {

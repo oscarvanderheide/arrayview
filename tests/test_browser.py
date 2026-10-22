@@ -1241,6 +1241,31 @@ class TestModeCombinations:
             page.wait_for_timeout(100)
         page.wait_for_function("b => JSON.stringify(indices) !== b", arg=before, timeout=3_000)
 
+    def test_pinch_does_not_scroll_slices_in_ortho(self, page, server_url, client, tmp_path):
+        """Trackpad pinch (Ctrl+wheel) used to scrub slices in ortho view."""
+        from conftest import register_array
+        arr = np.random.default_rng(6).random((24, 32, 32)).astype(np.float32)
+        sid = register_array(client, arr, tmp_path, "mvpinch")
+        page.goto(f"{server_url}/?sid={sid}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function("() => multiViewActive && mvViews.every(v => v.lastW)", timeout=10_000)
+        box = page.locator("#mv-panes canvas").first.bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        before = page.evaluate("() => JSON.stringify(indices)")
+        page.keyboard.down("Control")
+        for _ in range(3):
+            page.mouse.wheel(0, 120)
+            page.wait_for_timeout(100)
+        page.keyboard.up("Control")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => JSON.stringify(indices)") == before
+        for _ in range(3):
+            page.mouse.wheel(0, 120)
+            page.wait_for_timeout(100)
+        page.wait_for_function("b => JSON.stringify(indices) !== b", arg=before, timeout=3_000)
+
     def test_same_named_arrays_get_folder_in_pane_titles(self, page, server_url, client, tmp_path, arr_3d):
         sids = []
         for folder in ("pat_a", "pat_b"):
