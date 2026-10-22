@@ -594,6 +594,11 @@ class TestKeyboard:
         assert page.locator(f'.cp-item[data-key="{sid_2d}"]').count() == 1
         assert page.locator(f'.cp-item[data-key="{sid_3d}"]').count() == 1
         assert page.locator(".cp-item-current").count() == 1
+        # Section titles say what picking a row does.
+        notes = page.locator(".cp-section-note").all_inner_texts()
+        assert notes[0] == "switches to it"
+        if len(notes) > 1:
+            assert notes[1] == "opens in a new tab"
 
         visited = []
         for _ in range(3):

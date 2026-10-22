@@ -1157,6 +1157,8 @@
         .cp-section-header { font-size: 10px; color: var(--picker-dim); letter-spacing: 0.08em; text-transform: uppercase;
             padding: 12px 8px 4px; }
         .cp-section-header:first-child { padding-top: 6px; }
+        .cp-section-note { text-transform: none; letter-spacing: 0; margin-left: 8px; opacity: 0.8; }
+        .cp-section-note::before { content: '· '; }
         .cp-item { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 0 8px;
             border-radius: 6px; cursor: pointer; outline: none; }
         .cp-item:hover, .cp-item.cp-item-active { background: var(--surface-2); }
@@ -34131,9 +34133,15 @@
                 }
 
                 const escapeHtml = _escapeHtml;
-                function _section(title) {
+                // Optional note says what picking a row in this section does.
+                function _section(title, note) {
                     const hdr = document.createElement('div');
                     hdr.className = 'cp-section-header'; hdr.textContent = title;
+                    if (note) {
+                        const n = document.createElement('span');
+                        n.className = 'cp-section-note'; n.textContent = note;
+                        hdr.appendChild(n);
+                    }
                     listEl.appendChild(hdr);
                 }
                 // Folder dimmed, file name bright: long paths keep the name readable.
@@ -34235,7 +34243,7 @@
 
                     // Arrays already open.
                     if (filtSessions.length && mode !== 'overlay') {
-                        _section('Open');
+                        _section('Open', mode !== 'open' ? '' : (inShell ? 'jumps to its tab' : 'switches to it'));
                         // The shown array first: in compare it is the first pane.
                         const ordered = [...filtSessions].sort((a, b) => (b.sid === sid) - (a.sid === sid));
                         const ownShape = compareWith && Array.isArray(shape) ? JSON.stringify(shape.map(Number)) : null;
@@ -34262,7 +34270,7 @@
 
                     // Files in the folder ArrayView was started from.
                     if (filtFiles.length) {
-                        _section('Files');
+                        _section('Files', mode !== 'open' ? '' : (sid ? 'opens in a new tab' : 'opens here'));
                         filtFiles.forEach(f => {
                             _addRow({
                                 key: f.path || f.name, label: f.name,
