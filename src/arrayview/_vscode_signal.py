@@ -689,6 +689,51 @@ def _open_via_signal_file(
     )
 
 
+_VSCODE_REVEAL_REQUEST_PREFIX = "reveal-tab-request-"
+_VSCODE_REVEAL_ACK_PREFIX = "reveal-tab-ack-"
+
+
+def _request_vscode_tab_reveal(
+    window_id: str, url_filter: str, timeout: float = 2.5
+) -> bool:
+    """Ask the opener in *window_id* to bring the browser tab matching
+    *url_filter* forward. True only when that window confirms it did."""
+    signal_dir = Path(os.path.expanduser("~/.arrayview"))
+    request_id = uuid.uuid4().hex
+    request_path = signal_dir / f"{_VSCODE_REVEAL_REQUEST_PREFIX}{request_id}.json"
+    ack_path = signal_dir / f"{_VSCODE_REVEAL_ACK_PREFIX}{request_id}.json"
+    payload = {
+        "requestId": request_id,
+        "windowId": window_id,
+        "urlFilter": url_filter,
+        "sentAtMs": int(time.time() * 1000),
+        "maxAgeMs": int(timeout * 1000),
+    }
+    try:
+        signal_dir.mkdir(parents=True, exist_ok=True)
+        tmp = request_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(tmp, request_path)
+    except OSError:
+        return False
+    deadline = time.monotonic() + timeout
+    try:
+        while time.monotonic() < deadline:
+            try:
+                ack = json.loads(ack_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                time.sleep(0.05)
+                continue
+            return bool(ack.get("ok"))
+        return False
+    finally:
+        for leftover in (request_path, ack_path):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
+
+
 def _write_vscode_signal(
     payload: dict,
     delay: float = 0.0,

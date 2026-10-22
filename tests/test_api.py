@@ -4511,3 +4511,28 @@ def test_concurrent_requests_for_one_slice_read_it_once():
         t.join()
     assert len([k for k in reads if k[0] == 2]) == 1
     assert len(results) == 3 and all(r is results[0] for r in results)
+
+
+class TestRevealTab:
+    def test_reveal_asks_the_window_owning_the_tab(self, tmp_path, monkeypatch):
+        """The file picker brings an open array's VS Code tab forward."""
+        from arrayview._app import app
+        import arrayview._vscode_signal as signal_mod
+
+        asked = []
+        monkeypatch.setattr(
+            signal_mod, "_request_vscode_tab_reveal",
+            lambda window_id, url_filter: asked.append((window_id, url_filter)) or True,
+        )
+        np.save(tmp_path / "reveal.npy", np.zeros((4, 4), dtype=np.float32))
+        with TestClient(app) as c:
+            sid = c.post("/load", json={"filepath": str(tmp_path / "reveal.npy")}).json()["sid"]
+            assert c.post(f"/reveal/{sid}").json()["revealed"] is False
+            with c.websocket_connect(f"/ws/{sid}") as ws:
+                ws.receive_json()
+                ws.send_json({"type": "tab-address", "path": "/?t=ab12c", "window_id": "w1"})
+                ws.send_json({"type": "link", "action": "leave"})  # round-trip barrier
+                import time; time.sleep(0.2)
+                assert c.post(f"/reveal/{sid}").json()["revealed"] is True
+            assert asked == [("w1", "/?t=ab12c")]
+            assert c.post(f"/reveal/{sid}").json()["revealed"] is False

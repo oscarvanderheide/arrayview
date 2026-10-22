@@ -5914,7 +5914,10 @@
         // back from the address bar, so nothing downstream reads it again.
         if (_isIntegratedBrowserViewer) {
             try {
-                history.replaceState(null, '', '/' + _integratedBrowserDisplayHash);
+                // A short per-tab tag keeps tabs apart, so the file picker
+                // can ask VS Code to bring this one forward.
+                history.replaceState(null, '', '/?t=' + Math.random().toString(36).slice(2, 7)
+                    + _integratedBrowserDisplayHash);
             } catch (_) { /* not fatal: the address is cosmetic here */ }
         }
         // Keep the next array's first page load from being swallowed.
@@ -6370,6 +6373,17 @@
         const _launchPhaseServerId = urlParams.get('_av_launch_server_id');
         const _launchPhaseWindowId = urlParams.get('_av_launch_window_id');
         const _launchPhaseToken = urlParams.get('_av_launch_token');
+        // VS Code window that owns this browser tab. Kept for the tab's life,
+        // so a page switched to in place still knows it.
+        const _vscodeTabWindowId = (() => {
+            try {
+                if (_isIntegratedBrowserViewer && _launchPhaseWindowId) {
+                    sessionStorage.setItem('av_vscode_window', _launchPhaseWindowId);
+                    return _launchPhaseWindowId;
+                }
+                return sessionStorage.getItem('av_vscode_window');
+            } catch (_) { return _isIntegratedBrowserViewer ? _launchPhaseWindowId : null; }
+        })();
         const _launchViewerInstanceId = (
             typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -16434,6 +16448,12 @@
                 wsReady = true;
                 // The server forgets links when a socket drops; rejoin.
                 if (_tabLinkOn) _tabLinkSend({ action: 'join' });
+                if (_vscodeTabWindowId) {
+                    try {
+                        ws.send(JSON.stringify({ type: 'tab-address',
+                            path: location.pathname + location.search, window_id: _vscodeTabWindowId }));
+                    } catch (_) {}
+                }
                 if (_wsOpenedResolve) { _wsOpenedResolve(); _wsOpenedResolve = null; }
                 setStatus('');
                 sink.focus();
@@ -34042,6 +34062,19 @@
         //                  first pane; Enter or 1–9 compares with it.
         // mode 'overlay' — files only; Enter adds the file as an overlay.
         const _PICKER_MAX_PANES = 6;
+        // Show an array that is already open: its own tab when it has one,
+        // otherwise this tab switches to it.
+        async function _showOpenArray(targetSid, name, inShell) {
+            if (inShell) { window.parent.addTab(targetSid, name); return; }
+            if (targetSid === sid) return;
+            if (_vscodeTabWindowId) {
+                try {
+                    const r = await proxyFetch(`/reveal/${targetSid}`, { method: 'POST' });
+                    if (r.ok && (await r.json()).revealed) return;
+                } catch (_) {}
+            }
+            window.location.href = '/?sid=' + targetSid;
+        }
         function showUnifiedPicker(mode) {
             return new Promise(async resolve => {
                 const { sessions, fileEntries } = await _fetchPickerData();
@@ -34243,7 +34276,7 @@
 
                     // Arrays already open.
                     if (filtSessions.length && mode !== 'overlay') {
-                        _section('Open', mode !== 'open' ? '' : (inShell ? 'jumps to its tab' : 'switches to it'));
+                        _section('Open', mode !== 'open' ? '' : (inShell || _vscodeTabWindowId ? 'jumps to its tab' : 'switches to it'));
                         // The shown array first: in compare it is the first pane.
                         const ordered = [...filtSessions].sort((a, b) => (b.sid === sid) - (a.sid === sid));
                         const ownShape = compareWith && Array.isArray(shape) ? JSON.stringify(shape.map(Number)) : null;
@@ -34261,8 +34294,7 @@
                                 open: () => {
                                     if (isCurrent) { finish(null); return; }
                                     finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
-                                    if (inShell) window.parent.addTab(s.sid, name);
-                                    else window.location.href = '/?sid=' + s.sid;
+                                    _showOpenArray(s.sid, name, inShell);
                                 },
                             });
                         });
@@ -34394,8 +34426,7 @@
                                 const [item] = _selected.values();
                                 if (!item || !item.sid) return;
                                 finish({ action: 'open', sids: [item.sid], names: [item.name] });
-                                if (inShell) window.parent.addTab(item.sid, item.name || '(unnamed)');
-                                else if (item.sid !== sid) window.location.href = '/?sid=' + item.sid;
+                                _showOpenArray(item.sid, item.name || '(unnamed)', inShell);
                             })();
                         }
                         return;

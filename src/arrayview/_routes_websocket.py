@@ -289,6 +289,32 @@ async def _send_json_quietly(ws, payload):
 # a small socket budget, so linking must not open connections of its own.
 _LINKED_VIEWER_SOCKETS: set = set()
 
+# Where each live VS Code browser tab currently is: ws → (sid, path, window_id).
+# The file picker uses it to bring an already-open array's tab forward.
+_VIEWER_TAB_ADDRESSES: dict = {}
+
+
+def _handle_tab_address_message(ws, sid: str, msg: dict) -> None:
+    path = msg.get("path")
+    window_id = msg.get("window_id")
+    if not isinstance(path, str) or not path.startswith("/") or len(path) > 2048:
+        return
+    if not isinstance(window_id, str) or not window_id or len(window_id) > 128:
+        return
+    _VIEWER_TAB_ADDRESSES[ws] = (sid, path, window_id)
+
+
+def viewer_tab_reveal_target(sid: str) -> tuple[str, str] | None:
+    """(window_id, VS Code reuseUrlFilter) of a live tab showing *sid*."""
+    from urllib.parse import urlsplit
+
+    for tab_sid, path, window_id in reversed(list(_VIEWER_TAB_ADDRESSES.values())):
+        parts = urlsplit(path)
+        # A bare "/" is shared by every tab; only a query tells them apart.
+        if tab_sid == sid and parts.query:
+            return window_id, f"{parts.path}?{parts.query}"
+    return None
+
 
 def _handle_link_message(ws, msg: dict) -> None:
     action = msg.get("action")
@@ -530,6 +556,9 @@ def register_websocket_routes(app) -> None:
                         # Not a frame request: answer here so it never
                         # displaces (or is displaced by) a pending render.
                         _handle_link_message(ws, msg)
+                        continue
+                    if isinstance(msg, dict) and msg.get("type") == "tab-address":
+                        _handle_tab_address_message(ws, sid, msg)
                         continue
                     try:
                         _pending.get_nowait()
@@ -933,6 +962,7 @@ def register_websocket_routes(app) -> None:
             except ValueError:
                 pass
             _LINKED_VIEWER_SOCKETS.discard(ws)
+            _VIEWER_TAB_ADDRESSES.pop(ws, None)
             try:
                 from arrayview import _extra_ports
 

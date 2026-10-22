@@ -618,6 +618,18 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         )
         return {"sid": session.sid, "name": name, "notified": notified}
 
+    @app.post("/reveal/{sid}")
+    async def reveal_session_tab(sid: str):
+        """Bring the VS Code browser tab already showing *sid* forward."""
+        from arrayview._routes_websocket import viewer_tab_reveal_target
+        from arrayview._vscode_signal import _request_vscode_tab_reveal
+
+        target = viewer_tab_reveal_target(sid)
+        if target is None:
+            return {"sid": sid, "revealed": False}
+        revealed = await asyncio.to_thread(_request_vscode_tab_reveal, *target)
+        return {"sid": sid, "revealed": revealed}
+
     @app.post("/release/{sid}")
     def release_viewer_session(sid: str, request: Request):
         """Release a session when its owning viewer tab/window closes."""

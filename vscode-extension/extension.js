@@ -818,6 +818,60 @@ function tryPublicPortRequests() {
     }
 }
 
+// The file picker asks to bring a browser tab that already shows an array
+// forward instead of replacing the current tab. Only the window that owns the
+// tab answers; with no URL, the browser command reveals without reloading.
+const REVEAL_REQUEST_PREFIX = 'reveal-tab-request-';
+const REVEAL_ACK_PREFIX = 'reveal-tab-ack-';
+
+async function _handleRevealRequest(data) {
+    const requestId = data.requestId;
+    const ackPath = path.join(SIGNAL_DIR, `${REVEAL_ACK_PREFIX}${requestId}.json`);
+    let ok = false;
+    try {
+        ok = await _runIntegratedBrowserCommand(async () => {
+            const tabsBefore = _visibleEditorTabs();
+            await _withTimeout(
+                vscode.commands.executeCommand('workbench.action.browser.open', {
+                    openToSide: false,
+                    reuseUrlFilter: data.urlFilter,
+                }),
+                3000,
+                'integrated browser reveal'
+            );
+            // No tab matched: the command opened an empty browser tab instead.
+            const stray = await _newEditorTabSince(tabsBefore, 300);
+            if (stray) {
+                try { await vscode.window.tabGroups.close(stray, true); } catch (_) {}
+                return false;
+            }
+            return true;
+        });
+    } catch (error) {
+        log(`REVEAL: ${error.message || error}`);
+    }
+    try { _atomicWriteJson(ackPath, { ok }); } catch (_) {}
+    log(`REVEAL: ${data.urlFilter} -> ${ok}`);
+}
+
+function tryRevealRequests() {
+    let names;
+    try { names = fs.readdirSync(SIGNAL_DIR); } catch (_) { return; }
+    for (const name of names) {
+        if (!name.startsWith(REVEAL_REQUEST_PREFIX) || !name.endsWith('.json')) continue;
+        const requestPath = path.join(SIGNAL_DIR, name);
+        let data;
+        try { data = JSON.parse(fs.readFileSync(requestPath, 'utf8')); } catch (_) { continue; }
+        if (!data || data.windowId !== logWindowId) continue;
+        if (typeof data.requestId !== 'string' || !/^[0-9a-f]{8,64}$/.test(data.requestId)) continue;
+        if (typeof data.urlFilter !== 'string' || !data.urlFilter.startsWith('/')) continue;
+        if (Date.now() - Number(data.sentAtMs || 0) > Number(data.maxAgeMs || 0)) continue;
+        try { fs.renameSync(requestPath, `${requestPath}.claimed-${process.pid}`); } catch (_) { continue; }
+        try { fs.unlinkSync(`${requestPath}.claimed-${process.pid}`); } catch (_) {}
+        void _handleRevealRequest(data);
+    }
+}
+
 // Pending placeholder tabs from resolveCustomEditor, keyed by filePath.
 // When a signal file arrives, we navigate the placeholder instead of
 // creating a second panel, avoiding a visible flicker.
@@ -4981,6 +5035,7 @@ function activate(context) {
     const interval = setInterval(() => {
         void tryOpenSignalFile();
         tryPublicPortRequests();
+        tryRevealRequests();
     }, 1000);
     context.subscriptions.push({ dispose: () => clearInterval(interval) });
 
@@ -4991,6 +5046,7 @@ function activate(context) {
         const ownBasename = TARGETED_SIGNAL_FILE ? path.basename(TARGETED_SIGNAL_FILE) : null;
         const watcher = fs.watch(SIGNAL_DIR, (eventType, filename) => {
             if (!filename || filename.includes('.claimed-') || filename.endsWith('.tmp')) return;
+            if (filename.startsWith(REVEAL_REQUEST_PREFIX)) { tryRevealRequests(); return; }
             const ownQueuePrefix = ownBasename ? `${ownBasename.slice(0, -5)}.request-` : null;
             const isOwn = ownBasename && (
                 filename === ownBasename ||
