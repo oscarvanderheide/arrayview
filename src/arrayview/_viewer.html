@@ -5315,9 +5315,13 @@
         .cmp-mini-map canvas { position:absolute; top:0; left:0; width:100%; height:100%; image-rendering:pixelated; }
         .cmp-mini-vp { position:absolute; box-sizing:border-box; border:1.5px solid var(--active-dim); pointer-events:none; }
         /* ── Compare crosshair ───────────────────────────────────── */
-        .cmp-xhair-h, .cmp-xhair-v { position:absolute; pointer-events:none; z-index:5; display:none; }
-        .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
-        .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
+        /* A small outlined dot in every other pane marks the spot under the
+           pointer; the hovered pane keeps its ordinary pointer. */
+        .cmp-xhair-dot {
+            position:absolute; pointer-events:none; z-index:5; display:none;
+            width:6px; height:6px; margin:-4px 0 0 -4px; border-radius:50%;
+            background:rgb(245,200,66); border:1px solid #000;
+        }
 
         /* The image pointer uses the exact reticle from the value pill.
            Keeping it as live SVG lets currentColor follow every theme. */
@@ -9892,10 +9896,6 @@
             const overflowing = comparePan.overflows;
             compareCanvases.forEach(cv => {
                 if (!cv) return;
-                // Synchronized crosshairs own the pointer while they are
-                // visible. A redraw after scrolling must not restore the
-                // ordinary cursor before the pointer next moves.
-                if (cv.style.cursor === 'none' && Object.hasOwn(cv.dataset, 'crosshairCursor')) return;
                 cv.style.cursor = overflowing ? 'grab' : 'crosshair';
             });
             if (bigLeftCompare && _showCompareSharedSourceCb()) {
@@ -41563,8 +41563,7 @@
         _allCrosshairCanvases().forEach((cv) => {
             const inner = cv.closest('.compare-canvas-inner');
             if (!inner) return;
-            const xh = document.createElement('div'); xh.className = 'cmp-xhair-h'; inner.appendChild(xh);
-            const xv = document.createElement('div'); xv.className = 'cmp-xhair-v'; inner.appendChild(xv);
+            const dot = document.createElement('div'); dot.className = 'cmp-xhair-dot'; inner.appendChild(dot);
         });
         // Collect per-pane pixel-info elements for cross-pane hover lookup
         const _comparePiEls = [];
@@ -46110,44 +46109,24 @@
             _allCrosshairCanvases().forEach((cv) => {
                 const inner = cv.closest('.compare-canvas-inner');
                 if (!inner) return;
-                const xh = inner.querySelector('.cmp-xhair-h');
-                const xv = inner.querySelector('.cmp-xhair-v');
+                const dot = inner.querySelector('.cmp-xhair-dot');
+                if (!dot) return;
+                if (cv === srcCv) { dot.style.display = 'none'; return; }
                 const cvRect = cv.getBoundingClientRect();
                 const h = cvRect.height || parseInt(cv.style.height) || 0;
                 const w = cvRect.width  || parseInt(cv.style.width)  || 0;
-                if (xh) { xh.style.top = Math.round(fy * h) + 'px'; xh.style.display = 'block'; }
-                if (xv) { xv.style.left = Math.round(fx * w) + 'px'; xv.style.display = 'block'; }
-            });
-            _reconcileCompareCrosshairCursor(srcCv);
-        }
-        function _reconcileCompareCrosshairCursor(activeCv = null) {
-            _allCrosshairCanvases().forEach(cv => {
-                if (cv === activeCv) {
-                    const cursor = cv.style.cursor;
-                    // Preserve interaction-specific affordances such as pan,
-                    // crop resize, and ROI editing. The ordinary compare
-                    // crosshair is redundant while the synchronized lines are
-                    // visible, so hide only that pointer.
-                    if (!cursor || cursor === 'crosshair' || cursor === 'none') {
-                        if (!Object.hasOwn(cv.dataset, 'crosshairCursor')) {
-                            cv.dataset.crosshairCursor = cursor;
-                        }
-                        cv.style.cursor = 'none';
-                    }
-                    return;
-                }
-                if (!Object.hasOwn(cv.dataset, 'crosshairCursor')) return;
-                if (cv.style.cursor === 'none') cv.style.cursor = cv.dataset.crosshairCursor;
-                delete cv.dataset.crosshairCursor;
+                dot.style.top = Math.round(fy * h) + 'px';
+                dot.style.left = Math.round(fx * w) + 'px';
+                dot.style.display = 'block';
             });
         }
         function hideCompareCrosshairs() {
             _allCrosshairCanvases().forEach(cv => {
                 const inner = cv.closest('.compare-canvas-inner');
                 if (!inner) return;
-                inner.querySelectorAll('.cmp-xhair-h,.cmp-xhair-v').forEach(el => { el.style.display = 'none'; });
+                const dot = inner.querySelector('.cmp-xhair-dot');
+                if (dot) dot.style.display = 'none';
             });
-            _reconcileCompareCrosshairCursor();
         }
 
         // ── 9. Pinch to zoom ──────────────────────────────────────────

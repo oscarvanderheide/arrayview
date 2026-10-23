@@ -557,6 +557,44 @@ class TestKeyboard:
         page.wait_for_timeout(350)
         assert not page.is_visible("#compare-view-wrap.active")
 
+    def test_compare_hover_marks_other_panes_with_dot(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        """Hovering one compare pane shows a dot at the same spot in the others."""
+        path = tmp_path / "arr2d_compare_dot.npy"
+        np.save(path, arr_2d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_dot"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
+        left = page.locator("canvas#compare-left-canvas")
+        box = left.bounding_box()
+        page.mouse.move(box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.75)
+        page.wait_for_timeout(100)
+        state = page.evaluate("""() => {
+            const dotIn = id => document.getElementById(id)
+                .closest('.compare-canvas-inner').querySelector('.cmp-xhair-dot');
+            const r = document.getElementById('compare-right-canvas').getBoundingClientRect();
+            const d = dotIn('compare-right-canvas').getBoundingClientRect();
+            return {
+                leftShown: getComputedStyle(dotIn('compare-left-canvas')).display !== 'none',
+                rightShown: getComputedStyle(dotIn('compare-right-canvas')).display !== 'none',
+                fx: (d.left + d.width / 2 - r.left) / r.width,
+                fy: (d.top + d.height / 2 - r.top) / r.height,
+                leftCursor: document.getElementById('compare-left-canvas').style.cursor,
+                lines: document.querySelectorAll('.cmp-xhair-h,.cmp-xhair-v').length,
+            };
+        }""")
+        assert not state["leftShown"]
+        assert state["rightShown"]
+        assert abs(state["fx"] - 0.25) < 0.05 and abs(state["fy"] - 0.75) < 0.05
+        assert state["leftCursor"] != "none"
+        assert state["lines"] == 0
+
 
     def test_direct_compare_url_renders_compare_canvas(
         self, page, server_url, sid_2d, arr_2d, client, tmp_path
