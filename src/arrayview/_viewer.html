@@ -5316,13 +5316,13 @@
         .cmp-mini-vp { position:absolute; box-sizing:border-box; border:1.5px solid var(--active-dim); pointer-events:none; }
         /* ── Compare crosshair ───────────────────────────────────── */
         /* A small outlined dot in every other pane marks the spot under the
-           pointer; the hovered pane keeps its ordinary pointer. Sized and
-           coloured like the centre dot of #info-hover-cursor (r 1.1 in a
-           12-unit glyph drawn at 18px, 0.9-unit outline). */
+           pointer; the hovered pane keeps its ordinary pointer. Sized like
+           the centre dot of #info-hover-cursor (r 1.1 in a 12-unit glyph
+           drawn at 18px, 0.9-unit outline), but yellow on a black outline. */
         .cmp-xhair-dot {
             position:absolute; pointer-events:none; z-index:5; display:none;
             width:3.3px; height:3.3px; transform:translate(-50%,-50%); border-radius:50%;
-            background:var(--text); box-shadow:0 0 0 1.35px var(--bg);
+            background:rgb(245,200,66); box-shadow:0 0 0 1.35px #000;
         }
 
         /* The image pointer uses the exact reticle from the value pill.
