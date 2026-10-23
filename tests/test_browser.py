@@ -1234,7 +1234,7 @@ class TestModeCombinations:
         page.wait_for_function("() => compareActive && compareMvActive", timeout=15_000)
         # Panes are titled with the file names, not session ids.
         page.wait_for_function(
-            "() => [...document.querySelectorAll('.cq-row-label')].map(e => e.textContent).join(' ').includes('cmportho0')",
+            "() => [...document.querySelectorAll('.cq-row-name')].map(e => e.textContent).join(' ').includes('cmportho0')",
             timeout=5_000,
         )
 
@@ -1341,8 +1341,10 @@ class TestModeCombinations:
             np.save(path, arr_3d)
             sids.append(client.post("/load", json={"filepath": str(path), "name": "t1.npy"}).json()["sid"])
         page.goto(f"{server_url}/?sid={sids[0]}&compare_sid={sids[1]}&compare_sids={sids[1]}")
+        # Only the part that differs is shown; the full path is on hover.
         page.wait_for_function(
-            """() => { const t = document.getElementById('compare-left-title')?.textContent || '';
-                       return t.includes('pat_a/t1.npy'); }""",
+            """() => { const n = document.querySelector('#compare-left-title .av-name');
+                       return n && n.textContent === 'pat_a'
+                           && n.title.endsWith('pat_a/t1.npy'); }""",
             timeout=15_000,
         )

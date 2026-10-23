@@ -3924,6 +3924,30 @@
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-title.compare-center-title { cursor: default; max-width: 100%; overflow: visible; text-overflow: clip; }
         .compare-title.compare-side-title { gap: 0; }
+        /* Array names: the start and end every compared name shares fade back
+           and give way first when the slot is narrow (_fitArrayName). */
+        .av-name { min-width: 0; overflow: hidden; white-space: nowrap; }
+        .av-name-shared { opacity: 0.5; }
+        #compare-view-wrap:not(.compare-titles-inset) .compare-title .av-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
+        /* A name beside its image: plain text in the empty margin, wrapping
+           at separators (_placeRowName / _placeCompareTitle). */
+        .av-name.av-name-side {
+            display: block; white-space: normal; overflow-wrap: anywhere;
+            font-size: 12px; line-height: 16px; letter-spacing: 0.02em; text-transform: none;
+            color: var(--text);
+        }
+        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left,
+        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right {
+            top: 50%; transform: translateY(-50%); max-width: none; -webkit-text-stroke: 0; text-shadow: none;
+        }
+        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left { left: auto; right: 100%; margin-right: 14px; justify-content: flex-end; text-align: right; }
+        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right { left: 100%; margin-left: 14px; text-align: left; }
+        .compare-title.compare-title-out-left svg,
+        .compare-title.compare-title-out-right svg { display: none; }
+        .av-name-br { display: none; }
+        /* Chrome breaks at <wbr> even under nowrap: only side names wrap */
+        .av-name:not(.av-name-side) wbr { display: none; }
+        .av-name.av-name-paths .av-name-br { display: block; }
         .compare-diff-stats { display: inline-flex; gap: 12px; font-variant-numeric: tabular-nums; cursor: default; }
         .compare-diff-stats b { font-weight: normal; color: color-mix(in srgb, var(--text) 75%, var(--muted)); text-transform: none; }
         .detached-index-hint {
@@ -4212,6 +4236,8 @@
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
+        /* compare-qMRI / compare-3plane: array name left of its row */
+        .qv-row.cq-row > .cq-row-name { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%); text-align: right; cursor: default; user-select: none; }
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
         .cq-header-label { font-size: 16px; color: var(--fg); letter-spacing: 0.05em; text-align: center; }
@@ -4754,7 +4780,8 @@
         /* qMRI maps touching (Preferences): no gaps; with two rows the
            colour bars float inside the maps like the immersive islands. */
         body.qmri-gapless #qmri-view-wrap.active { gap: 0 !important; }
-        body.qmri-gapless #qmri-view-wrap > .qv-row:not(.qmri-mosaic-row) { gap: 0 !important; }
+        body.qmri-gapless #qmri-view-wrap > .qv-row:not(.qmri-mosaic-row),
+        body.qmri-gapless #qmri-view-wrap > .cq-header-row { gap: 0 !important; }
         body.qmri-gapless #qmri-view-wrap .qv-pane { gap: 0; }
         body.qmri-gapless #qmri-view-wrap .qv-canvas-clip { border-radius: 0 !important; }
         /* Touching panes read as one block: only its outer corners stay
@@ -9977,6 +10004,231 @@
             return sidVal.slice(0, 8);
         }
 
+        // Compared names often share most of their text (one file name in
+        // several run folders). Split each into the start and end that every
+        // name shares and the middle that tells it apart. Splits only at
+        // separators, and every name keeps a word of its own.
+        const _NAME_SEP_RE = /^[_\-.\/\\\s()]+$/;
+        function _arrayNameParts(names) {
+            if (!names.length) return [];
+            const toks = names.map(n => String(n).split(/([_\-.\/\\\s()]+)/).filter(Boolean));
+            const hasWord = ts => ts.some(t => !_NAME_SEP_RE.test(t));
+            let h = 0, t = 0;
+            if (toks.length > 1) {
+                const minLen = Math.min(...toks.map(ts => ts.length));
+                while (h < minLen && toks.every(ts => ts[h] === toks[0][h])) h++;
+                while (h > 0 && !toks.every(ts => hasWord(ts.slice(h)))) h--;
+                const rest = toks.map(ts => ts.slice(h));
+                const minRest = Math.min(...rest.map(ts => ts.length));
+                const fromEnd = (ts, i) => ts[ts.length - 1 - i];
+                while (t < minRest && rest.every(ts => fromEnd(ts, t) === fromEnd(rest[0], t))) t++;
+                while (t > 0 && !rest.every(ts => hasWord(ts.slice(0, ts.length - t)))) t--;
+            }
+            // `near`: how much of each key's start it shares with its closest
+            // sibling; in a tight slot that goes before the rest of the key.
+            let keys = toks.map(ts => ts.slice(h, ts.length - t));
+            // Shared folders and a shared file name or extension are left out
+            // (the full path is on hover), but never part of a word group
+            // (pat_a stays pat_a), nor when what remains says nothing on its
+            // own (t1.npy (1) would become "1").
+            const isPath = tok => /[\/\\]/.test(tok);
+            let hd = h;
+            while (hd > 0 && !isPath(toks[0][hd - 1])) hd--;
+            const tailToks = toks[0].slice(toks[0].length - t);
+            const cut = tailToks.findIndex(tok => isPath(tok) || tok.startsWith('.'));
+            const td = cut < 0 ? 0 : t - cut;
+            const shortKeys = toks.map(ts => ts.slice(hd, ts.length - td));
+            const dropShared = shortKeys.every(kt => kt.some(tok => /[a-z]/i.test(tok)));
+            if (dropShared) {
+                keys = shortKeys.map(kt => {
+                    let a = 0, b = kt.length;
+                    const loose = tok => /^[_\-.\/\\\s]+$/.test(tok);
+                    while (a < b && loose(kt[a])) a++;
+                    while (b > a && loose(kt[b - 1])) b--;
+                    return kt.slice(a, b);
+                });
+            }
+            return toks.map((ts, i) => {
+                let near = 0;
+                keys.forEach((other, j) => {
+                    if (j === i) return;
+                    let n = 0;
+                    while (n < keys[i].length && keys[i][n] === other[n]) n++;
+                    while (n > 0 && !hasWord(keys[i].slice(n))) n--;
+                    near = Math.max(near, n);
+                });
+                return {
+                    head: dropShared ? '' : ts.slice(0, h).join(''),
+                    key: keys[i].join(''),
+                    tail: dropShared ? '' : ts.slice(ts.length - t).join(''),
+                    near: keys[i].slice(0, near).join('').length,
+                };
+            });
+        }
+
+        // Last `n` characters of `s`, moved up to the next word start when the
+        // cut would leave a word fragment (\u2026on_ reads as noise).
+        function _nameTailChars(s, n) {
+            const out = s.slice(s.length - n);
+            if (n >= s.length || /[_\-.\/\\\s()]/.test(s[s.length - n - 1])) return out;
+            const m = out.match(/[_\-.\/\\\s()]+/);
+            return m ? out.slice(m.index + m[0].length) : '';
+        }
+
+        // Name squeezed to `cap` characters: the shared end gives way first,
+        // then the shared start, then the start the name shares with its
+        // closest sibling, and only then the middle of what is its own.
+        // Returns [text, shared] runs.
+        function _arrayNameRuns(p, cap) {
+            const E = '\u2026';
+            const { head, key, tail, near } = p;
+            if (head.length + key.length + tail.length <= cap) return [[head, true], [key, false], [tail, true]];
+            const tailRoom = cap - head.length - key.length - 1;
+            if (tail && tailRoom >= 0) return [[head, true], [key, false], [tail.slice(0, tailRoom) + E, true]];
+            const tailE = tail ? E : '';
+            const headRoom = cap - key.length - tailE.length - 1;
+            if (head && headRoom >= 0) return [[E + _nameTailChars(head, headRoom), true], [key, false], [tailE, true]];
+            if (!head && key.length + tailE.length <= cap) return [[key, false], [tailE, true]];
+            const keyRoom = cap - 1 - tailE.length;
+            if (keyRoom > 0 && key.length - keyRoom <= near) {
+                const cut = _nameTailChars(key, keyRoom);
+                return [[E, true], [cut || key.slice(key.length - keyRoom), false], [tailE, true]];
+            }
+            const rest = key.slice(near).replace(/^[_\-.\/\\\s()]+/, '');
+            const lead = (head || near) ? E : '';
+            const room = cap - lead.length - tailE.length - 1;
+            if (room < 2) return [[rest.slice(0, Math.max(1, cap - 1)), false], [E, true]];
+            const a = Math.floor(room / 2), b = room - a;
+            return [[lead, true], [rest.slice(0, a), false], [E, false], [rest.slice(rest.length - b), false], [tailE, true]];
+        }
+
+        function _arrayNameHTML(runs) {
+            // A name beside its image wraps after separators (not dots: they
+            // sit inside numbers), and after folders when av-name-paths is on.
+            const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/[_\-\s()]+/g, '$&<wbr>')
+                .replace(/[\/\\]+/g, '$&<span class="av-name-br"></span>');
+            return runs.filter(([t]) => t)
+                .map(([t, shared]) => shared ? `<span class="av-name-shared">${esc(t)}</span>` : esc(t))
+                .join('');
+        }
+
+        // Names sit beside their image, in the empty margin, when it has room
+        // for a column at least NAME_SIDE_MIN_W wide; otherwise inside it.
+        // NAME_SIDE_GAP is also the CSS margin between name and image.
+        const NAME_SIDE_MIN_W = 96;
+        const NAME_SIDE_MAX_W = 280;
+        const NAME_SIDE_GAP = 14;
+        const NAME_SIDE_EDGE = 12;
+        // Margin a row layout keeps free on each side for its row names,
+        // counted from the window edge. Capped so a narrow window keeps its
+        // images and the names get a narrower column instead.
+        function _rowNameReserve() {
+            const view = document.getElementById('qmri-view-wrap');
+            const viewL = view ? Math.max(0, view.getBoundingClientRect().left) : 0;
+            return Math.min(viewL + NAME_SIDE_MIN_W + NAME_SIDE_GAP + NAME_SIDE_EDGE, window.innerWidth * 0.17);
+        }
+
+        function _fitArrayName(el) {
+            const p = el && el._nameParts;
+            if (!p) return;
+            if (el.isConnected && el._namePlace) el._namePlace(el);
+            const full = p.head.length + p.key.length + p.tail.length;
+            const show = cap => { el.innerHTML = _arrayNameHTML(_arrayNameRuns(p, cap)); };
+            el.classList.remove('av-name-paths');
+            show(full);
+            if (!el.isConnected) return;
+            const fits = () => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight;
+            // A name that needs several lines starts each folder on a new one,
+            // unless that alone makes it too tall.
+            if (el.classList.contains('av-name-side') && el.scrollHeight > 1.5 * parseFloat(getComputedStyle(el).lineHeight)) {
+                el.classList.add('av-name-paths');
+                if (!fits()) el.classList.remove('av-name-paths');
+            }
+            if (fits() || el.clientWidth <= 0) return;
+            let lo = 1, hi = full - 1;
+            while (lo < hi) {
+                const mid = Math.ceil((lo + hi) / 2);
+                show(mid);
+                if (fits()) lo = mid; else hi = mid - 1;
+            }
+            show(lo);
+        }
+
+        // Refit names when their pane, row or view changes size.
+        const _arrayNameRO = typeof ResizeObserver === 'function'
+            ? new ResizeObserver(entries => {
+                const names = new Set();
+                for (const e of entries) {
+                    if (!e.target.isConnected) { _arrayNameRO.unobserve(e.target); continue; }
+                    e.target.querySelectorAll('.av-name').forEach(n => names.add(n));
+                }
+                names.forEach(_fitArrayName);
+            })
+            : null;
+
+        // Hover text for a shortened name: the file's full path when known.
+        function _arrayNameHover(sidVal, label) {
+            return _compareFilepathBySid[sidVal] || label;
+        }
+
+        function _setArrayName(el, parts, fullName, slots, place) {
+            el.classList.add('av-name');
+            el._nameParts = parts;
+            el._namePlace = place || null;
+            el.title = fullName;
+            _fitArrayName(el);
+            if (_arrayNameRO) slots.forEach(slot => slot && _arrayNameRO.observe(slot));
+        }
+
+        // compare-qMRI / compare-3plane: the name sits left of its row, in
+        // the margin the layout keeps free (_rowNameReserve). The view
+        // clips at its own edge, not the window's.
+        function _placeRowName(el) {
+            const r = el.parentElement.getBoundingClientRect();
+            const viewL = document.getElementById('qmri-view-wrap').getBoundingClientRect().left;
+            const w = Math.min(NAME_SIDE_MAX_W, r.left - viewL - NAME_SIDE_EDGE - NAME_SIDE_GAP);
+            el.style.width = Math.max(40, w) + 'px';
+            el.style.maxHeight = Math.max(16, r.height) + 'px';
+        }
+
+        // Compare panes: names move into the margin beside the panes when
+        // every pane has one (one or two columns) with room; otherwise they
+        // all stay inside their images, never a mix.
+        function _compareTitleSides() {
+            const wrap = document.getElementById('compare-view-wrap');
+            if (!wrap.classList.contains('compare-titles-inset')) return null;
+            const panes = [...wrap.querySelectorAll('.compare-pane.active')]
+                .filter(q => q.getBoundingClientRect().width > 0);
+            if (!panes.length) return null;
+            const rects = panes.map(q => q.getBoundingClientRect());
+            const minL = Math.min(...rects.map(r => r.left));
+            const maxR = Math.max(...rects.map(r => r.right));
+            const roomL = minL - NAME_SIDE_EDGE - NAME_SIDE_GAP;
+            const roomR = window.innerWidth - maxR - NAME_SIDE_EDGE - NAME_SIDE_GAP;
+            const sides = new Map();
+            for (let i = 0; i < panes.length; i++) {
+                const r = rects[i];
+                if (r.left <= minL + 1 && roomL >= NAME_SIDE_MIN_W) sides.set(panes[i], { side: 'left', w: roomL, h: r.height });
+                else if (r.right >= maxR - 1 && roomR >= NAME_SIDE_MIN_W) sides.set(panes[i], { side: 'right', w: roomR, h: r.height });
+                else return null;
+            }
+            return sides;
+        }
+
+        function _placeCompareTitle(el) {
+            const title = el.closest('.compare-title');
+            const pane = title && title.closest('.compare-pane');
+            const sides = pane && !title.classList.contains('compare-side-title') ? _compareTitleSides() : null;
+            const spot = sides && sides.get(pane);
+            const side = spot ? spot.side : null;
+            title.classList.toggle('compare-title-out-left', side === 'left');
+            title.classList.toggle('compare-title-out-right', side === 'right');
+            el.classList.toggle('av-name-side', !!side);
+            el.style.width = side ? Math.min(NAME_SIDE_MAX_W, spot.w) + 'px' : '';
+            el.style.maxHeight = side ? spot.h + 'px' : '';
+        }
+
         function _resetDetachedDimState() {
             detachedDimMode = false;
             detachedDim = -1;
@@ -10110,14 +10362,17 @@
                 drawRegBlendCb();
             }
             const _logoSvg = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
+            const nameParts = detachedDimMode ? null : _arrayNameParts(labels);
             compareTitles.forEach((el, idx) => {
                 const text = labels[idx] || '';
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
-                if (text) {
-                    const prefix = (!detachedDimMode && !sideTitle) ? _logoSvg : '';
-                    const titleHtml = detachedDimMode ? _detachedDimPaneTitleHTML(idx, text) : text.replace(/</g, '&lt;');
-                    el.innerHTML = prefix + '<span>' + titleHtml + '</span>';
+                if (text && detachedDimMode) {
+                    el.innerHTML = '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
+                } else if (text) {
+                    el.innerHTML = (sideTitle ? '' : _logoSvg) + '<span></span>';
+                    _setArrayName(el.lastElementChild, nameParts[idx], _arrayNameHover(effectiveSids[idx], text),
+                        [el.closest('.compare-pane'), document.getElementById('compare-view-wrap')], _placeCompareTitle);
                 } else {
                     el.textContent = '';
                 }
@@ -37735,12 +37990,6 @@
             // Column header row with map names
             const headerRow = document.createElement('div');
             headerRow.className = 'cq-header-row';
-            // Spacer matching row label width
-            const headerSpacer = document.createElement('div');
-            headerSpacer.className = 'cq-row-label';
-            headerSpacer.style.visibility = 'hidden';
-            headerSpacer.textContent = '\u00A0';
-            headerRow.appendChild(headerSpacer);
             for (let mi = 0; mi < nMaps; mi++) {
                 const hLabel = document.createElement('div');
                 hLabel.className = 'cq-header-label qv-label';
@@ -37750,16 +37999,18 @@
             wrap.appendChild(headerRow);
 
             compareQmriViews = [];
+            const rowNames = compareQmriSids.map(comparePaneLabelForSid);
+            const rowNameParts = _arrayNameParts(rowNames);
             // One row per compared array (SID)
             for (let si = 0; si < compareQmriSids.length; si++) {
                 const sidVal = compareQmriSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
-                // Row label: array name
-                const rowLabel = document.createElement('div');
-                rowLabel.className = 'cq-row-label';
-                rowLabel.textContent = comparePaneLabelForSid(sidVal);
-                rowDiv.appendChild(rowLabel);
+                // Array name, left of its row
+                const rowName = document.createElement('div');
+                rowName.className = 'cq-row-name av-name-side';
+                rowDiv.appendChild(rowName);
+                _setArrayName(rowName, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
                 for (let mi = 0; mi < nMaps; mi++) {
                     const actualIdx = mapIndices[mi];
                     const cmap = cmaps[mi];
@@ -38057,7 +38308,7 @@
             const rows = nRows;
             const colGap = rows >= 3 ? 10 : 24;
             const rowGap = rows >= 3 ? 4 : 14;
-            const sidePad = rows >= 3 ? 80 : 120;
+            const sidePad = Math.max(rows >= 3 ? 80 : 120, 2 * _rowNameReserve()); // room for row names
             const labelH = 24;  // column headers
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
             const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
@@ -38286,23 +38537,18 @@
             }
 
             compareMvViews = [];
+            const rowNames = compareMvSids.map(comparePaneLabelForSid);
+            const rowNameParts = _arrayNameParts(rowNames);
             // One row per compared array (SID)
             for (let si = 0; si < compareMvSids.length; si++) {
                 const sidVal = compareMvSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
-                // Row label: array name (basename only)
-                const rowLabel = document.createElement('div');
-                rowLabel.className = 'cq-row-label';
-                const _rawLabel = comparePaneLabelForSid(sidVal);
-                const _shortLabel = l => l.split('/').pop().split('\\').pop().replace(/\.[^.]+$/, '') || l;
-                // Basenames alone, unless that would make two rows look alike;
-                // then keep the folders the pane titles use to tell them apart.
-                const _shorts = compareMvSids.map(x => _shortLabel(comparePaneLabelForSid(x)));
-                rowLabel.textContent = _shorts.filter(x => x === _shorts[si]).length > 1
-                    ? _rawLabel.replace(/\.[^./\\\s]+(\s\(\d+\))?$/, '$1') : _shorts[si];
-                rowLabel.title = _rawLabel; // full name on hover
-                rowDiv.appendChild(rowLabel);
+                // Array name, left of its row
+                const rowName = document.createElement('div');
+                rowName.className = 'cq-row-name av-name-side';
+                rowDiv.appendChild(rowName);
+                _setArrayName(rowName, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];
@@ -38684,7 +38930,7 @@
             const nCols = 3; // always 3 planes
             const colGap = nRows >= 3 ? 12 : 24;
             const rowGap = nRows >= 3 ? 6 : 14;
-            const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
+            const sidePad = Math.max(nRows >= 3 ? 80 : 120, 2 * _rowNameReserve()); // room for row names
             const labelH = 0;  // no column headers in compare-multiview
             const cbWrap = document.getElementById('mv-cb-wrap');
             const cbH = cbWrap && colorbarVisible() ? (cbWrap.offsetHeight || 33) : 0;
@@ -43044,7 +43290,11 @@
 
         function _reconcileCompareTitlesInset() {
             compareWrap.classList.toggle('compare-touching', _compareTouching());
-            compareWrap.classList.toggle('compare-titles-inset', _compareTitlesInset());
+            const inset = _compareTitlesInset();
+            if (inset !== compareWrap.classList.contains('compare-titles-inset')) {
+                compareWrap.classList.toggle('compare-titles-inset', inset);
+                compareWrap.querySelectorAll('.av-name').forEach(_fitArrayName);
+            }
         }
 
         // ── Centralized CB / island visibility reconciler ────────────
