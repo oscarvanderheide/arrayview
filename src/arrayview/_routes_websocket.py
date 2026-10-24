@@ -103,12 +103,22 @@ def _cancel_pending_viewer_release(sid: str) -> None:
         task.cancel()
 
 
-def _trace_viewer_event(event: str, sid: str) -> None:
-    if not os.environ.get("ARRAYVIEW_LAUNCH_TRACE"):
-        return
-    from arrayview._launch_trace import emit_launch_event, trace_tag
+def _trace_viewer_event(event: str, sid: str, **attrs: object) -> None:
+    # Same opt-in as the page-route events (env or ~/.arrayview marker), so a
+    # server started by an Explorer click logs its sockets too: a launch that
+    # loads its page but never shows a frame needs both halves to diagnose.
+    try:
+        from arrayview._launch_trace import (
+            configure_route_launch_trace,
+            emit_launch_event,
+            trace_tag,
+        )
 
-    emit_launch_event(event, sid_tag=trace_tag(sid))
+        if not configure_route_launch_trace():
+            return
+        emit_launch_event(event, sid_tag=trace_tag(sid), **attrs)
+    except Exception:
+        return
 
 def _render_progress_reporter(
     loop, ws, label="Loading", quiet_for_s=0.6, min_interval_s=0.2
@@ -469,11 +479,21 @@ def register_websocket_routes(app) -> None:
         # stops that clock.  The viewer keeps its splash up until the metadata
         # below arrives, so an early accept shows nothing half-rendered.
         await ws.accept()
+        accepted_at = time.perf_counter()
+        arrived_on = (ws.scope.get("server") or (None, None))[1]
+        _trace_viewer_event(
+            "viewer.socket_accepted", sid,
+            request_id=launch_request_id, port=arrived_on,
+            session_ready=sid in _session_mod.SESSIONS,
+        )
 
         session = _session_mod.SESSIONS.get(sid)
         if session is None:
             session = await _await_session_reporting_read_progress(ws, sid)
         if not session:
+            _trace_viewer_event(
+                "viewer.session_missing", sid, request_id=launch_request_id
+            )
             # The socket has already opened, and the viewer treats a drop after
             # a successful open as a recoverable reconnect — it would retry
             # forever.  Say the load failed so it shows an error instead.
@@ -497,6 +517,11 @@ def register_websocket_routes(app) -> None:
                 or launch_journal is None
                 or launch_journal.get("token") != launch_token
             ):
+                _trace_viewer_event(
+                    "viewer.launch_rejected", sid,
+                    request_id=launch_request_id,
+                    journal_found=launch_journal is not None,
+                )
                 await ws.close(code=1008)
                 return
 
@@ -525,10 +550,9 @@ def register_websocket_routes(app) -> None:
         _session_mod.VIEWER_CONNECTIONS_SEEN += 1
         _session_mod.LIVE_VIEWER_SOCKETS.append(ws)
         _ensure_path_nudge_task()
-        # Which port this viewer arrived on, so a cold-start port can be
-        # released the moment its own viewer goes away rather than waiting for
-        # every viewer everywhere to close.
-        arrived_on = (ws.scope.get("server") or (None, None))[1]
+        # arrived_on (above) is the port this viewer came in on, so a
+        # cold-start port can be released the moment its own viewer goes away
+        # rather than waiting for every viewer everywhere to close.
         try:
             from arrayview import _extra_ports
 
@@ -544,7 +568,11 @@ def register_websocket_routes(app) -> None:
             _session_mod.VIEWER_REQUEST_COUNTS[request_key] = (
                 _session_mod.VIEWER_REQUEST_COUNTS.get(request_key, 0) + 1
             )
-        _trace_viewer_event("viewer.connected", sid)
+        _trace_viewer_event(
+            "viewer.connected", sid,
+            request_id=launch_request_id,
+            wait_ms=round((time.perf_counter() - accepted_at) * 1000),
+        )
         loop = asyncio.get_running_loop()
         _pending: asyncio.Queue[dict | None] = asyncio.Queue()
 
@@ -572,11 +600,16 @@ def register_websocket_routes(app) -> None:
 
         recv_task = asyncio.create_task(_receiver())
         previous_indices = None
+        frames_sent = 0
         try:
             while True:
                 msg = await _pending.get()
                 if msg is None:
                     break
+                if frames_sent == 0:
+                    _trace_viewer_event(
+                        "viewer.first_request", sid, request_id=launch_request_id
+                    )
 
                 seq = int(msg.get("seq", 0))
 
@@ -858,6 +891,14 @@ def register_websocket_routes(app) -> None:
                     raw_payload = payload
                     payload = await _render(loop, lambda: _pack_frame(raw_payload))
                 await ws.send_bytes(payload)
+                frames_sent += 1
+                if frames_sent == 1:
+                    _trace_viewer_event(
+                        "viewer.first_frame_sent", sid,
+                        request_id=launch_request_id,
+                        ms=round((time.perf_counter() - accepted_at) * 1000),
+                        payload_bytes=len(payload),
+                    )
                 if perf:
                     total_ms = (time.perf_counter() - total_t0) * 1000.0
                     await ws.send_json(
@@ -939,6 +980,13 @@ def register_websocket_routes(app) -> None:
 
             _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
             traceback.print_exc()
+            _trace_viewer_event(
+                "viewer.render_failed", sid,
+                request_id=launch_request_id,
+                error=type(_ws_exc).__name__,
+                message=str(_ws_exc)[:200],
+                frames_sent=frames_sent,
+            )
             # Without this the viewer never learns the frame it is waiting for
             # will not arrive: the socket just closes and the panel sits on the
             # loading spinner until the opener's timeout fails the request
@@ -1122,4 +1170,9 @@ def register_websocket_routes(app) -> None:
                     _session_mod.VIEWER_REQUEST_COUNTS[request_key] = request_count
                 else:
                     _session_mod.VIEWER_REQUEST_COUNTS.pop(request_key, None)
-            _trace_viewer_event("viewer.disconnected", sid)
+            _trace_viewer_event(
+                "viewer.disconnected", sid,
+                request_id=launch_request_id,
+                frames_sent=frames_sent,
+                open_s=round(time.perf_counter() - accepted_at, 1),
+            )
