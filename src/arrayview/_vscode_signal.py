@@ -694,10 +694,13 @@ _VSCODE_REVEAL_ACK_PREFIX = "reveal-tab-ack-"
 
 
 def _request_vscode_tab_reveal(
-    window_id: str, url_filter: str, timeout: float = 2.5
+    window_id: str, url_filter: str, timeout: float = 2.5, action: str = "reveal"
 ) -> bool:
     """Ask the opener in *window_id* to bring the browser tab matching
-    *url_filter* forward. True only when that window confirms it did."""
+    *url_filter* forward. True only when that window confirms it did.
+
+    ``action="toggle-window"`` also moves that tab into its own window, or
+    back into the main window when it was popped out before."""
     signal_dir = Path(os.path.expanduser("~/.arrayview"))
     request_id = uuid.uuid4().hex
     request_path = signal_dir / f"{_VSCODE_REVEAL_REQUEST_PREFIX}{request_id}.json"
@@ -706,6 +709,7 @@ def _request_vscode_tab_reveal(
         "requestId": request_id,
         "windowId": window_id,
         "urlFilter": url_filter,
+        "action": action,
         "sentAtMs": int(time.time() * 1000),
         "maxAgeMs": int(timeout * 1000),
     }

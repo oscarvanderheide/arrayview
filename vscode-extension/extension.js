@@ -824,34 +824,78 @@ function tryPublicPortRequests() {
 const REVEAL_REQUEST_PREFIX = 'reveal-tab-request-';
 const REVEAL_ACK_PREFIX = 'reveal-tab-ack-';
 
+function _revealBrowserTab(urlFilter) {
+    return _runIntegratedBrowserCommand(async () => {
+        const tabsBefore = _visibleEditorTabs();
+        await _withTimeout(
+            vscode.commands.executeCommand('workbench.action.browser.open', {
+                openToSide: false,
+                reuseUrlFilter: urlFilter,
+            }),
+            3000,
+            'integrated browser reveal'
+        );
+        // No tab matched: the command opened an empty browser tab instead.
+        const stray = await _newEditorTabSince(tabsBefore, 300);
+        if (stray) {
+            try { await vscode.window.tabGroups.close(stray, true); } catch (_) {}
+            return false;
+        }
+        return true;
+    });
+}
+
+// Tab groups of windows this extension popped a viewer tab out into. The
+// extension API cannot tell which window a tab group lives in, so the toggle
+// remembers the windows it made itself.
+const _poppedOutGroups = new Set();
+
+async function _toggleBrowserTabWindow() {
+    // The key was pressed inside the viewer tab, so it is already the active
+    // editor; both window commands act on it. Revealing by URL is not used:
+    // when it finds no match it opens an empty browser tab.
+    const group = vscode.window.tabGroups.activeTabGroup;
+    if (!_isBrowserTabCandidate(group?.activeTab)) return false;
+    const liveGroups = new Set(vscode.window.tabGroups.all);
+    for (const g of _poppedOutGroups) if (!liveGroups.has(g)) _poppedOutGroups.delete(g);
+    if (_poppedOutGroups.has(group)) {
+        _poppedOutGroups.delete(group);
+        // Merges every group of the focused window into the main window. Safe
+        // here: the focused window is the one this extension popped out.
+        await vscode.commands.executeCommand('workbench.action.restoreEditorsToMainWindow');
+        return true;
+    }
+    const groupsBefore = liveGroups;
+    await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+    for (let i = 0; i < 40; i++) {
+        const added = vscode.window.tabGroups.all.find(g => !groupsBefore.has(g));
+        // Fullscreen acts on the focused window, so wait until the new
+        // window's group is active; otherwise the main window would go.
+        if (added && vscode.window.tabGroups.activeTabGroup === added) {
+            _poppedOutGroups.add(added);
+            // New windows open at a fixed small size that VS Code gives no way
+            // to change; fullscreen is the only way to make them screen-sized.
+            await vscode.commands.executeCommand('workbench.action.toggleFullScreen');
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return true;
+}
+
 async function _handleRevealRequest(data) {
     const requestId = data.requestId;
     const ackPath = path.join(SIGNAL_DIR, `${REVEAL_ACK_PREFIX}${requestId}.json`);
     let ok = false;
     try {
-        ok = await _runIntegratedBrowserCommand(async () => {
-            const tabsBefore = _visibleEditorTabs();
-            await _withTimeout(
-                vscode.commands.executeCommand('workbench.action.browser.open', {
-                    openToSide: false,
-                    reuseUrlFilter: data.urlFilter,
-                }),
-                3000,
-                'integrated browser reveal'
-            );
-            // No tab matched: the command opened an empty browser tab instead.
-            const stray = await _newEditorTabSince(tabsBefore, 300);
-            if (stray) {
-                try { await vscode.window.tabGroups.close(stray, true); } catch (_) {}
-                return false;
-            }
-            return true;
-        });
+        ok = data.action === 'toggle-window'
+            ? await _toggleBrowserTabWindow()
+            : await _revealBrowserTab(data.urlFilter);
     } catch (error) {
         log(`REVEAL: ${error.message || error}`);
     }
     try { _atomicWriteJson(ackPath, { ok }); } catch (_) {}
-    log(`REVEAL: ${data.urlFilter} -> ${ok}`);
+    log(`REVEAL: ${data.action || 'reveal'} ${data.urlFilter} -> ${ok}`);
 }
 
 function tryRevealRequests() {

@@ -4536,3 +4536,27 @@ class TestRevealTab:
                 assert c.post(f"/reveal/{sid}").json()["revealed"] is True
             assert asked == [("w1", "/?t=ab12c")]
             assert c.post(f"/reveal/{sid}").json()["revealed"] is False
+
+    def test_popout_asks_the_window_owning_this_tab(self, tmp_path, monkeypatch):
+        """Shift+W asks the VS Code window holding this exact tab to move it."""
+        from arrayview._app import app
+        import arrayview._vscode_signal as signal_mod
+
+        asked = []
+        monkeypatch.setattr(
+            signal_mod, "_request_vscode_tab_reveal",
+            lambda *args: asked.append(args) or True,
+        )
+        np.save(tmp_path / "pop.npy", np.zeros((4, 4), dtype=np.float32))
+        with TestClient(app) as c:
+            sid = c.post("/load", json={"filepath": str(tmp_path / "pop.npy")}).json()["sid"]
+            pop = lambda path: c.post(f"/popout/{sid}", json={"path": path}).json()["moved"]
+            assert pop("/?t=ab12c") is False
+            with c.websocket_connect(f"/ws/{sid}") as ws:
+                ws.receive_json()
+                ws.send_json({"type": "tab-address", "path": "/?t=ab12c", "window_id": "w1"})
+                ws.send_json({"type": "link", "action": "leave"})  # round-trip barrier
+                import time; time.sleep(0.2)
+                assert pop("/?t=other") is False
+                assert pop("/?t=ab12c") is True
+            assert asked == [("w1", "/?t=ab12c", 5.0, "toggle-window")]

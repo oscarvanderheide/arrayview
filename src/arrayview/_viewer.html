@@ -28621,6 +28621,25 @@
                     }
                 },
             },
+            'window.togglePopout': {
+                title: 'Pop this tab out into its own window / put it back',
+                when: [],
+                run: async () => {
+                    if (!_vscodeTabWindowId) {
+                        showStatus('pop out: only in a VS Code tab');
+                        return;
+                    }
+                    try {
+                        const r = await proxyFetch(`/popout/${sid}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: location.pathname + location.search }),
+                        });
+                        if (r.ok && (await r.json()).moved) return;
+                    } catch (_) {}
+                    showStatus('pop out: VS Code did not respond');
+                },
+            },
             'immersive.toggle': {
                 title: 'Toggle immersive mode',
                 when: [],
@@ -30481,6 +30500,7 @@
             { key: '-', command: 'zoom.out' },
             { key: '0', command: 'zoom.reset' },
             { key: 'F', command: 'immersive.toggle' },
+            { key: 'W', command: 'window.togglePopout' },
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
@@ -30654,6 +30674,7 @@
                             { key: 'Drag', action: 'Pan the image (when zoomed in)' },
                             { key: 'Shift+F', action: 'Toggle immersive mode', hint: 'hides chrome and fills the viewport with the array' },
                             { key: 'Z', action: 'Zen mode — hide UI chrome', hint: 'in compare + center active, hides the two source panes instead' },
+                            { key: 'Shift+W', action: 'Pop tab out into its own window / put it back', hint: 'VS Code tabs only' },
                         ]
                     },
                     {

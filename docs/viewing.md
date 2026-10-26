@@ -34,6 +34,10 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 `Shift+F` — fullscreen with all chrome hidden. Move the mouse to briefly reveal controls.
 
+## Pop out (VS Code)
+
+`Shift+W` — moves the VS Code tab into its own window. Press `Shift+W` again in that window to put the tab back.
+
 ## Zen mode
 
 `Z` — hides UI chrome (dimbar, info, island) for a clean view. Press `Z` again to restore.

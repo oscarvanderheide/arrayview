@@ -630,6 +630,26 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
         revealed = await asyncio.to_thread(_request_vscode_tab_reveal, *target)
         return {"sid": sid, "revealed": revealed}
 
+    @app.post("/popout/{sid}")
+    async def toggle_session_tab_window(sid: str, request: Request):
+        """Move this VS Code browser tab into its own window, or back."""
+        from arrayview._routes_websocket import viewer_tab_window_id
+        from arrayview._vscode_signal import _request_vscode_tab_reveal
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        path = body.get("path") if isinstance(body, dict) else None
+        window_id = viewer_tab_window_id(sid, path) if isinstance(path, str) else None
+        # A bare "/" matches every tab; only the query singles this one out.
+        if window_id is None or not urllib.parse.urlsplit(path).query:
+            return {"sid": sid, "moved": False}
+        moved = await asyncio.to_thread(
+            _request_vscode_tab_reveal, window_id, path, 5.0, "toggle-window"
+        )
+        return {"sid": sid, "moved": moved}
+
     @app.post("/release/{sid}")
     def release_viewer_session(sid: str, request: Request):
         """Release a session when its owning viewer tab/window closes."""

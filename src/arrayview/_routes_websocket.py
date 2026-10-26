@@ -326,6 +326,14 @@ def viewer_tab_reveal_target(sid: str) -> tuple[str, str] | None:
     return None
 
 
+def viewer_tab_window_id(sid: str, path: str) -> str | None:
+    """VS Code window that owns the live tab at *path* showing *sid*."""
+    for tab_sid, tab_path, window_id in _VIEWER_TAB_ADDRESSES.values():
+        if tab_sid == sid and tab_path == path:
+            return window_id
+    return None
+
+
 def _handle_link_message(ws, msg: dict) -> None:
     action = msg.get("action")
     if action == "join":
