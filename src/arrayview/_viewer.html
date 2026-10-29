@@ -18296,6 +18296,19 @@
             }, 2400);
         }
 
+        // Enter: fade the badge out now instead of waiting for its timer.
+        function _dismissPercentilePresetOverlay() {
+            if (!_percentilePresetOverlay || _percentilePresetOverlay.fading) return;
+            if (_percentilePresetOverlayTimer) clearTimeout(_percentilePresetOverlayTimer);
+            _percentilePresetOverlayTimer = null;
+            _percentilePresetOverlay.fading = true;
+            renderEggs();
+            _percentilePresetOverlayFadeTimer = setTimeout(() => {
+                _percentilePresetOverlayFadeTimer = null;
+                _hidePercentilePresetOverlay();
+            }, 150);
+        }
+
         function _showCurrentPercentilePresetOverlay(anchorEl) {
             const index = _dmenuCurrentPresetIdx();
             _showPercentilePresetOverlay(_QUANTILE_PRESETS[index], index, anchorEl);
@@ -29685,6 +29698,11 @@
                 when: ['modePickerOpen'],
                 run: (ctx, e) => { hideModePicker(); },
             },
+            'cycleOverlay.dismiss': {
+                title: 'Close the view / preset badge',
+                when: ['cycleOverlayOpen'],
+                run: (ctx, e) => { _dismissPercentilePresetOverlay(); },
+            },
             'projection.cycle': {
                 title: 'Cycle statistical projection',
                 when: [],
@@ -30678,6 +30696,7 @@
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
             { key: 'Enter', command: 'modePicker.confirm' },
+            { key: 'Enter', command: 'cycleOverlay.dismiss' },
             { key: 'Enter', command: 'slice.jumpCommit' },
             // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
             { key: 'Escape', command: 'modePicker.confirm' },
@@ -30702,6 +30721,9 @@
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
                 modePickerOpen: (typeof _modePicker !== 'undefined') ? !!_modePicker : false,
+                // Typed slice digits and segmentation keep Enter for themselves.
+                cycleOverlayOpen: !!_percentilePresetOverlay && !_percentilePresetOverlay.fading
+                    && !sliceJumpBuffer && !_segMode,
                 cutawayActive: (typeof cutawayActive !== 'undefined') ? !!cutawayActive : false,
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
@@ -30741,7 +30763,7 @@
                         entries: [
                             { key: '← → ↑ ↓', action: 'Step through slices' },
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
-                            { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size' },
+                            { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N · [ ] move the window · Enter opens a tile · Shift+U shows true physical size' },
