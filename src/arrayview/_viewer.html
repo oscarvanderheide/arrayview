@@ -1520,7 +1520,9 @@
         .overlay-palette-header {
             position: relative;
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+            grid-template-columns: minmax(0, 1fr);
+            grid-auto-flow: column;
+            grid-auto-columns: auto;
             align-items: center;
             gap: 1px;
             height: 26px;
@@ -1533,7 +1535,8 @@
         .overlay-palette-header.dragging { cursor: grabbing; }
         .overlay-palette-title { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
         #overlay-palette .overlay-palette-alpha { font-size: 10px; min-width: 4.5ch; cursor: ns-resize; }
-        #overlay-palette .overlay-palette-all.active { color: var(--text); }
+        #overlay-palette .overlay-palette-all.active,
+        #overlay-palette .overlay-palette-jump.active { color: var(--text); }
         .overlay-palette-row {
             display: grid;
             grid-template-columns: 8px minmax(0, 1fr) 56px;
@@ -6057,6 +6060,11 @@
         const _overlayCountCache = new Map();
         const _overlayCountPending = new Map();  // key -> Promise
         let _overlayPaletteSig = null;
+        // Jump to the mask on patient change (see _overlayJumpHoldsRender).
+        const OVERLAY_JUMP_HOLD_MAX_MS = 4000;
+        const _OVERLAY_JUMP_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="6" r="1.1" fill="currentColor"/><path d="M6 0.5v1.6M6 9.9v1.6M0.5 6h1.6M9.9 6h1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+        let _overlayJumpCase = null;
+        let _overlayJumpHold = null;  // {p, t0, timer}
         let _overlayPaletteRows = [];
         const _OVP_STRIP_W = 56, _OVP_STRIP_H = 10;
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
@@ -7564,6 +7572,7 @@
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let overlayOutlineOnly = false;
+        let overlayJumpToMask = true;  // patient switch lands on the slice where the mask is largest
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let _overlayFocusIdx = null;      // transient HUD hover focus; null when inactive
         let pendingViewMode = null;
@@ -21295,6 +21304,12 @@
             html += '<span class="overlay-palette-title">overlays</span>';
             html += `<button class="overlay-palette-style" type="button" onclick="_overlayPaletteToggleOutline(event)" data-tip="${overlayOutlineOnly ? 'Showing outlines · click for filled masks' : 'Showing filled masks · click for outlines'}" aria-label="Filled or outline">${styleIcon}</button>`;
             html += `<button class="overlay-palette-alpha" type="button" data-tip="Opacity · scroll here, or press [ and ]" aria-label="Overlay opacity">${pct}%</button>`;
+            if (_overlayJumpAvailable()) {
+                const tip = overlayJumpToMask
+                    ? 'Changing patient jumps to the mask · click to stay on the same slice'
+                    : 'Changing patient stays on the same slice · click to jump to the mask';
+                html += `<button class="overlay-palette-jump${overlayJumpToMask ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleJump(event)" data-tip="${tip}" aria-label="Jump to the mask on patient change">${_OVERLAY_JUMP_ICON}</button>`;
+            }
             html += `<button class="overlay-palette-all${anyVisible ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleAll(event)" data-tip="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}" aria-label="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}">${anyVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</button>`;
             html += `<button class="overlay-palette-minimize" type="button" onclick="_overlayPaletteSetCollapsed(true, event)" data-tip="Minimize" aria-label="Minimize overlay list">${_OVERLAY_MINIMIZE_ICON}</button>`;
             html += '</div>';
@@ -21624,6 +21639,126 @@
             saveState();
         }
         window._overlayPaletteSetOutline = _overlayPaletteSetOutline;
+
+        function _overlayPaletteToggleJump(e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            overlayJumpToMask = !overlayJumpToMask;
+            showStatus(overlayJumpToMask ? 'patient change: jump to mask' : 'patient change: keep slice');
+            _renderOverlayPalette();
+            saveState();
+        }
+        window._overlayPaletteToggleJump = _overlayPaletteToggleJump;
+
+        // ── Jump to the mask on patient change ──
+        // Switching patient with masks loaded lands on the slice where the mask
+        // is largest (counts smoothed over a few slices, so one noisy slice
+        // can't win). The first frame is held until the new patient's counts
+        // are known, so the old slice never flashes first; neighbours are
+        // prefetched so that hold is usually zero.
+
+        function _overlayJumpAvailable() {
+            return _overlaySids.length > 0 && collectionSpatialNdim >= 0
+                && collectionSpatialNdim < shape.length && shape[collectionSpatialNdim] > 1;
+        }
+
+        function _overlayJumpPlanes() {
+            return _overlayStripPlanes().filter(p => !_isCollectionDim(p.axis));
+        }
+
+        // Slice counts of overlay i on this plane, restricted to its shown labels.
+        function _overlayJumpCounts(i, plane, idx = indices) {
+            const data = _overlayCountCache.get(_overlayCountKey(_overlaySids[i], plane, idx));
+            if (!data?.counts?.['0']) return null;
+            const hidden = _overlayHiddenLabels[i];
+            const labels = Array.isArray(data.labels) ? data.labels : [];
+            if (!hidden?.size || !labels.length) return data.counts['0'];
+            const shown = labels.filter(l => !hidden.has(l));
+            if (!shown.length) return null;
+            if (shown.length === labels.length || labels.length === 1) return data.counts['0'];
+            const out = new Array(data.counts['0'].length).fill(0);
+            for (const l of shown) (data.counts[String(l)] || []).forEach((c, s) => { out[s] += c; });
+            return out;
+        }
+
+        function _overlayPeakSlice(counts) {
+            const n = counts.length, r = 2;
+            let best = 0, ties = [];
+            for (let s = 0; s < n; s++) {
+                let sum = 0;
+                for (let k = Math.max(0, s - r); k <= Math.min(n - 1, s + r); k++) sum += counts[k];
+                if (sum > best) { best = sum; ties = [s]; }
+                else if (sum === best && best > 0) ties.push(s);
+            }
+            if (!best) return null;
+            let s = ties[Math.floor((ties.length - 1) / 2)];
+            for (let k = 1; !counts[s] && k < n; k++) {
+                if (counts[s - k]) { s -= k; break; }
+                if (counts[s + k]) { s += k; break; }
+            }
+            return s;
+        }
+
+        function _overlayJumpPrefetch(planes) {
+            const d = collectionSpatialNdim, p = indices[d];
+            for (const q of [p + 1, p - 1, p + 2]) {
+                if (q < 0 || q >= shape[d]) continue;
+                const idx = [...indices];
+                idx[d] = q;
+                _visibleOverlayIndices().forEach(i => planes.forEach(pl => _fetchOverlayCounts(_overlaySids[i], pl, idx)));
+            }
+        }
+
+        // Called before each render. True means "hold this frame": the new
+        // patient's counts are still on their way and updateView reruns once
+        // they land (or after OVERLAY_JUMP_HOLD_MAX_MS, leaving the slice be).
+        function _overlayJumpHoldsRender() {
+            const p = _currentPatientIndex();
+            if (p === null || p === _overlayJumpCase || !_overlayJumpAvailable()) return false;
+            const visible = _visibleOverlayIndices();
+            const planes = _overlayJumpPlanes();
+            const first = _overlayJumpCase === null;
+            if (first || !overlayJumpToMask || !visible.length || !planes.length
+                    || stackMosaicActive || _cqCaseRowsActive()) {
+                _overlayJumpCase = p;
+                if (planes.length) _overlayJumpPrefetch(planes);
+                return false;
+            }
+            const missing = [];
+            visible.forEach(i => planes.forEach(pl => {
+                if (!_overlayCountCache.has(_overlayCountKey(_overlaySids[i], pl))) missing.push([i, pl]);
+            }));
+            if (missing.length) {
+                const hold = _overlayJumpHold;
+                if (hold?.p === p) {
+                    if (Date.now() - hold.t0 < OVERLAY_JUMP_HOLD_MAX_MS) return true;
+                    _overlayJumpHold = null;
+                    _overlayJumpCase = p;
+                    return false;
+                }
+                if (hold) clearTimeout(hold.timer);
+                const rerun = () => { if (_overlayJumpHold?.p === p && _currentPatientIndex() === p) updateView(); };
+                _overlayJumpHold = { p, t0: Date.now(), timer: setTimeout(rerun, OVERLAY_JUMP_HOLD_MAX_MS) };
+                Promise.all(missing.map(([i, pl]) => _fetchOverlayCounts(_overlaySids[i], pl))).then(rerun);
+                return true;
+            }
+            if (_overlayJumpHold) { clearTimeout(_overlayJumpHold.timer); _overlayJumpHold = null; }
+            _overlayJumpCase = p;
+            // First shown overlay with something in this patient wins; an empty
+            // patient keeps its slice.
+            for (const i of visible) {
+                const targets = planes.map(pl => {
+                    const counts = _overlayJumpCounts(i, pl);
+                    return counts ? _overlayPeakSlice(counts) : null;
+                });
+                if (targets.every(t => t === null)) continue;
+                planes.forEach((pl, k) => {
+                    if (targets[k] !== null) indices[pl.axis] = Math.max(0, Math.min(shape[pl.axis] - 1, targets[k]));
+                });
+                break;
+            }
+            _overlayJumpPrefetch(planes);
+            return false;
+        }
 
         function _overlayPaletteToggleOutline(e) {
             _overlayPaletteSetOutline(!overlayOutlineOnly, e);
@@ -24011,6 +24146,7 @@
                 registrationAlpha,
                 overlayAlpha,
                 overlayOutlineOnly,
+                overlayJumpToMask,
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
                 orthoLayoutMode,
@@ -24151,6 +24287,7 @@
                 overlayAlpha = Math.max(0.05, Math.min(0.95, Number(s.overlayAlpha)));
             }
             overlayOutlineOnly = !!s.overlayOutlineOnly;
+            if (typeof s.overlayJumpToMask === 'boolean') overlayJumpToMask = s.overlayJumpToMask;
             pendingViewMode = (typeof s.viewMode === 'string') ? s.viewMode : null;
             if (Array.isArray(s.mvDims) && s.mvDims.length === 3) {
                 const dims = s.mvDims.map(v => Number(v));
@@ -24659,6 +24796,7 @@
         function updateView() {
             _tabLinkMaybeSend();
             _syncRaggedShapeForCollection();
+            if (_overlayJumpHoldsRender()) { _beginPatientLoading(); return; }
             _beginPatientLoading();
             const view = modeManager.currentViews[0];
             if (view && modeManager.modeName === 'normal') {
@@ -31009,6 +31147,7 @@
                         entries: [
                             { key: 'O', action: 'Cycle visibility', hint: 'all → none → individual masks (if multiple)' },
                             { key: '/ o', action: 'Filled / outline', hint: 'switch mask rendering in the overlay drawer' },
+                            { key: '/ o', action: 'Jump to mask on patient change', hint: 'target button in the overlay drawer; lands on the slice where the mask is largest' },
                             { key: '[ ]', action: 'Adjust opacity' },
                         ]
                     },

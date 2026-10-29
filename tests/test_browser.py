@@ -357,6 +357,65 @@ def test_overlay_palette_ortho_shows_one_strip_per_pane(page, client, server_url
     assert "current" in (palette.locator(".overlay-palette-strip").nth(current_k).get_attribute("class") or "")
 
 
+def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tmp_path):
+    img_dir, mask_dir = tmp_path / "img", tmp_path / "mask"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    peaks = {"a": 3, "b": 15, "c": None, "d": 9}  # c has an empty mask
+    for name, peak in peaks.items():
+        np.save(img_dir / f"{name}.npy", np.zeros((20, 24, 24), dtype=np.float32))
+        mask = np.zeros((20, 24, 24), dtype=np.uint8)
+        if peak is not None:
+            mask[peak, 4:16, 4:16] = 1  # largest slice
+            mask[peak - 1 : peak + 2, 8:12, 8:12] = 1
+            mask[19, 0:2, 0:2] = 1  # a stray speck must not win
+        np.save(mask_dir / f"{name}.npy", mask)
+    sids = [
+        client.post("/load", json={"dir_patterns": [str(d / "*.npy")], "load": "lazy", "stack": "auto"}).json()["sid"]
+        for d in (img_dir, mask_dir)
+    ]
+    page.goto(f"{server_url}/?sid={sids[0]}&overlay_sid={sids[1]}&overlay_names=mask")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    page.locator("#overlay-palette .overlay-palette-jump").wait_for(state="visible", timeout=5_000)
+    _focus_kb(page)
+    page.evaluate("() => { indices[0] = 0; dim_x = 1; dim_y = 2; current_slice_dim = 0; activeDim = collectionSpatialNdim; updateView(); }")
+    page.wait_for_timeout(300)
+    # Record every frame request, to prove the old slice is never asked for.
+    page.evaluate(
+        """() => {
+            window.__sent = [];
+            const realSend = ws.send.bind(ws);
+            ws.send = (msg) => { try { window.__sent.push(JSON.parse(msg).indices); } catch (e) {} return realSend(msg); };
+        }"""
+    )
+    case = "() => indices[collectionSpatialNdim]"
+    order = page.evaluate("() => caseNames.map(n => n.toLowerCase())")
+    seen = [peaks[order[0]]]
+    for step in range(1, 4):
+        page.keyboard.press("k")
+        page.wait_for_function(f"() => indices[collectionSpatialNdim] === {step} && !_overlayJumpHold")
+        want = peaks[order[step]]
+        if want is None:
+            want = seen[-1] if seen[-1] is not None else 0
+        assert page.evaluate("() => indices[0]") == want, order[step]
+        seen.append(want)
+        page.wait_for_timeout(150)
+        stale = page.evaluate(
+            f"() => window.__sent.filter(ix => ix && ix[collectionSpatialNdim] === {step} && ix[0] !== {want}).length"
+        )
+        assert stale == 0
+        assert page.evaluate(f"() => window.__sent.some(ix => ix && ix[collectionSpatialNdim] === {step})")
+    # Switched off, a patient change keeps the slice.
+    page.locator("#overlay-palette .overlay-palette-jump").click()
+    assert page.evaluate("() => overlayJumpToMask") is False
+    before = page.evaluate("() => indices[0]")
+    _focus_kb(page)
+    page.keyboard.press("j")
+    page.wait_for_function(f"() => ({case})() === 2")
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => indices[0]") == before
+
+
 def test_o_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
     path = tmp_path / "vol.npy"
     np.save(path, np.random.rand(30, 40, 50).astype(np.float32))
