@@ -252,15 +252,24 @@
             transition: filter 0.16s ease;
         }
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
-        /* --match collection: current case name above the single view
-           (_reconcileCaseTitle); its height is kept free by uiReserveV. */
-        #case-title {
-            display: none; max-width: 100%; margin-bottom: 6px; align-items: center; gap: 5px; white-space: nowrap;
+        /* Array name in an image's top-left corner (single view, ortho panes,
+           compare panes): outlined so it reads on bright and dark pixels. */
+        .pane-name, #compare-view-wrap.compare-titles-inset .compare-title {
+            position: absolute; top: 8px; left: 10px; z-index: 3;
+            display: flex; align-items: center; justify-content: flex-start; gap: 5px;
+            margin: 0; max-width: calc(100% - 20px); white-space: nowrap;
             font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
-            color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
+            color: rgba(255,255,255,0.92);
+            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
+            paint-order: stroke fill;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            user-select: none;
         }
-        #case-title.visible { display: flex; }
-        #case-title > span, #qmri-case-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .pane-name { pointer-events: none; }
+        .pane-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        /* --match collection: current case name (_reconcileCaseTitle). */
+        #case-title:not(.visible), .mv-pane-name:not(.visible) { display: none; }
+        #qmri-case-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         #qmri-case-name {
             display: flex; align-self: center; max-width: 100%; margin-bottom: 6px; align-items: center; gap: 5px; white-space: nowrap;
             font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
@@ -3971,15 +3980,9 @@
         .av-name-shared { opacity: 0.5; }
         #compare-view-wrap:not(.compare-titles-inset) .compare-title .av-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
         /* A name beside its image, in the empty margin, wrapping at
-           separators (_placeRowName / _placeCompareTitle). Same type and
+           separators (_placeRowName). Same type and
            logo as the names above the compare panes. */
         .av-name.av-name-side { display: block; white-space: normal; overflow-wrap: anywhere; }
-        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left,
-        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right {
-            top: 50%; transform: translateY(-50%); max-width: none; -webkit-text-stroke: 0; text-shadow: none;
-        }
-        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left { left: auto; right: 100%; margin-right: 14px; justify-content: flex-end; text-align: right; }
-        #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right { left: 100%; margin-left: 14px; text-align: left; }
         .av-name-br { display: none; }
         /* Chrome breaks at <wbr> even under nowrap: only side names wrap */
         .av-name:not(.av-name-side) wbr { display: none; }
@@ -4845,14 +4848,6 @@
         #compare-view-wrap.compare-touching .compare-canvas-area { padding: 0; }
         #compare-view-wrap.compare-touching .compare-canvas-clip { border-radius: 0 !important; }
         #compare-view-wrap.compare-titles-inset .compare-pane { position: relative; }
-        #compare-view-wrap.compare-titles-inset .compare-title {
-            position: absolute; top: 8px; left: 10px; z-index: 3;
-            margin: 0; max-width: calc(100% - 20px); justify-content: flex-start;
-            color: rgba(255,255,255,0.92);
-            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
-            paint-order: stroke fill;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.25);
-        }
         #qmri-view-wrap .qv-cb-island.qv-cb-inset {
             opacity: 1 !important; position: absolute !important; bottom: 8px !important;
             left: 50% !important; transform: translateX(-50%) !important;
@@ -5508,8 +5503,8 @@
     </div>
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
-            <div id="case-title" aria-hidden="true"></div>
             <div id="canvas-viewport">
+            <div id="case-title" class="pane-name" aria-hidden="true"></div>
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
                 <canvas id="cutaway-canvas" aria-label="3D cutaway volume"></canvas>
@@ -9281,7 +9276,7 @@
                 return 0;
             }
             let h = 14; // wrapper padding
-            for (const id of ['info', 'case-title']) {
+            for (const id of ['info']) {
                 const el = document.getElementById(id);
                 if (el && el.offsetHeight) {
                     const s = getComputedStyle(el);
@@ -10045,6 +10040,7 @@
                 }
             }
             if (_compareTouching()) _markBlockCorners(document.querySelectorAll('.compare-pane.active .compare-canvas-clip'));
+            _placeCompareInsetTitles(_compareTitlesInset());
         }
 
         function compareLuma(imgData, i) {
@@ -10290,41 +10286,11 @@
             el.style.maxHeight = Math.max(16, r.height) + 'px';
         }
 
-        // Compare panes: names move into the margin beside the panes when
-        // every pane has one (one or two columns) with room; otherwise they
-        // all stay inside their images, never a mix.
-        function _compareTitleSides() {
-            const wrap = document.getElementById('compare-view-wrap');
-            if (!wrap.classList.contains('compare-titles-inset')) return null;
-            const panes = [...wrap.querySelectorAll('.compare-pane.active')]
-                .filter(q => q.getBoundingClientRect().width > 0);
-            if (!panes.length) return null;
-            const rects = panes.map(q => q.getBoundingClientRect());
-            const minL = Math.min(...rects.map(r => r.left));
-            const maxR = Math.max(...rects.map(r => r.right));
-            const roomL = minL - NAME_SIDE_EDGE - NAME_SIDE_GAP;
-            const roomR = window.innerWidth - maxR - NAME_SIDE_EDGE - NAME_SIDE_GAP;
-            const sides = new Map();
-            for (let i = 0; i < panes.length; i++) {
-                const r = rects[i];
-                if (r.left <= minL + 1 && roomL >= NAME_SIDE_MIN_W) sides.set(panes[i], { side: 'left', w: roomL, h: r.height });
-                else if (r.right >= maxR - 1 && roomR >= NAME_SIDE_MIN_W) sides.set(panes[i], { side: 'right', w: roomR, h: r.height });
-                else return null;
-            }
-            return sides;
-        }
-
+        // Compare pane names stay on one line in their image's corner.
         function _placeCompareTitle(el) {
-            const title = el.closest('.compare-title');
-            const pane = title && title.closest('.compare-pane');
-            const sides = pane && !title.classList.contains('compare-side-title') ? _compareTitleSides() : null;
-            const spot = sides && sides.get(pane);
-            const side = spot ? spot.side : null;
-            title.classList.toggle('compare-title-out-left', side === 'left');
-            title.classList.toggle('compare-title-out-right', side === 'right');
-            el.classList.toggle('av-name-side', !!side);
-            el.style.maxWidth = side ? (Math.min(NAME_SIDE_MAX_W, spot.w) - NAME_LOGO_W) + 'px' : '';
-            el.style.maxHeight = side ? spot.h + 'px' : '';
+            el.classList.remove('av-name-side');
+            el.style.maxWidth = '';
+            el.style.maxHeight = '';
         }
 
         function _resetDetachedDimState() {
@@ -21590,12 +21556,18 @@
 
         function _overlayPaletteAnchor() {
             if (compareQmriActive || qmriActive || compareMvActive) return document.getElementById('qmri-view-wrap');
-            if (multiViewActive) return document.getElementById('multi-view-wrap');
+            // Ortho: inside the first (big) pane, so it rides along when v glides.
+            if (multiViewActive) return mvViews[0]?.pane || document.getElementById('multi-view-wrap');
             if (compareActive) return document.getElementById('compare-view-wrap');
             return document.getElementById('canvas-viewport');
         }
 
+        // Set while the v glide moves the list itself; the panes under it are
+        // mid-transform then, so measuring them would put it in the wrong place.
+        let _overlayPaletteGlideHold = false;
+
         function _reconcileOverlayPaletteAnchor() {
+            if (_overlayPaletteGlideHold) return;
             const el = document.getElementById('overlay-palette');
             const host = document.getElementById('viewer-row');
             const anchor = _overlayPaletteAnchor();
@@ -21604,11 +21576,13 @@
             const hostRect = host.getBoundingClientRect();
             const anchorRect = anchor.getBoundingClientRect();
             // Sit flush against the right edge of the view, as tall as the view.
-            // Only when there is no room beside it, fall back to its top-right corner.
+            // Only when there is no room beside it (or the view is an ortho pane),
+            // sit in its top-right corner.
             // Docked, the list may narrow (down to _OVP_DOCK_MIN_W) to fit the room beside the view.
             const gap = 12;
             const room = hostRect.right - anchorRect.right - gap * 2;
-            const docked = _overlayPaletteCollapsed ? room >= 26 : room >= _OVP_DOCK_MIN_W;
+            const inPane = anchor.classList.contains('mv-pane');
+            const docked = !inPane && (_overlayPaletteCollapsed ? room >= 26 : room >= _OVP_DOCK_MIN_W);
             if (docked && !_overlayPaletteCollapsed) el.style.maxWidth = `${Math.min(_OVP_DOCK_W, Math.floor(room))}px`;
             else el.style.removeProperty('max-width');
             const top = Math.max(0, Math.round(anchorRect.top - hostRect.top + (docked ? 0 : 10)));
@@ -22338,7 +22312,8 @@
             return _axisIdent.letters[d] || (d === dim_x ? 'x' : 'y');
         }
 
-        // Current case of a --match collection, named above the single view.
+        // Current case of a --match collection, named in the top-left corner
+        // of the single view and of every ortho pane.
         function _reconcileCaseTitle() {
             const el = document.getElementById('case-title');
             if (!el) return;
@@ -22347,13 +22322,15 @@
                 ? caseNames[indices[colDim]] : null;
             const qmriName = document.getElementById('qmri-case-name');
             if (qmriName && name != null) qmriName.lastElementChild.textContent = String(name);
-            el.classList.toggle('visible', name != null);
-            if (name == null) return;
-            const text = String(name);
-            if (el.dataset.name === text) return;
-            el.dataset.name = text;
-            el.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
-            el.lastElementChild.textContent = text;
+            const text = name == null ? null : String(name);
+            const mvNames = multiViewActive ? mvViews.map(v => v.nameEl).filter(Boolean) : [];
+            for (const n of [el, ...mvNames]) {
+                n.classList.toggle('visible', text != null);
+                if (text == null || n.dataset.name === text) continue;
+                n.dataset.name = text;
+                n.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                n.lastElementChild.textContent = text;
+            }
         }
 
         function renderInfo() {
@@ -35528,9 +35505,13 @@
                     _mvPromotePane(view);
                 });
                 pane.appendChild(promoteBtn);
+                const nameEl = document.createElement('div');
+                nameEl.className = 'pane-name mv-pane-name';
+                nameEl.setAttribute('aria-hidden', 'true');
+                pane.appendChild(nameEl);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
-                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null,
+                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, cvBox, label: null, nameEl,
                     cutawayCanvas: cutawayCv, cutaway: null,
                     pixelInfoEl: piEl,
                     flipX: def.flipX, flipY: def.flipY,
@@ -41378,6 +41359,7 @@
 
         function _refreshMvLayoutChrome() {
             if (typeof drawMvColorbar === 'function') drawMvColorbar();
+            _reconcileOverlayPaletteAnchor();
             if (typeof positionEggs === 'function') positionEggs();
             if (typeof saveState === 'function') saveState();
             const info = document.getElementById('info');
@@ -41543,23 +41525,87 @@
             ], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
         }
 
+        // Still copy of a corner name label, above the ghosts.
+        function _orthoLabelGhost(el) {
+            const r = el?.getBoundingClientRect();
+            if (!r || !r.width || !el.offsetParent) return null;
+            const g = el.cloneNode(true);
+            g.removeAttribute('id');
+            g.setAttribute('aria-hidden', 'true');
+            // Width +2: the copy measures its text afresh and must not ellipsize.
+            g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width + 2}px;height:${r.height}px;`
+                + 'right:auto;max-width:none;max-height:none;margin:0;z-index:42;pointer-events:none;transition:none;';
+            g.style.fontFamily = getComputedStyle(el).fontFamily;
+            document.body.appendChild(g);
+            g._from = r;
+            return g;
+        }
+
+        // Slide label ghost `g` onto `toEl` (hidden meanwhile), keeping its size; then drop it.
+        function _orthoLabelGlide(g, toEl, keyframes) {
+            if (!g) return;
+            const to = toEl?.offsetParent ? toEl.getBoundingClientRect() : null;
+            const shift = keyframes || (to && to.width
+                ? [{ translate: '0px 0px' }, { translate: `${to.left - g._from.left}px ${to.top - g._from.top}px` }]
+                : [{ opacity: 1 }, { opacity: 0 }]);
+            if (to && to.width) toEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            const a = g.animate(shift, { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
+            a.onfinish = a.oncancel = () => g.remove();
+            return a;
+        }
+
+        // Name-label copies and the overlay list's place, taken before the switch.
+        function _orthoLabelGhosts(names) {
+            const pal = document.getElementById('overlay-palette');
+            return {
+                names: names.map(el => _orthoLabelGhost(el)),
+                palette: pal?.classList.contains('visible') ? pal.getBoundingClientRect() : null,
+            };
+        }
+
+        // Re-place the overlay list for the new layout and slide it there (corner
+        // to corner) from rect `from`, above the image ghosts.
+        function _orthoPaletteGlide(from) {
+            _overlayPaletteGlideHold = false;
+            _reconcileOverlayPaletteAnchor();
+            const pal = document.getElementById('overlay-palette');
+            const to = pal?.getBoundingClientRect();
+            if (!from || !to || !to.width) return;
+            _overlayPaletteGlideHold = true;
+            pal.style.zIndex = '42';
+            const a = pal.animate([{ translate: `${from.left - to.left}px ${from.top - to.top}px` }, { translate: '0px 0px' }],
+                { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+            a.onfinish = a.oncancel = () => {
+                pal.style.removeProperty('z-index');
+                _overlayPaletteGlideHold = false;
+                _reconcileOverlayPaletteAnchor();
+            };
+        }
+
         function _orthoGlideEnter(dims) {
             const main = document.getElementById('viewer');
             const ghost = _orthoGlideAllowed() && main ? _orthoGhost(main) : null;
             if (!ghost) { crossfade(() => enterMultiView(dims, { leadWithSingleView: true })); return; }
             const info = document.getElementById('info');
             const cbFrom = _slimCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
+            const labels = _orthoLabelGhosts([document.getElementById('case-title')]);
             _orthoGlideBusy = true;
             _killImmersiveTweens();
             _holdTransitions([info]);
             enterMultiView(dims, { leadWithSingleView: true });
+            _reconcileCaseTitle();
             if (!multiViewActive || _resolvedOrthoLayoutMode() !== 'big-left' || _orthoSingleViewPane() !== 0) {
                 // No matching big pane: the ghost just fades over the new layout.
                 _orthoGhostRelease(ghost, () => true);
+                labels.names.forEach(g => _orthoLabelGlide(g, null));
+                _orthoPaletteGlide(null);
                 _syncSinkFocus();
                 return;
             }
             const big = mvViews[0];
+            // Measured before the pane morph below starts.
+            _orthoLabelGlide(labels.names[0], big.nameEl);
+            _orthoPaletteGlide(labels.palette);
             const target = big.canvas.getBoundingClientRect();   // before anything below moves it
             // The image stays hidden until the ghost lands on it, so the slice is never on
             // screen twice; the pane's box (wider than the image) grows out of the old image.
@@ -41585,6 +41631,7 @@
             _orthoGlideBusy = true;
             _killImmersiveTweens();
             const sides = mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean);
+            const labels = _orthoLabelGhosts(mvViews.map(v => v.nameEl));
             const info = document.getElementById('info');
             const cbFrom = _mvCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
             _holdTransitions([info, _slimCb()]);
@@ -41595,6 +41642,7 @@
                 + `z-index:40;pointer-events:none;border-radius:10px;background:${getComputedStyle(big.pane).backgroundColor};`;
             document.body.appendChild(box);
             box._from = pr;
+            _overlayPaletteGlideHold = !!labels.palette;   // stays put until the glide places it
             exitMultiView();
             const main = document.getElementById('viewer');
             sides.forEach(g => {
@@ -41602,6 +41650,8 @@
                     { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
                 out.onfinish = out.oncancel = () => g.remove();
             });
+            labels.names.slice(1).forEach(g => g && _orthoLabelGlide(g, null,
+                [{ transform: 'none' }, { transform: `translateX(${_orthoSideShift(g._from.left)}px)` }]));
             // The image's rounded outline sits on its viewport; hide both until the ghost lands.
             document.getElementById('canvas-viewport')?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
             const seq0 = _frameDisplaySeq;
@@ -41609,6 +41659,8 @@
             requestAnimationFrame(() => {
                 _glideFrom(_slimCb(), cbFrom);
                 _glideFrom(info, infoFrom);
+                _orthoLabelGlide(labels.names[0], document.getElementById('case-title'));
+                _orthoPaletteGlide(labels.palette);
                 const to = main.getBoundingClientRect();
                 const boxGlide = _orthoGlideTo(box, to);
                 boxGlide.onfinish = boxGlide.oncancel = () => box.remove();
@@ -43976,11 +44028,12 @@
                 && !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
         }
 
-        // Touching compare panes in more than one row leave no room for the
-        // array names between the rows, so the names sit inside the images.
+        // Array names sit in the images' top-left corners, as in the single
+        // view and ortho. A centre view (A−B, overlay, wipe…) keeps the title
+        // row above the panes for its own label and stats.
         function _compareTitlesInset() {
-            if (!_compareTouching() || _fullscreenActive) return false;
-            return _compareGridShape(compareFrames.filter(Boolean).length).rows > 1;
+            if (!compareActive || _fullscreenActive) return false;
+            return !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
         }
 
         function _reconcileCompareTitlesInset() {
@@ -43990,6 +44043,18 @@
                 compareWrap.classList.toggle('compare-titles-inset', inset);
                 compareWrap.querySelectorAll('.av-name').forEach(_fitArrayName);
             }
+            _placeCompareInsetTitles(inset);
+        }
+
+        // Panes with gaps pad their image; put each name on the image's corner.
+        function _placeCompareInsetTitles(inset) {
+            compareWrap.querySelectorAll('.compare-pane > .compare-title').forEach(title => {
+                const clip = inset && title.parentElement.querySelector('.compare-canvas-clip');
+                if (!clip || !clip.offsetWidth) { title.style.removeProperty('top'); title.style.removeProperty('left'); return; }
+                const p = title.parentElement.getBoundingClientRect(), c = clip.getBoundingClientRect();
+                title.style.top = `${Math.round(c.top - p.top + 8)}px`;
+                title.style.left = `${Math.round(c.left - p.left + 10)}px`;
+            });
         }
 
         // ── Centralized CB / island visibility reconciler ────────────
