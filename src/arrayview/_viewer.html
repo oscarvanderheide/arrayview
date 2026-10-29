@@ -30163,8 +30163,7 @@
                         showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
                         return;
                     }
-                    if (multiViewActive) _orthoGlideExit();
-                    else _orthoGlideEnter(defaultMultiViewDims());
+                    _orthoGlideToggle();
                 },
             },
             'vfield.toggleArrows': {
@@ -41501,9 +41500,24 @@
             const wait = () => {
                 if (!landed() && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
                 const fade = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
-                fade.onfinish = fade.oncancel = () => { g.remove(); _orthoGlideBusy = false; };
+                fade.onfinish = fade.oncancel = () => {
+                    g.remove();
+                    _orthoGlideBusy = false;
+                    const queued = _orthoGlideQueued && !compareActive && !qmriActive;
+                    _orthoGlideQueued = false;
+                    if (queued) _orthoGlideToggle();
+                };
             };
             wait();
+        }
+
+        // v mid-glide waits for it to land, then glides back; a second press
+        // during the same glide takes the wait back.
+        let _orthoGlideQueued = false;
+        function _orthoGlideToggle() {
+            if (_orthoGlideBusy) { _orthoGlideQueued = !_orthoGlideQueued; return; }
+            if (multiViewActive) _orthoGlideExit();
+            else _orthoGlideEnter(defaultMultiViewDims());
         }
 
         const _slimCb = () => document.getElementById('slim-cb-wrap');
