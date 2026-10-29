@@ -2893,6 +2893,35 @@ class TestUpdate:
         assert r2.json()["version"] == v1 + 1
 
 
+class TestOverlaySliceCounts:
+    def test_ragged_collection_counts_use_each_case_size(self, client, tmp_path):
+        img_dir, mask_dir = tmp_path / "img", tmp_path / "mask"
+        img_dir.mkdir()
+        mask_dir.mkdir()
+        for name, shape, peak in (("a", (8, 10, 12), 4), ("b", (6, 7, 5), 2)):
+            np.save(img_dir / f"{name}.npy", np.zeros(shape, dtype=np.float32))
+            mask = np.zeros(shape, dtype=np.uint8)
+            mask[1:4, 1:4, peak] = 1
+            mask[1:3, 1:3, peak] = 2
+            np.save(mask_dir / f"{name}.npy", mask)
+        sid, ov = (
+            client.post("/load", json={"dir_patterns": [str(d / "*.npy")], "stack": "auto"}).json()["sid"]
+            for d in (img_dir, mask_dir)
+        )
+        for case, n, peak in ((0, 12, 4), (1, 5, 2)):
+            r = client.get(
+                f"/overlay_slices/{ov}",
+                params={"base_sid": sid, "dim_x": 0, "dim_y": 1, "axis": 2, "idx": f"0,0,0,{case}"},
+            )
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["n"] == n
+            assert body["labels"] == [1, 2]
+            assert len(body["counts"]["0"]) == n
+            assert body["counts"]["0"][peak] == 9
+            assert body["counts"]["2"][peak] == 4
+
+
 class TestHistogram:
     def test_histogram_returns_counts_and_edges(self, client, sid_2d):
         r = client.get(

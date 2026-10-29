@@ -555,6 +555,8 @@ def _overlay_slice_counts(ov_session, base_shape, dim_x, dim_y, axis, idx_list):
         return empty
     kept = [a for a in base_axes if a in (dim_x, dim_y, axis)]
     if axis in kept:
+        # Ragged collections return this case's own size, not the max-shape facade.
+        n = int(vol.shape[kept.index(axis)])
         vol = np.moveaxis(vol, kept.index(axis), 0).reshape(n, -1)
     else:
         # The overlay has no such axis: it looks the same on every slice.
