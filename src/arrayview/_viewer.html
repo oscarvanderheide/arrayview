@@ -21643,8 +21643,8 @@
         window._overlayPaletteToggleJump = _overlayPaletteToggleJump;
 
         // ── Jump to the mask on patient change ──
-        // Switching patient with masks loaded lands on the slice where the mask
-        // is largest (counts smoothed over a few slices, so one noisy slice
+        // Opening a collection, or switching patient, with masks loaded lands
+        // on the slice where the mask is largest (counts smoothed over a few slices, so one noisy slice
         // can't win). The first frame is held until the new patient's counts
         // are known, so the old slice never flashes first; neighbours are
         // prefetched so that hold is usually zero.
@@ -21709,8 +21709,7 @@
             if (p === null || p === _overlayJumpCase || !_overlayJumpAvailable()) return false;
             const visible = _visibleOverlayIndices();
             const planes = _overlayJumpPlanes();
-            const first = _overlayJumpCase === null;
-            if (first || !overlayJumpToMask || !visible.length || !planes.length
+            if (!overlayJumpToMask || !visible.length || !planes.length
                     || stackMosaicActive || _cqCaseRowsActive()) {
                 _overlayJumpCase = p;
                 if (planes.length) _overlayJumpPrefetch(planes);

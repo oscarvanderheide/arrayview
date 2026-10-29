@@ -358,9 +358,21 @@ def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tm
         client.post("/load", json={"dir_patterns": [str(d / "*.npy")], "load": "lazy", "stack": "auto"}).json()["sid"]
         for d in (img_dir, mask_dir)
     ]
+    page.add_init_script(
+        """window.__firstSent = [];
+        const _send = WebSocket.prototype.send;
+        WebSocket.prototype.send = function (m) {
+            try { const j = JSON.parse(m); if (j.indices) window.__firstSent.push(j.indices.join(',')); } catch (e) {}
+            return _send.call(this, m);
+        };"""
+    )
     page.goto(f"{server_url}/?sid={sids[0]}&overlay_sid={sids[1]}&overlay_names=mask")
     page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
     page.locator("#overlay-palette .overlay-palette-jump").wait_for(state="visible", timeout=5_000)
+    # Opening already lands on the mask, and no frame was asked for elsewhere first.
+    page.wait_for_function("() => !_overlayJumpHold && window.__firstSent.length > 0")
+    assert page.evaluate("() => _overlayJumpCounts(0, _overlayStripPlanes()[0])[indices[current_slice_dim]]") > 0
+    assert page.evaluate("() => window.__firstSent.every(ix => ix === indices.join(','))")
     _focus_kb(page)
     page.evaluate("() => { indices[0] = 0; dim_x = 1; dim_y = 2; current_slice_dim = 0; activeDim = collectionSpatialNdim; updateView(); }")
     page.wait_for_timeout(300)
