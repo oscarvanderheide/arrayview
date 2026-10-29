@@ -429,7 +429,7 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
             info["overlay_labels"] = []
             try:
                 if np.issubdtype(session.data.dtype, np.integer):
-                    labels = np.unique(session.data)
+                    labels = np.unique(_overlay_label_sample(session))
                     labels = labels[labels > 0]
                     if labels.size <= 16:
                         info["overlay_labels"] = [int(value) for value in labels]
@@ -529,6 +529,18 @@ def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -
                 "X-ArrayView-Height": str(img.height),
             },
         )
+
+
+def _overlay_label_sample(session):
+    """Overlay values to read label ids from: the whole array, or only the
+    first case of a collection (reading every case would stall opening; the
+    viewer adds labels found in other cases as they are visited)."""
+    spatial = getattr(session, "collection_spatial_ndim", None)
+    shape = tuple(session.shape)
+    if spatial is None or not (0 < spatial < len(shape)):
+        return np.asarray(session.data)
+    index = (slice(None),) * spatial + (0,) * (len(shape) - spatial)
+    return np.asarray(session.data[index])
 
 
 def _overlay_slice_counts(ov_session, base_shape, dim_x, dim_y, axis, idx_list):

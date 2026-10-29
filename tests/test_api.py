@@ -2920,6 +2920,9 @@ class TestOverlaySliceCounts:
             assert len(body["counts"]["0"]) == n
             assert body["counts"]["0"][peak] == 9
             assert body["counts"]["2"][peak] == 4
+        # The label list of a collection comes from its first case.
+        info = client.get(f"/info/{ov}", params={"include_overlay_labels": True}).json()
+        assert info["overlay_labels"] == [1, 2]
 
 
 class TestHistogram:

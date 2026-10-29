@@ -21217,10 +21217,23 @@
                     _overlayCountPending.delete(key);
                     if (_overlayCountCache.size >= 128) _overlayCountCache.delete(_overlayCountCache.keys().next().value);
                     _overlayCountCache.set(key, data);
+                    _mergeOverlayLabels(ovSid, data);
                     return data;
                 });
             _overlayCountPending.set(key, pending);
             return pending;
+        }
+
+        // A collection's label list starts from its first case; labels that
+        // only appear in other cases are added once their counts come in.
+        function _mergeOverlayLabels(ovSid, data) {
+            const i = _overlaySids.indexOf(ovSid);
+            if (i < 0 || !Array.isArray(data?.labels) || !data.labels.length) return;
+            const known = _overlayLabelValues[i] || [];
+            const merged = [...new Set([...known, ...data.labels])].sort((a, b) => a - b);
+            if (merged.length === known.length || merged.length > 16) return;
+            _overlayLabelValues[i] = merged;
+            _renderOverlayPalette();
         }
 
         function _overlayStripSig(planes) {
@@ -21242,7 +21255,14 @@
 
         function _overlayCountsFor(i, label, p) {
             const data = _overlayCountCache.get(_overlayCountKey(_overlaySids[i], p));
-            return data?.counts?.[String(label ?? 0)] || null;
+            const all = data?.counts?.['0'];
+            if (!all) return null;
+            if (label === null) return all;
+            if (data.counts[String(label)]) return data.counts[String(label)];
+            // Per-label counts only come with two or more labels in this case.
+            const labels = Array.isArray(data.labels) ? data.labels : [];
+            if (labels.length === 1 && labels[0] === label) return all;
+            return labels.length ? new Array(all.length).fill(0) : null;
         }
 
         function _overlayStripPath(counts) {

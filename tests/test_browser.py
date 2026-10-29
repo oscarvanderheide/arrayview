@@ -353,6 +353,8 @@ def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tm
             mask[peak, 4:16, 4:16] = 1  # largest slice
             mask[peak - 1 : peak + 2, 8:12, 8:12] = 1
             mask[19, 0:2, 0:2] = 1  # a stray speck must not win
+        if name == "d":
+            mask[peak, 20:22, 20:22] = 2  # a label the first case lacks
         np.save(mask_dir / f"{name}.npy", mask)
     sids = [
         client.post("/load", json={"dir_patterns": [str(d / "*.npy")], "load": "lazy", "stack": "auto"}).json()["sid"]
@@ -401,6 +403,9 @@ def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tm
         )
         assert stale == 0
         assert page.evaluate(f"() => window.__sent.some(ix => ix && ix[collectionSpatialNdim] === {step})")
+    # A label first seen in a later case gets its own row.
+    assert page.evaluate("() => _overlayLabelValues[0]") == [1, 2]
+    page.wait_for_function("() => document.querySelectorAll('#overlay-palette .overlay-palette-row').length === 3")
     # Switched off, a patient change keeps the slice.
     page.locator("#overlay-palette .overlay-palette-jump").click()
     assert page.evaluate("() => overlayJumpToMask") is False
