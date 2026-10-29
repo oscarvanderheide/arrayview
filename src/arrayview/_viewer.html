@@ -9719,7 +9719,14 @@
             const fitSlack = 0.96 + 0.04 * (_fullscreenActive ? 1 : _crossfadeCollapseP);
             // Layout-only sizes in on-screen proportions (thick voxels draw taller).
             const _cmpAspect = _pixelAspect(dim_x, dim_y);
-            const activeFrames = compareFrames.filter(Boolean)
+            // A split of one array lays out before its slices arrive: both are a slice of
+            // the same plane, so its size is known (Shift+S glides into it at once).
+            let layoutFrames = compareFrames;
+            if (detachedDimMode && compareFrames.filter(Boolean).length < 2 && shape[dim_x] && shape[dim_y]) {
+                const known = compareFrames.find(Boolean) || { width: shape[dim_x], height: shape[dim_y] };
+                layoutFrames = [0, 1].map(i => compareFrames[i] || { width: known.width, height: known.height });
+            }
+            const activeFrames = layoutFrames.filter(Boolean)
                 .map(f => _cmpAspect === 1 ? f : { ...f, height: f.height * _cmpAspect });
             const paneCount = activeFrames.length;
             if (!paneCount) return;
@@ -41763,18 +41770,33 @@
 
         // Glide copy `g` from where it was copied onto `target()`, re-read every frame so a
         // layout that settles late is followed rather than jumped to; its corners turn into
-        // `radii()` (null: keep its own until there is a target). Each of `bars` ([el, fromRect]) slides centre to centre the same way.
-        // `onFrame(p, rect, done)` runs after each step. Paced by an animation on `g`, so it
-        // keeps time with the other glides.
-        function _splitGlideLive(g, target, radii, bars = [], onFrame = null) {
+        // `radii()` (null: keep its own until there is a target). Each of `bars` ([el, fromRect])
+        // slides centre to centre the same way. Nothing moves until `ready()` holds and the
+        // target has stopped jumping (or 1.5 s passed); then `onStart()` runs. `onFrame(p, rect,
+        // done)` runs after each step. Paced by an animation on `g`, so it keeps time with the
+        // other glides.
+        function _splitGlideLive(g, target, radii, bars = [], onFrame = null, { ready = () => true, onStart = null } = {}) {
             const f = g._from, r0 = g._radii || [0, 0, 0, 0];
             const clock = g.animate([{ opacity: 1 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS });
+            clock.pause();
             bars = bars.filter(([el, from]) => el && from && from.width);
             const lerp = (a, b, p) => a + (b - a) * p;
+            const t0 = performance.now();
+            let waiting = true, last = null;
             const step = () => {
-                const done = clock.playState !== 'running';
-                const p = done ? 1 : _easeInOutCubic(Math.min(1, (clock.currentTime || 0) / _ORTHO_GLIDE_MS));
-                const t = target(), to = t && t.width ? t : f;
+                let t = target();
+                if (waiting) {
+                    const still = t && t.width && last && ['left', 'top', 'width', 'height'].every(k => Math.abs(t[k] - last[k]) < 0.5);
+                    last = t && t.width ? t : null;
+                    if ((still && ready()) || performance.now() - t0 > 1500) {
+                        waiting = false;
+                        clock.play();
+                        if (onStart) onStart();
+                    }
+                }
+                const done = !waiting && clock.playState !== 'running';
+                const p = done ? 1 : waiting ? 0 : _easeInOutCubic(Math.min(1, (clock.currentTime || 0) / _ORTHO_GLIDE_MS));
+                const to = t && t.width ? t : f;
                 const rect = {
                     left: lerp(f.left, to.left, p), top: lerp(f.top, to.top, p),
                     width: lerp(f.width, to.width, p), height: lerp(f.height, to.height, p),
@@ -41852,13 +41874,13 @@
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             // The right pane waits for its slice; the left one shows once the copy lands on it.
             const bHold = b.pane.animate(hold, { duration: 60000 });
-            a.pane.animate(hold, { duration: _ORTHO_GLIDE_MS });
+            const aHold = a.pane.animate(hold, { duration: 60000 });
             _overlayPaletteGlideHold = !!labels.palette;
             let entered = null;
             enterDetachedDimMode(dim).then(ok => { entered = !!ok; }, () => { entered = false; });
             if (!detachedDimMode || !compareActive) {
                 // Did not switch: drop the copies over the unchanged view.
-                bHold.cancel(); nameHold?.cancel(); freeBars();
+                bHold.cancel(); aHold.cancel(); nameHold?.cancel(); freeBars();
                 sides.forEach(g => g.remove());
                 labels.names.forEach(g => g?.remove());
                 _overlayPaletteGlideHold = false;
@@ -41871,30 +41893,30 @@
                     { duration: _ORTHO_GLIDE_MS * 0.6, easing: 'cubic-bezier(.5, 0, .75, 0)', fill: 'forwards' });
                 out.onfinish = out.oncancel = () => g.remove();
             });
-            let bIn = false;
-            const wait = () => {
-                const [, bNow] = bIn ? [] : _splitPanes();
-                const bReady = !bIn && compareFrames[1] && bNow?.canvas && bNow.clip;
-                if (!bIn && (bReady || entered !== null)) {
-                    bIn = true;
-                    // A copy slides in, not the pane: the panes' corner rounding is
-                    // worked out from where they sit and must not see it moving.
-                    const gB = bReady ? _orthoGhost(bNow.canvas, bNow.clip) : null;
-                    if (!gB) bHold.cancel();
-                    else {
-                        _splitDressGhost(gB, bNow.clip);
-                        gB.style.zIndex = '40';   // under the left copy
-                        const tB = _orthoLabelGhost(bNow.title);
-                        const move = [{ opacity: 0, transform: `translateX(${gB._from.width * _SPLIT_SLIDE}px)` }, { opacity: 1, transform: 'none' }];
-                        const opts = { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE };
-                        tB?.animate(move, opts);
-                        const slide = gB.animate(move, opts);
-                        slide.onfinish = slide.oncancel = () => { bHold.cancel(); gB.remove(); tB?.remove(); };
-                    }
+            // A copy of the right pane slides in, not the pane: the panes' corner rounding
+            // is worked out from where they sit and must not see it moving.
+            // Both slices are painted once their round is done (it may ask again for a shared range).
+            const splitDrawn = () => compareActive && !!compareFrames[0] && !!compareFrames[1] && !compareRendering;
+            const tB0 = performance.now();
+            let drawnFrames = 0;
+            const slideInB = () => {
+                const [, bNow] = _splitPanes();
+                drawnFrames = splitDrawn() ? drawnFrames + 1 : 0;
+                if (drawnFrames < 2 && entered !== false && performance.now() - tB0 < 1500) {
+                    requestAnimationFrame(slideInB);   // its slice is still on the way
+                    return;
                 }
-                if (!bIn) requestAnimationFrame(wait);
+                const gB = splitDrawn() && bNow?.canvas && bNow.clip ? _orthoGhost(bNow.canvas, bNow.clip) : null;
+                if (!gB) { bHold.cancel(); return; }
+                _splitDressGhost(gB, bNow.clip);
+                gB.style.zIndex = '40';   // under the left copy
+                const tB = _orthoLabelGhost(bNow.title);
+                const move = [{ opacity: 0, transform: `translateX(${gB._from.width * _SPLIT_SLIDE}px)` }, { opacity: 1, transform: 'none' }];
+                const opts = { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE };
+                tB?.animate(move, opts);
+                const slide = gB.animate(move, opts);
+                slide.onfinish = slide.oncancel = () => { bHold.cancel(); gB.remove(); tB?.remove(); };
             };
-            wait();
             const name = labels.names[0];
             const same = name && a.title && name.textContent === a.title.textContent ? name : null;
             const titleHold = same && a.title.animate(hold, { duration: 60000 });
@@ -41906,12 +41928,14 @@
                 (p, rect, done) => {
                     ride(p, rect, done);
                     if (!done) return;
+                    aHold.cancel();
                     titleHold?.cancel();
                     nameHold?.cancel();
                     pal?.style.removeProperty('z-index');
                     freeBars();
-                });
-            clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, () => !!compareFrames[0]);
+                },
+                { ready: () => !!_splitPanes()[0]?.clip || entered === false, onStart: slideInB });
+            clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, splitDrawn);
             _syncSinkFocus();
         }
 
@@ -41945,28 +41969,32 @@
             showStatus('split: off');
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             // The image and its outline stay hidden until the copy lands on them.
-            vp?.animate(hold, { duration: _ORTHO_GLIDE_MS });
+            const vpHold = vp?.animate(hold, { duration: 60000 });
             const seq0 = _frameDisplaySeq;
             const pal = _splitPaletteFollow(labels.palette);
             const [la, lb] = labels.names, caseTitle = document.getElementById('case-title');
             const same = la && caseTitle?.offsetParent && la.textContent === caseTitle.textContent ? la : null;
             const titleHold = same && caseTitle.animate(hold, { duration: 60000 });
-            if (lb) _splitLabelOut(lb, shift, 0);
-            if (ghostB) {
+            const slideOutB = () => {
+                if (lb) _splitLabelOut(lb, shift, 0);
+                if (!ghostB) return;
                 const out = ghostB.animate([{ opacity: 1, translate: '0px 0px' }, { opacity: 0, translate: `${shift}px 0px` }],
                     { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
                 out.onfinish = out.oncancel = () => ghostB.remove();
-            }
+            };
             const ride = _splitNamesRide([la], ghost, same);
             const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp),
                 [[cb, cbFrom], [info, infoFrom], [pal, labels.palette]],
                 (p, rect, done) => {
                     ride(p, rect, done);
                     if (!done) return;
+                    vpHold?.cancel();
                     titleHold?.cancel();
                     pal?.style.removeProperty('z-index');
                     freeBars();
-                });
+                },
+                // The single view takes its size once its first slice is back.
+                { ready: () => _frameDisplaySeq !== seq0, onStart: slideOutB });
             clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
             _syncSinkFocus();
         }
