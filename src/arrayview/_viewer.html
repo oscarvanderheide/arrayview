@@ -30149,22 +30149,7 @@
             'multiview.toggle': {
                 title: 'Toggle 3-plane multi-view',
                 when: [],
-                run: (ctx, e) => {
-                    if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
-                    if (compareActive) {
-                        crossfade(() => { if (compareQmriActive) exitCompareQmri(); enterCompareMv(); });
-                        return;
-                    }
-                    if (qmriMvActive) { crossfade(() => exitQmriMv()); return; }
-                    if (qmriActive) { crossfade(() => enterQmriMv()); return; }
-                    const activeTool = _activeToolId();
-                    if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
-                        const tile = TOOL_TILES.find(t => t.id === activeTool);
-                        showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
-                        return;
-                    }
-                    _orthoGlideToggle();
-                },
+                run: (ctx, e) => _afterGlide(_multiviewToggle),
             },
             'vfield.toggleArrows': {
                 title: 'Toggle vector field arrow overlay',
@@ -30780,26 +30765,7 @@
             },
             'compare.toggleDetachedSplit': {
                 when: [],
-                run: async (ctx, e) => {
-                    if (detachedDimMode) {
-                        crossfade(() => {
-                            exitCompareMode();
-                            showStatus('split: off');
-                        });
-                        return;
-                    }
-                    if (compareActive) {
-                        showStatus('split: already comparing');
-                        return;
-                    }
-                    if (!_canDetachDim(activeDim)) {
-                        showStatus('split: choose a non-spatial dimension with at least 2 indices');
-                        return;
-                    }
-                    const dim = activeDim;
-                    crossfade(() => enterDetachedDimMode(dim));
-                    return;
-                },
+                run: (ctx, e) => _afterGlide(_splitToggle),
             },
             'detachedDim.adjustIndexA': {
                 when: ['detachedDimMode'],
@@ -41503,19 +41469,53 @@
                 fade.onfinish = fade.oncancel = () => {
                     g.remove();
                     _orthoGlideBusy = false;
-                    const queued = _orthoGlideQueued && !compareActive && !qmriActive;
-                    _orthoGlideQueued = false;
-                    if (queued) _orthoGlideToggle();
+                    const queued = _orthoGlideQueued;
+                    _orthoGlideQueued = null;
+                    if (queued) queued();
                 };
             };
             wait();
         }
 
-        // v mid-glide waits for it to land, then glides back; a second press
-        // during the same glide takes the wait back.
-        let _orthoGlideQueued = false;
+        // v or Shift+S mid-glide waits for it to land, then runs; the same key
+        // pressed again during that glide takes the wait back.
+        let _orthoGlideQueued = null;
+        function _afterGlide(fn) {
+            if (!_orthoGlideBusy) { fn(); return; }
+            _orthoGlideQueued = _orthoGlideQueued === fn ? null : fn;
+        }
+
+        function _multiviewToggle() {
+            if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
+            if (compareActive) {
+                crossfade(() => { if (compareQmriActive) exitCompareQmri(); enterCompareMv(); });
+                return;
+            }
+            if (qmriMvActive) { crossfade(() => exitQmriMv()); return; }
+            if (qmriActive) { crossfade(() => enterQmriMv()); return; }
+            const activeTool = _activeToolId();
+            if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
+                const tile = TOOL_TILES.find(t => t.id === activeTool);
+                showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
+                return;
+            }
+            _orthoGlideToggle();
+        }
+
+        function _splitToggle() {
+            if (detachedDimMode) { _splitGlideExit(); return; }
+            if (compareActive) {
+                showStatus('split: already comparing');
+                return;
+            }
+            if (!_canDetachDim(activeDim)) {
+                showStatus('split: choose a non-spatial dimension with at least 2 indices');
+                return;
+            }
+            _splitGlideEnter(activeDim);
+        }
+
         function _orthoGlideToggle() {
-            if (_orthoGlideBusy) { _orthoGlideQueued = !_orthoGlideQueued; return; }
             if (multiViewActive) _orthoGlideExit();
             else _orthoGlideEnter(defaultMultiViewDims());
         }
@@ -41544,10 +41544,13 @@
 
         // The dimbar and colorbar have their own short CSS slides; switch those off for
         // the glide so the elements jump to their new place and only the glide moves them.
-        function _holdTransitions(els) {
+        // With `ms` null they stay off until the returned release is called.
+        function _holdTransitions(els, ms = _ORTHO_GLIDE_MS + 50) {
             els = els.filter(Boolean);
             els.forEach(el => { el.style.transition = 'none'; });
-            setTimeout(() => els.forEach(el => el.style.removeProperty('transition')), _ORTHO_GLIDE_MS + 50);
+            const release = () => els.forEach(el => el.style.removeProperty('transition'));
+            if (ms != null) setTimeout(release, ms);
+            return release;
         }
 
         // Morph `el` from rect `from` into its own place (move + resize, no fade).
@@ -41577,11 +41580,12 @@
         }
 
         // Slide label ghost `g` onto `toEl` (hidden meanwhile), keeping its size; then drop it.
+        // Moves by `transform`: names have their `translate` pinned outside immersive.
         function _orthoLabelGlide(g, toEl, keyframes) {
             if (!g) return;
             const to = toEl?.offsetParent ? toEl.getBoundingClientRect() : null;
             const shift = keyframes || (to && to.width
-                ? [{ translate: '0px 0px' }, { translate: `${to.left - g._from.left}px ${to.top - g._from.top}px` }]
+                ? [{ transform: 'none' }, { transform: `translate(${to.left - g._from.left}px, ${to.top - g._from.top}px)` }]
                 : [{ opacity: 1 }, { opacity: 0 }]);
             if (to && to.width) toEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
             const a = g.animate(shift, { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
@@ -41702,6 +41706,172 @@
                 const to = main.getBoundingClientRect();
                 const boxGlide = _orthoGlideTo(box, to);
                 boxGlide.onfinish = boxGlide.oncancel = () => box.remove();
+                const glide = _orthoGlideTo(ghost, to);
+                glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
+            });
+            _syncSinkFocus();
+        }
+
+        /** Shift+S from the single view or ortho: a still copy of the slice glides
+         *  into the left split pane while the right pane slides in beside it and
+         *  the ortho side planes leave to the right; Shift+S again glides it back.
+         *  A zoomed-in slice, qMRI, a centre pane or a moved left index keep the
+         *  plain crossfade. */
+        // Share of its own width the right pane travels while it fades in or out.
+        const _SPLIT_SLIDE = 0.12;
+
+        function _splitPanes() {
+            return ['primary', 'secondary'].map(k => {
+                const pane = document.querySelector(`#compare-panes .compare-pane.compare-${k}`);
+                return pane && {
+                    pane,
+                    clip: pane.querySelector('.compare-canvas-clip'),
+                    canvas: pane.querySelector('canvas.compare-canvas'),
+                    title: pane.querySelector('.compare-title'),
+                };
+            });
+        }
+
+        // All of canvas `c` is on screen inside `frame` (not zoomed in past it).
+        function _splitWholeIn(c, frame) {
+            const r = c?.getBoundingClientRect(), f = frame?.getBoundingClientRect();
+            return !!(r && f && r.width && r.height && r.left >= f.left - 1 && r.top >= f.top - 1
+                && r.right <= f.right + 1 && r.bottom <= f.bottom + 1);
+        }
+
+        // Keep `els` where `froms` were, frame after frame, until the returned stop runs.
+        function _holdAt(els, froms) {
+            let raf = 0;
+            const tick = () => {
+                els.forEach((el, i) => { if (el) { el.style.removeProperty('translate'); _pinAt(el, froms[i]); } });
+                raf = requestAnimationFrame(tick);
+            };
+            tick();
+            return () => { cancelAnimationFrame(raf); els.forEach(el => el?.style.removeProperty('translate')); };
+        }
+
+        // Label copy `g` rides `dx, dy` along with its pane and fades out.
+        const _splitLabelOut = (g, dx, dy) => _orthoLabelGlide(g, null,
+            [{ transform: 'none', opacity: 1 }, { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }]);
+
+        async function _splitGlideEnter(dim) {
+            const fromOrtho = multiViewActive, big = fromOrtho ? mvViews[0] : null;
+            let src = null;
+            if (!fromOrtho && !qmriActive) {
+                const c = document.getElementById('viewer');
+                if (_splitWholeIn(c, document.getElementById('canvas-viewport'))) src = c;
+            } else if (big && !obliqueVecs && _resolvedOrthoLayoutMode() === 'big-left'
+                && _orthoSingleViewPane() === 0 && _splitWholeIn(big.canvas, big.pane)) {
+                src = big.canvas;
+            }
+            const ghost = src && _orthoGlideAllowed() ? _orthoGhost(src) : null;
+            if (!ghost) { crossfade(() => enterDetachedDimMode(dim)); return; }
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            const sides = fromOrtho ? mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean) : [];
+            const nameEl = fromOrtho ? big.nameEl : document.getElementById('case-title');
+            const labels = _orthoLabelGhosts([nameEl]);
+            const hold = [{ opacity: 0 }, { opacity: 0 }];
+            // Its copy travels instead of it fading out in place.
+            const nameHold = labels.names[0] && nameEl.animate(hold, { duration: 60000 });
+            const info = document.getElementById('info'), cb = _slimCb();
+            const cbFrom = (fromOrtho ? _mvCb() : cb)?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            // The split loads both slices first; until they are drawn its panes stay
+            // hidden under the copies and the bars stay where they were.
+            // Its colorbar numbers are blank meanwhile too, so copies of the old ones stand in.
+            const cbVals = ['slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id));
+            const valCopies = (fromOrtho ? ['mv-cb-vmin', 'mv-cb-vmax'].map(id => document.getElementById(id)) : cbVals)
+                .map(el => _orthoLabelGhost(el)).filter(Boolean);
+            const veils = [document.getElementById('compare-panes'), ...cbVals].map(el => el?.animate(hold, { duration: 60000 }));
+            const unpin = _holdAt([cb, info], [cbFrom, infoFrom]);
+            _overlayPaletteGlideHold = !!labels.palette;
+            const ok = await enterDetachedDimMode(dim);
+            unpin();
+            veils.forEach(v => v?.cancel());
+            valCopies.forEach(g => g.remove());
+            const [a, b] = _splitPanes();
+            if (!ok || !detachedDimMode || !a?.canvas || !b?.pane) {
+                sides.forEach(g => g.remove());
+                labels.names.forEach(g => _orthoLabelGlide(g, null));
+                _orthoPaletteGlide(null);
+                freeBars();
+                nameHold?.cancel();
+                _orthoGhostRelease(ghost, () => true);
+                _syncSinkFocus();
+                return;
+            }
+            const target = a.canvas.getBoundingClientRect();
+            // The left image stays hidden until the copy lands on it; its box moves with the copy.
+            a.canvas.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            _morphFrom(a.pane, ghost._from);
+            const bw = b.pane.getBoundingClientRect().width;
+            b.pane.animate([{ opacity: 0, translate: `${bw * _SPLIT_SLIDE}px 0px` }, { opacity: 1, translate: '0px 0px' }],
+                { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+            // Out of the right pane's way before it is fully in.
+            sides.forEach(g => {
+                const out = g.animate([{ transform: 'none' }, { transform: `translateX(${_orthoSideShift(g._from.left)}px)` }],
+                    { duration: _ORTHO_GLIDE_MS * 0.6, easing: 'cubic-bezier(.5, 0, .75, 0)', fill: 'forwards' });
+                out.onfinish = out.oncancel = () => g.remove();
+            });
+            const name = labels.names[0], same = name && a.title?.offsetParent && name.textContent === a.title.textContent;
+            if (same) _orthoLabelGlide(name, a.title);
+            else if (name) _splitLabelOut(name, target.left - ghost._from.left, target.top - ghost._from.top);
+            _orthoPaletteGlide(labels.palette);
+            _glideFrom(cb, cbFrom);
+            _glideFrom(info, infoFrom);
+            setTimeout(freeBars, _ORTHO_GLIDE_MS + 50);
+            const glide = _orthoGlideTo(ghost, target);
+            glide.onfinish = glide.oncancel = () => { nameHold?.cancel(); _orthoGhostRelease(ghost, () => true); };
+            _syncSinkFocus();
+        }
+
+        function _splitGlideExit() {
+            const [a, b] = _splitPanes();
+            const ok = _orthoGlideAllowed() && a?.canvas && b?.canvas && b.pane.offsetParent
+                && compareCenterMode === 0 && !compareMvActive && !compareQmriActive && !compareFocusMode
+                && detachedDimIndexA === Number(indices[detachedDim])
+                && _splitWholeIn(a.canvas, a.clip) && _splitWholeIn(b.canvas, b.clip);
+            const ghost = ok ? _orthoGhost(a.canvas) : null;
+            if (!ghost) {
+                crossfade(() => { exitCompareMode(); showStatus('split: off'); });
+                return;
+            }
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            const ghostB = _orthoGhost(b.canvas, b.clip);
+            if (ghostB) ghostB.style.zIndex = '40';   // the left copy passes over it
+            const labels = _orthoLabelGhosts([a.title, b.title]);
+            // Their copies travel instead of them fading out in place.
+            [a.title, b.title].forEach(el => el?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS }));
+            const info = document.getElementById('info'), cb = _slimCb();
+            const cbFrom = cb?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
+            const shift = (ghostB?._from.width || 0) * _SPLIT_SLIDE;
+            _holdTransitions([info, cb, _cbBar(cb)]);
+            _overlayPaletteGlideHold = !!labels.palette;   // stays put until the glide places it
+            exitCompareMode();
+            showStatus('split: off');
+            const main = document.getElementById('viewer');
+            document.getElementById('canvas-viewport')?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            const seq0 = _frameDisplaySeq;
+            // The single view's size settles a frame after exit; until then the bars stay put.
+            _pinAt(cb, cbFrom);
+            _pinAt(info, infoFrom);
+            requestAnimationFrame(() => {
+                [cb, info].forEach(el => el?.style.removeProperty('translate'));
+                _glideFrom(cb, cbFrom);
+                _glideFrom(info, infoFrom);
+                const to = main.getBoundingClientRect();
+                const [la, lb] = labels.names, caseTitle = document.getElementById('case-title');
+                if (la && caseTitle?.offsetParent && la.textContent === caseTitle.textContent) _orthoLabelGlide(la, caseTitle);
+                else if (la) _splitLabelOut(la, to.left - ghost._from.left, to.top - ghost._from.top);
+                if (lb) _splitLabelOut(lb, shift, 0);
+                _orthoPaletteGlide(labels.palette);
+                if (ghostB) {
+                    const out = ghostB.animate([{ opacity: 1, translate: '0px 0px' }, { opacity: 0, translate: `${shift}px 0px` }],
+                        { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
+                    out.onfinish = out.oncancel = () => ghostB.remove();
+                }
                 const glide = _orthoGlideTo(ghost, to);
                 glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
             });
