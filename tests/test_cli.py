@@ -313,18 +313,33 @@ def test_cli_vscode_terminal_requires_extension_readiness_ack(tmp_path):
         )
 
 
-def test_cli_rejects_more_than_six_files(monkeypatch):
+def test_cli_rejects_compare_flags_with_more_than_four_files(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy", "e.npy", "f.npy", "g.npy"],
+        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy", "e.npy", "--overlay", "m.npy"],
     )
     with pytest.raises(SystemExit):
         appmod.arrayview()
 
 
-def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
-    files = [str(tmp_path / f"a{i}.npy") for i in range(6)]
+def test_cli_stacks_more_than_four_files_in_given_order(monkeypatch, tmp_path):
+    names = ["e", "a", "d", "b", "c"]
+    files = [str(tmp_path / f"{n}.npy") for n in names]
+    for f in files:
+        np.save(f, np.zeros((8, 8), dtype=np.float32))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--dry-run"])
+    monkeypatch.setattr(sys, "stdout", out)
+    appmod.arrayview()
+    text = out.getvalue()
+    assert "5 files: opened as one stack" in text
+    assert "image shape: (8, 8, 5)" in text
+    assert "case order: e, a, d, b, c" in text
+
+
+def test_cli_accepts_four_total_files_for_compare(monkeypatch, tmp_path):
+    files = [str(tmp_path / f"a{i}.npy") for i in range(4)]
     np.save(files[0], np.zeros((8, 8), dtype=np.float32))  # only base must exist
     requests = []
     opened = {}
@@ -349,8 +364,8 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "stdout", io.StringIO())
     appmod.arrayview()
 
-    assert len(requests) == 6
-    compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 6)])
+    assert len(requests) == 4
+    compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 4)])
     assert opened["url"].startswith("http://localhost:8000/?sid=sid_0")
     assert "127.0.0.1" not in opened["url"]
     assert "compare_sid=sid_1" in opened["url"]

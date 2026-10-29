@@ -6052,6 +6052,27 @@ def arrayview():
             "stacking: a directory of arrays is stacked either way. It selects "
             "which files form the collection."
         )
+    if (
+        args.files
+        and len(args.files) > 4
+        and not args.stack_mode
+        and not (
+            args.compare
+            or args.overlay
+            or args.vectorfield
+            or args.watch
+            or args.rgb
+            or args.relay
+        )
+    ):
+        # Too many for a side-by-side compare: stack them along a new last
+        # axis, one case per file, as --match does for explicit file lists.
+        args.stack_mode = True
+        args.keep_file_order = True
+        print(
+            f"[ArrayView] {len(args.files)} files: opened as one stack; "
+            "step through the last dimension to switch files."
+        )
     if args.dry_run and not args.stack_mode:
         parser.error("--dry-run requires --match.")
     excluded_cases = set()
@@ -6098,9 +6119,10 @@ def arrayview():
             dims_override = (0, 1)
     if not args.serve and not args.kill and not args.files:
         _configure_tutorial_args(args)
-    if args.files and len(args.files) > 6 and not args.stack_mode:
+    if args.files and len(args.files) > 4 and not args.stack_mode:
         parser.error(
-            "At most six FILE arguments are supported; concat arrays first for larger compare sets."
+            "More than four FILE arguments open as one stack, which does not "
+            "support --compare, --overlay, --vectorfield, --watch, --rgb, or --relay."
         )
     if args.compare and len(args.files) > 1 and not args.stack_mode:
         parser.error("Use either positional compare files or --compare, not both.")
@@ -6310,6 +6332,7 @@ def arrayview():
                         stack=args.stack_policy or "auto",
                         scan_progress=scan_progress.update,
                         exclude_cases=excluded_cases,
+                        keep_order=getattr(args, "keep_file_order", False),
                     )
                 finally:
                     scan_progress.finish()

@@ -1452,7 +1452,7 @@ def _collection_pattern_paths(pattern):
     return paths
 
 
-def _explicit_case_files(patterns):
+def _explicit_case_files(patterns, keep_order=False):
     """Plain file paths given as several patterns, or None.
 
     An unquoted ``--match dir/*/maps.nii`` reaches us already expanded by the
@@ -1467,7 +1467,7 @@ def _explicit_case_files(patterns):
     paths = [os.path.abspath(p) for p in patterns if _is_supported_collection_path(p)]
     if len(paths) != len(patterns) or len(set(paths)) != len(paths):
         return None
-    return sorted(paths)
+    return paths if keep_order else sorted(paths)
 
 
 def _distinguishing_path_parts(paths):
@@ -1720,6 +1720,7 @@ def load_dir_collection(
     stack="auto",
     scan_progress=None,
     exclude_cases=None,
+    keep_order=False,
 ):
     """Load recursive collection patterns as aligned lazy image/overlay stacks.
 
@@ -1730,7 +1731,8 @@ def load_dir_collection(
     *case_regex*, files are paired by the regex's named ``case`` group instead.
     *exclude_cases* removes known case ids before any image or overlay data is
     opened. It is used by the interactive CLI after the user accepts a partial
-    overlay match.
+    overlay match. *keep_order* stacks an explicit file list in the order
+    given instead of sorted.
     """
     if not base_patterns:
         raise ValueError("--match requires at least one positional image pattern.")
@@ -1753,7 +1755,7 @@ def load_dir_collection(
             raise ValueError("; ".join(missing))
         base_matrix = [[by_case[case] for by_case in base_maps] for case in case_ids]
     else:
-        explicit_cases = _explicit_case_files(base_patterns)
+        explicit_cases = _explicit_case_files(base_patterns, keep_order=keep_order)
         base_lists = (
             [explicit_cases]
             if explicit_cases is not None

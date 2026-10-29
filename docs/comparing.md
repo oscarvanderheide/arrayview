@@ -4,8 +4,11 @@
 
 ```bash
 uvx arrayview base.npy moving.npy           # 2 arrays
-uvx arrayview base.npy a.npy b.npy c.npy    # up to 6
+uvx arrayview base.npy a.npy b.npy c.npy    # up to 4, side by side
 ```
+
+Five or more files open as one stack instead, with the files along a new last
+dimension in the order you typed them.
 
 Or use the file picker (`Shift+Y`) or drag-and-drop.
 
