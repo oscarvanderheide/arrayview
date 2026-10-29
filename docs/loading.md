@@ -199,8 +199,7 @@ filled regions and contour-only outlines. The eye in the HUD header hides or
 shows all overlays at once.
 
 Each row has a small strip showing how much of that mask sits on every slice;
-click or drag it to go there. In ortho view the strip follows the pane under
-the mouse, with its tick coloured like that pane. With a `--match` collection, changing patient
+click or drag it to go there. Ortho view has no strip. With a `--match` collection, changing patient
 lands on the slice where the mask is largest (all three panes in ortho). An
 empty mask keeps the current slice. The target button in the list header turns
 this off.

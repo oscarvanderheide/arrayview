@@ -1582,8 +1582,7 @@
         .overlay-palette-strip-fill { fill: var(--ovp-c); opacity: 0.6; transition: opacity 120ms ease; }
         .overlay-palette-row:hover .overlay-palette-strip-fill,
         .overlay-palette-strip.scrubbing .overlay-palette-strip-fill { opacity: 0.9; }
-        .overlay-palette-tick { stroke: var(--ovp-tick, var(--text)); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
-        .overlay-palette-strips { display: flex; }
+        .overlay-palette-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
         /* Shown, but nothing of it on this slice. */
         .overlay-palette-row.absent .overlay-palette-name { color: var(--muted); }
         .overlay-palette-row.absent .overlay-palette-swatch { opacity: 0.45; }
@@ -21183,28 +21182,22 @@
                 : qmriMvActive ? qmriMvViews : null;
             const planes = [];
             if (views && views.length) {
-                const current = multiViewActive ? _mvCurrentView
-                    : compareMvActive ? _cmvCurrentView : _hoveredQmriMvView;
                 for (const v of views) {
                     if (planes.some(p => p.axis === v.sliceDir)) continue;
-                    planes.push({
-                        dimX: v.dimX, dimY: v.dimY, axis: v.sliceDir,
-                        color: multiViewActive ? _mvPlaneColorForDim(v.sliceDir) : null,
-                        current: !!current && current.sliceDir === v.sliceDir,
-                    });
+                    planes.push({ dimX: v.dimX, dimY: v.dimY, axis: v.sliceDir });
                 }
             } else {
-                planes.push({ dimX: dim_x, dimY: dim_y, axis: current_slice_dim, color: null, current: true });
+                planes.push({ dimX: dim_x, dimY: dim_y, axis: current_slice_dim });
             }
             return planes.filter(p => Number.isInteger(p.axis) && p.axis < shape.length
                 && p.axis !== p.dimX && p.axis !== p.dimY);
         }
 
-        // The strip follows one direction: in ortho, the pane under the mouse
-        // (or the last one it was in), with its tick coloured like that pane.
+        // The strip follows the scroll axis of a single view. Ortho-style views
+        // have no strip: one per pane was too busy.
         function _overlayStripPlanes() {
             const planes = _overlayPanePlanes();
-            return planes.length ? [planes.find(p => p.current) || planes[0]] : [];
+            return planes.length === 1 ? planes : [];
         }
 
         function _overlayCountKey(ovSid, p, idx = indices) {
@@ -21352,12 +21345,9 @@
                     ? `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`
                     : '<span class="overlay-palette-swatch none"></span>';
                 html += `<span class="overlay-palette-name">${_roiHtmlEscape(row.name)}</span>`;
-                html += '<span class="overlay-palette-strips">';
                 planes.forEach((plane, k) => {
-                    const tick = plane.color ? `;--ovp-tick:${plane.color}` : '';
-                    html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}${tick}" onpointerdown="_overlayPaletteStripDown(event, ${r}, ${k})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
+                    html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}" onpointerdown="_overlayPaletteStripDown(event, ${r}, ${k})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
                 });
-                html += '</span>';
                 html += '</div>';
             });
             html += '</div>';
@@ -35204,7 +35194,7 @@
 
         function _orthoBindCurrentPane(view, setCurrent, ...elements) {
             for (const el of new Set(elements.filter(Boolean))) {
-                el.addEventListener('mouseenter', () => { setCurrent(view); _syncOverlayPaletteSlice(); });
+                el.addEventListener('mouseenter', () => setCurrent(view));
             }
         }
 
