@@ -41725,12 +41725,10 @@
         }
 
         /** Shift+S from the single view or ortho: a still copy of the slice glides
-         *  into the left split pane while the right pane slides in beside it and
+         *  into the left split pane while the right pane fades in beside it and
          *  the ortho side planes leave to the right; Shift+S again glides it back.
          *  A zoomed-in slice, qMRI, a centre pane or a moved left index keep the
          *  plain crossfade. */
-        // Share of its own width the right pane travels while it fades in or out.
-        const _SPLIT_SLIDE = 0.12;
 
         function _splitPanes() {
             return ['primary', 'secondary'].map(k => {
@@ -41893,29 +41891,19 @@
                     { duration: _ORTHO_GLIDE_MS * 0.6, easing: 'cubic-bezier(.5, 0, .75, 0)', fill: 'forwards' });
                 out.onfinish = out.oncancel = () => g.remove();
             });
-            // A copy of the right pane slides in, not the pane: the panes' corner rounding
-            // is worked out from where they sit and must not see it moving.
             // Both slices are painted once their round is done (it may ask again for a shared range).
             const splitDrawn = () => compareActive && !!compareFrames[0] && !!compareFrames[1] && !compareRendering;
             const tB0 = performance.now();
             let drawnFrames = 0;
-            const slideInB = () => {
-                const [, bNow] = _splitPanes();
+            // The right pane fades in where it stays, once its slice is painted.
+            const fadeInB = () => {
                 drawnFrames = splitDrawn() ? drawnFrames + 1 : 0;
                 if (drawnFrames < 2 && entered !== false && performance.now() - tB0 < 1500) {
-                    requestAnimationFrame(slideInB);   // its slice is still on the way
+                    requestAnimationFrame(fadeInB);   // its slice is still on the way
                     return;
                 }
-                const gB = splitDrawn() && bNow?.canvas && bNow.clip ? _orthoGhost(bNow.canvas, bNow.clip) : null;
-                if (!gB) { bHold.cancel(); return; }
-                _splitDressGhost(gB, bNow.clip);
-                gB.style.zIndex = '40';   // under the left copy
-                const tB = _orthoLabelGhost(bNow.title);
-                const move = [{ opacity: 0, transform: `translateX(${gB._from.width * _SPLIT_SLIDE}px)` }, { opacity: 1, transform: 'none' }];
-                const opts = { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE };
-                tB?.animate(move, opts);
-                const slide = gB.animate(move, opts);
-                slide.onfinish = slide.oncancel = () => { bHold.cancel(); gB.remove(); tB?.remove(); };
+                bHold.cancel();
+                b.pane.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
             };
             const name = labels.names[0];
             const same = name && a.title && name.textContent === a.title.textContent ? name : null;
@@ -41934,7 +41922,7 @@
                     pal?.style.removeProperty('z-index');
                     freeBars();
                 },
-                { ready: () => !!_splitPanes()[0]?.clip || entered === false, onStart: slideInB });
+                { ready: () => !!_splitPanes()[0]?.clip || entered === false, onStart: fadeInB });
             clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, splitDrawn);
             _syncSinkFocus();
         }
@@ -41962,7 +41950,6 @@
             [a.title, b.title].forEach(el => el?.animate(hold, { duration: _ORTHO_GLIDE_MS }));
             const info = document.getElementById('info'), cb = _slimCb();
             const cbFrom = cb?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
-            const shift = (ghostB?._from.width || 0) * _SPLIT_SLIDE;
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             _overlayPaletteGlideHold = !!labels.palette;
             exitCompareMode();
@@ -41976,9 +41963,9 @@
             const same = la && caseTitle?.offsetParent && la.textContent === caseTitle.textContent ? la : null;
             const titleHold = same && caseTitle.animate(hold, { duration: 60000 });
             const slideOutB = () => {
-                if (lb) _splitLabelOut(lb, shift, 0);
+                if (lb) _splitLabelOut(lb, 0, 0);
                 if (!ghostB) return;
-                const out = ghostB.animate([{ opacity: 1, translate: '0px 0px' }, { opacity: 0, translate: `${shift}px 0px` }],
+                const out = ghostB.animate([{ opacity: 1 }, { opacity: 0 }],
                     { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
                 out.onfinish = out.oncancel = () => ghostB.remove();
             };
