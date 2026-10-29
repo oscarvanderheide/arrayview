@@ -1450,8 +1450,9 @@
             z-index: 6;
             display: none;
             box-sizing: border-box;
-            width: 236px;
-            max-width: calc(100% - 20px);
+            /* As wide as the longest label name needs; long names ellipsize. */
+            width: max-content;
+            max-width: min(240px, calc(100% - 20px));
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1466,7 +1467,21 @@
             transition: opacity 160ms ease;
         }
         #overlay-palette:hover { opacity: 1; }
-        #overlay-palette.visible { display: block; }
+        #overlay-palette.visible { display: flex; flex-direction: column; }
+        /* Docked beside the view it reads as the image's legend: no card, rows
+           straight on the page, the first one level with the image's top edge. */
+        #overlay-palette.docked { opacity: 1; }
+        #overlay-palette.docked:not(.collapsed) {
+            background: transparent; border-color: transparent;
+            backdrop-filter: none; -webkit-backdrop-filter: none;
+            padding: 0;
+        }
+        #overlay-palette.docked:not(.collapsed) .overlay-palette-foot { justify-content: flex-start; padding: 0 0 0 1px; }
+        #overlay-palette.docked:not(.collapsed) .overlay-palette-more { opacity: 0.45; transition: opacity 120ms ease; }
+        #overlay-palette.docked:not(.collapsed):hover .overlay-palette-more,
+        #overlay-palette.docked:not(.collapsed) .overlay-palette-more:focus-visible,
+        #overlay-palette.docked:not(.collapsed) .overlay-palette-more.open { opacity: 1; }
+        #overlay-palette .overlay-palette-rows { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
         #overlay-palette button {
             display: inline-grid;
             place-items: center;
@@ -1483,60 +1498,70 @@
         #overlay-palette button:hover { color: var(--text); background: var(--surface-2); }
         #overlay-palette button:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
         #overlay-palette button svg { width: 12px; height: 12px; display: block; }
-        /* Hover hints drop below the button, right-aligned so they never run
-           off the edge of the screen (the list usually sits top-right). */
-        #overlay-palette button[data-tip] { position: relative; }
-        #overlay-palette button[data-tip]::after {
-            content: attr(data-tip);
-            position: absolute;
-            top: calc(100% + 6px); right: 0;
-            padding: 4px 8px;
-            border-radius: 5px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--text);
-            font-size: 10px;
-            white-space: nowrap;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 120ms ease;
-            z-index: 2;
-        }
-        #overlay-palette button[data-tip]:hover::after { opacity: 1; transition-delay: 350ms; }
-        /* Minimized: a dot like the help button, sitting in the list's corner. */
-        #overlay-palette.collapsed {
-            width: auto;
-            padding: 0;
-            border-radius: 50%;
-        }
+        /* Collapsed: a slim strip of the label colours, glued to the view's edge. */
+        #overlay-palette.collapsed { width: auto; padding: 0; border-radius: 999px; }
         #overlay-palette .overlay-palette-restore {
-            width: 26px; height: 26px; min-width: 0;
-            padding: 0;
-            border-radius: 50%;
-            color: color-mix(in srgb, var(--text) 70%, var(--muted));
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            width: 22px; height: auto; min-width: 0;
+            padding: 8px 0;
+            border-radius: 999px;
         }
-        #overlay-palette .overlay-palette-restore svg { width: 14px; height: 14px; }
-        #overlay-palette .overlay-palette-restore:hover { color: var(--text); background: transparent; }
-        .overlay-palette-header {
-            position: relative;
-            display: grid;
-            grid-template-columns: minmax(0, 1fr);
-            grid-auto-flow: column;
-            grid-auto-columns: auto;
-            align-items: center;
-            gap: 1px;
-            height: 26px;
-            padding: 0 2px 0 6px;
-            margin-bottom: 3px;
-            cursor: grab;
-            touch-action: none;
+        #overlay-palette .overlay-palette-restore:hover { background: var(--surface-2); }
+        #overlay-palette .overlay-palette-restore .overlay-palette-swatch { flex: none; }
+        #overlay-palette .overlay-palette-restore .overlay-palette-swatch.off { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
+        /* Footer: just the options button, bottom-right. */
+        .overlay-palette-foot {
+            flex: none;
+            display: flex; justify-content: flex-end;
+            margin-top: 1px;
+            padding: 0 1px;
             user-select: none;
         }
-        .overlay-palette-header.dragging { cursor: grabbing; }
-        .overlay-palette-title { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
-        #overlay-palette .overlay-palette-alpha { font-size: 10px; min-width: 4.5ch; cursor: ns-resize; }
-        #overlay-palette .overlay-palette-all.active,
-        #overlay-palette .overlay-palette-jump.active { color: var(--text); }
+        #overlay-palette .overlay-palette-more.open { color: var(--text); background: var(--surface-2); }
+        #overlay-palette-menu {
+            position: fixed; z-index: 60;
+            display: none;
+            box-sizing: border-box;
+            width: 216px;
+            padding: 5px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--surface-shadow-strong);
+            color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        #overlay-palette-menu.visible { display: block; }
+        #overlay-palette-menu .ovm-alpha {
+            display: grid; grid-template-columns: auto minmax(0, 1fr) 4ch; align-items: center; gap: 10px;
+            height: 28px; padding: 0 8px;
+            color: var(--muted);
+        }
+        #overlay-palette-menu .ovm-alpha input {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer;
+        }
+        #overlay-palette-menu .ovm-alpha input::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--border); }
+        #overlay-palette-menu .ovm-alpha input::-moz-range-track { height: 2px; border-radius: 1px; background: var(--border); }
+        #overlay-palette-menu .ovm-alpha input::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4px; border: 0; border-radius: 50%; background: var(--text);
+        }
+        #overlay-palette-menu .ovm-alpha input::-moz-range-thumb { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--text); }
+        #overlay-palette-menu .ovm-alpha input:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
+        #overlay-palette-menu .ovm-value { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+        #overlay-palette-menu .ovm-item {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            width: 100%; height: 26px; padding: 0 8px;
+            border: 0; border-radius: 6px; background: transparent;
+            color: var(--text); font: inherit; text-align: left; cursor: pointer;
+        }
+        #overlay-palette-menu .ovm-item:hover { background: var(--surface-2); }
+        #overlay-palette-menu .ovm-item:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+        #overlay-palette-menu .ovm-check { display: grid; place-items: center; width: 12px; height: 12px; color: var(--active-dim); visibility: hidden; }
+        #overlay-palette-menu .ovm-check svg { width: 12px; height: 12px; }
+        #overlay-palette-menu .ovm-item[aria-checked="true"] .ovm-check { visibility: visible; }
+        #overlay-palette-menu .ovm-sep { height: 1px; margin: 4px 6px; background: var(--border-subtle); }
         .overlay-palette-row {
             display: grid;
             grid-template-columns: 8px minmax(0, 1fr) 56px;
@@ -1551,8 +1576,6 @@
         .overlay-palette-row:hover,
         .overlay-palette-row.focused { background: var(--surface-2); }
         .overlay-palette-row.child { padding-left: 18px; }
-        .overlay-palette-row.group { margin-top: 2px; }
-        .overlay-palette-row.child + .overlay-palette-row:not(.child) { margin-top: 2px; }
         .overlay-palette-row.dimmed { opacity: 0.4; }
         .overlay-palette-swatch {
             width: 8px;
@@ -1560,17 +1583,16 @@
             border-radius: 50%;
             background: var(--ovp-c);
         }
-        .overlay-palette-swatch.none { visibility: hidden; }
         #overlay-palette.outline .overlay-palette-swatch {
             background: transparent;
             box-shadow: inset 0 0 0 1.5px var(--ovp-c);
         }
         .overlay-palette-name {
+            max-width: 20ch;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .overlay-palette-row.child .overlay-palette-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
         .overlay-palette-strip {
             width: 56px;
             height: 10px;
@@ -6058,11 +6080,11 @@
         let _overlayPaletteSig = null;
         // Jump to the mask on patient change (see _overlayJumpHoldsRender).
         const OVERLAY_JUMP_HOLD_MAX_MS = 4000;
-        const _OVERLAY_JUMP_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="6" r="1.1" fill="currentColor"/><path d="M6 0.5v1.6M6 9.9v1.6M0.5 6h1.6M9.9 6h1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
         let _overlayJumpCase = null;
         let _overlayJumpHold = null;  // {p, t0, timer}
         let _overlayPaletteRows = [];
         const _OVP_STRIP_W = 56, _OVP_STRIP_H = 10;
+        const _OVP_DOCK_W = 240, _OVP_DOCK_MIN_W = 120;  // #overlay-palette max / min width
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
         const _overlayNamesArr = _overlayNamesParam ? _overlayNamesParam.split(',').map(s => s.trim()).filter(Boolean) : [];
         let _overlayLabels = _overlaySids.map((_, i) => _overlayNamesArr[i] || `overlay ${i + 1}`);
@@ -8931,6 +8953,20 @@
             ];
         }
 
+        /** Big-left ortho from the single view: the plane that was on screen
+         *  goes first (the big pane). Generic arrays also keep its on-screen
+         *  orientation; NIfTI planes keep their clinical one. */
+        function _leadWithSingleViewPlane(defs, dims) {
+            if (_resolvedOrthoLayoutMode() !== 'big-left') return;
+            const sliceDir = dims.find(d => d !== dim_x && d !== dim_y);
+            if (sliceDir === undefined || !dims.includes(dim_x) || !dims.includes(dim_y)) return;
+            const i = defs.findIndex(d => d.sliceDir === sliceDir);
+            if (i < 0) return;
+            const def = defs[i];
+            if (def.flipX === undefined && def.flipY === undefined) Object.assign(def, { dimX: dim_x, dimY: dim_y });
+            defs.unshift(defs.splice(i, 1)[0]);
+        }
+
         // ── View Cycling & Physical Proportions ──
         // o steps a single view through the same three planes the
         // 3-plane view shows. Per array, the viewer keeps:
@@ -11448,6 +11484,13 @@
         // ── Mode crossfade utility ──────────────────────────────
         // Fades wrapper to black, runs fn (sync or async), fades back in.
         let _crossfading = false;
+        // Kill the immersive timeline — the element targets may
+        // change (compare ↔ single ↔ multiview) and the cached fly
+        // distances will no longer match the post-switch layout.
+        function _killImmersiveTweens() {
+            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
+            if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
+        }
         function crossfade(fn) {
             if (_crossfading) { fn(); return; }
             const w = document.getElementById('wrapper');
@@ -11458,11 +11501,7 @@
             if (info) info.classList.add('mode-fade');
             const marker = document.getElementById('dim-active-underline');
             if (marker) marker.classList.add('mode-fade');
-            // Kill the immersive timeline — the element targets may
-            // change (compare ↔ single ↔ multiview) and the cached fly
-            // distances will no longer match the post-switch layout.
-            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
-            if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
+            _killImmersiveTweens();
             // Wait for fade-out transition to finish, then run the mode switch
             setTimeout(() => {
                 let result;
@@ -21136,29 +21175,115 @@
 
         let _overlayPaletteHidden = false;
         let _overlayPaletteCollapsed = false;
-        const _OVERLAY_LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="m2.5 12.5 9.5 5 9.5-5"/><path d="m2.5 17 9.5 5 9.5-5" opacity="0.55"/></svg>';
-        const _OVERLAY_MINIMIZE_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
         function _overlayPaletteSetCollapsed(collapsed, e) {
             if (e) { e.preventDefault(); e.stopPropagation(); }
-            const el = document.getElementById('overlay-palette');
-            if (el && _overlayPaletteDragPos) {
-                // Keep the right edge where it was, so the dot sits in the
-                // panel's corner and the panel reopens in the same place.
-                const before = el.offsetWidth;
-                _overlayPaletteCollapsed = !!collapsed;
-                _renderOverlayPalette();
-                _overlayPaletteDragPos.left += before - el.offsetWidth;
-            } else {
-                _overlayPaletteCollapsed = !!collapsed;
-            }
+            _overlayPaletteCollapsed = !!collapsed;
             _overlayFocusIdx = null;
             _overlayFocusLabel = null;
             _reconcileOverlayPalette();
             updateView();
         }
         window._overlayPaletteSetCollapsed = _overlayPaletteSetCollapsed;
-        let _overlayPaletteDragPos = null;
+
+        // ── Overlay options menu (the list's "⋯" button) ──
+        // Lives outside #overlay-palette so list redraws (hover, slice counts)
+        // never rebuild it mid-drag.
+        let _overlayMenuOpen = false;
+        const _OVERLAY_MORE_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="2.2" cy="6" r="1.1" fill="currentColor"/><circle cx="6" cy="6" r="1.1" fill="currentColor"/><circle cx="9.8" cy="6" r="1.1" fill="currentColor"/></svg>';
+        const _OVERLAY_CHECK_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2 5 8.6 9.6 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+        function _overlayMenuEl() {
+            let menu = document.getElementById('overlay-palette-menu');
+            if (menu) return menu;
+            menu = document.createElement('div');
+            menu.id = 'overlay-palette-menu';
+            menu.setAttribute('role', 'menu');
+            menu.setAttribute('aria-label', 'Overlay options');
+            document.body.appendChild(menu);
+            return menu;
+        }
+
+        function _buildOverlayMenu() {
+            const menu = _overlayMenuEl();
+            const pct = Math.round(overlayAlpha * 100);
+            let html = `<label class="ovm-alpha"><span>opacity</span><input type="range" min="5" max="95" step="5" value="${pct}" aria-label="Overlay opacity"><span class="ovm-value">${pct}%</span></label>`;
+            html += '<div class="ovm-sep"></div>';
+            html += `<button class="ovm-item" type="button" role="menuitemcheckbox" data-act="outline"><span>outlines only</span><span class="ovm-check">${_OVERLAY_CHECK_ICON}</span></button>`;
+            if (_overlayJumpAvailable()) {
+                html += `<button class="ovm-item" type="button" role="menuitemcheckbox" data-act="jump"><span>jump to mask on new case</span><span class="ovm-check">${_OVERLAY_CHECK_ICON}</span></button>`;
+            }
+            html += '<div class="ovm-sep"></div>';
+            html += '<button class="ovm-item" type="button" role="menuitem" data-act="all"><span class="ovm-all-text"></span></button>';
+            html += '<button class="ovm-item" type="button" role="menuitem" data-act="collapse"><span>collapse list</span></button>';
+            menu.innerHTML = html;
+            const slider = menu.querySelector('input');
+            slider.addEventListener('input', () => _setOverlayAlpha(slider.value / 100));
+            menu.querySelectorAll('.ovm-item').forEach(btn => btn.addEventListener('click', e => {
+                const act = btn.dataset.act;
+                if (act === 'outline') _overlayPaletteToggleOutline(e);
+                else if (act === 'jump') _overlayPaletteToggleJump(e);
+                else if (act === 'all') _overlayPaletteToggleAll(e);
+                else if (act === 'collapse') { _overlayPaletteSetCollapsed(true, e); return; }
+                _syncOverlayMenu();
+            }));
+            _syncOverlayMenu();
+        }
+
+        function _syncOverlayMenu() {
+            const menu = document.getElementById('overlay-palette-menu');
+            if (!menu || !_overlayMenuOpen) return;
+            const pct = Math.round(overlayAlpha * 100);
+            const slider = menu.querySelector('input');
+            if (slider && document.activeElement !== slider) slider.value = pct;
+            const value = menu.querySelector('.ovm-value');
+            if (value) value.textContent = `${pct}%`;
+            menu.querySelector('[data-act="outline"]')?.setAttribute('aria-checked', String(overlayOutlineOnly));
+            menu.querySelector('[data-act="jump"]')?.setAttribute('aria-checked', String(overlayJumpToMask));
+            const allText = menu.querySelector('.ovm-all-text');
+            if (allText) allText.textContent = _visibleOverlayIndices().length ? 'hide all overlays' : 'show all overlays';
+        }
+
+        function _reconcileOverlayMenu() {
+            const menu = document.getElementById('overlay-palette-menu');
+            const btn = document.querySelector('#overlay-palette .overlay-palette-more');
+            const open = _overlayMenuOpen && !!btn;
+            if (btn) {
+                btn.classList.toggle('open', open);
+                btn.setAttribute('aria-expanded', String(open));
+            }
+            if (!menu) return;
+            menu.classList.toggle('visible', open);
+            if (!open) return;
+            // Right-aligned under the button; flips above it near the bottom of the window.
+            const r = btn.getBoundingClientRect();
+            const w = menu.offsetWidth, h = menu.offsetHeight;
+            const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
+            const below = r.bottom + 6;
+            const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - 6 - h) : below;
+            menu.style.left = `${Math.round(left)}px`;
+            menu.style.top = `${Math.round(top)}px`;
+        }
+
+        function _toggleOverlayMenu(e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            _overlayMenuOpen = !_overlayMenuOpen;
+            if (_overlayMenuOpen) _buildOverlayMenu();
+            _reconcileOverlayMenu();
+        }
+        window._toggleOverlayMenu = _toggleOverlayMenu;
+
+        function _closeOverlayMenu() {
+            if (!_overlayMenuOpen) return;
+            _overlayMenuOpen = false;
+            _reconcileOverlayMenu();
+        }
+
+        document.addEventListener('pointerdown', e => {
+            if (!_overlayMenuOpen) return;
+            if (e.target.closest('#overlay-palette-menu, #overlay-palette .overlay-palette-more')) return;
+            _closeOverlayMenu();
+        }, true);
 
         function _overlayActuallyVisible(idx) {
             if (idx < 0 || idx >= _overlaySids.length) return false;
@@ -21305,65 +21430,50 @@
                 return;
             }
             el.classList.toggle('collapsed', _overlayPaletteCollapsed);
-            if (_overlayPaletteCollapsed) {
-                el.innerHTML = `<button class="overlay-palette-restore" type="button" onclick="_overlayPaletteSetCollapsed(false, event)" data-tip="Show overlay list" aria-label="Show overlay list">${_OVERLAY_LAYERS_ICON}</button>`;
-                return;
-            }
-            _ensureOverlaySliceCounts();
-            const planes = _overlayStripPlanes();
-            _overlayPaletteSig = _overlayStripSig(planes);
-            const anyVisible = _visibleOverlayIndices().length > 0;
-            const pct = Math.round(overlayAlpha * 100);
-            const styleIcon = overlayOutlineOnly
-                ? '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
-                : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="currentColor"/></svg>';
-            let html = '<div class="overlay-palette-header overlay-palette-drag-handle">';
-            html += '<span class="overlay-palette-title">overlays</span>';
-            html += `<button class="overlay-palette-style" type="button" onclick="_overlayPaletteToggleOutline(event)" data-tip="${overlayOutlineOnly ? 'Showing outlines · click for filled masks' : 'Showing filled masks · click for outlines'}" aria-label="Filled or outline">${styleIcon}</button>`;
-            html += `<button class="overlay-palette-alpha" type="button" data-tip="Opacity · scroll here, or press [ and ]" aria-label="Overlay opacity">${pct}%</button>`;
-            if (_overlayJumpAvailable()) {
-                const tip = overlayJumpToMask
-                    ? 'Changing patient jumps to the mask · click to stay on the same slice'
-                    : 'Changing patient stays on the same slice · click to jump to the mask';
-                html += `<button class="overlay-palette-jump${overlayJumpToMask ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleJump(event)" data-tip="${tip}" aria-label="Jump to the mask on patient change">${_OVERLAY_JUMP_ICON}</button>`;
-            }
-            html += `<button class="overlay-palette-all${anyVisible ? ' active' : ''}" type="button" onclick="_overlayPaletteToggleAll(event)" data-tip="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}" aria-label="${anyVisible ? 'Hide all overlays' : 'Show all overlays'}">${anyVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</button>`;
-            html += `<button class="overlay-palette-minimize" type="button" onclick="_overlayPaletteSetCollapsed(true, event)" data-tip="Minimize" aria-label="Minimize overlay list">${_OVERLAY_MINIMIZE_ICON}</button>`;
-            html += '</div>';
-
-            const focusActive = _overlayFocusIdx !== null && _overlayActuallyVisible(_overlayFocusIdx);
+            el.classList.toggle('outline', overlayOutlineOnly);
             const rows = [];
             for (let i = 0; i < _overlaySids.length; i++) {
                 const baseName = _overlayLabels[i] || `overlay ${i + 1}`;
                 const labels = _overlayLabelValues[i] || [];
                 if (labels.length > 1) {
-                    rows.push({ i, label: null, group: true, name: baseName, color: null });
+                    // One row per label; the mask name is only needed to tell several masks apart.
+                    const prefix = _overlaySids.length > 1 ? `${baseName} · ` : '';
                     for (const label of labels) {
                         const rgb = LABEL_COLORS[(label - 1) % LABEL_COLORS.length];
-                        rows.push({ i, label, group: false, child: true, name: String(label), title: `${baseName} · label ${label}`, color: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})` });
+                        rows.push({ i, label, name: `${prefix}${label}`, title: `${baseName} · label ${label}`, color: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})` });
                     }
                 } else {
-                    rows.push({ i, label: null, group: false, name: baseName, color: `#${_overlayColors[i]}` });
+                    rows.push({ i, label: null, name: baseName, color: `#${_overlayColors[i]}` });
                 }
             }
+            if (_overlayPaletteCollapsed) {
+                // Collapsed: a slim strip of the label colours, still glued to the view.
+                _closeOverlayMenu();
+                const dots = rows.slice(0, 24).map(row =>
+                    `<span class="overlay-palette-swatch${_overlayLabelShown(row.i, row.label) ? '' : ' off'}" style="--ovp-c:${row.color}"></span>`
+                ).join('');
+                el.innerHTML = `<button class="overlay-palette-restore" type="button" onclick="_overlayPaletteSetCollapsed(false, event)" aria-label="Show overlay list" title="Show overlay list">${dots}</button>`;
+                return;
+            }
+            _ensureOverlaySliceCounts();
+            const planes = _overlayStripPlanes();
+            _overlayPaletteSig = _overlayStripSig(planes);
+            let html = '';
+            const focusActive = _overlayFocusIdx !== null && _overlayActuallyVisible(_overlayFocusIdx);
             html += '<div class="overlay-palette-rows">';
             rows.forEach((row, r) => {
                 const shown = _overlayLabelShown(row.i, row.label);
                 const focused = focusActive && row.i === _overlayFocusIdx
-                    && (_overlayFocusLabel === null || _overlayFocusLabel === row.label || row.group);
+                    && (_overlayFocusLabel === null || _overlayFocusLabel === row.label);
                 const dimmed = focusActive && shown && !focused;
                 const cls = ['overlay-palette-row'];
-                if (row.group) cls.push('group');
-                if (row.child) cls.push('child');
                 if (!shown) cls.push('off');
                 if (focused) cls.push('focused');
                 if (dimmed) cls.push('dimmed');
                 const labelArg = row.label === null ? 'null' : row.label;
                 const tip = row.title || row.name;
                 html += `<div class="${cls.join(' ')}" data-row="${r}" onpointerenter="_overlayPaletteFocus(${row.i}, ${labelArg})" onclick="_overlayPaletteToggle(${row.i}, ${labelArg})" title="${_roiHtmlEscape(shown ? `Hide ${tip}` : `Show ${tip}`)}">`;
-                html += row.color
-                    ? `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`
-                    : '<span class="overlay-palette-swatch none"></span>';
+                html += `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`;
                 html += `<span class="overlay-palette-name">${_roiHtmlEscape(row.name)}</span>`;
                 planes.forEach((plane, k) => {
                     html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}" onpointerdown="_overlayPaletteStripDown(event, ${r}, ${k})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
@@ -21371,8 +21481,10 @@
                 html += '</div>';
             });
             html += '</div>';
+            html += '<div class="overlay-palette-foot">';
+            html += `<button class="overlay-palette-more${_overlayMenuOpen ? ' open' : ''}" type="button" onclick="_toggleOverlayMenu(event)" aria-label="Overlay options" aria-haspopup="menu" aria-expanded="${_overlayMenuOpen}">${_OVERLAY_MORE_ICON}</button>`;
+            html += '</div>';
             el.innerHTML = html;
-            el.classList.toggle('outline', overlayOutlineOnly);
             const rowEls = el.querySelectorAll('.overlay-palette-row');
             _overlayPaletteRows = rows.map((row, r) => ({ ...row, el: rowEls[r] }));
             _overlayPaletteRows.forEach(row => {
@@ -21388,8 +21500,6 @@
                     return { plane, counts, el };
                 });
             });
-            const alphaBtn = el.querySelector('.overlay-palette-alpha');
-            alphaBtn.addEventListener('wheel', _overlayPaletteAlphaWheel, { passive: false });
             _syncOverlayPaletteSlice();
         }
 
@@ -21469,19 +21579,9 @@
         }
         window._overlayPaletteStripDown = _overlayPaletteStripDown;
 
-        function _overlayPaletteAlphaWheel(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const step = e.deltaY < 0 ? 0.05 : -0.05;
-            _setOverlayAlpha(overlayAlpha + step);
-        }
-
         function _setOverlayAlpha(value, { island = true } = {}) {
             overlayAlpha = Math.max(0.05, Math.min(0.95, Math.round(value * 100) / 100));
-            const pct = Math.round(overlayAlpha * 100);
-            const el = document.getElementById('overlay-palette');
-            const btn = el?.querySelector('.overlay-palette-alpha');
-            if (btn) btn.textContent = `${pct}%`;
+            _syncOverlayMenu();
             updateView();
             if (island && typeof renderIsland === 'function') renderIsland();
             saveState();
@@ -21502,70 +21602,43 @@
             if (!el || !host || !anchor) return;
             if (el.parentElement !== host) host.appendChild(el);
             const hostRect = host.getBoundingClientRect();
-            if (_overlayPaletteDragPos) {
-                const maxLeft = Math.max(0, host.clientWidth - el.offsetWidth);
-                const maxTop = Math.max(0, host.clientHeight - el.offsetHeight);
-                _overlayPaletteDragPos.left = Math.max(
-                    0, Math.min(maxLeft, _overlayPaletteDragPos.left)
-                );
-                _overlayPaletteDragPos.top = Math.max(
-                    0, Math.min(maxTop, _overlayPaletteDragPos.top)
-                );
-                el.style.left = `${Math.round(_overlayPaletteDragPos.left)}px`;
-                el.style.top = `${Math.round(_overlayPaletteDragPos.top)}px`;
-                el.style.right = 'auto';
-                return;
-            }
             const anchorRect = anchor.getBoundingClientRect();
-            const top = Math.max(0, Math.round(anchorRect.top - hostRect.top + 10));
-            const right = Math.max(0, Math.round(hostRect.right - anchorRect.right + 10));
+            // Sit flush against the right edge of the view, as tall as the view.
+            // Only when there is no room beside it, fall back to its top-right corner.
+            // Docked, the list may narrow (down to _OVP_DOCK_MIN_W) to fit the room beside the view.
+            const gap = 12;
+            const room = hostRect.right - anchorRect.right - gap * 2;
+            const docked = _overlayPaletteCollapsed ? room >= 26 : room >= _OVP_DOCK_MIN_W;
+            if (docked && !_overlayPaletteCollapsed) el.style.maxWidth = `${Math.min(_OVP_DOCK_W, Math.floor(room))}px`;
+            else el.style.removeProperty('max-width');
+            const top = Math.max(0, Math.round(anchorRect.top - hostRect.top + (docked ? 0 : 10)));
+            el.classList.toggle('docked', docked);
             el.style.top = `${top}px`;
-            el.style.right = `${right}px`;
-            el.style.removeProperty('left');
+            el.style.maxHeight = `${Math.max(80, Math.round(anchorRect.height - (docked ? 0 : 20)))}px`;
+            if (docked) {
+                el.style.left = `${Math.round(anchorRect.right - hostRect.left + gap)}px`;
+                el.style.right = 'auto';
+            } else {
+                el.style.right = `${Math.max(0, Math.round(hostRect.right - anchorRect.right + 10))}px`;
+                el.style.removeProperty('left');
+            }
         }
 
-        function _installOverlayPaletteDrag() {
+        function _installOverlayPaletteHover() {
             const el = document.getElementById('overlay-palette');
-            const host = document.getElementById('viewer-row');
-            if (!el || !host || el.dataset.dragReady === '1') return;
-            el.dataset.dragReady = '1';
-            let drag = null;
-
-            el.addEventListener('pointerdown', e => {
-                const handle = e.target.closest('.overlay-palette-drag-handle');
-                if (!handle || e.target.closest('button')) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const hostRect = host.getBoundingClientRect();
-                const rect = el.getBoundingClientRect();
-                drag = {
-                    pointerId: e.pointerId,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    left: rect.left - hostRect.left,
-                    top: rect.top - hostRect.top,
-                };
-                handle.classList.add('dragging');
-                handle.setPointerCapture(e.pointerId);
-            });
-
-            el.addEventListener('pointermove', e => {
-                if (!drag || e.pointerId !== drag.pointerId) return;
-                _overlayPaletteDragPos = {
-                    left: drag.left + e.clientX - drag.startX,
-                    top: drag.top + e.clientY - drag.startY,
-                };
-                _reconcileOverlayPaletteAnchor();
-            });
-
-            const finish = e => {
-                if (!drag || e.pointerId !== drag.pointerId) return;
-                e.target.classList.remove('dragging');
-                drag = null;
-            };
-            el.addEventListener('pointerup', finish);
-            el.addEventListener('pointercancel', finish);
+            if (!el || el.dataset.hoverReady === '1') return;
+            el.dataset.hoverReady = '1';
             el.addEventListener('pointerleave', () => _overlayPaletteFocus(null));
+            // Zoom and mode switches resize the view without a UI reconcile;
+            // keep the list glued to its edge.
+            if (typeof ResizeObserver === 'undefined') return;
+            const ro = new ResizeObserver(() => {
+                if (el.classList.contains('visible')) _reconcileOverlayPaletteAnchor();
+            });
+            ['canvas-viewport', 'multi-view-wrap', 'compare-view-wrap', 'qmri-view-wrap'].forEach(id => {
+                const node = document.getElementById(id);
+                if (node) ro.observe(node);
+            });
         }
 
         function _reconcileOverlayPalette() {
@@ -21573,7 +21646,7 @@
             if (!el) return;
             const show = _overlaySids.length > 0 && !_overlayPaletteHidden;
             if (show) _renderOverlayPalette();
-            if (show) _installOverlayPaletteDrag();
+            if (show) _installOverlayPaletteHover();
             _reconcileOverlayPaletteAnchor();
             if (show) {
                 requestAnimationFrame(() => {
@@ -21582,6 +21655,8 @@
             }
             el.classList.toggle('visible', show);
             el.setAttribute('aria-hidden', show ? 'false' : 'true');
+            if (!show) _overlayMenuOpen = false;
+            _reconcileOverlayMenu();
         }
 
         function _overlayPaletteToggle(idx, label = null) {
@@ -21785,10 +21860,12 @@
         window._toggleOverlayPalettePinned = _toggleOverlayPalettePinned;
 
         window.addEventListener('resize', () => {
-            if (_overlayPaletteDragPos) _reconcileOverlayPaletteAnchor();
+            _reconcileOverlayPaletteAnchor();
+            _reconcileOverlayMenu();
         });
 
         window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && _overlayMenuOpen) { _closeOverlayMenu(); e.stopPropagation(); return; }
             if (e.key !== 'Escape' || _overlayPaletteHidden) return;
             _overlayPaletteHidden = true;
             _reconcileOverlayPalette();
@@ -23760,7 +23837,10 @@
                 if (_overlayFocusIdx === i && _overlayFocusLabel !== null) {
                     hidden = labels.filter(v => v !== _overlayFocusLabel);
                 }
-                return hidden.length ? `${_overlayColors[i]}~${hidden.join('.')}` : _overlayColors[i];
+                // A label map keeps its per-label colours even when only one label
+                // is on the slice, so it sends no single overlay colour.
+                const color = labels.length > 1 ? '' : _overlayColors[i];
+                return hidden.length ? `${color}~${hidden.join('.')}` : color;
             }).join(',');
         }
 
@@ -30095,11 +30175,8 @@
                         showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
                         return;
                     }
-                    crossfade(() => {
-                        if (multiViewActive) { exitMultiView(); } else {
-                            enterMultiView(defaultMultiViewDims());
-                        }
-                    });
+                    if (multiViewActive) _orthoGlideExit();
+                    else _orthoGlideEnter(defaultMultiViewDims());
                 },
             },
             'vfield.toggleArrows': {
@@ -35337,7 +35414,7 @@
             enterMultiView(dims);
         }
 
-        function enterMultiView(dims) {
+        function enterMultiView(dims, opts = {}) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             if (stackMosaicActive) exitStackMosaic();
@@ -35414,6 +35491,7 @@
             _buildObliqueFlipWrap(wrap, window._mvColorBar.wrap);
             // 3 views: axial left, coronal middle, sagittal right.
             const defs = multiViewPlaneDefs(dims);
+            if (opts.leadWithSingleView) _leadWithSingleViewPlane(defs, dims);
             mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
                 pane.className = 'mv-pane';
@@ -41369,6 +41447,175 @@
                 });
             });
             showStatus('promoted view');
+        }
+
+        /** v from the single view: a still copy of the slice on screen glides
+         *  into the big ortho pane while the other two planes fade in beside
+         *  it; v again glides it back. Anything else (a big pane showing a
+         *  different picture, a layout without a big pane) keeps the plain
+         *  crossfade. */
+        const _ORTHO_GLIDE_MS = 750;
+        const _ORTHO_GLIDE_EASE = 'cubic-bezier(.65, 0, .35, 1)';   // ease-in-out cubic
+        // Side panes travel in from (and out to) the window's right edge.
+        const _orthoSideShift = (left) => Math.max(40, window.innerWidth - left);
+        let _orthoGlideBusy = false;
+
+        // Plays even under the system's reduced-motion setting: a short, user-requested
+        // move that keeps track of where the slice went.
+        function _orthoGlideAllowed() {
+            return !_orthoGlideBusy && !_crossfading && typeof document.body.animate === 'function';
+        }
+
+        // The ortho pane drawing the same picture as the single view, or -1.
+        function _orthoSingleViewPane() {
+            return mvViews.findIndex(v => v.dimX === dim_x && v.dimY === dim_y);
+        }
+
+        // Still copy of canvas `src` covering `frame` (its box, if it is letterboxed in one).
+        function _orthoGhost(src, frame = src, radius = '10px') {
+            const r = frame.getBoundingClientRect(), c = src.getBoundingClientRect();
+            if (!src.width || !src.height || !r.width || !c.width) return null;
+            const k = src.width / c.width;
+            const g = document.createElement('canvas');
+            g.width = Math.round(r.width * k); g.height = Math.round(r.height * k);
+            const gx = g.getContext('2d');
+            const bg = getComputedStyle(frame).backgroundColor;
+            if (frame !== src && bg) { gx.fillStyle = bg; gx.fillRect(0, 0, g.width, g.height); }
+            gx.imageSmoothingEnabled = false;
+            try { gx.drawImage(src, (c.left - r.left) * k, (c.top - r.top) * k, c.width * k, c.height * k); } catch (e) { return null; }
+            g.setAttribute('aria-hidden', 'true');
+            g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`
+                + `z-index:41;pointer-events:none;image-rendering:${getComputedStyle(src).imageRendering};border-radius:${radius};`;
+            document.body.appendChild(g);
+            g._from = r;
+            return g;
+        }
+
+        // Park the ghost on `to` and play the move from where it was copied.
+        function _orthoGlideTo(g, to) {
+            const f = g._from;
+            Object.assign(g.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` });
+            return g.animate([
+                { transformOrigin: '0 0', transform: `translate(${f.left - to.left}px, ${f.top - to.top}px) scale(${f.width / to.width}, ${f.height / to.height})` },
+                { transformOrigin: '0 0', transform: 'none' },
+            ], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+        }
+
+        // Fade the ghost once `landed()` holds (or after 400 ms), then drop it.
+        function _orthoGhostRelease(g, landed) {
+            const t0 = performance.now();
+            const wait = () => {
+                if (!landed() && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
+                const fade = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                fade.onfinish = fade.oncancel = () => { g.remove(); _orthoGlideBusy = false; };
+            };
+            wait();
+        }
+
+        const _slimCb = () => document.getElementById('slim-cb-wrap');
+        const _mvCb = () => window._mvColorBar?.wrap;
+
+        // Slide `el` (centre to centre) from where `from` was before the switch. Uses the
+        // `translate` property so it adds to, not replaces, the transform that positions it.
+        function _glideFrom(el, from) {
+            const to = el?.getBoundingClientRect();
+            if (!from || !from.width || !to || !to.width) return;
+            const dx = (from.left + from.width / 2) - (to.left + to.width / 2), dy = (from.top + from.height / 2) - (to.top + to.height / 2);
+            el.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }],
+                { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+        }
+
+        // The dimbar and colorbar have their own short CSS slides; switch those off for
+        // the glide so the elements jump to their new place and only the glide moves them.
+        function _holdTransitions(els) {
+            els = els.filter(Boolean);
+            els.forEach(el => { el.style.transition = 'none'; });
+            setTimeout(() => els.forEach(el => el.style.removeProperty('transition')), _ORTHO_GLIDE_MS + 50);
+        }
+
+        // Morph `el` from rect `from` into its own place (move + resize, no fade).
+        function _morphFrom(el, from) {
+            const to = el.getBoundingClientRect();
+            if (!from || !from.width || !to.width) return;
+            return el.animate([
+                { transformOrigin: '0 0', transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+                { transformOrigin: '0 0', transform: 'none' },
+            ], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+        }
+
+        function _orthoGlideEnter(dims) {
+            const main = document.getElementById('viewer');
+            const ghost = _orthoGlideAllowed() && main ? _orthoGhost(main) : null;
+            if (!ghost) { crossfade(() => enterMultiView(dims, { leadWithSingleView: true })); return; }
+            const info = document.getElementById('info');
+            const cbFrom = _slimCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            _holdTransitions([info]);
+            enterMultiView(dims, { leadWithSingleView: true });
+            if (!multiViewActive || _resolvedOrthoLayoutMode() !== 'big-left' || _orthoSingleViewPane() !== 0) {
+                // No matching big pane: the ghost just fades over the new layout.
+                _orthoGhostRelease(ghost, () => true);
+                _syncSinkFocus();
+                return;
+            }
+            const big = mvViews[0];
+            const target = big.canvas.getBoundingClientRect();   // before anything below moves it
+            // The image stays hidden until the ghost lands on it, so the slice is never on
+            // screen twice; the pane's box (wider than the image) grows out of the old image.
+            big.canvas.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            _morphFrom(big.pane, ghost._from);
+            mvViews.slice(1).forEach(v => v.pane.animate(
+                [{ transform: `translateX(${_orthoSideShift(v.pane.getBoundingClientRect().left)}px)` }, { transform: 'none' }],
+                { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE }));
+            _holdTransitions([_mvCb()]);
+            _glideFrom(_mvCb(), cbFrom);
+            _glideFrom(info, infoFrom);
+            const glide = _orthoGlideTo(ghost, target);
+            glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => !!big.lastImageData);
+            _syncSinkFocus();
+        }
+
+        function _orthoGlideExit() {
+            const big = mvViews[0];
+            const ok = _orthoGlideAllowed() && big && !obliqueVecs
+                && _resolvedOrthoLayoutMode() === 'big-left' && _orthoSingleViewPane() === 0;
+            const ghost = ok ? _orthoGhost(big.canvas) : null;
+            if (!ghost) { crossfade(() => exitMultiView()); return; }
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            const sides = mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean);
+            const info = document.getElementById('info');
+            const cbFrom = _mvCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
+            _holdTransitions([info, _slimCb()]);
+            // The big pane's box, without its image, shrinks back with the image.
+            const pr = big.pane.getBoundingClientRect(), box = document.createElement('div');
+            box.setAttribute('aria-hidden', 'true');
+            box.style.cssText = `position:fixed;left:${pr.left}px;top:${pr.top}px;width:${pr.width}px;height:${pr.height}px;`
+                + `z-index:40;pointer-events:none;border-radius:10px;background:${getComputedStyle(big.pane).backgroundColor};`;
+            document.body.appendChild(box);
+            box._from = pr;
+            exitMultiView();
+            const main = document.getElementById('viewer');
+            sides.forEach(g => {
+                const out = g.animate([{ transform: 'none' }, { transform: `translateX(${_orthoSideShift(g._from.left)}px)` }],
+                    { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
+                out.onfinish = out.oncancel = () => g.remove();
+            });
+            // The image's rounded outline sits on its viewport; hide both until the ghost lands.
+            document.getElementById('canvas-viewport')?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            const seq0 = _frameDisplaySeq;
+            // The single view's size settles a frame after exit.
+            requestAnimationFrame(() => {
+                _glideFrom(_slimCb(), cbFrom);
+                _glideFrom(info, infoFrom);
+                const to = main.getBoundingClientRect();
+                const boxGlide = _orthoGlideTo(box, to);
+                boxGlide.onfinish = boxGlide.oncancel = () => box.remove();
+                const glide = _orthoGlideTo(ghost, to);
+                glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
+            });
+            _syncSinkFocus();
         }
 
         // Colorbar height for sizing the ortho panes, without the tick row: hover

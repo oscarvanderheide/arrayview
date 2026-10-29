@@ -311,7 +311,11 @@ def test_cutaway_replaces_all_three_ortho_panes(loaded_viewer, sid_3d, tmp_path)
     page = loaded_viewer(sid_3d)
     _wait(page, 450)
     page.keyboard.press("v")
-    page.wait_for_function("() => multiViewActive && mvViews.length === 3", timeout=5_000)
+    # Measure after the entry glide: side panes slide in from the right.
+    page.wait_for_function(
+        "() => multiViewActive && mvViews.length === 3 && !_orthoGlideBusy && !document.getAnimations().length",
+        timeout=5_000,
+    )
     slice_boxes = page.locator(".mv-canvas").evaluate_all(
         "els => els.map(el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; })"
     )
