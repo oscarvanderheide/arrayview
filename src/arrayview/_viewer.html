@@ -266,6 +266,8 @@
             user-select: none;
         }
         .pane-name { pointer-events: none; }
+        /* Only immersive's floating dim bar moves a name (_dodgeImmersiveBar). */
+        body:not(.fullscreen-mode) .pane-name, body:not(.fullscreen-mode) .compare-title { translate: none !important; }
         .pane-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* --match collection: current case name (_reconcileCaseTitle). */
         #case-title:not(.visible), .mv-pane-name:not(.visible) { display: none; }
@@ -276,7 +278,6 @@
             color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
         }
         body.fullscreen-mode #qmri-case-name { display: none; }
-        body.fullscreen-mode #case-title { display: none; }
         #canvas-viewport { position: relative; overflow: hidden; display: inline-block; user-select: none; -webkit-user-select: none; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         .zoom-select-rect {
@@ -4014,6 +4015,15 @@
             45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
+        /* On the image: white like every corner name, brackets a step back. */
+        #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
+        #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: rgba(255,255,255,0.6); }
+        #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket.index-hint-glow { animation-name: detached-index-flash-inset; }
+        @keyframes detached-index-flash-inset {
+            0% { color: var(--active-dim); }
+            45% { color: var(--active-dim); }
+            100% { color: rgba(255,255,255,0.6); }
+        }
         .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 14px; }
         .compare-title .compare-center-mode-btn {
             display: inline-flex; align-items: center; justify-content: center;
@@ -4778,8 +4788,8 @@
             outline: 1px solid var(--canvas-border);
             outline-offset: -1px;
         }
-        /* Collapse title completely */
-        body.fullscreen-mode .compare-title {
+        /* Collapse a title row completely (names on the image stay) */
+        body.fullscreen-mode #compare-view-wrap:not(.compare-titles-inset) .compare-title {
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
         }
@@ -43029,6 +43039,7 @@
             if (_fullscreenActive === on) return;
             _fullscreenActive = on;
             document.body.classList.toggle('fullscreen-mode', on);
+            if (!on) _dodgeImmersiveBar();
             // Recalc layout with new reserves
             ModeRegistry.scaleAll();
             if (!on) {
@@ -43645,7 +43656,36 @@
                 }
                 _miniMap.style.right = 'auto';
             }
+            _dodgeImmersiveBar();
             _validateUIState();
+        }
+
+        // Immersive: a corner name the floating dim bar would cover drops just
+        // below it, and so does every name on the same line.
+        function _dodgeImmersiveBar() {
+            const names = [...document.querySelectorAll('.pane-name.visible, #compare-view-wrap.compare-titles-inset .compare-pane.active > .compare-title')];
+            names.forEach(n => n.style.removeProperty('translate'));
+            const bar = document.getElementById('info');
+            const b = _fullscreenActive && bar && bar.offsetWidth ? bar.getBoundingClientRect() : null;
+            const rows = new Map();
+            for (const n of b ? names : []) {
+                const r = n.getBoundingClientRect();
+                if (!r.width) continue;
+                const key = Math.round(r.top);
+                const hit = r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
+                const row = rows.get(key) || { els: [], shift: 0 };
+                row.els.push(n);
+                if (hit) row.shift = Math.max(row.shift, Math.ceil(b.bottom + 6 - r.top));
+                rows.set(key, row);
+            }
+            for (const { els, shift } of rows.values()) {
+                if (shift > 0) els.forEach(n => { n.style.translate = `0 ${shift}px`; });
+            }
+            // Pane maps placed under the names follow them.
+            const inset = _compareTitlesInset();
+            document.querySelectorAll('#compare-view-wrap .cmp-mini-map.visible').forEach(mm => {
+                if (mm.style.top !== 'auto') mm.style.top = _paneMinimapTop(mm.parentElement, inset) + 'px';
+            });
         }
 
         /* ── JS: UI Validation and Reconciliation ─────────────────── */
@@ -44045,8 +44085,10 @@
         // Array names sit in the images' top-left corners, as in the single
         // view and ortho. A centre view (A−B, overlay, wipe…) keeps the title
         // row above the panes for its own label and stats.
+        // Names sit on their image's corner, immersive included; only a centre
+        // view keeps its title row.
         function _compareTitlesInset() {
-            if (!compareActive || _fullscreenActive) return false;
+            if (!compareActive) return false;
             return !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
         }
 
@@ -44069,6 +44111,7 @@
                 title.style.top = `${Math.round(c.top - p.top + 8)}px`;
                 title.style.left = `${Math.round(c.left - p.left + 10)}px`;
             });
+            if (_fullscreenActive) _dodgeImmersiveBar();
         }
 
         // ── Centralized CB / island visibility reconciler ────────────
@@ -46849,10 +46892,18 @@
             updateMiniMapViewport();
         }
 
+        // A name in the pane's top-left corner: top maps hang below its line.
+        function _paneMinimapTop(clip, inset) {
+            const name = inset && clip.closest('.compare-pane')?.querySelector(':scope > .compare-title');
+            if (!name || !name.offsetHeight) return 6;
+            return Math.max(6, Math.round(name.getBoundingClientRect().bottom - clip.getBoundingClientRect().top) + 6);
+        }
+
         function _updatePerPaneMinimaps() {
             const W = 80, H = 80;
             const activeCount = compareFrames.filter(Boolean).length;
             const layout = _resolvedCompareLayoutMode() || 'horizontal';
+            const inset = _compareTitlesInset();
             const baseCols = _isCompareBigLeftLayout() ? 2
                 : layout === 'horizontal' ? activeCount
                 : layout === 'vertical' ? 1
@@ -46896,7 +46947,7 @@
                 const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth;
                 const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight;
                 _drawPaneMinimap(clip, cv, frame, comparePan, { w: vpW, h: vpH },
-                    { left: isLeft, right: isRight, bottom: isBottom });
+                    { left: isLeft, right: isRight, bottom: isBottom, top: _paneMinimapTop(clip, inset) });
             }
         }
 
@@ -46918,7 +46969,7 @@
                 mm.appendChild(mmVp);
                 clip.appendChild(mm);
             }
-            mm.style.top = corner.bottom ? 'auto' : '6px';
+            mm.style.top = corner.bottom ? 'auto' : (corner.top ?? 6) + 'px';
             mm.style.bottom = corner.bottom ? '6px' : 'auto';
             mm.style.left = corner.left ? '6px' : 'auto';
             mm.style.right = corner.right ? '6px' : 'auto';
@@ -47090,6 +47141,7 @@
                     _positionFullscreenChrome();
                 } else {
                     setPos({ x: rect.left, y: rect.top });
+                    _dodgeImmersiveBar();
                 }
             });
         }
