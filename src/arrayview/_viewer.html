@@ -1583,10 +1583,7 @@
         .overlay-palette-row:hover .overlay-palette-strip-fill,
         .overlay-palette-strip.scrubbing .overlay-palette-strip-fill { opacity: 0.9; }
         .overlay-palette-tick { stroke: var(--ovp-tick, var(--text)); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
-        .overlay-palette-strips { display: flex; flex-direction: column; gap: 2px; }
-        /* Ortho: one strip per pane direction; the pane under the mouse stands out. */
-        .overlay-palette-strips.multi .overlay-palette-strip { height: 5px; opacity: 0.55; transition: opacity 120ms ease; }
-        .overlay-palette-strips.multi .overlay-palette-strip.current { opacity: 1; }
+        .overlay-palette-strips { display: flex; }
         /* Shown, but nothing of it on this slice. */
         .overlay-palette-row.absent .overlay-palette-name { color: var(--muted); }
         .overlay-palette-row.absent .overlay-palette-swatch { opacity: 0.45; }
@@ -21177,9 +21174,9 @@
         // sits on every slice along the scroll axis, a tick for the current
         // slice, and the pixel count on this slice.
 
-        // Planes the strips follow: the scroll axis in a single view, one per
-        // pane direction in ortho-style views (tick coloured like that pane).
-        function _overlayStripPlanes() {
+        // Every scroll direction on screen: the scroll axis in a single view,
+        // one per pane direction in ortho-style views.
+        function _overlayPanePlanes() {
             if (!Array.isArray(shape) || shape.length < 3) return [];
             const views = multiViewActive ? mvViews
                 : compareMvActive ? compareMvViews
@@ -21201,6 +21198,13 @@
             }
             return planes.filter(p => Number.isInteger(p.axis) && p.axis < shape.length
                 && p.axis !== p.dimX && p.axis !== p.dimY);
+        }
+
+        // The strip follows one direction: in ortho, the pane under the mouse
+        // (or the last one it was in), with its tick coloured like that pane.
+        function _overlayStripPlanes() {
+            const planes = _overlayPanePlanes();
+            return planes.length ? [planes.find(p => p.current) || planes[0]] : [];
         }
 
         function _overlayCountKey(ovSid, p, idx = indices) {
@@ -21232,7 +21236,7 @@
         }
 
         function _ensureOverlaySliceCounts() {
-            const planes = _overlayStripPlanes();
+            const planes = _overlayPanePlanes();
             _overlaySids.forEach(ovSid => planes.forEach(p => {
                 const key = _overlayCountKey(ovSid, p);
                 if (_overlayCountCache.has(key) || _overlayCountPending.has(key)) return;
@@ -21348,7 +21352,7 @@
                     ? `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`
                     : '<span class="overlay-palette-swatch none"></span>';
                 html += `<span class="overlay-palette-name">${_roiHtmlEscape(row.name)}</span>`;
-                html += `<span class="overlay-palette-strips${planes.length > 1 ? ' multi' : ''}">`;
+                html += '<span class="overlay-palette-strips">';
                 planes.forEach((plane, k) => {
                     const tick = plane.color ? `;--ovp-tick:${plane.color}` : '';
                     html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}${tick}" onpointerdown="_overlayPaletteStripDown(event, ${r}, ${k})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
@@ -21399,7 +21403,6 @@
             for (const row of _overlayPaletteRows) {
                 let absent = false;
                 (row.strips || []).forEach((st, k) => {
-                    st.el.classList.toggle('current', planes.length > 1 && !!planes[k]?.current);
                     const s = indices[st.plane.axis];
                     if (!st.counts || s == null) return;
                     const x = ((s + 0.5) / st.counts.length) * _OVP_STRIP_W;
@@ -21662,7 +21665,7 @@
         }
 
         function _overlayJumpPlanes() {
-            return _overlayStripPlanes().filter(p => !_isCollectionDim(p.axis));
+            return _overlayPanePlanes().filter(p => !_isCollectionDim(p.axis));
         }
 
         // Slice counts of overlay i on this plane, restricted to its shown labels.
