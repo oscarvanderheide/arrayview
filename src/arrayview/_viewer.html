@@ -8949,8 +8949,8 @@
         }
 
         /** Big-left ortho from the single view: the plane that was on screen
-         *  goes first (the big pane). Generic arrays also keep its on-screen
-         *  orientation; NIfTI planes keep their clinical one. */
+         *  goes first (the big pane), turned exactly as it was on screen, so
+         *  the v glide lands on the same picture. */
         function _leadWithSingleViewPlane(defs, dims) {
             if (_resolvedOrthoLayoutMode() !== 'big-left') return;
             const sliceDir = dims.find(d => d !== dim_x && d !== dim_y);
@@ -8958,7 +8958,7 @@
             const i = defs.findIndex(d => d.sliceDir === sliceDir);
             if (i < 0) return;
             const def = defs[i];
-            if (def.flipX === undefined && def.flipY === undefined) Object.assign(def, { dimX: dim_x, dimY: dim_y });
+            Object.assign(def, { dimX: dim_x, dimY: dim_y, flipX: !!flip_x, flipY: !!flip_y });
             defs.unshift(defs.splice(i, 1)[0]);
         }
 
@@ -22313,7 +22313,7 @@
         }
 
         // Current case of a --match collection, named in the top-left corner
-        // of the single view and of every ortho pane.
+        // of the single view and of the first (big) ortho pane.
         function _reconcileCaseTitle() {
             const el = document.getElementById('case-title');
             if (!el) return;
@@ -22325,8 +22325,9 @@
             const text = name == null ? null : String(name);
             const mvNames = multiViewActive ? mvViews.map(v => v.nameEl).filter(Boolean) : [];
             for (const n of [el, ...mvNames]) {
-                n.classList.toggle('visible', text != null);
-                if (text == null || n.dataset.name === text) continue;
+                const shown = text != null && (n === el || n === mvViews[0]?.nameEl);
+                n.classList.toggle('visible', shown);
+                if (!shown || n.dataset.name === text) continue;
                 n.dataset.name = text;
                 n.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
                 n.lastElementChild.textContent = text;
@@ -41360,6 +41361,7 @@
         function _refreshMvLayoutChrome() {
             if (typeof drawMvColorbar === 'function') drawMvColorbar();
             _reconcileOverlayPaletteAnchor();
+            _reconcileCaseTitle();
             if (typeof positionEggs === 'function') positionEggs();
             if (typeof saveState === 'function') saveState();
             const info = document.getElementById('info');
@@ -41496,6 +41498,8 @@
 
         const _slimCb = () => document.getElementById('slim-cb-wrap');
         const _mvCb = () => window._mvColorBar?.wrap;
+        // The bar's own height eases too; the glide must not show it settling.
+        const _cbBar = (wrap) => wrap?.querySelector('canvas');
 
         // Slide `el` (centre to centre) from where `from` was before the switch. Uses the
         // `translate` property so it adds to, not replaces, the transform that positions it.
@@ -41505,6 +41509,13 @@
             const dx = (from.left + from.width / 2) - (to.left + to.width / 2), dy = (from.top + from.height / 2) - (to.top + to.height / 2);
             el.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }],
                 { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+        }
+
+        // Hold `el` (centre to centre) where `from` was until the glide starts.
+        function _pinAt(el, from) {
+            const to = el?.getBoundingClientRect();
+            if (!from || !from.width || !to || !to.width) return;
+            el.style.translate = `${(from.left + from.width / 2) - (to.left + to.width / 2)}px ${(from.top + from.height / 2) - (to.top + to.height / 2)}px`;
         }
 
         // The dimbar and colorbar have their own short CSS slides; switch those off for
@@ -41614,7 +41625,8 @@
             mvViews.slice(1).forEach(v => v.pane.animate(
                 [{ transform: `translateX(${_orthoSideShift(v.pane.getBoundingClientRect().left)}px)` }, { transform: 'none' }],
                 { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE }));
-            _holdTransitions([_mvCb()]);
+            _holdTransitions([_mvCb(), _cbBar(_mvCb())]);
+            drawMvColorbar();   // full height from the first frame
             _glideFrom(_mvCb(), cbFrom);
             _glideFrom(info, infoFrom);
             const glide = _orthoGlideTo(ghost, target);
@@ -41631,10 +41643,10 @@
             _orthoGlideBusy = true;
             _killImmersiveTweens();
             const sides = mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean);
-            const labels = _orthoLabelGhosts(mvViews.map(v => v.nameEl));
+            const labels = _orthoLabelGhosts([big.nameEl]);
             const info = document.getElementById('info');
             const cbFrom = _mvCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
-            _holdTransitions([info, _slimCb()]);
+            _holdTransitions([info, _slimCb(), _cbBar(_slimCb())]);
             // The big pane's box, without its image, shrinks back with the image.
             const pr = big.pane.getBoundingClientRect(), box = document.createElement('div');
             box.setAttribute('aria-hidden', 'true');
@@ -41650,13 +41662,15 @@
                     { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
                 out.onfinish = out.oncancel = () => g.remove();
             });
-            labels.names.slice(1).forEach(g => g && _orthoLabelGlide(g, null,
-                [{ transform: 'none' }, { transform: `translateX(${_orthoSideShift(g._from.left)}px)` }]));
             // The image's rounded outline sits on its viewport; hide both until the ghost lands.
             document.getElementById('canvas-viewport')?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
             const seq0 = _frameDisplaySeq;
-            // The single view's size settles a frame after exit.
+            // The single view's size settles a frame after exit; until then the
+            // bars stay where they were.
+            _pinAt(_slimCb(), cbFrom);
+            _pinAt(info, infoFrom);
             requestAnimationFrame(() => {
+                [_slimCb(), info].forEach(el => el?.style.removeProperty('translate'));
                 _glideFrom(_slimCb(), cbFrom);
                 _glideFrom(info, infoFrom);
                 _orthoLabelGlide(labels.names[0], document.getElementById('case-title'));
