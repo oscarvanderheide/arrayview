@@ -2,6 +2,8 @@
 
 _This is my array viewer. There are many like it, but this one is mine._ 
 
+<img src="docs/teaser.gif" alt="ArrayView: scrolling a volume, switching colormaps, three planes, and a difference view" width="800">
+
 Arrayview lets you scroll through multi-dimensional arrays.
 
 Open it from the shell, from Python, Julia, or Matlab, or inside a Jupyter notebook. Use it locally or over SSH. 
