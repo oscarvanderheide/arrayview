@@ -4,6 +4,7 @@ Run with:
     pytest tests/test_browser.py
 """
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -527,6 +528,118 @@ class TestKeyboard:
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
+    def test_collection_case_names_shown_above_panes(self, loaded_viewer, client, tmp_path):
+        """A folder/--match stack names its current case above the single
+        view, each mosaic pane, and each half of a split across cases."""
+        stack_dir = tmp_path / "case_names_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(8)
+        for name in ("alpha", "bravo", "charlie"):
+            np.save(stack_dir / f"{name}.npy", rng.standard_normal((5, 40, 40)).astype(np.float32))
+        sid = client.post(
+            "/load", json={"dir_patterns": [str(stack_dir / "*.npy")], "load": "lazy", "stack": "auto"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        assert page.evaluate("() => Array.isArray(caseNames) && caseNames.length === 3")
+        page.wait_for_selector("#case-title.visible svg", timeout=5_000)
+        first = page.inner_text("#case-title").strip().lower()
+        assert first in ("alpha", "bravo", "charlie")
+        page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/single.png")
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("k")
+        page.wait_for_function(
+            f"() => document.getElementById('case-title').innerText.trim().toLowerCase() !== '{first}'",
+            timeout=5_000,
+        )
+
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "3")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => stackMosaicViews.length === 3", timeout=5_000)
+        labels = page.evaluate(
+            "() => [...document.querySelectorAll('.sm-label')].map(e => [e.textContent, !!e.querySelector('svg')])"
+        )
+        assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
+        assert all(has_logo for _, has_logo in labels)
+        page.wait_for_timeout(500)
+        page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
+        page.keyboard.press("Shift+;")
+        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("Shift+S")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        titles = page.evaluate(
+            "() => compareTitles.slice(0, 2).map(e => e.textContent.replace(/[\\[\\]{}]/g, '').trim().toLowerCase())"
+        )
+        assert all(t in ("alpha", "bravo", "charlie") for t in titles), titles
+        page.wait_for_timeout(500)
+        page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/split.png")
+
+
+    def test_collection_qmri_shows_case_names_and_mosaic_cases(self, loaded_viewer, client, tmp_path):
+        """q in a --match collection names the case beside the maps; q from
+        the stack mosaic shows the maps of every case there, one row each,
+        and q again returns to the mosaic."""
+        stack_dir = tmp_path / "case_qmri_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(9)
+        for name in ("alpha", "bravo", "charlie"):
+            np.save(stack_dir / f"{name}.npy", rng.random((3, 6, 32, 32)).astype(np.float32))
+        sid = client.post(
+            "/load", json={"dir_patterns": [str(stack_dir / "*.npy")], "load": "lazy", "stack": "auto"}
+        ).json()["sid"]
+        shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive", timeout=5_000)
+        page.wait_for_function(
+            "() => (document.getElementById('qmri-case-name')?.textContent || '').toLowerCase() === 'alpha'",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(500)
+        page.screenshot(path=shots + "/qmri_single.png")
+        page.keyboard.press("q")
+        page.wait_for_function("() => !qmriActive", timeout=5_000)
+
+        page.keyboard.press("Shift+;")
+        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
+        page.fill("#inline-prompt-input", "2")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => stackMosaicViews.length === 2", timeout=5_000)
+        page.keyboard.press("q")
+        page.wait_for_function("() => compareQmriActive && !stackMosaicActive", timeout=5_000)
+        rows_names = "() => [...document.querySelectorAll('.cq-row-name')].map(e => e.textContent.toLowerCase()).join(',')"
+        assert page.evaluate("() => [...new Set(compareQmriViews.map(v => v.rowIdx))]") == [0, 1]
+        assert page.evaluate(rows_names) == "alpha,bravo"
+        assert "1–2" in page.inner_text("#info")
+        page.wait_for_function("() => compareQmriViews.every(v => v.lastW > 0)", timeout=10_000)
+        page.wait_for_timeout(500)
+        page.screenshot(path=shots + "/qmri_cases.png")
+        # j/k on the case dim pages the rows to the next cases.
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("k")
+        page.wait_for_function(f"() => ({rows_names})() === 'bravo,charlie'", timeout=5_000)
+        assert "2–3" in page.inner_text("#info")
+        page.keyboard.press("q")
+        page.wait_for_function("() => !compareQmriActive && stackMosaicActive", timeout=5_000)
+        assert page.evaluate("() => stackMosaicViews.map(v => v.colIdx)") == [1, 2]
+        page.keyboard.press("Shift+;")
+        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+
+        # Split across cases, then q: one row per half, named by case.
+        page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("Shift+S")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        page.keyboard.press("q")
+        page.wait_for_function("() => compareQmriActive", timeout=5_000)
+        assert page.evaluate(rows_names) == "alpha,bravo"
+        assert page.evaluate("() => compareQmriViews.map(v => v.rowIdx).join(',')") == "0,0,0,1,1,1"
 
     def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path

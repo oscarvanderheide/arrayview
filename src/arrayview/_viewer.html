@@ -252,6 +252,22 @@
             transition: filter 0.16s ease;
         }
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
+        /* --match collection: current case name above the single view
+           (_reconcileCaseTitle); its height is kept free by uiReserveV. */
+        #case-title {
+            display: none; max-width: 100%; margin-bottom: 6px; align-items: center; gap: 5px; white-space: nowrap;
+            font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
+            color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
+        }
+        #case-title.visible { display: flex; }
+        #case-title > span, #qmri-case-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        #qmri-case-name {
+            display: flex; align-self: center; max-width: 100%; margin-bottom: 6px; align-items: center; gap: 5px; white-space: nowrap;
+            font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
+            color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
+        }
+        body.fullscreen-mode #qmri-case-name { display: none; }
+        body.fullscreen-mode #case-title { display: none; }
         #canvas-viewport { position: relative; overflow: hidden; display: inline-block; user-select: none; -webkit-user-select: none; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         .zoom-select-rect {
@@ -3929,21 +3945,16 @@
         .av-name { min-width: 0; overflow: hidden; white-space: nowrap; }
         .av-name-shared { opacity: 0.5; }
         #compare-view-wrap:not(.compare-titles-inset) .compare-title .av-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
-        /* A name beside its image: plain text in the empty margin, wrapping
-           at separators (_placeRowName / _placeCompareTitle). */
-        .av-name.av-name-side {
-            display: block; white-space: normal; overflow-wrap: anywhere;
-            font-size: 12px; line-height: 16px; letter-spacing: 0.02em; text-transform: none;
-            color: var(--text);
-        }
+        /* A name beside its image, in the empty margin, wrapping at
+           separators (_placeRowName / _placeCompareTitle). Same type and
+           logo as the names above the compare panes. */
+        .av-name.av-name-side { display: block; white-space: normal; overflow-wrap: anywhere; }
         #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left,
         #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right {
             top: 50%; transform: translateY(-50%); max-width: none; -webkit-text-stroke: 0; text-shadow: none;
         }
         #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-left { left: auto; right: 100%; margin-right: 14px; justify-content: flex-end; text-align: right; }
         #compare-view-wrap.compare-titles-inset .compare-title.compare-title-out-right { left: 100%; margin-left: 14px; text-align: left; }
-        .compare-title.compare-title-out-left svg,
-        .compare-title.compare-title-out-right svg { display: none; }
         .av-name-br { display: none; }
         /* Chrome breaks at <wbr> even under nowrap: only side names wrap */
         .av-name:not(.av-name-side) wbr { display: none; }
@@ -4230,14 +4241,21 @@
         #stack-mosaic-panes { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 16px; }
         .sm-pane { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; background: var(--bg); }
         .sm-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
-        .sm-label { font-size: 13px; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; white-space: nowrap; width: 100%; contain: inline-size; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+        .sm-label { font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--text) 75%, var(--muted)); pointer-events: none; white-space: nowrap; width: 100%; contain: inline-size; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .sm-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .sm-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .sm-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
         /* compare-qMRI / compare-3plane: array name left of its row */
-        .qv-row.cq-row > .cq-row-name { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%); text-align: right; cursor: default; user-select: none; }
+        .qv-row.cq-row > .cq-row-name > .av-name { flex-shrink: 0; }
+        .qv-row.cq-row > .cq-row-name {
+            position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%);
+            width: max-content; display: flex; align-items: center; justify-content: flex-end; gap: 5px; text-align: right;
+            font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
+            color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
+        }
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
         .cq-header-label { font-size: 16px; color: var(--fg); letter-spacing: 0.05em; text-align: center; }
@@ -5465,6 +5483,7 @@
     </div>
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
+            <div id="case-title" aria-hidden="true"></div>
             <div id="canvas-viewport">
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
@@ -7715,6 +7734,9 @@
         let compareQmriActive = false; // compare + qMRI combined mode
         let compareQmriViews = [];     // flat array of {sid, colormap, qmriIdx, canvas, ...}
         let compareQmriSids = [];      // SIDs being compared in compare-qMRI mode
+        // compare-qMRI rows as cases of one --match collection (q from the
+        // stack mosaic): one collection index per row, all on `sid`.
+        let compareQmriCases = null;
         let compareQmriDim = -1;       // which dim is qMRI in compare-qMRI mode
         let compareMvActive = false;   // compare + 3-plane multiview combined mode
         let compareMvViews = [];       // flat array of {sid, dimX, dimY, sliceDir, canvas, ...}
@@ -9186,9 +9208,9 @@
                 return 0;
             }
             let h = 14; // wrapper padding
-            for (const id of ['info']) {
+            for (const id of ['info', 'case-title']) {
                 const el = document.getElementById(id);
-                if (el) {
+                if (el && el.offsetHeight) {
                     const s = getComputedStyle(el);
                     h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
                 }
@@ -10120,13 +10142,16 @@
         const NAME_SIDE_MAX_W = 280;
         const NAME_SIDE_GAP = 14;
         const NAME_SIDE_EDGE = 12;
+        // Logo before every array name: 14px icon + 5px gap.
+        const ARRAY_NAME_LOGO_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
+        const NAME_LOGO_W = 19;
         // Margin a row layout keeps free on each side for its row names,
         // counted from the window edge. Capped so a narrow window keeps its
         // images and the names get a narrower column instead.
         function _rowNameReserve() {
             const view = document.getElementById('qmri-view-wrap');
             const viewL = view ? Math.max(0, view.getBoundingClientRect().left) : 0;
-            return Math.min(viewL + NAME_SIDE_MIN_W + NAME_SIDE_GAP + NAME_SIDE_EDGE, window.innerWidth * 0.17);
+            return Math.min(viewL + NAME_LOGO_W + NAME_SIDE_MIN_W + NAME_SIDE_GAP + NAME_SIDE_EDGE, window.innerWidth * 0.17);
         }
 
         function _fitArrayName(el) {
@@ -10185,10 +10210,10 @@
         // the margin the layout keeps free (_rowNameReserve). The view
         // clips at its own edge, not the window's.
         function _placeRowName(el) {
-            const r = el.parentElement.getBoundingClientRect();
+            const r = el.closest('.cq-row').getBoundingClientRect();
             const viewL = document.getElementById('qmri-view-wrap').getBoundingClientRect().left;
-            const w = Math.min(NAME_SIDE_MAX_W, r.left - viewL - NAME_SIDE_EDGE - NAME_SIDE_GAP);
-            el.style.width = Math.max(40, w) + 'px';
+            const w = Math.min(NAME_SIDE_MAX_W, r.left - viewL - NAME_SIDE_EDGE - NAME_SIDE_GAP) - NAME_LOGO_W;
+            el.style.maxWidth = Math.max(40, w) + 'px';
             el.style.maxHeight = Math.max(16, r.height) + 'px';
         }
 
@@ -10225,7 +10250,7 @@
             title.classList.toggle('compare-title-out-left', side === 'left');
             title.classList.toggle('compare-title-out-right', side === 'right');
             el.classList.toggle('av-name-side', !!side);
-            el.style.width = side ? Math.min(NAME_SIDE_MAX_W, spot.w) + 'px' : '';
+            el.style.maxWidth = side ? (Math.min(NAME_SIDE_MAX_W, spot.w) - NAME_LOGO_W) + 'px' : '';
             el.style.maxHeight = side ? spot.h + 'px' : '';
         }
 
@@ -10236,8 +10261,16 @@
             detachedDimIndexB = 0;
         }
 
+        // Split across the cases of a --match collection: panes are named
+        // by case, not by index.
+        function _detachedDimIsCases() {
+            return detachedDimMode && detachedDim >= 0 && detachedDim === collectionSpatialNdim
+                && Array.isArray(caseNames) && caseNames.length === shape[detachedDim];
+        }
+
         function _detachedDimPaneLabel(indexVal) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isInteger(indexVal)) return '';
+            if (_detachedDimIsCases()) return String(caseNames[indexVal]);
             // Pad to the width of the last index. The label sits in a centred
             // flex row above each pane, so 9/120 → 10/120 grew the whole title
             // by a digit and shunted everything beside it sideways on a plain
@@ -10290,6 +10323,7 @@
             updateCompareTitles();
             renderInfo();
             compareRender();
+            _cqRefreshRowPins();
             setTimeout(() => _flashDetachedIndexHint(which, key), 40);
             saveState();
             showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
@@ -10308,6 +10342,7 @@
             updateCompareTitles();
             renderInfo();
             compareRender();
+            _cqRefreshRowPins();
             saveState();
             showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
             return true;
@@ -10361,16 +10396,16 @@
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
             }
-            const _logoSvg = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
             const nameParts = detachedDimMode ? null : _arrayNameParts(labels);
             compareTitles.forEach((el, idx) => {
                 const text = labels[idx] || '';
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
                 if (text && detachedDimMode) {
-                    el.innerHTML = '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
+                    el.innerHTML = (_detachedDimIsCases() && !sideTitle ? ARRAY_NAME_LOGO_SVG : '')
+                        + '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
                 } else if (text) {
-                    el.innerHTML = (sideTitle ? '' : _logoSvg) + '<span></span>';
+                    el.innerHTML = (sideTitle ? '' : ARRAY_NAME_LOGO_SVG) + '<span></span>';
                     _setArrayName(el.lastElementChild, nameParts[idx], _arrayNameHover(effectiveSids[idx], text),
                         [el.closest('.compare-pane'), document.getElementById('compare-view-wrap')], _placeCompareTitle);
                 } else {
@@ -21978,8 +22013,27 @@
             return _axisIdent.letters[d] || (d === dim_x ? 'x' : 'y');
         }
 
+        // Current case of a --match collection, named above the single view.
+        function _reconcileCaseTitle() {
+            const el = document.getElementById('case-title');
+            if (!el) return;
+            const colDim = collectionSpatialNdim;
+            const name = (Array.isArray(caseNames) && Number.isInteger(colDim) && colDim >= 0 && colDim < shape.length)
+                ? caseNames[indices[colDim]] : null;
+            const qmriName = document.getElementById('qmri-case-name');
+            if (qmriName && name != null) qmriName.lastElementChild.textContent = String(name);
+            el.classList.toggle('visible', name != null);
+            if (name == null) return;
+            const text = String(name);
+            if (el.dataset.name === text) return;
+            el.dataset.name = text;
+            el.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+            el.lastElementChild.textContent = text;
+        }
+
         function renderInfo() {
             _ensureQmriActiveDimVisible();
+            _reconcileCaseTitle();
             _syncOverlayPaletteSlice();
             // In stack mosaic, the spatial sizes shown come from the hovered
             // (or focused) pane's own array shape so ragged stacks read the
@@ -21993,10 +22047,13 @@
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
-                if (stackMosaicActive && i === _stackMosaicColDim()) {
+                const _cqCases = compareQmriActive && !compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length
+                    ? compareQmriCases : null;
+                if ((stackMosaicActive && i === _stackMosaicColDim()) || (_cqCases && i === collectionSpatialNdim)) {
                     const total = shape[i];
-                    const end = Math.min(total, stackMosaicStart + stackMosaicN);
-                    const inner = `<span class="dim-idx">${stackMosaicStart + 1}–${end}</span>`
+                    const first = _cqCases ? _cqCases[0] : stackMosaicStart;
+                    const end = _cqCases ? _cqCases[_cqCases.length - 1] + 1 : Math.min(total, stackMosaicStart + stackMosaicN);
+                    const inner = `<span class="dim-idx">${first + 1}–${end}</span>`
                         + `<span class="dim-slash">/</span><span class="dim-size">${total}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="dim-label" ${d}>${inner}</span>`;
@@ -29919,7 +29976,22 @@
                 run: (ctx, e) => {
                     crossfade(() => {
                         if (compareQmriActive) {
+                            const cases = compareQmriCases;
                             exitCompareQmri();
+                            // Case rows came from the stack mosaic: go back to it.
+                            if (cases) {
+                                compareQmriCases = null;
+                                // The last case lands in the same window, also at the clamped end.
+                                indices[collectionSpatialNdim] = cases[cases.length - 1];
+                                enterStackMosaic(stackMosaicN);
+                            }
+                        } else if (stackMosaicActive && stackMosaicViews.length > 1) {
+                            // Maps of every case in the mosaic, one row each.
+                            compareQmriCases = stackMosaicViews.map(v => v.colIdx);
+                            exitStackMosaic();
+                            _qmriVisibleMaps = null;
+                            enterCompareQmri();
+                            if (!compareQmriActive) compareQmriCases = null;
                         } else if (compareActive) {
                             // Compare 3-plane and compare qMRI share one
                             // container: switch, never stack them.
@@ -30183,6 +30255,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(1); return; }
+                    if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -30233,6 +30306,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(-1); return; }
+                    if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(-1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -36645,6 +36719,14 @@
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
                 _qmriLastRow = rowDiv;
+                // --match collection: the current case's name above the
+                // maps (filled by _reconcileCaseTitle).
+                if (!qmriViews.length && Array.isArray(caseNames)) {
+                    const caseName = document.createElement('div');
+                    caseName.id = 'qmri-case-name';
+                    caseName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                    wrap.appendChild(caseName);
+                }
                 for (let ri = 0; ri < rowSize; ri++) {
                     const viewIdx = cmapIdx++;
                     const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
@@ -37351,7 +37433,8 @@
 
         function _stackMosaicSetLabel(label, colIdx) {
             const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
-            label.textContent = name ? String(name) : `#${colIdx + 1}`;
+            label.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+            label.lastElementChild.textContent = name ? String(name) : `#${colIdx + 1}`;
         }
 
         function _stackMosaicFocusPane(i) {
@@ -37891,6 +37974,76 @@
         // only the bottom row shows colorbars, so that one bar must be true
         // for every pane above it.
 
+        // compare-qMRI rows pinned to one index of a dim: the cases of the
+        // stack mosaic (compareQmriCases), or the two halves of a split.
+        // null when every row is its own array.
+        function _cqRowPins() {
+            if (!compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length) {
+                return { dim: collectionSpatialNdim, idxs: compareQmriCases };
+            }
+            if (compareActive && detachedDimMode && detachedDim >= 0) {
+                return { dim: detachedDim, idxs: [detachedDimIndexA, detachedDimIndexB] };
+            }
+            return null;
+        }
+
+        function _cqRowLabel(pins, i) {
+            const c = pins.idxs[i];
+            if (detachedDimMode && compareActive) return _detachedDimPaneLabel(c);
+            return (Array.isArray(caseNames) && caseNames[c] != null) ? String(caseNames[c]) : `#${c + 1}`;
+        }
+
+        // Re-pin the rows after the split or the case window moved.
+        let _cqRowNameEls = [];
+        function _cqRefreshRowPins() {
+            const pins = compareQmriActive ? _cqRowPins() : null;
+            if (!pins) return;
+            compareQmriViews.forEach(v => { v.rowDim = pins.dim; v.rowIdx = pins.idxs[v.cqRow]; });
+            const labels = pins.idxs.map((_, i) => _cqRowLabel(pins, i));
+            const parts = _arrayNameParts(labels);
+            _cqRowNameEls.forEach((el, i) => {
+                if (!el || !parts[i]) return;
+                el._nameParts = parts[i];
+                el.title = labels[i];
+                _fitArrayName(el);
+            });
+            compareQmriViews.forEach(v => compareQmriRender(v));
+            renderInfo();
+        }
+
+        // Page the mosaic's cases shown as compare-qMRI rows by a window.
+        function _cqCaseWindowStep(dir) {
+            const n = compareQmriCases.length;
+            const total = shape[collectionSpatialNdim];
+            const start = Math.max(0, Math.min(Math.max(0, total - n), compareQmriCases[0] + dir * n));
+            if (start === compareQmriCases[0]) return;
+            compareQmriCases = compareQmriCases.map((_, i) => start + i);
+            _cqRefreshRowPins();
+        }
+
+        // Indices a compare-qMRI pane renders: its map, and for a pinned
+        // row its index; a case keeps spatial indices inside its own shape.
+        function _cqViewIndices(v) {
+            const idx = [...indices];
+            idx[compareQmriDim] = v.qmriIdx;
+            if (Number.isInteger(v.rowIdx)) {
+                idx[v.rowDim] = v.rowIdx;
+                if (v.rowDim === collectionSpatialNdim) {
+                    const sp = _stackMosaicCaseSpatialShape(v.rowIdx) || [];
+                    sp.forEach((n, d) => { if (Number(n) > 0) idx[d] = Math.min(idx[d], Number(n) - 1); });
+                }
+            }
+            return idx;
+        }
+
+        function _cqCaseRowsActive() {
+            return compareQmriActive && !compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length > 0;
+        }
+
+        function _cqPinsCase(v) {
+            return Number.isInteger(v.rowIdx) && v.rowDim === collectionSpatialNdim;
+        }
+
         function _cqColumnViews(view) {
             return compareQmriViews.filter(v => v.qmriIdx === view.qmriIdx);
         }
@@ -37947,7 +38100,8 @@
                 dimX: dim_x, dimY: dim_y,
                 scrollDim: current_slice_dim,
                 complexMode: complexMode,
-                fixedIndices: compareQmriDim + ':' + view.qmriIdx,
+                fixedIndices: compareQmriDim + ':' + view.qmriIdx
+                    + (Number.isInteger(view.rowIdx) ? ',' + view.rowDim + ':' + view.rowIdx : ''),
                 qmriRole: view.qmriRole,
                 bins: 128,
             };
@@ -37956,8 +38110,7 @@
         /** One histogram of a map across every compared array, re-binned
          *  onto a common range so presets and the shown bar cover them all. */
         async function _cqFetchColumnHistogram(view) {
-            const sids = _cqColumnViews(view).map(v => v.sid);
-            const hists = (await Promise.all(sids.map(s => _fetchVolumeHistogram(_cqHistogramOpts(view, s)))))
+            const hists = (await Promise.all(_cqColumnViews(view).map(v => _fetchVolumeHistogram(_cqHistogramOpts(v, v.sid)))))
                 .filter(h => h && h.counts && h.counts.length && h.edges && h.edges.length === h.counts.length + 1);
             if (!hists.length) return null;
             if (hists.length === 1) return hists[0];
@@ -37978,15 +38131,17 @@
             return { counts, edges, vmin: lo, vmax: hi };
         }
         function enterCompareQmri() {
-            if (!compareActive) return;
+            const pins = _cqRowPins();
+            const cases = pins && !compareActive ? pins.idxs : null;
+            if (!compareActive && !cases) return;
             _qmriRenderGeneration++;
             const targetDim = _pickQmriDim();
             if (targetDim < 0) return;
             _lastQmriDim = targetDim;
             const n = shape[targetDim];
             compareQmriDim = targetDim;
-            // Collect SIDs being compared
-            const cmpSids = getCompareRenderSids();
+            // Collect SIDs being compared (case rows all read this array)
+            const cmpSids = cases ? cases.map(() => sid) : getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
@@ -38020,18 +38175,24 @@
             wrap.appendChild(headerRow);
 
             compareQmriViews = [];
-            const rowNames = compareQmriSids.map(comparePaneLabelForSid);
+            const rowNames = pins
+                ? pins.idxs.map((_, i) => _cqRowLabel(pins, i))
+                : compareQmriSids.map(comparePaneLabelForSid);
+            _cqRowNameEls = [];
             const rowNameParts = _arrayNameParts(rowNames);
-            // One row per compared array (SID)
+            // One row per compared array (SID), or per case
             for (let si = 0; si < compareQmriSids.length; si++) {
                 const sidVal = compareQmriSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
                 // Array name, left of its row
                 const rowName = document.createElement('div');
-                rowName.className = 'cq-row-name av-name-side';
+                rowName.className = 'cq-row-name';
+                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
                 rowDiv.appendChild(rowName);
-                _setArrayName(rowName, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                _setArrayName(rowName.lastElementChild, rowNameParts[si],
+                    pins ? rowNames[si] : _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                _cqRowNameEls.push(rowName.lastElementChild);
                 for (let mi = 0; mi < nMaps; mi++) {
                     const actualIdx = mapIndices[mi];
                     const cmap = cmaps[mi];
@@ -38054,7 +38215,9 @@
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
                     const view = {
-                        sid: sidVal, colormap: cmap, qmriIdx: actualIdx, qmriRole: _qmriRoleForIndex(n, actualIdx),
+                        sid: sidVal, cqRow: si,
+                        rowDim: pins ? pins.dim : -1, rowIdx: pins ? pins.idxs[si] : null,
+                        colormap: cmap, qmriIdx: actualIdx, qmriRole: _qmriRoleForIndex(n, actualIdx),
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
@@ -38114,8 +38277,7 @@
                         _bcMaybePromotePending(e);
                         if (!view.lastW || !view.lastH) return;
                         _seedPaneLoupeDrag(e, cv, view);
-                        const qIndices = [...indices];
-                        qIndices[compareQmriDim] = view.qmriIdx;
+                        const qIndices = _cqViewIndices(view);
                         fetchPixelInfo({
                             event: e,
                             canvas: cv,
@@ -38170,7 +38332,7 @@
             _kickInitialRenders(compareQmriViews, compareQmriRender);
             renderInfo();
             _reconcileUI();
-            showStatus(`compare qMRI — ${compareQmriSids.length} arrays × ${nMaps} maps — / to exit`, 3000);
+            showStatus(`compare qMRI — ${compareQmriSids.length} ${cases ? 'cases' : 'arrays'} × ${nMaps} maps — / to exit`, 3000);
             // Phase 10: sync modeManager
             {
                 const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
@@ -38228,18 +38390,17 @@
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
-            v._renderPatientIndex = _currentPatientIndex();
-            const qIndices = [...indices];
-            qIndices[compareQmriDim] = v.qmriIdx;
+            v._renderPatientIndex = _cqPinsCase(v) ? null : _currentPatientIndex();
+            const qIndices = _cqViewIndices(v);
             const _qdpr = window.devicePixelRatio || 1;
             const _qcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _qdpr);
             const _qch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _qdpr);
-            const perfKey = `compare-qmri:${v.sid}:${v.qmriIdx}`;
+            const perfKey = `compare-qmri:${v.sid}:${v.cqRow}:${v.qmriIdx}`;
             _perfMarkRequest('ws', v.seq, { perfKey, sid: v.sid, pane: 'compare-qmri', dim_x, dim_y, slice_dim: current_slice_dim });
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
-                pane_key: `compare-qmri:${v.sid}:${v.qmriIdx}`,
+                pane_key: perfKey,
                 dr: 0, complex_mode: complexMode,
                 qmri_dim: compareQmriDim,
                 qmri_role: v.qmriRole || '',
@@ -38263,10 +38424,9 @@
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true;
             v.seq++;
-            v._renderPatientIndex = _currentPatientIndex();
+            v._renderPatientIndex = _cqPinsCase(v) ? null : _currentPatientIndex();
             try {
-                const qIndices = [...indices];
-                qIndices[compareQmriDim] = v.qmriIdx;
+                const qIndices = _cqViewIndices(v);
                 const params = new URLSearchParams({
                     dim_x: String(dim_x),
                     dim_y: String(dim_y),
@@ -38398,7 +38558,7 @@
         }
 
         function compareQmriOnMessage(v, event) {
-            const perfKey = `compare-qmri:${v.sid}:${v.qmriIdx}`;
+            const perfKey = `compare-qmri:${v.sid}:${v.cqRow}:${v.qmriIdx}`;
             if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, perfKey); return; }
             const buf = event.data;
             const frameReceiveTime = _perfNow();
@@ -38567,9 +38727,10 @@
                 rowDiv.className = 'qv-row cq-row';
                 // Array name, left of its row
                 const rowName = document.createElement('div');
-                rowName.className = 'cq-row-name av-name-side';
+                rowName.className = 'cq-row-name';
+                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
                 rowDiv.appendChild(rowName);
-                _setArrayName(rowName, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];
@@ -39981,6 +40142,9 @@
             const colGap = qmriGapless ? 0 : 24;  // matches .qv-row gap
             const rowGap = qmriGapless ? 0 : 14;  // matches #qmri-view-wrap gap
             const sidePad = qmriGapless ? 80 : 120; // 40px padding (+ colorbar label flanks)
+            // --match case name above the maps: its line, margin and the wrap gap.
+            const caseNameEl = document.getElementById('qmri-case-name');
+            const caseNameH = caseNameEl ? caseNameEl.offsetHeight + 6 + rowGap : 0;
             const labelH = 0;   // qMRI labels are overlaid inside each pane
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
@@ -39996,7 +40160,8 @@
             const totalH = window.innerHeight - uiReserveV()
                          - belowRows
                          - (rows - 1) * rowGap
-                         - bottomPad;
+                         - bottomPad
+                         - caseNameH;
             const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
             const absMaxScaleH = Math.max(10, totalH / rows);
             const layoutSizes = ready.map(v => ({
@@ -43084,6 +43249,7 @@
             _reconcileInfoCursor();
             _reconcileModePicker();
             _reconcileTabLinkHint();
+            _reconcileCaseTitle();
             // Until the first frame the startup screen owns every loading
             // signal; its own line stands in for the hairline.
             const startupScreen = document.body.classList.contains('av-loading');
