@@ -316,6 +316,47 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
+def test_overlay_palette_ortho_shows_one_strip_per_pane(page, client, server_url, tmp_path):
+    base = np.zeros((20, 24, 28), dtype=np.float32)
+    mask = np.zeros((20, 24, 28), dtype=np.uint8)
+    mask[2:6, 10:14, 20:26] = 1
+    sids = []
+    for name, array in (("base", base), ("mask", mask)):
+        path = tmp_path / f"{name}.npy"
+        np.save(path, array)
+        sids.append(client.post("/load", json={"filepath": str(path), "name": name}).json()["sid"])
+    page.goto(f"{server_url}/?sid={sids[0]}&overlay_sid={sids[1]}&overlay_names=mask")
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    palette = page.locator("#overlay-palette")
+    palette.wait_for(state="visible", timeout=5_000)
+    assert palette.locator(".overlay-palette-strip").count() == 1
+
+    _focus_kb(page)
+    page.keyboard.press("v")
+    page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+    page.wait_for_function(
+        "() => document.querySelectorAll('#overlay-palette .overlay-palette-strip:not(.empty)').length === 3"
+    )
+    # Each strip follows its own pane direction: its tick sits at that axis' index.
+    spans = page.evaluate(
+        "() => _overlayPaletteRows[0].strips.map(s => [s.plane.axis, s.counts.length])"
+    )
+    assert sorted(spans) == [[0, 20], [1, 24], [2, 28]]
+    # Clicking a strip moves only its own direction.
+    page.evaluate("() => { indices[0] = 0; indices[1] = 0; indices[2] = 0; updateView(); }")
+    k = next(i for i, (axis, _) in enumerate(spans) if axis == 2)
+    strip = palette.locator(".overlay-palette-strip").nth(k)
+    box = strip.bounding_box()
+    page.mouse.click(box["x"] + box["width"] * 23 / 28, box["y"] + box["height"] / 2)
+    assert page.evaluate("() => indices.slice(0, 3)") == [0, 0, 23]
+    # The strip for the pane under the mouse stands out.
+    pane = page.locator(".mv-pane").first
+    pane.hover()
+    current_axis = page.evaluate("() => _mvCurrentView.sliceDir")
+    current_k = next(i for i, (axis, _) in enumerate(spans) if axis == current_axis)
+    assert "current" in (palette.locator(".overlay-palette-strip").nth(current_k).get_attribute("class") or "")
+
+
 def test_o_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
     path = tmp_path / "vol.npy"
     np.save(path, np.random.rand(30, 40, 50).astype(np.float32))

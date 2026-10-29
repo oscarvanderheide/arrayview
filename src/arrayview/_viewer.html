@@ -1579,7 +1579,11 @@
         .overlay-palette-strip-fill { fill: var(--ovp-c); opacity: 0.6; transition: opacity 120ms ease; }
         .overlay-palette-row:hover .overlay-palette-strip-fill,
         .overlay-palette-strip.scrubbing .overlay-palette-strip-fill { opacity: 0.9; }
-        .overlay-palette-tick { stroke: var(--text); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        .overlay-palette-tick { stroke: var(--ovp-tick, var(--text)); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+        .overlay-palette-strips { display: flex; flex-direction: column; gap: 2px; }
+        /* Ortho: one strip per pane direction; the pane under the mouse stands out. */
+        .overlay-palette-strips.multi .overlay-palette-strip { height: 5px; opacity: 0.55; transition: opacity 120ms ease; }
+        .overlay-palette-strips.multi .overlay-palette-strip.current { opacity: 1; }
         /* Shown, but nothing of it on this slice. */
         .overlay-palette-row.absent .overlay-palette-name { color: var(--muted); }
         .overlay-palette-row.absent .overlay-palette-swatch { opacity: 0.45; }
@@ -6049,8 +6053,10 @@
         let _overlayLabelValues = _overlaySids.map(() => []);
         let _overlayFocusLabel = null;
         let _overlayHiddenLabels = _overlaySids.map(() => new Set());
-        let _overlaySliceCounts = _overlaySids.map(() => null);  // {key, data}
-        let _overlaySliceCountsPending = _overlaySids.map(() => null);
+        // Per-slice overlay pixel counts, keyed by overlay sid + plane + fixed indices.
+        const _overlayCountCache = new Map();
+        const _overlayCountPending = new Map();  // key -> Promise
+        let _overlayPaletteSig = null;
         let _overlayPaletteRows = [];
         const _OVP_STRIP_W = 56, _OVP_STRIP_H = 10;
         const _overlayNamesParam = urlParams.get('overlay_names') || '';
@@ -21162,37 +21168,75 @@
         // sits on every slice along the scroll axis, a tick for the current
         // slice, and the pixel count on this slice.
 
-        function _overlaySliceKey() {
-            if (!Array.isArray(shape) || shape.length < 3) return null;
-            const axis = current_slice_dim;
-            if (axis == null || axis === dim_x || axis === dim_y || !(axis < shape.length)) return null;
-            const fixed = indices.map((v, d) => (d === dim_x || d === dim_y || d === axis) ? '*' : v);
-            return `${dim_x}|${dim_y}|${axis}|${fixed.join(',')}`;
+        // Planes the strips follow: the scroll axis in a single view, one per
+        // pane direction in ortho-style views (tick coloured like that pane).
+        function _overlayStripPlanes() {
+            if (!Array.isArray(shape) || shape.length < 3) return [];
+            const views = multiViewActive ? mvViews
+                : compareMvActive ? compareMvViews
+                : qmriMvActive ? qmriMvViews : null;
+            const planes = [];
+            if (views && views.length) {
+                const current = multiViewActive ? _mvCurrentView
+                    : compareMvActive ? _cmvCurrentView : _hoveredQmriMvView;
+                for (const v of views) {
+                    if (planes.some(p => p.axis === v.sliceDir)) continue;
+                    planes.push({
+                        dimX: v.dimX, dimY: v.dimY, axis: v.sliceDir,
+                        color: multiViewActive ? _mvPlaneColorForDim(v.sliceDir) : null,
+                        current: !!current && current.sliceDir === v.sliceDir,
+                    });
+                }
+            } else {
+                planes.push({ dimX: dim_x, dimY: dim_y, axis: current_slice_dim, color: null, current: true });
+            }
+            return planes.filter(p => Number.isInteger(p.axis) && p.axis < shape.length
+                && p.axis !== p.dimX && p.axis !== p.dimY);
+        }
+
+        function _overlayCountKey(ovSid, p, idx = indices) {
+            const fixed = idx.map((v, d) => (d === p.dimX || d === p.dimY || d === p.axis) ? '*' : v);
+            return `${ovSid}#${p.dimX}|${p.dimY}|${p.axis}|${fixed.join(',')}`;
+        }
+
+        function _fetchOverlayCounts(ovSid, p, idx = indices) {
+            const key = _overlayCountKey(ovSid, p, idx);
+            if (_overlayCountCache.has(key)) return Promise.resolve(_overlayCountCache.get(key));
+            if (_overlayCountPending.has(key)) return _overlayCountPending.get(key);
+            const q = `base_sid=${sid}&dim_x=${p.dimX}&dim_y=${p.dimY}&axis=${p.axis}&idx=${idx.join(',')}`;
+            const pending = proxyFetch(`/overlay_slices/${ovSid}?${q}`)
+                .then(r => r.ok ? r.json() : null)
+                .catch(() => null)
+                .then(data => {
+                    _overlayCountPending.delete(key);
+                    if (_overlayCountCache.size >= 128) _overlayCountCache.delete(_overlayCountCache.keys().next().value);
+                    _overlayCountCache.set(key, data);
+                    return data;
+                });
+            _overlayCountPending.set(key, pending);
+            return pending;
+        }
+
+        function _overlayStripSig(planes) {
+            return _overlaySids.map(ovSid => planes.map(p => _overlayCountKey(ovSid, p)).join(';')).join('/')
+                + `@${planes.map(p => p.axis).join(',')}`;
         }
 
         function _ensureOverlaySliceCounts() {
-            const key = _overlaySliceKey();
-            if (!key) return;
-            _overlaySids.forEach((ovSid, i) => {
-                if (_overlaySliceCounts[i]?.key === key || _overlaySliceCountsPending[i] === key) return;
-                _overlaySliceCountsPending[i] = key;
-                const q = `base_sid=${sid}&dim_x=${dim_x}&dim_y=${dim_y}&axis=${current_slice_dim}&idx=${indices.join(',')}`;
-                proxyFetch(`/overlay_slices/${ovSid}?${q}`)
-                    .then(r => r.ok ? r.json() : null)
-                    .catch(() => null)
-                    .then(data => {
-                        if (_overlaySids[i] !== ovSid || _overlaySliceCountsPending[i] !== key) return;
-                        _overlaySliceCountsPending[i] = null;
-                        _overlaySliceCounts[i] = { key, data };
-                        if (key === _overlaySliceKey()) _renderOverlayPalette();
-                    });
-            });
+            const planes = _overlayStripPlanes();
+            _overlaySids.forEach(ovSid => planes.forEach(p => {
+                const key = _overlayCountKey(ovSid, p);
+                if (_overlayCountCache.has(key) || _overlayCountPending.has(key)) return;
+                _fetchOverlayCounts(ovSid, p).then(() => {
+                    const now = _overlayStripPlanes();
+                    if (_overlaySids.includes(ovSid) && now.some(q => _overlayCountKey(ovSid, q) === key)) _renderOverlayPalette();
+                });
+            }));
         }
 
-        function _overlayCountsFor(i, label) {
-            const entry = _overlaySliceCounts[i];
-            if (!entry || entry.key !== _overlaySliceKey() || !entry.data) return null;
-            return entry.data.counts?.[String(label ?? 0)] || null;
+        function _overlayCountsFor(i, label, p) {
+            const data = _overlayCountCache.get(_overlayCountKey(_overlaySids[i], p));
+            return data?.counts?.[String(label ?? 0)] || null;
         }
 
         function _overlayStripPath(counts) {
@@ -21240,6 +21284,8 @@
                 return;
             }
             _ensureOverlaySliceCounts();
+            const planes = _overlayStripPlanes();
+            _overlayPaletteSig = _overlayStripSig(planes);
             const anyVisible = _visibleOverlayIndices().length > 0;
             const pct = Math.round(overlayAlpha * 100);
             const styleIcon = overlayOutlineOnly
@@ -21287,7 +21333,12 @@
                     ? `<span class="overlay-palette-swatch" style="--ovp-c:${row.color}"></span>`
                     : '<span class="overlay-palette-swatch none"></span>';
                 html += `<span class="overlay-palette-name">${_roiHtmlEscape(row.name)}</span>`;
-                html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}" onpointerdown="_overlayPaletteStripDown(event, ${r})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
+                html += `<span class="overlay-palette-strips${planes.length > 1 ? ' multi' : ''}">`;
+                planes.forEach((plane, k) => {
+                    const tick = plane.color ? `;--ovp-tick:${plane.color}` : '';
+                    html += `<svg class="overlay-palette-strip" viewBox="0 0 ${_OVP_STRIP_W} ${_OVP_STRIP_H}" preserveAspectRatio="none" style="--ovp-c:${row.color || 'var(--text)'}${tick}" onpointerdown="_overlayPaletteStripDown(event, ${r}, ${k})" onclick="event.stopPropagation()"><path class="overlay-palette-strip-fill" d=""></path><line class="overlay-palette-tick" x1="0" x2="0" y1="0" y2="${_OVP_STRIP_H}"></line></svg>`;
+                });
+                html += '</span>';
                 html += '</div>';
             });
             html += '</div>';
@@ -21296,14 +21347,17 @@
             const rowEls = el.querySelectorAll('.overlay-palette-row');
             _overlayPaletteRows = rows.map((row, r) => ({ ...row, el: rowEls[r] }));
             _overlayPaletteRows.forEach(row => {
-                const counts = _overlayCountsFor(row.i, row.label);
-                row.counts = counts;
-                const strip = row.el.querySelector('.overlay-palette-strip');
-                strip.classList.toggle('empty', !counts);
-                if (counts) {
-                    strip.querySelector('path').setAttribute('d', _overlayStripPath(counts));
-                    strip.insertAdjacentHTML('afterbegin', `<title>${_overlaySpanText(counts)} — click or drag to go there</title>`);
-                }
+                const stripEls = row.el.querySelectorAll('.overlay-palette-strip');
+                row.strips = planes.map((plane, k) => {
+                    const counts = _overlayCountsFor(row.i, row.label, plane);
+                    const el = stripEls[k];
+                    el.classList.toggle('empty', !counts);
+                    if (counts) {
+                        el.querySelector('path').setAttribute('d', _overlayStripPath(counts));
+                        el.insertAdjacentHTML('afterbegin', `<title>${_overlaySpanText(counts)} — click or drag to go there</title>`);
+                    }
+                    return { plane, counts, el };
+                });
             });
             const alphaBtn = el.querySelector('.overlay-palette-alpha');
             alphaBtn.addEventListener('wheel', _overlayPaletteAlphaWheel, { passive: false });
@@ -21314,29 +21368,39 @@
         function _syncOverlayPaletteSlice() {
             const el = document.getElementById('overlay-palette');
             if (!el || !el.classList.contains('visible') || !_overlayPaletteRows.length) return;
-            const key = _overlaySliceKey();
-            if (_overlayPaletteRows.some(row => row.counts && _overlaySliceCounts[row.i]?.key !== key)
-                || (key && _overlaySliceCounts.some(entry => entry?.key !== key))) {
+            const planes = _overlayStripPlanes();
+            if (_overlayStripSig(planes) !== _overlayPaletteSig) {
+                // New case, view or ortho layout. Redraw at once when the counts
+                // are already here (or the strip set changed shape); otherwise
+                // keep the old strips until the fetch lands and redraws.
+                const ready = _overlaySids.every(ovSid => planes.every(p => _overlayCountCache.has(_overlayCountKey(ovSid, p))));
+                const strips = _overlayPaletteRows[0].strips || [];
+                if (ready || strips.length !== planes.length || strips.some((st, k) => st.plane.axis !== planes[k].axis)) {
+                    _renderOverlayPalette();
+                    return;
+                }
                 _ensureOverlaySliceCounts();
             }
-            const s = key ? indices[current_slice_dim] : null;
             for (const row of _overlayPaletteRows) {
-                const counts = row.counts;
-                const tick = row.el.querySelector('.overlay-palette-tick');
-                if (!counts || s == null) {
-                    row.el.classList.remove('absent');
-                    continue;
-                }
-                const x = ((s + 0.5) / counts.length) * _OVP_STRIP_W;
-                tick.setAttribute('x1', x.toFixed(2));
-                tick.setAttribute('x2', x.toFixed(2));
-                row.el.classList.toggle('absent', !counts[s]);
+                let absent = false;
+                (row.strips || []).forEach((st, k) => {
+                    st.el.classList.toggle('current', planes.length > 1 && !!planes[k]?.current);
+                    const s = indices[st.plane.axis];
+                    if (!st.counts || s == null) return;
+                    const x = ((s + 0.5) / st.counts.length) * _OVP_STRIP_W;
+                    const tick = st.el.querySelector('.overlay-palette-tick');
+                    tick.setAttribute('x1', x.toFixed(2));
+                    tick.setAttribute('x2', x.toFixed(2));
+                    if (!st.counts[s]) absent = true;
+                });
+                row.el.classList.toggle('absent', absent);
             }
         }
 
-        function _overlayPaletteGoToSlice(row, clientX, rect) {
-            const counts = row.counts;
+        function _overlayPaletteGoToSlice(strip, clientX, rect) {
+            const counts = strip.counts;
             if (!counts || !counts.length) return;
+            const axis = strip.plane.axis;
             const n = counts.length;
             let s = Math.max(0, Math.min(n - 1, Math.floor((clientX - rect.left) / Math.max(1, rect.width) * n)));
             if (!counts[s]) {
@@ -21348,32 +21412,32 @@
                     if (counts[s + k]) { s += k; break; }
                 }
             }
-            if (indices[current_slice_dim] === s) return;
-            indices[current_slice_dim] = s;
+            if (indices[axis] === s) return;
+            indices[axis] = s;
             updateView();
             saveState();
         }
 
-        function _overlayPaletteStripDown(e, r) {
-            const row = _overlayPaletteRows[r];
-            if (!row || !row.counts) return;
+        function _overlayPaletteStripDown(e, r, k = 0) {
+            const strip = _overlayPaletteRows[r]?.strips?.[k];
+            if (!strip || !strip.counts) return;
             e.preventDefault();
             e.stopPropagation();
-            const strip = e.currentTarget;
-            const rect = strip.getBoundingClientRect();
-            strip.setPointerCapture(e.pointerId);
-            strip.classList.add('scrubbing');
-            _overlayPaletteGoToSlice(row, e.clientX, rect);
-            const move = ev => _overlayPaletteGoToSlice(row, ev.clientX, rect);
+            const stripEl = e.currentTarget;
+            const rect = stripEl.getBoundingClientRect();
+            stripEl.setPointerCapture(e.pointerId);
+            stripEl.classList.add('scrubbing');
+            _overlayPaletteGoToSlice(strip, e.clientX, rect);
+            const move = ev => _overlayPaletteGoToSlice(strip, ev.clientX, rect);
             const up = () => {
-                strip.classList.remove('scrubbing');
-                strip.removeEventListener('pointermove', move);
-                strip.removeEventListener('pointerup', up);
-                strip.removeEventListener('pointercancel', up);
+                stripEl.classList.remove('scrubbing');
+                stripEl.removeEventListener('pointermove', move);
+                stripEl.removeEventListener('pointerup', up);
+                stripEl.removeEventListener('pointercancel', up);
             };
-            strip.addEventListener('pointermove', move);
-            strip.addEventListener('pointerup', up);
-            strip.addEventListener('pointercancel', up);
+            stripEl.addEventListener('pointermove', move);
+            stripEl.addEventListener('pointerup', up);
+            stripEl.addEventListener('pointercancel', up);
         }
         window._overlayPaletteStripDown = _overlayPaletteStripDown;
 
@@ -21602,8 +21666,6 @@
             _overlayLabelValues.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
             _overlayHiddenLabels.splice(idx, 1);
-            _overlaySliceCounts.splice(idx, 1);
-            _overlaySliceCountsPending.splice(idx, 1);
             _overlayFocusIdx = null;
             _overlayFocusLabel = null;
             if (!_overlaySids.length) _overlayPaletteHidden = false;
@@ -35000,7 +35062,7 @@
 
         function _orthoBindCurrentPane(view, setCurrent, ...elements) {
             for (const el of new Set(elements.filter(Boolean))) {
-                el.addEventListener('mouseenter', () => setCurrent(view));
+                el.addEventListener('mouseenter', () => { setCurrent(view); _syncOverlayPaletteSlice(); });
             }
         }
 
