@@ -7123,7 +7123,10 @@
             return true;
         }
 
+        // Bumped on every frame drawn in any mode (_crossfadeViewAround).
+        let _frameDisplaySeq = 0;
         function _patientFrameDisplayed(framePatientIndex) {
+            _frameDisplaySeq++;
             if (!Number.isInteger(framePatientIndex)) return;
             _displayedPatientIndex = framePatientIndex;
             if (_patientLoadingIndex !== framePatientIndex) return;
@@ -9039,27 +9042,50 @@
                     : { dims: [...new Set(planes.map(p => p.sliceDir))].sort((a, b) => a - b), sliceDim: plane.sliceDir });
         }
 
-        /** Briefly fade the dimbar out, run `change`, and fade it back in, so
-         *  its labels don't jump. Runs `change` straight away when the dimbar
-         *  is hidden or a fade is already under way. */
-        let _dimbarFadeAnim = null;
-        function _fadeDimbarAround(change) {
-            const info = document.getElementById('info');
-            if (!info || typeof info.animate !== 'function' || _dimbarFadeAnim
-                || parseFloat(getComputedStyle(info).opacity) < 0.5) { change(); return; }
-            const out = info.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 70, easing: 'ease-in', fill: 'forwards' });
-            _dimbarFadeAnim = out;
-            const done = () => { _dimbarFadeAnim = null; };
-            out.oncancel = done;
-            out.onfinish = () => {
-                change();
-                out.oncancel = null;
-                out.cancel();
-                const back = info.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 110, easing: 'ease-out' });
-                _dimbarFadeAnim = back;
-                back.onfinish = done;
-                back.oncancel = done;
+        /** Crossfade the whole view across `change`: a still copy of the
+         *  view covers it while `change` runs underneath, then fades away once
+         *  the new frame has landed, so image, colorbar and dimbar settle
+         *  together instead of jumping one by one. Runs `change` straight
+         *  away under reduced motion; a repeat during a fade shares it. */
+        let _viewCrossfadeGhost = null;
+        function _crossfadeViewAround(change) {
+            const w = document.getElementById('wrapper');
+            if (!w || typeof w.animate !== 'function' || _viewCrossfadeGhost
+                || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { change(); return; }
+            const r = w.getBoundingClientRect();
+            const ghost = document.createElement('div');
+            ghost.setAttribute('aria-hidden', 'true');
+            ghost.inert = true;
+            // Above the dim underline (z 40), which is copied in too.
+            ghost.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:41;pointer-events:none;`;
+            const copy = w.cloneNode(true);
+            const src = w.querySelectorAll('canvas'), dst = copy.querySelectorAll('canvas');
+            src.forEach((c, i) => {
+                if (!c.width || !c.height || !c.getClientRects().length) return;
+                try { dst[i].getContext('2d').drawImage(c, 0, 0); } catch (e) { /* WebGL or tainted: leave blank */ }
+            });
+            ghost.appendChild(copy);
+            const ul = document.getElementById('dim-active-underline');
+            if (ul) ghost.appendChild(ul.cloneNode(true));
+            // Appended last so getElementById keeps finding the live elements.
+            document.body.appendChild(ghost);
+            _viewCrossfadeGhost = ghost;
+            const seq0 = _frameDisplaySeq, t0 = performance.now();
+            try { change(); } catch (e) { console.error(e); }
+            // Wait for the first new frame, then for panes still landing
+            // (qMRI) to go quiet for two frames; give up after 400 ms.
+            let lastSeq = seq0, quiet = 0;
+            const wait = () => {
+                const seq = _frameDisplaySeq;
+                quiet = (seq !== seq0 && seq === lastSeq) ? quiet + 1 : 0;
+                lastSeq = seq;
+                if (quiet < 2 && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
+                const fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease-out', fill: 'forwards' });
+                const done = () => { ghost.remove(); if (_viewCrossfadeGhost === ghost) _viewCrossfadeGhost = null; };
+                fade.onfinish = done;
+                fade.oncancel = done;
             };
+            requestAnimationFrame(wait);
         }
 
         /** Shift+A on an array without stored orientation: name the current
@@ -29012,7 +29038,7 @@
                     if (rgbMode || hasVectorfield) { showStatus('views: not available for this array'); return; }
                     const planes = _cyclePlanes();
                     if (!planes) { showStatus('views: need three spatial dimensions'); return; }
-                    _fadeDimbarAround(() => _switchToNextPlane(planes));
+                    _crossfadeViewAround(() => _switchToNextPlane(planes));
                 },
             },
             'view.transpose': {
