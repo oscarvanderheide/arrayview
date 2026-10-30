@@ -9102,7 +9102,7 @@
         let _viewCrossfadeGhost = null;
         function _crossfadeViewAround(change) {
             const w = document.getElementById('wrapper');
-            if (!w || typeof w.animate !== 'function' || _viewCrossfadeGhost
+            if (!w || typeof w.animate !== 'function' || _viewCrossfadeGhost || cutawayActive
                 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { change(); return; }
             const r = w.getBoundingClientRect();
             const ghost = document.createElement('div');
@@ -18372,9 +18372,11 @@
             projectionDim = mode === 0 ? -1 : (projectionDim >= 0 ? projectionDim : current_slice_dim);
             modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
             _eggsVisible = true;
-            updateView();
-            renderEggs();
-            showModePicker('proj');
+            _crossfadeViewAround(() => {
+                updateView();
+                renderEggs();
+                showModePicker('proj');
+            });
             saveState();
         }
 
@@ -18392,10 +18394,12 @@
             // The default (mode 0 = magnitude / real) needs no badge: the row
             // the choice was made from is confirmation enough.
             _complexEggVisible = complexMode !== 0;
-            updateView(); triggerPreload();
-            renderInfo();
-            renderEggs();
-            if (isComplex) showModePicker('complex');
+            _crossfadeViewAround(() => {
+                updateView(); triggerPreload();
+                renderInfo();
+                renderEggs();
+                if (isComplex) showModePicker('complex');
+            });
             saveState();
         }
 
@@ -30118,29 +30122,31 @@
                         renderInfo(); saveState();
                         return;
                     }
-                    else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
-                    else {
-                        // Make activeDim the new x-axis and relocate the old
-                        // x-dim into whichever slot activeDim just vacated —
-                        // preserves mosaic (dim_z / _qmriMosaicZDim) and the
-                        // current scroll dim across the rebind. Pressing x on
-                        // a random dim previously ran [dim_x, current_slice_dim]
-                        // = [current_slice_dim, dim_x] and then dim_z = -1,
-                        // which silently exited mosaic.
-                        const oldX = dim_x;
-                        dim_x = activeDim;
-                        if (current_slice_dim === activeDim) current_slice_dim = oldX;
-                        else if (dim_z === activeDim) dim_z = oldX;
-                        else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldX;
-                        else current_slice_dim = oldX;
-                    }
-                    if (qmriActive || compareQmriActive) qvScaleAllCanvases();
-                    updateView();
-                    _roiClearOnDimChange();
-                    if (!qmriActive && !compareQmriActive) triggerPreload();
-                    // Crop's readout_dim follows screen-axis rebinding.
-                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
-                    if (cutawayActive) _cutawayReloadForNormalView(true);
+                    _crossfadeViewAround(() => {
+                        if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
+                        else {
+                            // Make activeDim the new x-axis and relocate the old
+                            // x-dim into whichever slot activeDim just vacated —
+                            // preserves mosaic (dim_z / _qmriMosaicZDim) and the
+                            // current scroll dim across the rebind. Pressing x on
+                            // a random dim previously ran [dim_x, current_slice_dim]
+                            // = [current_slice_dim, dim_x] and then dim_z = -1,
+                            // which silently exited mosaic.
+                            const oldX = dim_x;
+                            dim_x = activeDim;
+                            if (current_slice_dim === activeDim) current_slice_dim = oldX;
+                            else if (dim_z === activeDim) dim_z = oldX;
+                            else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldX;
+                            else current_slice_dim = oldX;
+                        }
+                        if (qmriActive || compareQmriActive) qvScaleAllCanvases();
+                        updateView();
+                        _roiClearOnDimChange();
+                        if (!qmriActive && !compareQmriActive) triggerPreload();
+                        // Crop's readout_dim follows screen-axis rebinding.
+                        if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                        if (cutawayActive) _cutawayReloadForNormalView(true);
+                    });
                 },
             },
             'multiview.toggle': {
@@ -30373,25 +30379,27 @@
                         renderInfo(); saveState();
                         return;
                     }
-                    else if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
-                    else {
-                        // Mirror of axis.assignX: preserve mosaic / current
-                        // slice dim by routing the old y-dim into whichever
-                        // slot activeDim came from.
-                        const oldY = dim_y;
-                        dim_y = activeDim;
-                        if (current_slice_dim === activeDim) current_slice_dim = oldY;
-                        else if (dim_z === activeDim) dim_z = oldY;
-                        else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldY;
-                        else current_slice_dim = oldY;
-                    }
-                    if (qmriActive || compareQmriActive) qvScaleAllCanvases();
-                    updateView();
-                    _roiClearOnDimChange();
-                    if (!qmriActive && !compareQmriActive) triggerPreload();
-                    // Crop's readout_dim follows screen-axis rebinding.
-                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
-                    if (cutawayActive) _cutawayReloadForNormalView(true);
+                    _crossfadeViewAround(() => {
+                        if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
+                        else {
+                            // Mirror of axis.assignX: preserve mosaic / current
+                            // slice dim by routing the old y-dim into whichever
+                            // slot activeDim came from.
+                            const oldY = dim_y;
+                            dim_y = activeDim;
+                            if (current_slice_dim === activeDim) current_slice_dim = oldY;
+                            else if (dim_z === activeDim) dim_z = oldY;
+                            else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldY;
+                            else current_slice_dim = oldY;
+                        }
+                        if (qmriActive || compareQmriActive) qvScaleAllCanvases();
+                        updateView();
+                        _roiClearOnDimChange();
+                        if (!qmriActive && !compareQmriActive) triggerPreload();
+                        // Crop's readout_dim follows screen-axis rebinding.
+                        if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
+                        if (cutawayActive) _cutawayReloadForNormalView(true);
+                    });
                 },
             },
             'dim.prev': {
@@ -42309,8 +42317,10 @@
             if (!compareActive || !_comparePanesShown() || !_compareCenterSupported()) return;
             const nextMode = _nextCompareCenterModeValue();
             if (compareCenterMode === 0 || nextMode === 0) { _compareCenterGlide(nextMode); return; }
-            _setCompareCenterMode(nextMode);
-            _showCompareCenterModePicker();
+            _crossfadeViewAround(() => {
+                _setCompareCenterMode(nextMode);
+                _showCompareCenterModePicker();
+            });
         }
 
         // The centre tool button: on at the last mode, or off.
