@@ -22235,7 +22235,8 @@
                 return;
             }
             const fraction = _activeDimScrollFraction();
-            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced);
+            // Mid-glide the bar is moving: the underline's own ease would trail behind it.
+            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced || _orthoGlideBusy);
             const infoVisible = _dimUnderlineInfoVisible(info);
             const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
@@ -22249,7 +22250,7 @@
             const tick = () => {
                 _dimUnderlineRaf = 0;
                 _updateActiveDimUnderline(info);
-                if (performance.now() < _dimUnderlineTrackUntil) {
+                if (_orthoGlideBusy || performance.now() < _dimUnderlineTrackUntil) {
                     _dimUnderlineRaf = requestAnimationFrame(tick);
                 }
             };
@@ -41387,6 +41388,11 @@
         // Side panes travel in from (and out to) the window's right edge.
         const _orthoSideShift = (left) => Math.max(40, window.innerWidth - left);
         let _orthoGlideBusy = false;
+        // The dimbar underline tracks its label frame by frame for the whole glide.
+        function _glideBegin() {
+            _orthoGlideBusy = true;
+            _scheduleActiveDimUnderline(document.getElementById('info'));
+        }
 
         // Plays even under the system's reduced-motion setting: a short, user-requested
         // move that keeps track of where the slice went.
@@ -41597,7 +41603,7 @@
             const info = document.getElementById('info');
             const cbFrom = _slimCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
             const labels = _orthoLabelGhosts([document.getElementById('case-title')]);
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             _holdTransitions([info]);
             enterMultiView(dims, { leadWithSingleView: true });
@@ -41637,7 +41643,7 @@
                 && _resolvedOrthoLayoutMode() === 'big-left' && _orthoSingleViewPane() === 0;
             const ghost = ok ? _orthoGhost(big.canvas) : null;
             if (!ghost) { crossfade(() => exitMultiView()); return; }
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             const sides = mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean);
             const labels = _orthoLabelGhosts([big.nameEl]);
@@ -41770,6 +41776,8 @@
                     el.style.translate = `${((from.left + from.width / 2) - (n.left + n.width / 2)) * (1 - p)}px `
                         + `${((from.top + from.height / 2) - (n.top + n.height / 2)) * (1 - p)}px`;
                 });
+                // Same frame as the bar it sits under.
+                if (bars.length) _updateActiveDimUnderline(document.getElementById('info'));
                 if (onFrame) onFrame(p, rect, done);
                 if (!done) requestAnimationFrame(step);
             };
@@ -41818,7 +41826,7 @@
             const ghost = src && a?.pane && b?.pane && _orthoGlideAllowed() ? _orthoGhost(src) : null;
             if (!ghost) { crossfade(() => enterDetachedDimMode(dim)); return; }
             _splitDressGhost(ghost, fromOrtho ? big.pane : vp);
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             const sides = fromOrtho ? mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean) : [];
             sides.forEach((g, i) => _splitDressGhost(g, mvViews[i + 1].pane));
@@ -41899,7 +41907,7 @@
                 return;
             }
             _splitDressGhost(ghost, a.clip);
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             const ghostB = _orthoGhost(b.canvas, b.clip);
             _splitDressGhost(ghostB, b.clip);
@@ -42051,7 +42059,7 @@
             if (!_orthoGlideAllowed() || !_qmriFromWholeSlice) return false;
             const ghost = _glideGhost(main, vp);
             if (!ghost) return false;
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
             _glideFadeOutCopies(['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
@@ -42113,7 +42121,7 @@
             if (!_orthoGlideAllowed() || !view?.lastImageData || !_splitWholeIn(view.canvas, _qmriClip(view))) return false;
             const ghost = _glideGhost(view.canvas, _qmriClip(view));
             if (!ghost) return false;
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             // The other maps fade out where they were.
             qmriViews.filter(v => v !== view).forEach(v => {
@@ -42203,7 +42211,7 @@
                 });
                 return;
             }
-            _orthoGlideBusy = true;
+            _glideBegin();
             _killImmersiveTweens();
             // The middle pane leaving fades out where it was.
             middle().forEach(p => {
