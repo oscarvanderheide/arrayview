@@ -29506,26 +29506,11 @@
                         }
                         return;
                     }
-                    if (dim_z >= 0) {
-                        current_slice_dim = dim_z;
-                        dim_z = -1;
-                    } else {
-                        if (shape.length < 3 || _isCollectionDim(current_slice_dim)) {
-                            showStatus('mosaic: needs a slice dim to tile');
-                            return;
-                        }
-                        dim_z = current_slice_dim;
-                        // Scroll the next free dim after the gridded one. A
-                        // plain volume has none left: its mosaic shows every
-                        // slice and scrolling has nothing to step through.
-                        for (let k = 1; k < shape.length; k++) {
-                            const d = (dim_z + k) % shape.length;
-                            if (d !== dim_x && d !== dim_y && !_isCollectionDim(d)) { current_slice_dim = d; break; }
-                        }
+                    if (dim_z < 0 && (shape.length < 3 || _isCollectionDim(current_slice_dim))) {
+                        showStatus('mosaic: needs a slice dim to tile');
+                        return;
                     }
-                    activeDim = current_slice_dim;
-                    _invalidateVolHistCache();
-                    updateView(); triggerPreload();
+                    _afterGlide(_mosaicToggle);
                 },
             },
             'overlay.cycleVisibility': {
@@ -42013,8 +41998,7 @@
 
         // Copy of `src` that sits on `ghost` and fades in over it as it glides: the
         // slice takes on the new view's colours on the way. Runs from `onFrame`.
-        function _glideTint(ghost, src) {
-            const tint = _orthoGhost(src);
+        function _glideTint(ghost, src, tint = _orthoGhost(src)) {
             if (!tint) return null;
             tint.style.opacity = '0';
             tint._step = (p, rect) => {
@@ -42024,6 +42008,128 @@
                 ghost.style.opacity = String(1 - p);
             };
             return tint;
+        }
+
+        function _mosaicCommit() {
+            if (dim_z >= 0) {
+                current_slice_dim = dim_z;
+                dim_z = -1;
+            } else {
+                dim_z = current_slice_dim;
+                // Scroll the next free dim after the gridded one. A
+                // plain volume has none left: its mosaic shows every
+                // slice and scrolling has nothing to step through.
+                for (let k = 1; k < shape.length; k++) {
+                    const d = (dim_z + k) % shape.length;
+                    if (d !== dim_x && d !== dim_y && !_isCollectionDim(d)) { current_slice_dim = d; break; }
+                }
+            }
+            activeDim = current_slice_dim;
+            _invalidateVolHistCache();
+            updateView(); triggerPreload();
+        }
+
+        function _mosaicToggle() {
+            if (!_mosaicGlide()) _mosaicCommit();
+        }
+
+        // Where slice `idx` sits in the grid, as fractions of the grid image: the image
+        // may be scaled down to fit, so canvas pixels do not count tiles.
+        function _mosaicTileBox(idx) {
+            const { rows, cols, tileW, tileH, GAP } = _mosaicGridInfo();
+            const W = cols * tileW + (cols - 1) * GAP, H = rows * tileH + (rows - 1) * GAP;
+            return {
+                x: (idx % cols) * (tileW + GAP) / W, y: Math.floor(idx / cols) * (tileH + GAP) / H,
+                w: tileW / W, h: tileH / H, aspect: W / H,
+            };
+        }
+
+        const _rectOfBox = (c, b) => {
+            const r = c.getBoundingClientRect();
+            return { left: r.left + b.x * r.width, top: r.top + b.y * r.height, width: b.w * r.width, height: b.h * r.height };
+        };
+
+        // Still copy of the part `box` of canvas `src`, in place, or null.
+        function _mosaicTileGhost(src, box) {
+            const r = _rectOfBox(src, box);
+            if (!src.width || !r.width) return null;
+            const g = document.createElement('canvas');
+            g.width = Math.max(1, Math.round(box.w * src.width)); g.height = Math.max(1, Math.round(box.h * src.height));
+            const gx = g.getContext('2d');
+            gx.imageSmoothingEnabled = false;
+            gx.drawImage(src, box.x * src.width, box.y * src.height, g.width, g.height, 0, 0, g.width, g.height);
+            g.setAttribute('aria-hidden', 'true');
+            g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`
+                + `z-index:41;pointer-events:none;image-rendering:${getComputedStyle(src).imageRendering};`;
+            document.body.appendChild(g);
+            g._from = r;
+            return g;
+        }
+
+        /** z from the single view: a still copy of the slice shrinks into its own tile while
+         *  the grid fades in around it once drawn; z again grows that tile back as the grid
+         *  fades out. Zoomed-in images and any other view keep the plain switch. */
+        function _mosaicGlide() {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            const plain = !compareActive && !stackMosaicActive && !multiViewActive && !qmriActive && !rgbMode;
+            if (!plain || !_orthoGlideAllowed() || !_splitWholeIn(main, vp)) return false;
+            const leaving = dim_z >= 0;
+            const idx = Number(indices[leaving ? dim_z : current_slice_dim]);
+            const zDim = leaving ? dim_z : current_slice_dim;
+            if (!Number.isInteger(idx) || idx < 0 || idx >= shape[zDim]) return false;
+            let box = null;
+            let ghost, fadeGrid = null;
+            if (leaving) {
+                box = _mosaicTileBox(idx);
+                ghost = _mosaicTileGhost(main, box);
+                if (!ghost) return false;
+                fadeGrid = _orthoGhost(main, main, '0');
+            } else {
+                ghost = _orthoGhost(main);
+                if (!ghost) return false;
+            }
+            if (!leaving) _splitDressGhost(ghost, vp);
+            _glideBegin();
+            _killImmersiveTweens();
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
+            const freeBars = _holdTransitions([info], null);
+            const seq0 = _frameDisplaySeq;
+            _mosaicCommit();
+            if (!leaving) box = _mosaicTileBox(idx);
+            const aspect = leaving ? shape[dim_x] / shape[dim_y] : box.aspect;
+            // Still the old picture until the new one is back in the shape it should have.
+            const drawn = () => _frameDisplaySeq !== seq0 && main.height > 0
+                && Math.abs(main.width / main.height / aspect - 1) < 0.05;
+            const vpHold = _glideHold(vp);
+            _glideFadeOut(fadeGrid);
+            let tint = null;
+            const clock = _splitGlideLive(ghost,
+                () => (!drawn() ? null : leaving ? main.getBoundingClientRect() : _rectOfBox(main, box)),
+                () => (leaving ? _cornerRadii(vp) : [0, 0, 0, 0]),
+                [[info, infoFrom]],
+                (p, rect, done) => {
+                    tint?._step(p, rect);
+                    if (!done) return;
+                    vpHold?.cancel();
+                    freeBars();
+                },
+                {
+                    ready: drawn,
+                    onStart: () => {
+                        // Grid and slice have different display ranges: blend on the way.
+                        if (drawn()) tint = leaving ? _glideTint(ghost, main) : _glideTint(ghost, main, _mosaicTileGhost(main, box));
+                        if (leaving) return;
+                        vpHold?.cancel();
+                        _glideFadeIn(vp);
+                    },
+                });
+            clock.onfinish = clock.oncancel = () => {
+                if (tint) ghost.remove();
+                _orthoGhostRelease(tint || ghost, () => true);
+            };
+            _syncSinkFocus();
+            return true;
         }
 
         /** q from the single view: a still copy of the slice glides into its own map's
