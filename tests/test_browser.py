@@ -785,6 +785,12 @@ class TestKeyboard:
         _focus_kb(page)
         _enter_compare(page, sid_compare)
         page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
+        # Both panes laid out side by side, so the hover lands where it is aimed.
+        page.wait_for_function("""() => {
+            const l = document.getElementById('compare-left-canvas').getBoundingClientRect();
+            const r = document.getElementById('compare-right-canvas').getBoundingClientRect();
+            return l.width > 0 && Math.abs(l.width - r.width) < 1 && Math.abs(l.top - r.top) < 1;
+        }""", timeout=5_000)
         left = page.locator("canvas#compare-left-canvas")
         box = left.bounding_box()
         page.mouse.move(box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.75)

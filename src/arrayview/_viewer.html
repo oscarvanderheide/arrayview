@@ -30726,19 +30726,7 @@
                         showToast('center-mode cycle: only available in 2-pane compare');
                         return;
                     }
-                    const nextMode = _nextCompareCenterModeValue();
-                    const changesPaneCount = compareCenterMode === 0 || nextMode === 0;
-                    if (changesPaneCount) {
-                        crossfade(async () => {
-                            _setCompareCenterMode(nextMode);
-                            await _waitForCompareCenterVisualReady(nextMode);
-                            _showCompareCenterModePicker();
-                        });
-                    } else {
-                        _setCompareCenterMode(nextMode);
-                        _showCompareCenterModePicker();
-                    }
-                    return;
+                    _afterGlide(_compareCenterStep);
                 },
             },
             'compare.toggleDetachedSplit': {
@@ -30800,7 +30788,10 @@
                         || (_overlaySids.length > 0 && _overlayVisibility !== 'none')
                         || (hasVectorfield && vfieldVisible)
                     );
-                    if (compareCenterMode > 0) _setCompareCenterMode(0);
+                    if (compareCenterMode > 0) {
+                        if (!needsCrossfade) { _afterGlide(_compareCenterOff); return; }
+                        _setCompareCenterMode(0);
+                    }
                     if (!needsCrossfade) return;
                     crossfade(() => {
                         if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
@@ -31527,8 +31518,7 @@
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile || !_toolTileEnabled(tile)) return;
             if (id === 'comparecenter') {
-                if (compareCenterMode > 0) _setCompareCenterMode(0);
-                else _setCompareCenterMode(_lastCompareCenterMode || 1);
+                _afterGlide(_compareCenterTile);
                 return;
             }
             const ctx = makeContext(null);
@@ -42170,6 +42160,101 @@
         function _commitQmriExit() {
             exitQmri();
             if (typeof renderToolMenu === 'function') renderToolMenu();
+        }
+
+        function _compareCenterStep() {
+            if (!compareActive || !_comparePanesShown() || !_compareCenterSupported()) return;
+            const nextMode = _nextCompareCenterModeValue();
+            if (compareCenterMode === 0 || nextMode === 0) { _compareCenterGlide(nextMode); return; }
+            _setCompareCenterMode(nextMode);
+            _showCompareCenterModePicker();
+        }
+
+        // The centre tool button: on at the last mode, or off.
+        function _compareCenterTile() {
+            const next = compareCenterMode > 0 ? 0 : (_lastCompareCenterMode || 1);
+            if (compareActive && _comparePanesShown() && _compareCenterSupported()) _compareCenterGlide(next);
+            else _setCompareCenterMode(next);
+        }
+
+        function _compareCenterOff() {
+            if (compareActive && compareCenterMode > 0) _compareCenterGlide(0);
+        }
+
+        /** Shift+X (or the centre tool button) between two panes and three: both images
+         *  glide into their new places while the middle pane fades in once drawn; Esc or
+         *  the button glides them back as the middle pane fades out.
+         *  Zoomed-in images, focus mode or more than two arrays keep the crossfade. */
+        function _compareCenterGlide(nextMode) {
+            const [a, b] = _splitPanes();
+            const shown = () => [...document.querySelectorAll('#compare-panes > .compare-pane')].filter(p => p.offsetParent);
+            const middle = () => shown().filter(p => p !== a?.pane && p !== b?.pane);
+            const ok = _orthoGlideAllowed() && a?.canvas && b?.canvas && a.pane.offsetParent && b.pane.offsetParent
+                && !compareFocusMode && shown().length === (compareCenterMode === 0 ? 2 : 3)
+                && _splitWholeIn(a.canvas, a.clip) && _splitWholeIn(b.canvas, b.clip);
+            const ghost = ok ? _glideGhost(a.canvas, a.clip) : null;
+            const ghostB = ghost ? _glideGhost(b.canvas, b.clip) : null;
+            if (!ghostB) {
+                ghost?.remove();
+                crossfade(async () => {
+                    _setCompareCenterMode(nextMode);
+                    await _waitForCompareCenterVisualReady(nextMode);
+                    if (nextMode > 0) _showCompareCenterModePicker();
+                });
+                return;
+            }
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            // The middle pane leaving fades out where it was.
+            middle().forEach(p => {
+                const c = p.querySelector('.compare-canvas-clip'), cv = p.querySelector('canvas.compare-canvas');
+                const g = c && cv ? _orthoGhost(cv, c) : null;
+                _splitDressGhost(g, c);
+                _glideFadeOut(g);
+            });
+            // Names and bars of the old layout fade out; the new layout's fade in with their panes.
+            _glideFadeOutCopies([...document.querySelectorAll(
+                '#compare-panes .compare-title, #compare-panes canvas.compare-pane-cb, #compare-panes .compare-pane-cb-val')]
+                .concat(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id))));
+            const info = document.getElementById('info'), cb = _slimCb();
+            const infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            _setCompareCenterMode(nextMode);
+            let drawn = false;
+            _waitForCompareCenterVisualReady(nextMode).then(() => { drawn = true; }, () => { drawn = true; });
+            // Each image shows once its copy lands on it.
+            const canvasHolds = [a.canvas, b.canvas].map(_glideHold);
+            const chrome = [a.pane, b.pane, cb];
+            const chromeHolds = chrome.map(_glideHold);
+            const arriving = middle(), arrivingHolds = arriving.map(_glideHold);
+            const t0 = performance.now();
+            const fadeInMiddle = () => {
+                if (!drawn && performance.now() - t0 < 1500) { requestAnimationFrame(fadeInMiddle); return; }
+                arrivingHolds.forEach(h => h.cancel());
+                arriving.forEach(_glideFadeIn);
+            };
+            const clock = _splitGlideLive(ghost, () => a.canvas.getBoundingClientRect(), () => _cornerRadii(a.clip),
+                [[info, infoFrom]],
+                (p, rect, done) => {
+                    if (!done) return;
+                    canvasHolds.forEach(h => h.cancel());
+                    freeBars();
+                },
+                {
+                    onStart: () => {
+                        chromeHolds.forEach(h => h?.cancel());
+                        chrome.forEach(_glideFadeInLate);
+                        fadeInMiddle();
+                    },
+                    riders: [{ g: ghostB, target: () => b.canvas.getBoundingClientRect(), radii: () => _cornerRadii(b.clip) }],
+                });
+            clock.onfinish = clock.oncancel = () => {
+                _orthoGhostRelease(ghost, () => true);
+                const out = ghostB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                out.onfinish = out.oncancel = () => ghostB.remove();
+                if (nextMode > 0) _showCompareCenterModePicker();
+            };
+            _syncSinkFocus();
         }
 
         // Colorbar height for sizing the ortho panes, without the tick row: hover
