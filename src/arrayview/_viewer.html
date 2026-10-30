@@ -29694,38 +29694,7 @@
             'compare.cycleLayout': {
                 title: 'Cycle compare layout',
                 when: ['compareActive', '!compareMvActive', '!compareQmriActive'],
-                run: (ctx, e) => {
-                    // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
-                    if (_compareCenterLayoutEligible()) {
-                        compareLayoutMode = _isCompareBigLeftLayout() ? 'horizontal' : 'big-left';
-                        applyCompareLayout();
-                        _reconcileCbVisibility();
-                        compareScaleCanvases();
-                        if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
-                        showStatus('compare layout: ' + compareLayoutMode);
-                        return;
-                    }
-                    const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
-                    const paneCount = Math.max(1, sidsLen);
-                    const canGrid = paneCount >= 3 && paneCount <= 4;
-                    if (compareLayoutMode === null) {
-                        // Determine what the auto layout currently is and advance from it
-                        const autoCols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-                        if (autoCols === 1 || paneCount === 1) compareLayoutMode = 'horizontal';
-                        else if (autoCols === paneCount) compareLayoutMode = 'vertical'; // was horizontal
-                        else compareLayoutMode = 'horizontal'; // was grid (4 panes auto=2×2) → go horizontal
-                    } else if (compareLayoutMode === 'horizontal') {
-                        compareLayoutMode = 'vertical';
-                    } else if (compareLayoutMode === 'vertical') {
-                        compareLayoutMode = canGrid ? 'grid' : 'horizontal';
-                    } else { // 'grid'
-                        compareLayoutMode = 'horizontal';
-                    }
-                    applyCompareLayout();
-                    _reconcileCbVisibility();
-                    compareScaleCanvases();
-                    showStatus('compare layout: ' + compareLayoutMode);
-                },
+                run: (ctx, e) => _afterGlide(_compareLayoutToggle),
             },
             'complex.cycleMode': {
                 title: 'Cycle complex mode',
@@ -30317,7 +30286,7 @@
                 when: [],
                 run: async (ctx, e) => {
                     if (e) e.preventDefault();
-                    if (stackMosaicActive) { exitStackMosaic(); return; }
+                    if (stackMosaicActive) { _afterGlide(_stackMosaicLeave); return; }
                     if (!_stackMosaicHasStack()) {
                         showStatus('stack mosaic: needs a stack (use --match or open a folder)');
                         return;
@@ -30327,7 +30296,8 @@
                     if (raw === null) return;
                     const n = parseInt(raw, 10);
                     if (!Number.isInteger(n) || n < 1) { showStatus(`stack mosaic: invalid count (${raw})`); return; }
-                    enterStackMosaic(Math.min(n, total));
+                    const count = Math.min(n, total);
+                    if (!_stackMosaicGlideEnter(count)) enterStackMosaic(count);
                 },
             },
             'stackMosaic.adjustN': {
@@ -37712,7 +37682,7 @@
             const colIdx = stackMosaicViews[i].colIdx;
             _smPaneIndices(stackMosaicViews[i]).forEach((x, d) => { indices[d] = x; });
             _syncRaggedShapeForCollection();
-            exitStackMosaic();
+            if (!_stackMosaicGlideOpen(stackMosaicViews[i], exitStackMosaic)) exitStackMosaic();
             const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
             showStatus(`opened ${name || '#' + (colIdx + 1)} · Shift+; back to the grid`);
         }
@@ -42140,6 +42110,175 @@
             return true;
         }
 
+        function _compareCycleLayout() {
+            // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
+            if (_compareCenterLayoutEligible()) {
+                compareLayoutMode = _isCompareBigLeftLayout() ? 'horizontal' : 'big-left';
+                applyCompareLayout();
+                _reconcileCbVisibility();
+                compareScaleCanvases();
+                if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
+                showStatus('compare layout: ' + compareLayoutMode);
+                return;
+            }
+            const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
+            const paneCount = Math.max(1, sidsLen);
+            const canGrid = paneCount >= 3 && paneCount <= 4;
+            if (compareLayoutMode === null) {
+                // Determine what the auto layout currently is and advance from it
+                const autoCols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+                if (autoCols === 1 || paneCount === 1) compareLayoutMode = 'horizontal';
+                else if (autoCols === paneCount) compareLayoutMode = 'vertical'; // was horizontal
+                else compareLayoutMode = 'horizontal'; // was grid (4 panes auto=2×2) → go horizontal
+            } else if (compareLayoutMode === 'horizontal') {
+                compareLayoutMode = 'vertical';
+            } else if (compareLayoutMode === 'vertical') {
+                compareLayoutMode = canGrid ? 'grid' : 'horizontal';
+            } else { // 'grid'
+                compareLayoutMode = 'horizontal';
+            }
+            applyCompareLayout();
+            _reconcileCbVisibility();
+            compareScaleCanvases();
+            showStatus('compare layout: ' + compareLayoutMode);
+        }
+
+        function _compareLayoutToggle() {
+            const panes = [...document.querySelectorAll('#compare-panes > .compare-pane')].filter(p => p.offsetParent);
+            const items = panes.map(pane => ({
+                pane, canvas: pane.querySelector('canvas.compare-canvas'), clip: pane.querySelector('.compare-canvas-clip'),
+            }));
+            const labels = [...document.querySelectorAll('#compare-panes .compare-title, #compare-panes canvas.compare-pane-cb, #compare-panes .compare-pane-cb-val')];
+            const titles = () => document.querySelectorAll('#compare-panes .compare-title');
+            if (!_paneLayoutGlide(items, labels, titles, _compareCycleLayout)) _compareCycleLayout();
+        }
+
+        /** A layout change: a still copy of each image glides to where it now lives, all
+         *  arriving together; names and bars fade out and come back with the panes.
+         *  `items` are {pane, canvas, clip}. False, having changed nothing, when an image
+         *  is zoomed past its pane or another glide is running. */
+        function _paneLayoutGlide(items, labels, titles, commit) {
+            items = items.filter(o => o.canvas && o.clip);
+            if (!_orthoGlideAllowed() || !items.length || !items.every(o => _splitWholeIn(o.canvas, o.clip))) return false;
+            const ghosts = items.map(o => _glideGhost(o.canvas, o.clip));
+            if (ghosts.some(g => !g)) { ghosts.forEach(g => g?.remove()); return false; }
+            _glideBegin();
+            _killImmersiveTweens();
+            _glideFadeOutCopies(labels);
+            commit();
+            const canvasHolds = items.map(o => _glideHold(o.canvas));
+            const showTitles = _holdLabels(titles());
+            const paneHolds = items.map(o => _glideHold(o.pane));
+            const riders = items.slice(1).map((o, i) => ({
+                g: ghosts[i + 1], target: () => o.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.clip),
+            }));
+            const clock = _splitGlideLive(ghosts[0], () => items[0].canvas.getBoundingClientRect(), () => _cornerRadii(items[0].clip), [],
+                (p, rect, done) => {
+                    if (!done) return;
+                    canvasHolds.forEach(h => h.cancel());
+                    showTitles();
+                },
+                {
+                    onStart: () => {
+                        paneHolds.forEach(h => h.cancel());
+                        items.forEach(o => _glideFadeInLate(o.pane));
+                    },
+                    riders,
+                });
+            clock.onfinish = clock.oncancel = () => {
+                _orthoGhostRelease(ghosts[0], () => true);
+                ghosts.slice(1).forEach(g => {
+                    const out = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                    out.onfinish = out.oncancel = () => g.remove();
+                });
+            };
+            _syncSinkFocus();
+            return true;
+        }
+
+        /** Stack mosaic and the single view: one still copy of the array you are on glides
+         *  between its tile and the full view, the other tiles fading where they are.
+         *  False, having changed nothing, when it cannot glide. */
+        function _stackMosaicGlideOpen(view, commit) {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            if (!_orthoGlideAllowed() || !view?.lastW) return false;
+            const ghost = _orthoGhost(view.canvas);
+            if (!ghost) return false;
+            _glideBegin();
+            _killImmersiveTweens();
+            stackMosaicViews.filter(v => v !== view).forEach(v => _glideFadeOut(_orthoGhost(v.canvas)));
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info], null);
+            const seq0 = _frameDisplaySeq;
+            commit();
+            const vpHold = _glideHold(vp);
+            const drawn = () => _frameDisplaySeq !== seq0;
+            let tint = null;
+            const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp), [[info, infoFrom]],
+                (p, rect, done) => {
+                    tint?._step(p, rect);
+                    if (!done) return;
+                    vpHold?.cancel();
+                    freeBars();
+                },
+                { ready: drawn, onStart: () => { if (drawn()) tint = _glideTint(ghost, main); } });
+            clock.onfinish = clock.oncancel = () => {
+                if (tint) ghost.remove();
+                _orthoGhostRelease(tint || ghost, () => true);
+            };
+            _syncSinkFocus();
+            return true;
+        }
+
+        function _stackMosaicGlideEnter(n) {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            const plain = !compareActive && !multiViewActive && !qmriActive && dim_z < 0;
+            if (!plain || !_orthoGlideAllowed() || !_splitWholeIn(main, vp) || !_stackMosaicHasStack()) return false;
+            const ghost = _glideGhost(main, vp);
+            if (!ghost) return false;
+            _glideBegin();
+            _killImmersiveTweens();
+            _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info], null);
+            enterStackMosaic(n);
+            const wrap = document.getElementById('stack-mosaic-wrap');
+            const view = stackMosaicViews[stackMosaicFocus];
+            const wrapHold = _glideHold(wrap);
+            const canvasHold = _glideHold(view?.canvas);
+            const cb = _slimCb(), cbHold = _glideHold(cb);
+            let tint = null;
+            const clock = _splitGlideLive(ghost, () => (view?.lastW ? view.canvas.getBoundingClientRect() : null), () => [0, 0, 0, 0], [[info, infoFrom]],
+                (p, rect, done) => {
+                    tint?._step(p, rect);
+                    if (!done) return;
+                    canvasHold?.cancel();
+                    freeBars();
+                },
+                {
+                    ready: () => !!view?.lastW,
+                    onStart: () => {
+                        wrapHold?.cancel();
+                        _glideFadeIn(wrap);
+                        cbHold?.cancel();
+                        _glideFadeInLate(cb);
+                        if (view?.lastW) tint = _glideTint(ghost, view.canvas);
+                    },
+                });
+            clock.onfinish = clock.oncancel = () => {
+                if (tint) ghost.remove();
+                _orthoGhostRelease(tint || ghost, () => true);
+            };
+            _syncSinkFocus();
+            return true;
+        }
+
+        function _stackMosaicLeave() {
+            const col = Number(indices[_stackMosaicColDim()]);
+            const view = stackMosaicViews.find(v => v.colIdx === col) || stackMosaicViews[stackMosaicFocus];
+            if (!_stackMosaicGlideOpen(view, exitStackMosaic)) exitStackMosaic();
+        }
+
         /** q from the single view: a still copy of the slice glides into its own map's
          *  pane and takes on that map's colours on the way, while the other maps fade
          *  in beside it once drawn; q again glides it back. Anything else (ortho,
@@ -45909,7 +46048,9 @@
                     requestAnimationFrame(_refreshMvLayoutChrome);
                 },
                 transitionMode: (_id, apply) => {
-                    crossfade(apply);
+                    const items = mvViews.map(v => ({ pane: v.canvas?.closest('.mv-pane'), canvas: v.canvas, clip: v.canvas?.closest('.mv-canvas-wrap') }));
+                    const labels = [...document.querySelectorAll('.mv-label')];
+                    if (!_paneLayoutGlide(items, labels, () => document.querySelectorAll('.mv-label'), apply)) crossfade(apply);
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
