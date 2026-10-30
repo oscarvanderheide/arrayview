@@ -175,9 +175,8 @@
         body.av-loading #info,
         body.av-loading #canvas-wrap,
         body.av-loading #slim-cb-wrap,
-        body.av-loading #help-hint,
-        body.av-loading #tool-hint { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint {
+        body.av-loading #help-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -2553,7 +2552,7 @@
         #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #tool-hint, #qmri-hint, #ras-hint {
+        #help-hint, #qmri-hint, #ras-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -2563,12 +2562,10 @@
             z-index: 6;
         }
         #help-hint { right: 16px; }
-        #tool-hint { right: 46px; }
         #preferences-hint { display: none; }
-        #qmri-hint { right: 76px; display: none; }
+        #qmri-hint { right: 46px; display: none; }
         #qmri-hint.visible { display: flex; }
         #qmri-hint .q-dim-icon { width: 17px; height: 17px; }
-        #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
         #link-hint {
             position: fixed; bottom: 14px; left: 16px; z-index: 6; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
@@ -2578,9 +2575,9 @@
         #link-hint.visible { display: flex; }
         #link-hint svg { width: 13px; height: 13px; }
         #link-hint:hover { color: var(--text); border-color: var(--muted); }
-        #help-hint:hover, #tool-hint:hover, #qmri-hint:hover, #ras-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #qmri-hint:hover, #ras-hint:hover { color: var(--text); border-color: var(--muted); }
         #ras-hint {
-            right: 106px; display: none; position: fixed;
+            right: 76px; display: none; position: fixed;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             font-size: 8px; font-weight: 600; letter-spacing: -0.3px;
         }
@@ -2675,6 +2672,7 @@
             letter-spacing: 0;
             text-transform: none;
         }
+        #help-tool-list .tool-launcher-grid { padding: 4px 0 0; }
         .tool-launcher-grid {
             display: grid;
             grid-template-columns: 1fr;
@@ -4713,7 +4711,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker, body.zen-mode #mode-picker-dim,
-        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #ras-hint, body.zen-mode #link-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #ras-hint, body.zen-mode #link-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5829,7 +5827,6 @@
         </div>
     </div>
     <div id="help-hint">?</div>
-    <div id="tool-hint" title="Tool launcher (/)">/</div>
     <div id="link-hint" role="button" tabindex="-1" title="Linked: slices follow other linked tabs · click to unlink" aria-label="Unlink this tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg></div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
@@ -18591,7 +18588,7 @@
             if (!_eggsVisible) return '';
             // Hide eggs during loading / welcome — no data received yet
             if (_isWelcomeScreen) return '';
-            if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) return '';
+            if (compareActive && !_orthoGlideBusy && (!compareFrames.length || !compareFrames.some(Boolean))) return '';
             if (!lastImgW && !lastImgH && !compareActive) return '';
             let html = '';
             if (rgbMode)
@@ -25670,6 +25667,7 @@
             for (let i = 0; i < panels.length; i++) {
                 panels[i].style.display = i === helpTabIdx ? 'block' : 'none';
             }
+            if (panels[helpTabIdx]?.dataset.helpTab === 'tools') _renderHelpToolList();
             const contentEl = document.getElementById('help-content');
             contentEl.scrollTop = 0;
             _updateHelpScrollHint();
@@ -31083,11 +31081,12 @@
             },
             {
                 id: 'tools', label: 'Tools',
-                desc: 'Every tool at a glance. Press / to pick a tool from the launcher, or use the direct keys below.',
+                desc: 'Every tool at a glance. Click a tool, or press / and then its letter. Dimmed tools are not available for this array. Direct keys work without /.',
                 columns: 2,
                 sections: [
+                    { title: 'After /', toolList: true, entries: [] },
                     {
-                        title: 'Direct',
+                        title: 'Direct', columnBreak: true,
                         entries: [
                             { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
@@ -31097,17 +31096,6 @@
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
                             { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
-                        ]
-                    },
-                    {
-                        title: 'After /', columnBreak: true,
-                        entries: [
-                            { key: '/ c', action: 'Compare with…', hint: 'side by side with open arrays or files of the same shape' },
-                            { key: '/ l', action: 'Link tabs', hint: 'slice position follows the other linked tabs (dimensions of the same size) · the link icon bottom-left unlinks' },
-                            { key: '/ r', action: 'ROI', hint: 'measure a region and see live stats' },
-                            { key: '/ S', action: 'Segmentation', hint: 'local mask editing and nnInteractive options' },
-                            { key: '/ o', action: 'Overlays', hint: 'show mask names and visibility' },
-                            { key: '/ v', action: 'Vector field', hint: 'v on its own still switches to ortho view' },
                         ]
                     }
                 ]
@@ -31383,6 +31371,12 @@
                         col.appendChild(titleEl);
                     }
 
+                    if (section.toolList) {
+                        const list = document.createElement('div');
+                        list.id = 'help-tool-list';
+                        col.appendChild(list);
+                    }
+
                     for (const entry of section.entries) {
                         const entryEl = document.createElement('div');
                         entryEl.className = 'help-entry';
@@ -31599,8 +31593,6 @@
             if (!root) return;
             root.classList.toggle('visible', _toolLauncherOpen);
             root.setAttribute('aria-hidden', _toolLauncherOpen ? 'false' : 'true');
-            const hint = document.getElementById('tool-hint');
-            if (hint) hint.classList.toggle('active', _toolLauncherOpen || _toolPanelIsOpen() || !!_activeToolId());
             if (!_toolLauncherOpen) {
                 if (_toolLauncherClearTimer) window.clearTimeout(_toolLauncherClearTimer);
                 _toolLauncherClearTimer = window.setTimeout(() => {
@@ -31618,22 +31610,39 @@
             let html = '<div class="tool-launcher-panel" role="dialog" aria-label="Tool launcher">';
             html += '<div class="tool-launcher-head"><div class="tool-launcher-title">Tools</div></div>';
             html += '<div class="tool-launcher-grid">';
-            for (const item of items) {
-                const cls = `tool-launcher-item ${item.enabled ? 'available' : 'unavailable'}${item.active ? ' active' : ''}${item === focusItem ? ' focus' : ''}`;
-                const title = _escapeHtml(item.reason || item.label || '');
-                const onclick = item.enabled ? ` onclick="_toolLauncherPick('${item.key}')"` : '';
-                html += `<div class="${cls}" data-tool="${_escapeHtml(item.id)}" title="${title}"${onclick}>`;
-                html += `<span class="tool-launcher-icon">${item.icon || ''}</span>`;
-                html += `<span class="tool-launcher-label">${_escapeHtml(item.label || '')}</span>`;
-                html += `<span class="tool-launcher-key">${_escapeHtml(item.key)}</span>`;
-                html += '</div>';
-            }
+            html += _toolLauncherRowsHtml(items, focusItem, '_toolLauncherPick');
             html += '</div></div>';
             root.innerHTML = html;
             if (_toolLauncherAnimateOnRender) {
                 _toolLauncherAnimateOnRender = false;
                 _animateToolLauncherOpen(root);
             }
+        }
+
+        function _toolLauncherRowsHtml(items, focusItem, pickFn) {
+            let html = '';
+            for (const item of items) {
+                const cls = `tool-launcher-item ${item.enabled ? 'available' : 'unavailable'}${item.active ? ' active' : ''}${item === focusItem ? ' focus' : ''}`;
+                const title = _escapeHtml(item.reason || item.label || '');
+                const onclick = item.enabled ? ` onclick="${pickFn}('${item.key}')"` : '';
+                html += `<div class="${cls}" data-tool="${_escapeHtml(item.id)}" title="${title}"${onclick}>`;
+                html += `<span class="tool-launcher-icon">${item.icon || ''}</span>`;
+                html += `<span class="tool-launcher-label">${_escapeHtml(item.label || '')}</span>`;
+                html += `<span class="tool-launcher-key">${_escapeHtml(item.key)}</span>`;
+                html += '</div>';
+            }
+            return html;
+        }
+
+        // Tools tab of the help overlay: same rows as the / launcher, redrawn on open so state is current.
+        function _renderHelpToolList() {
+            const el = document.getElementById('help-tool-list');
+            if (el) el.innerHTML = `<div class="tool-launcher-grid">${_toolLauncherRowsHtml(_toolLauncherItems(), null, '_helpToolPick')}</div>`;
+        }
+
+        function _helpToolPick(key) {
+            setHelpVisible(false);
+            _toolLauncherPick(key);
         }
 
         function closeToolLauncher() {
@@ -32033,8 +32042,6 @@
             const el = document.getElementById('dynamic-island');
             if (!el) return;
             if (_islandSliderDragging) return;
-            const hint = document.getElementById('tool-hint');
-            if (hint) hint.classList.toggle('active', _toolPanelIsOpen() || !!_activeToolId());
             const drawer = document.getElementById('tool-drawer');
             const drawerTitle = document.getElementById('tool-drawer-title');
             const drawerSubtitle = document.querySelector('#tool-drawer .tool-drawer-subtitle');
@@ -32099,6 +32106,7 @@
         function renderIsland() { renderToolMenu(); }
         window._openToolOptions = openToolOptions;
         window._toolLauncherPick = _toolLauncherPick;
+        window._helpToolPick = _helpToolPick;
         window._goBackOrCloseToolPanel = _goBackOrCloseToolPanel;
         window.closeToolPanel = closeToolPanel;
         window._toggleMoreTools = function() {
@@ -41461,6 +41469,8 @@
         }
 
         const _slimCb = () => document.getElementById('slim-cb-wrap');
+        // Mode pills as a [el, fromRect] bar for _splitGlideLive; taken before the switch.
+        const _eggsBar = () => { const el = document.getElementById('mode-eggs'); return [el, el?.textContent.trim() ? el.getBoundingClientRect() : null]; };
         const _mvCb = () => window._mvColorBar?.wrap;
         // The bar's own height eases too; the glide must not show it settling.
         const _cbBar = (wrap) => wrap?.querySelector('canvas');
@@ -41826,6 +41836,7 @@
             const info = document.getElementById('info'), cb = _slimCb();
             const cbFrom = (fromOrtho ? _mvCb() : cb)?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            const eggsBar = _eggsBar();
             // The right pane waits for its slice; the left one shows once the copy lands on it.
             const bHold = b.pane.animate(hold, { duration: 60000 });
             const aHold = a.pane.animate(hold, { duration: 60000 });
@@ -41869,7 +41880,7 @@
             // Its image box is built once the split has laid out, so it is looked up each frame.
             const clock = _splitGlideLive(ghost, () => _splitPanes()[0]?.canvas?.getBoundingClientRect(),
                 () => { const c = _splitPanes()[0]?.clip; return c ? _cornerRadii(c) : null; },
-                [[cb, cbFrom], [info, infoFrom], [pal, labels.palette]],
+                [[cb, cbFrom], [info, infoFrom], [pal, labels.palette], eggsBar],
                 (p, rect, done) => {
                     ride(p, rect, done);
                     if (!done) return;
@@ -41908,6 +41919,7 @@
             const info = document.getElementById('info'), cb = _slimCb();
             const cbFrom = cb?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            const eggsBar = _eggsBar();
             _overlayPaletteGlideHold = !!labels.palette;
             exitCompareMode();
             showStatus('split: off');
@@ -41928,7 +41940,7 @@
             };
             const ride = _splitNamesRide([la], ghost, same);
             const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp),
-                [[cb, cbFrom], [info, infoFrom], [pal, labels.palette]],
+                [[cb, cbFrom], [info, infoFrom], [pal, labels.palette], eggsBar],
                 (p, rect, done) => {
                     ride(p, rect, done);
                     if (!done) return;
@@ -42165,6 +42177,11 @@
             _glideBegin();
             _killImmersiveTweens();
             _glideFadeOutCopies(labels);
+            // Dimbar, colorbars and pills slide along with the panes.
+            const barEls = [document.getElementById('info'), _slimCb(), _mvCb(), document.getElementById('mode-eggs'),
+                document.getElementById('compare-center-island')].filter(el => el?.getClientRects().length);
+            const bars = barEls.map(el => [el, el.getBoundingClientRect()]);
+            const freeBars = _holdTransitions(barEls.concat(barEls.map(_cbBar)), null);
             commit();
             const canvasHolds = items.map(o => _glideHold(o.canvas));
             const showTitles = _holdLabels(titles());
@@ -42172,11 +42189,12 @@
             const riders = items.slice(1).map((o, i) => ({
                 g: ghosts[i + 1], target: () => o.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.clip),
             }));
-            const clock = _splitGlideLive(ghosts[0], () => items[0].canvas.getBoundingClientRect(), () => _cornerRadii(items[0].clip), [],
+            const clock = _splitGlideLive(ghosts[0], () => items[0].canvas.getBoundingClientRect(), () => _cornerRadii(items[0].clip), bars,
                 (p, rect, done) => {
                     if (!done) return;
                     canvasHolds.forEach(h => h.cancel());
                     showTitles();
+                    freeBars();
                 },
                 {
                     onStart: () => {
@@ -42208,13 +42226,14 @@
             _killImmersiveTweens();
             stackMosaicViews.filter(v => v !== view).forEach(v => _glideFadeOut(_orthoGhost(v.canvas)));
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
-            const freeBars = _holdTransitions([info], null);
+            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             const seq0 = _frameDisplaySeq;
             commit();
             const vpHold = _glideHold(vp);
             const drawn = () => _frameDisplaySeq !== seq0;
             let tint = null;
-            const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp), [[info, infoFrom]],
+            const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp), [[info, infoFrom], [cb, cbFrom]],
                 (p, rect, done) => {
                     tint?._step(p, rect);
                     if (!done) return;
@@ -42238,17 +42257,16 @@
             if (!ghost) return false;
             _glideBegin();
             _killImmersiveTweens();
-            _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
-            const freeBars = _holdTransitions([info], null);
+            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             enterStackMosaic(n);
             const wrap = document.getElementById('stack-mosaic-wrap');
             const view = stackMosaicViews[stackMosaicFocus];
             const wrapHold = _glideHold(wrap);
             const canvasHold = _glideHold(view?.canvas);
-            const cb = _slimCb(), cbHold = _glideHold(cb);
             let tint = null;
-            const clock = _splitGlideLive(ghost, () => (view?.lastW ? view.canvas.getBoundingClientRect() : null), () => [0, 0, 0, 0], [[info, infoFrom]],
+            const clock = _splitGlideLive(ghost, () => (view?.lastW ? view.canvas.getBoundingClientRect() : null), () => [0, 0, 0, 0], [[info, infoFrom], [cb, cbFrom]],
                 (p, rect, done) => {
                     tint?._step(p, rect);
                     if (!done) return;
@@ -42260,8 +42278,6 @@
                     onStart: () => {
                         wrapHold?.cancel();
                         _glideFadeIn(wrap);
-                        cbHold?.cancel();
-                        _glideFadeInLate(cb);
                         if (view?.lastW) tint = _glideTint(ghost, view.canvas);
                     },
                 });
@@ -42343,6 +42359,7 @@
             _glideFadeOutCopies(['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
             const freeBars = _holdTransitions([info], null);
             _qmriVisibleMaps = null;
+            const eggsBar = _eggsBar();
             enterQmri();
             if (typeof renderToolMenu === 'function') renderToolMenu();
             const view = qmriActive ? _qmriSliceView() : null;
@@ -42371,7 +42388,7 @@
             };
             let tint = null;
             const clock = _splitGlideLive(ghost, () => view.canvas.getBoundingClientRect(), () => _cornerRadii(_qmriClip(view)),
-                [[info, infoFrom]],
+                [[info, infoFrom], eggsBar],
                 (p, rect, done) => {
                     tint?._step(p, rect);
                     if (!done) return;
@@ -42415,15 +42432,18 @@
             const infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             const seq0 = _frameDisplaySeq;
+            const eggsBar = _eggsBar();
             _commitQmriExit();
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             // The image and its outline stay hidden until the copy lands on them.
             const vpHold = _glideHold(vp);
-            const chromeHolds = [[cb, _glideHold(cb)]];
+            // Pills come back with the bar, once the view has its place.
+            const eggs = document.getElementById('mode-eggs');
+            const chromeHolds = [[cb, _glideHold(cb)], [eggs, _glideHold(eggs)]];
             const showName = _holdLabels([caseTitle]);
             let tint = null;
             const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp),
-                [[info, infoFrom]],
+                [[info, infoFrom], eggsBar],
                 (p, rect, done) => {
                     tint?._step(p, rect);
                     if (!done) return;
@@ -42511,6 +42531,7 @@
             const info = document.getElementById('info'), cb = _slimCb();
             const infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            const eggsBar = _eggsBar();
             _setCompareCenterMode(nextMode);
             let drawn = false;
             _waitForCompareCenterVisualReady(nextMode).then(() => { drawn = true; }, () => { drawn = true; });
@@ -42527,7 +42548,7 @@
                 arriving.forEach(_glideFadeIn);
             };
             const clock = _splitGlideLive(ghost, () => a.canvas.getBoundingClientRect(), () => _cornerRadii(a.clip),
-                [[info, infoFrom]],
+                [[info, infoFrom], eggsBar],
                 (p, rect, done) => {
                     if (!done) return;
                     canvasHolds.forEach(h => h.cancel());
@@ -42867,9 +42888,6 @@
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
         document.getElementById('link-hint').addEventListener('click', () => setTabLinked(false));
-        document.getElementById('tool-hint').addEventListener('click', () => {
-            openToolMenu();
-        });
         document.getElementById('ras-hint').addEventListener('click', () => {
             _runCommand('nifti.toggleRasResample');
         });
@@ -46054,7 +46072,7 @@
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#tool-hint', '#ras-hint',
+                        '#help-hint', '#ras-hint',
                         '.cb-island', '.cv-pixel-info', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
