@@ -41435,7 +41435,8 @@
             ], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
         }
 
-        // Fade the ghost once `landed()` holds (or after 400 ms), then drop it.
+        // Fade the ghost once `landed()` holds (or after 400 ms), then drop it and the
+        // label copies riding on it: the real names lie under it until it is gone.
         function _orthoGhostRelease(g, landed) {
             const t0 = performance.now();
             const wait = () => {
@@ -41443,6 +41444,7 @@
                 const fade = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
                 fade.onfinish = fade.oncancel = () => {
                     g.remove();
+                    (g._labels || []).forEach(l => { l._realHold?.cancel(); l.remove(); });
                     _orthoGlideBusy = false;
                     const queued = _orthoGlideQueued;
                     _orthoGlideQueued = null;
@@ -41562,10 +41564,31 @@
             const shift = keyframes || (to && to.width
                 ? [{ transform: 'none' }, { transform: `translate(${to.left - g._from.left}px, ${to.top - g._from.top}px)` }]
                 : [{ opacity: 1 }, { opacity: 0 }]);
-            if (to && to.width) toEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            // A kept copy stands in for the real label until it is dropped.
+            if (to && to.width) {
+                const h = toEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: g._kept ? 60000 : _ORTHO_GLIDE_MS });
+                if (g._kept) g._realHold = h;
+            }
             const a = g.animate(shift, { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
-            a.onfinish = a.oncancel = () => g.remove();
+            a.onfinish = a.oncancel = () => { if (!g._kept) g.remove(); };
             return a;
+        }
+
+        // Label copy `l` outlasts its slide: ghost `g` drops it when it is released.
+        function _keepLabelOn(g, l) {
+            if (!g || !l) return;
+            l._kept = true;
+            (g._labels ||= []).push(l);
+        }
+
+        // Hide `els` (names on the panes) until the returned call, when they fade in
+        // along with the copy that landed: labels never show ahead of their image.
+        function _holdLabels(els) {
+            const holds = [...els].filter(Boolean).map(el => [el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 })]);
+            return () => holds.forEach(([el, h]) => {
+                h.cancel();
+                el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
+            });
         }
 
         // Name-label copies and the overlay list's place, taken before the switch.
@@ -41618,6 +41641,7 @@
             }
             const big = mvViews[0];
             // Measured before the pane morph below starts.
+            _keepLabelOn(ghost, labels.names[0]);
             _orthoLabelGlide(labels.names[0], big.nameEl);
             _orthoPaletteGlide(labels.palette);
             const target = big.canvas.getBoundingClientRect();   // before anything below moves it
@@ -41676,6 +41700,7 @@
                 [_slimCb(), info].forEach(el => el?.style.removeProperty('translate'));
                 _glideFrom(_slimCb(), cbFrom);
                 _glideFrom(info, infoFrom);
+                _keepLabelOn(ghost, labels.names[0]);
                 _orthoLabelGlide(labels.names[0], document.getElementById('case-title'));
                 _orthoPaletteGlide(labels.palette);
                 const to = main.getBoundingClientRect();
@@ -41790,9 +41815,9 @@
         function _splitNamesRide(copies, ghost, same) {
             return (p, rect, done) => copies.forEach(g => {
                 if (!g) return;
-                if (done) { g.remove(); return; }
                 g.style.transform = `translate(${rect.left - ghost._from.left}px, ${rect.top - ghost._from.top}px)`;
                 if (g !== same) g.style.opacity = String(1 - p);
+                if (done) { if (g === same) _keepLabelOn(ghost, g); else g.remove(); }
             });
         }
 
@@ -41841,12 +41866,13 @@
             // The right pane waits for its slice; the left one shows once the copy lands on it.
             const bHold = b.pane.animate(hold, { duration: 60000 });
             const aHold = a.pane.animate(hold, { duration: 60000 });
+            const showBTitle = _holdLabels([b.title]);
             _overlayPaletteGlideHold = !!labels.palette;
             let entered = null;
             enterDetachedDimMode(dim).then(ok => { entered = !!ok; }, () => { entered = false; });
             if (!detachedDimMode || !compareActive) {
                 // Did not switch: drop the copies over the unchanged view.
-                bHold.cancel(); aHold.cancel(); nameHold?.cancel(); freeBars();
+                bHold.cancel(); aHold.cancel(); nameHold?.cancel(); freeBars(); showBTitle();
                 sides.forEach(g => g.remove());
                 labels.names.forEach(g => g?.remove());
                 _overlayPaletteGlideHold = false;
@@ -41875,7 +41901,7 @@
             };
             const name = labels.names[0];
             const same = name && a.title && name.textContent === a.title.textContent ? name : null;
-            const titleHold = same && a.title.animate(hold, { duration: 60000 });
+            if (same) same._realHold = a.title.animate(hold, { duration: 60000 });
             const ride = _splitNamesRide(labels.names, ghost, same);
             // Its image box is built once the split has laid out, so it is looked up each frame.
             const clock = _splitGlideLive(ghost, () => _splitPanes()[0]?.canvas?.getBoundingClientRect(),
@@ -41885,7 +41911,7 @@
                     ride(p, rect, done);
                     if (!done) return;
                     aHold.cancel();
-                    titleHold?.cancel();
+                    showBTitle();
                     nameHold?.cancel();
                     pal?.style.removeProperty('z-index');
                     freeBars();
@@ -41929,7 +41955,7 @@
             const pal = _splitPaletteFollow(labels.palette);
             const [la, lb] = labels.names, caseTitle = document.getElementById('case-title');
             const same = la && caseTitle?.offsetParent && la.textContent === caseTitle.textContent ? la : null;
-            const titleHold = same && caseTitle.animate(hold, { duration: 60000 });
+            if (same) same._realHold = caseTitle.animate(hold, { duration: 60000 });
             const slideOutB = () => {
                 if (lb) _splitLabelOut(lb, 0, 0);
                 if (!ghostB) return;
@@ -41944,7 +41970,6 @@
                     ride(p, rect, done);
                     if (!done) return;
                     vpHold?.cancel();
-                    titleHold?.cancel();
                     pal?.style.removeProperty('z-index');
                     freeBars();
                 },
@@ -42078,6 +42103,7 @@
             const panes = qmriViews.map(_qmriPane), pane = _qmriPane(view);
             // The slice's own image shows once the copy lands; its pane fades in around it.
             const canvasHold = _glideHold(view.canvas);
+            const showLabels = _holdLabels(document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-case-name'));
             const holds = new Map(panes.map(p => [p, _glideHold(p)]));
             const others = qmriViews.filter(v => v !== view);
             const t0 = performance.now();
@@ -42097,6 +42123,7 @@
                     tint?._step(p, rect);
                     if (!done) return;
                     canvasHold.cancel();
+                    showLabels();
                     freeBars();
                 },
                 {
@@ -42139,7 +42166,8 @@
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             // The image and its outline stay hidden until the copy lands on them.
             const vpHold = _glideHold(vp);
-            const chromeHolds = [cb, caseTitle].map(el => [el, _glideHold(el)]);
+            const chromeHolds = [[cb, _glideHold(cb)]];
+            const showName = _holdLabels([caseTitle]);
             let tint = null;
             const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp),
                 [[info, infoFrom]],
@@ -42147,6 +42175,7 @@
                     tint?._step(p, rect);
                     if (!done) return;
                     vpHold?.cancel();
+                    showName();
                     freeBars();
                 },
                 {
@@ -42232,6 +42261,7 @@
             _waitForCompareCenterVisualReady(nextMode).then(() => { drawn = true; }, () => { drawn = true; });
             // Each image shows once its copy lands on it.
             const canvasHolds = [a.canvas, b.canvas].map(_glideHold);
+            const showTitles = _holdLabels(document.querySelectorAll('#compare-panes .compare-title'));
             const chrome = [a.pane, b.pane, cb];
             const chromeHolds = chrome.map(_glideHold);
             const arriving = middle(), arrivingHolds = arriving.map(_glideHold);
@@ -42246,6 +42276,7 @@
                 (p, rect, done) => {
                     if (!done) return;
                     canvasHolds.forEach(h => h.cancel());
+                    showTitles();
                     freeBars();
                 },
                 {
