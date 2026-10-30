@@ -30289,40 +30289,7 @@
             'qmri.cycle': {
                 title: 'Enter / exit qMRI mode',
                 when: [],
-                run: (ctx, e) => {
-                    crossfade(() => {
-                        if (compareQmriActive) {
-                            const cases = compareQmriCases;
-                            exitCompareQmri();
-                            // Case rows came from the stack mosaic: go back to it.
-                            if (cases) {
-                                compareQmriCases = null;
-                                // The last case lands in the same window, also at the clamped end.
-                                indices[collectionSpatialNdim] = cases[cases.length - 1];
-                                enterStackMosaic(stackMosaicN);
-                            }
-                        } else if (stackMosaicActive && stackMosaicViews.length > 1) {
-                            // Maps of every case in the mosaic, one row each.
-                            compareQmriCases = stackMosaicViews.map(v => v.colIdx);
-                            exitStackMosaic();
-                            _qmriVisibleMaps = null;
-                            enterCompareQmri();
-                            if (!compareQmriActive) compareQmriCases = null;
-                        } else if (compareActive) {
-                            // Compare 3-plane and compare qMRI share one
-                            // container: switch, never stack them.
-                            if (compareMvActive) exitCompareMv();
-                            _qmriVisibleMaps = null;
-                            enterCompareQmri();
-                        } else if (qmriActive) {
-                            exitQmri();
-                        } else {
-                            _qmriVisibleMaps = null;
-                            enterQmri();
-                        }
-                        if (typeof renderToolMenu === 'function') renderToolMenu();
-                    });
-                },
+                run: (ctx, e) => _afterGlide(_qmriToggle),
             },
             'view.resetOrigin': {
                 title: 'Reset multi-view origin',
@@ -41772,9 +41739,8 @@
         // slides centre to centre the same way. Nothing moves until `ready()` holds and the
         // target has stopped jumping (or 1.5 s passed); then `onStart()` runs. `onFrame(p, rect,
         // done)` runs after each step. Paced by an animation on `g`, so it keeps time with the
-        // other glides.
-        function _splitGlideLive(g, target, radii, bars = [], onFrame = null, { ready = () => true, onStart = null } = {}) {
-            const f = g._from, r0 = g._radii || [0, 0, 0, 0];
+        // other glides. Each of `riders` ({g, target, radii}) glides alongside in step with `g`.
+        function _splitGlideLive(g, target, radii, bars = [], onFrame = null, { ready = () => true, onStart = null, riders = [] } = {}) {
             const clock = g.animate([{ opacity: 1 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS });
             clock.pause();
             bars = bars.filter(([el, from]) => el && from && from.width);
@@ -41794,14 +41760,18 @@
                 }
                 const done = !waiting && clock.playState !== 'running';
                 const p = done ? 1 : waiting ? 0 : _easeInOutCubic(Math.min(1, (clock.currentTime || 0) / _ORTHO_GLIDE_MS));
-                const to = t && t.width ? t : f;
-                const rect = {
-                    left: lerp(f.left, to.left, p), top: lerp(f.top, to.top, p),
-                    width: lerp(f.width, to.width, p), height: lerp(f.height, to.height, p),
+                const place = (c, t1, rad) => {
+                    const from = c._from, to = t1 && t1.width ? t1 : from, q0 = c._radii || [0, 0, 0, 0], q1 = rad() || q0;
+                    const r = {
+                        left: lerp(from.left, to.left, p), top: lerp(from.top, to.top, p),
+                        width: lerp(from.width, to.width, p), height: lerp(from.height, to.height, p),
+                    };
+                    Object.assign(c.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+                    c.style.borderRadius = q0.map((q, i) => `${lerp(q, q1[i], p)}px`).join(' ');
+                    return r;
                 };
-                Object.assign(g.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-                const r1 = radii() || r0;
-                g.style.borderRadius = r0.map((r, i) => `${lerp(r, r1[i], p)}px`).join(' ');
+                const rect = place(g, t, radii);
+                riders.forEach(o => place(o.g, o.target(), o.radii));
                 bars.forEach(([el, from]) => {
                     el.style.removeProperty('translate');
                     if (done) return;
@@ -41984,6 +41954,222 @@
                 { ready: () => _frameDisplaySeq !== seq0, onStart: slideOutB });
             clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
             _syncSinkFocus();
+        }
+
+        // Copies of `els` (canvases as pictures, the rest cloned) fading out where they
+        // were: stand-ins for bars and names the new layout drops at once.
+        function _glideFadeOutCopies(els) {
+            els.forEach(el => {
+                if (!el?.getClientRects().length) return;
+                const g = el.tagName === 'CANVAS' ? _orthoGhost(el, el, getComputedStyle(el).borderRadius) : _orthoLabelGhost(el);
+                if (!g) return;
+                const a = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS * 0.5, easing: 'ease-out', fill: 'forwards' });
+                a.onfinish = a.oncancel = () => g.remove();
+            });
+        }
+
+        const _glideFadeIn = (el) => el?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+        // The pane a copy lands in: its name and bars show as the copy arrives, not before.
+        const _glideFadeInLate = (el) => el?.animate([{ opacity: 0 }, { opacity: 0, offset: 0.55 }, { opacity: 1 }],
+            { duration: _ORTHO_GLIDE_MS });
+        // Fades copy `g` out where it is, under the gliding copies.
+        const _glideFadeOut = (g) => {
+            if (!g) return;
+            g.style.zIndex = '40';
+            const a = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
+            a.onfinish = a.oncancel = () => g.remove();
+        };
+        const _glideHold = (el) => el?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 });
+
+        // Still copy of `src` dressed like box `frame`, or null.
+        function _glideGhost(src, frame) {
+            const g = src && frame ? _orthoGhost(src) : null;
+            _splitDressGhost(g, frame);
+            return g;
+        }
+
+        // Copy of `src` that sits on `ghost` and fades in over it as it glides: the
+        // slice takes on the new view's colours on the way. Runs from `onFrame`.
+        function _glideTint(ghost, src) {
+            const tint = _orthoGhost(src);
+            if (!tint) return null;
+            tint.style.opacity = '0';
+            tint._step = (p, rect) => {
+                Object.assign(tint.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+                tint.style.borderRadius = ghost.style.borderRadius;
+                tint.style.opacity = String(p);
+                ghost.style.opacity = String(1 - p);
+            };
+            return tint;
+        }
+
+        /** q from the single view: a still copy of the slice glides into its own map's
+         *  pane and takes on that map's colours on the way, while the other maps fade
+         *  in beside it once drawn; q again glides it back. Anything else (ortho,
+         *  compare, mosaic, a zoomed-in slice, a hidden map) keeps the crossfade. */
+        // The single view showed the whole slice when qMRI opened from it, so
+        // leaving can glide back onto it.
+        let _qmriFromWholeSlice = false;
+        function _qmriToggle() {
+            const plain = !compareActive && !stackMosaicActive && !multiViewActive;
+            if (!qmriActive) {
+                _qmriFromWholeSlice = plain && _splitWholeIn(document.getElementById('viewer'), document.getElementById('canvas-viewport'));
+            }
+            if (plain && (!qmriActive ? _qmriGlideEnter() : _qmriGlideExit())) return;
+            crossfade(() => {
+                if (compareQmriActive) {
+                    const cases = compareQmriCases;
+                    exitCompareQmri();
+                    // Case rows came from the stack mosaic: go back to it.
+                    if (cases) {
+                        compareQmriCases = null;
+                        // The last case lands in the same window, also at the clamped end.
+                        indices[collectionSpatialNdim] = cases[cases.length - 1];
+                        enterStackMosaic(stackMosaicN);
+                    }
+                } else if (stackMosaicActive && stackMosaicViews.length > 1) {
+                    // Maps of every case in the mosaic, one row each.
+                    compareQmriCases = stackMosaicViews.map(v => v.colIdx);
+                    exitStackMosaic();
+                    _qmriVisibleMaps = null;
+                    enterCompareQmri();
+                    if (!compareQmriActive) compareQmriCases = null;
+                } else if (compareActive) {
+                    // Compare 3-plane and compare qMRI share one
+                    // container: switch, never stack them.
+                    if (compareMvActive) exitCompareMv();
+                    _qmriVisibleMaps = null;
+                    enterCompareQmri();
+                } else if (qmriActive) {
+                    exitQmri();
+                } else {
+                    _qmriVisibleMaps = null;
+                    enterQmri();
+                }
+                if (typeof renderToolMenu === 'function') renderToolMenu();
+            });
+        }
+
+        const _qmriPane = (v) => v?.canvas.closest('.qv-pane');
+        const _qmriClip = (v) => v?.canvas.closest('.qv-canvas-clip');
+        // The map pane showing the slice the single view shows.
+        const _qmriSliceView = () => qmriViews.find(v => v.qmriIdx === Number(indices[qmriDim]));
+
+        // Returns false (having changed nothing) when it cannot glide.
+        function _qmriGlideEnter() {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            if (!_orthoGlideAllowed() || !_qmriFromWholeSlice) return false;
+            const ghost = _glideGhost(main, vp);
+            if (!ghost) return false;
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            _glideFadeOutCopies(['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
+            const freeBars = _holdTransitions([info], null);
+            _qmriVisibleMaps = null;
+            enterQmri();
+            if (typeof renderToolMenu === 'function') renderToolMenu();
+            const view = qmriActive ? _qmriSliceView() : null;
+            if (!view) {
+                // Did not switch, or the slice's map is hidden: the copy fades over the new view.
+                freeBars();
+                if (qmriActive) _glideFadeIn(document.getElementById('qmri-view-wrap'));
+                _orthoGhostRelease(ghost, () => true);
+                return true;
+            }
+            const panes = qmriViews.map(_qmriPane), pane = _qmriPane(view);
+            // The slice's own image shows once the copy lands; its pane fades in around it.
+            const canvasHold = _glideHold(view.canvas);
+            const holds = new Map(panes.map(p => [p, _glideHold(p)]));
+            const others = qmriViews.filter(v => v !== view);
+            const t0 = performance.now();
+            // Each other map fades in where it stays once drawn.
+            const fadeInOthers = () => {
+                others.forEach(v => {
+                    const p = _qmriPane(v), h = holds.get(p);
+                    if (!h || (!v.lastImageData && performance.now() - t0 < 1500)) return;
+                    holds.delete(p); h.cancel(); _glideFadeIn(p);
+                });
+                if ([...holds.keys()].some(p => p !== pane)) requestAnimationFrame(fadeInOthers);
+            };
+            let tint = null;
+            const clock = _splitGlideLive(ghost, () => view.canvas.getBoundingClientRect(), () => _cornerRadii(_qmriClip(view)),
+                [[info, infoFrom]],
+                (p, rect, done) => {
+                    tint?._step(p, rect);
+                    if (!done) return;
+                    canvasHold.cancel();
+                    freeBars();
+                },
+                {
+                    ready: () => !!view.lastImageData,
+                    onStart: () => {
+                        holds.get(pane)?.cancel(); holds.delete(pane);
+                        _glideFadeInLate(pane);
+                        if (view.lastImageData) tint = _glideTint(ghost, view.canvas);
+                        fadeInOthers();
+                    },
+                });
+            clock.onfinish = clock.oncancel = () => {
+                if (tint) ghost.remove();
+                _orthoGhostRelease(tint || ghost, () => true);
+            };
+            _syncSinkFocus();
+            return true;
+        }
+
+        function _qmriGlideExit() {
+            const view = !qmriMvActive && !qmriMosaicActive && _qmriFromWholeSlice ? _qmriSliceView() : null;
+            if (!_orthoGlideAllowed() || !view?.lastImageData || !_splitWholeIn(view.canvas, _qmriClip(view))) return false;
+            const ghost = _glideGhost(view.canvas, _qmriClip(view));
+            if (!ghost) return false;
+            _orthoGlideBusy = true;
+            _killImmersiveTweens();
+            // The other maps fade out where they were.
+            qmriViews.filter(v => v !== view).forEach(v => {
+                const c = _qmriClip(v), g = c ? _orthoGhost(v.canvas, c) : null;
+                _splitDressGhost(g, c);
+                _glideFadeOut(g);
+            });
+            _glideFadeOutCopies([...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-case-name')]
+                .concat(qmriViews.flatMap(v => [v._colorBar?.canvas, v.cbVmin, v.cbVmax])));
+            const info = document.getElementById('info'), cb = _slimCb(), caseTitle = document.getElementById('case-title');
+            const infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            const seq0 = _frameDisplaySeq;
+            _commitQmriExit();
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            // The image and its outline stay hidden until the copy lands on them.
+            const vpHold = _glideHold(vp);
+            const chromeHolds = [cb, caseTitle].map(el => [el, _glideHold(el)]);
+            let tint = null;
+            const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp),
+                [[info, infoFrom]],
+                (p, rect, done) => {
+                    tint?._step(p, rect);
+                    if (!done) return;
+                    vpHold?.cancel();
+                    freeBars();
+                },
+                {
+                    // The single view takes its size once its first slice is back.
+                    ready: () => _frameDisplaySeq !== seq0,
+                    onStart: () => {
+                        chromeHolds.forEach(([el, h]) => { h?.cancel(); _glideFadeInLate(el); });
+                        if (_frameDisplaySeq !== seq0) tint = _glideTint(ghost, main);
+                    },
+                });
+            clock.onfinish = clock.oncancel = () => {
+                if (tint) ghost.remove();
+                _orthoGhostRelease(tint || ghost, () => _frameDisplaySeq !== seq0);
+            };
+            _syncSinkFocus();
+            return true;
+        }
+
+        function _commitQmriExit() {
+            exitQmri();
+            if (typeof renderToolMenu === 'function') renderToolMenu();
         }
 
         // Colorbar height for sizing the ortho panes, without the tick row: hover
