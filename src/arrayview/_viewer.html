@@ -1266,7 +1266,8 @@
             border-top: 1px solid var(--border);
         }
         .preferences-label { color: var(--text); font-size: 12px; }
-        .preferences-detail { color: var(--muted); font-size: 10px; line-height: 1.4; margin-top: 3px; }
+        .preferences-detail { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 3px; }
+        .preferences-intro { margin: 8px 0 4px; }
         .preferences-control {
             width: 100%; box-sizing: border-box; color: var(--text); background: var(--surface);
             border: 1px solid var(--border); border-radius: var(--radius);
@@ -2261,28 +2262,42 @@
             font-family: 'SF Mono', ui-monospace, monospace;
             font-size: 11px; color: var(--help-key); background: var(--surface-2);
         }
-        #help-tabs {
+        #help-main-tabs {
             display: flex; gap: 2px; flex-shrink: 0;
             border-bottom: 1px solid var(--border-subtle);
-            margin-bottom: 16px; overflow-x: auto;
+            margin-bottom: 10px;
         }
-        .help-tab {
+        .help-main-tab {
             appearance: none; border: none; border-bottom: 2px solid transparent;
             background: transparent; cursor: pointer;
             padding: 7px 12px; margin-bottom: -1px;
+            font-size: 13px; white-space: nowrap;
+            color: var(--muted); font-family: inherit;
+        }
+        .help-main-tab:hover { color: var(--text); }
+        .help-main-tab.active {
+            color: var(--text);
+            border-bottom-color: var(--help-key);
+        }
+        .help-main-tab:focus-visible { outline: 1px solid var(--help-key); outline-offset: -2px; border-radius: 4px; }
+        #help-tabs {
+            display: flex; gap: 2px; flex-shrink: 0;
+            margin-bottom: 14px; overflow-x: auto;
+        }
+        #help-tabs[hidden] { display: none; }
+        .help-tab {
+            appearance: none; border: none; border-radius: 5px;
+            background: transparent; cursor: pointer;
+            padding: 4px 10px;
             font-size: 11.5px; white-space: nowrap;
             color: var(--muted); font-family: inherit;
         }
         .help-tab:hover { color: var(--text); }
         .help-tab.active {
-            color: var(--text);
-            border-bottom-color: var(--help-key);
+            color: var(--help-key);
+            background: var(--border-subtle);
         }
-        .help-tab:focus-visible { outline: 1px solid var(--help-key); outline-offset: -2px; border-radius: 4px; }
-        .help-tab-divider {
-            flex: 0 0 1px; align-self: center; height: 12px; margin: 0 6px;
-            background: var(--border);
-        }
+        .help-tab:focus-visible { outline: 1px solid var(--help-key); outline-offset: -2px; }
         #help-content {
             flex: 1; min-height: 0; overflow-y: auto;
             padding-right: 6px; margin-right: -6px;
@@ -5848,6 +5863,7 @@
     </div>
     <div id="help-overlay">
         <div id="help-box">
+            <div id="help-main-tabs"></div>
             <div id="help-tabs"></div>
             <div id="help-content"></div>
             <div class="help-footer">
@@ -22237,9 +22253,11 @@
             }
             const fraction = _activeDimScrollFraction();
             // Mid-glide the bar is moving: the underline's own ease would trail behind it.
-            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced || _orthoGlideBusy);
+            // Same while the labels resize on an extents toggle, so it fades in at its final size.
+            const settling = !!_dimUnderlineTimer;
+            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced || _orthoGlideBusy || settling);
             const infoVisible = _dimUnderlineInfoVisible(info);
-            const hidden = _crossfading || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
+            const hidden = _crossfading || settling || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
             if (!infoVisible) _dimUnderlineTrackUntil = Math.max(_dimUnderlineTrackUntil, performance.now() + 180);
             _dimUnderlinePlaced = true;
@@ -25408,20 +25426,20 @@
         let _preferencesServerInstanceId = _launchPhaseServerId || null;
 
         const PREFERENCE_COPY = {
-            'viewer.theme': ['Theme', 'Applies immediately and to future viewers.'],
-            'viewer.rounded_panes': ['Rounded panes', 'Applies immediately across viewer modes.'],
-            'viewer.qmri_gapless': ['qMRI maps touching', 'No space between qMRI maps, so they can be larger. With two rows, colour bars move inside the maps.'],
-            'viewer.compare_gapless': ['Compare panes touching', 'No space between arrays shown side by side, so they can be larger. With two rows, array names move inside the images.'],
-            'viewer.remember_view': ['Reopen where you left off', 'Opening a file again brings back its slice, view, colormap and rotation, and its display range if the file has not changed.'],
-            'viewer.colormaps': ['Colormap cycle', 'Comma-separated names used by the colormap picker.'],
-            'viewer.ortho_layout': ['Ortho-view layout', 'Default arrangement when ortho view opens.'],
-            'viewer.dimbar_mode': ['Dimbar mode', 'Whether dimension extents start compact or extended.'],
-            'window.terminal': ['Terminal window', 'Used on the next terminal launch.'],
-            'window.vscode': ['VS Code window', 'Used on the next VS Code launch.'],
-            'window.jupyter': ['Jupyter window', 'Used on the next notebook launch.'],
-            'window.ssh': ['SSH window', 'Used on the next remote SSH launch.'],
-            'window.julia': ['Julia window', 'Used on the next Julia launch.'],
-            'nninteractive.url': ['nnInteractive URL', 'Used the next time the nnInteractive tool starts.'],
+            'viewer.theme': ['Theme', 'The colours of the viewer. Press T to switch while you work.'],
+            'viewer.rounded_panes': ['Rounded panes', 'Rounds the corners of images. Rounding hides a few pixels in each corner, so turn it off to see them. Press Shift+B to switch while you work.'],
+            'viewer.qmri_gapless': ['qMRI maps touching', 'qMRI mode (q) shows T₁, T₂, PD and other maps next to each other. This removes the space between them so they can be larger. With two rows of maps, the colour bars move inside the maps.'],
+            'viewer.compare_gapless': ['Compare panes touching', 'Removes the space between arrays shown side by side, so they can be larger. With two rows of arrays, their names move inside the images.'],
+            'viewer.remember_view': ['Reopen where you left off', 'Opening the same file again brings back its slice, view, colormap and rotation. Its display range comes back too, unless the file has changed. Kept in ~/.arrayview/view_memory.json.'],
+            'viewer.colormaps': ['Colormap cycle', 'The colormaps offered when you press c, in this order. Type names separated by commas. Unknown names are skipped. Leave empty for the full built-in list. Applies the next time you open a viewer.'],
+            'viewer.ortho_layout': ['Ortho-view layout', 'Ortho view (v) shows three planes of a volume at once. This sets how they are arranged when it opens. Responsive picks what fits your window best.'],
+            'viewer.dimbar_mode': ['Dimbar mode', 'The row above the image lists the dimensions and the current slice. Extended also shows the size of each dimension, such as 11/20 instead of 11. Press Shift+D to switch while you work.'],
+            'window.terminal': ['Terminal window', 'When you start arrayview from a normal terminal.'],
+            'window.vscode': ['VS Code window', 'When you start arrayview from a VS Code terminal.'],
+            'window.jupyter': ['Jupyter window', 'When you open an array from a notebook.'],
+            'window.ssh': ['SSH window', 'When you start arrayview over SSH, outside VS Code.'],
+            'window.julia': ['Julia window', 'When you open an array from Julia.'],
+            'nninteractive.url': ['nnInteractive URL', 'nnInteractive is an optional AI model that helps draw masks in the Segment tool (/ then S). If it runs on another machine, such as a GPU server, enter its address here. Leave empty to try this computer. Applies the next time the tool connects.'],
         };
         function _preferenceOptionLabel(value, path = '') {
             if (value === null || value === undefined || value === '') return 'Responsive layout';
@@ -25433,6 +25451,8 @@
                 vscode: 'VS Code tab',
                 inline: 'Inline notebook',
                 none: 'No window',
+                horizontal: 'Three in a row',
+                'big-left': 'One big, two small',
             };
             return labels[value] || String(value).replaceAll('-', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
         }
@@ -25533,6 +25553,10 @@
 
         function _renderPreferences(data) {
             preferencesBody.replaceChildren();
+            const intro = document.createElement('div');
+            intro.className = 'help-tab-desc preferences-intro';
+            intro.textContent = 'Your defaults for every array you open. Changes apply straight away unless a setting says otherwise. They are saved in ~/.arrayview/config.toml on the computer running arrayview. You can also edit that file by hand or use arrayview config set.';
+            preferencesBody.appendChild(intro);
             const schema = (data && data.schema) || {};
             for (const section of ['viewer', 'nninteractive', 'window']) {
                 const entries = schema[section];
@@ -25541,12 +25565,12 @@
                 sectionEl.className = 'preferences-section';
                 const heading = document.createElement('div');
                 heading.className = 'preferences-section-title';
-                heading.textContent = section === 'viewer' ? 'Viewer' : (section === 'window' ? 'Default launch behavior' : section);
+                heading.textContent = { viewer: 'Viewer', window: 'Where arrays open', nninteractive: 'Segmentation' }[section] || section;
                 sectionEl.appendChild(heading);
                 if (section === 'window') {
                     const note = document.createElement('div');
                     note.className = 'preferences-detail';
-                    note.textContent = 'Used unless overridden by --window, ARRAYVIEW_WINDOW, or a Python window= argument.';
+                    note.textContent = 'Applies the next time you open an array. A --window flag, the ARRAYVIEW_WINDOW variable or a Python window= argument takes priority.';
                     sectionEl.appendChild(note);
                 }
                 for (const [key, spec] of Object.entries(entries || {})) {
@@ -25656,18 +25680,39 @@
             }
         }
 
+        // Main tabs of the help overlay. Each sub-tab belongs to one; h/l still walk all of them in order.
+        const HELP_GROUPS = [['help', 'Help'], ['tools', 'Tools'], ['preferences', 'Preferences']];
+        const _helpGroupLastTab = {};
+        function _helpGroupOf(tabId) {
+            if (tabId === 'preferences') return 'preferences';
+            return (tabId === 'tools' || tabId.startsWith('tool-')) ? 'tools' : 'help';
+        }
+
+        function _setHelpGroup(group) {
+            const tabs = Array.from(document.querySelectorAll('#help-tabs .help-tab'));
+            setHelpTab(_helpGroupLastTab[group] ?? tabs.findIndex(t => t.dataset.helpGroup === group));
+        }
+
         function setHelpTab(index) {
             const tabs = Array.from(document.querySelectorAll('#help-tabs .help-tab'));
             const panels = Array.from(document.querySelectorAll('#help-content .help-panel'));
             if (!tabs.length) return;
             helpTabIdx = ((index % tabs.length) + tabs.length) % tabs.length;
+            const group = tabs[helpTabIdx].dataset.helpGroup;
+            _helpGroupLastTab[group] = helpTabIdx;
             for (let i = 0; i < tabs.length; i++) {
                 tabs[i].classList.toggle('active', i === helpTabIdx);
+                tabs[i].hidden = tabs[i].dataset.helpGroup !== group;
             }
+            document.getElementById('help-tabs').hidden = tabs.filter(t => !t.hidden).length < 2;
+            document.querySelectorAll('#help-main-tabs .help-main-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.helpGroup === group);
+            });
             for (let i = 0; i < panels.length; i++) {
                 panels[i].style.display = i === helpTabIdx ? 'block' : 'none';
             }
             if (panels[helpTabIdx]?.dataset.helpTab === 'tools') _renderHelpToolList();
+            if (panels[helpTabIdx]?.dataset.helpTab === 'preferences') _loadPreferencesHelpTab();
             const contentEl = document.getElementById('help-content');
             contentEl.scrollTop = 0;
             _updateHelpScrollHint();
@@ -31080,27 +31125,6 @@
                 ]
             },
             {
-                id: 'tools', label: 'Tools',
-                desc: 'Every tool at a glance. Click a tool, or press / and then its letter. Dimmed tools are not available for this array. Direct keys work without /.',
-                columns: 2,
-                sections: [
-                    { title: 'After /', toolList: true, entries: [] },
-                    {
-                        title: 'Direct', columnBreak: true,
-                        entries: [
-                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
-                            { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
-                            { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 'S', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
-                            { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
-                            { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
-                            { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
-                            { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
-                        ]
-                    }
-                ]
-            },
-            {
                 id: 'overlays', label: 'Overlays',
                 desc: 'Extra layers displayed on top of your array. Load segmentation masks with --overlay or deformation fields with --vectorfield when launching arrayview. Press O to toggle visibility for all overlays at once.',
                 sections: [
@@ -31121,6 +31145,27 @@
                             { key: 'O', action: 'Toggle visibility' },
                             { key: '[ ]', action: 'Adjust arrow density' },
                             { key: '{ }', action: 'Adjust arrow length' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'tools', label: 'All tools',
+                desc: 'Every tool at a glance. Click a tool, or press / and then its letter. Dimmed tools are not available for this array. Direct keys work without /.',
+                columns: 2,
+                sections: [
+                    { title: 'After /', toolList: true, entries: [] },
+                    {
+                        title: 'Direct', columnBreak: true,
+                        entries: [
+                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
+                            { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
+                            { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
+                            { key: 'S', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
+                            { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
+                            { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
+                            { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
+                            { key: 'u', action: 'Ruler', hint: 'measure distance between two points' },
                         ]
                     }
                 ]
@@ -31300,18 +31345,28 @@
             contentEl.innerHTML = '';
             contentEl.addEventListener('scroll', _updateHelpScrollHint, { passive: true });
 
+            const mainTabsEl = document.getElementById('help-main-tabs');
+            mainTabsEl.innerHTML = '';
+            for (const [group, label] of HELP_GROUPS) {
+                const mainBtn = document.createElement('button');
+                mainBtn.type = 'button';
+                mainBtn.className = 'help-main-tab';
+                mainBtn.dataset.helpGroup = group;
+                mainBtn.textContent = label;
+                mainBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    _setHelpGroup(group);
+                    sink.focus();
+                });
+                mainTabsEl.appendChild(mainBtn);
+            }
+
             for (const [i, tab] of GUIDE_TABS.entries()) {
-                // Everyday tabs first, then one tab per tool, split by a hairline.
-                if (tab.id.startsWith('tool-') && i > 0 && !GUIDE_TABS[i - 1].id.startsWith('tool-')) {
-                    const divider = document.createElement('span');
-                    divider.className = 'help-tab-divider';
-                    divider.setAttribute('aria-hidden', 'true');
-                    tabsEl.appendChild(divider);
-                }
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'help-tab' + (i === 0 ? ' active' : '');
                 btn.dataset.helpTab = tab.id;
+                btn.dataset.helpGroup = _helpGroupOf(tab.id);
                 btn.textContent = tab.label;
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -31411,22 +31466,14 @@
                 contentEl.appendChild(panel);
             }
 
-            const preferencesIndex = GUIDE_TABS.length;
+            // Preferences has no sub-tabs: this button stays hidden and only keeps tabs and panels index-aligned.
             const preferencesTab = document.createElement('button');
             preferencesTab.type = 'button';
             preferencesTab.id = 'help-preferences-tab';
             preferencesTab.className = 'help-tab';
             preferencesTab.dataset.helpTab = 'preferences';
+            preferencesTab.dataset.helpGroup = 'preferences';
             preferencesTab.textContent = 'Preferences';
-            const prefDivider = document.createElement('span');
-            prefDivider.className = 'help-tab-divider';
-            prefDivider.setAttribute('aria-hidden', 'true');
-            tabsEl.appendChild(prefDivider);
-            preferencesTab.addEventListener('click', (e) => {
-                e.preventDefault();
-                setHelpTab(preferencesIndex);
-                _loadPreferencesHelpTab();
-            });
             tabsEl.appendChild(preferencesTab);
 
             const preferencesPanel = document.createElement('div');
@@ -42039,6 +42086,17 @@
             return { left: r.left + b.x * r.width, top: r.top + b.y * r.height, width: b.w * r.width, height: b.h * r.height };
         };
 
+        // Where part `box` of the grid will be once drawn: the grid fitted to the same space
+        // as the main view, around the centre of the image rect `around`.
+        function _rectOfGridBox(box, around) {
+            const maxW = Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE);
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - NORMAL_BOTTOM_RESERVE);
+            const shown = box.aspect / _pixelAspect(dim_x, dim_y);
+            const w = Math.min(maxW, maxH * shown), h = w / shown;
+            const left = around.left + around.width / 2 - w / 2, top = around.top + around.height / 2 - h / 2;
+            return { left: left + box.x * w, top: top + box.y * h, width: box.w * w, height: box.h * h };
+        }
+
         // Still copy of the part `box` of canvas `src`, in place, or null.
         function _mosaicTileGhost(src, box) {
             const r = _rectOfBox(src, box);
@@ -42085,38 +42143,53 @@
             _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
             const freeBars = _holdTransitions([info], null);
             const seq0 = _frameDisplaySeq;
+            const before = main.getBoundingClientRect();
             _mosaicCommit();
             if (!leaving) box = _mosaicTileBox(idx);
             const aspect = leaving ? shape[dim_x] / shape[dim_y] : box.aspect;
             // Still the old picture until the new one is back in the shape it should have.
             const drawn = () => _frameDisplaySeq !== seq0 && main.height > 0
                 && Math.abs(main.width / main.height / aspect - 1) < 0.05;
+            // A first mosaic can take seconds to build: entering sets off at once for
+            // where its tile will be, and the grid fades in when it comes.
+            const expected = leaving ? null : _rectOfGridBox(box, before);
             const vpHold = _glideHold(vp);
             _glideFadeOut(fadeGrid);
-            let tint = null;
+            let tint = null, gridIn = leaving, tintFrom = 0;
+            const showGrid = (p) => {
+                gridIn = true;
+                vpHold?.cancel();
+                vp.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
+                // Grid and slice have different display ranges: blend on the way.
+                if (p < 0.9) { tintFrom = p; tint = _glideTint(ghost, main, _mosaicTileGhost(main, box)); }
+            };
             const clock = _splitGlideLive(ghost,
-                () => (!drawn() ? null : leaving ? main.getBoundingClientRect() : _rectOfBox(main, box)),
+                () => (drawn() ? (leaving ? main.getBoundingClientRect() : _rectOfBox(main, box)) : expected),
                 () => (leaving ? _cornerRadii(vp) : [0, 0, 0, 0]),
                 [[info, infoFrom]],
                 (p, rect, done) => {
-                    tint?._step(p, rect);
+                    if (!gridIn && drawn()) showGrid(p);
+                    tint?._step((p - tintFrom) / (1 - tintFrom), rect);
                     if (!done) return;
-                    vpHold?.cancel();
+                    if (leaving) vpHold?.cancel();
                     freeBars();
                 },
                 {
-                    ready: drawn,
-                    onStart: () => {
-                        // Grid and slice have different display ranges: blend on the way.
-                        if (drawn()) tint = leaving ? _glideTint(ghost, main) : _glideTint(ghost, main, _mosaicTileGhost(main, box));
-                        if (leaving) return;
-                        vpHold?.cancel();
-                        _glideFadeIn(vp);
-                    },
+                    ready: leaving ? drawn : () => true,
+                    onStart: () => { if (leaving && drawn()) tint = _glideTint(ghost, main); },
                 });
             clock.onfinish = clock.oncancel = () => {
-                if (tint) ghost.remove();
-                _orthoGhostRelease(tint || ghost, () => true);
+                const t0 = performance.now();
+                // Landed before the grid came: the tile waits in place.
+                const wait = () => {
+                    if (!gridIn) {
+                        if (!drawn() && performance.now() - t0 < 10000) { requestAnimationFrame(wait); return; }
+                        showGrid(1);
+                    }
+                    if (tint) ghost.remove();
+                    _orthoGhostRelease(tint || ghost, () => true);
+                };
+                wait();
             };
             _syncSinkFocus();
             return true;
