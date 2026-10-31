@@ -123,3 +123,14 @@ def test_stack_mosaic_glides_in_and_back(loaded_viewer, client, tmp_path):
     page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)
+
+
+def test_mosaic_glide_does_not_double_the_colorbar_values(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    _settle(page)
+    page.keyboard.press("z")
+    copies = page.evaluate(
+        "() => [...document.body.children].filter(e => e.classList.contains('slim-cb-val')).length"
+    )
+    assert copies == 0
+    _settle(page)

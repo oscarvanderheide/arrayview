@@ -42140,8 +42140,8 @@
             _glideBegin();
             _killImmersiveTweens();
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
-            _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id)));
-            const freeBars = _holdTransitions([info], null);
+            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             const seq0 = _frameDisplaySeq;
             const before = main.getBoundingClientRect();
             _mosaicCommit();
@@ -42166,7 +42166,7 @@
             const clock = _splitGlideLive(ghost,
                 () => (drawn() ? (leaving ? main.getBoundingClientRect() : _rectOfBox(main, box)) : expected),
                 () => (leaving ? _cornerRadii(vp) : [0, 0, 0, 0]),
-                [[info, infoFrom]],
+                [[info, infoFrom], [cb, cbFrom]],
                 (p, rect, done) => {
                     if (!gridIn && drawn()) showGrid(p);
                     tint?._step((p - tintFrom) / (1 - tintFrom), rect);
