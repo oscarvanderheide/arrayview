@@ -22182,6 +22182,20 @@
         let _dimUnderlineStartupTimer = 0;
         let _dimUnderlineRaf = 0;
         let _dimUnderlineTrackUntil = 0;
+        // A view switch (z, v...) that moves the active dim: the underline slides there.
+        const DIM_UNDERLINE_SLIDE_MS = 250;
+        let _dimUnderlineShown = null;    // last drawn, relative to the bar's centre
+        let _dimUnderlineSlide = null;
+        let _dimbarActive = null, _dimbarLetters = '';
+        function _dimUnderlineSlideCheck(info) {
+            const active = info.querySelector('.active-dim.dim-label, .active-vfield-t.dim-label')?.dataset.dim ?? null;
+            const letters = [...info.querySelectorAll('.dim-axis-letter')]
+                .map(el => el.closest('[data-dim]')?.dataset.dim + el.textContent).join();
+            if (active !== _dimbarActive && (letters !== _dimbarLetters || _orthoGlideBusy) && _dimUnderlineShown) {
+                _dimUnderlineSlide = { from: _dimUnderlineShown, start: performance.now() };
+            }
+            _dimbarActive = active; _dimbarLetters = letters;
+        }
         function _activeDimUnderlineViewportRect(info) {
             // Selector lists return the first matching element in document
             // order, not the first selector's match. Query active labels
@@ -22249,13 +22263,30 @@
             if (!toRect) {
                 marker.remove();
                 _dimUnderlinePlaced = false;
+                _dimUnderlineShown = null;
                 return;
             }
-            const fraction = _activeDimScrollFraction();
+            let fraction = _activeDimScrollFraction();
+            // Measured from the bar's centre, so it composes with the bar's own glide.
+            const barRect = info.getBoundingClientRect(), barMid = barRect.left + barRect.width / 2;
+            let rel = toRect.x - barMid;
+            if (_dimUnderlineSlide) {
+                const { from, start } = _dimUnderlineSlide;
+                const t = (performance.now() - start) / DIM_UNDERLINE_SLIDE_MS;
+                if (t >= 1) _dimUnderlineSlide = null;
+                else {
+                    const p = _easeInOutCubic(Math.max(0, t));
+                    rel = from.rel + (rel - from.rel) * p;
+                    toRect.w = from.w + (toRect.w - from.w) * p;
+                    fraction = from.f + (fraction - from.f) * p;
+                    toRect.x = barMid + rel;
+                }
+            }
             // Mid-glide the bar is moving: the underline's own ease would trail behind it.
             // Same while the labels resize on an extents toggle, so it fades in at its final size.
             const settling = !!_dimUnderlineTimer;
-            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced || _orthoGlideBusy || settling);
+            _placeDimUnderline(marker, toRect, fraction, !_dimUnderlinePlaced || _orthoGlideBusy || settling || !!_dimUnderlineSlide);
+            _dimUnderlineShown = { rel, w: toRect.w, f: fraction };
             const infoVisible = _dimUnderlineInfoVisible(info);
             const hidden = _crossfading || settling || !_dimUnderlineStartupReady || !infoVisible || info.classList.contains('dimbar-expanded');
             marker.style.opacity = hidden ? '0' : '';
@@ -22494,7 +22525,8 @@
             }
             _wireDimbarDblClick(_info);
             _wireQmriHintAnchor();
-            _scheduleActiveDimUnderline(_info, 240);
+            _dimUnderlineSlideCheck(_info);
+            _scheduleActiveDimUnderline(_info, _dimUnderlineSlide ? DIM_UNDERLINE_SLIDE_MS + 50 : 240);
             if (document.querySelector('.qmri-inline-controls')) _trackQmriInlineControls();
             _applyHistPickerClasses();
             renderEggs();
@@ -41401,7 +41433,8 @@
          *  it; v again glides it back. Anything else (a big pane showing a
          *  different picture, a layout without a big pane) keeps the plain
          *  crossfade. */
-        const _ORTHO_GLIDE_MS = 750;
+        const _ORTHO_GLIDE_MS = 450;
+        const _GLIDE_GHOST_FADE_MS = 80;     // still copy handing over to the live view
         const _ORTHO_GLIDE_EASE = 'cubic-bezier(.65, 0, .35, 1)';   // ease-in-out cubic
         // Side panes travel in from (and out to) the window's right edge.
         const _orthoSideShift = (left) => Math.max(40, window.innerWidth - left);
@@ -41459,7 +41492,7 @@
             const t0 = performance.now();
             const wait = () => {
                 if (!landed() && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
-                const fade = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                const fade = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
                 fade.onfinish = fade.oncancel = () => {
                     g.remove();
                     (g._labels || []).forEach(l => { l._realHold?.cancel(); l.remove(); });
@@ -41853,8 +41886,6 @@
         }
 
         // Label copy `g` rides `dx, dy` along with its pane and fades out.
-        const _splitLabelOut = (g, dx, dy) => _orthoLabelGlide(g, null,
-            [{ transform: 'none', opacity: 1 }, { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }]);
 
         function _splitGlideEnter(dim) {
             const fromOrtho = multiViewActive, big = fromOrtho ? mvViews[0] : null;
@@ -41918,7 +41949,7 @@
                     return;
                 }
                 bHold.cancel();
-                b.pane.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
+                b.pane.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS * 0.5, easing: 'ease-out' });
             };
             const name = labels.names[0];
             const same = name && a.title && name.textContent === a.title.textContent ? name : null;
@@ -41979,10 +42010,14 @@
             const same = la && caseTitle?.offsetParent && la.textContent === caseTitle.textContent ? la : null;
             if (same) same._realHold = caseTitle.animate(hold, { duration: 60000 });
             const slideOutB = () => {
-                if (lb) _splitLabelOut(lb, 0, 0);
+                // Its name sits above the left copy passing over the pane, so it goes first.
+                if (lb) {
+                    const outL = lb.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS * 0.3, easing: 'ease-out', fill: 'forwards' });
+                    outL.onfinish = outL.oncancel = () => lb.remove();
+                }
                 if (!ghostB) return;
                 const out = ghostB.animate([{ opacity: 1 }, { opacity: 0 }],
-                    { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
+                    { duration: _ORTHO_GLIDE_MS * 0.5, easing: 'ease-out', fill: 'forwards' });
                 out.onfinish = out.oncancel = () => ghostB.remove();
             };
             const ride = _splitNamesRide([la], ghost, same);
@@ -42279,7 +42314,7 @@
             clock.onfinish = clock.oncancel = () => {
                 _orthoGhostRelease(ghosts[0], () => true);
                 ghosts.slice(1).forEach(g => {
-                    const out = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                    const out = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
                     out.onfinish = out.oncancel = () => g.remove();
                 });
             };
@@ -42638,7 +42673,7 @@
                 });
             clock.onfinish = clock.oncancel = () => {
                 _orthoGhostRelease(ghost, () => true);
-                const out = ghostB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                const out = ghostB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
                 out.onfinish = out.oncancel = () => ghostB.remove();
                 if (nextMode > 0) _showCompareCenterModePicker();
             };

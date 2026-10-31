@@ -134,3 +134,33 @@ def test_mosaic_glide_does_not_double_the_colorbar_values(loaded_viewer, sid_3d)
     )
     assert copies == 0
     _settle(page)
+
+
+_UNDERLINE_TRACE = """() => { window.__u = []; const t0 = performance.now(); const f = () => {
+    window.__u.push([performance.now() - t0, document.getElementById('dim-active-underline').getBoundingClientRect().left]);
+    if (performance.now() - t0 < 900) requestAnimationFrame(f);
+}; f(); }"""
+
+
+def test_mosaic_underline_slides_to_new_active_dim(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    _settle(page)
+    page.evaluate("_dimbarExtentPinned = false; document.getElementById('info').classList.remove('dimbar-expanded')")
+    page.wait_for_timeout(400)
+
+    for _ in range(2):
+        page.evaluate(_UNDERLINE_TRACE)
+        page.keyboard.press("z")
+        page.wait_for_timeout(1000)
+        trace = page.evaluate("window.__u")
+        start, end = trace[0][1], trace[-1][1]
+        assert abs(end - start) > 5
+        assert page.evaluate(
+            "document.querySelector('#info .active-dim.dim-label').getBoundingClientRect().left"
+        ) == end
+        moving = [t for (t, x), (_, prev) in zip(trace[1:], trace) if abs(x - prev) > 0.1]
+        steps = [abs(x - prev) for (_, x), (_, prev) in zip(trace[1:], trace)]
+        print(f"slide took {moving[-1] - moving[0]:.0f} ms, biggest step {max(steps):.1f} of {abs(end - start):.1f} px")
+        assert 150 < moving[-1] - moving[0] < 400
+        assert max(steps) < abs(end - start) * 0.5
+        _settle(page)
