@@ -1163,6 +1163,153 @@ class TestKeyboard:
 
 
 class TestROIDrag:
+    def test_immersive_fills_height_with_even_island_gaps(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        m = page.evaluate("""() => {
+            const r = s => document.querySelector(s).getBoundingClientRect();
+            const vp = r('#canvas-viewport'), bar = r('#info'), cb = r('#slim-cb-wrap');
+            return { vpH: vp.height, top: bar.top - vp.top, bottom: vp.bottom - cb.bottom,
+                     barH: bar.height, cbH: cb.height, h: innerHeight };
+        }""")
+        assert m["vpH"] == m["h"]
+        assert abs(m["top"] - m["bottom"]) <= 1
+        assert abs(m["barH"] - m["cbH"]) <= 1
+
+    def test_ortho_from_immersive_keeps_bars_on_big_pane(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(800)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(1500)
+        m = page.evaluate("""() => {
+            const r = s => document.querySelector(s).getBoundingClientRect();
+            const big = r('.mv-pane:not(.mv-small-pane)'), bar = r('#info'), cb = r('#mv-cb-wrap');
+            const mid = b => b.left + b.width / 2;
+            return { small: !!document.querySelector('.mv-small-pane'),
+                     top: bar.top - big.top, bottom: big.bottom - cb.bottom,
+                     barOff: mid(bar) - mid(big), cbOff: mid(cb) - mid(big),
+                     cbInside: cb.bottom <= innerHeight };
+        }""")
+        assert m["small"] and m["cbInside"]
+        assert abs(m["top"] - m["bottom"]) <= 1
+        assert abs(m["barOff"]) <= 1 and abs(m["cbOff"]) <= 1
+        # Shift+F still leaves immersive from here.
+        page.keyboard.press("F")
+        page.wait_for_function("() => !_fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        off = page.evaluate("""() => {
+            const r = s => document.querySelector(s).getBoundingClientRect();
+            const big = r('.mv-pane:not(.mv-small-pane)'), cb = r('#mv-cb-wrap');
+            return (cb.left + cb.width / 2) - (big.left + big.width / 2);
+        }""")
+        assert abs(off) <= 1
+
+    def test_ortho_immersive_only_in_big_left(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(1500)
+        assert page.evaluate("() => _resolvedOrthoLayoutMode()") == "big-left"
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        shown = page.evaluate("""() => ({
+            cb: getComputedStyle(document.getElementById('mv-cb-wrap')).opacity,
+            lines: Math.round(parseFloat(mvViews[0]._chOverlay.style.width)) === mvViews[0].pane.offsetWidth,
+        })""")
+        assert shown == {"cb": "1", "lines": True}
+        # Leaving big-left closes immersive; the row of panes will not reopen it.
+        page.keyboard.press("g")
+        page.wait_for_function("() => !_fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        assert page.evaluate("() => _resolvedOrthoLayoutMode()") != "big-left"
+        page.keyboard.press("F")
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _fullscreenActive") is False
+
+    def test_compare_center_immersive_only_in_big_left(self, page, server_url, sid_3d, client, arr_3d, tmp_path):
+        path = tmp_path / "immersive_center.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post("/load", json={"filepath": str(path), "name": "immersive_center"}).json()["sid"]
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={sid_compare}&compare_sids={sid_compare}")
+        page.wait_for_function("() => compareActive", timeout=15_000)
+        page.wait_for_timeout(600)
+        page.keyboard.press("Shift+X")
+        page.wait_for_timeout(1000)
+        for _ in range(5):
+            if page.evaluate("() => _resolvedCompareLayoutMode()") == "big-left":
+                break
+            page.keyboard.press("g")
+            page.wait_for_timeout(800)
+        assert page.evaluate("() => _resolvedCompareLayoutMode()") == "big-left"
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        page.keyboard.press("g")
+        page.wait_for_function("() => !_fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        assert page.evaluate("() => _resolvedCompareLayoutMode()") != "big-left"
+        page.keyboard.press("F")
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _fullscreenActive") is False
+
+    def test_immersive_refused_when_width_is_the_limit(self, page, server_url, sid_3d, client, arr_3d, tmp_path):
+        path = tmp_path / "immersive_compare.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post("/load", json={"filepath": str(path), "name": "immersive_compare"}).json()["sid"]
+        # Side-by-side compare in a landscape window, and a portrait window.
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={sid_compare}&compare_sids={sid_compare}")
+        page.wait_for_function("() => compareActive", timeout=15_000)
+        page.wait_for_timeout(600)
+        page.keyboard.press("F")
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _fullscreenActive") is False
+
+        page.set_viewport_size({"width": 700, "height": 900})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _fullscreenActive") is False
+
+    def test_immersive_opens_in_compare_when_height_is_the_limit(self, page, server_url, sid_3d, client, arr_3d, tmp_path):
+        path = tmp_path / "immersive_compare.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post("/load", json={"filepath": str(path), "name": "immersive_compare"}).json()["sid"]
+        page.set_viewport_size({"width": 2000, "height": 500})
+        page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={sid_compare}&compare_sids={sid_compare}")
+        page.wait_for_function("() => compareActive", timeout=15_000)
+        page.wait_for_timeout(600)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        fitted = page.evaluate("""() => {
+            const name = document.querySelector('#compare-left-title');
+            return {
+                zoom: userZoom,
+                map: !!document.querySelector('.cmp-mini-map.visible'),
+                name: getComputedStyle(name).opacity,
+            };
+        }""")
+        assert fitted == {"zoom": 1.0, "map": False, "name": "1"}
+
     def _draw_roi(self, page):
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()

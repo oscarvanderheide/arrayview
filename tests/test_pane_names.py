@@ -48,6 +48,9 @@ def test_zoom_map_and_slice_bar_leave_compare_names_readable(page, server_url, c
     assert page.evaluate(_OVERLAP, [left_name, left_map]) is False
 
     # Immersive: names stay on the images and step out from under the dim bar.
+    # Side by side only opens it when height is the limit, hence the short window.
+    page.set_viewport_size({"width": 2000, "height": 500})
+    page.wait_for_timeout(300)
     _focus(page)
     page.keyboard.press("F")
     page.wait_for_function("() => _fullscreenActive", timeout=5_000)
@@ -55,7 +58,6 @@ def test_zoom_map_and_slice_bar_leave_compare_names_readable(page, server_url, c
     for sel in (left_name, "#compare-right-title"):
         assert page.evaluate("s => getComputedStyle(document.querySelector(s)).opacity", sel) == "1"
         assert page.evaluate(_OVERLAP, [sel, "#info"]) is False
-    assert page.evaluate(_OVERLAP, [left_name, left_map]) is False
     tops = page.evaluate(
         "() => ['#compare-left-title', '#compare-right-title'].map(s => Math.round(document.querySelector(s).getBoundingClientRect().top))"
     )

@@ -4730,6 +4730,8 @@
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
+            /* Flush with the window edge: nothing to round off against */
+            border-radius: 0;
         body.zen-mode .qmri-synth-param-popover,
         body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
 
@@ -4755,13 +4757,19 @@
         }
         /* Dim bar overlaid top-center — positioned via JS relative to canvas */
         body.fullscreen-mode #info {
+        body.fullscreen-mode .mv-pane { border-radius: 0; }
+        /* Ortho colorbar: same island height as the others, no gap above it */
+        body.fullscreen-mode #mv-cb-wrap {
+            margin-top: calc(-1 * var(--cb-extra-top));
+            padding-top: calc(7px + var(--cb-extra-top)); padding-bottom: 7px;
+        }
             position: fixed; z-index: 3; left: 50%;
             transform: translateX(-50%) translateY(var(--fly-y, 0px)) !important;
             margin: 0 !important;
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
+            border-radius: var(--radius-lg);
             pointer-events: none;
         }
         body.fullscreen-mode #info > * { pointer-events: auto; }
@@ -4779,9 +4787,15 @@
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
-            border-radius: 14px !important;
+            border-radius: var(--radius-lg) !important;
             pointer-events: none;
-            padding: calc(4px + var(--cb-extra-top, 0px)) 12px 4px !important;
+            padding: var(--cb-extra-top, 0px) 12px 0 !important;
+        }
+        :root.light body.fullscreen-mode #slim-cb-wrap {
+            background: rgba(240, 240, 240, 0.85) !important;
+            border-color: rgba(0, 0, 0, 0.08) !important;
+            /* Flush with the window edge: nothing to round off against */
+            border-radius: 0 !important;
         }
         body.fullscreen-mode #slim-cb-wrap > *,
         body.fullscreen-mode #slim-cb-wrap .save-flip-front > *,
@@ -4816,7 +4830,7 @@
            so they float over the canvas content. */
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay {
             opacity: 1 !important; max-height: none !important; overflow: visible !important;
-            position: absolute !important; bottom: 8px !important; left: 50% !important;
+            position: absolute !important; bottom: 10px !important; left: 50% !important;
             transform: translateX(-50%) !important;
             margin: 0 !important; padding: 4px 12px !important;
             background: rgba(30, 30, 30, 0.8) !important;
@@ -7661,7 +7675,7 @@
             const cs = panesEl ? getComputedStyle(panesEl) : null;
             const colGap = parseFloat((cs && (cs.columnGap || cs.gap)) || '18') || 18;
             const rowGap = parseFloat((cs && (cs.rowGap || cs.gap)) || '18') || 18;
-            const immersivePad = 12;
+            const immersivePad = IMMERSIVE_PAD;
             const cP = _crossfadeCollapseP;
             const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
@@ -9267,6 +9281,10 @@
         }
         window.addEventListener('modechange', _reportInlineModeChange);
         document.addEventListener('modechange', _reportInlineModeChange);
+        // Immersive: the image runs to the window edge; islands float a fixed
+        // distance inside it, the same at top and bottom.
+        const IMMERSIVE_PAD = 0;
+        const IMMERSIVE_ISLAND_GAP = 10;
 
         function _setWindowIdentity(name) {
             const clean = String(name || '').trim();
@@ -9530,7 +9548,7 @@
         function _calcSinglePaneViewportRect(w, h, zoom, immersive) {
             if (!w || !h) return null;
             h = h * _pixelAspect(dim_x, dim_y);
-            const immersivePad = 12;
+            const immersivePad = IMMERSIVE_PAD;
             const sidePad = immersive ? immersivePad * 2 : NORMAL_SIDE_RESERVE;
             const bottomReserve = immersive ? 0 : NORMAL_BOTTOM_RESERVE;
             const uiReserve = immersive ? 0 : uiReserveV();
@@ -9589,7 +9607,7 @@
         function scaleCanvas(w, h) {
             // Layout works in on-screen proportions: thick voxels draw taller.
             h = h * _pixelAspect(dim_x, dim_y);
-            const immersivePad = 12;
+            const immersivePad = IMMERSIVE_PAD;
             const cP = _crossfadeCollapseP;
             const bottomReserve = _fullscreenActive ? 0 : NORMAL_BOTTOM_RESERVE * (1 - cP);
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
@@ -9752,7 +9770,7 @@
             // Use the full compare area; overflow is handled by per-pane clipping
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
-            const immersivePad = 12;
+            const immersivePad = IMMERSIVE_PAD;
             const cP = _crossfadeCollapseP;
             const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
@@ -29107,15 +29125,23 @@
                     showStatus('pop out: VS Code did not respond');
                 },
             },
+                    if (!_fullscreenActive && !_shouldEnterImmersive()) {
+                        showStatus('immersive: width is the limit here, the image would not grow');
+                        return;
+                    }
             'immersive.toggle': {
                 title: 'Toggle immersive mode',
                 when: [],
                 run: (ctx, e) => {
-                    if (multiViewActive || compareMvActive) {
+                    if (!_fullscreenActive && compareMvActive) {
                         showStatus('immersive: not available in ortho view');
                         return;
                     }
-                    if (qmriActive || compareQmriActive) {
+                    if (!_fullscreenActive && (multiViewActive || (compareActive && !qmriActive && !compareQmriActive)) && !_immersiveLayoutAllowed()) {
+                        showStatus('immersive: only in the big-left layout');
+                        return;
+                    }
+                    if (!_fullscreenActive && (qmriActive || compareQmriActive)) {
                         // Three maps side by side are limited by width, which
                         // immersive does not free up; it would only add chrome
                         // motion for no bigger maps.
@@ -42665,6 +42691,8 @@
                 },
                 {
                     onStart: () => {
+            // Back in the page flow first, so recentering below measures from there.
+            if (!_fullscreenActive) _placeMvColorbarIsland();
                         chromeHolds.forEach(h => h?.cancel());
                         chrome.forEach(_glideFadeInLate);
                         fadeInMiddle();
@@ -42800,6 +42828,7 @@
                             mvCbWp.style.display = '';
                             mvCbWp.style.width = mvCbTarget + 'px';
                         }
+                    if (_fullscreenActive) _positionFullscreenChrome();
                     }
                     // Big-left: the small panes on the right pull the shared
                     // colorbar/dimbar off-center if they're centered on the
@@ -42815,7 +42844,7 @@
                             const baseCenter = (parentRect ? parentRect.left : 0) + info.offsetLeft + info.offsetWidth / 2;
                             info.style.setProperty('--mv-center-info-x', (bigCenterX - baseCenter) + 'px');
                         }
-                        if (mvCbWp) {
+                        if (mvCbWp && !_fullscreenActive) {
                             const cbParentRect = mvCbWp.offsetParent?.getBoundingClientRect();
                             const cbBaseCenter = (cbParentRect ? cbParentRect.left : 0) + mvCbWp.offsetLeft + mvCbWp.offsetWidth / 2;
                             mvCbWp.style.transform = `translateX(${bigCenterX - cbBaseCenter}px)`;
@@ -42862,6 +42891,7 @@
                 // we mirror the canvas size onto v.wrap here.
                 if (v.wrap) {
                     v.wrap.style.width  = v.canvas.style.width;
+            if (_fullscreenActive) _positionFullscreenChrome();
                     v.wrap.style.height = v.canvas.style.height;
                 }
             }
@@ -43956,11 +43986,39 @@
                 const capScale = Math.min(maxW / w, maxH / h);
                 return Math.max(1.0, capScale / baseScale);
             }
-            const immersivePad = 12;
+            const immersivePad = IMMERSIVE_PAD;
             const bottomReserve = forImmersive ? 0 : NORMAL_BOTTOM_RESERVE;
             const uiReserve = forImmersive ? 0 : uiReserveV();
             const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : NORMAL_SIDE_RESERVE));
             const maxH = Math.max(50,  window.innerHeight - uiReserve - bottomReserve
+        // Ortho and compare-centre only get immersive in big-left: their other
+        // layouts are rows of panes, limited by width.
+        function _immersiveLayoutAllowed() {
+            if (qmriActive || compareQmriActive || compareMvActive) return false;
+            if (multiViewActive) return _resolvedOrthoLayoutMode() === 'big-left';
+            if (compareActive) {
+                const { hasCenterPane, bigLeft } = _compareGridShape(compareFrames.filter(Boolean).length);
+                if (hasCenterPane) return bigLeft;
+            }
+            return true;
+        }
+
+        let _immersiveLeavePending = false;
+        function _leaveImmersiveIfLayoutDisallows() {
+            if (_immersiveLeavePending || _immersiveDriveTween || _immersiveLayoutAllowed()) return;
+            _immersiveLeavePending = true;
+            requestAnimationFrame(() => {
+                _immersiveLeavePending = false;
+                if (!_fullscreenActive || _immersiveLayoutAllowed()) return;
+                userZoom = _normalFitZoom;
+                _zoomAdjustedByUser = false;
+                mainPan.reset();
+                mosaicPan.reset();
+                _driveImmersive(0, 0.5);
+                saveState();
+            });
+        }
+
                                                           - (forImmersive ? immersivePad * 2 : 0));
             // For immersive, compute baseScale assuming uiReserve=0 to match what
             // scaleCanvas will actually use when _fullscreenActive=true.
@@ -43977,12 +44035,16 @@
 
         function _calcKeyboardImmersiveLandingZoom(w, h) {
             if (!w || !h) return 1;
-            const immersivePad = 12;
+            // Compare panes already fit whole slices at zoom 1 (_calcAutoFitZoom);
+            // sizing as if one image filled the window would crop them. Same for ortho.
+            if (compareActive || multiViewActive) return 1.0;
+            const immersivePad = IMMERSIVE_PAD;
             const maxW = Math.max(100, window.innerWidth - immersivePad * 2);
+            h = h * _pixelAspect(dim_x, dim_y);
             const maxH = Math.max(50, window.innerHeight - immersivePad * 2);
             const baseScale = Math.min(Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE) / w,
                                        Math.max(100, window.innerHeight) / h) * 0.80;
-            const safeCapScale = Math.min((maxW - 1) / w, (maxH - 1) / h);
+            const safeCapScale = Math.min(maxW / w, maxH / h);
             return Math.max(1.0, safeCapScale / baseScale);
         }
 
@@ -43991,16 +44053,17 @@
             // i.e. the vertical space limits fit-zoom more than horizontal.
             // Immersive reclaims the bottom chrome reserve; if width was
             // already limiting, entering immersive gains nothing.
-            if (qmriActive || compareQmriActive) return false;  // see the immersive.toggle command
+            if (!_immersiveLayoutAllowed()) return false;
+            if (multiViewActive) return true;
+            if (compareActive && _compareGridShape(compareFrames.filter(Boolean).length).bigLeft) return true;
             let w, h;
             if (compareActive && compareFrames.length) {
                 // In compare mode, use first frame dimensions × column count
                 const f = compareFrames.find(Boolean);
                 if (!f) return false;
-                const hasCenterPane = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
-                const cols = (hasCenterPane && compareFrames.filter(Boolean).length === 2) ? 3 : compareFrames.filter(Boolean).length;
+                const { cols, rows } = _compareGridShape(compareFrames.filter(Boolean).length);
                 w = f.width * cols;
-                h = f.height;
+                h = f.height * rows;
             } else {
                 w = lastImgW || canvas.width;
                 h = lastImgH || canvas.height;
@@ -44275,6 +44338,9 @@
                         el.dataset.avOverlayDisplay = el.style.display || '';
                     }
                     el.style.opacity = '0';
+                document.getElementById('mv-cb-wrap'),
+                // Names on the images stay on them in immersive.
+                ...document.querySelectorAll('#compare-view-wrap.compare-titles-inset .compare-title'),
                     el.style.visibility = 'hidden';
                     el.style.display = 'none';
                 } else {
@@ -44293,6 +44359,8 @@
         }
 
         function _settleImmersive() {
+                    // Crosshair overlays are drawn at pane size: redraw at the new one.
+                    if (multiViewActive) mvViews.forEach(v => mvDrawFrame(v));
             // Called when transition commits to fully immersive (progress = 1.0).
             // Handles class switch + 150ms overlay fade-in.
             if (_fullscreenActive) return; // already settled
@@ -44325,6 +44393,7 @@
                     try { _reconcileCompareCenterPicker(); } catch (_) {}
                     if (typeof gsap !== 'undefined' && overlayEls.length) {
                         gsap.to(overlayEls, { opacity: 1, duration: 0.15, ease: 'power1.out', overwrite: 'auto' });
+            if (multiViewActive) requestAnimationFrame(() => mvViews.forEach(v => mvDrawFrame(v)));
                     } else {
                         overlayEls.forEach(el => {
                             el.style.opacity = '1';
@@ -44505,8 +44574,43 @@
             const h = lastImgH || canvas.height;
             if (!w || !h) return;
             if (!_shouldEnterImmersive()) {
+        // Ortho in immersive: the bars float on the big pane when there is one,
+        // otherwise on the row of panes.
+        function _mvImmersiveAnchorRect() {
+            const panes = document.getElementById('mv-panes');
+            if (!multiViewActive || !panes) return null;
+            const hasSmall = panes.querySelector('.mv-pane.mv-small-pane');
+            const big = hasSmall && panes.querySelector('.mv-pane:not(.mv-small-pane)');
+            // Final layout position: a glide may still be moving the pane.
+            const el = big || panes;
+            let left = 0, top = 0;
+            for (let n = el; n; n = n.offsetParent) { left += n.offsetLeft; top += n.offsetTop; }
+            return { left, top, width: el.offsetWidth, height: el.offsetHeight,
+                     right: left + el.offsetWidth, bottom: top + el.offsetHeight };
+        }
+
+        function _placeMvColorbarIsland() {
+            const wrap = document.getElementById('mv-cb-wrap');
+            if (!wrap) return;
+            const island = wrap.closest('.oblique-flip-wrap') || wrap;
+            const r = _fullscreenActive ? _mvImmersiveAnchorRect() : null;
+            if (!r) {
+                if (island.style.position === 'fixed') {
+                    ['position', 'left', 'bottom', 'z-index', 'transform'].forEach(p => island.style.removeProperty(p));
+                }
+                return;
+            }
+            wrap.style.removeProperty('transform');
+            island.style.position = 'fixed';
+            island.style.zIndex = '3';
+            island.style.left = (r.left + r.width / 2) + 'px';
+            island.style.bottom = Math.max(IMMERSIVE_ISLAND_GAP, window.innerHeight - r.bottom + IMMERSIVE_ISLAND_GAP) + 'px';
+            island.style.transform = 'translateX(-50%)';
+        }
+
                 if (_crossfadeP > 0 || _crossfadeCollapseP > 0) {
                     if (immersiveTl) { immersiveTl.progress(0); }
+            _leaveImmersiveIfLayoutDisallows();
                     _crossfadeCollapseP = 0;
                     _crossfadeP = 0;
                 }
@@ -44542,7 +44646,7 @@
                 : document.getElementById('canvas-viewport');
             if (!vp) return;
             const vpRect = vp.getBoundingClientRect();
-            // Position dim bar inside canvas, 8px from canvas top, clamped to pane bounds
+            // Position dim bar inside canvas, clamped to pane bounds
             const infoEl = document.getElementById('info');
             if (infoEl) {
                 if (_infoDragPos) {
@@ -44550,10 +44654,11 @@
                     infoEl.style.top = _infoDragPos.y + 'px';
                     infoEl.style.transform = 'none';
                 } else {
-                    infoEl.style.left = '50%';
+                    const mvAnchor = _mvImmersiveAnchorRect();
+                    infoEl.style.left = mvAnchor ? (mvAnchor.left + mvAnchor.width / 2) + 'px' : '50%';
                     infoEl.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
-                    let anchorTop = vpRect.top;
-                    let anchorBottom = vpRect.bottom;
+                    let anchorTop = mvAnchor ? mvAnchor.top : vpRect.top;
+                    let anchorBottom = mvAnchor ? mvAnchor.bottom : vpRect.bottom;
                     if (compareActive) {
                         const clips = document.querySelectorAll('.compare-canvas-clip');
                         let minClipTop = Infinity, maxClipBottom = 0;
@@ -44576,13 +44681,14 @@
                         if (maxBottom > 0) anchorBottom = maxBottom;
                     }
                     const infoH = infoEl.offsetHeight || 0;
-                    const desiredTop = anchorTop + 2;
-                    const maxTop = anchorBottom - infoH - 4;
+                    const desiredTop = anchorTop + IMMERSIVE_ISLAND_GAP;
+                    const maxTop = anchorBottom - infoH - IMMERSIVE_ISLAND_GAP;
                     infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
                 }
             }
             if (compareActive) _positionCompareCenterChrome();
-            // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
+            if (multiViewActive) _placeMvColorbarIsland();
+            // Position colorbar overlaid near canvas bottom
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
                 if (_cbDragPos) {
@@ -44607,7 +44713,7 @@
                         });
                         if (maxClipBottom > 0) anchorBottom = maxClipBottom;
                     }
-                    const cbBottom = Math.max(14, window.innerHeight - anchorBottom + 14);
+                    const cbBottom = Math.max(IMMERSIVE_ISLAND_GAP, window.innerHeight - anchorBottom + IMMERSIVE_ISLAND_GAP);
                     cbWrap.style.bottom = cbBottom + 'px';
                 }
             }
@@ -44616,7 +44722,7 @@
             if (!compareActive && _miniMap) {
                 const mmW = _miniMap.offsetWidth || 100;
                 const mmH = _miniMap.offsetHeight || 100;
-                const mmMargin = 8;
+                const mmMargin = IMMERSIVE_ISLAND_GAP;
                 // Northeast candidate: top-right inside canvas
                 const neTop = vpRect.top + mmMargin;
                 const neRight = vpRect.right - mmW - mmMargin;
@@ -48141,7 +48247,7 @@
                     if (!vp) return null;
                     const vpRect = vp.getBoundingClientRect();
                     const w = _infoForDrag.offsetWidth || 100;
-                    return { x: (window.innerWidth - w) / 2, y: vpRect.top + 8 };
+                    return { x: (window.innerWidth - w) / 2, y: vpRect.top + IMMERSIVE_ISLAND_GAP };
                 }
             );
         }
@@ -48154,7 +48260,7 @@
                     if (!vp) return null;
                     const vpRect = vp.getBoundingClientRect();
                     const w = _cbForDrag.offsetWidth || 100;
-                    return { x: (window.innerWidth - w) / 2, y: vpRect.bottom - 10 - (_cbForDrag.offsetHeight || 30) };
+                    return { x: (window.innerWidth - w) / 2, y: vpRect.bottom - IMMERSIVE_ISLAND_GAP - (_cbForDrag.offsetHeight || 30) };
                 }
             );
         }

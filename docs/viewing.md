@@ -32,7 +32,7 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 ## Immersive
 
-`Shift+F` — fullscreen with all chrome hidden. Move the mouse to briefly reveal controls.
+`Shift+F` — the image fills the window from top to bottom, with the dimbar and colorbar floating on it. Only opens when height is what limits the image; when width is the limit (side-by-side compare, a wide array in a narrow window) it says so and stays put. In ortho view and compare-centre it needs the big-left layout, and switching away from big left closes it.
 
 ## Pop out (VS Code)
 
