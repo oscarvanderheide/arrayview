@@ -4901,6 +4901,29 @@
         /* Floating islands are narrow: the value labels must not take the
            bar's room with their 10ch strip-layout reservation. */
         #qmri-view-wrap .qv-cb-island.qv-cb-inset .slim-cb-val { min-width: 5ch !important; }
+        /* The dim bar has no box on the image either: same text as the normal
+           view, outlined in black. Solid colours, as opacity would thin the outline. */
+        body.fullscreen-mode #info {
+            --text: #fff; --muted: #c4c4c4;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+            color: var(--text);
+            /* Half of the stroke sits under the fill: under a pixel of outline. */
+            -webkit-text-stroke: 1.5px rgba(0, 0, 0, 0.8);
+            paint-order: stroke fill;
+        }
+        body.fullscreen-mode #info .dim-sep { opacity: 1; }
+        /* Room for the outline inside the clipped size text. */
+        body.fullscreen-mode #info .dim-label .dim-size { padding: 0 1px; margin: 0 -1px; }
+        /* The filled slash is painted through its text: a stroke would cover it. */
+        body.fullscreen-mode #info .dim-slash[style*="background"] {
+            -webkit-text-stroke: 0;
+            filter: drop-shadow(0 0 0.75px #000);
+        }
+        body.fullscreen-mode #info::before { filter: drop-shadow(0 0 1px #000); }
+        body.fullscreen-mode #dim-active-underline { box-shadow: 0 0 0 1px #000; }
         /* qMRI pane titles as text-stroke corner labels in immersive */
         body.fullscreen-mode .qmri-pane > .qv-label {
             top: 4px; left: 4px;

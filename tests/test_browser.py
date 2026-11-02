@@ -1181,6 +1181,24 @@ class TestROIDrag:
         assert abs(m["top"] - m["bottom"]) <= 1
         assert abs(m["barH"] - m["cbH"]) <= 1
 
+    def test_immersive_dimbar_has_no_box(self, page, server_url, sid_3d):
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        m = page.evaluate("""() => {
+            const s = getComputedStyle(document.getElementById('info'));
+            return { bg: s.backgroundColor, border: s.borderTopColor, blur: s.backdropFilter,
+                     shadow: s.boxShadow, text: s.webkitTextStrokeColor };
+        }""")
+        assert m["bg"] == "rgba(0, 0, 0, 0)"
+        assert m["border"] == "rgba(0, 0, 0, 0)"
+        assert m["blur"] == "none"
+        assert m["shadow"] == "none"
+        assert m["text"].startswith("rgba(0, 0, 0")
+
     def test_ortho_from_immersive_keeps_bars_on_big_pane(self, page, server_url, sid_3d):
         page.set_viewport_size({"width": 1400, "height": 800})
         page.goto(f"{server_url}/?sid={sid_3d}")
