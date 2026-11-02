@@ -1181,6 +1181,125 @@ class TestROIDrag:
         assert abs(m["top"] - m["bottom"]) <= 1
         assert abs(m["barH"] - m["cbH"]) <= 1
 
+    def test_ortho_panes_use_the_window_the_colorbar_shows(self, page, server_url, sid_3d):
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(600)
+        page.evaluate("() => { manualVmin = 0.2; manualVmax = 0.4; }")
+        page.keyboard.press("v")
+        page.wait_for_function("() => multiViewActive && mvViews.every(v => v.lastW)", timeout=5_000)
+        windows = page.evaluate("() => mvViews.map(v => [v.lockedVmin, v.lockedVmax])")
+        assert windows == [[0.2, 0.4]] * 3
+
+    def test_immersive_ortho_exit_slides_dim_bar_without_a_jump(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1400, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        page.keyboard.press("v")
+        page.wait_for_function("() => multiViewActive && mvViews.every(v => v.lastW)", timeout=5_000)
+        page.wait_for_timeout(900)
+        page.evaluate("""() => { window.__xs = []; const t0 = performance.now(); const f = () => {
+            const r = document.getElementById('info').getBoundingClientRect();
+            window.__xs.push(r.left + r.width / 2);
+            if (performance.now() - t0 < 800) requestAnimationFrame(f); }; requestAnimationFrame(f); }""")
+        page.keyboard.press("v")
+        page.wait_for_timeout(950)
+        xs = page.evaluate("() => window.__xs")
+        assert xs[-1] - xs[0] > 50
+        assert all(b >= a - 0.5 for a, b in zip(xs, xs[1:]))  # never steps back
+        assert max(b - a for a, b in zip(xs, xs[1:])) < (xs[-1] - xs[0]) * 0.5
+
+    def test_qmri_key_leaves_immersive(self, page, server_url, client, tmp_path):
+        arr = np.random.default_rng(0).random((3, 8, 64, 64)).astype("f4")
+        from conftest import register_array
+        sid = register_array(client, arr, tmp_path, "arr_qmri")
+        page.goto(f"{server_url}/?sid={sid}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive && !_fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        assert page.evaluate("() => document.querySelectorAll('.qv-cb-island.fs-overlay').length") == 0
+
+    def test_split_to_immersive_images_do_not_hop_at_the_end(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1900, "height": 760})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+S")
+        page.wait_for_timeout(1500)
+        page.evaluate("""() => { window.__tops = []; const t0 = performance.now(); const f = () => {
+            const c = [...document.querySelectorAll('.compare-pane canvas')].find(e => e.offsetWidth);
+            const r = c.getBoundingClientRect();
+            window.__tops.push(r.top + r.height / 2 - innerHeight / 2);
+            if (performance.now() - t0 < 900) requestAnimationFrame(f); }; requestAnimationFrame(f); }""")
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1000)
+        offs = page.evaluate("() => window.__tops")
+        # Off-centre by a few pixels at rest in the normal view; centred once immersive.
+        assert abs(offs[-1]) < 0.5
+        assert sum(abs(b - a) > 1.5 for a, b in zip(offs[-25:], offs[-24:])) == 0
+
+    def test_tall_window_immersive_ortho_glide_lands_on_its_image(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1400, "height": 1100})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        record = """() => { window.__g = null; const t0 = performance.now(); const f = () => {
+            const g = [...document.body.children].find(e => e.tagName === 'CANVAS' && getComputedStyle(e).position === 'fixed');
+            if (g) { const r = g.getBoundingClientRect(); window.__g = [r.left, r.top, r.width]; }
+            if (performance.now() - t0 < 1000) requestAnimationFrame(f); }; requestAnimationFrame(f); }"""
+        real = """() => { const r = (multiViewActive ? mvViews[0].canvas : document.getElementById('viewer')).getBoundingClientRect();
+            return [r.left, r.top, r.width]; }"""
+        for _ in ("in", "out"):
+            page.evaluate(record)
+            page.keyboard.press("v")
+            page.wait_for_timeout(1100)
+            assert page.evaluate("() => window.__g") == pytest.approx(page.evaluate(real), abs=1.5)
+
+    def test_split_panes_stay_in_one_row_entering_immersive_in_a_big_window(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1900, "height": 1000})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Shift+S")
+        page.wait_for_timeout(1500)
+        page.evaluate("""() => { window.__same = true; const t0 = performance.now(); const f = () => {
+            const tops = [...document.querySelectorAll('.compare-pane')].filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top);
+            if (tops.length === 2 && Math.abs(tops[0] - tops[1]) > 1) window.__same = false;
+            if (performance.now() - t0 < 900) requestAnimationFrame(f); }; requestAnimationFrame(f); }""")
+        page.keyboard.press("F")
+        page.wait_for_timeout(1000)
+        assert page.evaluate("() => _fullscreenActive")
+        assert page.evaluate("() => window.__same")
+
+    def test_row_layout_ortho_glides_from_the_single_view(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1000, "height": 600})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(600)
+        page.evaluate("""() => { window.__ghost = false; const t0 = performance.now(); const f = () => {
+            if ([...document.body.children].some(e => e.tagName === 'CANVAS' && getComputedStyle(e).position === 'fixed')) window.__ghost = true;
+            if (performance.now() - t0 < 900) requestAnimationFrame(f); }; requestAnimationFrame(f); }""")
+        page.keyboard.press("v")
+        page.wait_for_timeout(1000)
+        assert page.evaluate("() => _resolvedOrthoLayoutMode()") == "horizontal"
+        assert page.evaluate("() => _orthoSingleViewPane()") >= 0
+        assert page.evaluate("() => window.__ghost")
+        # The moving image copy is gone once it has landed.
+        assert page.evaluate("() => document.querySelectorAll('body > [aria-hidden=\"true\"].dim-label, body > canvas').length") == 0
+
     def test_immersive_dimbar_has_no_box(self, page, server_url, sid_3d):
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
