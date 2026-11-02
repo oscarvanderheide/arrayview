@@ -1199,6 +1199,21 @@ class TestROIDrag:
         assert m["shadow"] == "none"
         assert m["text"].startswith("rgba(0, 0, 0")
 
+    def test_immersive_split_side_by_side_in_odd_width_window(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1401, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+S")
+        page.wait_for_timeout(1500)
+        tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
+            .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
+        assert len(tops) == 2
+        assert tops[0] == tops[1]
+
     def test_ortho_from_immersive_keeps_bars_on_big_pane(self, page, server_url, sid_3d):
         page.set_viewport_size({"width": 1400, "height": 800})
         page.goto(f"{server_url}/?sid={sid_3d}")

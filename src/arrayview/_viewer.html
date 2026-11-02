@@ -9801,8 +9801,9 @@
             const totalH = Math.max(100, window.innerHeight - uiReserveH - immPadV);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
-            const slotW = Math.round(paneOuterW);
-            const slotH = Math.round(paneOuterH);
+            // Rounded down: a slot rounded up overflows an odd-width window and wraps the row.
+            const slotW = Math.floor(paneOuterW);
+            const slotH = Math.floor(paneOuterH);
             const applyPaneSlot = (pane, w = slotW, h = slotH) => {
                 if (!pane) return;
                 pane.style.flex = `0 0 ${Math.round(w)}px`;
