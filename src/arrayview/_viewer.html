@@ -490,7 +490,7 @@
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
         .slim-cb-tri {
-            display: none; /* replaced by solid handle lines on canvas */
+            display: none; /* window edges are dragged from the canvas (see _hitTest) */
             position: absolute; bottom: 0; width: 0; height: 0;
             border-left: 5px solid transparent; border-right: 5px solid transparent;
             border-bottom: 6px solid rgba(255,255,100,0.9);
@@ -12068,6 +12068,67 @@
         const CB_HIT_RADIUS = 7;
         const CB_TARGET_W = 350;  // ideal horizontal colorbar width (px)
         const CB_MIN_W    = 200;  // hide colorbar when pane is narrower than this
+        const CB_CORNER_R = 3;    // matches the flat bar's CSS border-radius
+        /** The bar/histogram shape as a path. `heightAt(s)` is the height above
+            the base at distance s along the bar. `grow` pushes the shape out on
+            every side: 0 is the fill, 0.5 centers a 1px line just outside it. */
+        function _cbContourPath(cssLen, cssThick, heightAt, vertical, grow) {
+            const s0 = -grow, s1 = cssLen + grow, base = -grow;
+            const pt = vertical ? (s, h) => [h, s] : (s, h) => [s, cssThick - h];
+            const h = (s) => Math.min(cssThick, Math.max(0, heightAt(s))) + grow;
+            const path = new Path2D();
+            const moveTo = (s, v) => path.moveTo(...pt(s, v));
+            const lineTo = (s, v) => path.lineTo(...pt(s, v));
+            const quadTo = (cs, cv, s, v) => path.quadraticCurveTo(...pt(cs, cv), ...pt(s, v));
+            const R = CB_CORNER_R + grow;
+            const rLo = Math.min(R, (h(s0) - base) / 2), rHi = Math.min(R, (h(s1) - base) / 2);
+            moveTo(s0 + R, base);
+            quadTo(s0, base, s0, base + rLo);
+            lineTo(s0, h(s0) - rLo);
+            quadTo(s0, h(s0), s0 + R, h(s0 + R));
+            for (let s = Math.ceil(s0 + R); s < s1 - R; s++) lineTo(s, h(s));
+            lineTo(s1 - R, h(s1 - R));
+            quadTo(s1, h(s1), s1, h(s1) - rHi);
+            lineTo(s1, base + rHi);
+            quadTo(s1, base, s1 - R, base);
+            path.closePath();
+            return path;
+        }
+
+        /** Draw the open bar's outline where the flat bar's CSS border sits, one
+            pixel outside the canvas, on a canvas 2px larger laid over it. The
+            flat bar has the same shape, line and color, so the two swap with no
+            visible change. Pass path=null to go back to the CSS border. */
+        function _cbDrawOutline(canvas, cssW, cssH, path) {
+            let ov = canvas._cbOutline;
+            if (!path || !canvas.offsetParent) {
+                if (ov) ov.width = 0;
+                canvas.style.boxShadow = '';
+                canvas.style.borderRadius = '';
+                return;
+            }
+            if (!ov) {
+                ov = canvas._cbOutline = document.createElement('canvas');
+                ov.style.cssText = 'position:absolute;display:block;pointer-events:none;box-shadow:none;background:transparent;border:none;outline:none;';
+                canvas.after(ov);
+            }
+            canvas.style.boxShadow = 'none';
+            canvas.style.borderRadius = '0';
+            const dpr = window.devicePixelRatio || 1;
+            ov.width = Math.round((cssW + 2) * dpr);
+            ov.height = Math.round((cssH + 2) * dpr);
+            ov.style.width = (cssW + 2) + 'px';
+            ov.style.height = (cssH + 2) + 'px';
+            ov.style.left = (canvas.offsetLeft - 1) + 'px';
+            ov.style.top = (canvas.offsetTop - 1) + 'px';
+            const ctx = ov.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.translate(1, 1);
+            ctx.lineWidth = 1;
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('--canvas-border');
+            ctx.stroke(path);
+        }
 
         /** Return target colorbar width for a given pane width, or null to hide. */
         function cbTargetWidth(paneWidth) {
@@ -12503,7 +12564,7 @@
                         this._winTransStart = performance.now();
                         // Drive the tween to completion even if no other event
                         // (mouse, morph) is ticking the animation loop — otherwise
-                        // the handle lines stall mid-transition after a `d` cycle.
+                        // the window edges stall mid-transition after a `d` cycle.
                         this.ensureAnimating();
                     }
                     const elapsed = performance.now() - this._winTransStart;
@@ -12533,7 +12594,20 @@
                 };
 
                 const hasKDE = this._kdeSmooth && aT > 0;
-                const isDark = !document.documentElement.classList.contains('light');
+                const rowWAt = (t) => {
+                    if (!hasKDE) return cssW;
+                    const kdeW = Math.max(2, this._kdeAt(t) * (expandedW - 2));
+                    return collapsedW + (kdeW - collapsedW) * aT;
+                };
+
+                // Clip to the contour so the slopes stay smooth, not stepped.
+                const contour = aT > 0
+                    ? _cbContourPath(cssH, cssW, (s) => rowWAt(1 - s / cssH), true, 0)
+                    : null;
+                if (contour) {
+                    ctx.save();
+                    ctx.clip(contour);
+                }
 
                 // For each row (py from top to bottom)
                 for (let py = 0; py < cssH; py++) {
@@ -12561,24 +12635,14 @@
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
                     ctx.globalAlpha = alpha;
                     ctx.fillStyle = `rgb(${r},${g},${b})`;
-                    ctx.fillRect(0, py, rowW, 1);
+                    ctx.fillRect(0, py, contour ? cssW : rowWAt(t), 1);
                 }
                 ctx.globalAlpha = 1;
 
-                // Draw horizontal indicator lines at vmin/vmax positions
-                if (aT > 0.1) {
-                    ctx.globalAlpha = aT;
-                    [effVmin, effVmax].forEach(f => {
-                        const y = Math.max(1, Math.min(cssH - 1, Math.round((1 - f) * cssH)));
-                        const coreColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)';
-                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
-                        ctx.fillStyle = outlineColor;
-                        ctx.fillRect(0, y - 2, cssW, 4);
-                        ctx.fillStyle = coreColor;
-                        ctx.fillRect(0, y - 1, cssW, 2);
-                    });
-                    ctx.globalAlpha = 1;
-                }
+                if (contour) ctx.restore();
+                _cbDrawOutline(cvs, cssW, cssH, contour
+                    ? _cbContourPath(cssH, cssW, (s) => rowWAt(1 - s / cssH), true, 0.5)
+                    : null);
 
                 ctx.restore();
             }
@@ -12810,7 +12874,7 @@
                         this._winTransStart = performance.now();
                         // Drive the tween to completion even if no other event
                         // (mouse, morph) is ticking the animation loop — otherwise
-                        // the handle lines stall mid-transition after a `d` cycle.
+                        // the window edges stall mid-transition after a `d` cycle.
                         this.ensureAnimating();
                     }
                     const elapsed = performance.now() - this._winTransStart;
@@ -12846,6 +12910,20 @@
                 const labelH = CB_LABEL_H * aT;
                 const histTop = labelH;
                 const histH = cssH - histTop;
+                const colHAt = (t) => {
+                    if (!hasKDE) return histH;
+                    const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
+                    return collapsedH + (kdeH - collapsedH) * aT;
+                };
+
+                // Clip to the contour so the slopes stay smooth, not stepped.
+                const contour = aT > 0
+                    ? _cbContourPath(cssW, cssH, (s) => colHAt(s / cssW), false, 0)
+                    : null;
+                if (contour) {
+                    ctx.save();
+                    ctx.clip(contour);
+                }
                 for (let px = 0; px < cssW; px++) {
                     const t = px / cssW;
                     const inRange = t >= effVmin && t <= effVmax;
@@ -12872,46 +12950,24 @@
                     const y = cssH - colH;
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
                     ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
-                    ctx.fillRect(px, y, 1, colH);
+                    if (contour) {
+                        ctx.fillRect(px, 0, 1, cssH);
+                    } else {
+                        const colH = colHAt(t);
+                        ctx.fillRect(px, cssH - colH, 1, colH);
+                    }
                 }
+
+                if (contour) ctx.restore();
+                _cbDrawOutline(cvs, cssW, cssH, contour
+                    ? _cbContourPath(cssW, cssH, (s) => colHAt(s / cssW), false, 0.5)
+                    : null);
 
                 this._drawTicks(ctx, cssW, cssH, aT);
 
-                // Solid handle lines + value labels in the label zone
+                // Value labels in the label zone
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
-
-                    // Solid handle lines at vmin/vmax. Drawn in every state,
-                    // including full range. The core line is 2 px wide: when
-                    // f=1 we pin it to the right-most two columns so it sits
-                    // flush with the canvas edge (mirrored for f=0).
-                    [effVmin, effVmax].forEach(f => {
-                        const x = Math.max(1, Math.min(cssW - 1, Math.round(f * cssW)));
-
-                        const lineTop = labelH;
-                        const lineH = cssH - lineTop;
-
-                        // Sample colormap at this position to determine line visibility
-                        const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
-                        const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
-                        const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
-
-                        // Yellow line color: check if background is too close to yellow
-                        const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
-
-                        // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
-                        const coreColor = isYellowish
-                            ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
-                            : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
-                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
-
-                        // Outline (4px wide)
-                        ctx.fillStyle = outlineColor;
-                        ctx.fillRect(x - 2, lineTop, 4, lineH);
-                        // Core line (2px wide)
-                        ctx.fillStyle = coreColor;
-                        ctx.fillRect(x - 1, lineTop, 2, lineH);
-                    });
 
                     if (labelH > 4 && this._histData) {
                         const { vmin: dmin, vmax: dmax } = this._histData;
@@ -13777,6 +13833,7 @@
             /** Show a colormap strip preview inside this colorbar, hiding the canvas. */
             showCmapPreview(stripElement) {
                 this._cmapActive = true;
+                _cbDrawOutline(this.canvas, 0, 0, null);
                 this._cmapPrevParent = stripElement.parentElement;
                 this._cmapPrevNextSibling = stripElement.nextSibling;
                 this.colWrap.insertBefore(stripElement, this.canvas);
