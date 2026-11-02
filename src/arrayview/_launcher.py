@@ -1323,6 +1323,7 @@ def _load_session_from_filepath(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    collection_keep_order: bool = False,
     background: bool = False,
     expected_server_id: str | None = None,
     native_request_id: str | None = None,
@@ -1365,6 +1366,7 @@ def _load_session_from_filepath(
         payload["dir_exclude_cases"] = dir_exclude_cases or []
         payload["load"] = collection_load
         payload["stack"] = collection_stack
+        payload["keep_order"] = collection_keep_order
     if notify and compare_sids:
         payload["compare_sid"] = compare_sids[0]
         payload["compare_sids"] = _join_query_values(compare_sids)
@@ -1686,6 +1688,7 @@ def _register_cli_session_with_existing_server_impl(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    collection_keep_order: bool = False,
     overlay_names: list[str] | None = None,
     background_base: bool = False,
     expected_server_id: str | None = None,
@@ -1741,6 +1744,7 @@ def _register_cli_session_with_existing_server_impl(
         dir_exclude_cases=dir_exclude_cases,
         collection_load=collection_load,
         collection_stack=collection_stack,
+        collection_keep_order=collection_keep_order,
         background=background_base,
         expected_server_id=expected_server_id,
         native_request_id=native_request_id,
@@ -1838,6 +1842,7 @@ def _handle_cli_existing_server(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    collection_keep_order: bool = False,
     overlay_names: list[str] | None = None,
     cleanup_dir: str | None = None,
     source_staging_dirs: dict[str, str] | None = None,
@@ -1866,6 +1871,7 @@ def _handle_cli_existing_server(
             dir_exclude_cases=dir_exclude_cases,
             collection_load=collection_load,
             collection_stack=collection_stack,
+            collection_keep_order=collection_keep_order,
             overlay_names=overlay_names,
             background_base=(
                 is_remote
@@ -1954,6 +1960,7 @@ def _handle_cli_existing_server(
                     dir_exclude_cases=dir_exclude_cases,
                     collection_load=collection_load,
                     collection_stack=collection_stack,
+                    collection_keep_order=collection_keep_order,
                     overlay_names=overlay_names,
                     source_staging_dirs=source_staging_dirs,
                 )
@@ -2084,6 +2091,7 @@ def _handle_cli_spawned_daemon(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    collection_keep_order: bool = False,
     overlay_names: list[str] | None = None,
     cleanup_dir: str | None = None,
     source_staging_dirs: dict[str, str] | None = None,
@@ -2147,6 +2155,7 @@ def _handle_cli_spawned_daemon(
                 dir_exclude_cases=dir_exclude_cases,
                 collection_load=collection_load,
                 collection_stack=collection_stack,
+                collection_keep_order=collection_keep_order,
                 overlay_names=resolved_overlay_names,
                 cleanup_dir=cleanup_dir,
                 source_staging_dirs=source_staging_dirs,
@@ -2202,6 +2211,7 @@ def _handle_cli_spawned_daemon(
             f" dir_exclude_cases={repr(dir_exclude_cases)},"
             f" collection_load={repr(collection_load)},"
             f" collection_stack={repr(collection_stack)},"
+            f" collection_keep_order={repr(collection_keep_order)},"
             f" cleanup_dir={repr(cleanup_dir)},"
             f" source_staging_dirs={repr(source_staging_dirs or {})},"
             f" watch={watch},"
@@ -4729,6 +4739,7 @@ def _serve_daemon(
     dir_exclude_cases: list[str] | None = None,
     collection_load: str = "lazy",
     collection_stack: str = "auto",
+    collection_keep_order: bool = False,
     cleanup_dir: str | None = None,
     source_staging_dirs: dict[str, str] | None = None,
     watch: bool = False,
@@ -4868,6 +4879,7 @@ def _serve_daemon(
                     exclude_cases=dir_exclude_cases,
                     load=collection_load,
                     stack=collection_stack,
+                    keep_order=collection_keep_order,
                 )
                 collection_spatial_ndim = len(_summary["spatial_shape"])
             elif (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
@@ -6706,6 +6718,7 @@ def arrayview():
                 dir_exclude_cases=sorted(excluded_cases),
                 collection_load=args.load,
                 collection_stack=args.stack_policy or "auto",
+                collection_keep_order=getattr(args, "keep_file_order", False),
                 cleanup_dir=getattr(args, "_tutorial_cleanup_dir", None),
                 source_staging_dirs=(
                     source_staging_dirs if not args.stack_mode else None
@@ -6746,6 +6759,7 @@ def arrayview():
             dir_exclude_cases=sorted(excluded_cases),
             collection_load=args.load,
             collection_stack=args.stack_policy or "auto",
+            collection_keep_order=getattr(args, "keep_file_order", False),
             source_staging_dirs=(
                 source_staging_dirs if not args.stack_mode else None
             ),

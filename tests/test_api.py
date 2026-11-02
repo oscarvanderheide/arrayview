@@ -447,6 +447,20 @@ class TestLoad:
             assert meta["shape"] == [4, 5, 6, 1]
             assert meta["case_names"] == ["case_a"]
 
+    def test_load_explicit_files_keep_order_only_when_asked(self, client, tmp_path):
+        files = [str(tmp_path / f"{n}.npy") for n in ["e", "a", "d", "b", "c"]]
+        for value, f in enumerate(files):
+            np.save(f, np.full((4, 5), value, dtype=np.float32))
+
+        def case_order(**extra):
+            body = client.post("/load", json={"dir_patterns": files, **extra}).json()
+            return client.get(f"/metadata/{body['sid']}").json()["case_names"]
+
+        assert case_order() == ["a", "b", "c", "d", "e"]
+        # Same files in the given order must not reuse the sorted session.
+        assert case_order(keep_order=True) == ["e", "a", "d", "b", "c"]
+
+
     def test_load_rejects_arbitrary_staging_cleanup_authority(
         self, client, arr_2d, tmp_path, monkeypatch
     ):

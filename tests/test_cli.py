@@ -338,6 +338,35 @@ def test_cli_stacks_more_than_four_files_in_given_order(monkeypatch, tmp_path):
     assert "case order: e, a, d, b, c" in text
 
 
+def test_cli_real_load_of_more_than_four_files_keeps_given_order(monkeypatch, tmp_path):
+    files = [str(tmp_path / f"{n}.npy") for n in ["e", "a", "d", "b", "c"]]
+    for f in files:
+        np.save(f, np.zeros((8, 8), dtype=np.float32))
+    requests = []
+    opened = {}
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(_launcher_mod, "_open_browser", _record_opened_url(opened))
+
+    def fake_urlopen(req, timeout=5):
+        requests.append(json.loads((req.data or b"{}").decode()))
+        return _DummyResponse({"sid": "sid_0", "name": "stack"})
+
+    monkeypatch.setattr(_launcher_mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    try:
+        appmod.arrayview()
+    except SystemExit:
+        pass
+
+    loads = [r for r in requests if r.get("dir_patterns")]
+    assert loads
+    assert loads[0]["dir_patterns"] == files
+    assert loads[0]["keep_order"] is True
+
+
 def test_cli_accepts_four_total_files_for_compare(monkeypatch, tmp_path):
     files = [str(tmp_path / f"a{i}.npy") for i in range(4)]
     np.save(files[0], np.zeros((8, 8), dtype=np.float32))  # only base must exist

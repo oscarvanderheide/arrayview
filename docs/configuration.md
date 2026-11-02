@@ -2,8 +2,9 @@
 
 ## Preferences menu
 
-Open the gear menu in the lower-right corner. Viewer changes apply immediately
-and are saved on the machine running ArrayView.
+Press `?` or click the `?` in the lower-right corner, then open the Preferences
+tab. Viewer changes apply immediately and are saved on the machine running
+ArrayView, in `~/.arrayview/config.toml`.
 
 Window defaults apply to the next launch. Remote SSH, VS Code Tunnel, and remote
 Jupyter sessions save to the remote backend user's `~/.arrayview/config.toml`.

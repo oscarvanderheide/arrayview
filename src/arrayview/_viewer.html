@@ -2567,7 +2567,7 @@
         #info-box { padding: 18px 22px; font-size: 12px; line-height: 1.8; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; width: 100%; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #qmri-hint, #ras-hint {
+        #help-hint, #qmri-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -2590,25 +2590,7 @@
         #link-hint.visible { display: flex; }
         #link-hint svg { width: 13px; height: 13px; }
         #link-hint:hover { color: var(--text); border-color: var(--muted); }
-        #help-hint:hover, #qmri-hint:hover, #ras-hint:hover { color: var(--text); border-color: var(--muted); }
-        #ras-hint {
-            right: 76px; display: none; position: fixed;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 8px; font-weight: 600; letter-spacing: -0.3px;
-        }
-        #ras-hint.visible { display: flex; }
-        #ras-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #ras-hint.loading { border-color: transparent; }
-        #ras-hint.loading::before {
-            content: ''; position: absolute; inset: -1px; border-radius: 50%;
-            padding: 1px;
-            background: conic-gradient(var(--active-dim) 0deg, var(--active-dim) 100deg, transparent 100deg, transparent 360deg);
-            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
-            animation: ras-hint-spin 0.85s linear infinite;
-        }
-        @keyframes ras-hint-spin { to { transform: rotate(360deg); } }
+        #help-hint:hover, #qmri-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
@@ -4028,6 +4010,24 @@
             45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
+        /* Split on an index: both panes' indices stacked in the dim bar, in place
+           of a letter. Pulled in so the bar stays the height it always is. */
+        #info .dim-split-stack {
+            display: inline-flex; flex-direction: column; align-self: center;
+            margin: -2px 2px -2px 0;
+            font-size: 11px; line-height: 12px;
+        }
+        #info .dim-split-stack .detached-index-hint { color: inherit; padding: 0; gap: 1px; }
+        /* Key hints: always there, a step back from the digits. */
+        #info .dim-split-stack .hint-bracket {
+            color: color-mix(in srgb, var(--muted) 55%, transparent);
+            -webkit-text-fill-color: currentColor;
+        }
+        #info .dim-split-stack .hint-bracket.index-hint-glow { animation: split-key-flash 350ms ease-out; }
+        /* On at the keypress, gone soon after; a held key keeps it lit. */
+        @keyframes split-key-flash {
+            0%, 15% { color: var(--active-dim); }
+        }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: rgba(255,255,255,0.6); }
@@ -4726,7 +4726,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs, body.zen-mode #mode-picker, body.zen-mode #mode-picker-dim,
-        body.zen-mode #help-hint, body.zen-mode #ras-hint, body.zen-mode #link-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #link-hint, body.zen-mode #status,
         body.zen-mode #toast, body.zen-mode #dim-active-underline,
         body.zen-mode #overlay-palette { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
         body.zen-mode .qv-cb-island,
@@ -5925,7 +5925,6 @@
     <div id="link-hint" role="button" tabindex="-1" title="Linked: slices follow other linked tabs · click to unlink" aria-label="Unlink this tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg></div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
-    <div id="ras-hint" title="Convert to RAS orientation — aligns axes so every view scrolls fast, not just the native one (Shift+A)">RAS</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
     <div id="tool-launcher" aria-hidden="true"></div>
@@ -10457,6 +10456,13 @@
             return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
         }
 
+        // Two index rows for the dim bar; a split across cases keeps its names on the panes.
+        function _detachedDimStackHTML() {
+            const width = String(shape[detachedDim]).length;
+            const row = (idx, val) => _detachedDimPaneTitleHTML(idx, String(val + 1).padStart(width, '0'));
+            return `<span class="dim-split-stack">${row(0, detachedDimIndexA)}${row(1, detachedDimIndexB)}</span>`;
+        }
+
         function _detachedDimPaneTitleHTML(idx, label) {
             const escaped = String(label || '').replace(/</g, '&lt;');
             if (idx === 0) {
@@ -10466,6 +10472,20 @@
                 return `<span class="detached-index-hint" data-detached-pane="B"><span class="hint-bracket" data-detached-key="{">{</span><span>${escaped}</span><span class="hint-bracket" data-detached-key="}">}</span></span>`;
             }
             return escaped;
+        }
+
+        // The key just pressed in an index split. The dim bar redraws whenever a
+        // slice arrives, so the flash is state, resumed where it was on each redraw.
+        const SPLIT_KEY_FLASH_MS = 350;
+        let _splitKeyFlash = null;
+        function _resumeSplitKeyFlash(info) {
+            if (!_splitKeyFlash) return;
+            const elapsed = performance.now() - _splitKeyFlash.start;
+            if (elapsed >= SPLIT_KEY_FLASH_MS) { _splitKeyFlash = null; return; }
+            const el = info.querySelector(`.dim-split-stack .hint-bracket[data-detached-key="${_splitKeyFlash.key}"]`);
+            if (!el) return;
+            el.style.animationDelay = `${-elapsed}ms`;
+            el.classList.add('index-hint-glow');
         }
 
         function _flashDetachedIndexHint(which, key) {
@@ -10498,11 +10518,12 @@
             if (next === other) return false;
             if (which === 'A') detachedDimIndexA = next;
             else detachedDimIndexB = next;
+            if (!_detachedDimIsCases()) _splitKeyFlash = { key, start: performance.now() };
             updateCompareTitles();
             renderInfo();
             compareRender();
             _cqRefreshRowPins();
-            setTimeout(() => _flashDetachedIndexHint(which, key), 40);
+            if (_detachedDimIsCases()) setTimeout(() => _flashDetachedIndexHint(which, key), 40);
             saveState();
             showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
             return true;
@@ -10579,7 +10600,9 @@
                 const text = labels[idx] || '';
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
-                if (text && detachedDimMode) {
+                if (detachedDimMode && !_detachedDimIsCases()) {
+                    el.textContent = '';
+                } else if (text && detachedDimMode) {
                     el.innerHTML = (_detachedDimIsCases() && !sideTitle ? ARRAY_NAME_LOGO_SVG : '')
                         + '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
                 } else if (text) {
@@ -10974,7 +10997,8 @@
                 if (_fullscreenActive) {
                     info.style.left = centerX + 'px';
                     info.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
-                } else {
+                } else if (!_scrubDetached) {
+                    // (Pinned mid-glide the bar has no place in the flow to measure from.)
                     const parentRect = info.offsetParent?.getBoundingClientRect();
                     const baseCenter = (parentRect ? parentRect.left : 0) + info.offsetLeft + info.offsetWidth / 2;
                     info.style.setProperty('--compare-center-info-x', (centerX - baseCenter) + 'px');
@@ -12715,14 +12739,6 @@
                         b = Math.round(cb_ + (60 - cb_) * aT);
                     }
 
-                    let rowW;
-                    if (hasKDE) {
-                        const kdeW = Math.max(2, this._kdeAt(t) * (expandedW - 2));
-                        rowW = collapsedW + (kdeW - collapsedW) * aT;
-                    } else {
-                        rowW = cssW;
-                    }
-
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
                     ctx.globalAlpha = alpha;
                     ctx.fillStyle = `rgb(${r},${g},${b})`;
@@ -13030,15 +13046,6 @@
                         b = Math.round(cb_ + (60 - cb_) * aT);
                     }
 
-                    let colH;
-                    if (hasKDE) {
-                        const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
-                        colH = collapsedH + (kdeH - collapsedH) * aT;
-                    } else {
-                        colH = histH;
-                    }
-
-                    const y = cssH - colH;
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
                     ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
                     if (contour) {
@@ -22616,7 +22623,7 @@
                 }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
-                    return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">S<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                    return `<span class="${cls}" ${d} ${_detachedDimIsCases() ? 'style="color:var(--q-dim-color)">S' : `>${_detachedDimStackHTML()}`}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
@@ -22686,6 +22693,7 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
+            _resumeSplitKeyFlash(_info);
             const playingLabel = playingVfieldT
                 ? _info.querySelector(`.vfield-t-dim[data-dim="${VFIELD_T_DIM}"]`)
                 : _info.querySelector('.playing-dim.dim-label');
@@ -25642,7 +25650,7 @@
             'viewer.theme': ['Theme', 'The colours of the viewer. Press T to switch while you work.'],
             'viewer.rounded_panes': ['Rounded panes', 'Rounds the corners of images. Rounding hides a few pixels in each corner, so turn it off to see them. Press Shift+B to switch while you work.'],
             'viewer.qmri_gapless': ['qMRI maps touching', 'qMRI mode (q) shows T₁, T₂, PD and other maps next to each other. This removes the space between them so they can be larger. With two rows of maps, the colour bars move inside the maps.'],
-            'viewer.compare_gapless': ['Compare panes touching', 'Removes the space between arrays shown side by side, so they can be larger. With two rows of arrays, their names move inside the images.'],
+            'viewer.compare_gapless': ['Compare panes touching', 'Removes the space between arrays shown side by side, so they can be larger. Immersive view always joins them. With two rows of arrays, their names move inside the images.'],
             'viewer.remember_view': ['Reopen where you left off', 'Opening the same file again brings back its slice, view, colormap and rotation. Its display range comes back too, unless the file has changed. Kept in ~/.arrayview/view_memory.json.'],
             'viewer.colormaps': ['Colormap cycle', 'The colormaps offered when you press c, in this order. Type names separated by commas. Unknown names are skipped. Leave empty for the full built-in list. Applies the next time you open a viewer.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Ortho view (v) shows three planes of a volume at once. This sets how they are arranged when it opens. Responsive picks what fits your window best.'],
@@ -29527,14 +29535,13 @@
                     const wantOn = !rasResampleActive;
                     showToast(wantOn ? 'converting to RAS...' : 'reverting to native orientation...');
                     _rasResampleLoading = true;
-                    document.getElementById('ras-hint')?.classList.add('loading');
                     proxyFetch(`/resample_ras/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ enabled: wantOn }),
                     }).then(r => r.json()).then(d => {
-                        if (d.error) { _clearRasHintLoading(); showToast('RAS resample error: ' + d.error); return; }
-                        if (d.skipped) { _clearRasHintLoading(); showToast('RAS resample skipped: ' + d.reason); return; }
+                        if (d.error) { _rasResampleLoading = false; showToast('RAS resample error: ' + d.error); return; }
+                        if (d.skipped) { _rasResampleLoading = false; showToast('RAS resample skipped: ' + d.reason); return; }
                         rasResampleActive = wantOn;
                         // Refresh shape from /info, then re-center indices and refresh
                         // canvases. Because shape changes (e.g. (240,240,155) ->
@@ -29568,11 +29575,11 @@
                             }
                             renderInfo();
                             _reconcileUI();
-                            _clearRasHintLoading();
+                            _rasResampleLoading = false;
                         });
                         showToast('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
                     }).catch(err => {
-                        _clearRasHintLoading();
+                        _rasResampleLoading = false;
                         showToast('RAS resample failed: ' + err);
                     });
                 },
@@ -32436,11 +32443,6 @@
         function _runCommand(id) {
             const cmd = commands[id];
             if (cmd && typeof cmd.run === 'function') cmd.run(makeContext(null), null);
-        }
-
-        function _clearRasHintLoading() {
-            _rasResampleLoading = false;
-            document.getElementById('ras-hint')?.classList.remove('loading');
         }
 
         function _saveFullArrayNpy() {
@@ -43290,9 +43292,6 @@
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
         document.getElementById('link-hint').addEventListener('click', () => setTabLinked(false));
-        document.getElementById('ras-hint').addEventListener('click', () => {
-            _runCommand('nifti.toggleRasResample');
-        });
         document.getElementById('tool-launcher').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) closeToolLauncher();
         });
@@ -45391,14 +45390,6 @@
                 _reconcileQmriAltOptions();
             }
 
-            // 8. RAS conversion hint — visible whenever the loaded array carries
-            // NIfTI spatial metadata (single .nii/.nii.gz sessions).
-            const rasHint = document.getElementById('ras-hint');
-            if (rasHint) {
-                rasHint.classList.toggle('visible', _hasStoredOrientation());
-                rasHint.classList.toggle('active', rasResampleActive);
-                rasHint.setAttribute('aria-hidden', _hasStoredOrientation() ? 'false' : 'true');
-            }
             _updateMvPaneFill();
         }
 
@@ -45470,7 +45461,8 @@
         // Compare panes touch only while the arrays are shown on their own;
         // a centre view (A−B, overlay, wipe…) keeps the gaps around it.
         function _compareTouching() {
-            return compareActive && compareGapless
+            // Immersive is there to fill the screen: its panes always join.
+            return compareActive && (compareGapless || _fullscreenActive)
                 && !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
         }
 
@@ -46593,7 +46585,7 @@
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#ras-hint',
+                        '#help-hint',
                         '.cb-island', '.cv-pixel-info', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));

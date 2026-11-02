@@ -227,6 +227,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 tuple(str(case) for case in body.get("dir_exclude_cases", [])),
                 body.get("load", "lazy"),
                 body.get("stack", "auto"),
+                bool(body.get("keep_order", False)),
             )
             for existing in [] if requested_sid else SESSIONS.values():
                 if getattr(existing, "collection_identity", None) == collection_identity:
@@ -440,6 +441,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         exclude_cases=body.get("dir_exclude_cases", []),
                         load=body.get("load", "lazy"),
                         stack=body.get("stack", "auto"),
+                        keep_order=bool(body.get("keep_order", False)),
                     )
                 elif filepath.endswith(".npz") or filepath.endswith(".mat"):
                     _array_keys = await asyncio.to_thread(list_array_keys, filepath)

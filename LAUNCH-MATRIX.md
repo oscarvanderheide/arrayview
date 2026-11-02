@@ -215,6 +215,15 @@ handoff before a frame (row 5), separately from the measured frame transport.
 The no-display CLI command loaded and released this file before and after the
 change (`real host`, row 11). Test servers on ports 8192–8195 were stopped.
 
+2026-10-31 more-than-four-files order fix: changes the CLI stack route for rows
+5 and 11, and the shared `/load` route that could affect rows 4 and 20. Before
+the fix, `uvx arrayview <5 .nii files> --window browser --port 8765` (0.51.0)
+printed the typed order but displayed the files sorted by path. After it, the same
+command through `uv run`, driven in headless Chromium on the real host (`real
+process`, not a VS Code tab), rendered a first frame, and pixel values at all five
+stack positions matched the files in the typed order. Row 11 re-run `real host`.
+Rows 4, 5 and 20 are not upgraded: their GUI boundaries were not exercised.
+
 2026-10-12 network collection fix: rows 4 and 20 are affected by allowing
 `--match` collections to follow the existing direct-loading default. The shared
 `/load` route also affects collection loading into any existing display. Their
@@ -282,7 +291,7 @@ tried, no page errors.
 | 8 | local desktop Linux | native window | small | never verified |
 | 9 | local desktop macOS | native window | small | never verified |
 | 10 | local desktop Windows | native window | small | never verified |
-| 11 | any | none | any | **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
+| 11 | any | none | any | **verified 2026-10-31 `real host`** — five-file stack: `uv run arrayview <5 .nii files> --window none --port 8767` loaded and released, reporting that no server remained. Earlier: **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
 
 ### Python `arrayview.view()`
 

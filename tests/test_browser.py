@@ -251,28 +251,46 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
         "() => document.querySelector('#overlay-palette .overlay-palette-strip-fill')?.getAttribute('d')"
     )
     # Minimizing shrinks the list to a single button; clicking it restores the list.
-    palette.locator(".overlay-palette-minimize").click()
+    menu = page.locator("#overlay-palette-menu")
+
+    def menu_item(act):
+        if not menu.is_visible():
+            palette.locator(".overlay-palette-more").click()
+        return menu.locator(f'[data-act="{act}"]')
+
+    # The options menu holds everything; collapsing leaves a strip of colour dots.
+    menu_item("collapse").click()
+    assert not menu.is_visible()
     assert "collapsed" in palette.get_attribute("class")
     assert palette.locator(".overlay-palette-row").count() == 0
+    assert palette.locator(".overlay-palette-restore .overlay-palette-swatch").count() == 2
     assert palette.bounding_box()["width"] < 40
     palette.locator(".overlay-palette-restore").click()
     assert palette.locator(".overlay-palette-row").count() == 2
-    style_btn = palette.locator(".overlay-palette-style")
-    style_btn.click()
+    menu_item("outline").click()
     assert page.evaluate("() => overlayOutlineOnly") is True
     assert "outline" in palette.get_attribute("class")
+    assert menu_item("outline").get_attribute("aria-checked") == "true"
     assert page.evaluate(
         "() => { const p = new URLSearchParams(); _applyOverlayRenderParams(p); return p.get('overlay_outline'); }"
     ) == "1"
-    palette.locator(".overlay-palette-style").click()
+    menu_item("outline").click()
     assert page.evaluate("() => overlayOutlineOnly") is False
-    all_btn = palette.locator(".overlay-palette-all")
-    assert "active" in all_btn.get_attribute("class")
-    all_btn.click()
+    menu_item("all").click()
     assert page.evaluate("() => _getVisibleOverlaySids()") == ""
-    assert "active" not in all_btn.get_attribute("class")
-    all_btn.click()
+    assert "show all" in menu_item("all").inner_text()
+    menu_item("all").click()
     assert page.evaluate("() => _getVisibleOverlaySids().split(',').length") == 2
+    menu.locator("input[type=range]").fill("70")
+    assert page.evaluate("() => overlayAlpha") == 0.7
+    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_menu.png"))
+    menu_item("collapse").click()
+    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_collapsed.png"))
+    palette.locator(".overlay-palette-restore").click()
+    palette.locator(".overlay-palette-more").click()
+    page.keyboard.press("Escape")
+    assert not menu.is_visible()
+    assert palette.is_visible()
     page.wait_for_timeout(1200)
     DEBUG_DIR.mkdir(exist_ok=True)
     page.screenshot(path=str(DEBUG_DIR / "overlay_palette_initial_visible.png"))
@@ -285,25 +303,15 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     page.keyboard.press("o")
     assert palette.is_visible()
 
-    handle = palette.locator(".overlay-palette-drag-handle")
-    handle_box = handle.bounding_box()
-    before_drag = palette.bounding_box()
-    page.mouse.move(
-        handle_box["x"] + handle_box["width"] / 2,
-        handle_box["y"] + handle_box["height"] / 2,
-    )
-    page.mouse.down()
-    page.mouse.move(before_drag["x"] - 180, before_drag["y"] + 140, steps=8)
-    page.mouse.up()
-    after_drag = palette.bounding_box()
-
-    assert after_drag["x"] < before_drag["x"] - 100
-    assert after_drag["y"] > before_drag["y"] + 80
-    page.evaluate("() => _reconcileUI()")
-    after_reconcile = palette.bounding_box()
-    assert abs(after_reconcile["x"] - after_drag["x"]) <= 2
-    assert abs(after_reconcile["y"] - after_drag["y"]) <= 2
-    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_dragged.png"))
+    # The list sits flush against the right edge of the image, not on top of it.
+    assert palette.locator(".overlay-palette-alpha").count() == 0
+    view = page.locator("#canvas-viewport").bounding_box()
+    box = palette.bounding_box()
+    if "docked" in palette.get_attribute("class"):
+        assert view["x"] + view["width"] <= box["x"] <= view["x"] + view["width"] + 16
+        assert abs(box["y"] - view["y"]) <= 2
+        assert box["height"] <= view["height"] + 2
+    page.screenshot(path=str(DEBUG_DIR / "overlay_palette_docked.png"))
 
     _focus_kb(page)
     page.keyboard.press("v")
@@ -313,7 +321,6 @@ def test_overlay_palette_visible_on_first_load(page, client, server_url, tmp_pat
     assert mode_box["x"] >= 0 and mode_box["y"] >= 0
     assert mode_box["x"] + mode_box["width"] <= viewport["width"]
     assert mode_box["y"] + mode_box["height"] <= viewport["height"]
-    assert page.evaluate("() => _overlayPaletteDragPos !== null") is True
 
 
 def test_overlay_palette_has_no_strip_in_ortho(page, client, server_url, tmp_path):
@@ -1156,13 +1163,6 @@ class TestKeyboard:
             "() => parseFloat(getComputedStyle(document.getElementById('wrapper')).paddingTop || '0') <= 20"
         )
 
-
-# ---------------------------------------------------------------------------
-# Visual regression
-# ---------------------------------------------------------------------------
-
-
-class TestROIDrag:
     def test_immersive_fills_height_with_even_island_gaps(self, page, server_url, sid_3d):
         page.set_viewport_size({"width": 1400, "height": 800})
         page.goto(f"{server_url}/?sid={sid_3d}")
@@ -1179,7 +1179,22 @@ class TestROIDrag:
         }""")
         assert m["vpH"] == m["h"]
         assert abs(m["top"] - m["bottom"]) <= 1
-        assert abs(m["barH"] - m["cbH"]) <= 1
+        assert abs(m["barH"] - (m["cbH"] - 3)) <= 1
+
+    def test_immersive_split_side_by_side_in_odd_width_window(self, page, server_url, sid_3d):
+        page.set_viewport_size({"width": 1401, "height": 800})
+        page.goto(f"{server_url}/?sid={sid_3d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(900)
+        page.keyboard.press("Shift+S")
+        page.wait_for_timeout(1500)
+        tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
+            .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
+        assert len(tops) == 2
+        assert tops[0] == tops[1]
 
     def test_ortho_panes_use_the_window_the_colorbar_shows(self, page, server_url, sid_3d):
         page.goto(f"{server_url}/?sid={sid_3d}")
@@ -1318,21 +1333,6 @@ class TestROIDrag:
         assert m["shadow"] == "none"
         assert m["text"].startswith("rgba(0, 0, 0")
 
-    def test_immersive_split_side_by_side_in_odd_width_window(self, page, server_url, sid_3d):
-        page.set_viewport_size({"width": 1401, "height": 800})
-        page.goto(f"{server_url}/?sid={sid_3d}")
-        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
-        page.wait_for_timeout(400)
-        page.keyboard.press("F")
-        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
-        page.wait_for_timeout(900)
-        page.keyboard.press("Shift+S")
-        page.wait_for_timeout(1500)
-        tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
-            .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
-        assert len(tops) == 2
-        assert tops[0] == tops[1]
-
     def test_ortho_from_immersive_keeps_bars_on_big_pane(self, page, server_url, sid_3d):
         page.set_viewport_size({"width": 1400, "height": 800})
         page.goto(f"{server_url}/?sid={sid_3d}")
@@ -1462,6 +1462,13 @@ class TestROIDrag:
         }""")
         assert fitted == {"zoom": 1.0, "map": False, "name": "1"}
 
+
+# ---------------------------------------------------------------------------
+# Visual regression
+# ---------------------------------------------------------------------------
+
+
+class TestROIDrag:
     def _draw_roi(self, page):
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
@@ -1867,3 +1874,82 @@ class TestModeCombinations:
                            && n.title.endsWith('pat_a/t1.npy'); }""",
             timeout=15_000,
         )
+
+
+def test_tools_live_in_help_panel_and_slash_key_still_works(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    assert page.locator("#tool-hint").count() == 0
+
+    page.locator("#help-hint").click()
+    main = page.locator("#help-main-tabs .help-main-tab")
+    assert main.all_inner_texts() == ["Help", "Tools", "Preferences"]
+    # Sub-tabs follow the main tab; Preferences has none.
+    assert page.locator('#help-tabs .help-tab[data-help-tab="basics"]').is_visible()
+    assert not page.locator('#help-tabs .help-tab[data-help-tab="tool-qmri"]').is_visible()
+    page.locator('.help-main-tab[data-help-group="preferences"]').click()
+    assert not page.locator("#help-tabs").is_visible()
+    assert page.locator('.help-panel[data-help-tab="preferences"]').is_visible()
+    page.locator('.help-main-tab[data-help-group="tools"]').click()
+    assert page.locator('#help-tabs .help-tab[data-help-tab="tool-qmri"]').is_visible()
+    assert not page.locator('#help-tabs .help-tab[data-help-tab="basics"]').is_visible()
+    rows = page.locator("#help-tool-list .tool-launcher-item")
+    assert rows.count() >= 10
+    assert rows.locator(".tool-launcher-key", has_text="u").count() >= 1
+
+    # Clicking a row closes the panel and starts the tool.
+    page.locator('#help-tool-list .tool-launcher-item[data-tool="ruler"]').click()
+    assert not page.locator("#help-overlay").evaluate("el => el.classList.contains('visible')")
+    assert page.evaluate("_rulerMode")
+
+    # Reopening shows the running tool as active, on the tab left open.
+    page.locator("#help-hint").click()
+    page.wait_for_selector('#help-tool-list .tool-launcher-item.active[data-tool="ruler"]', state="attached")
+    page.keyboard.press("Escape")
+
+    # The keyboard route is untouched: / then a letter.
+    page.keyboard.press("/")
+    page.wait_for_selector("#tool-launcher.visible")
+    page.keyboard.press("u")
+    page.wait_for_selector("#tool-launcher.visible", state="hidden")
+    assert not page.evaluate("_rulerMode")
+
+
+def test_preferences_say_where_they_are_saved_and_explain_each_option(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    page.locator("#help-hint").click()
+    page.locator('.help-main-tab[data-help-group="preferences"]').click()
+    page.wait_for_selector("#preferences-body .preferences-row")
+    assert "~/.arrayview/config.toml" in page.locator(".preferences-intro").inner_text()
+    details = page.locator("#preferences-body .preferences-row .preferences-detail").all_inner_texts()
+    assert details and all(len(text) > 30 for text in details)
+    # The generic fallback text means a setting has no description of its own.
+    assert not any("Applies to the viewer" in text or "Applies on the next launch" in text for text in details)
+
+
+
+def test_dim_underline_fades_in_at_final_size_when_dimbar_goes_compact(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.evaluate("_dimbarExtentPinned = true; _reconcileDimbarExtent()")
+    page.wait_for_timeout(500)
+
+    # Every animation frame after going compact: underline visibility and its size and position.
+    frames = page.evaluate("""() => new Promise(resolve => {
+        const out = [];
+        const t0 = performance.now();
+        _toggleDimbarExtents();
+        const tick = () => {
+            const m = document.getElementById('dim-active-underline');
+            const cs = getComputedStyle(m);
+            out.push({ t: performance.now() - t0, o: +cs.opacity, w: m.getBoundingClientRect().width, x: m.getBoundingClientRect().left });
+            if (performance.now() - t0 < 900) requestAnimationFrame(tick); else resolve(out);
+        };
+        requestAnimationFrame(tick);
+    })""")
+    final = frames[-1]
+    assert final["o"] > 0.99
+    visible = [f for f in frames if f["o"] > 0]
+    assert visible, "underline never faded back in"
+    wrong = [f for f in visible if abs(f["w"] - final["w"]) > 0.5 or abs(f["x"] - final["x"]) > 0.5]
+    assert not wrong, f"underline visible before reaching its final size: {wrong[:3]} final={final}"
+    # And it is a fade, not a pop.
+    assert any(0 < f["o"] < 0.99 for f in frames)
