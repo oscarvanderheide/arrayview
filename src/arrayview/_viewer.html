@@ -41921,10 +41921,13 @@
         // target has stopped jumping (or 1.5 s passed); then `onStart()` runs. `onFrame(p, rect,
         // done)` runs after each step. Paced by an animation on `g`, so it keeps time with the
         // other glides. Each of `riders` ({g, target, radii}) glides alongside in step with `g`.
+        // In immersive the bars float on the images, so they stay hidden and fade in on landing.
         function _splitGlideLive(g, target, radii, bars = [], onFrame = null, { ready = () => true, onStart = null, riders = [] } = {}) {
             const clock = g.animate([{ opacity: 1 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS });
             clock.pause();
             bars = bars.filter(([el, from]) => el && from && from.width);
+            const barHolds = _fullscreenActive ? bars.map(([el]) => [el, _glideHold(el)]) : null;
+            if (barHolds) bars = [];
             const lerp = (a, b, p) => a + (b - a) * p;
             const t0 = performance.now();
             let waiting = true, last = null;
@@ -41963,6 +41966,10 @@
                 });
                 // Same frame as the bar it sits under.
                 if (bars.length) _updateActiveDimUnderline(document.getElementById('info'));
+                if (done && barHolds) barHolds.forEach(([el, hold]) => {
+                    hold.cancel();
+                    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _ORTHO_GLIDE_MS * 0.4, easing: 'ease-out' });
+                });
                 if (onFrame) onFrame(p, rect, done);
                 if (!done) requestAnimationFrame(step);
             };
