@@ -1771,16 +1771,19 @@ class TestModeCombinations:
         a, b = self._two(client, tmp_path, arr, "cq")
         page.goto(f"{server_url}/?sid={a}&compare_sid={b}&compare_sids={b}")
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        # Ortho and qMRI together are refused with several arrays: each key
+        # toggles only its own view.
         for key, check in [
             ("q", "compareQmriActive && !compareMvActive"),
+            ("v", "compareQmriActive && !compareMvActive"),
+            ("q", "!compareQmriActive && !compareMvActive"),
             ("v", "compareMvActive && !compareQmriActive"),
-            ("q", "compareQmriActive && !compareMvActive"),
         ]:
             _focus_kb(page)
             page.keyboard.press(key)
             page.wait_for_function(f"() => {check}", timeout=5_000)
             page.wait_for_timeout(300)
-            assert page.locator("#qmri-view-wrap canvas:visible").count() > 0
+            assert page.locator("#qmri-view-wrap canvas:visible, #compare-view-wrap canvas:visible").count() > 0
 
     def test_z_tiles_a_plain_volume(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

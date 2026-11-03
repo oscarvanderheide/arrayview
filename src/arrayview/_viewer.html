@@ -259,10 +259,9 @@
             display: flex; align-items: center; justify-content: flex-start; gap: 5px;
             margin: 0; max-width: calc(100% - 20px); white-space: nowrap;
             font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
-            color: rgba(255,255,255,0.92);
-            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
+            color: #fff;
+            -webkit-text-stroke: var(--on-image-stroke);
             paint-order: stroke fill;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.25);
             user-select: none;
         }
         .pane-name { pointer-events: none; }
@@ -3975,14 +3974,9 @@
         .av-name { min-width: 0; overflow: hidden; white-space: nowrap; }
         .av-name-shared { opacity: 0.5; }
         #compare-view-wrap:not(.compare-titles-inset) .compare-title .av-name { color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
-        /* A name beside its image, in the empty margin, wrapping at
-           separators (_placeRowName). Same type and
-           logo as the names above the compare panes. */
-        .av-name.av-name-side { display: block; white-space: normal; overflow-wrap: anywhere; }
         .av-name-br { display: none; }
-        /* Chrome breaks at <wbr> even under nowrap: only side names wrap */
-        .av-name:not(.av-name-side) wbr { display: none; }
-        .av-name.av-name-paths .av-name-br { display: block; }
+        /* Chrome breaks at <wbr> even under nowrap: names stay on one line */
+        .av-name wbr { display: none; }
         .compare-diff-stats { display: inline-flex; gap: 12px; font-variant-numeric: tabular-nums; cursor: default; }
         .compare-diff-stats b { font-weight: normal; color: color-mix(in srgb, var(--text) 75%, var(--muted)); text-transform: none; }
         .detached-index-hint {
@@ -4299,14 +4293,6 @@
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
-        /* compare-qMRI / compare-3plane: array name left of its row */
-        .qv-row.cq-row > .cq-row-name > .av-name { flex-shrink: 0; }
-        .qv-row.cq-row > .cq-row-name {
-            position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%);
-            width: max-content; display: flex; align-items: center; justify-content: flex-end; gap: 5px; text-align: right;
-            font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
-            color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
-        }
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
         .cq-header-label { font-size: 16px; color: var(--fg); letter-spacing: 0.05em; text-align: center; }
@@ -10333,8 +10319,8 @@
         }
 
         function _arrayNameHTML(runs) {
-            // A name beside its image wraps after separators (not dots: they
-            // sit inside numbers), and after folders when av-name-paths is on.
+            // Break points after separators (not dots: they sit inside
+            // numbers) and folders; hidden while names stay on one line.
             const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
                 .replace(/[_\-\s()]+/g, '$&<wbr>')
                 .replace(/[\/\\]+/g, '$&<span class="av-name-br"></span>');
@@ -10343,41 +10329,17 @@
                 .join('');
         }
 
-        // Names sit beside their image, in the empty margin, when it has room
-        // for a column at least NAME_SIDE_MIN_W wide; otherwise inside it.
-        // NAME_SIDE_GAP is also the CSS margin between name and image.
-        const NAME_SIDE_MIN_W = 96;
-        const NAME_SIDE_MAX_W = 280;
-        const NAME_SIDE_GAP = 14;
-        const NAME_SIDE_EDGE = 12;
         // Logo before every array name: 14px icon + 5px gap.
         const ARRAY_NAME_LOGO_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
-        const NAME_LOGO_W = 19;
-        // Margin a row layout keeps free on each side for its row names,
-        // counted from the window edge. Capped so a narrow window keeps its
-        // images and the names get a narrower column instead.
-        function _rowNameReserve() {
-            const view = document.getElementById('qmri-view-wrap');
-            const viewL = view ? Math.max(0, view.getBoundingClientRect().left) : 0;
-            return Math.min(viewL + NAME_LOGO_W + NAME_SIDE_MIN_W + NAME_SIDE_GAP + NAME_SIDE_EDGE, window.innerWidth * 0.17);
-        }
-
         function _fitArrayName(el) {
             const p = el && el._nameParts;
             if (!p) return;
             if (el.isConnected && el._namePlace) el._namePlace(el);
             const full = p.head.length + p.key.length + p.tail.length;
             const show = cap => { el.innerHTML = _arrayNameHTML(_arrayNameRuns(p, cap)); };
-            el.classList.remove('av-name-paths');
             show(full);
             if (!el.isConnected) return;
             const fits = () => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight;
-            // A name that needs several lines starts each folder on a new one,
-            // unless that alone makes it too tall.
-            if (el.classList.contains('av-name-side') && el.scrollHeight > 1.5 * parseFloat(getComputedStyle(el).lineHeight)) {
-                el.classList.add('av-name-paths');
-                if (!fits()) el.classList.remove('av-name-paths');
-            }
             if (fits() || el.clientWidth <= 0) return;
             let lo = 1, hi = full - 1;
             while (lo < hi) {
@@ -10414,20 +10376,8 @@
             if (_arrayNameRO) slots.forEach(slot => slot && _arrayNameRO.observe(slot));
         }
 
-        // compare-qMRI / compare-3plane: the name sits left of its row, in
-        // the margin the layout keeps free (_rowNameReserve). The view
-        // clips at its own edge, not the window's.
-        function _placeRowName(el) {
-            const r = el.closest('.cq-row').getBoundingClientRect();
-            const viewL = document.getElementById('qmri-view-wrap').getBoundingClientRect().left;
-            const w = Math.min(NAME_SIDE_MAX_W, r.left - viewL - NAME_SIDE_EDGE - NAME_SIDE_GAP) - NAME_LOGO_W;
-            el.style.maxWidth = Math.max(40, w) + 'px';
-            el.style.maxHeight = Math.max(16, r.height) + 'px';
-        }
-
         // Compare pane names stay on one line in their image's corner.
         function _placeCompareTitle(el) {
-            el.classList.remove('av-name-side');
             el.style.maxWidth = '';
             el.style.maxHeight = '';
         }
@@ -38701,13 +38651,10 @@
                 const sidVal = compareQmriSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
-                // Array name, left of its row
+                // Array name, in the corner of its row's first image
                 const rowName = document.createElement('div');
-                rowName.className = 'cq-row-name';
-                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
-                rowDiv.appendChild(rowName);
-                _setArrayName(rowName.lastElementChild, rowNameParts[si],
-                    pins ? rowNames[si] : _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                rowName.className = 'pane-name cq-row-name';
+                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
                 _cqRowNameEls.push(rowName.lastElementChild);
                 for (let mi = 0; mi < nMaps; mi++) {
                     const actualIdx = mapIndices[mi];
@@ -38726,6 +38673,11 @@
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cqCvBox.appendChild(qvPiEl);
+                    if (mi === 0) {
+                        cqCvBox.appendChild(rowName);
+                        _setArrayName(rowName.lastElementChild, rowNameParts[si],
+                            pins ? rowNames[si] : _arrayNameHover(sidVal, rowNames[si]), [cqCvBox], _placeCompareTitle);
+                    }
                     cvWrap.appendChild(cqCvBox);
                     area.appendChild(cvWrap);
                     pane.appendChild(area);
@@ -39009,7 +38961,7 @@
             const rows = nRows;
             const colGap = rows >= 3 ? 10 : 24;
             const rowGap = rows >= 3 ? 4 : 14;
-            const sidePad = Math.max(rows >= 3 ? 80 : 120, 2 * _rowNameReserve()); // room for row names
+            const sidePad = rows >= 3 ? 80 : 120;
             const labelH = 24;  // column headers
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
             const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
@@ -39246,14 +39198,8 @@
                 const sidVal = compareMvSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
-                // Array name, left of its row. A split shows one array: its rows need none.
-                if (!detachedDimMode || _detachedDimIsCases()) {
-                    const rowName = document.createElement('div');
-                    rowName.className = 'cq-row-name';
-                    rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
-                    rowDiv.appendChild(rowName);
-                    _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
-                }
+                // Array name, in the corner of its row's first image. A split shows one array: its rows need none.
+                const showRowName = !detachedDimMode || _detachedDimIsCases();
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];
@@ -39268,6 +39214,13 @@
                     const cvBox = document.createElement('div');
                     cvBox.className = 'qv-canvas-clip';
                     cvBox.appendChild(cv);
+                    if (pi === 0 && showRowName) {
+                        const rowName = document.createElement('div');
+                        rowName.className = 'pane-name cq-row-name';
+                        rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                        cvBox.appendChild(rowName);
+                        _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [cvBox], _placeCompareTitle);
+                    }
                     cvWrap.appendChild(cvBox);
                     const piEl = document.createElement('div');
                     piEl.className = 'cv-pixel-info';
@@ -39644,7 +39597,7 @@
             const nCols = 3; // always 3 planes
             const colGap = nRows >= 3 ? 12 : 24;
             const rowGap = nRows >= 3 ? 6 : 14;
-            const sidePad = Math.max(nRows >= 3 ? 80 : 120, 2 * _rowNameReserve()); // room for row names
+            const sidePad = nRows >= 3 ? 80 : 120;
             const labelH = 0;  // no column headers in compare-multiview
             const cbWrap = document.getElementById('mv-cb-wrap');
             const cbH = cbWrap && colorbarVisible() ? (cbWrap.offsetHeight || 33) : 0;
