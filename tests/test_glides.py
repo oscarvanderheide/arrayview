@@ -73,13 +73,8 @@ def test_complex_mode_and_axis_swap_dissolve(loaded_viewer, client, tmp_path):
 
 
 def test_compare_layout_glides(page, server_url, client, arr_3d, tmp_path):
-    from conftest import register_array
-
-    a = register_array(client, arr_3d, tmp_path, "a")
-    b = register_array(client, arr_3d * 2, tmp_path, "b")
-    page.goto(f"{server_url}/?sid={a}&compare_sid={b}")
-    page.wait_for_function("() => compareActive", timeout=10_000)
-    _settle(page)
+    # Both slices drawn first: without them there is nothing to glide and it fades.
+    page = _compare_page(page, server_url, client, arr_3d, tmp_path)
     before = page.evaluate("compareLayoutMode")
     page.keyboard.press("g")
     assert page.evaluate("_orthoGlideBusy")
@@ -164,3 +159,180 @@ def test_mosaic_underline_slides_to_new_active_dim(loaded_viewer, sid_4d):
         assert 150 < moving[-1] - moving[0] < 400
         assert max(steps) < abs(end - start) * 0.5
         _settle(page)
+
+
+def _compare_page(page, server_url, client, arr, tmp_path):
+    from conftest import register_array
+
+    a = register_array(client, arr, tmp_path, "a")
+    b = register_array(client, arr * 2, tmp_path, "b")
+    page.goto(f"{server_url}/?sid={a}&compare_sid={b}")
+    page.wait_for_function(
+        "() => compareActive && !compareRendering && compareFrames.filter(Boolean).length >= 2", timeout=10_000
+    )
+    _settle(page)
+    return page
+
+
+_ROW_LAYOUT = (
+    "views => views.map(v => { const r = v.canvas.getBoundingClientRect();"
+    " return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })"
+)
+
+
+def _all_drawn(views):
+    return f"() => {views}.length && {views}.every(v => v.lastImageData)"
+
+
+def test_compare_ortho_glides_in_and_back(page, server_url, client, arr_3d, tmp_path):
+    page = _compare_page(page, server_url, client, arr_3d, tmp_path)
+    page.keyboard.press("v")
+    assert page.evaluate("_orthoGlideBusy")
+    # Every row has a pane showing the slice that was on screen, ready for it to land in.
+    assert page.evaluate("compareMvViews.filter(_isOrthoSlicePlane).length") == 2
+    # The panes have their places before any frame is back.
+    first = page.evaluate(f"({_ROW_LAYOUT})(compareMvViews)")
+    assert all(r[2] > 0 for r in first)
+    _settle(page)
+    page.wait_for_function(_all_drawn("compareMvViews"))
+    assert page.evaluate(f"({_ROW_LAYOUT})(compareMvViews)") == first
+
+    page.keyboard.press("v")
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+    assert not page.evaluate("compareMvActive")
+    assert page.evaluate("_comparePanesShown()")
+
+
+def test_compare_qmri_glides_in_and_back(page, server_url, client, tmp_path):
+    arr = np.random.default_rng(2).random((4, 8, 32, 40)).astype(np.float32)
+    page = _compare_page(page, server_url, client, arr, tmp_path)
+    page.keyboard.press("q")
+    assert page.evaluate("_orthoGlideBusy")
+    first = page.evaluate(f"({_ROW_LAYOUT})(compareQmriViews)")
+    assert all(r[2] > 0 for r in first)
+    _settle(page)
+    page.wait_for_function(_all_drawn("compareQmriViews"))
+    assert page.evaluate(f"({_ROW_LAYOUT})(compareQmriViews)") == first
+    # All panes are visible and nothing is left holding them back.
+    page.wait_for_function(
+        "() => compareQmriViews.every(v => getComputedStyle(v.canvas.closest('.qv-pane')).opacity === '1'"
+        " && getComputedStyle(v.canvas).opacity === '1')",
+        timeout=3_000,
+    )
+
+    page.keyboard.press("q")
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+    assert not page.evaluate("compareQmriActive")
+
+
+def test_compare_ortho_and_qmri_together_is_refused(page, server_url, client, tmp_path):
+    arr = np.random.default_rng(3).random((4, 8, 32, 40)).astype(np.float32)
+    page = _compare_page(page, server_url, client, arr, tmp_path)
+    page.keyboard.press("v")
+    _settle(page)
+    page.keyboard.press("q")
+    page.wait_for_timeout(300)
+    assert page.evaluate("compareMvActive && !compareQmriActive")
+    assert "not available" in page.evaluate("document.getElementById('status').textContent")
+
+
+def test_split_ortho_glides_in_and_back(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    _settle(page)
+    page.keyboard.press("Shift+S")
+    page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+    _settle(page)
+    page.keyboard.press("v")
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+    assert page.evaluate("compareMvActive")
+    page.keyboard.press("v")
+    _settle(page)
+    assert page.evaluate("detachedDimMode && _comparePanesShown()")
+
+
+def test_split_ortho_rows_keep_their_own_index(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    arr = np.random.default_rng(4).random((24, 26, 20, 6)).astype(np.float32)
+    page = loaded_viewer(register_array(client, arr, tmp_path, "coils"))
+    _settle(page)
+    page.evaluate("activeDim = 3; renderInfo()")
+    page.keyboard.press("Shift+S")
+    page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+    _settle(page)
+    page.keyboard.press("]")  # the left pane's index moves off the main one
+    page.wait_for_timeout(500)
+    a, b = page.evaluate("[detachedDimIndexA, detachedDimIndexB]")
+    assert a != b
+    page.keyboard.press("v")
+    _settle(page)
+    page.wait_for_function("() => compareMvViews.length && compareMvViews.every(v => v.lastImageData)")
+    rows = page.evaluate("compareMvViews.map(v => [v.cmvRow, _cmvIndices(v)[3]])")
+    assert {r[1] for r in rows if r[0] == 0} == {a}
+    assert {r[1] for r in rows if r[0] == 1} == {b}
+    # Two different volumes, so the rows' pictures differ.
+    assert page.evaluate(
+        "(() => { const n = compareMvViews.length / 2, p = compareMvViews[0].lastImageData.data,"
+        " q = compareMvViews[n].lastImageData.data; for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) return true; return false; })()"
+    )
+    # One array: its rows carry no array name.
+    assert page.evaluate("document.querySelectorAll('#qmri-view-wrap .cq-row-name').length") == 0
+
+
+def _maps_page(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    arr = np.random.default_rng(5).random((20, 24, 18, 3)).astype(np.float32)
+    page = loaded_viewer(register_array(client, arr, tmp_path, "maps"))
+    _settle(page)
+    return page
+
+
+_MODE = (
+    "() => compareMvActive ? 'split+ortho' : compareQmriActive ? 'split+qmri' : qmriMvActive ? 'qmri+ortho'"
+    " : multiViewActive ? 'ortho' : qmriActive ? 'qmri' : compareActive ? 'split' : 'single'"
+)
+
+
+def _press_all(page, keys):
+    for k in keys:
+        page.keyboard.press(k)
+        page.wait_for_function("() => !_orthoGlideBusy && !_crossfading", timeout=10_000)
+        page.wait_for_timeout(400)
+    _settle(page)
+    return page.evaluate(_MODE)
+
+
+def test_ortho_and_qmri_commute(loaded_viewer, client, tmp_path):
+    page = _maps_page(loaded_viewer, client, tmp_path)
+    assert _press_all(page, ["v", "q"]) == "qmri+ortho"
+    assert _press_all(page, ["v"]) == "qmri"          # v takes ortho away again
+    assert _press_all(page, ["v", "q"]) == "ortho"    # and q takes qMRI away
+    assert _press_all(page, ["q"]) == "qmri+ortho"
+
+
+def test_split_and_ortho_commute(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    arr = np.random.default_rng(6).random((20, 24, 18, 5)).astype(np.float32)
+    sid = register_array(client, arr, tmp_path, "vols")
+    results = []
+    for keys in (["Shift+S", "v"], ["v", "Shift+S"]):
+        page = loaded_viewer(sid)
+        _settle(page)
+        page.evaluate("activeDim = 3; renderInfo()")
+        results.append((_press_all(page, keys), page.evaluate("detachedDim")))
+    assert results == [("split+ortho", 3), ("split+ortho", 3)]
+    # Shift+S again leaves the split and keeps ortho.
+    assert _press_all(page, ["Shift+S"]) == "ortho"
+
+
+def test_split_along_an_ortho_plane_dim_is_refused(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    _settle(page)
+    page.evaluate("activeDim = current_slice_dim; renderInfo()")
+    assert _press_all(page, ["Shift+S", "v"]) == "split"
+    assert "ortho shows as a plane" in page.evaluate("document.getElementById('status').textContent")

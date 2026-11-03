@@ -9052,15 +9052,16 @@
 
         /** Ortho from the single view: the plane that was on screen is turned
          *  exactly as it was on screen, so the v glide lands on the same picture.
-         *  Big-left also puts it first (the big pane); a row keeps its plane order. */
-        function _leadWithSingleViewPlane(defs, dims) {
+         *  Big-left also puts it first (the big pane); a row keeps its plane order,
+         *  and so does the compare grid (`keepOrder`). */
+        function _leadWithSingleViewPlane(defs, dims, keepOrder = false) {
             const sliceDir = dims.find(d => d !== dim_x && d !== dim_y);
             if (sliceDir === undefined || !dims.includes(dim_x) || !dims.includes(dim_y)) return;
             const i = defs.findIndex(d => d.sliceDir === sliceDir);
             if (i < 0) return;
             const def = defs[i];
             Object.assign(def, { dimX: dim_x, dimY: dim_y, flipX: !!flip_x, flipY: !!flip_y });
-            if (_resolvedOrthoLayoutMode() === 'big-left') defs.unshift(defs.splice(i, 1)[0]);
+            if (!keepOrder && _resolvedOrthoLayoutMode() === 'big-left') defs.unshift(defs.splice(i, 1)[0]);
         }
 
         // ── View Cycling & Physical Proportions ──
@@ -15688,7 +15689,7 @@
                     _fetchHoverSlice(v.sid, dim_x, dim_y, qi, v.qmriRole);
                 });
             } else if (compareMvActive) {
-                compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
+                compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, _cmvIndices(v)));
             } else if (compareActive) {
                 compareDisplaySids.forEach((s, i) => { if (s) _fetchHoverSlice(s, dim_x, dim_y, _comparePaneHoverIndices(i)); });
             } else if (dim_z >= 0) {
@@ -37173,7 +37174,8 @@
             const channelDim = collectionSpatialNdim >= 0 && !Array.isArray(raggedSpatialShapes)
                 ? collectionSpatialNdim + 1 : -1;
             const ok = i => Number.isInteger(i) && i >= 0 && i < shape.length
-                && (!_isCollectionDim(i) || i === channelDim) && [3, 4, 5, 6].includes(shape[i]);
+                && (!_isCollectionDim(i) || i === channelDim) && [3, 4, 5, 6].includes(shape[i])
+                && !(detachedDimMode && i === detachedDim);
             if (ok(prefer)) return prefer;
             const candidates = shape.map((_, i) => i).filter(ok);
             if (candidates.length === 1) return candidates[0];
@@ -37188,10 +37190,10 @@
             return -1;
         }
 
-        function enterQmri() {
+        function enterQmri(prefer = -1) {
             _qmriRenderGeneration++;
             // Rebuilding after qMRI 3-plane keeps the dim already in use.
-            const targetDim = _pickQmriDim(qmriActive ? qmriDim : -1);
+            const targetDim = _pickQmriDim(qmriActive ? qmriDim : prefer);
             if (targetDim < 0) return;
             _lastQmriDim = targetDim;
             const n = shape[targetDim];
@@ -38846,6 +38848,7 @@
             _kickInitialRenders(compareQmriViews, compareQmriRender);
             renderInfo();
             _reconcileUI();
+            compareQmriScaleAllCanvases();
             showStatus(`compare qMRI — ${compareQmriSids.length} ${cases ? 'cases' : 'arrays'} × ${nMaps} maps — / to exit`, 3000);
             // Phase 10: sync modeManager
             {
@@ -38995,8 +38998,11 @@
         }
 
         function compareQmriScaleAllCanvases() {
-            const ready = compareQmriViews.filter(v => v.lastW && v.lastH);
+            // A pane without a frame yet counts at its array's size, so the grid has its
+            // final layout from the start instead of shifting as each frame arrives.
+            const ready = compareQmriViews;
             if (!ready.length) return;
+            const _w = v => v.lastW || shape[dim_x], _h = v => v.lastH || shape[dim_y];
             const nRows = compareQmriSids.length;
             const nMaps = ready.length / nRows || 1;
             const cols = Math.ceil(nMaps);
@@ -39019,7 +39025,7 @@
             const absMaxScaleH = Math.max(10, totalH / rows);
             const _cqAspect = _pixelAspect(dim_x, dim_y);
             const absMaxScale = Math.min(...ready.map(v =>
-                Math.min(absMaxScaleW / v.lastW, absMaxScaleH / (v.lastH * _cqAspect))));
+                Math.min(absMaxScaleW / _w(v), absMaxScaleH / (_h(v) * _cqAspect))));
             const { capped: cappedScale, atMax: _cqAtMax } = _clampUniformZoom(absMaxScale);
             // Per-pane geometry routed through the shared _scalePane primitive.
             // compare-qMRI has no pan state and no per-pane viewport element —
@@ -39033,7 +39039,7 @@
             const _cqPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
                 const r = _scalePane(
-                    { canvas: v.canvas, w: v.lastW, h: v.lastH * _cqAspect, pan: _cqPanStub },
+                    { canvas: v.canvas, w: _w(v), h: _h(v) * _cqAspect, pan: _cqPanStub },
                     null,
                     {
                         maxW: Math.round(absMaxScaleW),
@@ -39054,7 +39060,7 @@
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('.cq-header-label');
             if (headerLabels.length && ready.length) {
-                const paneW = Math.round(ready[0].lastW * cappedScale);
+                const paneW = Math.round(_w(ready[0]) * cappedScale);
                 headerLabels.forEach(el => { el.style.width = paneW + 'px'; });
             }
             // Apply dynamic gaps to DOM elements
@@ -39179,6 +39185,7 @@
             const dims = defaultMultiViewDims();
             // Plane definitions match regular three-plane view.
             const planeDefs = multiViewPlaneDefs(dims);
+            _leadWithSingleViewPlane(planeDefs, dims, true);
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareMvSids = [...cmpSids];
@@ -39239,12 +39246,14 @@
                 const sidVal = compareMvSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
-                // Array name, left of its row
-                const rowName = document.createElement('div');
-                rowName.className = 'cq-row-name';
-                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
-                rowDiv.appendChild(rowName);
-                _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                // Array name, left of its row. A split shows one array: its rows need none.
+                if (!detachedDimMode || _detachedDimIsCases()) {
+                    const rowName = document.createElement('div');
+                    rowName.className = 'cq-row-name';
+                    rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span class="av-name-side"></span>';
+                    rowDiv.appendChild(rowName);
+                    _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [rowDiv, wrap], _placeRowName);
+                }
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];
@@ -39267,7 +39276,7 @@
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
                     const view = {
-                        sid: sidVal,
+                        sid: sidVal, cmvRow: si,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         flipX: def.flipX, flipY: def.flipY,
                         canvas: cv, ctx: cv.getContext('2d'), area,
@@ -39355,7 +39364,7 @@
                             sid: view.sid,
                             dimX: view.dimX,
                             dimY: view.dimY,
-                            indices: indices,
+                            indices: _cmvIndices(view),
                             imgW: view.lastW,
                             imgH: view.lastH,
                             view,
@@ -39392,7 +39401,7 @@
                         const rect = cv.getBoundingClientRect();
                         const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
                         const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                        _copyPixelValue(view.sid, view.dimX, view.dimY, indices, ipx, ipy);
+                        _copyPixelValue(view.sid, view.dimX, view.dimY, _cmvIndices(view), ipx, ipy);
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
@@ -39410,6 +39419,7 @@
             _kickInitialRenders(compareMvViews, compareMvRender);
             renderInfo();
             _reconcileUI();
+            compareMvScaleAllCanvases();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
             // Phase 10: sync modeManager
             {
@@ -39434,6 +39444,9 @@
             // to follow a direction ↔ dim remapping.
             if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
         }
+
+        // A split's rows each keep their own index along the split dim.
+        const _cmvIndices = (v) => _comparePaneHoverIndices(v.cmvRow);
 
         function handleCmvPointer(view, e) {
             if (!view.lastW || !view.lastH) return;
@@ -39511,7 +39524,7 @@
             _perfMarkRequest('ws', v.seq, { perfKey, sid: v.sid, pane: 'compare-mv', dim_x: v.dimX, dim_y: v.dimY, slice_dim: v.sliceDir });
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
-                indices: [...indices], colormap: currentColormap(),
+                indices: _cmvIndices(v), colormap: currentColormap(),
                 dr: 0, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
@@ -39538,7 +39551,7 @@
                     dim_x: String(v.dimX),
                     dim_y: String(v.dimY),
                     dim_z: '-1',
-                    indices: indices.join(','),
+                    indices: _cmvIndices(v).join(','),
                     colormap: currentColormap(),
                     dr: '0',
                     complex_mode: String(complexMode),
@@ -39620,7 +39633,8 @@
         }
 
         function compareMvScaleAllCanvases() {
-            const ready = compareMvViews.filter(v => v.lastW && v.lastH);
+            // As in compareQmriScaleAllCanvases: no frame yet counts at the array's size.
+            const ready = compareMvViews;
             if (!ready.length) return;
             const nRows = compareMvSids.length;
             const nCols = 3; // always 3 planes
@@ -39645,7 +39659,7 @@
             const absMaxT = Math.max(10, Math.min(absMaxScaleW, absMaxScaleH));
             const { atMax: _cmvAtMax } = _clampUniformZoom(absMaxT);
             const T = Math.min(Math.max(10, Math.floor(absMaxT * userZoom)), absMaxT);
-            const _cmvSizes = new Map(ready.map(v => [v, _physicalPaneSize(v.lastW, v.lastH, v.dimX, v.dimY)]));
+            const _cmvSizes = new Map(ready.map(v => [v, _physicalPaneSize(v.lastW || shape[v.dimX], v.lastH || shape[v.dimY], v.dimX, v.dimY)]));
             const maxSide = Math.max(...ready.map(v => Math.max(_cmvSizes.get(v).w, _cmvSizes.get(v).h)));
             const cmvBaseScale = absMaxT / maxSide;
             const _cmvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
@@ -39786,6 +39800,7 @@
             const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const planeDefs = multiViewPlaneDefs(dims);
+            _leadWithSingleViewPlane(planeDefs, dims, true);
 
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
@@ -40222,7 +40237,8 @@
         }
 
         function qmriMvScaleAllCanvases() {
-            const ready = qmriMvViews.filter(v => v.lastW && v.lastH);
+            // As in compareQmriScaleAllCanvases: no frame yet counts at the array's size.
+            const ready = qmriMvViews;
             if (!ready.length) return;
             const nRows = Math.max(1, Math.round(qmriMvViews.length / 3));
             const nCols = 3;
@@ -40239,7 +40255,7 @@
             const absMaxT = Math.max(10, Math.min(absMaxScaleW, absMaxScaleH));
             const { atMax } = _clampUniformZoom(absMaxT);
             const T = Math.min(Math.max(10, Math.floor(absMaxT * userZoom)), absMaxT);
-            const _qmvSizes = new Map(ready.map(v => [v, _physicalPaneSize(v.lastW, v.lastH, v.dimX, v.dimY)]));
+            const _qmvSizes = new Map(ready.map(v => [v, _physicalPaneSize(v.lastW || shape[v.dimX], v.lastH || shape[v.dimY], v.dimX, v.dimY)]));
             const maxSide = Math.max(...ready.map(v => Math.max(_qmvSizes.get(v).w, _qmvSizes.get(v).h)));
             const baseScale = absMaxT / maxSide;
             const panStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
@@ -41721,13 +41737,24 @@
         }
 
         function _multiviewToggle() {
-            if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
             if (compareActive) {
-                crossfade(() => { if (compareQmriActive) exitCompareQmri(); enterCompareMv(); });
+                if (compareQmriActive) { showStatus(_NO_ORTHO_QMRI_ROWS()); return; }
+                if (!compareMvActive && detachedDimMode && defaultMultiViewDims().includes(detachedDim)) {
+                    showStatus(`ortho: the split is along dim ${detachedDim}, which ortho shows as a plane`);
+                    return;
+                }
+                _compareOrthoGlideToggle();
                 return;
             }
-            if (qmriMvActive) { crossfade(() => exitQmriMv()); return; }
-            if (qmriActive) { crossfade(() => enterQmriMv()); return; }
+            // Each map's slice glides into, or out of, its own row of the 3-plane grid.
+            if (qmriMvActive) {
+                _viewGlide(() => exitQmriMv(), (v, to) => _isOrthoSlicePlane(v) ? to.find(w => w.qmriIdx === v.qmriIdx) : null);
+                return;
+            }
+            if (qmriActive) {
+                _viewGlide(() => enterQmriMv(), (v, to) => to.find(w => w.qmriIdx === v.qmriIdx && _isOrthoSlicePlane(w)));
+                return;
+            }
             const activeTool = _activeToolId();
             if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
                 const tile = TOOL_TILES.find(t => t.id === activeTool);
@@ -41737,17 +41764,62 @@
             _orthoGlideToggle();
         }
 
+        // Split, ortho and qMRI are three switches: the view depends on which are on, not
+        // on the order they were pressed in. A pair with no view of its own is refused.
+        const _NO_ORTHO_QMRI_ROWS = () => detachedDimMode
+            ? 'split, ortho and qMRI together are not available'
+            : 'ortho and qMRI together are not available with several arrays';
+
         function _splitToggle() {
-            if (detachedDimMode) { _splitGlideExit(); return; }
+            if (detachedDimMode) {
+                if (compareMvActive) {
+                    _dissolveTo(() => { exitCompareMode(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); });
+                } else if (compareQmriActive) {
+                    const qd = compareQmriDim;
+                    _dissolveTo(() => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); });
+                } else {
+                    _splitGlideExit();
+                }
+                return;
+            }
             if (compareActive) {
                 showStatus('split: already comparing');
                 return;
             }
-            if (!_canDetachDim(activeDim)) {
+            const dim = activeDim;
+            if (qmriMvActive) { showStatus(_NO_ORTHO_QMRI_ROWS()); return; }
+            if (multiViewActive && mvDims.includes(dim)) {
+                showStatus(`split: ortho shows dim ${dim} as a plane, choose another dim`);
+                return;
+            }
+            if (qmriActive && dim === qmriDim) {
+                showStatus(`split: dim ${dim} holds the qMRI maps, choose another dim`);
+                return;
+            }
+            if (!_canDetachDim(dim) && !(multiViewActive && Number(shape[dim]) >= 2)) {
                 showStatus('split: choose a non-spatial dimension with at least 2 indices');
                 return;
             }
-            _splitGlideEnter(activeDim);
+            if (multiViewActive) {
+                _dissolveTo(async () => {
+                    exitMultiView();
+                    if (await enterDetachedDimMode(dim) && compareActive) enterCompareMv();
+                });
+                return;
+            }
+            if (qmriActive) {
+                const qd = qmriDim;
+                _dissolveTo(async () => {
+                    exitQmri();
+                    if (await enterDetachedDimMode(dim) && compareActive) {
+                        _lastQmriDim = qd;
+                        enterCompareQmri();
+                        if (typeof renderToolMenu === 'function') renderToolMenu();
+                    }
+                });
+                return;
+            }
+            _splitGlideEnter(dim);
         }
 
         function _orthoGlideToggle() {
@@ -42707,7 +42779,32 @@
             if (!qmriActive) {
                 _qmriFromWholeSlice = plain && _splitWholeIn(document.getElementById('viewer'), document.getElementById('canvas-viewport'));
             }
+            // The slice on screen glides between its map's row and the ortho pane showing it.
+            if (qmriMvActive && !compareActive) {
+                const shown = Number(indices[qmriDim]);
+                _viewGlide(() => { exitQmri(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); },
+                    (v, to) => _isOrthoSlicePlane(v) && v.qmriIdx === shown ? to.find(_isOrthoSlicePlane) : null);
+                return;
+            }
+            if (multiViewActive && !qmriActive && !compareActive) {
+                _viewGlide(() => {
+                    _qmriVisibleMaps = null;
+                    enterQmri();
+                    if (qmriActive) enterQmriMv();
+                    if (typeof renderToolMenu === 'function') renderToolMenu();
+                }, (v, to) => _isOrthoSlicePlane(v) ? to.find(w => w.qmriIdx === Number(indices[qmriDim]) && _isOrthoSlicePlane(w)) : null);
+                return;
+            }
             if (plain && (!qmriActive ? _qmriGlideEnter() : _qmriGlideExit())) return;
+            if (compareActive) {
+                if (compareMvActive) { showStatus(_NO_ORTHO_QMRI_ROWS()); return; }
+                if (!compareQmriActive && detachedDimMode && _pickQmriDim() < 0 && [3, 4, 5, 6].includes(Number(shape[detachedDim]))) {
+                    showStatus(`qMRI: the split is along dim ${detachedDim}, which would hold the maps`);
+                    return;
+                }
+                _compareQmriGlideToggle();
+                return;
+            }
             crossfade(() => {
                 if (compareQmriActive) {
                     const cases = compareQmriCases;
@@ -42726,12 +42823,6 @@
                     _qmriVisibleMaps = null;
                     enterCompareQmri();
                     if (!compareQmriActive) compareQmriCases = null;
-                } else if (compareActive) {
-                    // Compare 3-plane and compare qMRI share one
-                    // container: switch, never stack them.
-                    if (compareMvActive) exitCompareMv();
-                    _qmriVisibleMaps = null;
-                    enterCompareQmri();
                 } else if (qmriActive) {
                     exitQmri();
                 } else {
@@ -42865,6 +42956,246 @@
             };
             _syncSinkFocus();
             return true;
+        }
+
+        /** v and q with several arrays or a split: each array's slice glides into its own
+         *  row (the same plane in ortho, its map in qMRI, taking on the map's colours) and
+         *  back. The other panes fade in together once all are drawn, so they never arrive
+         *  one by one. With no pane to land in (zoomed in, a hidden map, ortho <-> qMRI) the
+         *  old view stays up until the new one is drawn and dissolves into it. */
+
+        function _comparePaneParts() {
+            return getCompareRenderSids().map((_, i) => compareCanvases[i]).filter(c => c?.getClientRects().length)
+                .map(canvas => ({ canvas, clip: canvas.closest('.compare-canvas-clip'), pane: canvas.closest('.compare-pane') }));
+        }
+        const _rowPaneParts = (views) => views.map(v => ({ view: v, canvas: v.canvas, clip: v.canvas.closest('.qv-canvas-clip'), pane: v.canvas.closest('.qv-pane') }));
+        const _ROW_NAMES = '#qmri-view-wrap .qv-label, #qmri-view-wrap .cq-row-name';
+        const _compareDrawn = () => () => {
+            const n = _comparePaneParts().length;
+            return !compareRendering && compareFrames.filter(Boolean).length >= n;
+        };
+        const _rowsDrawn = (views) => () => views.every(v => v.lastImageData && !v.rendering && !v.pending);
+        const _isOrthoSlicePlane = (v) => v.dimX === dim_x && v.dimY === dim_y;
+        // The map a row's slice lands on. Rows split along the map dim show their own index in every column.
+        const _cqSliceMap = (views, row) => {
+            const inRow = views.filter(v => v.cqRow === row);
+            return inRow.find(v => v.rowDim !== compareQmriDim && v.qmriIdx === Number(indices[compareQmriDim]))
+                || (inRow[0]?.rowDim === compareQmriDim ? inRow[0] : null);
+        };
+
+        // Chrome of the view being left: fades out where it was.
+        function _rowsChromeCopies() {
+            if (!compareMvActive && !compareQmriActive && !compareActive) {
+                const ids = ['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax', 'mv-cb', 'mv-cb-vmin', 'mv-cb-vmax', 'qmri-case-name'];
+                return [...ids.map(id => document.getElementById(id)),
+                    ...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb canvas, .mv-pane-name')];
+            }
+            if (_comparePanesShown()) return [...compareTitles, ...comparePaneCbs, ...['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id))];
+            const bars = compareQmriViews.flatMap(v => [v._colorBar?.canvas, v.cbVmin, v.cbVmax]);
+            return [...document.querySelectorAll(_ROW_NAMES), ...bars, ...['mv-cb', 'mv-cb-vmin', 'mv-cb-vmax'].map(id => document.getElementById(id))];
+        }
+
+        // `from`: panes on screen now, for each a copy is made. `commit` switches the view
+        // (the copies hold the old view up meanwhile if it returns a promise).
+        // `resolve()` then gives { panes, chrome, pair(i), drawn() } for the new view, or null
+        // if it did not switch; pair(i) is the new pane the copy of from[i] lands in, or null.
+        function _rowsGlide(from, commit, resolve) {
+            const whole = from.every(p => _splitWholeIn(p.canvas, p.clip));
+            let ghosts = _orthoGlideAllowed() && from.length
+                ? from.map(p => { const g = whole ? _orthoGhost(p.canvas) : _orthoGhost(p.canvas, p.clip); _splitDressGhost(g, p.clip); return g; })
+                : [];
+            if (!ghosts.length || ghosts.some(g => !g)) {
+                ghosts.forEach(g => g?.remove());
+                crossfade(commit);
+                return;
+            }
+            _glideBegin();
+            _killImmersiveTweens();
+            _glideFadeOutCopies(_rowsChromeCopies());
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info], null);
+            const eggsBar = _eggsBar();
+            const done = commit();
+            if (done?.then) done.catch(e => console.error(e)).then(() => _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar));
+            else _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar);
+        }
+
+        function _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar) {
+            const to = resolve();
+            const handOver = (keep) => {
+                const last = keep.pop();
+                keep.forEach(g => {
+                    const a = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
+                    a.onfinish = a.oncancel = () => g.remove();
+                });
+                _orthoGhostRelease(last, () => true);
+            };
+            if (!to) {
+                freeBars();
+                handOver(ghosts);
+                return;
+            }
+            const pairs = whole ? ghosts.map((g, i) => ({ g, part: to.pair(i) })).filter(p => p.part) : [];
+            const paired = new Set(pairs.map(p => p.part.pane));
+            pairs.forEach(p => { p.hold = _glideHold(p.part.canvas); });
+            const holds = to.panes.filter(p => !paired.has(p.pane)).map(p => [p.pane, _glideHold(p.pane)]);
+            const showChrome = _holdLabels(to.chrome.filter(Boolean));
+            // A shared range may ask again, so "drawn" has to hold for a moment.
+            const t0 = performance.now();
+            let settled = false, stable = 0;
+            const reveal = () => {
+                settled = true;
+                holds.forEach(([el, h]) => { h.cancel(); _glideFadeIn(el); });
+                showChrome();
+            };
+            const watch = () => {
+                stable = to.drawn() ? stable + 1 : 0;
+                if (stable >= 2 || performance.now() - t0 > 1500) { reveal(); return; }
+                requestAnimationFrame(watch);
+            };
+            const whenSettled = (fn) => {
+                if (settled) { fn(); return; }
+                requestAnimationFrame(() => whenSettled(fn));
+            };
+            watch();
+            if (!pairs.length) {
+                // Nothing to land in: the old view waits, then dissolves into the new one.
+                whenSettled(() => { freeBars(); handOver(ghosts); });
+                _syncSinkFocus();
+                return;
+            }
+            const leaving = new Set(pairs.map(p => p.g));
+            ghosts.filter(g => !leaving.has(g)).forEach(_glideFadeOut);
+            const lead = pairs[0];
+            const tintStep = (p) => {
+                pairs.forEach(o => {
+                    // The new colours are known only once everything is drawn.
+                    if (!o.tint && settled && p < 0.85) { o.tint = _glideTint(o.g, o.part.canvas); o.p0 = p; }
+                    o.tint?._step((p - o.p0) / (1 - o.p0), o.g.getBoundingClientRect());
+                });
+            };
+            const clock = _splitGlideLive(lead.g, () => lead.part.canvas.getBoundingClientRect(), () => _cornerRadii(lead.part.clip),
+                [[info, infoFrom], eggsBar],
+                (p, rect, done) => {
+                    if (!done) tintStep(p);
+                    else freeBars();
+                },
+                {
+                    onStart: () => paired.forEach(_glideFadeInLate),
+                    riders: pairs.slice(1).map(o => ({ g: o.g, target: () => o.part.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.part.clip) })),
+                });
+            clock.onfinish = clock.oncancel = () => whenSettled(() => {
+                pairs.forEach(o => o.hold?.cancel());
+                handOver(pairs.map(o => {
+                    if (!o.tint) return o.g;
+                    o.g.remove();
+                    return o.tint;
+                }));
+            });
+            _syncSinkFocus();
+        }
+
+        function _rowsFrom() {
+            if (compareMvActive) return _rowPaneParts(compareMvViews);
+            if (compareQmriActive) return _rowPaneParts(compareQmriViews);
+            if (compareActive) return _comparePaneParts();
+            if (qmriMvActive) return _rowPaneParts(qmriMvViews);
+            if (qmriActive) return qmriViews.map(v => ({ canvas: v.canvas, clip: _qmriClip(v), pane: _qmriPane(v) }));
+            if (multiViewActive) return mvViews.map(v => ({ canvas: v.canvas, clip: v.pane, pane: v.pane }));
+            const vp = document.getElementById('canvas-viewport');
+            return [{ canvas: document.getElementById('viewer'), clip: vp, pane: vp }];
+        }
+
+        // The pane views of whatever view is up now, in _rowsFrom order (null: compare or single).
+        const _currentViews = () => compareMvActive ? compareMvViews : compareQmriActive ? compareQmriViews
+            : compareActive ? null : qmriMvActive ? qmriMvViews : qmriActive ? qmriViews : multiViewActive ? mvViews : null;
+
+        // The panes of whatever view is up now, and when they are all drawn.
+        function _currentViewTarget() {
+            const views = _currentViews();
+            const panes = views ? _rowsFrom() : _rowsFrom().filter(p => p.canvas?.getClientRects().length);
+            const seq0 = _frameDisplaySeq;
+            const drawn = views ? _rowsDrawn(views) : compareActive ? _compareDrawn() : () => _frameDisplaySeq !== seq0;
+            // Names and bars outside the panes show with them, not ahead of them.
+            const chrome = views ? [...document.querySelectorAll(`${_ROW_NAMES}, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb`), _mvCb()] : [];
+            return { panes, chrome, drawn, pair: () => null };
+        }
+
+        // Switch with `commit`; each old pane view `v` for which `pairOf(v, newViews)` names a
+        // new one glides into it, the rest dissolve.
+        function _viewGlide(commit, pairOf) {
+            const fromViews = _currentViews() || [];
+            _rowsGlide(_rowsFrom(), commit, () => {
+                const t = _currentViewTarget(), toViews = _currentViews() || [];
+                t.pair = (i) => {
+                    const v = fromViews[i] && pairOf(fromViews[i], toViews);
+                    return v ? t.panes[toViews.indexOf(v)] || null : null;
+                };
+                return t;
+            });
+        }
+
+        // Switch with `commit`; the old view stays up until the new one is drawn, then dissolves into it.
+        function _dissolveTo(commit) {
+            _rowsGlide(_rowsFrom(), commit, _currentViewTarget);
+        }
+
+        function _rowsGlideToCompare(commit) {
+            const leftViews = compareMvActive ? compareMvViews : compareQmriViews, leftOrtho = compareMvActive;
+            const from = _rowPaneParts(leftViews);
+            const rowOf = (v, j) => leftOrtho ? Math.floor(j / 3) : v.cqRow;
+            const lands = leftOrtho ? leftViews.map(_isOrthoSlicePlane) : leftViews.map(v => v === _cqSliceMap(leftViews, v.cqRow));
+            _rowsGlide(from, commit, () => {
+                if (!_comparePanesShown()) return null;
+                const panes = _comparePaneParts();
+                return {
+                    panes, chrome: [_slimCb()], drawn: _compareDrawn(),
+                    pair: (j) => compareCenterMode === 0 && lands[j] ? panes[rowOf(leftViews[j], j)] || null : null,
+                };
+            });
+        }
+
+        function _compareOrthoGlideToggle() {
+            if (compareMvActive) { _rowsGlideToCompare(() => exitCompareMv()); return; }
+            const commit = () => enterCompareMv();
+            if (compareCenterMode > 0 && _comparePanesShown()) { crossfade(commit); return; }
+            const fromCompare = _comparePanesShown();
+            _rowsGlide(_rowsFrom(), commit, () => {
+                if (!compareMvActive) return null;
+                const panes = _rowPaneParts(compareMvViews);
+                const planes = compareMvViews.length / compareMvSids.length;
+                return {
+                    panes, chrome: [...document.querySelectorAll(_ROW_NAMES), _mvCb()], drawn: _rowsDrawn(compareMvViews),
+                    pair: (i) => {
+                        if (!fromCompare) return null;
+                        const k = compareMvViews.slice(i * planes, (i + 1) * planes).findIndex(_isOrthoSlicePlane);
+                        return k < 0 ? null : panes[i * planes + k];
+                    },
+                };
+            });
+        }
+
+        function _compareQmriGlideToggle() {
+            const finish = () => { if (typeof renderToolMenu === 'function') renderToolMenu(); };
+            if (compareQmriActive) { _rowsGlideToCompare(() => { exitCompareQmri(); finish(); }); return; }
+            const commit = () => {
+                _qmriVisibleMaps = null;
+                enterCompareQmri();
+                finish();
+            };
+            if (compareCenterMode > 0 && _comparePanesShown()) { crossfade(commit); return; }
+            const fromCompare = _comparePanesShown();
+            _rowsGlide(_rowsFrom(), commit, () => {
+                if (!compareQmriActive) return null;
+                const panes = _rowPaneParts(compareQmriViews);
+                return {
+                    panes, chrome: [...document.querySelectorAll(_ROW_NAMES)], drawn: _rowsDrawn(compareQmriViews),
+                    pair: (i) => {
+                        const v = fromCompare ? _cqSliceMap(compareQmriViews, i) : null;
+                        return v ? panes[compareQmriViews.indexOf(v)] : null;
+                    },
+                };
+            });
         }
 
         function _commitQmriExit() {
