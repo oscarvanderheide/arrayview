@@ -39281,7 +39281,9 @@
                         flipX: def.flipX, flipY: def.flipY,
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: piEl,
-                        vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
+                        // Start from the window the side-by-side panes share, so rows and
+                        // planes keep the contrast they had and match the one colorbar.
+                        vmin: 0, vmax: 1, ..._cmvSharedWindow(),
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
                     };
@@ -39447,6 +39449,8 @@
 
         // A split's rows each keep their own index along the split dim.
         const _cmvIndices = (v) => _comparePaneHoverIndices(v.cmvRow);
+        const _cmvSharedWindow = () => (manualVmin !== null && manualVmax !== null)
+            ? { lockedVmin: manualVmin, lockedVmax: manualVmax } : { lockedVmin: null, lockedVmax: null };
 
         function handleCmvPointer(view, e) {
             if (!view.lastW || !view.lastH) return;

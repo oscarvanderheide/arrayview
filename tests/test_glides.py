@@ -336,3 +336,17 @@ def test_split_along_an_ortho_plane_dim_is_refused(loaded_viewer, sid_3d):
     page.evaluate("activeDim = current_slice_dim; renderInfo()")
     assert _press_all(page, ["Shift+S", "v"]) == "split"
     assert "ortho shows as a plane" in page.evaluate("document.getElementById('status').textContent")
+
+
+def test_split_ortho_rows_share_the_split_window(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    vols = np.random.default_rng(7).random((20, 24, 18, 3)).astype(np.float32)
+    vols[..., 1] = vols[..., 1] * 2 + 1  # second volume brighter: per-pane ranges would hide that
+    page = loaded_viewer(register_array(client, vols, tmp_path, "vols"))
+    _settle(page)
+    page.evaluate("activeDim = 3; renderInfo()")
+    _press_all(page, ["Shift+S", "v"])
+    page.wait_for_function(_all_drawn("compareMvViews"))
+    window = page.evaluate("[manualVmin, manualVmax]")
+    assert page.evaluate("compareMvViews.map(v => [v.vmin, v.vmax])") == [window] * 6
