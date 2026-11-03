@@ -6780,6 +6780,9 @@
         }
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
+        // The union window compare set on its own (not the user's), and the first pane's own
+        // range before it: undone when compare ends.
+        let _compareAutoWindow = null;
         let _dmenuZeroFloorVminUnlocked = false;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
         // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
@@ -17552,6 +17555,7 @@
                     if (!alreadySync) {
                         manualVmin = uVmin;
                         manualVmax = uVmax;
+                        _compareAutoWindow = { win: [uVmin, uVmax], own: compareFrames[0] && [compareFrames[0].vmin, compareFrames[0].vmax] };
                         { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                         compareRendering = false;
                         compareRender();
@@ -17698,6 +17702,7 @@
                         if (!alreadySync) {
                             manualVmin = uVmin;
                             manualVmax = uVmax;
+                            _compareAutoWindow = { win: [uVmin, uVmax], own: compareFrames[0] && [compareFrames[0].vmin, compareFrames[0].vmax] };
                             { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             compareRendering = false;
                             await compareRenderHttp();
@@ -35446,6 +35451,15 @@
             if (compareQmriActive) exitCompareQmri();
             if (compareMvActive) exitCompareMv();
             compareActive = false;
+            // The view left behind goes back to its own range, unless the user moved it since.
+            const _auto = _compareAutoWindow;
+            if (_auto && manualVmin === _auto.win[0] && manualVmax === _auto.win[1]) {
+                manualVmin = manualVmax = null;
+                if (_auto.own) [currentVmin, currentVmax] = _auto.own;
+                const _dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+                if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; }
+            }
+            _compareAutoWindow = null;
             _compareTeardownPaneConnections();
             compareFrames = [];
             compareDisplaySids = [];
@@ -41742,7 +41756,10 @@
         function _splitToggle() {
             if (detachedDimMode) {
                 if (compareMvActive) {
-                    _dissolveTo(() => { exitCompareMode(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); });
+                    // The row showing the main index glides into the ortho panes.
+                    const keep = compareMvViews.find(v => _cmvIndices(v).every((x, i) => x === indices[i]))?.cmvRow ?? 0;
+                    _viewGlide(() => { exitCompareMode(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); },
+                        (v, to) => v.cmvRow === keep ? to.find(w => _samePlane(v, w)) : null);
                 } else if (compareQmriActive) {
                     const qd = compareQmriDim;
                     _dissolveTo(() => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); });
@@ -41770,9 +41787,13 @@
                 return;
             }
             if (multiViewActive) {
-                _dissolveTo(async () => {
+                // Each plane glides into the row that shows the main index; the other row fades in.
+                _viewGlide(async () => {
                     exitMultiView();
                     if (await enterDetachedDimMode(dim) && compareActive) enterCompareMv();
+                }, (v, to) => {
+                    const same = to.filter(w => _samePlane(v, w));
+                    return same.find(w => _cmvIndices(w).every((x, i) => x === indices[i])) || same[0] || null;
                 });
                 return;
             }
@@ -42945,6 +42966,7 @@
         };
         const _rowsDrawn = (views) => () => views.every(v => v.lastImageData && !v.rendering && !v.pending);
         const _isOrthoSlicePlane = (v) => v.dimX === dim_x && v.dimY === dim_y;
+        const _samePlane = (a, b) => a.dimX === b.dimX && a.dimY === b.dimY && a.sliceDir === b.sliceDir;
         // The map a row's slice lands on. Rows split along the map dim show their own index in every column.
         const _cqSliceMap = (views, row) => {
             const inRow = views.filter(v => v.cqRow === row);

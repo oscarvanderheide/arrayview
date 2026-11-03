@@ -350,3 +350,29 @@ def test_split_ortho_rows_share_the_split_window(loaded_viewer, client, tmp_path
     page.wait_for_function(_all_drawn("compareMvViews"))
     window = page.evaluate("[manualVmin, manualVmax]")
     assert page.evaluate("compareMvViews.map(v => [v.vmin, v.vmax])") == [window] * 6
+
+
+def test_ortho_split_glides_and_restores_the_window(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    vols = np.random.default_rng(8).random((20, 24, 18, 3)).astype(np.float32)
+    vols[..., 1] = vols[..., 1] * 2 + 1
+    page = loaded_viewer(register_array(client, vols, tmp_path, "vols"))
+    _settle(page)
+    page.evaluate("activeDim = 3; renderInfo()")
+    _press_all(page, ["v"])
+    own = page.evaluate("mvViews.map(v => v.lockedVmax)")
+
+    page.keyboard.press("Shift+S")
+    page.wait_for_function("() => compareMvActive", timeout=10_000)
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+
+    page.keyboard.press("Shift+S")
+    page.wait_for_function("() => multiViewActive && !compareActive", timeout=10_000)
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+    # The split's shared window is undone: the planes are back at their own range.
+    page.wait_for_function("() => mvViews.every(v => v.lastImageData)")
+    assert page.evaluate("[manualVmin, manualVmax]") == [None, None]
+    assert page.evaluate("mvViews.map(v => v.lockedVmax)") == own
