@@ -11751,6 +11751,18 @@
             const formatter = formatValueGroup([value, ...contextValues], options);
             return options.html ? formatter.formatHTML(value) : formatter.format(value);
         };
+        // Colorbar labels share one formatter for the window and the data's own
+        // bounds. Values closer than a thousandth of the window are the same
+        // number at the bar's scale: keeping them apart asked for 7 decimals
+        // ("0.0000005" against a data min of 6e-10).
+        function _cbLabelFormatter(dataMin, dataMax, winMin, winMax) {
+            const thr = Math.abs(winMax - winMin) * 1e-3;
+            const kept = [];
+            for (const v of [dataMin, dataMax, winMin, winMax].filter(Number.isFinite).sort((a, b) => a - b)) {
+                if (!kept.length || v - kept[kept.length - 1] > thr) kept.push(v);
+            }
+            return formatValueGroup(kept, { maxDecimals: 7 });
+        }
         const _cbFmt = (v, contextValues = null, formatter = null) => {
             const fmt = formatter || formatValueGroup(contextValues ? [v, ...contextValues] : [v]);
             return fmt.formatHTML(v);
@@ -13159,7 +13171,7 @@
                 let labelFormatter = this._dragLabelFormatter;
                 if (!labelFormatter && this._histData) {
                     const win = this.opts.getWindow();
-                    labelFormatter = formatValueGroup([this._histData.vmin, this._histData.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
+                    labelFormatter = _cbLabelFormatter(this._histData.vmin, this._histData.vmax, win.vmin, win.vmax);
                 }
                 if (!labelFormatter) labelFormatter = formatValueGroup(targetLabelValues);
                 const formatLabel = this.opts.formatLabel;
@@ -13584,7 +13596,7 @@
             _reserveWidestLabelPx() {
                 if (!this.vminLabel || !this.vmaxLabel || !this._histData) return 0;
                 const fmt = this._dragLabelFormatter || this._reserveFormatter
-                    || formatValueGroup([this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax], { maxDecimals: 7 });
+                    || _cbLabelFormatter(this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax);
                 this._reserveFormatter = fmt;
                 const candidates = [this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax];
                 let widest = '';
@@ -13623,7 +13635,7 @@
                 const hd = this._histData;
                 const win = this.opts.getWindow();
                 if (hd) {
-                    this._dragLabelFormatter = formatValueGroup([hd.vmin, hd.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
+                    this._dragLabelFormatter = _cbLabelFormatter(hd.vmin, hd.vmax, win.vmin, win.vmax);
                 }
                 // Capture the canvas column's rest-state width BEFORE any label
                 // reflow.  .cb-col is flex:1, so widening the label min-widths
