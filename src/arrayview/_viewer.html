@@ -14750,7 +14750,29 @@
             const qmriRole = opts.qmriRole || '';
             const numBins = opts.bins || 64;
             const sidKey = opts.sid && opts.sid !== sid ? `${opts.sid}|` : '';
-            return `${sidKey}${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}`;
+            // Must track excludeZeros like the fetch cache key does, or a colorbar
+            // keeps its with-zeros histogram after the toggle and `d` reads it.
+            const exclZ = excludeZeros ? '1' : '0';
+            return `${sidKey}${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}:${numBins}:ez${exclZ}`;
+        }
+
+        /**
+         * Stamp a histogram with the request that produced it. The shared
+         * version label can be moved by requests whose answer was never stored,
+         * so it cannot tell `d` whether the histogram it holds is current.
+         */
+        function _tagHistKey(hist, key) {
+            if (hist && typeof hist === 'object') {
+                try { Object.defineProperty(hist, '_avKey', { value: key, configurable: true }); } catch (_) {}
+            }
+            return hist;
+        }
+
+        /** A histogram `d` can set a window from: at least one counted value. */
+        function _histUsable(hist) {
+            return !!hist && Array.isArray(hist.counts) && Array.isArray(hist.edges)
+                && hist.edges.length > hist.counts.length
+                && hist.counts.some(c => c > 0);
         }
 
         async function _fetchVolumeHistogram(opts = {}) {
@@ -14807,7 +14829,9 @@
             if (excludeZeros) params.set('exclude_zeros', '1');
             const request = (async () => {
                 const data = await _fetchHistogramJson(`/volume-histogram/${fetchSid}?${params}`);
-                if (data) _volHistCache[cacheKey] = data;
+                _tagHistKey(data, cacheKey);
+                // Never cache an empty answer: it pinned `d` to nothing for good.
+                if (_histUsable(data)) _volHistCache[cacheKey] = data;
                 return data;
             })();
             _volHistInFlight.set(cacheKey, request);
@@ -15095,7 +15119,7 @@
          */
         function _cycleDiffQuantilePreset() {
             const hist = _diffCenterCb && _diffCenterCb._histData;
-            if (!hist || !hist.counts || !hist.counts.length) return null;
+            if (!_histUsable(hist)) return null;
             _diffPresetIdx.q = (_diffPresetIdx.q + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[_diffPresetIdx.q];
             const win = _quantileWindowFromHistogram(hist, preset);
@@ -15117,7 +15141,7 @@
 
         function _cycleQuantilePreset() {
             if (_dmenuDiffTargetActive()) return _cycleDiffQuantilePreset();
-            if (!_histData || !_histData.counts) return null;
+            if (!_histUsable(_histData)) return null;
             if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
@@ -15496,22 +15520,25 @@
         }
 
         async function _fetchHistogramCompareOnce() {
-            _histFetching = true;
-            const allSids = getCompareRenderSids();
-            const fetchDimX = dim_x;
-            const fetchDimY = dim_y;
-            const params = new URLSearchParams({
-                dim_x: fetchDimX,
-                dim_y: fetchDimY,
-                indices: indices.join(','),
-                complex_mode: complexMode,
-                bins: 64,
-            });
+            // The busy flag gates every auto-refresh of the histogram, so it
+            // must clear however this ends — set inside the try, cleared in finally.
             try {
+                _histFetching = true;
+                const requestKey = _compareHistogramVersion();
+                const allSids = getCompareRenderSids();
+                const fetchDimX = dim_x;
+                const fetchDimY = dim_y;
+                const params = new URLSearchParams({
+                    dim_x: fetchDimX,
+                    dim_y: fetchDimY,
+                    indices: indices.join(','),
+                    complex_mode: complexMode,
+                    bins: 64,
+                });
                 const histPromises = allSids.map(s => _fetchHistogramJson(`/histogram/${s}?${params}`));
                 const allHists = await Promise.all(histPromises);
-                const valid = allHists.filter(Boolean);
-                if (!valid.length) { _histFetching = false; return null; }
+                const valid = allHists.filter(_histUsable);
+                if (!valid.length) return null;
                 // Start from first valid result, then sum counts from the rest
                 const merged = JSON.parse(JSON.stringify(valid[0]));
                 for (let i = 1; i < valid.length; i++) {
@@ -15523,10 +15550,13 @@
                     if (h.vmin < merged.vmin) merged.vmin = h.vmin;
                     if (h.vmax > merged.vmax) merged.vmax = h.vmax;
                 }
-                _histData = merged;
+                _histData = _tagHistKey(merged, requestKey);
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':compare';
-            } catch (_) { _histData = null; }
-            _histFetching = false;
+            } catch (_) {
+                _histData = null;
+            } finally {
+                _histFetching = false;
+            }
             return _histData;
         }
 
@@ -30037,6 +30067,7 @@
                             _restartHistAutoDismiss();
                             return;
                         }
+                        await _dmenuEnsureCurrentHist();
                         const preset = _cycleQuantilePreset();
                         if (preset) {
                             compareRender();
@@ -30104,24 +30135,10 @@
                         _restartHistAutoDismiss();
                         return;
                     }
-                    // Legend is showing — cycle preset.
-                    const preset = _cycleQuantilePreset();
-                    if (multiViewActive) {
-                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                    } else if (compareActive) {
-                        compareRender();
-                    } else if (qmriActive) {
-                        qmriViews.forEach(v => qvRender(v));
-                    } else {
-                        updateView();
-                    }
-                    if (primaryCb && primaryCb._expanded) primaryCb.draw();
-                    if (multiViewActive || compareMvActive) drawMvColorbar();
-                    else drawSlimColorbar(cbMarkerFrac);
-                    // Reset the auto-dismiss window so the user has time to
-                    // see the new preset before the histogram fades.
+                    // Legend is showing — cycle preset. Same path as `d` pressed
+                    // with the menu up, so both refresh a stale histogram first.
+                    await _dmenuCyclePresetFromKey();
                     _restartHistAutoDismiss();
-                    saveState();
                 },
             },
             'range.toggleLock': {
@@ -47696,22 +47713,55 @@
             if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
                 return await _cycleQmriPaneRangePreset();
             }
-            if (!_dmenuTargetHist()) {
-                const cb = _dmenuActiveColorbar();
-                const hist = cb ? await cb.ensureHistogramData() : null;
-                if (hist && !_dmenuDiffTargetActive()) {
-                    _histData = hist;
-                    _kdeSmooth = cb._kdeSmooth;
-                }
-            }
+            await _dmenuEnsureCurrentHist();
             const preset = _cycleQuantilePreset();
             if (preset) {
                 _dmenuSelectCurrentPreset();
                 _dmenuRefreshAfterRangeChange();
                 _restartHistAutoDismiss();
                 saveState();
+            } else if (!_histUsable(_dmenuTargetHist())) {
+                showStatus('range: no values here to set a range from');
             }
             return !!preset;
+        }
+
+        /**
+         * Make the histogram `d` reads match what is on screen before a preset
+         * is applied. It used to be refetched only when missing, so a stale copy
+         * (other slice, other map, zeros toggled) or an empty one was reused for
+         * good and `d` stopped changing the window. The active colorbar's own
+         * copy carries a version check, so ask it, and drop an empty copy.
+         */
+        async function _dmenuEnsureCurrentHist() {
+            const cb = _dmenuActiveColorbar();
+            if (!cb || typeof cb.ensureHistogramData !== 'function') return _dmenuTargetHist();
+            const canFetch = !!(cb.opts && cb.opts.fetchHistogram);
+            const expected = cb._expectedHistVersion();
+            const diff = _dmenuDiffTargetActive();
+            // The global copy is what the presets read; trust its own stamp,
+            // not the shared label (which the colorbar copies on every draw).
+            if (canFetch && !diff && _histData && expected != null && _histData._avKey !== expected) {
+                _histData = null;
+                _kdeSmooth = null;
+                if (cb._histData && cb._histData._avKey !== expected) {
+                    cb._histData = null;
+                    cb._histVersion = null;
+                    cb._kdeSmooth = null;
+                }
+            }
+            if (canFetch && cb._histData && !_histUsable(cb._histData)) {
+                cb._histData = null;
+                cb._histVersion = null;
+                cb._kdeSmooth = null;
+            }
+            let hist = null;
+            try { hist = await cb.ensureHistogramData(); } catch (_) { hist = null; }
+            if (_histUsable(hist) && !_dmenuDiffTargetActive() && hist !== _histData) {
+                _histData = hist;
+                _kdeSmooth = cb._kdeSmooth;
+            }
+            return _dmenuTargetHist();
         }
 
         function _dmenuRefreshHistogramForZeros() {
