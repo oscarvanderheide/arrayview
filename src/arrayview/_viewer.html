@@ -44918,7 +44918,9 @@
             h = h * _pixelAspect(dim_x, dim_y);
             const maxW = Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - NORMAL_BOTTOM_RESERVE);
-            if ((maxH / h) >= (maxW / w)) return false; // width binding: skip
+            // Width binding: skip. Not for a split: immersive frees its side margins too, and a
+            // split entered from immersive stays immersive, so Shift+F must reach it as well.
+            if (!compareActive && (maxH / h) >= (maxW / w)) return false;
             // Container must be wide/tall enough to fit overlaid chrome
             const vpEl = compareActive ? document.getElementById('compare-view-wrap')
                 : multiViewActive ? document.getElementById('mv-panes')
