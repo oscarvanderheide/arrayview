@@ -307,29 +307,25 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        /* Edge ruler — hovering the DimBar (or pressing r / t) draws a scale
-           along the two edges that meet at each pane's index-0 corner, in the
-           colorbar's tick style: short white marks at round indices with their
-           values, the axis letter centred on its edge, all outlined in black
-           so it reads on bright and dark image content alike. See
-           _placeOrientCrosses(). */
+        /* Orientation cross — hovering the DimBar (or pressing r / t) shows a
+           small axis cross in the origin corner of every image pane, one arrow
+           per in-plane direction with its letter. See _showOrientEdgeHighlight().
+           Yellow with a black outline so it reads on bright and dark image
+           content alike. */
         .orient-cross {
-            position: fixed; left: 0; top: 0; overflow: visible;
-            pointer-events: none; z-index: 60;
+            position: fixed; left: 0; top: 0; width: 64px; height: 64px;
+            transform-origin: 0 0; pointer-events: none; z-index: 60;
             opacity: 0; transition: opacity 0.15s ease;
         }
         .orient-cross.showing { opacity: 1; }
-        .orient-cross .oc-halo { stroke: rgba(0, 0, 0, 0.55); stroke-width: 3px; fill: none; }
-        .orient-cross .oc-ln { stroke: #fff; stroke-width: 1px; fill: none; shape-rendering: crispEdges; }
-        /* Same face and size as the colorbar's tick values; the small text
-           takes a thinner outline so the stroke does not swallow it. */
+        .orient-cross .oc-halo { stroke: rgba(0, 0, 0, 0.7); stroke-width: 4px; fill: none; stroke-linecap: round; }
+        .orient-cross .oc-ln { stroke: var(--active-dim); stroke-width: 1.5px; fill: none; stroke-linecap: round; }
+        .orient-cross .oc-hd { fill: var(--active-dim); stroke: rgba(0, 0, 0, 0.7); stroke-width: 2.5px; stroke-linejoin: round; paint-order: stroke; }
         .orient-cross text {
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-variant-numeric: tabular-nums;
-            stroke: rgba(0, 0, 0, 0.8); stroke-linejoin: round; paint-order: stroke;
+            font-size: 12px; font-weight: 600; fill: var(--active-dim);
+            stroke: rgba(0, 0, 0, 0.7); stroke-width: 3px; stroke-linejoin: round; paint-order: stroke;
         }
-        .orient-cross text.oc-num { font-size: 9px; fill: #c4c4c4; stroke-width: 2px; }
-        .orient-cross text.oc-axis { font-size: 16px; font-weight: 600; fill: var(--active-dim); stroke-width: 3.5px; }
         #slim-cb-wrap {
             text-align: center;
             /* Horizontal padding fixed; top padding grows via --cb-extra-top
@@ -22691,7 +22687,7 @@
 
         // Axis letters follow the data, not the screen: the array axis that
         // started out as x keeps the letter x after t / r, so the DimBar and the
-        // edge ruler both show which way each axis now runs. Remembered
+        // orientation cross both show which way each axis now runs. Remembered
         // per pair of displayed dims; picking different dims starts over.
         let _axisIdent = null;
         function _axisLetter(d) {
@@ -23000,45 +22996,32 @@
             showStatus(_dimbarExtentPinned ? 'dimbar extents on' : 'dimbar extents off');
         }
 
-        // Edge ruler: hovering the DimBar shows, for every pane, ticks along
-        // the two edges that meet at index 0, counting toward increasing
-        // index. In oblique mode the x/y labels no longer name axis-aligned
-        // directions, so the ruler is suppressed.
+        // Orientation arrow: hovering a dim label in the DimBar shows a small
+        // arrow near that dimension's zero point, pointing toward increasing
+        // values (no arrow otherwise). In oblique mode the x/y labels no
+        // longer name axis-aligned directions, so the arrow is suppressed.
         function _orientEdgeAllowed() {
             if (_pixelInfoActive()) return false;
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
             return true;
         }
-        // Ruler steps in voxels (1-2-5 series): the first that leaves room for
-        // the widest label, at least _EDGE_RULER_GAP px apart.
-        const _EDGE_RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
-        const _EDGE_RULER_GAP = 44;
-        const _EDGE_RULER_CH = 5.5;     // px per digit of the 9px tick labels
+        const _ORIENT_CROSS_BOX = 64;
+        const _ORIENT_CROSS_MARGIN = 8;
         let _orientCrossEls = [];
         let _orientShown = false;
         let _orientHovering = false;
         let _orientRaf = 0;
         let _orientFlashTimer = 0;
         // Every image pane in the current mode: its canvas, the letters of its
-        // horizontal / vertical dims, which way each axis is flipped, how many
-        // voxels the canvas spans per axis (nx, ny) and how far the ruler may
-        // count (mx, my: one tile in a mosaic, the whole axis elsewhere).
+        // horizontal / vertical dims, and which way each axis is flipped.
         function _orientPanes() {
             const out = [];
-            // `frame` is the box the ruler hugs: the square pane an ortho view pads
-            // its image into, so the ticks sit on the pane's edge, not inside it.
-            const add = (cv, lx, ly, fx, fy, nx, ny, mx = nx, my = ny, frame = cv) => {
-                if (cv && nx > 0 && ny > 0) out.push({ cv, frame: frame || cv, lx, ly, fx: !!fx, fy: !!fy, nx, ny, mx, my });
-            };
+            const add = (cv, lx, ly, fx, fy) => { if (cv) out.push({ cv, lx, ly, fx: !!fx, fy: !!fy }); };
             const grid = (views, dims) => {
                 const letter = (d) => ['x', 'y', 'z'][Math.max(0, dims.indexOf(d))];
-                (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v), shape[v.dimX], shape[v.dimY], undefined, undefined, v.pane));
+                (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v)));
             };
-            // Plain panes all show the same two axes, so a grid of them shares rulers (see _orientShareRulers).
-            const plain = (cvs) => {
-                cvs.forEach(cv => add(cv, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y, shape[dim_x], shape[dim_y]));
-                out.forEach(o => { o.shared = true; });
-            };
+            const plain = (cvs) => cvs.forEach(cv => add(cv, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y));
             if (stackMosaicActive) plain((stackMosaicViews || []).map(v => v.canvas));
             else if (compareQmriActive) plain((compareQmriViews || []).map(v => v.canvas));
             else if (compareMvActive) grid(compareMvViews, compareMvDims);
@@ -23047,21 +23030,8 @@
             else if (qmriMvActive) grid(qmriMvViews, qmriMvDims);
             else if (qmriActive) plain((qmriViews || []).map(v => v.canvas));
             else if (mipActive || cutawayActive) return out;
-            else if (dim_z >= 0) {
-                // Each mosaic tile is its own pane (tiles flip one by one), sharing
-                // rulers like a compare grid: ticks over every tile on the outer edges.
-                const g = _mosaicGridInfo(), cr = canvas.getBoundingClientRect();
-                const sx = cr.width / (g.cols * g.tileW + (g.cols - 1) * g.GAP), sy = cr.height / (g.rows * g.tileH + (g.rows - 1) * g.GAP);
-                for (let i = 0; i < g.n; i++) {
-                    const left = cr.left + (i % g.cols) * (g.tileW + g.GAP) * sx;
-                    const top = cr.top + Math.floor(i / g.cols) * (g.tileH + g.GAP) * sy;
-                    add(canvas, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y, g.tileW, g.tileH);
-                    const o = out[out.length - 1];
-                    o.shared = true;
-                    o.tile = { left, top, right: left + g.tileW * sx, bottom: top + g.tileH * sy, width: g.tileW * sx, height: g.tileH * sy };
-                }
-            }
-            else plain([canvas]);
+            // Mosaic tiles are flipped one by one, so the whole canvas has no single origin corner.
+            else if (!(dim_z >= 0 && (flip_x || flip_y))) plain([canvas]);
             return out;
         }
         // The part of `cv` that is actually on screen: its box clipped by every scrolling/clipping ancestor.
@@ -23077,80 +23047,27 @@
             }
             return (rt - l > 8 && bt - t > 8) ? { left: l, top: t, right: rt, bottom: bt } : null;
         }
-        // One axis of a pane's ruler. Index 0 sits at the canvas edge `o0`
-        // (screen px), each voxel is `ppv` px, `dir` is +1 or -1 (flipped),
-        // `lo`..`hi` is what is on screen. Positions come back in px from the
-        // origin-side end of the visible span, so a zoomed or panned view gets
-        // ticks at the real indices. `near` keeps labels clear of the other
-        // axis's column at the origin corner; `mid` centres the axis letter on
-        // the stretch of the edge the axis covers (one tile in a mosaic).
-        // `clo`..`chi` is the part of the image on screen: the frame can be
-        // wider (an ortho pane's padding), and no tick marks padding.
-        function _edgeRulerAxis(o0, dir, ppv, max, lo, hi, near, clo = lo, chi = hi) {
-            const gap = Math.max(_EDGE_RULER_GAP, String(max).length * _EDGE_RULER_CH + 20);
-            const step = _EDGE_RULER_STEPS.find(st => st * ppv >= gap) || _EDGE_RULER_STEPS[_EDGE_RULER_STEPS.length - 1];
-            const len = hi - lo, at = (X) => (dir > 0 ? X - lo : hi - X);
-            const a = at(dir > 0 ? Math.max(o0, clo) : Math.min(o0, chi));
-            const b = at(dir > 0 ? Math.min(o0 + max * ppv, chi) : Math.max(o0 - max * ppv, clo));
-            const start = Math.max(0, a), end = Math.min(len, b);
-            const ticks = [];
-            for (let i = step; i < max; i += step) {
-                const X = o0 + dir * i * ppv;
-                if (X < clo - 0.5 || X > chi + 0.5) continue;
-                const pos = at(X);
-                if (pos < near) continue;
-                if (pos > len - 8) break;
-                ticks.push({ pos, label: i });
-            }
-            return { ticks, mid: (start + end) / 2, len };
+        function _orientCrossSvg(el, letterX, letterY, flipX, flipY) {
+            const key = letterX + letterY + (flipX ? 1 : 0) + (flipY ? 1 : 0);
+            if (el._ocKey === key) return;
+            el._ocKey = key;
+            const B = _ORIENT_CROSS_BOX, o = 8, len = 30, hl = 7, hw = 3.6;
+            const sx = flipX ? -1 : 1, sy = flipY ? -1 : 1;
+            const ox = flipX ? B - o : o, oy = flipY ? B - o : o;
+            const xTip = ox + sx * len, yTip = oy + sy * len;
+            const xHead = `${xTip},${oy} ${xTip - sx * hl},${oy - hw} ${xTip - sx * hl},${oy + hw}`;
+            const yHead = `${ox},${yTip} ${ox - hw},${yTip - sy * hl} ${ox + hw},${yTip - sy * hl}`;
+            const segs = [[ox, oy, xTip - sx * 4, oy], [ox, oy, ox, yTip - sy * 4]];
+            el.innerHTML = segs.map(([x1, y1, x2, y2]) => `<line class="oc-halo" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
+                    + `<line class="oc-ln" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`).join('')
+                + `<polygon class="oc-hd" points="${xHead}"/><polygon class="oc-hd" points="${yHead}"/>`
+                + `<circle class="oc-hd" cx="${ox}" cy="${oy}" r="2"/>`
+                + `<text x="${xTip + sx * 9}" y="${oy + 4}" text-anchor="${flipX ? 'end' : 'start'}">${letterX}</text>`
+                + `<text x="${ox}" y="${yTip + sy * 13}" text-anchor="middle">${letterY}</text>`;
         }
-        // The ruler SVG for one pane: `r` is the canvas box, `v` the visible part
-        // of the frame it hugs, `c` the visible part of the canvas.
-        // Like the colorbar's tick row: a short white mark at the edge per
-        // round index, its value beside it, the axis letter centred on the edge.
-        function _edgeRulerSvg(p, r, v, c = v, showX = true, showY = true) {
-            const w = v.right - v.left, h = v.bottom - v.top;
-            const dx = p.fx ? -1 : 1, dy = p.fy ? -1 : 1;
-            const CH = _EDGE_RULER_CH;
-            const colW = String(p.my).length * CH + 12;     // the vertical axis's label column
-            const ax = _edgeRulerAxis(p.fx ? r.right : r.left, dx, r.width / p.nx, p.mx, v.left, v.right, showY ? colW + 8 : 8, c.left, c.right);
-            const ay = _edgeRulerAxis(p.fy ? r.bottom : r.top, dy, r.height / p.ny, p.my, v.top, v.bottom, 22, c.top, c.bottom);
-            const X = (pos) => (p.fx ? w - pos : pos), Y = (pos) => (p.fy ? h - pos : pos);
-            const x0 = p.fx ? w : 0, y0 = p.fy ? h : 0;
-            const f = (n) => n.toFixed(1);
-            const mark = (x1, y1, x2, y2) => `<line class="oc-halo" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`
-                + `<line class="oc-ln" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`;
-            const anchor = p.fx ? 'end' : 'start';
-            let out = '';
-            // Horizontal edge: marks hang into the pane, values below them.
-            const rowY = p.fy ? h - 8 : 15;
-            if (showX) ax.ticks.forEach(t => {
-                const x = X(t.pos);
-                out += mark(x, y0, x, y0 + dy * 4);
-                const half = String(t.label).length * CH / 2;
-                if (t.pos + half < ax.len - 2) {
-                    out += `<text class="oc-num" x="${f(x)}" y="${rowY}" text-anchor="middle">${t.label}</text>`;
-                }
-            });
-            // The axis letter sits past the values, like an axis title, so no value makes way for it.
-            if (showX) out += `<text class="oc-axis" x="${f(X(ax.mid))}" y="${p.fy ? h - 25 : 35}" text-anchor="middle">${p.lx}</text>`;
-            // Vertical edge: marks hang into the pane, values beside them.
-            const colX = x0 + dx * 7;
-            if (showY) ay.ticks.forEach(t => {
-                const y = Y(t.pos);
-                out += mark(x0, y, x0 + dx * 4, y);
-                out += `<text class="oc-num" x="${f(colX)}" y="${f(y + 3)}" text-anchor="${anchor}">${t.label}</text>`;
-            });
-            if (showY) out += `<text class="oc-axis" x="${f(colX + dx * (colW - 4))}" y="${f(Y(ay.mid) + 5.5)}" text-anchor="${anchor}">${p.ly}</text>`;
-            // Strips the ruler covers, for _orientYieldTo (viewport px).
-            const boxes = [
-                showX && { left: v.left, right: v.right, top: p.fy ? v.bottom - 20 : v.top, bottom: p.fy ? v.bottom : v.top + 20 },
-                showY && { left: p.fx ? v.right - colW - 4 : v.left, right: p.fx ? v.right : v.left + colW + 4, top: v.top, bottom: v.bottom },
-                showX && { left: v.left + X(ax.mid) - 12, right: v.left + X(ax.mid) + 12, top: v.top + (p.fy ? h - 42 : 0), bottom: v.top + (p.fy ? h : 42) },
-                showY && { left: v.left + (p.fx ? w - colW - 26 : 0), right: v.left + (p.fx ? w : colW + 26), top: v.top + Y(ay.mid) - 12, bottom: v.top + Y(ay.mid) + 12 },
-            ].filter(Boolean);
-            return { html: out, boxes };
-        }
+        // Puts one cross in the origin corner of each pane: the x arrow runs
+        // along the top (bottom when flipped) edge toward increasing x, the y
+        // arrow along the left (right when flipped) edge toward increasing y.
         // Things that already sit in a pane corner. While a cross covers one
         // it fades out, and fades back once the cross is gone.
         const _ORIENT_YIELD_SEL = '.compare-title, .pane-name, .qmri-pane > .qv-label, #qmri-case-name, #mini-map, .cmp-mini-map';
@@ -23174,66 +23091,30 @@
             _orientYielded.forEach(el => { if (!want.has(el)) _orientFade(el, false); });
             _orientYielded = want;
         }
-        // Lays a ruler along the index-0 edges of each pane (top / left, or
-        // bottom / right when flipped), counting toward increasing index.
-        // In a grid of plain panes (compare, qMRI) only the outer row and column
-        // carry rulers, like plots that share axes: a pane drops its x ruler when
-        // the pane on its x-ruler side (above, or below when flipped) shows the
-        // same stretch of the array at the same place, and likewise for y. A pane
-        // zoomed or panned on its own differs, so it keeps its ruler.
-        function _orientShareRulers(panes) {
-            const sig = (q, horiz) => {
-                const { p, v, c, r } = q;
-                const k = horiz ? ['left', 'right', 'width', 'fx', 'nx', 'mx'] : ['top', 'bottom', 'height', 'fy', 'ny', 'my'];
-                const o = v[k[0]];
-                return [r[k[0]] - o, r[k[2]], v[k[1]] - o, c[k[0]] - o, c[k[1]] - o].map(Math.round).join(',') + `|${p[k[3]]}|${p[k[4]]}|${p[k[5]]}`;
-            };
-            const overlap = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0) > 0.5 * Math.min(a1 - a0, b1 - b0);
-            panes.forEach(q => {
-                q.showX = q.showY = true;
-                if (!q.p.shared) return;
-                const { v } = q;
-                const others = panes.filter(o => o !== q && o.p.shared);
-                q.showX = !others.some(o => sig(o, true) === sig(q, true) && overlap(o.v.left, o.v.right, v.left, v.right)
-                    && (q.p.fy ? o.v.top >= v.bottom - 2 : o.v.bottom <= v.top + 2));
-                q.showY = !others.some(o => sig(o, false) === sig(q, false) && overlap(o.v.top, o.v.bottom, v.top, v.bottom)
-                    && (q.p.fx ? o.v.left >= v.right - 2 : o.v.right <= v.left + 2));
-            });
-        }
         function _placeOrientCrosses() {
-            // Panes too small for a row of labels get no ruler.
-            const clip = (a, b) => (a && b && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 8 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 8)
-                ? { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) } : null;
-            const panes = _orientPanes().map(p => {
-                if (!p.tile) return { p, r: p.cv.getBoundingClientRect(), v: _orientVisibleRect(p.frame), c: _orientVisibleRect(p.cv) };
-                const t = clip(p.tile, _orientVisibleRect(p.cv));
-                return { p, r: p.tile, v: t, c: t };
-            })
-                .filter(q => q.v && q.c && Math.min(q.v.right - q.v.left, q.v.bottom - q.v.top) >= 40);
-            _orientShareRulers(panes);
+            const panes = _orientPanes().map(p => ({ p, r: _orientVisibleRect(p.cv) })).filter(q => q.r);
             const boxes = [];
             while (_orientCrossEls.length < panes.length) {
                 const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 el.setAttribute('class', 'orient-cross');
+                el.setAttribute('viewBox', `0 0 ${_ORIENT_CROSS_BOX} ${_ORIENT_CROSS_BOX}`);
                 document.body.appendChild(el);
                 _orientCrossEls.push(el);
             }
             _orientCrossEls.forEach((el, i) => {
                 const q = panes[i];
                 if (!q) { el.classList.remove('showing'); return; }
-                const { p, v, c } = q;
-                const w = v.right - v.left, h = v.bottom - v.top;
-                const svg = _edgeRulerSvg(p, q.r, v, c, q.showX, q.showY);
-                if (el._ocHtml !== svg.html) { el.innerHTML = svg.html; el._ocHtml = svg.html; }
-                const size = `${Math.round(w)}x${Math.round(h)}`;
-                if (el._ocSize !== size) {
-                    el._ocSize = size;
-                    el.setAttribute('width', Math.round(w)); el.setAttribute('height', Math.round(h));
-                    el.setAttribute('viewBox', `0 0 ${Math.round(w)} ${Math.round(h)}`);
-                }
-                el.style.transform = `translate(${Math.round(v.left)}px, ${Math.round(v.top)}px)`;
+                const { p, r } = q;
+                _orientCrossSvg(el, p.lx, p.ly, p.fx, p.fy);
+                const w = r.right - r.left, h = r.bottom - r.top;
+                // Small panes (grids, mosaics) get a proportionally smaller cross.
+                const k = Math.max(0.55, Math.min(1, Math.min(w, h) / 230));
+                const size = _ORIENT_CROSS_BOX * k, m = _ORIENT_CROSS_MARGIN * k;
+                const x = p.fx ? r.right - m - size : r.left + m;
+                const y = p.fy ? r.bottom - m - size : r.top + m;
+                el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${k})`;
                 el.classList.add('showing');
-                boxes.push(...svg.boxes);
+                boxes.push({ left: x - 2, top: y - 2, right: x + size + 2, bottom: y + size + 2 });
             });
             _orientYieldTo(boxes);
         }
