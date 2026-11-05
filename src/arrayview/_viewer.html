@@ -41963,7 +41963,7 @@
                 // Each plane glides into the row that shows the main index; the other row fades in.
                 _viewGlide(async () => {
                     exitMultiView();
-                    if (await enterDetachedDimMode(dim) && compareActive) enterCompareMv();
+                    await _splitThenRows(dim, () => enterCompareMv());
                 }, (v, to) => {
                     const same = to.filter(w => _samePlane(v, w));
                     return same.find(w => _cmvIndices(w).every((x, i) => x === indices[i])) || same[0] || null;
@@ -41974,15 +41974,26 @@
                 const qd = qmriDim;
                 _dissolveTo(async () => {
                     exitQmri();
-                    if (await enterDetachedDimMode(dim) && compareActive) {
+                    await _splitThenRows(dim, () => {
                         _lastQmriDim = qd;
                         enterCompareQmri();
                         if (typeof renderToolMenu === 'function') renderToolMenu();
-                    }
+                    });
                 });
                 return;
             }
             _splitGlideEnter(dim);
+        }
+
+        // Split along `dim`, then `rows()` turns it into rows. The plain split in between stays
+        // hidden, or it peeks out from behind the copies of the old view.
+        async function _splitThenRows(dim, rows) {
+            const hold = _glideHold(document.getElementById('compare-view-wrap'));
+            try {
+                if (await enterDetachedDimMode(dim) && compareActive) rows();
+            } finally {
+                hold?.cancel();
+            }
         }
 
         function _orthoGlideToggle() {
