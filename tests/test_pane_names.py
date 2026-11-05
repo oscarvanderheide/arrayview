@@ -510,3 +510,20 @@ def test_immersive_colorbar_has_no_box_and_ticks_do_not_move_it(page, server_url
     page.evaluate("() => document.getElementById('slim-cb-wrap').classList.add('cb-backed')")
     page.wait_for_timeout(400)
     assert page.evaluate(background) != "rgba(0, 0, 0, 0)"
+
+
+def test_corner_names_fade_under_the_axis_cross(page, server_url, client, tmp_path):
+    """The dimbar / r / t axis cross must not sit on top of a pane's corner name."""
+    a, b = _two(client, tmp_path)
+    page.goto(f"{server_url}/?sid={a}&compare_sid={b}&compare_sids={b}")
+    page.wait_for_selector("#compare-view-wrap.compare-titles-inset", timeout=15_000)
+    page.wait_for_timeout(500)
+    op = "() => +getComputedStyle(document.getElementById('compare-left-title')).opacity"
+    assert page.evaluate(op) == 1
+    page.evaluate("() => { _orientHovering = true; _showOrientEdgeHighlight(); }")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => document.querySelectorAll('.orient-cross.showing').length") == 2
+    assert page.evaluate(op) == 0
+    page.evaluate("() => { _orientHovering = false; _clearOrientEdgeHighlight(); }")
+    page.wait_for_timeout(300)
+    assert page.evaluate(op) == 1

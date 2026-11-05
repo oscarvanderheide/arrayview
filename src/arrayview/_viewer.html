@@ -23068,8 +23068,32 @@
         // Puts one cross in the origin corner of each pane: the x arrow runs
         // along the top (bottom when flipped) edge toward increasing x, the y
         // arrow along the left (right when flipped) edge toward increasing y.
+        // Things that already sit in a pane corner. While a cross covers one
+        // it fades out, and fades back once the cross is gone.
+        const _ORIENT_YIELD_SEL = '.compare-title, .pane-name, .qmri-pane > .qv-label, #qmri-case-name, #mini-map, .cmp-mini-map';
+        let _orientYielded = new Set();
+        function _orientFade(el, out) {
+            const from = parseFloat(getComputedStyle(el).opacity);
+            if (el._ocAnim) el._ocAnim.cancel();
+            el._ocAnim = out
+                ? el.animate([{ opacity: from }, { opacity: 0 }], { duration: 150, easing: 'ease', fill: 'forwards' })
+                : el.animate([{ opacity: from, offset: 0 }], { duration: 150, easing: 'ease' });
+        }
+        // Reconciles which corner items are faded: exactly those a shown cross overlaps.
+        function _orientYieldTo(boxes) {
+            const want = new Set();
+            if (boxes.length) document.querySelectorAll(_ORIENT_YIELD_SEL).forEach(el => {
+                const r = el.getBoundingClientRect();
+                if (r.width < 1 || r.height < 1) return;
+                if (boxes.some(b => r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top)) want.add(el);
+            });
+            want.forEach(el => { if (!_orientYielded.has(el)) _orientFade(el, true); });
+            _orientYielded.forEach(el => { if (!want.has(el)) _orientFade(el, false); });
+            _orientYielded = want;
+        }
         function _placeOrientCrosses() {
             const panes = _orientPanes().map(p => ({ p, r: _orientVisibleRect(p.cv) })).filter(q => q.r);
+            const boxes = [];
             while (_orientCrossEls.length < panes.length) {
                 const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 el.setAttribute('class', 'orient-cross');
@@ -23090,7 +23114,9 @@
                 const y = p.fy ? r.bottom - m - size : r.top + m;
                 el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${k})`;
                 el.classList.add('showing');
+                boxes.push({ left: x - 2, top: y - 2, right: x + size + 2, bottom: y + size + 2 });
             });
+            _orientYieldTo(boxes);
         }
         // Panes can still be moving or re-rendering when this starts (after
         // r / t, or while zooming), so keep the crosses glued to them.
@@ -23105,6 +23131,7 @@
             if (_orientRaf) { cancelAnimationFrame(_orientRaf); _orientRaf = 0; }
             if (_orientFlashTimer) { clearTimeout(_orientFlashTimer); _orientFlashTimer = 0; }
             _orientCrossEls.forEach(el => el.classList.remove('showing'));
+            _orientYieldTo([]);
         }
         // Shown for every image pane while the pointer is over the DimBar.
         function _showOrientEdgeHighlight() {
