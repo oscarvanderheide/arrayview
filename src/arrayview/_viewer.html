@@ -329,7 +329,7 @@
             stroke: rgba(0, 0, 0, 0.8); stroke-linejoin: round; paint-order: stroke;
         }
         .orient-cross text.oc-num { font-size: 9px; fill: #c4c4c4; stroke-width: 2px; }
-        .orient-cross text.oc-axis { font-size: 11px; font-weight: 600; fill: #fff; stroke-width: 3px; }
+        .orient-cross text.oc-axis { font-size: 13px; font-weight: 600; fill: var(--active-dim); stroke-width: 3px; }
         #slim-cb-wrap {
             text-align: center;
             /* Horizontal padding fixed; top padding grows via --cb-extra-top
@@ -23109,25 +23109,26 @@
                 const x = X(t.pos);
                 out += mark(x, y0, x, y0 + dy * 4);
                 const half = String(t.label).length * CH / 2;
-                if (Math.abs(t.pos - ax.mid) > half + 15 && t.pos + half < ax.len - 2) {
+                if (t.pos + half < ax.len - 2) {
                     out += `<text class="oc-num" x="${f(x)}" y="${rowY}" text-anchor="middle">${t.label}</text>`;
                 }
             });
-            out += `<text class="oc-axis" x="${f(X(ax.mid))}" y="${rowY + 0.5}" text-anchor="middle">${p.lx}</text>`;
+            // The axis letter sits past the values, like an axis title, so no value makes way for it.
+            out += `<text class="oc-axis" x="${f(X(ax.mid))}" y="${p.fy ? h - 25 : 32}" text-anchor="middle">${p.lx}</text>`;
             // Vertical edge: marks hang into the pane, values beside them.
             const colX = x0 + dx * 7;
             ay.ticks.forEach(t => {
                 const y = Y(t.pos);
                 out += mark(x0, y, x0 + dx * 4, y);
-                if (Math.abs(t.pos - ay.mid) > 19) {
-                    out += `<text class="oc-num" x="${f(colX)}" y="${f(y + 3)}" text-anchor="${anchor}">${t.label}</text>`;
-                }
+                out += `<text class="oc-num" x="${f(colX)}" y="${f(y + 3)}" text-anchor="${anchor}">${t.label}</text>`;
             });
-            out += `<text class="oc-axis" x="${f(colX)}" y="${f(Y(ay.mid) + 4)}" text-anchor="${anchor}">${p.ly}</text>`;
+            out += `<text class="oc-axis" x="${f(colX + dx * (colW - 4))}" y="${f(Y(ay.mid) + 4.5)}" text-anchor="${anchor}">${p.ly}</text>`;
             // Strips the ruler covers, for _orientYieldTo (viewport px).
             const boxes = [
                 { left: v.left, right: v.right, top: p.fy ? v.bottom - 20 : v.top, bottom: p.fy ? v.bottom : v.top + 20 },
                 { left: p.fx ? v.right - colW - 4 : v.left, right: p.fx ? v.right : v.left + colW + 4, top: v.top, bottom: v.bottom },
+                { left: v.left + X(ax.mid) - 10, right: v.left + X(ax.mid) + 10, top: v.top + (p.fy ? h - 38 : 0), bottom: v.top + (p.fy ? h : 38) },
+                { left: v.left + (p.fx ? w - colW - 22 : 0), right: v.left + (p.fx ? w : colW + 22), top: v.top + Y(ay.mid) - 10, bottom: v.top + Y(ay.mid) + 10 },
             ];
             return { html: out, boxes };
         }
