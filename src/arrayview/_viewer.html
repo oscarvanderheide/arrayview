@@ -4552,6 +4552,30 @@
             pointer-events: none;
         }
         #busy-overlay.visible { display: block; }
+        /* Lost contact with the backend. The last frame stays on screen and
+           looks live, so dim it and say so. 'reconnecting' clears itself when
+           the socket reopens; 'gone' means the server no longer has this
+           array and nothing will bring it back. */
+        #conn-lost {
+            display: none; position: fixed; inset: 0; z-index: 70;
+            background: rgba(0,0,0,0.45);
+        }
+        #conn-lost.visible { display: block; }
+        #conn-lost .av-loading-panel {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            flex-direction: column; gap: 4px; padding: 12px 18px;
+            white-space: normal; max-width: min(46ch, calc(100vw - 32px));
+            line-height: 1.5; text-align: center;
+            background: var(--surface);
+        }
+        #conn-lost .conn-lost-title {
+            display: flex; align-items: center; gap: 8px; font-size: 14px;
+        }
+        #conn-lost .conn-lost-dot {
+            width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+            background: #f8961e;
+        }
+        #conn-lost .conn-lost-sub { font-size: 11px; color: var(--muted); }
         @keyframes av-patient-spin { to { transform: rotate(360deg); } }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
@@ -5831,6 +5855,7 @@
         <div id="stack-mosaic-wrap"></div>
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div><div class="av-load-progress"><div class="bar"></div></div></div>
         <div id="render-progress"><div class="bar"></div></div>
+        <div id="conn-lost" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><div class="conn-lost-title"><span class="conn-lost-dot"></span><span class="conn-lost-text"></span></div><div class="conn-lost-sub">Close this instance and run arrayview again to view the array</div></div></div>
         <div id="render-progress-text"></div>
         <div id="fft-spinner-overlay"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Computing FFT…</span></div></div>
         <div id="busy-overlay" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><span>Loading…</span></div></div>
@@ -16930,6 +16955,82 @@
             if (_wsOpenTimer) { clearTimeout(_wsOpenTimer); _wsOpenTimer = null; }
         }
 
+        // Stale-viewer notice. null | 'reconnecting' | 'gone'. A drop only
+        // counts after a grace period: tab switches and server hiccups
+        // reconnect within a few hundred ms and must not flash the notice.
+        const CONN_LOST_GRACE_MS = 2000;
+        let _connLostState = null;
+        let _connLostTimer = null;
+
+        function _setConnLost(state) {
+            if (_connLostTimer) { clearTimeout(_connLostTimer); _connLostTimer = null; }
+            if (_connLostState === state) return;
+            _connLostState = state;
+            _reconcileUI();
+        }
+
+        // Liveness check. A socket can stay "open" after its server died: a
+        // forwarded port (VS Code tunnel) may never pass the close on, so
+        // onclose never fires and frame requests vanish into it. Ping the
+        // server; if a ping gets no reply at all, treat the socket as dead.
+        // Silence is measured from the unanswered ping, not wall time, so a
+        // background tab whose timers are throttled does not trip it.
+        const WS_PING_INTERVAL_MS = 5000;
+        const WS_DEAD_AFTER_MS = 10000;
+        let _wsHeartbeatTimer = null;
+        let _wsLastHeard = 0;
+        let _wsPingSentAt = 0;
+
+        function _stopWsHeartbeat() {
+            if (_wsHeartbeatTimer) { clearInterval(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
+            _wsPingSentAt = 0;
+        }
+
+        function _startWsHeartbeat(sock) {
+            _stopWsHeartbeat();
+            _wsLastHeard = performance.now();
+            _wsHeartbeatTimer = setInterval(() => {
+                if (sock !== ws || !wsReady) { _stopWsHeartbeat(); return; }
+                const now = performance.now();
+                const answered = _wsLastHeard >= _wsPingSentAt;
+                if (_wsPingSentAt && !answered && now - _wsPingSentAt > WS_DEAD_AFTER_MS) {
+                    _stopWsHeartbeat();
+                    const onClose = sock.onclose;
+                    sock.onclose = null; sock.onmessage = null; sock.onerror = null;
+                    try { sock.close(); } catch (_) {}
+                    if (onClose) onClose();
+                    return;
+                }
+                if (!_wsPingSentAt || answered) {
+                    _wsPingSentAt = now;
+                    try { sock.send('{"type":"ping"}'); } catch (_) {}
+                }
+            }, WS_PING_INTERVAL_MS);
+        }
+
+        function _armConnLost() {
+            if (_connLostState || _connLostTimer) return;
+            _connLostTimer = setTimeout(() => {
+                _connLostTimer = null;
+                if (!wsReady && !_wsGaveUp) _setConnLost('reconnecting');
+            }, CONN_LOST_GRACE_MS);
+        }
+
+        function _reconcileConnLost() {
+            const el = document.getElementById('conn-lost');
+            if (!el) return;
+            const visible = !!_connLostState;
+            el.classList.toggle('visible', visible);
+            el.classList.toggle('gone', _connLostState === 'gone');
+            el.setAttribute('aria-hidden', visible ? 'false' : 'true');
+            const text = el.querySelector('.conn-lost-text');
+            if (text) {
+                text.textContent = _connLostState === 'gone'
+                    ? 'Array no longer available'
+                    : 'Disconnected';
+            }
+        }
+
         /* ── JS: WebSocket and Data Transport ────────────────────── */
 
         function initWebSocket() {
@@ -16976,6 +17077,17 @@
                 }, _relayWsHedgeEnabled
                     ? RELAY_WS_OPEN_TIMEOUT_MS
                     : WS_OPEN_TIMEOUT_MS);
+            } else {
+                // A reconnect can hang the same way (a tunnel that accepts but
+                // never answers), which would stall the retry loop for good.
+                // Drop it and try again, unbounded: the server may come back.
+                const opening = ws;
+                _wsOpenTimer = setTimeout(() => {
+                    _wsOpenTimer = null;
+                    if (opening !== ws || wsReady) return;
+                    try { opening.onclose = null; opening.close(); } catch (_) {}
+                    _wsRetryTimer = setTimeout(initWebSocket, 300);
+                }, WS_OPEN_TIMEOUT_MS);
             }
 
             ws.onopen = () => {
@@ -16983,6 +17095,7 @@
                 reportParent('ws-open', { host: location.host });
                 _wsEverConnected = true;
                 wsReady = true;
+                if (_connLostState === 'reconnecting' || _connLostTimer) _setConnLost(null);
                 // The server forgets links when a socket drops; rejoin.
                 if (_tabLinkOn) _tabLinkSend({ action: 'join' });
                 if (_vscodeTabWindowId) {
@@ -16998,10 +17111,15 @@
             };
 
             ws.onmessage = _inflatingMessageHandler((event) => {
+                _wsLastHeard = performance.now();
                 // Text message: server pushes metadata as first JSON message
                 if (typeof event.data === 'string') {
                     try {
                         const msg = JSON.parse(event.data);
+                        // The server answers pings only once the array is
+                        // loaded, and metadata marks that point; starting at
+                        // open would call a slow load a dead socket.
+                        if (msg.type === 'metadata') _startWsHeartbeat(ws);
                         if (msg.type === 'metadata' && _metadataResolve) {
                             _metadataResolve(msg);
                             _metadataResolve = null;
@@ -17018,6 +17136,15 @@
                             _warmClientPath(msg.connections);
                         } else if (msg.type === 'link') {
                             _tabLinkApply(msg);
+                        } else if (msg.type === 'render_error'
+                                && msg.reason === 'session_missing'
+                                && _metadataProcessed) {
+                            // The array was on screen, but the server no
+                            // longer has it (its Python process ended or it
+                            // was released). Retrying cannot bring it back.
+                            _wsGaveUp = true;
+                            _hideRenderProgress();
+                            _setConnLost('gone');
                         } else if (msg.type === 'render_error') {
                             // The server hit an exception producing this frame,
                             // so no frame is coming. Say so instead of leaving
@@ -17134,6 +17261,7 @@
 
             ws.onclose = () => {
                 _clearWsOpenTimer();
+                _stopWsHeartbeat();
                 reportParent('ws-close', { sid });
                 _cancelPatientLoading(_mainRenderPatientIndex);
                 _clearSlowRenderBusy();
@@ -17144,6 +17272,7 @@
                 isRendering = false;
                 pendingRequest = false;
                 if (_wsGaveUp) return;
+                if (_wsEverConnected) _armConnLost();
                 // Silently retry: server may be restarting or the connection dropped.
                 // Back off: 300 ms if we connected before, 500 ms on first-time failure.
                 const delay = _wsEverConnected ? 300 : 500;
@@ -45632,6 +45761,7 @@
             const info = document.getElementById('info');
             if (info) _scheduleActiveDimUnderline(info, 320);
             _reconcileTutorial();
+            _reconcileConnLost();
         }
 
         function _reconcileInfoCursor() {

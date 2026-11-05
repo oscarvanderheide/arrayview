@@ -530,6 +530,18 @@ class TestBasicRender:
         # #loading-overlay should be hidden once startup animation completes
         page.wait_for_selector("#loading-overlay", state="hidden", timeout=5000)
 
+    def test_stale_viewer_says_array_is_gone(self, loaded_viewer, sid_2d):
+        # Server alive, session dropped (owning process ended): the viewer
+        # must stop retrying and say so, not keep showing a dead frame.
+        from arrayview import _session as session_mod
+
+        page = loaded_viewer(sid_2d)
+        assert not page.locator("#conn-lost").is_visible()
+        session_mod.SESSIONS.pop(sid_2d, None)
+        page.evaluate("ws.close()")
+        page.wait_for_selector("#conn-lost.visible.gone", timeout=5000)
+        assert "no longer available" in page.locator("#conn-lost").inner_text()
+
 
 # ---------------------------------------------------------------------------
 # Keyboard shortcuts

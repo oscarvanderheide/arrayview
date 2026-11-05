@@ -509,6 +509,7 @@ def register_websocket_routes(app) -> None:
                 await ws.send_json({
                     "type": "render_error",
                     "message": "the array could not be loaded",
+                    "reason": "session_missing",
                 })
             except Exception:
                 pass
@@ -595,6 +596,10 @@ def register_websocket_routes(app) -> None:
                         continue
                     if isinstance(msg, dict) and msg.get("type") == "tab-address":
                         _handle_tab_address_message(ws, sid, msg)
+                        continue
+                    if isinstance(msg, dict) and msg.get("type") == "ping":
+                        # Viewer liveness check; see _startWsHeartbeat.
+                        asyncio.ensure_future(_send_json_quietly(ws, {"type": "pong"}))
                         continue
                     try:
                         _pending.get_nowait()
