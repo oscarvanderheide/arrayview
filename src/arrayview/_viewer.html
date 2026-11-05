@@ -23048,12 +23048,18 @@
             else if (qmriActive) plain((qmriViews || []).map(v => v.canvas));
             else if (mipActive || cutawayActive) return out;
             else if (dim_z >= 0) {
-                // Mosaic tiles are flipped one by one, so the whole canvas has no
-                // single origin corner. Unflipped, the ruler counts the first tile.
-                if (flip_x || flip_y) return out;
-                const g = _mosaicGridInfo();
-                add(canvas, _axisLetter(dim_x), _axisLetter(dim_y), false, false,
-                    g.cols * g.tileW + (g.cols - 1) * g.GAP, g.rows * g.tileH + (g.rows - 1) * g.GAP, g.tileW, g.tileH);
+                // Each mosaic tile is its own pane (tiles flip one by one), sharing
+                // rulers like a compare grid: ticks over every tile on the outer edges.
+                const g = _mosaicGridInfo(), cr = canvas.getBoundingClientRect();
+                const sx = cr.width / (g.cols * g.tileW + (g.cols - 1) * g.GAP), sy = cr.height / (g.rows * g.tileH + (g.rows - 1) * g.GAP);
+                for (let i = 0; i < g.n; i++) {
+                    const left = cr.left + (i % g.cols) * (g.tileW + g.GAP) * sx;
+                    const top = cr.top + Math.floor(i / g.cols) * (g.tileH + g.GAP) * sy;
+                    add(canvas, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y, g.tileW, g.tileH);
+                    const o = out[out.length - 1];
+                    o.shared = true;
+                    o.tile = { left, top, right: left + g.tileW * sx, bottom: top + g.tileH * sy, width: g.tileW * sx, height: g.tileH * sy };
+                }
             }
             else plain([canvas]);
             return out;
@@ -23196,7 +23202,13 @@
         }
         function _placeOrientCrosses() {
             // Panes too small for a row of labels get no ruler.
-            const panes = _orientPanes().map(p => ({ p, r: p.cv.getBoundingClientRect(), v: _orientVisibleRect(p.frame), c: _orientVisibleRect(p.cv) }))
+            const clip = (a, b) => (a && b && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 8 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 8)
+                ? { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) } : null;
+            const panes = _orientPanes().map(p => {
+                if (!p.tile) return { p, r: p.cv.getBoundingClientRect(), v: _orientVisibleRect(p.frame), c: _orientVisibleRect(p.cv) };
+                const t = clip(p.tile, _orientVisibleRect(p.cv));
+                return { p, r: p.tile, v: t, c: t };
+            })
                 .filter(q => q.v && q.c && Math.min(q.v.right - q.v.left, q.v.bottom - q.v.top) >= 40);
             _orientShareRulers(panes);
             const boxes = [];
