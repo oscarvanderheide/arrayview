@@ -41962,8 +41962,7 @@
             if (multiViewActive) {
                 // Each plane glides into the row that shows the main index; the other row fades in.
                 _viewGlide(async () => {
-                    exitMultiView();
-                    await _splitThenRows(dim, () => enterCompareMv());
+                    await _splitThenRows(dim, exitMultiView, () => enterCompareMv());
                 }, (v, to) => {
                     const same = to.filter(w => _samePlane(v, w));
                     return same.find(w => _cmvIndices(w).every((x, i) => x === indices[i])) || same[0] || null;
@@ -41973,8 +41972,7 @@
             if (qmriActive) {
                 const qd = qmriDim;
                 _dissolveTo(async () => {
-                    exitQmri();
-                    await _splitThenRows(dim, () => {
+                    await _splitThenRows(dim, exitQmri, () => {
                         _lastQmriDim = qd;
                         enterCompareQmri();
                         if (typeof renderToolMenu === 'function') renderToolMenu();
@@ -41985,14 +41983,19 @@
             _splitGlideEnter(dim);
         }
 
-        // Split along `dim`, then `rows()` turns it into rows. The plain split in between stays
-        // hidden, or it peeks out from behind the copies of the old view.
-        async function _splitThenRows(dim, rows) {
-            const hold = _glideHold(document.getElementById('compare-view-wrap'));
+        // `leave()` the view, split along `dim`, then `rows()` turns it into rows. The plain split
+        // in between stays hidden, or it peeks out from behind the copies of the old view; the dim
+        // bar stays where it was instead of jumping to the plain split's place and back.
+        async function _splitThenRows(dim, leave, rows) {
+            const info = document.getElementById('info');
+            const infoCopy = _dimBarCopy(info);
+            const holds = [_glideHold(document.getElementById('compare-view-wrap')), infoCopy && _glideHold(info)];
             try {
+                leave();
                 if (await enterDetachedDimMode(dim) && compareActive) rows();
             } finally {
-                hold?.cancel();
+                holds.forEach(h => h?.cancel());
+                infoCopy?.remove();
             }
         }
 
