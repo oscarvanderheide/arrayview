@@ -23025,12 +23025,14 @@
         // count (mx, my: one tile in a mosaic, the whole axis elsewhere).
         function _orientPanes() {
             const out = [];
-            const add = (cv, lx, ly, fx, fy, nx, ny, mx = nx, my = ny) => {
-                if (cv && nx > 0 && ny > 0) out.push({ cv, lx, ly, fx: !!fx, fy: !!fy, nx, ny, mx, my });
+            // `frame` is the box the ruler hugs: the square pane an ortho view pads
+            // its image into, so the ticks sit on the pane's edge, not inside it.
+            const add = (cv, lx, ly, fx, fy, nx, ny, mx = nx, my = ny, frame = cv) => {
+                if (cv && nx > 0 && ny > 0) out.push({ cv, frame: frame || cv, lx, ly, fx: !!fx, fy: !!fy, nx, ny, mx, my });
             };
             const grid = (views, dims) => {
                 const letter = (d) => ['x', 'y', 'z'][Math.max(0, dims.indexOf(d))];
-                (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v), shape[v.dimX], shape[v.dimY]));
+                (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v), shape[v.dimX], shape[v.dimY], undefined, undefined, v.pane));
             };
             const plain = (cvs) => cvs.forEach(cv => add(cv, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y, shape[dim_x], shape[dim_y]));
             if (stackMosaicActive) plain((stackMosaicViews || []).map(v => v.canvas));
@@ -23072,30 +23074,37 @@
         // ticks at the real indices. `near` keeps labels clear of the other
         // axis's column at the origin corner; `mid` centres the axis letter on
         // the stretch of the edge the axis covers (one tile in a mosaic).
-        function _edgeRulerAxis(o0, dir, ppv, max, lo, hi, near) {
+        // `clo`..`chi` is the part of the image on screen: the frame can be
+        // wider (an ortho pane's padding), and no tick marks padding.
+        function _edgeRulerAxis(o0, dir, ppv, max, lo, hi, near, clo = lo, chi = hi) {
             const gap = Math.max(_EDGE_RULER_GAP, String(max).length * _EDGE_RULER_CH + 20);
             const step = _EDGE_RULER_STEPS.find(st => st * ppv >= gap) || _EDGE_RULER_STEPS[_EDGE_RULER_STEPS.length - 1];
             const len = hi - lo, at = (X) => (dir > 0 ? X - lo : hi - X);
-            const start = Math.max(0, at(o0)), end = Math.min(len, at(o0 + dir * max * ppv));
+            const a = at(dir > 0 ? Math.max(o0, clo) : Math.min(o0, chi));
+            const b = at(dir > 0 ? Math.min(o0 + max * ppv, chi) : Math.max(o0 - max * ppv, clo));
+            const start = Math.max(0, a), end = Math.min(len, b);
             const ticks = [];
             for (let i = step; i < max; i += step) {
-                const pos = at(o0 + dir * i * ppv);
+                const X = o0 + dir * i * ppv;
+                if (X < clo - 0.5 || X > chi + 0.5) continue;
+                const pos = at(X);
                 if (pos < near) continue;
                 if (pos > len - 8) break;
                 ticks.push({ pos, label: i });
             }
             return { ticks, mid: (start + end) / 2, len };
         }
-        // The ruler SVG for one pane: `r` is the canvas box, `v` its visible part.
+        // The ruler SVG for one pane: `r` is the canvas box, `v` the visible part
+        // of the frame it hugs, `c` the visible part of the canvas.
         // Like the colorbar's tick row: a short white mark at the edge per
         // round index, its value beside it, the axis letter centred on the edge.
-        function _edgeRulerSvg(p, r, v) {
+        function _edgeRulerSvg(p, r, v, c = v) {
             const w = v.right - v.left, h = v.bottom - v.top;
             const dx = p.fx ? -1 : 1, dy = p.fy ? -1 : 1;
             const CH = _EDGE_RULER_CH;
             const colW = String(p.my).length * CH + 12;     // the vertical axis's label column
-            const ax = _edgeRulerAxis(p.fx ? r.right : r.left, dx, r.width / p.nx, p.mx, v.left, v.right, colW + 8);
-            const ay = _edgeRulerAxis(p.fy ? r.bottom : r.top, dy, r.height / p.ny, p.my, v.top, v.bottom, 22);
+            const ax = _edgeRulerAxis(p.fx ? r.right : r.left, dx, r.width / p.nx, p.mx, v.left, v.right, colW + 8, c.left, c.right);
+            const ay = _edgeRulerAxis(p.fy ? r.bottom : r.top, dy, r.height / p.ny, p.my, v.top, v.bottom, 22, c.top, c.bottom);
             const X = (pos) => (p.fx ? w - pos : pos), Y = (pos) => (p.fy ? h - pos : pos);
             const x0 = p.fx ? w : 0, y0 = p.fy ? h : 0;
             const f = (n) => n.toFixed(1);
@@ -23158,9 +23167,9 @@
         // Lays a ruler along the index-0 edges of each pane (top / left, or
         // bottom / right when flipped), counting toward increasing index.
         function _placeOrientCrosses() {
-            // Panes thinner than a label row (a 10-slice side view) get no ruler.
-            const panes = _orientPanes().map(p => ({ p, v: _orientVisibleRect(p.cv) }))
-                .filter(q => q.v && Math.min(q.v.right - q.v.left, q.v.bottom - q.v.top) >= 40);
+            // Panes too small for a row of labels get no ruler.
+            const panes = _orientPanes().map(p => ({ p, v: _orientVisibleRect(p.frame), c: _orientVisibleRect(p.cv) }))
+                .filter(q => q.v && q.c && Math.min(q.v.right - q.v.left, q.v.bottom - q.v.top) >= 40);
             const boxes = [];
             while (_orientCrossEls.length < panes.length) {
                 const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -23171,9 +23180,9 @@
             _orientCrossEls.forEach((el, i) => {
                 const q = panes[i];
                 if (!q) { el.classList.remove('showing'); return; }
-                const { p, v } = q;
+                const { p, v, c } = q;
                 const w = v.right - v.left, h = v.bottom - v.top;
-                const svg = _edgeRulerSvg(p, p.cv.getBoundingClientRect(), v);
+                const svg = _edgeRulerSvg(p, p.cv.getBoundingClientRect(), v, c);
                 if (el._ocHtml !== svg.html) { el.innerHTML = svg.html; el._ocHtml = svg.html; }
                 const size = `${Math.round(w)}x${Math.round(h)}`;
                 if (el._ocSize !== size) {
