@@ -719,7 +719,7 @@ class TestKeyboard:
         page.keyboard.press("q")
         page.wait_for_function("() => qmriActive", timeout=5_000)
         page.wait_for_function(
-            "() => (document.getElementById('qmri-case-name')?.textContent || '').toLowerCase() === 'alpha'",
+            "() => (document.getElementById('case-name-out')?.textContent || '').toLowerCase() === 'alpha'",
             timeout=5_000,
         )
         page.wait_for_timeout(500)

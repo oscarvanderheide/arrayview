@@ -270,13 +270,17 @@
         .pane-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* --match collection: current case name (_reconcileCaseTitle). */
         #case-title:not(.visible), .mv-pane-name:not(.visible) { display: none; }
-        #qmri-case-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-        #qmri-case-name {
-            display: flex; align-self: center; max-width: 100%; margin-bottom: 6px; align-items: center; gap: 5px; white-space: nowrap;
+        #case-name-out > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        /* --match name outside the panes (qMRI, qMRI ortho, horizontal ortho): on the
+           dimbar's baseline, logo over the top-left pane's label. _placeCaseNameOut(). */
+        #case-name-out:not(.visible) { display: none; }
+        #case-name-out {
+            position: fixed; z-index: 30; left: 0; top: 0;
+            display: flex; max-width: 40vw; align-items: center; gap: 5px; white-space: nowrap;
             font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase;
             color: color-mix(in srgb, var(--text) 75%, var(--muted)); cursor: default; user-select: none;
         }
-        body.fullscreen-mode #qmri-case-name { display: none; }
+        body.fullscreen-mode #case-name-out { display: none; }
         #canvas-viewport { position: relative; overflow: hidden; display: inline-block; user-select: none; -webkit-user-select: none; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         .zoom-select-rect {
@@ -5606,6 +5610,7 @@
         <span id="array-name-text"></span>
     </div>
     <div id="info">Connecting...</div>
+    <div id="case-name-out" aria-hidden="true"></div>
     <div id="dmenu-picker" aria-hidden="true">
         <div id="dmenu-picker-box" class="dmenu-picker-box" role="menu" aria-label="Histogram range controls" tabindex="-1">
             <div id="dmenu-list" class="dmenu-list"></div>
@@ -9228,6 +9233,7 @@
             // Appended last so getElementById keeps finding the live elements.
             document.body.appendChild(ghost);
             _viewCrossfadeGhost = ghost;
+            _caseNamesVeil();
             const seq0 = _frameDisplaySeq, t0 = performance.now();
             try { change(); } catch (e) { console.error(e); }
             // Wait for the first new frame, then for panes still landing
@@ -9239,11 +9245,192 @@
                 lastSeq = seq;
                 if (quiet < 2 && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
                 const fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease-out', fill: 'forwards' });
-                const done = () => { ghost.remove(); if (_viewCrossfadeGhost === ghost) _viewCrossfadeGhost = null; };
+                const done = () => { ghost.remove(); if (_viewCrossfadeGhost === ghost) { _viewCrossfadeGhost = null; _caseNamesUnveil(); } };
                 fade.onfinish = done;
                 fade.oncancel = done;
             };
             requestAnimationFrame(wait);
+        }
+
+        /** Quarter turn across `change` (r key). A still copy of each image box
+         *  (fixed, on top, so no pane/wrap overflow clips it) starts turning at
+         *  once and does the whole turn; the live box stays hidden until the
+         *  turn ends, then replaces the copy (same pixels, turned). Once the new
+         *  frame lands the copy's path bends toward the real new box. Poses
+         *  use the CSS `rotate`/`scale`/`translate` properties, leaving any
+         *  zoom/pan `transform` alone. Mid-turn the box shrinks just enough that
+         *  its corners stay inside a box sliding from the old outline to the new
+         *  one (so they never cross the dimbar/colorbar). Pane names fade out
+         *  and back in instead of turning; dimbar/colorbars glide; chrome that
+         *  only appears in the new layout fades in. A press during
+         *  a turn snaps it to its end first. Ignores prefers-reduced-motion on
+         *  purpose: the turn is wanted regardless of OS/IDE motion settings. */
+        let _quarterTurn = null;
+        // Pane/map names: never turned or glided — faded out, hidden, faded back in.
+        const _TURN_LABELS = '.pane-name, .mv-pane-name, .qv-label';
+        // Chrome around the image that glides to its new place during a turn.
+        const _TURN_GLIDE_SEL = '#info, #slim-cb-wrap, #dim-active-underline, #case-name-out, .cb-wrap';
+        const _TURN_MS = 380;
+        // cubic-bezier(0.4, 0, 0.2, 1), solved for y at x = t.
+        function _turnEase(t) {
+            if (t <= 0) return 0; if (t >= 1) return 1;
+            const bx = s => 3 * 0.4 * s * (1 - s) * (1 - s) + 3 * 0.2 * s * s * (1 - s) + s * s * s;
+            let lo = 0, hi = 1, s = t;
+            for (let i = 0; i < 24; i++) { s = (lo + hi) / 2; if (bx(s) < t) lo = s; else hi = s; }
+            return 3 * s * s * (1 - s) + s * s * s;
+        }
+        function _quarterTurnAround(change, getBoxes) {
+            if (_quarterTurn) { const q = _quarterTurn; _quarterTurn = null; q.stop(); if (!q.landed) { change(); return; } }
+            const boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
+            // Innermost boxes only, so a grid is not turned as a whole.
+            const panes = boxes.filter(b => !boxes.some(o => o !== b && b.contains(o)));
+            if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) { change(); return; }
+            const rectOf = r => ({ w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+            const old = panes.map(b => rectOf(b.getBoundingClientRect()));
+            const ghosts = panes.map((b, i) => {
+                const r = b.getBoundingClientRect();
+                const g = document.createElement('div');
+                g.setAttribute('aria-hidden', 'true');
+                g.inert = true;
+                g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:41;pointer-events:none;overflow:hidden;border-radius:${getComputedStyle(b).borderRadius};`;
+                const copy = b.cloneNode(true);
+                copy.removeAttribute('id');
+                copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+                copy.style.margin = '0';
+                const isCv = b.tagName === 'CANVAS';
+                if (isCv) Object.assign(copy.style, { width: '100%', height: '100%', transform: 'none', position: 'static', display: 'block' });
+                const src = isCv ? [b] : b.querySelectorAll('canvas'), dst = isCv ? [copy] : copy.querySelectorAll('canvas');
+                src.forEach((c, k) => {
+                    if (!c.width || !c.height || !c.getClientRects().length) return;
+                    try { dst[k].getContext('2d').drawImage(c, 0, 0); } catch (e) { /* WebGL: leave blank */ }
+                });
+                g.appendChild(copy);
+                document.body.appendChild(g);
+                copy.querySelectorAll(_TURN_LABELS).forEach(n =>
+                    n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: 'ease-out', fill: 'forwards' }));
+                return g;
+            });
+            const glideAll = [...document.querySelectorAll(_TURN_GLIDE_SEL)]
+                .filter(el => el.getClientRects().length && !panes.some(b => b.contains(el)));
+            const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
+            const glideOld = glide.map(el => el.getBoundingClientRect());
+            const seq0 = _frameDisplaySeq, t0 = performance.now();
+            try { change(); } catch (e) { console.error(e); }
+            // Live boxes stay hidden until their frame lands (they may already
+            // be resized under the copies).
+            const holds = panes.map(b => b.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }));
+            // Names fade out now and stay hidden until the turn ends; names a
+            // pane rebuild creates mid-turn are caught by holdLabels() each frame.
+            const labelHolds = new Map();
+            const holdLabels = (fadeOut = false) => document.querySelectorAll(_TURN_LABELS).forEach(n => {
+                if (labelHolds.has(n) || !n.getClientRects().length) return;
+                labelHolds.set(n, n.animate(fadeOut ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 0 }],
+                    { duration: fadeOut ? 110 : 3000, easing: 'ease-out', fill: 'forwards' }));
+            });
+            holdLabels(true);
+            let pins = [], glides = [], fades = [];
+            // Chrome that only shows up in the new layout: hidden, then faded in.
+            const newcomers = new Map();
+            const holdNewcomers = () => document.querySelectorAll(_TURN_GLIDE_SEL).forEach(el => {
+                if (newcomers.has(el) || glideAll.includes(el) || !el.getClientRects().length
+                    || panes.some(b => b.contains(el))) return;
+                newcomers.set(el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 3000, fill: 'forwards' }));
+            });
+            const glideDelta = (el, i) => { const n = el.getBoundingClientRect(), o = glideOld[i]; return [o.left - n.left, o.top - n.top]; };
+            const pin = () => {
+                pins.forEach(a => a.cancel());
+                pins = glide.map((el, i) => { const t = glideDelta(el, i).map(v => v + 'px').join(' ');
+                    return el.animate([{ translate: t }, { translate: t }], { duration: 2000, fill: 'forwards' }); });
+                holdNewcomers();
+            };
+            pin();
+            // Per-box path. Before landing the target is a guess (old box with
+            // sides swapped); at landing the size/centre/fit box blend from
+            // wherever they are to the real new box over the rest of the turn.
+            const path = old.map(o => ({ o, tw: o.h, th: o.w, tcx: o.cx, tcy: o.cy, from: null, n: null }));
+            const sigEnd = (o, w, h) => Math.sqrt((w * h) / (o.w * o.h));
+            const pose = (p, e, r) => {
+                const o = p.o;
+                let sig, cx, cy, fw, fh;
+                if (!p.from) {
+                    sig = 1 + (sigEnd(o, p.tw, p.th) - 1) * e;
+                    cx = o.cx + (p.tcx - o.cx) * e; cy = o.cy + (p.tcy - o.cy) * e;
+                    fw = o.w + (p.tw - o.w) * e; fh = o.h + (p.th - o.h) * e;
+                } else {
+                    const f = p.from, n = p.n;
+                    sig = f.sig + (sigEnd(o, n.w, n.h) - f.sig) * r;
+                    cx = f.cx + (n.cx - f.cx) * r; cy = f.cy + (n.cy - f.cy) * r;
+                    fw = f.fw + (n.w - f.fw) * r; fh = f.fh + (n.h - f.fh) * r;
+                }
+                const ang = -90 * e, th = ang * Math.PI / 180;
+                const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+                const w = o.w * sig, h = o.h * sig, bw = w * c + h * s, bh = w * s + h * c;
+                const fit = Math.min(1, bw ? fw / bw : 1, bh ? fh / bh : 1);
+                return { ang, sig, cx, cy, fw, fh, k: sig * fit };
+            };
+            const setPose = (el, ang, k, dx, dy) => {
+                el.style.rotate = `${ang}deg`; el.style.scale = `${k}`; el.style.translate = `${dx}px ${dy}px`;
+            };
+            let raf = 0, lastSeq = seq0, quiet = 0, t1 = 0, tEnd = 0;
+            const q = { landed: false };
+            const finishAll = () => {
+                if (raf) cancelAnimationFrame(raf); raf = 0;
+                ghosts.forEach(g => g.remove());
+                holds.forEach(a => a.cancel()); pins.forEach(a => a.cancel());
+                newcomers.forEach(a => a.cancel());
+                glides.forEach(a => a.cancel());
+                labelHolds.forEach(a => a.cancel());
+                labelHolds.clear();
+            };
+            q.stop = () => { finishAll(); fades.forEach(a => a.cancel()); };
+            _quarterTurn = q;
+            const land = now => {
+                q.landed = true; t1 = now;
+                const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
+                tEnd = Math.max(t0 + _TURN_MS, now + 180);
+                path.forEach((p, i) => {
+                    const cur = pose(p, e, 0);
+                    p.from = cur;
+                    p.n = rectOf(panes[i].getBoundingClientRect());
+                });
+                pins.forEach(a => a.cancel()); pins = [];
+                _placeCaseNameOut(true);
+                holdNewcomers();
+                newcomers.forEach((hold, el) => { hold.cancel();
+                    fades.push(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: tEnd - now, easing: 'ease-in' })); });
+                glides = glide.map((el, i) => el.animate(
+                    [{ translate: glideDelta(el, i).map(v => v + 'px').join(' ') }, { translate: '0px 0px' }],
+                    { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }));
+            };
+            const tick = () => {
+                raf = 0;
+                if (_quarterTurn !== q) return;
+                const now = performance.now();
+                if (!q.landed) {
+                    const seq = _frameDisplaySeq;
+                    quiet = (seq !== seq0 && seq === lastSeq) ? quiet + 1 : 0;
+                    lastSeq = seq;
+                    if (quiet >= 1 || now - t0 > 1200) land(now);
+                    else pin();
+                }
+                holdLabels();
+                const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
+                const r = q.landed ? _turnEase(Math.min(1, (now - t1) / Math.max(1, tEnd - t1))) : 0;
+                path.forEach((p, i) => {
+                    const ps = pose(p, e, r);
+                    setPose(ghosts[i], ps.ang, ps.k, ps.cx - p.o.cx, ps.cy - p.o.cy);
+                });
+                if (q.landed && now >= tEnd) {
+                    holdLabels();
+                    const names = [...labelHolds.keys()].filter(n => n.isConnected);
+                    finishAll();
+                    fades = names.map(n => n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' }));
+                    if (_quarterTurn === q) _quarterTurn = null;
+                    return;
+                }
+                raf = requestAnimationFrame(tick);
+            };
+            raf = requestAnimationFrame(tick);
         }
 
         /** Shift+A on an array without stored orientation: name the current
@@ -11604,6 +11791,7 @@
             const w = document.getElementById('wrapper');
             if (!w) { fn(); return; }
             _crossfading = true;
+            _caseNamesVeil();
             w.classList.add('mode-fade');
             const info = document.getElementById('info');
             if (info) info.classList.add('mode-fade');
@@ -11622,6 +11810,7 @@
                             const info = document.getElementById('info');
                             if (info) info.classList.remove('mode-fade');
                             _crossfading = false;
+                            _caseNamesUnveil();
                             const m = document.getElementById('dim-active-underline');
                             if (m) m.classList.remove('mode-fade');
                             _syncSinkFocus();
@@ -22707,18 +22896,30 @@
             const colDim = collectionSpatialNdim;
             const name = (Array.isArray(caseNames) && Number.isInteger(colDim) && colDim >= 0 && colDim < shape.length)
                 ? caseNames[indices[colDim]] : null;
-            const qmriName = document.getElementById('qmri-case-name');
-            if (qmriName && name != null) qmriName.lastElementChild.textContent = String(name);
             const text = name == null ? null : String(name);
+            // Outside the panes where they sit in a row/grid with labels of their own.
+            const outside = text != null && (qmriActive || qmriMvActive
+                || (multiViewActive && _resolvedOrthoLayoutMode() === 'horizontal'));
+            const out = document.getElementById('case-name-out');
+            if (out) {
+                out.classList.toggle('visible', outside);
+                if (outside && out.dataset.name !== text) {
+                    out.dataset.name = text;
+                    out.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                    out.lastElementChild.textContent = text;
+                }
+                if (outside) _placeCaseNameOut();
+            }
             const mvNames = multiViewActive ? mvViews.map(v => v.nameEl).filter(Boolean) : [];
             for (const n of [el, ...mvNames]) {
-                const shown = text != null && (n === el || n === mvViews[0]?.nameEl);
+                const shown = text != null && (n === el || (n === mvViews[0]?.nameEl && !outside));
                 n.classList.toggle('visible', shown);
                 if (!shown || n.dataset.name === text) continue;
                 n.dataset.name = text;
                 n.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
                 n.lastElementChild.textContent = text;
             }
+            _caseVeil?.check();
         }
 
         function renderInfo() {
@@ -23070,7 +23271,7 @@
         // arrow along the left (right when flipped) edge toward increasing y.
         // Things that already sit in a pane corner. While a cross covers one
         // it fades out, and fades back once the cross is gone.
-        const _ORIENT_YIELD_SEL = '.compare-title, .pane-name, .qmri-pane > .qv-label, #qmri-case-name, #mini-map, .cmp-mini-map';
+        const _ORIENT_YIELD_SEL = '.compare-title, .pane-name, .qmri-pane > .qv-label, #case-name-out, #mini-map, .cmp-mini-map';
         let _orientYielded = new Set();
         function _orientFade(el, out) {
             const from = parseFloat(getComputedStyle(el).opacity);
@@ -29822,6 +30023,11 @@
                 run: (ctx, e) => {
                     if (_segMode) { _segReset(); return; }
                     const _orthoR = _orthoTransposeTargets();
+                    const _turnBoxes = () => _orthoR
+                        // The picture itself where it is letterboxed in a fixed cell.
+                        ? _orthoR.views.map(v => v.cvBox || v.canvas)
+                        : [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
+                    _quarterTurnAround(() => {
                     if (_orthoR) {
                         for (const v of _orthoR.views) {
                             const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
@@ -29844,7 +30050,7 @@
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
-                    _flashOrientCross();
+                    }, _turnBoxes);
                 },
             },
             'theme.cycle': {
@@ -37384,14 +37590,6 @@
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
                 _qmriLastRow = rowDiv;
-                // --match collection: the current case's name above the
-                // maps (filled by _reconcileCaseTitle).
-                if (!qmriViews.length && Array.isArray(caseNames)) {
-                    const caseName = document.createElement('div');
-                    caseName.id = 'qmri-case-name';
-                    caseName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
-                    wrap.appendChild(caseName);
-                }
                 for (let ri = 0; ri < rowSize; ri++) {
                     const viewIdx = cmapIdx++;
                     const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
@@ -40393,6 +40591,7 @@
         }
 
         function qmriMvScaleAllCanvases() {
+            _placeCaseNameOut();
             // As in compareQmriScaleAllCanvases: no frame yet counts at the array's size.
             const ready = qmriMvViews;
             if (!ready.length) return;
@@ -40730,6 +40929,69 @@
             return rows.length > 1;
         }
 
+        /** Baseline (viewport y) of the largest-font visible text inside `root`. */
+        function _textBaselineY(root) {
+            let best = null, bestFs = 0;
+            const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            for (let n; (n = w.nextNode());) {
+                const p = n.parentElement;
+                if (!n.textContent.trim() || !p || !p.getClientRects().length) continue;
+                const fs = parseFloat(getComputedStyle(p).fontSize) || 0;
+                if (fs > bestFs) { bestFs = fs; best = n; }
+            }
+            if (!best) return null;
+            const r = document.createRange(); r.selectNodeContents(best);
+            const rr = r.getBoundingClientRect(), cs = getComputedStyle(best.parentElement);
+            const ctx = (_textBaselineY._ctx ||= document.createElement('canvas').getContext('2d'));
+            ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+            const m = ctx.measureText('0');
+            return rr.bottom - (m.fontBoundingBoxDescent ?? bestFs * 0.22);
+        }
+        /** Left edge (viewport x) of the first glyph of `el`'s text. */
+        function _textLeftX(el) {
+            const r = document.createRange(); r.selectNodeContents(el);
+            const rr = r.getBoundingClientRect();
+            return rr.width ? rr.left : el.getBoundingClientRect().left;
+        }
+        /** --match name outside the panes: same baseline as the dimbar numbers,
+         *  logo lined up with the top-left pane's label (kept clear of the
+         *  dimbar). Fixed-positioned, so it takes no room. Follows the dimbar
+         *  while it slides; skipped mid-turn (the r animation calls it itself
+         *  once its pins are off). */
+        function _placeCaseNameOut(force = false) {
+            const el = document.getElementById('case-name-out');
+            if (!el || !el.classList.contains('visible') || (_quarterTurn && !force)) return;
+            const info = document.getElementById('info');
+            const cands = (qmriMvActive ? qmriMvViews.map(v => v.canvas?.closest('.qv-canvas-clip') || v.canvas)
+                : multiViewActive ? mvViews.map(v => v.pane)
+                : [...document.querySelectorAll('#qmri-view-wrap .qv-canvas-clip')])
+                .filter(b => b && b.getClientRects().length);
+            if (!info || !cands.length || !info.getClientRects().length) return;
+            const rects = cands.map(b => [b, b.getBoundingClientRect()]);
+            const topY = Math.min(...rects.map(([, r]) => r.top));
+            const [anchor, pr] = rects.filter(([, r]) => r.top <= topY + 4).sort((a, b) => a[1].left - b[1].left)[0];
+            const pane = anchor.closest('.qv-pane, .mv-pane') || anchor;
+            const label = pane.querySelector('.qv-label, .mv-label');
+            const ir = info.getBoundingClientRect(), w = el.offsetWidth;
+            let left = label && label.getClientRects().length ? _textLeftX(label) : pr.left + 10;
+            if (left + w > ir.left - 12) left = ir.left - 12 - w;
+            el.style.left = `${Math.max(8, left)}px`;
+            el.style.top = `${ir.top + ir.height / 2 - el.offsetHeight / 2}px`;
+            const bInfo = _textBaselineY(info), bName = _textBaselineY(el);
+            if (bInfo != null && bName != null) el.style.top = `${parseFloat(el.style.top) + bInfo - bName}px`;
+            _caseVeil?.check();
+            // The dimbar (or the panes) may still be sliding into place: keep
+            // following until nothing has moved for a few frames (cap 2 s).
+            const key = `${ir.left},${ir.top},${pr.left},${pr.top}`;
+            if (!_caseNameOutFollow) _caseNameOutFollow = { key, still: 0, t0: performance.now(), raf: 0 };
+            const f = _caseNameOutFollow;
+            f.still = key === f.key ? f.still + 1 : 0; f.key = key;
+            if (f.raf) return;
+            if (f.still >= 4 || performance.now() - f.t0 > 2000) { _caseNameOutFollow = null; return; }
+            f.raf = requestAnimationFrame(() => { f.raf = 0; _placeCaseNameOut(); });
+        }
+        let _caseNameOutFollow = null;
+
         function qvScaleAllCanvases() {
             const ready = qmriViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
@@ -40829,8 +41091,8 @@
             const rowGap = qmriGapless ? 0 : 14;  // matches #qmri-view-wrap gap
             const sidePad = qmriGapless ? 80 : 120; // 40px padding (+ colorbar label flanks)
             // --match case name above the maps: its line, margin and the wrap gap.
-            const caseNameEl = document.getElementById('qmri-case-name');
-            const caseNameH = caseNameEl ? caseNameEl.offsetHeight + 6 + rowGap : 0;
+            // --match case name sits on the dimbar's line (_placeCaseNameOut): no room needed.
+            const caseNameH = 0;
             const labelH = 0;   // qMRI labels are overlaid inside each pane
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
@@ -40908,6 +41170,7 @@
                 });
             }
             fixWrapperAlignment();
+            _placeCaseNameOut();
             if (qmriGapless) _markBlockCorners(document.querySelectorAll('#qmri-view-wrap .qv-canvas-clip'));
             if (rectRoiMode) _drawAllQvRois();
             _reconcileQvZoomCursor();
@@ -40917,6 +41180,7 @@
                     qmriViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
                     positionEggs();
                 }
+                _placeCaseNameOut();
             });
             return null;
         }
@@ -41819,6 +42083,7 @@
         let _orthoGlideBusy = false;
         // The dimbar underline tracks its label frame by frame for the whole glide.
         function _glideBegin() {
+            if (!_orthoGlideBusy) _caseNamesVeil();
             _orthoGlideBusy = true;
             _scheduleActiveDimUnderline(document.getElementById('info'));
         }
@@ -41875,6 +42140,7 @@
                     g.remove();
                     (g._labels || []).forEach(l => { l._realHold?.cancel(); l.remove(); });
                     _dropBars();
+                    if (_orthoGlideBusy) _caseNamesUnveil();
                     _orthoGlideBusy = false;
                     const queued = _orthoGlideQueued;
                     _orthoGlideQueued = null;
@@ -42101,8 +42367,10 @@
             ], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE });
         }
 
-        // Still copy of a corner name label, above the ghosts.
-        function _orthoLabelGhost(el) {
+        // Still copy of a corner name label, above the ghosts. --match case
+        // names never travel: the veil (_caseNamesVeil) fades them out and in.
+        function _orthoLabelGhost(el, allowCaseName = false) {
+            if (!allowCaseName && _isCaseName(el)) return null;
             const r = el?.getBoundingClientRect();
             if (!r || !r.width || !el.offsetParent) return null;
             const g = el.cloneNode(true);
@@ -42135,6 +42403,72 @@
             return a;
         }
 
+        /** --match case names during any switch (glide, crossfade, view fade):
+         *  a name that stays where it is is left alone. One that moves, vanishes
+         *  or newly appears fades instead: a copy fades out where it was (made
+         *  up front, shown the frame the change is seen), the real one stays
+         *  hidden, and once the last switch has ended and the outside name has
+         *  settled it fades in where it now sits. Nested switches count; a 4 s
+         *  fallback never leaves names hidden. */
+        const _CASE_NAME_SEL = '#case-title, .mv-pane-name, #case-name-out';
+        const _isCaseName = el => !!el?.matches?.(_CASE_NAME_SEL);
+        const _caseNameShown = el => el.isConnected && el.getClientRects().length > 0 && +getComputedStyle(el).opacity > 0.05;
+        let _caseVeil = null; // { depth, before: Map<el,{r,copy}>, holds: Map<el,Animation>, timer, raf }
+        function _caseNamesVeil() {
+            if (_caseVeil) { _caseVeil.depth++; return; }
+            const v = _caseVeil = { depth: 1, before: new Map(), holds: new Map(), timer: 0, raf: 0 };
+            document.querySelectorAll(_CASE_NAME_SEL).forEach(el => {
+                if (!_caseNameShown(el)) return;
+                const copy = _orthoLabelGhost(el, true);
+                if (copy) copy.style.opacity = '0';
+                v.before.set(el, { r: el.getBoundingClientRect(), copy });
+            });
+            const hide = el => { if (!v.holds.has(el)) v.holds.set(el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000, fill: 'forwards' })); };
+            // Run every frame, and straight away whenever a name is moved or shown
+            // (_reconcileCaseTitle, _placeCaseNameOut), so no frame shows it early.
+            v.check = () => {
+                if (_caseVeil !== v) return;
+                v.before.forEach((b, el) => {
+                    if (v.holds.has(el)) return;
+                    const shown = el.isConnected && el.getClientRects().length > 0;
+                    const r = shown ? el.getBoundingClientRect() : null;
+                    if (shown && Math.abs(r.left - b.r.left) <= 1 && Math.abs(r.top - b.r.top) <= 1) return;
+                    hide(el);
+                    const c = b.copy;
+                    if (c) {
+                        b.copy = null;
+                        const fade = c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                        fade.onfinish = fade.oncancel = () => c.remove();
+                    }
+                });
+                document.querySelectorAll(_CASE_NAME_SEL).forEach(el => { if (!v.before.has(el) && _caseNameShown(el)) hide(el); });
+            };
+            const watch = () => { v.raf = 0; if (_caseVeil !== v) return; v.check(); v.raf = requestAnimationFrame(watch); };
+            watch();
+            v.timer = setTimeout(() => { v.depth = 1; _caseNamesUnveil(); }, 4000);
+        }
+        function _caseNamesUnveil() {
+            const v = _caseVeil;
+            if (!v || --v.depth > 0) return;
+            _caseVeil = null;
+            clearTimeout(v.timer);
+            if (v.raf) cancelAnimationFrame(v.raf);
+            v.before.forEach(b => b.copy?.remove());
+            if (!v.holds.size) return;
+            _reconcileCaseTitle();
+            // Wait for the outside name to stop following the dimbar.
+            const t0 = performance.now();
+            const show = () => {
+                if (_caseNameOutFollow && performance.now() - t0 < 600) { requestAnimationFrame(show); return; }
+                v.holds.forEach((h, el) => {
+                    h.cancel();
+                    if (el.isConnected && el.getClientRects().length)
+                        el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+                });
+            };
+            show();
+        }
+
         // Label copy `l` outlasts its slide: ghost `g` drops it when it is released.
         function _keepLabelOn(g, l) {
             if (!g || !l) return;
@@ -42145,7 +42479,7 @@
         // Hide `els` (names on the panes) until the returned call, when they fade in
         // along with the copy that landed: labels never show ahead of their image.
         function _holdLabels(els) {
-            const holds = [...els].filter(Boolean).map(el => [el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 })]);
+            const holds = [...els].filter(el => el && !_isCaseName(el)).map(el => [el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 })]);
             return () => holds.forEach(([el, h]) => {
                 h.cancel();
                 el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
@@ -43041,7 +43375,7 @@
             const panes = qmriViews.map(_qmriPane), pane = _qmriPane(view);
             // The slice's own image shows once the copy lands; its pane fades in around it.
             const canvasHold = _glideHold(view.canvas);
-            const showLabels = _holdLabels(document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-case-name'));
+            const showLabels = _holdLabels(document.querySelectorAll('#qmri-view-wrap .qv-label, #case-name-out'));
             const holds = new Map(panes.map(p => [p, _glideHold(p)]));
             const others = qmriViews.filter(v => v !== view);
             const t0 = performance.now();
@@ -43094,7 +43428,7 @@
                 _splitDressGhost(g, c);
                 _glideFadeOut(g);
             });
-            _glideFadeOutCopies([...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-case-name')]
+            _glideFadeOutCopies([...document.querySelectorAll('#qmri-view-wrap .qv-label, #case-name-out')]
                 .concat(qmriViews.flatMap(v => [v._colorBar?.canvas, v.cbVmin, v.cbVmax])));
             const info = document.getElementById('info'), cb = _slimCb(), caseTitle = document.getElementById('case-title');
             const infoFrom = info?.getBoundingClientRect();
@@ -43164,7 +43498,7 @@
         // Chrome of the view being left: fades out where it was.
         function _rowsChromeCopies() {
             if (!compareMvActive && !compareQmriActive && !compareActive) {
-                const ids = ['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax', 'mv-cb', 'mv-cb-vmin', 'mv-cb-vmax', 'qmri-case-name'];
+                const ids = ['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax', 'mv-cb', 'mv-cb-vmin', 'mv-cb-vmax', 'case-name-out'];
                 return [...ids.map(id => document.getElementById(id)),
                     ...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb canvas, .mv-pane-name')];
             }
@@ -43489,6 +43823,7 @@
         }
 
         function mvScaleAllCanvases() {
+            _placeCaseNameOut();
             const ready = mvViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
             // Back in the page flow first, so recentering below measures from there.
@@ -47092,8 +47427,10 @@
                 },
                 transitionMode: (_id, apply) => {
                     const items = mvViews.map(v => ({ pane: v.canvas?.closest('.mv-pane'), canvas: v.canvas, clip: v.canvas?.closest('.mv-canvas-wrap') }));
-                    const labels = [...document.querySelectorAll('.mv-label')];
-                    if (!_paneLayoutGlide(items, labels, () => document.querySelectorAll('.mv-label'), apply)) crossfade(apply);
+                    // The --match name (in the big pane or outside the panes) fades
+                    // out with the plane labels and back in once the panes land.
+                    const names = () => [...document.querySelectorAll('.mv-label, .mv-pane-name.visible, #case-name-out.visible')];
+                    if (!_paneLayoutGlide(items, names(), () => [...new Set([...names(), ...document.querySelectorAll('.mv-pane-name, #case-name-out')])], apply)) crossfade(apply);
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
