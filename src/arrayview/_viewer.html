@@ -307,25 +307,29 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        /* Edge ruler — hovering the DimBar (or pressing r / t) draws ticks
-           along the two edges that meet at each pane's index-0 corner, one
-           every few voxels, fading away from the origin. Yellow ticks with a
-           black outline, white letters with a thin stroke, so it reads on
-           bright and dark image content alike. See _placeOrientCrosses(). */
+        /* Edge ruler — hovering the DimBar (or pressing r / t) draws a scale
+           along the two edges that meet at each pane's index-0 corner, in the
+           colorbar's tick style: short white marks at round indices with their
+           values, the axis letter centred on its edge, all outlined in black
+           so it reads on bright and dark image content alike. See
+           _placeOrientCrosses(). */
         .orient-cross {
             position: fixed; left: 0; top: 0; overflow: visible;
             pointer-events: none; z-index: 60;
             opacity: 0; transition: opacity 0.15s ease;
         }
         .orient-cross.showing { opacity: 1; }
-        .orient-cross .oc-halo { stroke: rgba(0, 0, 0, 0.6); fill: none; stroke-linecap: round; }
-        .orient-cross .oc-ln { stroke: var(--active-dim); fill: none; stroke-linecap: round; }
+        .orient-cross .oc-halo { stroke: rgba(0, 0, 0, 0.55); stroke-width: 3px; fill: none; }
+        .orient-cross .oc-ln { stroke: #fff; stroke-width: 1px; fill: none; shape-rendering: crispEdges; }
+        /* Same face and size as the colorbar's tick values; the small text
+           takes a thinner outline so the stroke does not swallow it. */
         .orient-cross text {
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-weight: 600; fill: #fff;
-            stroke: rgba(0, 0, 0, 0.8); stroke-width: 3px; stroke-linejoin: round; paint-order: stroke;
+            font-variant-numeric: tabular-nums;
+            stroke: rgba(0, 0, 0, 0.8); stroke-linejoin: round; paint-order: stroke;
         }
-        .orient-cross text.oc-num { font-weight: 400; fill: #c4c4c4; }
+        .orient-cross text.oc-num { font-size: 9px; fill: #c4c4c4; stroke-width: 2px; }
+        .orient-cross text.oc-axis { font-size: 11px; font-weight: 600; fill: #fff; stroke-width: 3px; }
         #slim-cb-wrap {
             text-align: center;
             /* Horizontal padding fixed; top padding grows via --cb-extra-top
@@ -23005,13 +23009,12 @@
             if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
             return true;
         }
-        // Ruler: at most this many ticks per edge; the tick step is the first
-        // of these voxel counts that leaves at least _EDGE_RULER_GAP px between ticks.
-        const _EDGE_RULER_TICKS = 6;
-        const _EDGE_RULER_GAP = 40;
-        const _EDGE_RULER_STEPS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384];
+        // Ruler steps in voxels (1-2-5 series): the first that leaves room for
+        // the widest label, at least _EDGE_RULER_GAP px apart.
+        const _EDGE_RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+        const _EDGE_RULER_GAP = 44;
+        const _EDGE_RULER_CH = 5.5;     // px per digit of the 9px tick labels
         let _orientCrossEls = [];
-        let _orientT0 = 0;
         let _orientShown = false;
         let _orientHovering = false;
         let _orientRaf = 0;
@@ -23062,63 +23065,69 @@
             }
             return (rt - l > 8 && bt - t > 8) ? { left: l, top: t, right: rt, bottom: bt } : null;
         }
-        // Ticks along one axis of a pane, in px from the visible box's near
-        // edge: index 0 sits at the canvas edge `o0` (screen px), each voxel
-        // is `ppv` px, `dir` is +1 or -1 (flipped), `lo`/`hi` bound what is on
-        // screen. Starts at the first tick on screen, so a panned view still
-        // gets a ruler whose labels give the real index.
-        function _edgeRulerTicks(o0, dir, ppv, max, lo, hi, kk) {
-            const step = _EDGE_RULER_STEPS.find(st => st * ppv >= _EDGE_RULER_GAP * kk) || _EDGE_RULER_STEPS[_EDGE_RULER_STEPS.length - 1];
+        // One axis of a pane's ruler. Index 0 sits at the canvas edge `o0`
+        // (screen px), each voxel is `ppv` px, `dir` is +1 or -1 (flipped),
+        // `lo`..`hi` is what is on screen. Positions come back in px from the
+        // origin-side end of the visible span, so a zoomed or panned view gets
+        // ticks at the real indices. `near` keeps labels clear of the other
+        // axis's column at the origin corner; `mid` centres the axis letter on
+        // the stretch of the edge the axis covers (one tile in a mosaic).
+        function _edgeRulerAxis(o0, dir, ppv, max, lo, hi, near) {
+            const gap = Math.max(_EDGE_RULER_GAP, String(max).length * _EDGE_RULER_CH + 20);
+            const step = _EDGE_RULER_STEPS.find(st => st * ppv >= gap) || _EDGE_RULER_STEPS[_EDGE_RULER_STEPS.length - 1];
+            const len = hi - lo, at = (X) => (dir > 0 ? X - lo : hi - X);
+            const start = Math.max(0, at(o0)), end = Math.min(len, at(o0 + dir * max * ppv));
             const ticks = [];
-            for (let i = 1; i * step <= max && ticks.length < _EDGE_RULER_TICKS; i++) {
-                const X = o0 + dir * i * step * ppv;
-                if (dir > 0 ? X > hi - 2 : X < lo + 2) break;
-                if (dir > 0 ? X < lo + 6 : X > hi - 6) continue;
-                ticks.push({ pos: dir > 0 ? X - lo : hi - X, major: i % 4 === 0, label: i * step });
+            for (let i = step; i < max; i += step) {
+                const pos = at(o0 + dir * i * ppv);
+                if (pos < near) continue;
+                if (pos > len - 8) break;
+                ticks.push({ pos, label: i });
             }
-            const last = ticks.length ? ticks[ticks.length - 1].pos : 0;
-            const letter = Math.min(hi - lo - 10 * kk, last + Math.max(14 * kk, 0.6 * step * ppv));
-            return { ticks, letter };
+            return { ticks, mid: (start + end) / 2, len };
         }
-        // Fade-in of item `j` (0 = nearest the origin), driven by time since the
-        // ruler appeared so rebuilding the SVG mid-reveal never restarts it.
-        function _edgeRulerReveal(now, delay) {
-            if (_orientT0 < 0) return 1;
-            return Math.max(0, Math.min(1, (now - _orientT0 - delay) / 140));
-        }
-        // The ruler SVG for one pane. `r` is the canvas box, `v` its visible part.
-        function _edgeRulerSvg(p, r, v, kk, now) {
+        // The ruler SVG for one pane: `r` is the canvas box, `v` its visible part.
+        // Like the colorbar's tick row: a short white mark at the edge per
+        // round index, its value beside it, the axis letter centred on the edge.
+        function _edgeRulerSvg(p, r, v) {
             const w = v.right - v.left, h = v.bottom - v.top;
             const dx = p.fx ? -1 : 1, dy = p.fy ? -1 : 1;
-            const ax = _edgeRulerTicks(p.fx ? r.right : r.left, dx, r.width / p.nx, p.mx, v.left, v.right, kk);
-            const ay = _edgeRulerTicks(p.fy ? r.bottom : r.top, dy, r.height / p.ny, p.my, v.top, v.bottom, kk);
-            const X = (pos) => p.fx ? w - pos : pos, Y = (pos) => p.fy ? h - pos : pos;
-            const y0 = p.fy ? h : 0, x0 = p.fx ? w : 0;
+            const CH = _EDGE_RULER_CH;
+            const colW = String(p.my).length * CH + 12;     // the vertical axis's label column
+            const ax = _edgeRulerAxis(p.fx ? r.right : r.left, dx, r.width / p.nx, p.mx, v.left, v.right, colW + 8);
+            const ay = _edgeRulerAxis(p.fy ? r.bottom : r.top, dy, r.height / p.ny, p.my, v.top, v.bottom, 22);
+            const X = (pos) => (p.fx ? w - pos : pos), Y = (pos) => (p.fy ? h - pos : pos);
+            const x0 = p.fx ? w : 0, y0 = p.fy ? h : 0;
             const f = (n) => n.toFixed(1);
-            const line = (x1, y1, x2, y2) => `<line class="oc-halo" stroke-width="${f(3.5 * kk)}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`
-                + `<line class="oc-ln" stroke-width="${f(1.75 * kk)}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`;
-            const n = _EDGE_RULER_TICKS, fs = f(12 * kk), ns = f(10 * kk);
+            const mark = (x1, y1, x2, y2) => `<line class="oc-halo" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`
+                + `<line class="oc-ln" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`;
+            const anchor = p.fx ? 'end' : 'start';
             let out = '';
-            ax.ticks.forEach((t, j) => {
-                const op = (1 - 0.65 * j / n) * _edgeRulerReveal(now, j * 35), len = (t.major ? 9 : 6) * kk, x = X(t.pos);
-                out += `<g opacity="${op.toFixed(2)}">` + line(x, y0 + dy, x, y0 + dy * (1 + len))
-                    + (t.major ? `<text class="oc-num" font-size="${ns}" x="${f(x)}" y="${f(p.fy ? h - 13 * kk : 22 * kk)}" text-anchor="middle">${t.label}</text>` : '')
-                    + '</g>';
+            // Horizontal edge: marks hang into the pane, values below them.
+            const rowY = p.fy ? h - 8 : 15;
+            ax.ticks.forEach(t => {
+                const x = X(t.pos);
+                out += mark(x, y0, x, y0 + dy * 4);
+                const half = String(t.label).length * CH / 2;
+                if (Math.abs(t.pos - ax.mid) > half + 15 && t.pos + half < ax.len - 2) {
+                    out += `<text class="oc-num" x="${f(x)}" y="${rowY}" text-anchor="middle">${t.label}</text>`;
+                }
             });
-            ay.ticks.forEach((t, j) => {
-                const op = (1 - 0.65 * j / n) * _edgeRulerReveal(now, j * 35), len = (t.major ? 9 : 6) * kk, y = Y(t.pos);
-                out += `<g opacity="${op.toFixed(2)}">` + line(x0 + dx, y, x0 + dx * (1 + len), y)
-                    + (t.major ? `<text class="oc-num" font-size="${ns}" x="${f(x0 + dx * 13 * kk)}" y="${f(y + 3.5 * kk)}" text-anchor="${p.fx ? 'end' : 'start'}">${t.label}</text>` : '')
-                    + '</g>';
+            out += `<text class="oc-axis" x="${f(X(ax.mid))}" y="${rowY + 0.5}" text-anchor="middle">${p.lx}</text>`;
+            // Vertical edge: marks hang into the pane, values beside them.
+            const colX = x0 + dx * 7;
+            ay.ticks.forEach(t => {
+                const y = Y(t.pos);
+                out += mark(x0, y, x0 + dx * 4, y);
+                if (Math.abs(t.pos - ay.mid) > 19) {
+                    out += `<text class="oc-num" x="${f(colX)}" y="${f(y + 3)}" text-anchor="${anchor}">${t.label}</text>`;
+                }
             });
-            const lop = _edgeRulerReveal(now, 260).toFixed(2);
-            out += `<text opacity="${lop}" font-size="${fs}" x="${f(X(ax.letter))}" y="${f(p.fy ? h - 3 * kk : 12 * kk)}" text-anchor="${p.fx ? 'end' : 'start'}">${p.lx}</text>`;
-            out += `<text opacity="${lop}" font-size="${fs}" x="${f(x0 + dx * 3 * kk)}" y="${f(p.fy ? Y(ay.letter) : Y(ay.letter) + 8 * kk)}" text-anchor="${p.fx ? 'end' : 'start'}">${p.ly}</text>`;
+            out += `<text class="oc-axis" x="${f(colX)}" y="${f(Y(ay.mid) + 4)}" text-anchor="${anchor}">${p.ly}</text>`;
             // Strips the ruler covers, for _orientYieldTo (viewport px).
-            const depth = 24 * kk, ex = ax.letter + 12 * kk, ey = ay.letter + 12 * kk;
             const boxes = [
-                { left: v.left + (p.fx ? w - ex : 0), right: v.left + (p.fx ? w : ex), top: v.top + (p.fy ? h - depth : 0), bottom: v.top + (p.fy ? h : depth) },
-                { left: v.left + (p.fx ? w - depth : 0), right: v.left + (p.fx ? w : depth), top: v.top + (p.fy ? h - ey : 0), bottom: v.top + (p.fy ? h : ey) },
+                { left: v.left, right: v.right, top: p.fy ? v.bottom - 20 : v.top, bottom: p.fy ? v.bottom : v.top + 20 },
+                { left: p.fx ? v.right - colW - 4 : v.left, right: p.fx ? v.right : v.left + colW + 4, top: v.top, bottom: v.bottom },
             ];
             return { html: out, boxes };
         }
@@ -23148,8 +23157,9 @@
         // Lays a ruler along the index-0 edges of each pane (top / left, or
         // bottom / right when flipped), counting toward increasing index.
         function _placeOrientCrosses() {
-            const panes = _orientPanes().map(p => ({ p, v: _orientVisibleRect(p.cv) })).filter(q => q.v);
-            const now = performance.now();
+            // Panes thinner than a label row (a 10-slice side view) get no ruler.
+            const panes = _orientPanes().map(p => ({ p, v: _orientVisibleRect(p.cv) }))
+                .filter(q => q.v && Math.min(q.v.right - q.v.left, q.v.bottom - q.v.top) >= 40);
             const boxes = [];
             while (_orientCrossEls.length < panes.length) {
                 const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -23162,9 +23172,7 @@
                 if (!q) { el.classList.remove('showing'); return; }
                 const { p, v } = q;
                 const w = v.right - v.left, h = v.bottom - v.top;
-                // Small panes (grids, mosaics) get proportionally smaller ticks and type.
-                const kk = Math.max(0.55, Math.min(1, Math.min(w, h) / 230));
-                const svg = _edgeRulerSvg(p, p.cv.getBoundingClientRect(), v, kk, now);
+                const svg = _edgeRulerSvg(p, p.cv.getBoundingClientRect(), v);
                 if (el._ocHtml !== svg.html) { el.innerHTML = svg.html; el._ocHtml = svg.html; }
                 const size = `${Math.round(w)}x${Math.round(h)}`;
                 if (el._ocSize !== size) {
@@ -23196,12 +23204,6 @@
         // Shown for every image pane while the pointer is over the DimBar.
         function _showOrientEdgeHighlight() {
             if (!_orientEdgeAllowed()) { _clearOrientEdgeHighlight(); return; }
-            // A ruler already up stays put (quick r / t presses just re-lay it);
-            // only a fresh one reveals its ticks outward from the origin.
-            if (!_orientShown) {
-                const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                _orientT0 = still ? -1 : performance.now();
-            }
             _orientShown = true;
             if (!_orientRaf) _orientLoop();
         }
