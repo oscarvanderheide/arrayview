@@ -961,6 +961,7 @@ def _open_cli_native_shell_after_server(
     win_h: int,
     expected_server_id: str | None,
     expected_server_pid: int | None = None,
+    viewer_url: str | None = None,
 ) -> bool:
     """Open a CLI native shell and return whether it is usable."""
     native_request_id = uuid.uuid4().hex
@@ -970,6 +971,7 @@ def _open_cli_native_shell_after_server(
         name,
         compare_sids=compare_sids,
         native_request_id=native_request_id,
+        viewer_url=viewer_url,
     )
     _trace_launch_event(
         "display.attempt_started",
@@ -1578,6 +1580,7 @@ def _open_cli_existing_server_view(
     notify_native_shell: bool,
     notified: bool,
     native_request_id: str | None = None,
+    open_native_window: bool = False,
     name: str,
     base_file: str,
     watch: bool,
@@ -1622,7 +1625,7 @@ def _open_cli_existing_server_view(
             _vprint(f"Injected into existing window (port {port})")
             return
         notified = False
-    if notify_native_shell:
+    if notify_native_shell or open_native_window:
         native_ready = _open_cli_native_shell_after_server(
             port=port,
             sid=sid,
@@ -1632,6 +1635,7 @@ def _open_cli_existing_server_view(
             win_h=800,
             expected_server_id=expected_server_id,
             expected_server_pid=expected_server_pid,
+            viewer_url=url,
         )
         if not native_ready:
             _trace_launch_event(
@@ -1792,6 +1796,7 @@ def _register_cli_session_with_existing_server_impl(
         "overlay_sid": overlay_sid,
         "compare_sids": compare_sids,
         "notify_native_shell": notify_native_shell,
+        "open_native_window": bool(use_native_shell),
         "notified": bool(result.get("notified", False)),
         "native_request_id": native_request_id,
     }
@@ -2009,6 +2014,7 @@ def _handle_cli_existing_server(
             ),
             dims_override=dims_override,
             notify_native_shell=bool(session_info["notify_native_shell"]),
+            open_native_window=bool(session_info.get("open_native_window")),
             notified=bool(session_info["notified"]),
             native_request_id=(
                 str(session_info["native_request_id"])
@@ -2419,7 +2425,7 @@ def _open_cli_spawned_view(
         if launch_context is not None
         else {}
     )
-    if _should_notify_native_shell(use_native_shell, overlay_sid):
+    if use_native_shell:
         native_ready = _open_cli_native_shell_after_server(
             port=port,
             sid=sid,
@@ -2428,6 +2434,7 @@ def _open_cli_spawned_view(
             win_w=1400,
             win_h=900,
             expected_server_id=expected_server_id,
+            viewer_url=url,
         )
         if not native_ready:
             _trace_launch_event(
@@ -2448,11 +2455,6 @@ def _open_cli_spawned_view(
                 **fallback_kwargs,
             )
         return
-    if use_native_shell and overlay_sid:
-        _vprint(
-            "[ArrayView] Overlay mode: opening browser (native shell injection not supported with overlay)",
-            flush=True,
-        )
     _print_viewer_location(url, **route_kwargs)
     if launch_context is not None and launch_context.plan.display.value == "none":
         return
@@ -3044,11 +3046,17 @@ def _shell_url(
     *,
     compare_sids: _CompareSids | None = None,
     native_request_id: str | None = None,
+    viewer_url: str | None = None,
 ) -> str:
     parts = [
         f"init_sid={sid}",
         f"init_name={urllib.parse.quote(str(name))}",
     ]
+    if viewer_url:
+        # Full viewer path so the window keeps overlays, dims and the rest.
+        parsed = urllib.parse.urlparse(viewer_url)
+        view_path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
+        parts.append(f"init_view={urllib.parse.quote(view_path, safe='')}")
     if compare_sids:
         parts.append(f"init_compare_sid={compare_sids[0]}")
         parts.append(f"init_compare_sids={_join_query_values(compare_sids)}")

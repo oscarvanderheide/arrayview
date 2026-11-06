@@ -289,7 +289,7 @@ tried, no page errors.
 | 6 | VS Code Remote SSH | vscode tab | small, fast local | never verified this session; resolves the URL differently (`asExternalUri`) |
 | 7 | plain SSH, no VS Code | browser | small | never verified |
 | 8 | local desktop Linux | native window | small | never verified |
-| 9 | local desktop macOS | native window | small | never verified |
+| 9 | local desktop macOS | native window | small | **verified 2026-11-06 `real host`** — `uv run arrayview --window native` (no file, opens the demo with overlays) and `uv run arrayview a.npy --window native` both rendered their first frame in a native window from a macOS terminal. Before the fix the no-file demo opened in the browser because overlay views skipped the native window. |
 | 10 | local desktop Windows | native window | small | never verified |
 | 11 | any | none | any | **verified 2026-10-31 `real host`** — five-file stack: `uv run arrayview <5 .nii files> --window none --port 8767` loaded and released, reporting that no server remained. Earlier: **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
 

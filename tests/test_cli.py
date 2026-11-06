@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 import numpy as np
@@ -977,3 +978,44 @@ def test_cli_vectorfield_ambiguous_component_axis_requires_flag(monkeypatch, tmp
         appmod.arrayview()
 
     assert "--vectorfield-components-dim" in out.getvalue()
+
+
+def test_cli_spawned_native_view_with_overlay_opens_native_window(monkeypatch):
+    """Overlay views (e.g. the no-file demo) open natively, not in a browser."""
+    opened = {}
+
+    def fake_native(**kwargs):
+        opened.update(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        _launcher_mod, "_open_cli_native_shell_after_server", fake_native
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda *a, **k: pytest.fail("browser opened for a native overlay view"),
+    )
+    _launcher_mod._open_cli_spawned_view(
+        port=8123,
+        sid="base",
+        compare_sids=None,
+        overlay_sid="ov1",
+        overlay_names=["Regions"],
+        dims_override=None,
+        use_native_shell=True,
+        name="demo",
+        base_file="demo.npy",
+        watch=False,
+        window_mode="native",
+        floating=False,
+        is_remote=False,
+    )
+    shell = _launcher_mod._shell_url(
+        8123, "base", "demo", viewer_url=opened["viewer_url"]
+    )
+    init_view = urllib.parse.parse_qs(urllib.parse.urlparse(shell).query)[
+        "init_view"
+    ][0]
+    assert init_view.startswith("/?sid=base")
+    assert "overlay_sid=ov1" in init_view

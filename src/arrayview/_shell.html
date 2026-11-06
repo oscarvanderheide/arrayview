@@ -283,9 +283,11 @@
         const initName = initParams.get('init_name');
         const initCompareSid = initParams.get('init_compare_sid');
         const initCompareSids = initParams.get('init_compare_sids');
+        const initView = initParams.get('init_view');
         if (initSid) {
             let url = `/?sid=${initSid}`;
             if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
+            if (initView && initView.startsWith('/?')) url = initView;
             if (nativeRequestId) url += `&native_request_id=${encodeURIComponent(nativeRequestId)}`;
             addTab(initSid, initName || 'Array', url);
         } else if (!window.__av_inline) {
