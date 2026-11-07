@@ -10748,6 +10748,7 @@
             renderInfo();
             compareRender();
             _cqRefreshRowPins();
+            _cmvRefreshRows();
             if (_detachedDimIsCases()) setTimeout(() => _flashDetachedIndexHint(which, key), 40);
             saveState();
             showStatus(_spreadStatus());
@@ -10775,6 +10776,7 @@
             renderInfo();
             compareRender();
             _cqRefreshRowPins();
+            _cmvRefreshRows();
             saveState();
             showStatus(_spreadStatus());
             return true;
@@ -38978,6 +38980,23 @@
             renderInfo();
         }
 
+        // Side-by-side panes moved along their dim: 3-plane rows follow,
+        // with their names.
+        let _cmvRowNameEls = [];
+        function _cmvRefreshRows() {
+            if (!compareMvActive || !detachedDimMode) return;
+            const labels = compareMvSids.map((_, i) => _detachedDimPaneLabel(detachedDimIdx[i]));
+            const parts = _arrayNameParts(labels);
+            _cmvRowNameEls.forEach((el, i) => {
+                if (!el || !parts[i]) return;
+                el._nameParts = parts[i];
+                el.title = labels[i];
+                _fitArrayName(el);
+            });
+            compareMvViews.forEach(v => compareMvRender(v));
+            renderInfo();
+        }
+
         // Page the mosaic's cases shown as compare-qMRI rows by a window.
         function _cqCaseWindowStep(dir) {
             const n = compareQmriCases.length;
@@ -39697,6 +39716,7 @@
                 ? compareMvSids.map((_, i) => _detachedDimPaneLabel(detachedDimIdx[i]))
                 : compareMvSids.map(comparePaneLabelForSid);
             const rowNameParts = _arrayNameParts(rowNames);
+            _cmvRowNameEls = [];
             // One row per compared array (SID)
             for (let si = 0; si < compareMvSids.length; si++) {
                 const sidVal = compareMvSids[si];
@@ -39724,6 +39744,7 @@
                         rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
                         cvBox.appendChild(rowName);
                         _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [cvBox], _placeCompareTitle);
+                        _cmvRowNameEls[si] = rowName.lastElementChild;
                     }
                     cvWrap.appendChild(cvBox);
                     const piEl = document.createElement('div');
@@ -42329,10 +42350,10 @@
                 showStatus(cap === size ? `side by side: all ${size} already shown` : `side by side: at most ${SPREAD_MAX}`);
                 return;
             }
-            if (compareMvActive || compareQmriActive) {
-                showStatus('side by side: leave 3-plane / qMRI to change the count');
-                return;
-            }
+            const rows = compareMvActive ? 'mv' : compareQmriActive ? 'qmri' : null;
+            const qd = compareQmriDim;
+            if (rows === 'mv') exitCompareMv();
+            else if (rows === 'qmri') exitCompareQmri();
             if (n > 2 && compareCenterMode > 0) _setCompareCenterMode(0);
             detachedDimIdx = _spreadNeighbours(detachedDim, detachedDimIdx[0], n);
             spreadCount = n;
@@ -42341,6 +42362,8 @@
             if (!ok) return;
             compareDisplaySids = Array(n).fill(sid);
             updateCompareTitles();
+            if (rows === 'mv') enterCompareMv();
+            else if (rows === 'qmri') { _lastQmriDim = qd; enterCompareQmri(); }
             renderInfo();
             saveState();
             showStatus(_spreadStatus());

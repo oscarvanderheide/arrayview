@@ -624,6 +624,36 @@ class TestKeyboard:
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
+    def test_side_by_side_rows_follow_count_and_paging(self, loaded_viewer, client, tmp_path):
+        """With three panes side by side, v shows one 3-plane row per pane;
+        paging moves the rows (images and names) and ' / ; change the
+        number of rows without leaving 3-plane."""
+        from conftest import register_array
+
+        arr = np.random.default_rng(3).random((24, 26, 10, 8)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
+        _focus_kb(page)
+        page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        page.keyboard.press("'")
+        page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
+        page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean) && !compareRendering", timeout=10_000)
+        page.wait_for_timeout(500)
+        page.keyboard.press("v")
+        page.wait_for_function("() => compareMvActive && compareMvViews.length === 9", timeout=10_000)
+        rows = "() => [...new Set(compareMvViews.map(v => _cmvIndices(v)[3]))].join(',')"
+        names = "() => _cmvRowNameEls.map(e => e.title).join(',')"
+        assert page.evaluate(rows) == "0,1,2"
+        page.keyboard.press("k")
+        page.wait_for_function(f"() => ({rows})() === '3,4,5'", timeout=5_000)
+        assert page.evaluate(names) == "4/8,5/8,6/8"
+        page.keyboard.press("'")
+        page.wait_for_function("() => compareMvActive && compareMvViews.length === 12", timeout=10_000)
+        assert page.evaluate(rows) == "3,4,5,6"
+        page.keyboard.press(";")
+        page.wait_for_function("() => compareMvActive && compareMvViews.length === 9", timeout=10_000)
+
     def test_collection_case_names_shown_above_panes(self, loaded_viewer, client, tmp_path):
         """A folder/--match stack opens side by side with each pane named by
         its case, names the case above the single view, and names each half
