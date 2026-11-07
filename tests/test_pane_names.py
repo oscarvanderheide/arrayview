@@ -84,7 +84,7 @@ def test_index_split_stacks_both_indices_in_the_dim_bar(page, server_url, client
 
     _focus(page)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
-    page.keyboard.press("Shift+S")
+    page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -93,7 +93,7 @@ def test_index_split_stacks_both_indices_in_the_dim_bar(page, server_url, client
             "() => [...document.querySelectorAll('#info .dim-split-stack > *')].map(e => e.textContent)"
         )
 
-    a, b = page.evaluate("() => [detachedDimIndexA, detachedDimIndexB]")
+    a, b = page.evaluate("() => [detachedDimIdx[0], detachedDimIdx[1]]")
     assert rows() == [f"[{a + 1:03d}]", f"{{{b + 1:03d}}}"]
     assert page.evaluate("() => compareTitles.slice(0, 2).map(e => e.textContent)") == ["", ""]
     assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
@@ -196,7 +196,7 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
     page.wait_for_timeout(500)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+S")
+    page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -240,7 +240,7 @@ def test_immersive_panes_join_with_touching_off(page, server_url, client, tmp_pa
     page.wait_for_timeout(500)
     page.evaluate("() => { compareGapless = false; activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+S")
+    page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -306,7 +306,7 @@ def _open_split(page, server_url, client, tmp_path, name, viewport=(2000, 700)):
     page.wait_for_timeout(800)
     page.evaluate("() => { activeDim = 2; _dimbarExtentPinned = false; _reconcileDimbarExtent(); renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+S")
+    page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(900)
 
@@ -442,7 +442,7 @@ def test_immersive_split_bars_appear_after_the_panes_land(page, server_url, clie
     page.wait_for_function("() => _fullscreenActive", timeout=5_000)
     page.wait_for_timeout(1200)
     _focus(page)
-    page.keyboard.press("Shift+S")
+    page.keyboard.press("Shift+Semicolon")
     frames = page.evaluate(
         """() => new Promise(res => {
             const out = [], t0 = performance.now();

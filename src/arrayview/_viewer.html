@@ -7701,8 +7701,12 @@
         let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe,6=flicker,7=checker
         let detachedDimMode = false;
         let detachedDim = -1;
-        let detachedDimIndexA = 0;
-        let detachedDimIndexB = 0;
+        // Side by side (`:`): one array shown at several indices of `detachedDim`,
+        // one entry per pane. Two panes compare ([ ] / { } move each side, X
+        // works); three or more browse neighbours that page along together.
+        let detachedDimIdx = [];
+        let spreadCount = 2;        // panes used the next time `:` turns it on
+        const SPREAD_MAX = 6;       // compare panes available
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let overlayOutlineOnly = false;
@@ -7710,6 +7714,7 @@
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let _overlayFocusIdx = null;      // transient HUD hover focus; null when inactive
         let pendingViewMode = null;
+        let _pendingStackMosaicN = null; // stack mosaic size to open at boot
 
         function _compareCenterLayoutEligible() {
             return compareActive && _compareCenterSupported() && compareCenterMode > 0
@@ -9279,7 +9284,11 @@
             for (let i = 0; i < 24; i++) { s = (lo + hi) / 2; if (bx(s) < t) lo = s; else hi = s; }
             return 3 * s * s * (1 - s) + s * s * s;
         }
-        function _quarterTurnAround(change, getBoxes) {
+        /* `mode` 'flip' (t, transpose): the copy instead flips like a card
+         * 180deg about its top-left→bottom-right diagonal (slight perspective);
+         * its back face lands showing the transposed picture. Same path,
+         * shrink-to-fit, glides and label fades as the turn. */
+        function _quarterTurnAround(change, getBoxes, mode = 'turn') {
             if (_quarterTurn) { const q = _quarterTurn; _quarterTurn = null; q.stop(); if (!q.landed) { change(); return; } }
             const boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
             // Innermost boxes only, so a grid is not turned as a whole.
@@ -9362,15 +9371,34 @@
                     cx = f.cx + (n.cx - f.cx) * r; cy = f.cy + (n.cy - f.cy) * r;
                     fw = f.fw + (n.w - f.fw) * r; fh = f.fh + (n.h - f.fh) * r;
                 }
-                const ang = -90 * e, th = ang * Math.PI / 180;
-                const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
-                const w = o.w * sig, h = o.h * sig, bw = w * c + h * s, bh = w * s + h * c;
-                const fit = Math.min(1, bw ? fw / bw : 1, bh ? fh / bh : 1);
+                const w = o.w * sig, h = o.h * sig;
+                let ang, bw, bh, slack = 1;
+                if (mode === 'flip') {
+                    // Card flip about the 45deg diagonal: the across-diagonal
+                    // part of each corner shrinks by cos(angle) in projection.
+                    ang = 180 * e;
+                    const c = Math.cos(ang * Math.PI / 180);
+                    bw = 0; bh = 0;
+                    for (const [x, y] of [[w / 2, h / 2], [w / 2, -h / 2]]) {
+                        const m = (x + y) / 2, d = c * (x - y) / 2;
+                        bw = Math.max(bw, 2 * Math.abs(m + d)); bh = Math.max(bh, 2 * Math.abs(m - d));
+                    }
+                    slack = 1 - 0.06 * Math.sin(ang * Math.PI / 180); // room for perspective
+                } else {
+                    ang = -90 * e;
+                    const th = ang * Math.PI / 180, c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+                    bw = w * c + h * s; bh = w * s + h * c;
+                }
+                const fit = Math.min(1, bw ? fw / bw : 1, bh ? fh / bh : 1) * slack;
                 return { ang, sig, cx, cy, fw, fh, k: sig * fit };
             };
-            const setPose = (el, ang, k, dx, dy) => {
-                el.style.rotate = `${ang}deg`; el.style.scale = `${k}`; el.style.translate = `${dx}px ${dy}px`;
-            };
+            const setPose = mode === 'flip'
+                ? (el, ang, k, dx, dy) => {
+                    el.style.transform = `translate(${dx}px, ${dy}px) perspective(1600px) rotate3d(1, 1, 0, ${ang}deg) scale(${k})`;
+                }
+                : (el, ang, k, dx, dy) => {
+                    el.style.rotate = `${ang}deg`; el.style.scale = `${k}`; el.style.translate = `${dx}px ${dy}px`;
+                };
             let raf = 0, lastSeq = seq0, quiet = 0, t1 = 0, tEnd = 0;
             const q = { landed: false };
             const finishAll = () => {
@@ -10600,8 +10628,28 @@
         function _resetDetachedDimState() {
             detachedDimMode = false;
             detachedDim = -1;
-            detachedDimIndexA = 0;
-            detachedDimIndexB = 0;
+            detachedDimIdx = [];
+        }
+
+        function _spreadCount() {
+            return detachedDimMode ? detachedDimIdx.length : 0;
+        }
+
+        // Status line for side by side: the two sides' keys, or the window shown.
+        function _spreadStatus() {
+            const n = detachedDimIdx.length;
+            if (n === 2) {
+                return `side by side: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIdx[0])} · { } ${_detachedDimPaneLabel(detachedDimIdx[1])}`;
+            }
+            const size = shape[detachedDim];
+            return `side by side: dim ${detachedDim} · ${detachedDimIdx[0] + 1}–${detachedDimIdx[n - 1] + 1} of ${size}`;
+        }
+
+        // `n` neighbouring indices along `dim`, starting at `start` when they fit.
+        function _spreadNeighbours(dim, start, n) {
+            const size = Number(shape[dim]) || 0;
+            const first = Math.max(0, Math.min(size - n, start));
+            return Array.from({ length: n }, (_, i) => first + i);
         }
 
         // Split across the cases of a --match collection: panes are named
@@ -10626,11 +10674,14 @@
         function _detachedDimStackHTML() {
             const width = String(shape[detachedDim]).length;
             const row = (idx, val) => _detachedDimPaneTitleHTML(idx, String(val + 1).padStart(width, '0'));
-            return `<span class="dim-split-stack">${row(0, detachedDimIndexA)}${row(1, detachedDimIndexB)}</span>`;
+            const n = detachedDimIdx.length;
+            if (n !== 2) return `${detachedDimIdx[0] + 1}–${detachedDimIdx[n - 1] + 1}`;
+            return `<span class="dim-split-stack">${row(0, detachedDimIdx[0])}${row(1, detachedDimIdx[1])}</span>`;
         }
 
         function _detachedDimPaneTitleHTML(idx, label) {
             const escaped = String(label || '').replace(/</g, '&lt;');
+            if (detachedDimIdx.length !== 2) return escaped;
             if (idx === 0) {
                 return `<span class="detached-index-hint" data-detached-pane="A"><span class="hint-bracket" data-detached-key="[">[</span><span>${escaped}</span><span class="hint-bracket" data-detached-key="]">]</span></span>`;
             }
@@ -10673,8 +10724,10 @@
             if (!detachedDimMode || detachedDim < 0 || !Number.isFinite(delta)) return false;
             const size = Number(shape[detachedDim]) || 0;
             if (size < 2) return false;
-            const other = which === 'A' ? detachedDimIndexB : detachedDimIndexA;
-            let next = which === 'A' ? detachedDimIndexA : detachedDimIndexB;
+            if (detachedDimIdx.length !== 2) return false;
+            const side = which === 'A' ? 0 : 1;
+            const other = detachedDimIdx[1 - side];
+            let next = detachedDimIdx[side];
             let remaining = size;
             while (remaining > 0) {
                 next = (next + delta + size) % size;
@@ -10682,8 +10735,7 @@
                 remaining -= 1;
             }
             if (next === other) return false;
-            if (which === 'A') detachedDimIndexA = next;
-            else detachedDimIndexB = next;
+            detachedDimIdx[side] = next;
             if (!_detachedDimIsCases()) _splitKeyFlash = { key, start: performance.now() };
             updateCompareTitles();
             renderInfo();
@@ -10691,7 +10743,7 @@
             _cqRefreshRowPins();
             if (_detachedDimIsCases()) setTimeout(() => _flashDetachedIndexHint(which, key), 40);
             saveState();
-            showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            showStatus(_spreadStatus());
             return true;
         }
 
@@ -10701,15 +10753,23 @@
             if (size < 2) return false;
             const step = Math.trunc(delta);
             if (!step) return false;
-            detachedDimIndexA = (detachedDimIndexA + step + size) % size;
-            detachedDimIndexB = (detachedDimIndexB + step + size) % size;
-            indices[detachedDim] = detachedDimIndexA;
+            const n = detachedDimIdx.length;
+            if (n === 2) {
+                // Comparing: both sides move one step, keeping their gap.
+                detachedDimIdx = detachedDimIdx.map(i => (i + step + size) % size);
+            } else {
+                // Browsing: page to the next (or previous) n neighbours.
+                const next = _spreadNeighbours(detachedDim, detachedDimIdx[0] + Math.sign(step) * n, n);
+                if (next[0] === detachedDimIdx[0]) return true;
+                detachedDimIdx = next;
+            }
+            indices[detachedDim] = detachedDimIdx[0];
             updateCompareTitles();
             renderInfo();
             compareRender();
             _cqRefreshRowPins();
             saveState();
-            showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            showStatus(_spreadStatus());
             return true;
         }
 
@@ -10745,11 +10805,7 @@
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
             const labels = detachedDimMode
-                ? effectiveSids.map((_, idx) => {
-                    if (idx === 0) return _detachedDimPaneLabel(detachedDimIndexA);
-                    if (idx === 1) return _detachedDimPaneLabel(detachedDimIndexB);
-                    return '';
-                })
+                ? effectiveSids.map((_, idx) => _detachedDimPaneLabel(detachedDimIdx[idx]))
                 : effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length >= 2) {
                 // `labels` is already resolved per displayed sid above. The
@@ -10766,7 +10822,8 @@
                 const text = labels[idx] || '';
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
-                if (detachedDimMode && !_detachedDimIsCases()) {
+                if (detachedDimMode && !_detachedDimIsCases() && detachedDimIdx.length === 2) {
+                    // A pair shows its two indices in the dim bar, by their keys.
                     el.textContent = '';
                 } else if (text && detachedDimMode) {
                     el.innerHTML = (_detachedDimIsCases() && !sideTitle ? ARRAY_NAME_LOGO_SVG : '')
@@ -15781,7 +15838,7 @@
          */
         function _diffHistogramVersion() {
             const detached = (detachedDimMode && detachedDim >= 0)
-                ? `${detachedDim}:${detachedDimIndexA}:${detachedDimIndexB}` : '';
+                ? `${detachedDim}:${detachedDimIdx.join(':')}` : '';
             return [
                 compareDisplaySids.join('/'), indices.join(','),
                 dim_x, dim_y, dim_z, complexMode, logScale, diffMode, detached,
@@ -15804,8 +15861,8 @@
             if (detachedDimMode && detachedDim >= 0) {
                 const indicesA = [...indices];
                 const indicesB = [...indices];
-                indicesA[detachedDim] = detachedDimIndexA;
-                indicesB[detachedDim] = detachedDimIndexB;
+                indicesA[detachedDim] = detachedDimIdx[0];
+                indicesB[detachedDim] = detachedDimIdx[1];
                 params.set('indices_a', indicesA.join(','));
                 params.set('indices_b', indicesB.join(','));
             }
@@ -15870,9 +15927,9 @@
          * frame requests use.
          */
         function _comparePaneHoverIndices(i) {
-            if (!detachedDimMode || detachedDim < 0 || i > 1) return indices;
+            if (!detachedDimMode || detachedDim < 0 || !(i < detachedDimIdx.length)) return indices;
             const paneIndices = [...indices];
-            paneIndices[detachedDim] = i === 0 ? detachedDimIndexA : detachedDimIndexB;
+            paneIndices[detachedDim] = detachedDimIdx[i];
             return paneIndices;
         }
 
@@ -17822,9 +17879,9 @@
                 direction: lastDirection,
                 perf: _PERF_ENABLED,
             };
-            if (detachedDimMode && detachedDim >= 0 && paneIdx < 2) {
+            if (detachedDimMode && detachedDim >= 0 && paneIdx < detachedDimIdx.length) {
                 const paneIndices = [...indices];
-                paneIndices[detachedDim] = paneIdx === 0 ? detachedDimIndexA : detachedDimIndexB;
+                paneIndices[detachedDim] = detachedDimIdx[paneIdx];
                 msg.indices = paneIndices;
             }
             if (projectionMode > 0) {
@@ -18016,9 +18073,9 @@
                 const compareTimeoutMs = (!_reportedFirstFrame || isInlineEmbed) ? 5000 : 0;
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
-                    if (detachedDimMode && detachedDim >= 0 && i < 2) {
+                    if (detachedDimMode && detachedDim >= 0 && i < detachedDimIdx.length) {
                         const paneIndices = [...indices];
-                        paneIndices[detachedDim] = i === 0 ? detachedDimIndexA : detachedDimIndexB;
+                        paneIndices[detachedDim] = detachedDimIdx[i];
                         reqParams.set('indices', paneIndices.join(','));
                     }
                     // Shared global range for fair comparison (per-pane overrides respected for manual adjustments)
@@ -18155,8 +18212,8 @@
             if (detachedDimMode && detachedDim >= 0) {
                 const indicesA = [...indices];
                 const indicesB = [...indices];
-                indicesA[detachedDim] = detachedDimIndexA;
-                indicesB[detachedDim] = detachedDimIndexB;
+                indicesA[detachedDim] = detachedDimIdx[0];
+                indicesB[detachedDim] = detachedDimIdx[1];
                 params.set('indices_a', indicesA.join(','));
                 params.set('indices_b', indicesB.join(','));
             }
@@ -18650,8 +18707,13 @@
             if (!_restoredSavedView && !stateParam) {
                 // A view asked for at launch (--index, --cmap, --dims …) wins
                 // over the one this file was last left in.
-                const _askedForView = (data.initial_view && Object.keys(data.initial_view).length)
+                // A stack opening side by side is a layout, not a view the
+                // user asked for, so it does not suppress the remembered one.
+                const _askedForView = (data.initial_view
+                        && Object.keys(data.initial_view).some(k => k !== 'stack_mosaic'))
                     || urlParams.has('dim_x');
+                if (data.initial_view && Number.isInteger(data.initial_view.stack_mosaic))
+                    _pendingStackMosaicN = data.initial_view.stack_mosaic;
                 if (data.remembered_view && !_askedForView) applyStateSnapshot(data.remembered_view);
                 else _applyInitialView(data.initial_view);
             }
@@ -18695,6 +18757,10 @@
                 });
             } else if (!restoreCompositeModeFromSnapshot()) {
                 triggerPreload();
+                // A few files given on the command line open side by side.
+                const smN = _pendingStackMosaicN;
+                _pendingStackMosaicN = null;
+                if (smN && _stackMosaicHasStack()) enterStackMosaic(smN);
             }
             _reconcileUI();
             _tutorialMaybeStart();
@@ -29987,6 +30053,11 @@
                     // Transpose x and y: swap the dimension indices and flips
                     if (shape.length < 2) return;
                     const _orthoT = _orthoTransposeTargets();
+                    // Same boxes as r (view.rotateOrFlip); the copy flips over its diagonal.
+                    const _flipBoxes = () => _orthoT
+                        ? _orthoT.views.map(v => v.cvBox || v.canvas)
+                        : [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
+                    _quarterTurnAround(() => {
                     if (_orthoT) {
                         for (const v of _orthoT.views) {
                             const ofx = _mvFlipX(v), ofy = _mvFlipY(v);
@@ -29998,7 +30069,6 @@
                         _roiClearOnDimChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         renderInfo(); saveState();
-                        _flashOrientCross();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
@@ -30014,7 +30084,7 @@
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                     renderInfo(); saveState();
-                    _flashOrientCross();
+                    }, _flipBoxes, 'flip');
                 },
             },
             'view.rotateOrFlip': {
@@ -31124,6 +31194,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(1); return; }
+                    if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(1); return; }
                     if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
@@ -31175,6 +31246,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(-1); return; }
+                    if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(-1); return; }
                     if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(-1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
@@ -31319,15 +31391,30 @@
                 when: [],
                 run: (ctx, e) => _afterGlide(_splitToggle),
             },
+            'spread.toggle': {
+                title: 'Side by side on/off',
+                when: [],
+                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(_spreadToggle); },
+            },
+            'spread.add': {
+                title: 'Side by side: one more pane',
+                when: [],
+                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(() => _spreadStep(1)); },
+            },
+            'spread.remove': {
+                title: 'Side by side: one pane fewer',
+                when: [],
+                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(() => _spreadStep(-1)); },
+            },
             'detachedDim.adjustIndexA': {
-                when: ['detachedDimMode'],
+                when: ['spreadPair'],
                 run: (ctx, e) => {
                     _bumpDetachedDimIndex('A', e.key === ']' ? 1 : -1, e.key);
                     return;
                 },
             },
             'detachedDim.adjustIndexB': {
-                when: ['detachedDimMode'],
+                when: ['spreadPair'],
                 run: (ctx, e) => {
                     _bumpDetachedDimIndex('B', e.key === '}' ? 1 : -1, e.key);
                     return;
@@ -31408,7 +31495,6 @@
             { key: 'C', command: 'tool.cropDirect' },
             // Use the physical key so Shift+4 works on every keyboard layout.
             { code: 'Digit4', shift: true, command: 'autocrop.toggle' },
-            { key: 'S', shift: true, command: 'compare.toggleDetachedSplit' },
             { key: 'X', shift: true, command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
@@ -31419,11 +31505,6 @@
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
-            // Stack mosaic: [ / ] resize the window. Must precede the generic
-            // bracket binds so the mosaic's when-guarded command wins.
-            { key: '[', command: 'stackMosaic.adjustN' },
-            { key: ']', command: 'stackMosaic.adjustN' },
-            { key: 'U', shift: true, command: 'stackMosaic.toggleTrueScale' },
             { key: '[', command: 'detachedDim.adjustIndexA' },
             { key: ']', command: 'detachedDim.adjustIndexA' },
             { key: '[', command: 'ui.adjustBracket' },
@@ -31435,7 +31516,9 @@
             { key: 'i', command: 'hoverinfo.toggle' },
             { key: 'Z', command: 'mode.toggleZen' },
             // Physical `;` with Shift — layout-independent like Shift+4 above.
-            { code: 'Semicolon', shift: true, command: 'stackMosaic.toggle' },
+            { code: 'Semicolon', shift: true, command: 'spread.toggle' },
+            { code: 'Semicolon', shift: false, command: 'spread.remove' },
+            { code: 'Quote', shift: false, command: 'spread.add' },
             { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
             // Ctrl/Cmd+O belongs to VS Code inside its tabs, so the picker also has Shift+Y.
             { key: 'Y', shift: true, command: 'overlay.openPicker' },
@@ -31510,6 +31593,7 @@
                 qmriMvActive: (typeof qmriMvActive !== 'undefined') ? qmriMvActive : false,
                 compareActive: compareActive,
                 detachedDimMode: detachedDimMode,
+                spreadPair: detachedDimMode && detachedDimIdx.length === 2,
                 canDetachActiveDim: _canDetachDim(activeDim),
                 rgbMode: rgbMode,
                 arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
@@ -31563,7 +31647,8 @@
                             { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Stack mosaic — view N arrays at once', hint: 'asks for N · [ ] move the window · Enter opens a tile · Shift+U shows true physical size' },
+                            { key: 'Shift+;', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
+                            { key: "' / ;", action: 'One pane more / fewer', hint: "two panes compare: [ ] and { } move each side, X opens the difference · three or more browse neighbours: j/k pages along · ' from one image starts with two" },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -31693,11 +31778,11 @@
                     {
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
-                            { key: 'S', action: 'Split current array', hint: 'with one array on a non-spatial dim, opens two side-by-side slices from that dim' },
+                            { key: 'Shift+;', action: 'Side by side', hint: 'on a non-spatial dim, shows two panes from that dim; with several arrays loaded, use their dim' },
                             { key: 'X', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
                             { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons replace the dimbar briefly and select a specific operation directly' },
-                            { key: '[ ]', action: 'Adjust operation parameter / split A index', hint: 'in split compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
-                            { key: '{ }', action: 'Adjust split B index', hint: 'in split compare, scrubs the right pane index' },
+                            { key: '[ ]', action: 'Adjust operation parameter / left pane index', hint: 'side by side with two panes: moves the left pane along its dim instead of blend, wipe, flicker, or checker size' },
+                            { key: '{ }', action: 'Right pane index', hint: 'side by side with two panes: moves the right pane along its dim' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when a center operation is active; outside compare, Z toggles full zen mode' },
                         ]
                     }
@@ -31740,7 +31825,7 @@
                             { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 'S', action: 'Split current array', hint: 'open two side-by-side slices from one array' },
+                            { key: 'Shift+;', action: 'Side by side', hint: "show the active dim in several panes · ' / ; more or fewer" },
                             { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
@@ -34261,11 +34346,11 @@
                         expect: ['multiview.toggle'],
                     },
                     {
-                        key: 'S',
-                        text: 'Press S (shift+s) to split the view in two.\n[ and ] move one side.\n{ and } move the other.',
-                        note: 'Press S again to go back.',
+                        key: ':',
+                        text: 'Press : (shift+;) to show this dim side by side.\n[ and ] move one side.\n{ and } move the other.',
+                        note: "Press : again to go back. ' and ; add or remove a pane.",
                         expect: [
-                            'compare.toggleDetachedSplit',
+                            'spread.toggle', 'spread.add',
                             'detachedDim.adjustIndexA', 'detachedDim.adjustIndexB',
                         ],
                     },
@@ -35004,20 +35089,23 @@
             });
         }
 
-        async function enterDetachedDimMode(dim) {
+        async function enterDetachedDimMode(dim, count = spreadCount) {
             if (!_canDetachDim(dim)) {
-                showStatus('compare: choose a non-spatial dimension with at least 2 indices');
+                showStatus('side by side: choose a non-spatial dimension with at least 2 indices');
                 return false;
             }
+            const n = Math.max(2, Math.min(SPREAD_MAX, Number(shape[dim]), Math.floor(count) || 2));
             detachedDimMode = true;
             detachedDim = dim;
-            detachedDimIndexA = Math.max(0, Math.min(shape[dim] - 1, Number(indices[dim]) || 0));
-            detachedDimIndexB = (detachedDimIndexA + 1) % shape[dim];
-            if (detachedDimIndexB === detachedDimIndexA) {
-                detachedDimIndexB = (detachedDimIndexB + 1) % shape[dim];
+            const cur = Math.max(0, Math.min(shape[dim] - 1, Number(indices[dim]) || 0));
+            if (n === 2) {
+                // The current index and the next one (wrapping at the end).
+                detachedDimIdx = [cur, (cur + 1) % shape[dim]];
+            } else {
+                detachedDimIdx = _spreadNeighbours(dim, cur, n);
             }
             compareNameBySid[sid] = _sessionName;
-            const ok = await enterCompareModeByMultipleSids([sid, sid]);
+            const ok = await enterCompareModeByMultipleSids(Array(n).fill(sid));
             if (!ok) {
                 _resetDetachedDimState();
                 return false;
@@ -35029,8 +35117,8 @@
             updateCompareTitles();
             renderInfo();
             _setCompareCenterMode(0);
-            await _waitForCompareVisualReady(2);
-            showStatus(`split: dim ${detachedDim} · [ ] ${_detachedDimPaneLabel(detachedDimIndexA)} · { } ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            await _waitForCompareVisualReady(n);
+            showStatus(_spreadStatus());
             saveState();
             return true;
         }
@@ -38845,7 +38933,7 @@
                 return { dim: collectionSpatialNdim, idxs: compareQmriCases };
             }
             if (compareActive && detachedDimMode && detachedDim >= 0) {
-                return { dim: detachedDim, idxs: [detachedDimIndexA, detachedDimIndexB] };
+                return { dim: detachedDim, idxs: [...detachedDimIdx] };
             }
             return null;
         }
@@ -42192,6 +42280,53 @@
             ? 'split, ortho and qMRI together are not available'
             : 'ortho and qMRI together are not available with several arrays';
 
+        // `:` — side by side on the active dim, with the pane count used last.
+        function _spreadToggle() {
+            if (detachedDimMode) {
+                spreadCount = detachedDimIdx.length;
+                indices[detachedDim] = detachedDimIdx[0];   // back to one: the first pane
+            }
+            _splitToggle();
+        }
+
+        // `'` / `;` — one pane more or fewer. From one image, `'` starts with
+        // two; dropping below two goes back to one image.
+        function _spreadStep(dir) {
+            if (!detachedDimMode) {
+                if (dir < 0) { showStatus('side by side: already one image'); return; }
+                spreadCount = 2;
+                _splitToggle();
+                return;
+            }
+            const n = detachedDimIdx.length + dir;
+            if (n < 2) { spreadCount = 2; indices[detachedDim] = detachedDimIdx[0]; _splitToggle(); return; }
+            _spreadResize(n);
+        }
+
+        async function _spreadResize(n) {
+            const size = Number(shape[detachedDim]) || 0;
+            const cap = Math.min(SPREAD_MAX, size);
+            if (n > cap) {
+                showStatus(cap === size ? `side by side: all ${size} already shown` : `side by side: at most ${SPREAD_MAX}`);
+                return;
+            }
+            if (compareMvActive || compareQmriActive) {
+                showStatus('side by side: leave 3-plane / qMRI to change the count');
+                return;
+            }
+            if (n > 2 && compareCenterMode > 0) _setCompareCenterMode(0);
+            detachedDimIdx = _spreadNeighbours(detachedDim, detachedDimIdx[0], n);
+            spreadCount = n;
+            indices[detachedDim] = detachedDimIdx[0];
+            const ok = await enterCompareModeByMultipleSids(Array(n).fill(sid));
+            if (!ok) return;
+            compareDisplaySids = Array(n).fill(sid);
+            updateCompareTitles();
+            renderInfo();
+            saveState();
+            showStatus(_spreadStatus());
+        }
+
         function _splitToggle() {
             if (detachedDimMode) {
                 if (compareMvActive) {
@@ -42208,7 +42343,7 @@
                 return;
             }
             if (compareActive) {
-                showStatus('split: already comparing');
+                showStatus('side by side: already comparing arrays');
                 return;
             }
             const dim = activeDim;
@@ -42222,7 +42357,7 @@
                 return;
             }
             if (!_canDetachDim(dim) && !(multiViewActive && Number(shape[dim]) >= 2)) {
-                showStatus('split: choose a non-spatial dimension with at least 2 indices');
+                showStatus('side by side: choose a non-spatial dimension with at least 2 indices');
                 return;
             }
             if (multiViewActive) {
@@ -42763,6 +42898,7 @@
         // Label copy `g` rides `dx, dy` along with its pane and fades out.
 
         function _splitGlideEnter(dim) {
+            if (spreadCount !== 2) { crossfade(() => enterDetachedDimMode(dim)); return; }
             const fromOrtho = multiViewActive, big = fromOrtho ? mvViews[0] : null;
             const vp = document.getElementById('canvas-viewport');
             let src = null;
@@ -42850,13 +42986,14 @@
 
         function _splitGlideExit() {
             const [a, b] = _splitPanes();
-            const ok = _orthoGlideAllowed() && a?.canvas && b?.canvas && b.pane.offsetParent
+            const ok = _orthoGlideAllowed() && detachedDimIdx.length === 2 && a?.canvas && b?.canvas && b.pane.offsetParent
                 && compareCenterMode === 0 && !compareMvActive && !compareQmriActive && !compareFocusMode
-                && detachedDimIndexA === Number(indices[detachedDim])
+                && detachedDimIdx.length === 2
+                && detachedDimIdx[0] === Number(indices[detachedDim])
                 && _splitWholeIn(a.canvas, a.clip) && _splitWholeIn(b.canvas, b.clip);
             const ghost = ok ? _orthoGhost(a.canvas) : null;
             if (!ghost) {
-                crossfade(() => { exitCompareMode(); showStatus('split: off'); });
+                crossfade(() => { exitCompareMode(); showStatus('side by side: off'); });
                 return;
             }
             _splitDressGhost(ghost, a.clip);
@@ -42875,7 +43012,7 @@
             const eggsBar = _eggsBar();
             _overlayPaletteGlideHold = !!labels.palette;
             exitCompareMode();
-            showStatus('split: off');
+            showStatus('side by side: off');
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             // The image and its outline stay hidden until the copy lands on them.
             const vpHold = vp?.animate(hold, { duration: 60000 });

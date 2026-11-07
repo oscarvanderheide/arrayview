@@ -582,69 +582,44 @@ class TestKeyboard:
         assert not page.is_visible("#multi-view-wrap.active")
 
 
-    def test_stack_mosaic_enters_navigates_exits(self, loaded_viewer, client, tmp_path):
-        """Shift+; prompts for N, shows N panes side by side along the stack
-        dim, j/k steps the window by N when the stack dim is active, and the
-        same key exits back to a single view without tearing out the canvas."""
-        stack_dir = tmp_path / "stack_mosaic_src"
+    def test_side_by_side_counts_and_pages_along_stack(self, loaded_viewer, client, tmp_path):
+        """: shows the stack dim side by side (two panes first); ' and ;
+        add and remove panes; j/k moves a pair by one and pages three or
+        more along; dropping below two returns to one intact image."""
+        stack_dir = tmp_path / "spread_src"
         stack_dir.mkdir()
         rng = np.random.default_rng(7)
         for i in range(6):
             np.save(stack_dir / f"vol_{i}.npy", (rng.standard_normal((5, 40, 40)) + i).astype(np.float32))
-        resp = client.post("/load", json={"filepath": str(stack_dir)})
-        sid = resp.json()["sid"]
+        sid = client.post("/load", json={"filepath": str(stack_dir)}).json()["sid"]
 
         page = loaded_viewer(sid)
         _focus_kb(page)
-        # Must have a collection dim (the stack)
-        assert page.evaluate("() => collectionSpatialNdim >= 0")
-        total = page.evaluate("() => shape[collectionSpatialNdim]")
-        assert total == 6
-
-        page.keyboard.press("Shift+;")
-        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
-        page.fill("#inline-prompt-input", "2")
-        page.keyboard.press("Enter")
-        page.wait_for_function("() => stackMosaicActive", timeout=5_000)
-        page.wait_for_function("() => stackMosaicViews.length === 2", timeout=5_000)
-        page.wait_for_function(
-            "() => stackMosaicViews.every(v => v.lastW > 0 && v.lastH > 0)",
-            timeout=10_000,
-        )
-        assert page.is_visible("#stack-mosaic-wrap.active")
-        # Window shows the first two arrays
-        assert page.evaluate("() => stackMosaicViews.map(v => v.colIdx)") == [0, 1]
-        # Dimbar shows the window range
-        dimbar = page.inner_text("#info")
-        assert "1–2" in dimbar, f"expected window range in dimbar, got: {dimbar}"
-
-        # Make the stack dim active, then step forward by N with k.
+        assert page.evaluate("() => shape[collectionSpatialNdim]") == 6
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("k")
-        page.wait_for_function(
-            "() => stackMosaicViews.map(v => v.colIdx).join(',') === '2,3'",
-            timeout=10_000,
-        )
-        # Step forward again to the last window (4,5).
-        page.keyboard.press("k")
-        page.wait_for_function(
-            "() => stackMosaicViews.map(v => v.colIdx).join(',') === '4,5'",
-            timeout=10_000,
-        )
-        # At the end, stepping forward again is a no-op.
-        page.keyboard.press("k")
+        panes = "() => detachedDimIdx.join(',')"
+
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        assert page.evaluate(panes) == "0,1"
+        page.keyboard.press("k")  # a pair moves by one
+        page.wait_for_function(f"() => ({panes})() === '1,2'", timeout=5_000)
+
+        page.keyboard.press("'")
+        page.wait_for_function(f"() => ({panes})() === '1,2,3'", timeout=10_000)
+        page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean)", timeout=10_000)
+        assert "2–4" in page.inner_text("#info")
+        page.keyboard.press("k")  # three or more page along
+        page.wait_for_function(f"() => ({panes})() === '3,4,5'", timeout=5_000)
+        page.keyboard.press("k")  # at the end: stays
         page.wait_for_timeout(300)
-        assert page.evaluate("() => stackMosaicStart") == 4
+        assert page.evaluate(panes) == "3,4,5"
 
-        # Resize the window with [ / ].
-        page.keyboard.press("]")
-        page.wait_for_function("() => stackMosaicN === 3", timeout=5_000)
-        page.keyboard.press("[")
-        page.wait_for_function("() => stackMosaicN === 2", timeout=5_000)
-
-        # Exit with the same key: single view returns, canvas stays intact.
-        page.keyboard.press("Shift+;")
-        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+        page.keyboard.press(";")
+        page.wait_for_function(f"() => ({panes})() === '3,4'", timeout=10_000)
+        page.keyboard.press(";")
+        page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
+        assert page.evaluate("() => indices[collectionSpatialNdim]") == 3
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
@@ -674,23 +649,25 @@ class TestKeyboard:
             timeout=5_000,
         )
 
-        page.keyboard.press("Shift+;")
-        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
-        page.fill("#inline-prompt-input", "3")
-        page.keyboard.press("Enter")
-        page.wait_for_function("() => stackMosaicViews.length === 3", timeout=5_000)
+        page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("'")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        page.keyboard.press("'")
+        page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
+        page.wait_for_timeout(500)
         labels = page.evaluate(
-            "() => [...document.querySelectorAll('.sm-label')].map(e => [e.textContent, !!e.querySelector('svg')])"
+            "() => compareTitles.slice(0, 3).map(e => [e.textContent, !!e.querySelector('svg')])"
         )
         assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
         assert all(has_logo for _, has_logo in labels)
-        page.wait_for_timeout(500)
         page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
-        page.keyboard.press("Shift+;")
-        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => !detachedDimMode", timeout=10_000)
+        page.wait_for_timeout(500)
 
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("Shift+S")
+        page.evaluate("() => { spreadCount = 2; }")
+        page.keyboard.press("Shift+Semicolon")
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         titles = page.evaluate(
             "() => compareTitles.slice(0, 2).map(e => e.textContent.replace(/[\\[\\]{}]/g, '').trim().toLowerCase())"
@@ -701,9 +678,9 @@ class TestKeyboard:
 
 
     def test_collection_qmri_shows_case_names_and_mosaic_cases(self, loaded_viewer, client, tmp_path):
-        """q in a --match collection names the case beside the maps; q from
-        the stack mosaic shows the maps of every case there, one row each,
-        and q again returns to the mosaic."""
+        """q in a --match collection names the case beside the maps; q with
+        cases side by side shows the maps of each case, one row each, and q
+        again returns to side by side."""
         stack_dir = tmp_path / "case_qmri_src"
         stack_dir.mkdir()
         rng = np.random.default_rng(9)
@@ -727,17 +704,14 @@ class TestKeyboard:
         page.keyboard.press("q")
         page.wait_for_function("() => !qmriActive", timeout=5_000)
 
-        page.keyboard.press("Shift+;")
-        page.wait_for_selector("#inline-prompt.visible", timeout=5_000)
-        page.fill("#inline-prompt-input", "2")
-        page.keyboard.press("Enter")
-        page.wait_for_function("() => stackMosaicViews.length === 2", timeout=5_000)
+        page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         page.keyboard.press("q")
-        page.wait_for_function("() => compareQmriActive && !stackMosaicActive", timeout=5_000)
+        page.wait_for_function("() => compareQmriActive", timeout=5_000)
         rows_names = "() => [...document.querySelectorAll('.cq-row-name')].map(e => e.textContent.toLowerCase()).join(',')"
         assert page.evaluate("() => [...new Set(compareQmriViews.map(v => v.rowIdx))]") == [0, 1]
         assert page.evaluate(rows_names) == "alpha,bravo"
-        assert "1–2" in page.inner_text("#info")
         page.wait_for_function("() => compareQmriViews.every(v => v.lastW > 0)", timeout=10_000)
         page.wait_for_timeout(500)
         page.screenshot(path=shots + "/qmri_cases.png")
@@ -745,21 +719,9 @@ class TestKeyboard:
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         page.keyboard.press("k")
         page.wait_for_function(f"() => ({rows_names})() === 'bravo,charlie'", timeout=5_000)
-        assert "2–3" in page.inner_text("#info")
         page.keyboard.press("q")
-        page.wait_for_function("() => !compareQmriActive && stackMosaicActive", timeout=5_000)
-        assert page.evaluate("() => stackMosaicViews.map(v => v.colIdx)") == [1, 2]
-        page.keyboard.press("Shift+;")
-        page.wait_for_function("() => !stackMosaicActive", timeout=5_000)
-
-        # Split across cases, then q: one row per half, named by case.
-        page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("Shift+S")
-        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("q")
-        page.wait_for_function("() => compareQmriActive", timeout=5_000)
-        assert page.evaluate(rows_names) == "alpha,bravo"
-        assert page.evaluate("() => compareQmriViews.map(v => v.rowIdx).join(',')") == "0,0,0,1,1,1"
+        page.wait_for_function("() => !compareQmriActive && detachedDimMode && compareActive", timeout=5_000)
+        assert page.evaluate("() => detachedDimIdx.join(',')") == "1,2"
 
     def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
@@ -1201,7 +1163,7 @@ class TestKeyboard:
         page.keyboard.press("F")
         page.wait_for_function("() => _fullscreenActive", timeout=5_000)
         page.wait_for_timeout(900)
-        page.keyboard.press("Shift+S")
+        page.keyboard.press("Shift+Semicolon")
         page.wait_for_timeout(1500)
         tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
             .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
@@ -1260,7 +1222,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("Shift+S")
+        page.keyboard.press("Shift+Semicolon")
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__tops = []; const t0 = performance.now(); const f = () => {
             const c = [...document.querySelectorAll('.compare-pane canvas')].find(e => e.offsetWidth);
@@ -1300,7 +1262,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("Shift+S")
+        page.keyboard.press("Shift+Semicolon")
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__same = true; const t0 = performance.now(); const f = () => {
             const tops = [...document.querySelectorAll('.compare-pane')].filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top);
