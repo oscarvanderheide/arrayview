@@ -86,51 +86,6 @@ def _wait_for_ping(port: int, timeout: float = 10.0) -> bool:
     return False
 
 
-def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
-    base = str(tmp_path / "base.npy")
-    cmp1 = str(tmp_path / "cmp1.npy")
-    cmp2 = str(tmp_path / "cmp2.npy")
-    np.save(
-        base, np.zeros((8, 8), dtype=np.float32)
-    )  # must exist for os.path.isfile check
-    requests = []
-    opened = {}
-
-    monkeypatch.setattr(sys, "argv", ["arrayview", base, cmp1, cmp2, "--browser"])
-    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
-    _mock_launch_server_snapshot(monkeypatch, alive=True)
-    monkeypatch.setattr(
-        _launcher_mod,
-        "_open_browser",
-        _record_opened_url(opened),
-    )
-
-    def fake_urlopen(req, timeout=5):
-        body = json.loads((req.data or b"{}").decode())
-        requests.append(body)
-        fp = body.get("filepath")
-        if fp == cmp1:
-            return _DummyResponse({"sid": "sid_cmp1", "name": "cmp1.npy"})
-        if fp == cmp2:
-            return _DummyResponse({"sid": "sid_cmp2", "name": "cmp2.npy"})
-        if fp == base:
-            return _DummyResponse({"sid": "sid_base", "name": "base.npy"})
-        return _DummyResponse({"error": f"unexpected filepath: {fp}"})
-
-    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(sys, "stdout", io.StringIO())
-    appmod.arrayview()
-
-    assert len(requests) == 3
-    assert requests[0]["filepath"] == cmp1
-    assert requests[1]["filepath"] == cmp2
-    assert requests[2]["filepath"] == base
-    assert opened["url"].startswith("http://localhost:8000/?sid=sid_base")
-    assert "127.0.0.1" not in opened["url"]
-    assert "compare_sid=sid_cmp1" in opened["url"]
-    assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
-
-
 def test_cli_accepts_explicit_none_without_display_handoff(monkeypatch, tmp_path):
     base = str(tmp_path / "base.npy")
     np.save(base, np.zeros((8, 8), dtype=np.float32))
@@ -324,6 +279,31 @@ def test_cli_rejects_compare_flags_with_more_than_four_files(monkeypatch):
         appmod.arrayview()
 
 
+def test_cli_stacks_several_plain_files(monkeypatch, tmp_path):
+    files = [str(tmp_path / f"{n}.npy") for n in ("b", "a", "c")]
+    for f in files:
+        np.save(f, np.zeros((8, 8), dtype=np.float32))
+    captured = {}
+
+    def fake_launch(*a, **kw):
+        captured.update(kw)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(_launcher_mod, "_handle_cli_existing_server", fake_launch)
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    with pytest.raises(SystemExit):
+        appmod.arrayview()
+    # One array with the files along a new dim, in the order given; the
+    # viewer opens 2-4 of them side by side.
+    assert captured["collection_keep_order"] is True
+    assert captured["dir_patterns"] == files
+    assert captured["compare_files"] in (None, [])
+    assert not captured["initial_view"]
+
+
 def test_cli_stacks_more_than_four_files_in_given_order(monkeypatch, tmp_path):
     names = ["e", "a", "d", "b", "c"]
     files = [str(tmp_path / f"{n}.npy") for n in names]
@@ -334,7 +314,6 @@ def test_cli_stacks_more_than_four_files_in_given_order(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "stdout", out)
     appmod.arrayview()
     text = out.getvalue()
-    assert "5 files: opened as one stack" in text
     assert "image shape: (8, 8, 5)" in text
     assert "case order: e, a, d, b, c" in text
 
@@ -366,40 +345,6 @@ def test_cli_real_load_of_more_than_four_files_keeps_given_order(monkeypatch, tm
     assert loads
     assert loads[0]["dir_patterns"] == files
     assert loads[0]["keep_order"] is True
-
-
-def test_cli_accepts_four_total_files_for_compare(monkeypatch, tmp_path):
-    files = [str(tmp_path / f"a{i}.npy") for i in range(4)]
-    np.save(files[0], np.zeros((8, 8), dtype=np.float32))  # only base must exist
-    requests = []
-    opened = {}
-
-    monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
-    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
-    _mock_launch_server_snapshot(monkeypatch, alive=True)
-    monkeypatch.setattr(
-        _launcher_mod,
-        "_open_browser",
-        _record_opened_url(opened),
-    )
-
-    def fake_urlopen(req, timeout=5):
-        body = json.loads((req.data or b"{}").decode())
-        requests.append(body)
-        fp = body.get("filepath")
-        idx = files.index(fp)
-        return _DummyResponse({"sid": f"sid_{idx}", "name": f"a{idx}.npy"})
-
-    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(sys, "stdout", io.StringIO())
-    appmod.arrayview()
-
-    assert len(requests) == 4
-    compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 4)])
-    assert opened["url"].startswith("http://localhost:8000/?sid=sid_0")
-    assert "127.0.0.1" not in opened["url"]
-    assert "compare_sid=sid_1" in opened["url"]
-    assert f"compare_sids={compare_sid_csv}" in opened["url"]
 
 
 def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(

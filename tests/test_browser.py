@@ -352,7 +352,8 @@ def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tm
     img_dir, mask_dir = tmp_path / "img", tmp_path / "mask"
     img_dir.mkdir()
     mask_dir.mkdir()
-    peaks = {"a": 3, "b": 15, "c": None, "d": 9}  # c has an empty mask
+    # c has an empty mask; e makes five cases, so the stack opens on one image.
+    peaks = {"a": 3, "b": 15, "c": None, "d": 9, "e": 6}
     for name, peak in peaks.items():
         np.save(img_dir / f"{name}.npy", np.zeros((20, 24, 24), dtype=np.float32))
         mask = np.zeros((20, 24, 24), dtype=np.uint8)
@@ -624,8 +625,9 @@ class TestKeyboard:
         assert page.is_visible("canvas#viewer")
 
     def test_collection_case_names_shown_above_panes(self, loaded_viewer, client, tmp_path):
-        """A folder/--match stack names its current case above the single
-        view, each mosaic pane, and each half of a split across cases."""
+        """A folder/--match stack opens side by side with each pane named by
+        its case, names the case above the single view, and names each half
+        of a two-pane comparison across cases."""
         stack_dir = tmp_path / "case_names_src"
         stack_dir.mkdir()
         rng = np.random.default_rng(8)
@@ -638,6 +640,18 @@ class TestKeyboard:
         page = loaded_viewer(sid)
         _focus_kb(page)
         assert page.evaluate("() => Array.isArray(caseNames) && caseNames.length === 3")
+        # Three cases open side by side, each pane named by its case.
+        page.wait_for_function("() => detachedDimMode && compareActive && detachedDimIdx.length === 3", timeout=10_000)
+        page.wait_for_timeout(500)
+        labels = page.evaluate(
+            "() => compareTitles.slice(0, 3).map(e => [e.textContent, !!e.querySelector('svg')])"
+        )
+        assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
+        assert all(has_logo for _, has_logo in labels)
+        page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => !detachedDimMode", timeout=10_000)
+
         page.wait_for_selector("#case-title.visible svg", timeout=5_000)
         first = page.inner_text("#case-title").strip().lower()
         assert first in ("alpha", "bravo", "charlie")
@@ -648,21 +662,6 @@ class TestKeyboard:
             f"() => document.getElementById('case-title').innerText.trim().toLowerCase() !== '{first}'",
             timeout=5_000,
         )
-
-        page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("'")
-        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("'")
-        page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
-        page.wait_for_timeout(500)
-        labels = page.evaluate(
-            "() => compareTitles.slice(0, 3).map(e => [e.textContent, !!e.querySelector('svg')])"
-        )
-        assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
-        assert all(has_logo for _, has_logo in labels)
-        page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
-        page.keyboard.press("Shift+Semicolon")
-        page.wait_for_function("() => !detachedDimMode", timeout=10_000)
         page.wait_for_timeout(500)
 
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
@@ -693,6 +692,12 @@ class TestKeyboard:
 
         page = loaded_viewer(sid)
         _focus_kb(page)
+        # Three cases open side by side; go to one image first.
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        page.keyboard.press("Shift+Semicolon")
+        page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => { indices[collectionSpatialNdim] = 0; spreadCount = 2; renderInfo(); }")
         page.keyboard.press("q")
         page.wait_for_function("() => qmriActive", timeout=5_000)
         page.wait_for_function(

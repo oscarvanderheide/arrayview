@@ -6074,7 +6074,7 @@ def arrayview():
         )
     if (
         args.files
-        and len(args.files) > 4
+        and len(args.files) > 1
         and not args.stack_mode
         and not (
             args.compare
@@ -6085,14 +6085,12 @@ def arrayview():
             or args.relay
         )
     ):
-        # Too many for a side-by-side compare: stack them along a new last
-        # axis, one case per file, as --match does for explicit file lists.
+        # Several plain files: one array with the files along a new last
+        # dim, in the order given, as --match does for explicit file lists.
+        # The viewer opens 2-4 of them side by side.
         args.stack_mode = True
         args.keep_file_order = True
-        print(
-            f"[ArrayView] {len(args.files)} files: opened as one stack; "
-            "step through the last dimension to switch files."
-        )
+        args.auto_stack = True
     if args.dry_run and not args.stack_mode:
         parser.error("--dry-run requires --match.")
     excluded_cases = set()
@@ -6363,9 +6361,13 @@ def arrayview():
                     sys.exit(1)
                 excluded_cases.update(e.missing_cases)
             except Exception as e:
-                _print_failure(f"--match could not match collection: {e}")
+                if getattr(args, "auto_stack", False):
+                    _print_failure(f"could not open these files together: {e}")
+                else:
+                    _print_failure(f"--match could not match collection: {e}")
                 sys.exit(1)
-        _print_dir_collection_summary(summary)
+        if args.dry_run or not getattr(args, "auto_stack", False):
+            _print_dir_collection_summary(summary)
         if args.dry_run:
             return
     else:

@@ -100,7 +100,7 @@ def test_ortho_layout_glides(loaded_viewer, sid_3d):
 def test_side_by_side_on_a_stack_glides_in_and_back(loaded_viewer, client, tmp_path):
     folder = tmp_path / "stack"
     folder.mkdir()
-    for i in range(4):
+    for i in range(6):  # more than 4: opens on one image
         np.save(folder / f"vol_{i}.npy", (np.random.default_rng(i).standard_normal((5, 40, 40)) + i).astype(np.float32))
     sid = client.post("/load", json={"filepath": str(folder)}).json()["sid"]
     page = loaded_viewer(sid)

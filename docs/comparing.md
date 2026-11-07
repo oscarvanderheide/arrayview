@@ -3,12 +3,29 @@
 ## Opening multiple arrays
 
 ```bash
-uvx arrayview base.npy moving.npy           # 2 arrays
+uvx arrayview base.npy moving.npy           # 2 arrays, side by side to compare
 uvx arrayview base.npy a.npy b.npy c.npy    # up to 4, side by side
+uvx arrayview run_*.npy                     # 5 or more: one at a time
 ```
 
-Five or more files open as one stack instead, with the files along a new last
-dimension in the order you typed them.
+Several files open as one array, with the files along a new last dimension in
+the order you typed them (a `|` in the dimension bar marks it). Files may have
+different shapes. Two to four open side by side; five or more show one at a
+time. A folder or `--match` collection does the same.
+
+## Side by side
+
+`:` (Shift+;) shows the active dimension in several panes — the files you
+loaded, or any other non-spatial dimension such as echoes or time points.
+Press it again for one image. `'` adds a pane and `;` removes one (up to six).
+
+- **Two panes compare.** Scrolling moves both through slices together. `[`/`]`
+  moves the left pane along the dimension and `{`/`}` the right one, so you
+  can put echo 1 next to echo 5. `X` opens the center pane (below).
+- **Three or more browse.** They show neighbouring positions; `j`/`k` on that
+  dimension pages to the next few.
+
+`v` (3-plane) and `q` (qMRI) show one row per pane.
 
 Or use the file picker (`Shift+Y`) or drag-and-drop.
 

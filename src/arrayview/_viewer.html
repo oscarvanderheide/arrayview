@@ -7714,7 +7714,6 @@
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let _overlayFocusIdx = null;      // transient HUD hover focus; null when inactive
         let pendingViewMode = null;
-        let _pendingStackMosaicN = null; // stack mosaic size to open at boot
 
         function _compareCenterLayoutEligible() {
             return compareActive && _compareCenterSupported() && compareCenterMode > 0
@@ -10629,6 +10628,14 @@
             detachedDimMode = false;
             detachedDim = -1;
             detachedDimIdx = [];
+        }
+
+        // Panes a stack opens with: all of them for 2–4 arrays, else none.
+        function _bootSpreadCount() {
+            const d = collectionSpatialNdim;
+            if (!Number.isInteger(d) || d < 0 || d >= shape.length) return 0;
+            const n = Number(shape[d]);
+            return n >= 2 && n <= 4 ? n : 0;
         }
 
         function _spreadCount() {
@@ -18707,13 +18714,8 @@
             if (!_restoredSavedView && !stateParam) {
                 // A view asked for at launch (--index, --cmap, --dims …) wins
                 // over the one this file was last left in.
-                // A stack opening side by side is a layout, not a view the
-                // user asked for, so it does not suppress the remembered one.
-                const _askedForView = (data.initial_view
-                        && Object.keys(data.initial_view).some(k => k !== 'stack_mosaic'))
+                const _askedForView = (data.initial_view && Object.keys(data.initial_view).length)
                     || urlParams.has('dim_x');
-                if (data.initial_view && Number.isInteger(data.initial_view.stack_mosaic))
-                    _pendingStackMosaicN = data.initial_view.stack_mosaic;
                 if (data.remembered_view && !_askedForView) applyStateSnapshot(data.remembered_view);
                 else _applyInitialView(data.initial_view);
             }
@@ -18755,12 +18757,26 @@
                     if (bootMode === 'multiview' || bootMode === 'compare-mv') enterCompareMv();
                     else if (bootMode === 'qmri' || bootMode === 'qmri-mv' || bootMode === 'compare-qmri') enterCompareQmri();
                 });
+            } else if (!_isTutorialSession && !stateParam && _bootSpreadCount() >= 2) {
+                // A stack of 2–4 arrays (several files, a folder, --match)
+                // opens side by side along its arrays: two compare, three or
+                // four browse. A requested 3-plane or qMRI view becomes rows.
+                const bootMode = pendingViewMode;
+                pendingViewMode = null;
+                pendingMvDims = null;
+                pendingQmriDim = null;
+                pendingQmriMosaicZ = null;
+                triggerPreload();
+                // The active dim stays the slice dim: the wheel scrolls all
+                // panes through slices in sync, as a comparison should.
+                enterDetachedDimMode(collectionSpatialNdim, _bootSpreadCount()).then(ok => {
+                    if (!ok || !compareActive) return;
+                    if (bootMode === 'multiview') enterCompareMv();
+                    else if (bootMode === 'qmri' || bootMode === 'qmri-mv') enterCompareQmri();
+                    renderInfo();
+                });
             } else if (!restoreCompositeModeFromSnapshot()) {
                 triggerPreload();
-                // A few files given on the command line open side by side.
-                const smN = _pendingStackMosaicN;
-                _pendingStackMosaicN = null;
-                if (smN && _stackMosaicHasStack()) enterStackMosaic(smN);
             }
             _reconcileUI();
             _tutorialMaybeStart();
@@ -39676,7 +39692,10 @@
             }
 
             compareMvViews = [];
-            const rowNames = compareMvSids.map(comparePaneLabelForSid);
+            // Side by side shows one array: each row is named by its own index (or case).
+            const rowNames = detachedDimMode
+                ? compareMvSids.map((_, i) => _detachedDimPaneLabel(detachedDimIdx[i]))
+                : compareMvSids.map(comparePaneLabelForSid);
             const rowNameParts = _arrayNameParts(rowNames);
             // One row per compared array (SID)
             for (let si = 0; si < compareMvSids.length; si++) {
@@ -39684,7 +39703,7 @@
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row cq-row';
                 // Array name, in the corner of its row's first image. A split shows one array: its rows need none.
-                const showRowName = !detachedDimMode || _detachedDimIsCases();
+                const showRowName = !detachedDimMode || _detachedDimIsCases() || detachedDimIdx.length > 2;
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
                     const def = planeDefs[pi];

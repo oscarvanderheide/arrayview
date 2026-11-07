@@ -215,6 +215,18 @@ handoff before a frame (row 5), separately from the measured frame transport.
 The no-display CLI command loaded and released this file before and after the
 change (`real host`, row 11). Test servers on ports 8192–8195 were stopped.
 
+2026-11-07 several files always stack: changes the CLI multi-file route (rows 5
+and 11, and every display row's multi-file launch). Two to four plain files now
+load as one stack like five or more, and the viewer opens a stack of 2-4 side by
+side (`--mode ortho` / `qmri` become rows per pane, as before). Plain files with
+`--overlay`/`--rgb`/`--watch` still take the old compare route. Seen working
+2026-11-07 `real process`: `uv run arrayview a0.npy a1.npy [a2.npy] --window
+browser` and `a0..a5.npy`, plus `--mode ortho` and `--match ... --overlay gt=...`,
+opened in headless Chromium through the `BROWSER` hand-off; first frame rendered
+side by side (two, three) or single (six). Row 11 `real host`: `uv run arrayview
+a0.npy r1.npy --window none --port 8779` (different shapes) loaded and released,
+no server left. VS Code tab rows not exercised.
+
 2026-10-31 more-than-four-files order fix: changes the CLI stack route for rows
 5 and 11, and the shared `/load` route that could affect rows 4 and 20. Before
 the fix, `uvx arrayview <5 .nii files> --window browser --port 8765` (0.51.0)
@@ -291,7 +303,7 @@ tried, no page errors.
 | 8 | local desktop Linux | native window | small | never verified |
 | 9 | local desktop macOS | native window | small | **verified 2026-11-06 `real host`** — `uv run arrayview --window native` (no file, opens the demo with overlays) and `uv run arrayview a.npy --window native` both rendered their first frame in a native window from a macOS terminal. Before the fix the no-file demo opened in the browser because overlay views skipped the native window. |
 | 10 | local desktop Windows | native window | small | never verified |
-| 11 | any | none | any | **verified 2026-10-31 `real host`** — five-file stack: `uv run arrayview <5 .nii files> --window none --port 8767` loaded and released, reporting that no server remained. Earlier: **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
+| 11 | any | none | any | **verified 2026-11-07 `real host`** — two-file stack of different shapes: `uv run arrayview a0.npy r1.npy --window none --port 8779` loaded and released, no server left. Earlier: **verified 2026-10-31 `real host`** — five-file stack: `uv run arrayview <5 .nii files> --window none --port 8767` loaded and released, reporting that no server remained. Earlier: **verified 2026-09-25 `real host`** — `uv run arrayview large_array.npy --window none --port 8188` loaded and released the 1.6 GB array before and after the change, reporting that no server remained. This mode is a safe loader, not a URL for later viewing. |
 
 ### Python `arrayview.view()`
 

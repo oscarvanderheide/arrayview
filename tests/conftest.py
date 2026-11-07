@@ -155,7 +155,12 @@ def loaded_viewer(page, server_url):
     def _load(sid: str):
         page.goto(f"{server_url}/?sid={sid}")
         # Wait for the loading overlay to be replaced by the canvas
-        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        # (a small stack opens side by side instead of in the single view)
+        page.wait_for_function(
+            "() => [document.getElementById('canvas-wrap'), document.querySelector('#compare-view-wrap.active')]"
+            ".some(el => el && el.offsetParent !== null)",
+            timeout=15_000,
+        )
         # Small grace period for the first WebSocket frame to paint
         page.wait_for_timeout(400)
         return page
