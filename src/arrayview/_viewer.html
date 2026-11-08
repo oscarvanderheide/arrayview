@@ -39343,7 +39343,7 @@
             }
         }
 
-        function exitCompareQmri() {
+        function exitCompareQmri({ rebuild = false } = {}) {
             _qmriRenderGeneration++;
             compareQmriActive = false;
             _restoreQmriSliceDim();
@@ -39354,6 +39354,7 @@
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
+            if (rebuild) return;
             // Restore compare mode visuals
             if (compareActive) {
                 applyCompareLayout();
@@ -39946,7 +39947,9 @@
             _debouncedHoverPrefetch();
         }
 
-        function exitCompareMv() {
+        // `rebuild`: the rows are rebuilt right away (side-by-side count changed),
+        // so the compare panes are not brought back in between.
+        function exitCompareMv({ rebuild = false } = {}) {
             compareMvActive = false;
             squareStretch = _cmvPrevSquareStretch;
             compareMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
@@ -39966,6 +39969,7 @@
                 window._mvColorBar.destroy();
                 window._mvColorBar = null;
             }
+            if (rebuild) return;
             // Restore compare mode visuals
             if (compareActive) {
                 applyCompareLayout();
@@ -42343,7 +42347,9 @@
             _spreadResize(n);
         }
 
-        async function _spreadResize(n) {
+        // ' / ; — panes that stay glide to their new places; an added pane
+        // fades in where it lands, a removed one fades out.
+        function _spreadResize(n) {
             const size = Number(shape[detachedDim]) || 0;
             const cap = Math.min(SPREAD_MAX, size);
             if (n > cap) {
@@ -42351,19 +42357,54 @@
                 return;
             }
             const rows = compareMvActive ? 'mv' : compareQmriActive ? 'qmri' : null;
+            const commit = () => _spreadCommitHidden(() => _spreadResizeCommit(n, rows));
+            const dim = detachedDim;
+            if (rows) {
+                // Rows: each view lands on the view of the same plane (map) at the same index.
+                const views = rows === 'mv' ? compareMvViews : compareQmriViews;
+                const idxOf = rows === 'mv' ? (v => _cmvIndices(v)[dim]) : (v => v.rowIdx);
+                const same = rows === 'mv' ? _samePlane : ((a, b) => a.qmriIdx === b.qmriIdx);
+                const oldIdx = new Map(views.map(v => [v, idxOf(v)]));
+                _viewGlide(commit, (v, to) => to.find(w => same(v, w) && idxOf(w) === oldIdx.get(v)) || null);
+                return;
+            }
+            const oldIdx = [...detachedDimIdx];
+            _rowsGlide(_comparePaneParts(), commit, () => {
+                if (!_comparePanesShown()) return null;
+                const panes = _comparePaneParts();
+                return {
+                    panes, chrome: [_slimCb()], drawn: _compareDrawn(),
+                    pair: (i) => panes[detachedDimIdx.indexOf(oldIdx[i])] || null,
+                };
+            });
+        }
+
+        async function _spreadResizeCommit(n, rows) {
             const qd = compareQmriDim;
-            if (rows === 'mv') exitCompareMv();
-            else if (rows === 'qmri') exitCompareQmri();
             if (n > 2 && compareCenterMode > 0) _setCompareCenterMode(0);
             detachedDimIdx = _spreadNeighbours(detachedDim, detachedDimIdx[0], n);
             spreadCount = n;
             indices[detachedDim] = detachedDimIdx[0];
+            if (rows) {
+                // Rebuild only the rows: the hidden compare panes catch up when
+                // the rows are left, instead of reconnecting and redrawing now.
+                if (rows === 'mv') exitCompareMv({ rebuild: true });
+                else exitCompareQmri({ rebuild: true });
+                _compareExplicitSids = Array(n).fill(sid);
+                compareDisplaySids = Array(n).fill(sid);
+                compareFrames = [];
+                updateCompareTitles();
+                if (rows === 'mv') enterCompareMv();
+                else { _lastQmriDim = qd; enterCompareQmri(); }
+                renderInfo();
+                saveState();
+                showStatus(_spreadStatus());
+                return;
+            }
             const ok = await enterCompareModeByMultipleSids(Array(n).fill(sid));
             if (!ok) return;
             compareDisplaySids = Array(n).fill(sid);
             updateCompareTitles();
-            if (rows === 'mv') enterCompareMv();
-            else if (rows === 'qmri') { _lastQmriDim = qd; enterCompareQmri(); }
             renderInfo();
             saveState();
             showStatus(_spreadStatus());
@@ -42940,7 +42981,7 @@
         // Label copy `g` rides `dx, dy` along with its pane and fades out.
 
         function _splitGlideEnter(dim) {
-            if (spreadCount !== 2) { crossfade(() => enterDetachedDimMode(dim)); return; }
+            if (spreadCount !== 2) { _spreadGlideEnter(dim); return; }
             const fromOrtho = multiViewActive, big = fromOrtho ? mvViews[0] : null;
             const vp = document.getElementById('canvas-viewport');
             let src = null;
@@ -43026,6 +43067,38 @@
             _syncSinkFocus();
         }
 
+        // The new panes, their names and the colour bar stay hidden while `commit`
+        // builds them; the glide then holds what it needs until it lands.
+        async function _spreadCommitHidden(commit) {
+            const holds = ['compare-view-wrap', 'qmri-view-wrap', 'slim-cb-wrap']
+                .map(id => _glideHold(document.getElementById(id)));
+            try { return await commit(); } finally { holds.forEach(h => h?.cancel()); }
+        }
+
+        // Back to one image: the pane at the main index grows into it, the others fade.
+        function _spreadGlideExit() {
+            const keep = Math.max(0, detachedDimIdx.indexOf(Number(indices[detachedDim])));
+            _rowsGlide(_comparePaneParts(), () => { exitCompareMode(); showStatus('side by side: off'); }, () => {
+                const t = _currentViewTarget();
+                t.pair = (i) => i === keep ? t.panes[0] || null : null;
+                return t;
+            });
+        }
+
+        // From one image to three or more panes: the image glides into the pane
+        // at its own index, the others fade in.
+        function _spreadGlideEnter(dim) {
+            const cur = Number(indices[dim]);
+            _rowsGlide(_rowsFrom(), () => _spreadCommitHidden(() => enterDetachedDimMode(dim)), () => {
+                if (!_comparePanesShown()) return null;
+                const panes = _comparePaneParts();
+                return {
+                    panes, chrome: [_slimCb()], drawn: _compareDrawn(),
+                    pair: (i) => i === 0 ? panes[Math.max(0, detachedDimIdx.indexOf(cur))] || null : null,
+                };
+            });
+        }
+
         function _splitGlideExit() {
             const [a, b] = _splitPanes();
             const ok = _orthoGlideAllowed() && detachedDimIdx.length === 2 && a?.canvas && b?.canvas && b.pane.offsetParent
@@ -43035,7 +43108,7 @@
                 && _splitWholeIn(a.canvas, a.clip) && _splitWholeIn(b.canvas, b.clip);
             const ghost = ok ? _orthoGhost(a.canvas) : null;
             if (!ghost) {
-                crossfade(() => { exitCompareMode(); showStatus('side by side: off'); });
+                _spreadGlideExit();
                 return;
             }
             _splitDressGhost(ghost, a.clip);

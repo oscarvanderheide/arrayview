@@ -117,6 +117,30 @@ def test_side_by_side_on_a_stack_glides_in_and_back(loaded_viewer, client, tmp_p
     _settle(page)
 
 
+def test_side_by_side_count_and_leave_glide(loaded_viewer, client, tmp_path):
+    """' and ; glide the panes to their new places, and : from three panes
+    glides back to one image, each leaving no copies behind."""
+    from conftest import register_array
+
+    arr = np.random.default_rng(6).random((40, 44, 8, 6)).astype(np.float32)
+    page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
+    _settle(page)
+    page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
+    page.keyboard.press("Shift+Semicolon")
+    page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+    _settle(page)
+    for key, n in (("'", 3), ("'", 4), (";", 3)):
+        page.keyboard.press(key)
+        assert page.evaluate("_orthoGlideBusy"), key
+        page.wait_for_function(f"() => detachedDimIdx.length === {n}", timeout=10_000)
+        _settle(page)
+        assert page.evaluate("compareFrames.slice(0, detachedDimIdx.length).every(Boolean)")
+    page.keyboard.press("Shift+Semicolon")
+    assert page.evaluate("_orthoGlideBusy")
+    page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
+    _settle(page)
+
+
 def test_mosaic_glide_does_not_double_the_colorbar_values(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     _settle(page)
