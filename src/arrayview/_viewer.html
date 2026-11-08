@@ -18780,6 +18780,9 @@
             } else if (!restoreCompositeModeFromSnapshot()) {
                 triggerPreload();
             }
+            // A stack opened on one image: `:` shows its arrays side by side.
+            if (_bootSpreadCount() < 2 && Number.isInteger(collectionSpatialNdim) && collectionSpatialNdim >= 0)
+                _spreadSticky = { dim: collectionSpatialNdim, activeAt: activeDim };
             _reconcileUI();
             _tutorialMaybeStart();
 
@@ -23035,7 +23038,10 @@
                 }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
-                    return `<span class="${cls}" ${d} ${_detachedDimIsCases() ? 'style="color:var(--q-dim-color)">S' : `>${_detachedDimStackHTML()}`}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                    // A pair across cases is named on its panes ("S"); three or more show the range.
+                    const caseStyle = _detachedDimIsCases() ? ' style="color:var(--q-dim-color)"' : '';
+                    const body = _detachedDimIsCases() && detachedDimIdx.length === 2 ? 'S' : _detachedDimStackHTML();
+                    return `<span class="${cls}" ${d}${caseStyle}>${body}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
@@ -31417,12 +31423,12 @@
             'spread.add': {
                 title: 'Side by side: one more pane',
                 when: [],
-                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(() => _spreadStep(1)); },
+                run: (ctx, e) => { if (e) e.preventDefault(); _spreadStepQueued(1); },
             },
             'spread.remove': {
                 title: 'Side by side: one pane fewer',
                 when: [],
-                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(() => _spreadStep(-1)); },
+                run: (ctx, e) => { if (e) e.preventDefault(); _spreadStepQueued(-1); },
             },
             'detachedDim.adjustIndexA': {
                 when: ['spreadPair'],
@@ -42328,9 +42334,39 @@
         function _spreadToggle() {
             if (detachedDimMode) {
                 spreadCount = detachedDimIdx.length;
-                indices[detachedDim] = detachedDimIdx[0];   // back to one: the first pane
+                _spreadLeaving();
             }
-            _splitToggle();
+            _splitToggle(_spreadDim());
+        }
+
+        // The dim to show side by side: the one shown so last (or a stack's arrays),
+        // as long as the active dim has not been changed since; else the active dim.
+        let _spreadSticky = null;   // { dim, activeAt }
+        function _spreadDim() {
+            const k = _spreadSticky;
+            return k && activeDim === k.activeAt && _canDetachDim(k.dim) ? k.dim : activeDim;
+        }
+
+        // Back to one image: it shows the first pane's index; `:` brings this dim back.
+        function _spreadLeaving() {
+            indices[detachedDim] = detachedDimIdx[0];
+            _spreadSticky = { dim: detachedDim, activeAt: activeDim };
+        }
+
+        // ' / ; pressed during a glide add up, and the total is applied in one glide.
+        let _spreadQueuedDelta = 0, _spreadQueuedFn = null;
+        function _spreadStepQueued(dir) {
+            if (!_orthoGlideBusy) { _spreadStep(dir); return; }
+            _spreadQueuedDelta += dir;
+            if (!_spreadQueuedFn) {
+                _spreadQueuedFn = () => {
+                    const d = _spreadQueuedDelta;
+                    _spreadQueuedDelta = 0;
+                    _spreadQueuedFn = null;
+                    if (d) _spreadStep(d);
+                };
+            }
+            _orthoGlideQueued = _spreadQueuedFn;
         }
 
         // `'` / `;` — one pane more or fewer. From one image, `'` starts with
@@ -42338,13 +42374,15 @@
         function _spreadStep(dir) {
             if (!detachedDimMode) {
                 if (dir < 0) { showStatus('side by side: already one image'); return; }
-                spreadCount = 2;
-                _splitToggle();
+                spreadCount = 1 + dir;
+                _splitToggle(_spreadDim());
                 return;
             }
             const n = detachedDimIdx.length + dir;
-            if (n < 2) { spreadCount = 2; indices[detachedDim] = detachedDimIdx[0]; _splitToggle(); return; }
-            _spreadResize(n);
+            if (n < 2) { spreadCount = 2; _spreadLeaving(); _splitToggle(); return; }
+            const cap = Math.min(SPREAD_MAX, Number(shape[detachedDim]) || 0);
+            // Several presses at once stop at the limit instead of doing nothing.
+            _spreadResize(dir > 1 || dir < -1 ? Math.min(n, cap) : n);
         }
 
         // ' / ; — panes that stay glide to their new places; an added pane
@@ -42356,6 +42394,7 @@
                 showStatus(cap === size ? `side by side: all ${size} already shown` : `side by side: at most ${SPREAD_MAX}`);
                 return;
             }
+            if (n === detachedDimIdx.length) return;
             const rows = compareMvActive ? 'mv' : compareQmriActive ? 'qmri' : null;
             const commit = () => _spreadCommitHidden(() => _spreadResizeCommit(n, rows));
             const dim = detachedDim;
@@ -42365,7 +42404,7 @@
                 const idxOf = rows === 'mv' ? (v => _cmvIndices(v)[dim]) : (v => v.rowIdx);
                 const same = rows === 'mv' ? _samePlane : ((a, b) => a.qmriIdx === b.qmriIdx);
                 const oldIdx = new Map(views.map(v => [v, idxOf(v)]));
-                _viewGlide(commit, (v, to) => to.find(w => same(v, w) && idxOf(w) === oldIdx.get(v)) || null);
+                _viewGlide(commit, (v, to) => to.find(w => same(v, w) && idxOf(w) === oldIdx.get(v)) || null, { paneLate: true });
                 return;
             }
             const oldIdx = [...detachedDimIdx];
@@ -42373,10 +42412,10 @@
                 if (!_comparePanesShown()) return null;
                 const panes = _comparePaneParts();
                 return {
-                    panes, chrome: [_slimCb()], drawn: _compareDrawn(),
+                    panes, chrome: [], drawn: _compareDrawn(),
                     pair: (i) => panes[detachedDimIdx.indexOf(oldIdx[i])] || null,
                 };
-            });
+            }, { slide: [_slimCb()], paneLate: true });
         }
 
         async function _spreadResizeCommit(n, rows) {
@@ -42410,16 +42449,17 @@
             showStatus(_spreadStatus());
         }
 
-        function _splitToggle() {
+        function _splitToggle(dimOverride = null) {
             if (detachedDimMode) {
                 if (compareMvActive) {
                     // The row showing the main index glides into the ortho panes.
                     const keep = compareMvViews.find(v => _cmvIndices(v).every((x, i) => x === indices[i]))?.cmvRow ?? 0;
                     _viewGlide(() => { exitCompareMode(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); },
-                        (v, to) => v.cmvRow === keep ? to.find(w => _samePlane(v, w)) : null);
+                        (v, to) => v.cmvRow === keep ? to.find(w => _samePlane(v, w)) : null, { paneLate: true });
                 } else if (compareQmriActive) {
                     const qd = compareQmriDim;
-                    _dissolveTo(() => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); });
+                    _rowsGlide(_rowsFrom(), () => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); },
+                        _currentViewTarget, { paneLate: true });
                 } else {
                     _splitGlideExit();
                 }
@@ -42429,7 +42469,7 @@
                 showStatus('side by side: already comparing arrays');
                 return;
             }
-            const dim = activeDim;
+            const dim = dimOverride ?? activeDim;
             if (qmriMvActive) { showStatus(_NO_ORTHO_QMRI_ROWS()); return; }
             if (multiViewActive && mvDims.includes(dim)) {
                 showStatus(`split: ortho shows dim ${dim} as a plane, choose another dim`);
@@ -42700,7 +42740,10 @@
             const holds = [...els].filter(el => el && !_isCaseName(el)).map(el => [el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 })]);
             return () => holds.forEach(([el, h]) => {
                 h.cancel();
-                el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
+                // To its own opacity: one the page keeps hidden (immersive pane names)
+                // would otherwise flash fully on and snap back off.
+                const to = +getComputedStyle(el).opacity;
+                if (to > 0.02) el.animate([{ opacity: 0 }, { opacity: to }], { duration: 140, easing: 'ease-out' });
             });
         }
 
@@ -42913,7 +42956,22 @@
             _liftBars(bars.map(([el]) => el));
             const lerp = (a, b, p) => a + (b - a) * p;
             const t0 = performance.now();
-            let waiting = true, last = null;
+            let waiting = true, last = null, pNow = 0, ro = null;
+            const placeBars = (p, done) => bars.forEach(([el, from]) => {
+                el.style.removeProperty('translate');
+                if (done) return;
+                const n = el.getBoundingClientRect();
+                if (!n.width) return;
+                el.style.translate = `${((from.left + from.width / 2) - (n.left + n.width / 2)) * (1 - p)}px `
+                    + `${((from.top + from.height / 2) - (n.top + n.height / 2)) * (1 - p)}px`;
+            });
+            if (bars.length) {
+                // A layout change later in the frame than this glide's step would show the
+                // bars at their new place for one frame: place them again after layout.
+                ro = new ResizeObserver(() => placeBars(pNow, false));
+                [...bars.map(([el]) => el.parentElement), ...['compare-view-wrap', 'qmri-view-wrap', 'canvas-viewport']
+                    .map(id => document.getElementById(id))].forEach(el => el && ro.observe(el));
+            }
             const step = () => {
                 let t = target();
                 if (waiting) {
@@ -42939,14 +42997,9 @@
                 };
                 const rect = place(g, t, radii);
                 riders.forEach(o => place(o.g, o.target(), o.radii));
-                bars.forEach(([el, from]) => {
-                    el.style.removeProperty('translate');
-                    if (done) return;
-                    const n = el.getBoundingClientRect();
-                    if (!n.width) return;
-                    el.style.translate = `${((from.left + from.width / 2) - (n.left + n.width / 2)) * (1 - p)}px `
-                        + `${((from.top + from.height / 2) - (n.top + n.height / 2)) * (1 - p)}px`;
-                });
+                pNow = p;
+                placeBars(p, done);
+                if (done) ro?.disconnect();
                 // Same frame as the bar it sits under.
                 if (bars.length) _updateActiveDimUnderline(document.getElementById('info'));
                 if (onFrame) onFrame(p, rect, done);
@@ -43069,10 +43122,35 @@
 
         // The new panes, their names and the colour bar stay hidden while `commit`
         // builds them; the glide then holds what it needs until it lands.
+        // The dim bar is pinned where it was: the new layout can land a frame
+        // before the glide takes the bar over, and it would jump there and back.
         async function _spreadCommitHidden(commit) {
             const holds = ['compare-view-wrap', 'qmri-view-wrap', 'slim-cb-wrap']
                 .map(id => _glideHold(document.getElementById(id)));
-            try { return await commit(); } finally { holds.forEach(h => h?.cancel()); }
+            const info = document.getElementById('info');
+            const from = info?.getBoundingClientRect();
+            let raf = 0, ro = null;
+            const place = () => {
+                info.style.removeProperty('translate');
+                const now = info.getBoundingClientRect();
+                const dx = from.left - now.left, dy = from.top - now.top;
+                if (dx || dy) info.style.translate = `${dx}px ${dy}px`;
+            };
+            const pin = () => { place(); raf = requestAnimationFrame(pin); };
+            if (from) {
+                pin();
+                // A layout change late in a frame (after this frame's pin) is caught
+                // here, after layout and before paint.
+                ro = new ResizeObserver(place);
+                [info.parentElement, document.getElementById('compare-view-wrap'),
+                    document.getElementById('qmri-view-wrap'), _slimCb()].forEach(el => el && ro.observe(el));
+            }
+            try { return await commit(); } finally {
+                cancelAnimationFrame(raf);
+                ro?.disconnect();
+                info?.style.removeProperty('translate');
+                holds.forEach(h => h?.cancel());
+            }
         }
 
         // Back to one image: the pane at the main index grows into it, the others fade.
@@ -43082,7 +43160,7 @@
                 const t = _currentViewTarget();
                 t.pair = (i) => i === keep ? t.panes[0] || null : null;
                 return t;
-            });
+            }, { slide: [_slimCb()], paneLate: true });
         }
 
         // From one image to three or more panes: the image glides into the pane
@@ -43093,10 +43171,10 @@
                 if (!_comparePanesShown()) return null;
                 const panes = _comparePaneParts();
                 return {
-                    panes, chrome: [_slimCb()], drawn: _compareDrawn(),
+                    panes, chrome: [], drawn: _compareDrawn(),
                     pair: (i) => i === 0 ? panes[Math.max(0, detachedDimIdx.indexOf(cur))] || null : null,
                 };
-            });
+            }, { slide: [_slimCb()], paneLate: true });
         }
 
         function _splitGlideExit() {
@@ -43197,14 +43275,17 @@
 
         // Copy of `src` that sits on `ghost` and fades in over it as it glides: the
         // slice takes on the new view's colours on the way. Runs from `onFrame`.
-        function _glideTint(ghost, src, tint = _orthoGhost(src)) {
+        // `under`: the copy stays solid under the tint (same shape only) instead of
+        // crossfading, where the dark page shows through halfway as a dip in brightness.
+        function _glideTint(ghost, src, tint = _orthoGhost(src), { under = false } = {}) {
             if (!tint) return null;
             tint.style.opacity = '0';
             tint._step = (p, rect) => {
                 Object.assign(tint.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
                 tint.style.borderRadius = ghost.style.borderRadius;
                 tint.style.opacity = String(p);
-                ghost.style.opacity = String(1 - p);
+                if (under) { if (tint.previousElementSibling !== ghost) ghost.after(tint); }
+                else ghost.style.opacity = String(1 - p);
             };
             return tint;
         }
@@ -43763,7 +43844,11 @@
         // (the copies hold the old view up meanwhile if it returns a promise).
         // `resolve()` then gives { panes, chrome, pair(i), drawn() } for the new view, or null
         // if it did not switch; pair(i) is the new pane the copy of from[i] lands in, or null.
-        function _rowsGlide(from, commit, resolve) {
+        // `slide`: bars shown in both views (the colour bar) that slide along instead of
+        // fading out at the old place and showing at the new one ahead of the panes.
+        // `paneLate`: a landing pane's frame (outline, name) waits under its copy until
+        // the copy has landed, instead of fading in at the new place while it travels.
+        function _rowsGlide(from, commit, resolve, { slide = [], paneLate = false } = {}) {
             const whole = from.every(p => _splitWholeIn(p.canvas, p.clip));
             let ghosts = _orthoGlideAllowed() && from.length
                 ? from.map(p => { const g = whole ? _orthoGhost(p.canvas) : _orthoGhost(p.canvas, p.clip); _splitDressGhost(g, p.clip); return g; })
@@ -43775,17 +43860,41 @@
             }
             _glideBegin();
             _killImmersiveTweens();
-            _glideFadeOutCopies(_rowsChromeCopies());
+            const onScreen = el => {
+                const r = el?.getClientRects().length ? el.getBoundingClientRect() : null;
+                return r && r.width && r.top >= 0 && r.bottom <= window.innerHeight && +getComputedStyle(el).opacity > 0.5;
+            };
+            const fadeIn = slide.filter(el => el && !onScreen(el));
+            slide = slide.filter(onScreen);
+            _glideFadeOutCopies(_rowsChromeCopies().filter(el => !slide.some(b => b.contains(el))));
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info], null);
             const eggsBar = _eggsBar();
+            const slid = slide.map(el => [el, el.getBoundingClientRect()]);
+            slid.fadeIn = fadeIn;
+            // Old dim bar text, held up by a copy until the glide starts (see _rowsGlideLand).
+            const bar = paneLate ? { copy: _dimBarCopy(info), text: info?.textContent } : null;
+            if (bar?.copy) bar.hold = _glideHold(info);
             const done = commit();
-            if (done?.then) done.catch(e => console.error(e)).then(() => _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar));
-            else _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar);
+            if (done?.then) done.catch(e => console.error(e)).then(() => _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar));
+            else _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar);
         }
 
-        function _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar) {
+        function _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid = [], paneLate = false, bar = null) {
             const to = resolve();
+            // The dim bar's old text fades out and its new text in as the glide starts;
+            // unchanged text (or no glide) just shows the bar again.
+            const barDone = (cross) => {
+                if (!bar?.copy) return;
+                bar.hold?.cancel();
+                if (cross && info.textContent !== bar.text) {
+                    const tr = info.style.translate;
+                    info.style.removeProperty('translate');
+                    _dimBarCrossfade(bar.copy, info);
+                    if (tr) info.style.translate = tr;
+                } else bar.copy.remove();
+                bar.copy = null;
+            };
             const handOver = (keep) => {
                 const last = keep.pop();
                 keep.forEach(g => {
@@ -43795,21 +43904,27 @@
                 _orthoGhostRelease(last, () => true);
             };
             if (!to) {
+                barDone(false);
                 freeBars();
                 handOver(ghosts);
                 return;
             }
             const pairs = whole ? ghosts.map((g, i) => ({ g, part: to.pair(i) })).filter(p => p.part) : [];
+            // Pane names wait until every pane has landed, then fade in together.
+            const showNames = paneLate
+                ? _holdLabels(to.panes.map(p => p.pane?.querySelector?.('.compare-title, .cq-row-name')).filter(Boolean))
+                : () => {};
             const paired = new Set(pairs.map(p => p.part.pane));
-            pairs.forEach(p => { p.hold = _glideHold(p.part.canvas); });
+            pairs.forEach(p => { p.hold = _glideHold(paneLate ? p.part.pane : p.part.canvas); });
             const holds = to.panes.filter(p => !paired.has(p.pane)).map(p => [p.pane, _glideHold(p.pane)]);
-            const showChrome = _holdLabels(to.chrome.filter(Boolean));
+            const showChrome = _holdLabels([...to.chrome, ...(slid.fadeIn || [])].filter(Boolean));
             // A shared range may ask again, so "drawn" has to hold for a moment.
             const t0 = performance.now();
             let settled = false, stable = 0;
+            const lateNew = paneLate && pairs.length > 0;
             const reveal = () => {
                 settled = true;
-                holds.forEach(([el, h]) => { h.cancel(); _glideFadeIn(el); });
+                if (!lateNew) holds.forEach(([el, h]) => { h.cancel(); _glideFadeIn(el); });
                 showChrome();
             };
             const watch = () => {
@@ -43824,7 +43939,7 @@
             watch();
             if (!pairs.length) {
                 // Nothing to land in: the old view waits, then dissolves into the new one.
-                whenSettled(() => { freeBars(); handOver(ghosts); });
+                whenSettled(() => { barDone(true); freeBars(); handOver(ghosts); showNames(); });
                 _syncSinkFocus();
                 return;
             }
@@ -43834,22 +43949,30 @@
             const tintStep = (p) => {
                 pairs.forEach(o => {
                     // The new colours are known only once everything is drawn.
-                    if (!o.tint && settled && p < 0.85) { o.tint = _glideTint(o.g, o.part.canvas); o.p0 = p; }
+                    if (!o.tint && settled && p < 0.85) { o.tint = _glideTint(o.g, o.part.canvas, undefined, { under: true }); o.p0 = p; }
                     o.tint?._step((p - o.p0) / (1 - o.p0), o.g.getBoundingClientRect());
                 });
             };
             const clock = _splitGlideLive(lead.g, () => lead.part.canvas.getBoundingClientRect(), () => _cornerRadii(lead.part.clip),
-                [[info, infoFrom], eggsBar],
+                [[info, infoFrom], eggsBar, ...slid],
                 (p, rect, done) => {
                     if (!done) tintStep(p);
                     else freeBars();
                 },
                 {
-                    onStart: () => paired.forEach(_glideFadeInLate),
+                    // Layouts settle as each new pane's frame arrives: glide only once
+                    // all are drawn, or the copies set off toward a passing layout and bend.
+                    ready: paneLate ? to.drawn : () => true,
+                    onStart: () => {
+                        if (!paneLate) paired.forEach(_glideFadeInLate);
+                        if (lateNew) holds.forEach(([el, h]) => { h.cancel(); _glideFadeInLate(el); });
+                        barDone(true);
+                    },
                     riders: pairs.slice(1).map(o => ({ g: o.g, target: () => o.part.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.part.clip) })),
                 });
             clock.onfinish = clock.oncancel = () => whenSettled(() => {
                 pairs.forEach(o => o.hold?.cancel());
+                showNames();
                 handOver(pairs.map(o => {
                     if (!o.tint) return o.g;
                     o.g.remove();
@@ -43887,7 +44010,7 @@
 
         // Switch with `commit`; each old pane view `v` for which `pairOf(v, newViews)` names a
         // new one glides into it, the rest dissolve.
-        function _viewGlide(commit, pairOf) {
+        function _viewGlide(commit, pairOf, opts = {}) {
             const fromViews = _currentViews() || [];
             _rowsGlide(_rowsFrom(), commit, () => {
                 const t = _currentViewTarget(), toViews = _currentViews() || [];
@@ -43896,7 +44019,7 @@
                     return v ? t.panes[toViews.indexOf(v)] || null : null;
                 };
                 return t;
-            });
+            }, opts);
         }
 
         // Switch with `commit`; the old view stays up until the new one is drawn, then dissolves into it.
