@@ -4010,12 +4010,6 @@
         }
         /* Only the pane [ ] move shows them; the rest keep the space. */
         .detached-index-hint:not(.is-target) .hint-bracket { visibility: hidden; }
-        /* Side-by-side indices on one line; the pane [ ] move stands out. */
-        #info .dim-spread-list { display: inline-flex; gap: 0.45em; font-variant-numeric: tabular-nums; }
-        #info .dim-spread-list > span:not(.is-target) {
-            color: color-mix(in srgb, var(--muted) 70%, transparent);
-            -webkit-text-fill-color: currentColor;
-        }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -10693,15 +10687,12 @@
             return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
         }
 
-        // The dim bar's indices on one line: a run as now, or a list with the
-        // pane [ ] move picked out. Padded so moving one never shifts the rest.
+        // The dim bar's index: neighbours as a run ("4–7"), panes moved apart
+        // as the one [ ] move — every pane already names its own.
         function _detachedDimStackHTML() {
             if (_spreadIsRun()) return _spreadIndicesText();
             const width = String(shape[detachedDim]).length;
-            const t = _spreadTargetPane();
-            const items = detachedDimIdx.map((v, i) =>
-                `<span class="${i === t ? 'is-target' : ''}">${String(v + 1).padStart(width, '0')}</span>`);
-            return `<span class="dim-spread-list">${items.join('')}</span>`;
+            return String(detachedDimIdx[_spreadTargetPane()] + 1).padStart(width, '0');
         }
 
         // Pane label; the pane [ ] move wears the brackets. Every pane carries
@@ -23105,10 +23096,9 @@
                 }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
-                    // The indices shown, for cases too (their names sit on the panes).
-                    const caseStyle = _detachedDimIsCases() ? ' style="color:var(--q-dim-color)"' : '';
+                    // Same look as any dim, cases too (their names sit on the panes).
                     const body = _detachedDimStackHTML();
-                    return `<span class="${cls}" ${d}${caseStyle}>${body}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                    return `<span class="${cls}" ${d}>${body}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color

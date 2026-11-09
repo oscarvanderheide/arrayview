@@ -114,9 +114,12 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
     assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1]
     assert page.evaluate("() => !!compareTitles[1].querySelector('.index-hint-glow')")
 
-    # Moved apart: the dim bar lists them on one line, same height as ever.
-    text = page.evaluate("() => document.querySelector('#info .dim-spread-list').textContent")
-    assert text == f"{a + 1:03d}{b + 2:03d}"
+    # Moved apart: the dim bar shows the bracketed pane's index alone.
+    info = lambda: page.evaluate("() => document.getElementById('info').textContent")
+    assert f"{b + 2:03d}/120" in info() and f"{a + 1:03d}" not in info()
+    hover(0)
+    assert f"{a + 1:03d}/120" in info()
+    hover(1)
     assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
     shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
     page.screenshot(path=f"{shots}/spread_pair_moved.png")
