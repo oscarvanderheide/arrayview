@@ -284,7 +284,8 @@ def test_split_ortho_rows_keep_their_own_index(loaded_viewer, client, tmp_path):
     page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
-    page.keyboard.press("]")  # the left pane's index moves off the main one
+    page.keyboard.press("l")  # pick the left pane alone
+    page.keyboard.press("k")  # its index moves off the main one
     page.wait_for_timeout(500)
     a, b = page.evaluate("[detachedDimIdx[0], detachedDimIdx[1]]")
     assert a != b
