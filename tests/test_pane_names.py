@@ -116,20 +116,26 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
     assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1]
     assert page.evaluate("() => !!compareTitles[1].querySelector('.index-hint-glow')")
 
-    # Moved apart: the dim bar lists them as a tight set, the bracketed one picked out.
+    # Moved apart: the dim bar still lists them as a tight set.
     setText = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent")
-    target = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set .spread-target').textContent")
-    assert setText() == f"{{{a + 1},{b + 2}}}" and target() == str(b + 2)
-    # The underline sits under the pointed pane's number alone.
+    assert setText() == f"{{{a + 1},{b + 2}}}"
+    # The underline covers the digits and commas, not the braces.
     page.wait_for_timeout(400)
     ul = page.evaluate("""() => {
-        const t = document.querySelector('#info .spread-target').getBoundingClientRect();
+        const t = document.querySelector('#info .spread-digits').getBoundingClientRect();
         const m = document.getElementById('dim-active-underline').getBoundingClientRect();
         return [Math.round(t.left), Math.round(t.width), Math.round(m.left), Math.round(m.width)];
     }""")
     assert abs(ul[0] - ul[2]) <= 1 and abs(ul[1] - ul[3]) <= 1, ul
-    hover(0)
-    assert target() == str(a + 1)
+    # Extents on: the slash fills in the active colour like any dim's; digits stay plain.
+    page.evaluate("() => { _dimbarExtentPinned = true; _reconcileDimbarExtent(); renderInfo(); }")
+    look = page.evaluate("""() => {
+        const lab = document.querySelector('#info .active-dim.dim-label');
+        const dig = getComputedStyle(lab.querySelector('.spread-digits')).webkitTextFillColor;
+        return { slash: lab.querySelector('.dim-slash').style.background, dig, text: getComputedStyle(lab).webkitTextFillColor };
+    }""")
+    assert "linear-gradient" in look["slash"] and look["dig"] == look["text"]
+    page.evaluate("() => { _dimbarExtentPinned = false; _reconcileDimbarExtent(); renderInfo(); }")
     hover(1)
     assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
     shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))

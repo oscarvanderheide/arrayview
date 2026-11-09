@@ -10689,13 +10689,10 @@
         }
 
         // The dim bar's indices, always as a tight set ("{1,2,3}", "{1,15,3}").
-        // Once moved apart, the pane [ ] move is marked for the underline to
-        // sit under (its brackets on the pane are the visible cue); neighbours
-        // move together, so the underline spans the whole set.
+        // The underline sits under the digits and commas, not the braces.
         function _detachedDimStackHTML() {
-            const t = _spreadIsRun() ? -1 : _spreadTargetPane();
-            const items = detachedDimIdx.map((v, i) => i === t ? `<span class="spread-target">${v + 1}</span>` : String(v + 1));
-            return `<span class="dim-spread-set">{${items.join(',')}}</span>`;
+            const items = detachedDimIdx.map(v => String(v + 1));
+            return `<span class="dim-spread-set">{<span class="spread-digits">${items.join(',')}</span>}</span>`;
         }
 
         // Pane label; the pane [ ] move wears the brackets. Every pane carries
@@ -22886,8 +22883,8 @@
                 || info?.querySelector('.playing-dim.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
-            // Side-by-side set: under the pointed pane's number, not the whole set.
-            const t = label.querySelector('.spread-target');
+            // Side-by-side set: under the digits and commas, not the braces.
+            const t = label.querySelector('.spread-digits');
             if (t) { const q = t.getBoundingClientRect(); return { x: q.left, y: r.bottom, w: q.width }; }
             return { x: r.left, y: r.bottom, w: r.width };
         }
@@ -22903,8 +22900,8 @@
             }
             const sz = shape[activeDim];
             if (!sz || sz <= 1) return 0;
-            const idx = detachedDimMode && activeDim === detachedDim && !_spreadIsRun()
-                ? detachedDimIdx[_spreadTargetPane()] : indices[activeDim];
+            const idx = detachedDimMode && activeDim === detachedDim
+                ? detachedDimIdx[0] : indices[activeDim];
             if (idx == null) return 0;
             return idx / Math.max(1, sz - 1);
         }
@@ -23139,7 +23136,10 @@
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     // Same look as any dim, cases too (their names sit on the panes).
                     const body = _detachedDimStackHTML();
-                    return `<span class="${cls}" ${d}>${body}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                    // The slash fills like any dim's, from the first pane's index.
+                    const pct = Math.round((detachedDimIdx[0] ?? 0) / Math.max(1, shape[i] - 1) * 100);
+                    const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
+                    return `<span class="${cls}" ${d}>${body}${slash}<span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
