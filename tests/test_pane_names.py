@@ -73,7 +73,7 @@ def test_zoom_map_and_slice_bar_leave_compare_names_readable(page, server_url, c
     assert page.evaluate("() => getComputedStyle(document.getElementById('compare-left-title')).translate") in ("none", "")
 
 
-def test_hl_picks_one_pane_and_jk_move_only_that_one(page, server_url, client, tmp_path):
+def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, client, tmp_path):
     arr = np.random.default_rng(5).random((48, 48, 120)).astype(np.float32)
     sid = register_array(client, arr, tmp_path, "names_split")
     page.goto(f"{server_url}/?sid={sid}")
@@ -96,36 +96,31 @@ def test_hl_picks_one_pane_and_jk_move_only_that_one(page, server_url, client, t
             }).filter(i => i >= 0)"""
         )
 
-    setText = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent")
-    target = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set .spread-target')?.textContent ?? null")
-    idx = lambda: page.evaluate("() => [...detachedDimIdx]")
-    active = lambda: page.evaluate("() => activeDim")
+    def hover(i):
+        box = page.locator(f"#{['compare-left', 'compare-right', 'compare-third'][i]}-canvas").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(100)
 
-    # Landing on the dim picks all: neighbours read as a set, no pane bracketed.
-    a, b = idx()
-    assert setText() == f"{{{a + 1},{b + 1}}}" and target() is None
+    # Every pane names its index; only one wears the brackets.
     assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /\\d+\\/120/.test(e.textContent))"))
-    assert bracketed() == []
-    # The mouse no longer picks a pane, and [ ] no longer move one.
-    box = page.locator("#compare-right-canvas").bounding_box()
-    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-    page.wait_for_timeout(100)
+    assert bracketed() == [0]
+    hover(1)
+    assert bracketed() == [1]
+
+    a, b = page.evaluate("() => [...detachedDimIdx]")
+    # Neighbours too read as a set, not a run.
+    assert page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent") == f"{{{a + 1},{b + 1}}}"
     _focus(page)
     page.keyboard.press("]")
     page.wait_for_timeout(150)
-    assert bracketed() == [] and idx() == [a, b]
-
-    # l picks the first pane, then the second; k moves only the picked one.
-    page.keyboard.press("l")
-    assert active() == 2 and target() == str(a + 1) and bracketed() == [0]
-    page.keyboard.press("l")
-    assert active() == 2 and target() == str(b + 1) and bracketed() == [1]
-    page.keyboard.press("k")
-    page.wait_for_timeout(150)
-    assert idx() == [a, b + 1]
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1]
     assert page.evaluate("() => !!compareTitles[1].querySelector('.index-hint-glow')")
+
+    # Moved apart: the dim bar lists them as a tight set, the bracketed one picked out.
+    setText = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent")
+    target = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set .spread-target').textContent")
     assert setText() == f"{{{a + 1},{b + 2}}}" and target() == str(b + 2)
-    # The underline sits under the picked pane's number alone.
+    # The underline sits under the pointed pane's number alone.
     page.wait_for_timeout(400)
     ul = page.evaluate("""() => {
         const t = document.querySelector('#info .spread-target').getBoundingClientRect();
@@ -133,48 +128,24 @@ def test_hl_picks_one_pane_and_jk_move_only_that_one(page, server_url, client, t
         return [Math.round(t.left), Math.round(t.width), Math.round(m.left), Math.round(m.width)];
     }""")
     assert abs(ul[0] - ul[2]) <= 1 and abs(ul[1] - ul[3]) <= 1, ul
+    hover(0)
+    assert target() == str(a + 1)
+    hover(1)
     assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
     shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
     page.screenshot(path=f"{shots}/spread_pair_moved.png")
-
-    # With extents on, the picked number alone takes the active colour.
-    colours = """() => [...document.querySelectorAll('#info .dim-spread-set .spread-num')]
-        .map(e => getComputedStyle(e).webkitTextFillColor)"""
-    page.evaluate("() => { _dimbarExtentPinned = true; _reconcileDimbarExtent(); }")
-    c = page.evaluate(colours)
-    assert c[0] != c[1]
-
-    # h steps back to the first pane, then off the dim; l comes back to all.
-    page.keyboard.press("h")
-    assert active() == 2 and target() == str(a + 1)
-    page.keyboard.press("h")
-    assert active() != 2 and bracketed() == []
-    page.keyboard.press("l")
-    assert active() == 2 and target() is None
-    c = page.evaluate(colours)
-    assert c[0] == c[1]
-    page.evaluate("() => { _dimbarExtentPinned = false; _reconcileDimbarExtent(); }")
-    # From all, h picks the last pane; k with all picked moves them all.
-    page.keyboard.press("h")
-    assert target() == str(b + 2)
-    page.keyboard.press("l")
-    assert active() != 2
-    page.keyboard.press("h")
-    page.keyboard.press("k")
-    page.wait_for_timeout(150)
-    assert idx() == [a + 1, b + 2]
 
     # One more pane keeps the hand-set two and follows the last.
     page.keyboard.press("'")
     page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
     page.wait_for_timeout(1200)
-    assert idx() == [a + 1, b + 2, b + 3]
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b + 2]
+    hover(2)
     _focus(page)
-    page.keyboard.press("h")  # all → last
-    page.keyboard.press("j")
+    page.keyboard.press("[")
     page.wait_for_timeout(150)
-    # The index it lands on is taken, so it skips past it.
-    assert idx() == [a + 1, b + 2, b + 1]
+    # The pane it lands on is taken, so it skips past it.
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b]
     assert bracketed() == [2]
     page.screenshot(path=f"{shots}/spread_three_moved.png")
 

@@ -609,7 +609,7 @@ class TestKeyboard:
         page.keyboard.press("'")
         page.wait_for_function(f"() => ({panes})() === '1,2,3'", timeout=10_000)
         page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean)", timeout=10_000)
-        assert "{2,3,4}" in page.inner_text("#info")
+        assert "2–4" in page.inner_text("#info")
         page.keyboard.press("k")  # three or more page along
         page.wait_for_function(f"() => ({panes})() === '3,4,5'", timeout=5_000)
         page.keyboard.press("k")  # at the end: stays

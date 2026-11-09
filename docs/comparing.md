@@ -19,16 +19,11 @@ time. A folder or `--match` collection does the same.
 loaded, or any other non-spatial dimension such as echoes or time points.
 Press it again for one image. `'` adds a pane and `;` removes one (up to six).
 
-The dimension bar lists the panes' positions as a set, e.g. `{1,2,3}`.
-
-- **Move one pane on its own.** On that dimension, `h`/`l` step from all
-  panes to a single one (it is underlined, and its name gets brackets);
-  `j`/`k` then move only that pane, so you can put echo 1 next to echo 5.
-  Stepping past the last pane leaves the dimension.
-- **Two panes compare.** With all picked, `j`/`k` and scrolling move both
-  together. `X` opens the center pane (below).
-- **Three or more browse.** They show neighbouring positions; with all
-  picked, `j`/`k` on that dimension pages to the next few.
+- **Two panes compare.** Scrolling moves both through slices together. `[`/`]`
+  moves the left pane along the dimension and `{`/`}` the right one, so you
+  can put echo 1 next to echo 5. `X` opens the center pane (below).
+- **Three or more browse.** They show neighbouring positions; `j`/`k` on that
+  dimension pages to the next few.
 
 `v` (3-plane) and `q` (qMRI) show one row per pane.
 

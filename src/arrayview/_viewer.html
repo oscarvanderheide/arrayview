@@ -4008,14 +4008,9 @@
             45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
-        /* Only the pane h/l picked shows them; the rest keep the space. */
+        /* Only the pane [ ] move shows them; the rest keep the space. */
         .detached-index-hint:not(.is-target) .hint-bracket { visibility: hidden; }
         #info .dim-spread-set { font-variant-numeric: tabular-nums; }
-        /* Extents on (no underline): the picked number, or all of them, in the active colour. */
-        #info.dimbar-expanded .active-dim .dim-spread-set.spread-all .spread-num,
-        #info.dimbar-expanded .active-dim .dim-spread-set .spread-target {
-            color: var(--active-dim); -webkit-text-fill-color: var(--active-dim);
-        }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -7692,12 +7687,11 @@
         let detachedDimMode = false;
         let detachedDim = -1;
         // Side by side (`:`): one array shown at several indices of `detachedDim`,
-        // one entry per pane. On that dim h/l pick one pane's index (or all),
-        // j/k then move just that one; two panes compare (X works); neighbours
-        // of three or more page along together, panes moved by hand step along
-        // together.
+        // one entry per pane. [ ] move the pane under the mouse (or the last
+        // one pointed at); two panes compare (X works); neighbours of three or
+        // more page along together, panes moved by hand step along together.
         let detachedDimIdx = [];
-        let _spreadTarget = -1;     // pane h/l picked on the side-by-side dim; -1 = all
+        let _spreadTarget = 0;      // pane [ ] move: the last one the mouse was over
         let spreadCount = 2;        // panes used the next time `:` turns it on
         const SPREAD_MAX = 6;       // compare panes available
         let registrationAlpha = 0.5;
@@ -10633,7 +10627,7 @@
             detachedDimMode = false;
             detachedDim = -1;
             detachedDimIdx = [];
-            _spreadTarget = -1;
+            _spreadTarget = 0;
         }
 
         // Panes a stack opens with: all of them for 2–4 arrays, else none.
@@ -10653,26 +10647,9 @@
             return detachedDimIdx.every((v, i) => i === 0 || v === detachedDimIdx[i - 1] + 1);
         }
 
-        // Pane h/l picked on the side-by-side dim, or -1 when all move.
+        // Pane [ ] move, clamped to the panes there are.
         function _spreadTargetPane() {
-            if (!_spreadPickable() || _spreadTarget < 0) return -1;
-            return Math.min(detachedDimIdx.length - 1, _spreadTarget);
-        }
-        function _spreadPickable() {
-            return detachedDimMode && compareActive && activeDim === detachedDim && detachedDimIdx.length >= 2;
-        }
-        // h/l on the side-by-side dim: all → first … last → leave (l), or
-        // all → last … first → leave (h). True while the step stays on the dim.
-        function _spreadPickStep(dir) {
-            if (!_spreadPickable()) { _spreadTarget = -1; return false; }
-            const n = detachedDimIdx.length;
-            const cur = _spreadTargetPane();
-            const next = cur < 0 ? (dir > 0 ? 0 : n - 1) : cur + dir;
-            _spreadTarget = (next >= 0 && next < n) ? next : -1;
-            updateCompareTitles();
-            if (_spreadTarget < 0) return false;
-            renderInfo();
-            return true;
+            return Math.max(0, Math.min(detachedDimIdx.length - 1, _spreadTarget));
         }
 
         // The indices shown, as one run ("4–7") or a list ("3 · 7 · 12").
@@ -10683,7 +10660,7 @@
         }
 
         function _spreadStatus() {
-            return `side by side: dim ${detachedDim} · ${_spreadIndicesText()} of ${shape[detachedDim]} · on this dim h/l pick one pane`;
+            return `side by side: dim ${detachedDim} · ${_spreadIndicesText()} of ${shape[detachedDim]} · [ ] move the pane under the mouse`;
         }
 
         // `n` neighbouring indices along `dim`, starting at `start` when they fit.
@@ -10712,17 +10689,17 @@
         }
 
         // The dim bar's indices, always as a tight set ("{1,2,3}", "{1,15,3}").
-        // The pane h/l picked is marked for the underline to sit under (and,
-        // with extents on, is the one number in the active colour); with none
-        // picked all move, so the underline spans the set and all are coloured.
+        // Once moved apart, the pane [ ] move is marked for the underline to
+        // sit under (its brackets on the pane are the visible cue); neighbours
+        // move together, so the underline spans the whole set.
         function _detachedDimStackHTML() {
-            const t = _spreadTargetPane();
-            const items = detachedDimIdx.map((v, i) => `<span class="spread-num${i === t ? ' spread-target' : ''}">${v + 1}</span>`);
-            return `<span class="dim-spread-set${t < 0 ? ' spread-all' : ''}">{${items.join(',')}}</span>`;
+            const t = _spreadIsRun() ? -1 : _spreadTargetPane();
+            const items = detachedDimIdx.map((v, i) => i === t ? `<span class="spread-target">${v + 1}</span>` : String(v + 1));
+            return `<span class="dim-spread-set">{${items.join(',')}}</span>`;
         }
 
-        // Pane label; the pane h/l picked wears the brackets. Every pane carries
-        // them (hidden off-target) so picking never reflows a label.
+        // Pane label; the pane [ ] move wears the brackets. Every pane carries
+        // them (hidden off-target) so moving the mouse never reflows a label.
         function _detachedDimPaneTitleHTML(idx, label) {
             const escaped = String(label || '').replace(/</g, '&lt;');
             if (detachedDimIdx.length < 2) return escaped;
@@ -10745,6 +10722,32 @@
             el.classList.add('index-hint-glow');
         }
 
+        // Which side-by-side pane an element sits in, or -1.
+        function _spreadPaneAt(target) {
+            if (!target || !target.closest) return -1;
+            const pane = target.closest('.compare-pane');
+            if (pane) {
+                const i = compareCanvases.findIndex(c => c && c.closest('.compare-pane') === pane);
+                return i < detachedDimIdx.length ? i : -1;
+            }
+            const qv = target.closest('.qv-pane');
+            if (!qv) return -1;
+            const views = compareMvActive ? compareMvViews : compareQmriActive ? compareQmriViews : [];
+            const v = views.find(w => w.canvas && w.canvas.closest('.qv-pane') === qv);
+            if (!v) return -1;
+            const row = compareMvActive ? v.cmvRow : v.cqRow;
+            return Number.isInteger(row) && row < detachedDimIdx.length ? row : -1;
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (!detachedDimMode) return;
+            const i = _spreadPaneAt(e.target);
+            if (i < 0 || i === _spreadTargetPane()) return;
+            _spreadTarget = i;
+            updateCompareTitles();
+            renderInfo();
+        }, { passive: true });
+
         function _canDetachDim(dim) {
             if (!Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
             if (dim === dim_x || dim === dim_y || dim === dim_z) return false;
@@ -10752,14 +10755,13 @@
             return Number(shape[dim]) >= 2;
         }
 
-        // j/k with one pane picked — step it alone, past indices other panes show.
+        // [ ] — step the target pane alone, past indices other panes show.
         function _bumpSpreadPane(delta, key) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isFinite(delta)) return false;
             const size = Number(shape[detachedDim]) || 0;
             const n = detachedDimIdx.length;
             if (size < 2 || n < 2) return false;
             const p = _spreadTargetPane();
-            if (p < 0) return false;
             const taken = new Set(detachedDimIdx.filter((_, i) => i !== p));
             let next = detachedDimIdx[p];
             for (let tries = 0; tries < size; tries++) {
@@ -22901,7 +22903,7 @@
             }
             const sz = shape[activeDim];
             if (!sz || sz <= 1) return 0;
-            const idx = _spreadTargetPane() >= 0
+            const idx = detachedDimMode && activeDim === detachedDim && !_spreadIsRun()
                 ? detachedDimIdx[_spreadTargetPane()] : indices[activeDim];
             if (idx == null) return 0;
             return idx / Math.max(1, sz - 1);
@@ -23108,8 +23110,6 @@
 
         function renderInfo() {
             _ensureQmriActiveDimVisible();
-            // A pane h/l picked lasts only while its dim stays active.
-            if (_spreadTarget >= 0 && !_spreadPickable()) { _spreadTarget = -1; updateCompareTitles(); }
             _reconcileCaseTitle();
             _syncOverlayPaletteSlice();
             // In stack mosaic, the spatial sizes shown come from the hovered
@@ -31218,7 +31218,6 @@
                         }
                         return;
                     }
-                    if (_spreadPickStep(-1)) return;
                     if (multiViewActive) {
                         activeDim = (activeDim - 1 + shape.length) % shape.length;
                         renderInfo();
@@ -31289,7 +31288,6 @@
                         }
                         return;
                     }
-                    if (_spreadPickStep(1)) return;
                     if (multiViewActive) {
                         activeDim = (activeDim + 1) % shape.length;
                         renderInfo();
@@ -31318,7 +31316,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(1); return; }
-                    if (detachedDimMode && compareActive && activeDim === detachedDim) { if (_spreadTargetPane() >= 0) _bumpSpreadPane(1, ']'); else _bumpDetachedDimPair(1); return; }
+                    if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(1); return; }
                     if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
@@ -31370,7 +31368,7 @@
                 run: (ctx, e) => {
                     e.preventDefault();
                     if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(-1); return; }
-                    if (detachedDimMode && compareActive && activeDim === detachedDim) { if (_spreadTargetPane() >= 0) _bumpSpreadPane(-1, '['); else _bumpDetachedDimPair(-1); return; }
+                    if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(-1); return; }
                     if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(-1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
@@ -31530,6 +31528,11 @@
                 when: [],
                 run: (ctx, e) => { if (e) e.preventDefault(); _spreadStepQueued(-1); },
             },
+            'spread.adjustPaneIndex': {
+                title: 'Side by side: move the pane under the mouse',
+                when: ['detachedDimMode'],
+                run: (ctx, e) => { _bumpSpreadPane(e.key === ']' ? 1 : -1, e.key); },
+            },
             'toolmenu.open': {
                 title: 'Open tool launcher',
                 when: [],
@@ -31615,6 +31618,8 @@
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
+            { key: '[', command: 'spread.adjustPaneIndex' },
+            { key: ']', command: 'spread.adjustPaneIndex' },
             { key: '[', command: 'ui.adjustBracket' },
             { key: ']', command: 'ui.adjustBracket' },
             { key: '{', command: 'vfield.adjustLength' },
@@ -31753,7 +31758,7 @@
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: 'Shift+;', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
-                            { key: "' / ;", action: 'One pane more / fewer', hint: "on that dim h/l pick one pane, then j/k move just that one; past the last pane h/l leave the dim · with all picked j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along · ' from one image starts with two" },
+                            { key: "' / ;", action: 'One pane more / fewer', hint: "[ ] move the pane under the mouse · j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along · ' from one image starts with two" },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -31886,7 +31891,7 @@
                             { key: 'Shift+;', action: 'Side by side', hint: 'on a non-spatial dim, shows two panes from that dim; with several arrays loaded, use their dim' },
                             { key: 'X', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
                             { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons replace the dimbar briefly and select a specific operation directly' },
-                            { key: '[ ]', action: 'Adjust operation parameter', hint: 'blend, wipe, flicker, or checker size' },
+                            { key: '[ ]', action: 'Adjust operation parameter / pane index', hint: 'side by side: moves the pane under the mouse along its dim instead of blend, wipe, flicker, or checker size' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when a center operation is active; outside compare, Z toggles full zen mode' },
                         ]
                     }
@@ -34451,10 +34456,11 @@
                     },
                     {
                         key: ':',
-                        text: 'Press : (shift+;) to show this dim side by side.\nOn that dim, h and l pick one pane; j and k then move just that one.',
+                        text: 'Press : (shift+;) to show this dim side by side.\nPoint at a pane: [ and ] move just that one.',
                         note: "Press : again to go back. ' and ; add or remove a pane.",
                         expect: [
                             'spread.toggle', 'spread.add',
+                            'spread.adjustPaneIndex',
                         ],
                     },
                 ],
@@ -44958,7 +44964,6 @@
                 // A gesture still building travel has been consumed here; it
                 // must not fall through and scrub the generic scroll dim.
                 if (!delta) return;
-                if (_spreadTargetPane() >= 0) { _bumpSpreadPane(Math.sign(delta), delta > 0 ? ']' : '['); return; }
                 if (_bumpDetachedDimPair(delta)) return;
             }
             if (multiViewActive) return;
