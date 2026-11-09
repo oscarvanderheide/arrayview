@@ -7674,7 +7674,7 @@
         // coalesced via compareRendering/comparePending below rather than each
         // having its own rendering/pending flag, because every compare trigger
         // (wheel, slider, keyboard) re-renders all visible panes together.
-        let comparePanes = [];           // [{ sid, ws, seq }]
+        let comparePanes = [];           // [{ sid, ws, seq, idx }]
         let _compareConnectedSids = [];  // sid list the current comparePanes[] reflect
         let _compareRoundRenderSids = [];
         let _compareRoundExpected = new Set(); // pane indices sent-to in the round in flight
@@ -17821,9 +17821,33 @@
         }
 
         function _compareTeardownPaneConnections() {
-            comparePanes.forEach(p => { if (p.ws) { p.ws.onclose = null; p.ws.close(); } });
+            [...comparePanes, ..._comparePaneSpares].forEach(_compareClosePane);
             comparePanes = [];
+            _comparePaneSpares = [];
             _compareConnectedSids = [];
+        }
+
+        // Side by side keeps an open connection or two in reserve: opening one
+        // costs round trips (slow over a tunnel), so ' takes a ready one instead
+        // and a pane dropped by ; is kept for the next '. A pane in reserve has
+        // idx -1 and ignores what arrives on it.
+        let _comparePaneSpares = [];
+        const _COMPARE_SPARES_MAX = 2;
+        const _compareClosePane = (p) => { if (p?.ws) { p.ws.onclose = null; p.ws.close(); } };
+        function _compareOpenPane(sidVal, idx) {
+            const pane = { sid: sidVal, ws: null, seq: 0, idx };
+            if (!httpTransport) {
+                pane.ws = createTransport(sidVal,
+                    (event) => { if (pane.idx >= 0) compareOnMessage(pane.idx, event); },
+                    () => { if (pane.idx >= 0) compareRender(); },
+                    () => {
+                        if (pane.idx >= 0) _compareHandlePaneDrop(pane.idx);
+                        else _comparePaneSpares = _comparePaneSpares.filter(q => q !== pane);
+                    },
+                    () => { if (pane.ws) pane.ws.close(); }
+                );
+            }
+            return pane;
         }
 
         function _compareRoundComplete() {
@@ -17863,23 +17887,30 @@
             // A pane showing the same array at the same place keeps its connection:
             // adding or removing a side-by-side pane must not reconnect the ones that
             // stay (each reconnect delays the glide). Late replies are dropped by seq.
-            const kept = comparePanes.map((p, i) => p && p.sid === target[i]
-                && (httpTransport || (p.ws && p.ws.readyState <= 1)) ? p : null);
-            comparePanes.forEach((p, i) => { if (!kept[i] && p?.ws) { p.ws.onclose = null; p.ws.close(); } });
+            const live = (p) => httpTransport || (p.ws && p.ws.readyState <= 1);
+            const kept = comparePanes.map((p, i) => p && p.sid === target[i] && live(p) ? p : null);
+            comparePanes.forEach((p, i) => {
+                if (!p || kept[i]) return;
+                if (!httpTransport && live(p) && _comparePaneSpares.length < _COMPARE_SPARES_MAX) {
+                    p.idx = -1; _comparePaneSpares.push(p);
+                } else _compareClosePane(p);
+            });
             _compareConnectedSids = [...target];
             comparePanes = target.map((sidVal, i) => {
                 if (kept[i]) return kept[i];
-                const pane = { sid: sidVal, ws: null, seq: 0 };
-                if (!httpTransport) {
-                    pane.ws = createTransport(sidVal,
-                        (event) => compareOnMessage(i, event),
-                        () => compareRender(),
-                        () => _compareHandlePaneDrop(i),
-                        () => { if (pane.ws) pane.ws.close(); }
-                    );
-                }
+                const j = _comparePaneSpares.findIndex(p => p.sid === sidVal && live(p));
+                if (j < 0) return _compareOpenPane(sidVal, i);
+                const [pane] = _comparePaneSpares.splice(j, 1);
+                pane.idx = i;
+                pane.seq += 1; // a reply still owed for its old place is dropped
                 return pane;
             });
+            // One more pane is one ' away: have its connection ready.
+            const last = target[target.length - 1];
+            if (!httpTransport && detachedDimMode && last && target.length < SPREAD_MAX
+                && !_comparePaneSpares.some(p => p.sid === last && live(p))) {
+                _comparePaneSpares.push(_compareOpenPane(last, -1));
+            }
         }
 
         function _compareBuildPaneMessage(sidVal, paneIdx, seq) {
