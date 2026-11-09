@@ -1293,7 +1293,7 @@ class TestKeyboard:
             assert page.evaluate("() => window.__g") == pytest.approx(page.evaluate(real), abs=1.5)
 
     def test_split_panes_stay_in_one_row_entering_immersive_in_a_big_window(self, page, server_url, sid_3d):
-        page.set_viewport_size({"width": 1900, "height": 1000})
+        page.set_viewport_size({"width": 2200, "height": 1000})
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
@@ -1429,9 +1429,8 @@ class TestKeyboard:
         page.wait_for_timeout(800)
         assert page.evaluate("() => _fullscreenActive") is False
 
-    def test_immersive_opens_in_side_by_side_compare(self, page, server_url, sid_3d, client, arr_3d, tmp_path):
-        # Even where width is the limit: a split entered from immersive stays immersive,
-        # so F must reach the same view.
+    def test_immersive_refused_in_compare_when_width_is_the_limit(self, page, server_url, sid_3d, client, arr_3d, tmp_path):
+        # Width-limited panes would only gain the side margins and get chrome crammed on top.
         path = tmp_path / "immersive_compare.npy"
         np.save(path, arr_3d * 0.5)
         sid_compare = client.post("/load", json={"filepath": str(path), "name": "immersive_compare"}).json()["sid"]
@@ -1440,7 +1439,8 @@ class TestKeyboard:
         page.wait_for_function("() => compareActive", timeout=15_000)
         page.wait_for_timeout(600)
         page.keyboard.press("F")
-        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _fullscreenActive") is False
 
     def test_immersive_refused_when_width_is_the_limit(self, page, server_url, sid_3d):
         page.set_viewport_size({"width": 700, "height": 900})

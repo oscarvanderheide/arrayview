@@ -45550,13 +45550,35 @@
             return true;
         }
 
+        // A split's panes are worth going immersive only when height limits them
+        // in the normal layout. Width-limited, immersive just trades the side
+        // margins for chrome crammed onto the images. Measured against the
+        // normal layout in either state, so entering and staying agree.
+        function _compareHeightLimited() {
+            if (!compareActive) return true;
+            const n = compareFrames.filter(Boolean).length;
+            const f = compareFrames.find(Boolean);
+            if (!f || !f.width || !f.height) return true;
+            const { bigLeft, cols, rows } = _compareGridShape(n);
+            if (bigLeft) return true;
+            const reserveV = _fullscreenActive ? NORMAL_UI_RESERVE_FLOOR : uiReserveV();
+            const slotW = Math.max(20, (window.innerWidth - NORMAL_SIDE_RESERVE) / cols);
+            const slotH = Math.max(20, (window.innerHeight - reserveV - 40) / rows);
+            return slotH / (f.height * _pixelAspect(dim_x, dim_y)) < slotW / f.width;
+        }
+        function _immersiveAllowedHere() {
+            return _immersiveLayoutAllowed() && _compareHeightLimited();
+        }
+
         let _immersiveLeavePending = false;
         function _leaveImmersiveIfLayoutDisallows() {
-            if (_immersiveLeavePending || _immersiveDriveTween || _immersiveLayoutAllowed()) return;
+            if (_immersiveLeavePending || _immersiveDriveTween || _immersiveAllowedHere()) return;
             _immersiveLeavePending = true;
             requestAnimationFrame(() => {
                 _immersiveLeavePending = false;
-                if (!_fullscreenActive || _immersiveLayoutAllowed()) return;
+                if (!_fullscreenActive || _immersiveAllowedHere()) return;
+                // Side-by-side panes fit at zoom 1; a fit left over from the single view over-zooms them.
+                if (compareActive || multiViewActive) _normalFitZoom = Math.min(_normalFitZoom, 1.0);
                 userZoom = _normalFitZoom;
                 _zoomAdjustedByUser = false;
                 mainPan.reset();
@@ -45597,9 +45619,8 @@
             h = h * _pixelAspect(dim_x, dim_y);
             const maxW = Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - NORMAL_BOTTOM_RESERVE);
-            // Width binding: skip. Not for a split: immersive frees its side margins too, and a
-            // split entered from immersive stays immersive, so Shift+F must reach it as well.
-            if (!compareActive && (maxH / h) >= (maxW / w)) return false;
+            // Width binding: skip. A split is judged per pane (_compareHeightLimited).
+            if (compareActive ? !_compareHeightLimited() : (maxH / h) >= (maxW / w)) return false;
             // Container must be wide/tall enough to fit overlaid chrome
             const vpEl = compareActive ? document.getElementById('compare-view-wrap')
                 : multiViewActive ? document.getElementById('mv-panes')
