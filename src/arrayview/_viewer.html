@@ -17860,9 +17860,15 @@
             const unchanged = target.length === _compareConnectedSids.length
                 && target.every((s, i) => s === _compareConnectedSids[i]);
             if (unchanged) return;
-            _compareTeardownPaneConnections();
+            // A pane showing the same array at the same place keeps its connection:
+            // adding or removing a side-by-side pane must not reconnect the ones that
+            // stay (each reconnect delays the glide). Late replies are dropped by seq.
+            const kept = comparePanes.map((p, i) => p && p.sid === target[i]
+                && (httpTransport || (p.ws && p.ws.readyState <= 1)) ? p : null);
+            comparePanes.forEach((p, i) => { if (!kept[i] && p?.ws) { p.ws.onclose = null; p.ws.close(); } });
             _compareConnectedSids = [...target];
             comparePanes = target.map((sidVal, i) => {
+                if (kept[i]) return kept[i];
                 const pane = { sid: sidVal, ws: null, seq: 0 };
                 if (!httpTransport) {
                     pane.ws = createTransport(sidVal,
