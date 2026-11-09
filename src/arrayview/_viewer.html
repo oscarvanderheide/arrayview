@@ -17492,7 +17492,9 @@
                 const width  = headerU32[1];
                 const height = headerU32[2];
                 _clearSlowRenderBusy();
-                if (compareActive) {
+                // A single-view frame still on its way when compare or qMRI took over is
+                // dropped: sizing it would give the maps the single view's fit zoom.
+                if (compareActive || qmriActive) {
                     isRendering = false;
                     if (pendingRequest) {
                         pendingRequest = false;
@@ -42569,9 +42571,11 @@
                     _viewGlide(() => { exitCompareMode(); enterMultiView(defaultMultiViewDims(), { leadWithSingleView: true }); },
                         (v, to) => v.cmvRow === keep ? to.find(w => _samePlane(v, w)) : null, { paneLate: true });
                 } else if (compareQmriActive) {
-                    const qd = compareQmriDim;
-                    _rowsGlide(_rowsFrom(), () => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); },
-                        _currentViewTarget, { paneLate: true });
+                    // The row showing the main index glides into the qMRI panes.
+                    const qd = compareQmriDim, main = Number(indices[detachedDim]);
+                    const keep = compareQmriViews.some(v => v.rowIdx === main) ? main : compareQmriViews[0]?.rowIdx;
+                    _viewGlide(() => { exitCompareMode(); enterQmri(qd); if (typeof renderToolMenu === 'function') renderToolMenu(); },
+                        (v, to) => v.rowIdx === keep ? to.find(w => w.qmriIdx === v.qmriIdx) : null, { paneLate: true });
                 } else {
                     _splitGlideExit();
                 }
@@ -42607,12 +42611,16 @@
             }
             if (qmriActive) {
                 const qd = qmriDim;
-                _dissolveTo(async () => {
+                // Each map glides into the row that shows the main index; the other row fades in.
+                _viewGlide(async () => {
                     await _splitThenRows(dim, exitQmri, () => {
                         _lastQmriDim = qd;
                         enterCompareQmri();
                         if (typeof renderToolMenu === 'function') renderToolMenu();
                     });
+                }, (v, to) => {
+                    const same = to.filter(w => w.qmriIdx === v.qmriIdx);
+                    return same.find(w => w.rowIdx === Number(indices[dim])) || same[0] || null;
                 });
                 return;
             }
@@ -42620,12 +42628,13 @@
         }
 
         // `leave()` the view, split along `dim`, then `rows()` turns it into rows. The plain split
-        // in between stays hidden, or it peeks out from behind the copies of the old view; the dim
-        // bar stays where it was instead of jumping to the plain split's place and back.
+        // in between stays hidden (its colour bar too), or it peeks out from behind the copies of
+        // the old view; the dim bar stays where it was instead of jumping to the plain split's
+        // place and back.
         async function _splitThenRows(dim, leave, rows) {
             const info = document.getElementById('info');
             const infoCopy = _dimBarCopy(info);
-            const holds = [_glideHold(document.getElementById('compare-view-wrap')), infoCopy && _glideHold(info)];
+            const holds = [_glideHold(document.getElementById('compare-view-wrap')), _glideHold(_slimCb()), infoCopy && _glideHold(info)];
             try {
                 leave();
                 if (await enterDetachedDimMode(dim) && compareActive) rows();

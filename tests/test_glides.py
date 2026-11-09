@@ -400,3 +400,31 @@ def test_ortho_split_glides_and_restores_the_window(loaded_viewer, client, tmp_p
     page.wait_for_function("() => mvViews.every(v => v.lastImageData)")
     assert page.evaluate("[manualVmin, manualVmax]") == [None, None]
     assert page.evaluate("mvViews.map(v => v.lockedVmax)") == own
+
+
+def test_qmri_side_by_side_glides_in_and_back(loaded_viewer, client, tmp_path):
+    from conftest import register_array
+
+    arr = np.random.default_rng(9).random((20, 24, 18, 3, 8)).astype(np.float32)
+    page = loaded_viewer(register_array(client, arr, tmp_path, "maps_t"))
+    _settle(page)
+    assert _press_all(page, ["q"]) == "qmri"
+    page.evaluate("activeDim = 4; renderInfo()")
+    fitted = page.evaluate("qmriViews.map(v => v.canvas.style.width)")
+
+    page.keyboard.press("'")
+    assert page.evaluate("_orthoGlideBusy")
+    # The plain split in between never shows its colour bar.
+    assert page.evaluate("+getComputedStyle(document.getElementById('slim-cb-wrap')).opacity") == 0
+    _settle(page)
+    assert page.evaluate(_MODE) == "split+qmri"
+
+    page.keyboard.press(";")
+    assert page.evaluate("_orthoGlideBusy")
+    _settle(page)
+    page.wait_for_function("() => qmriViews.length && qmriViews.every(v => v.lastImageData)")
+    page.wait_for_timeout(400)
+    assert page.evaluate(_MODE) == "qmri"
+    # The maps are back at their fit, not at the single view's zoom.
+    assert page.evaluate("userZoom") == 1
+    assert page.evaluate("qmriViews.map(v => v.canvas.style.width)") == fitted
