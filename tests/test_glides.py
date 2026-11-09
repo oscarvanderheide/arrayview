@@ -428,3 +428,26 @@ def test_qmri_side_by_side_glides_in_and_back(loaded_viewer, client, tmp_path):
     # The maps are back at their fit, not at the single view's zoom.
     assert page.evaluate("userZoom") == 1
     assert page.evaluate("qmriViews.map(v => v.canvas.style.width)") == fitted
+
+
+def test_mosaic_glide_fades_the_array_name_once(loaded_viewer, client, tmp_path):
+    folder = tmp_path / "named"
+    folder.mkdir()
+    for i in range(6):  # more than 4: opens on one image, named in its corner
+        np.save(folder / f"vol_{i}.npy", (np.random.default_rng(i).standard_normal((12, 40, 40)) + i).astype(np.float32))
+    sid = client.post(
+        "/load", json={"dir_patterns": [str(folder / "*.npy")], "load": "lazy", "stack": "auto"}
+    ).json()["sid"]
+    page = loaded_viewer(sid)
+    _settle(page)
+    name = "document.getElementById('case-title')"
+    assert page.evaluate(f"{name}.getClientRects().length") == 1
+
+    for _ in range(2):  # into the grid and back
+        page.keyboard.press("z")
+        # The name goes with the first frame of the glide: it does not vanish with the
+        # image and show up again when the grid's layout lands.
+        assert page.evaluate(f"_orthoGlideBusy && !!_caseVeil?.holds.has({name})")
+        _settle(page)
+        page.wait_for_function(f"() => !_caseVeil && +getComputedStyle({name}).opacity === 1", timeout=5_000)
+        assert page.evaluate("document.querySelectorAll('body > .pane-name').length") == 0

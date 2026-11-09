@@ -42805,6 +42805,14 @@
             const hide = el => { if (!v.holds.has(el)) v.holds.set(el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000, fill: 'forwards' })); };
             // Run every frame, and straight away whenever a name is moved or shown
             // (_reconcileCaseTitle, _placeCaseNameOut), so no frame shows it early.
+            const leave = (el, b) => {
+                hide(el);
+                const c = b.copy;
+                if (!c) return;
+                b.copy = null;
+                const fade = c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+                fade.onfinish = fade.oncancel = () => c.remove();
+            };
             v.check = () => {
                 if (_caseVeil !== v) return;
                 v.before.forEach((b, el) => {
@@ -42812,16 +42820,13 @@
                     const shown = el.isConnected && el.getClientRects().length > 0;
                     const r = shown ? el.getBoundingClientRect() : null;
                     if (shown && Math.abs(r.left - b.r.left) <= 1 && Math.abs(r.top - b.r.top) <= 1) return;
-                    hide(el);
-                    const c = b.copy;
-                    if (c) {
-                        b.copy = null;
-                        const fade = c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
-                        fade.onfinish = fade.oncancel = () => c.remove();
-                    }
+                    leave(el, b);
                 });
                 document.querySelectorAll(_CASE_NAME_SEL).forEach(el => { if (!v.before.has(el) && _caseNameShown(el)) hide(el); });
             };
+            // A glide is about to hide `root` under its copies: the names in it fade out now,
+            // instead of vanishing with it and their copies showing up once the layout moves.
+            v.leave = (root) => v.before.forEach((b, el) => { if (!v.holds.has(el) && root?.contains(el)) leave(el, b); });
             const watch = () => { v.raf = 0; if (_caseVeil !== v) return; v.check(); v.raf = requestAnimationFrame(watch); };
             watch();
             v.timer = setTimeout(() => { v.depth = 1; _caseNamesUnveil(); }, 4000);
@@ -43518,6 +43523,7 @@
             // where its tile will be, and the grid fades in when it comes.
             const expected = leaving ? null : _rectOfGridBox(box, before);
             const vpHold = _glideHold(vp);
+            _caseVeil?.leave(vp);
             _glideFadeOut(fadeGrid);
             let tint = null, gridIn = leaving, tintFrom = 0;
             const showGrid = (p) => {
