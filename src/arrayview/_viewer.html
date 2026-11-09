@@ -4010,6 +4010,9 @@
         }
         /* Only the pane [ ] move shows them; the rest keep the space. */
         .detached-index-hint:not(.is-target) .hint-bracket { visibility: hidden; }
+        /* Panes moved apart: the set a step back, the pane [ ] move at full strength. */
+        #info .dim-spread-set { font-variant-numeric: tabular-nums; color: var(--muted); -webkit-text-fill-color: currentColor; }
+        #info .dim-spread-set .is-target { color: var(--text); }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -10687,12 +10690,13 @@
             return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
         }
 
-        // The dim bar's index: neighbours as a run ("4–7"), panes moved apart
-        // as the one [ ] move — every pane already names its own.
+        // The dim bar's indices: neighbours as a run ("4–7"), panes moved apart
+        // as a tight set ("{1,15,3}") with the pane [ ] move picked out.
         function _detachedDimStackHTML() {
             if (_spreadIsRun()) return _spreadIndicesText();
-            const width = String(shape[detachedDim]).length;
-            return String(detachedDimIdx[_spreadTargetPane()] + 1).padStart(width, '0');
+            const t = _spreadTargetPane();
+            const items = detachedDimIdx.map((v, i) => i === t ? `<span class="is-target">${v + 1}</span>` : String(v + 1));
+            return `<span class="dim-spread-set">{${items.join(',')}}</span>`;
         }
 
         // Pane label; the pane [ ] move wears the brackets. Every pane carries
