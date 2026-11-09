@@ -647,7 +647,7 @@ class TestKeyboard:
         assert page.evaluate(rows) == "0,1,2"
         page.keyboard.press("k")
         page.wait_for_function(f"() => ({rows})() === '3,4,5'", timeout=5_000)
-        assert page.evaluate(names) == "4/8,5/8,6/8"
+        assert page.evaluate(names) == "4,5,6"
         page.keyboard.press("'")
         page.wait_for_function("() => compareMvActive && compareMvViews.length === 12", timeout=10_000)
         assert page.evaluate(rows) == "3,4,5,6"
