@@ -195,3 +195,78 @@ def test_overlay_on_different_grid_is_resampled_onto_base(tmp_path):
     expected = np.zeros((8, 8, 6), np.uint8)
     expected[2:4, 3:5, 2] = 1
     np.testing.assert_array_equal(aligned, expected)
+
+
+def _oblique_affine():
+    angle = np.deg2rad(17.0)
+    rotation = np.array(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    affine = np.eye(4)
+    affine[:3, :3] = rotation @ np.diag([1.2, 0.9, 3.0])
+    affine[:3, 3] = [11.0, -7.0, 4.5]
+    return affine
+
+
+@pytest.mark.parametrize(
+    "affine, shape, dtype, big_endian",
+    [
+        (np.diag([1.0, 1.0, 1.0, 1.0]), (8, 9, 10), np.float32, False),
+        (np.diag([2.0, 1.5, 0.8, 1.0]), (8, 9, 10, 6), np.float32, False),
+        (np.diag([-1.0, 1.0, -2.5, 1.0]), (5, 6, 7), np.int16, False),
+        (np.array([[0, 0, 2.0, 1], [1.5, 0, 0, 2], [0, -1.0, 0, 3], [0, 0, 0, 1]]), (4, 6, 8), np.uint8, False),
+        (_oblique_affine(), (8, 9, 10), np.float64, False),
+        (np.diag([2.0, 1.5, 0.8, 1.0]), (8, 9, 10), np.float32, True),
+    ],
+)
+def test_collection_header_scan_matches_nibabel(tmp_path, affine, shape, dtype, big_endian):
+    """A collection reads plain .nii headers in one read; the answer must not change."""
+    from arrayview._io import _NiftiHeaderOnly, _nifti_header_with_meta
+
+    data = np.arange(int(np.prod(shape))).reshape(shape).astype(dtype)
+    header = nib.Nifti1Header(endianness=">" if big_endian else "<")
+    path = str(tmp_path / "scan.nii")
+    nib.save(nib.Nifti1Image(data, affine, header), path)
+
+    full_img, full_meta = _nifti_header_with_meta(path)
+    lean_img, lean_meta = _nifti_header_with_meta(path, header_only=True)
+
+    assert isinstance(lean_img, _NiftiHeaderOnly)
+    assert not isinstance(full_img, _NiftiHeaderOnly)
+    assert lean_img.shape == tuple(full_img.shape)
+    assert lean_img.get_data_dtype() == full_img.get_data_dtype()
+    assert lean_meta.keys() == full_meta.keys()
+    for key, expected in full_meta.items():
+        if isinstance(expected, np.ndarray):
+            np.testing.assert_array_equal(lean_meta[key], expected, err_msg=key)
+        else:
+            assert lean_meta[key] == expected, key
+
+
+def test_collection_header_scan_leaves_other_nifti_files_to_nibabel(tmp_path):
+    """Compressed, NIfTI-2 and truncated files take the ordinary path."""
+    from arrayview._io import _nifti_header_with_meta, _read_plain_nifti1_header
+
+    data = np.zeros((4, 5, 6), dtype=np.float32)
+    gz = str(tmp_path / "a.nii.gz")
+    nib.save(nib.Nifti1Image(data, np.eye(4)), gz)
+    nifti2 = str(tmp_path / "b.nii")
+    nib.save(nib.Nifti2Image(data, np.eye(4)), nifti2)
+    truncated = tmp_path / "c.nii"
+    truncated.write_bytes(b"\x5c\x01\x00\x00" + b"\x00" * 100)
+
+    assert _read_plain_nifti1_header(gz) is None
+    assert _read_plain_nifti1_header(nifti2) is None
+    assert _read_plain_nifti1_header(str(truncated)) is None
+    assert _read_plain_nifti1_header(str(tmp_path / "missing.nii")) is None
+
+    for path in (gz, nifti2):
+        img, meta = _nifti_header_with_meta(path, header_only=True)
+        assert tuple(img.shape) == (4, 5, 6)
+        assert meta["canonical_shape"] == (4, 5, 6)
+    with pytest.raises(Exception):
+        _nifti_header_with_meta(str(truncated), header_only=True)
