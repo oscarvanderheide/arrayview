@@ -23105,9 +23105,9 @@
                 }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
-                    // A pair across cases is named on its panes ("S"); three or more show the range.
+                    // The indices shown, for cases too (their names sit on the panes).
                     const caseStyle = _detachedDimIsCases() ? ' style="color:var(--q-dim-color)"' : '';
-                    const body = _detachedDimIsCases() && detachedDimIdx.length === 2 ? 'S' : _detachedDimStackHTML();
+                    const body = _detachedDimStackHTML();
                     return `<span class="${cls}" ${d}${caseStyle}>${body}<span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
                 }
                 if (projectionMode > 0 && i === projectionDim) {
