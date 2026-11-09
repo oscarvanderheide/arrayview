@@ -40275,7 +40275,9 @@
             if (wrapEl) wrapEl.style.gap = rowGap + 'px';
             wrapEl.querySelectorAll('.qv-row, .cq-header-row').forEach(r => r.style.gap = colGap + 'px');
             if (cbWrap) {
-                const cmvCbTarget = cbTargetWidth(Math.round(T));
+                // One bar under the whole grid: size it to the grid's width, not
+                // one pane's, so a row more (smaller panes) leaves it alone.
+                const cmvCbTarget = cbTargetWidth(Math.round(nCols * T + (nCols - 1) * colGap));
                 if (cmvCbTarget == null) {
                     cbWrap.style.display = 'none';
                 } else {

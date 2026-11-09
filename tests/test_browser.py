@@ -648,9 +648,14 @@ class TestKeyboard:
         page.keyboard.press("k")
         page.wait_for_function(f"() => ({rows})() === '3,4,5'", timeout=5_000)
         assert page.evaluate(names) == "4,5,6"
+        cb_w = "() => Math.round(document.getElementById('mv-cb-wrap').getBoundingClientRect().width)"
+        w3 = page.evaluate(cb_w)
         page.keyboard.press("'")
         page.wait_for_function("() => compareMvActive && compareMvViews.length === 12", timeout=10_000)
         assert page.evaluate(rows) == "3,4,5,6"
+        # One bar under the whole grid: a row more (smaller panes) keeps its width.
+        page.wait_for_timeout(600)
+        assert page.evaluate(cb_w) == w3
         page.keyboard.press(";")
         page.wait_for_function("() => compareMvActive && compareMvViews.length === 9", timeout=10_000)
 
