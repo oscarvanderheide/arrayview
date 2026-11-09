@@ -1967,3 +1967,30 @@ def test_dim_underline_fades_in_at_final_size_when_dimbar_goes_compact(loaded_vi
     assert not wrong, f"underline visible before reaching its final size: {wrong[:3]} final={final}"
     # And it is a fade, not a pop.
     assert any(0 < f["o"] < 0.99 for f in frames)
+
+
+def test_d_presets_reach_compare_ortho_panes(page, client, server_url, tmp_path, arr_3d, sid_3d):
+    """Compare + ortho panes hold their own window from the first frame; `d`
+    used to change the shared numbers but never those panes."""
+    path = tmp_path / "doubled.npy"
+    np.save(path, arr_3d * 2)
+    other = client.post("/load", json={"filepath": str(path), "name": "doubled"}).json()["sid"]
+    page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={other}&compare_sids={other}")
+    page.wait_for_selector("canvas#compare-left-canvas:visible", timeout=15_000)
+    page.wait_for_function("() => compareFrames.filter(Boolean).length >= 2", timeout=10_000)
+    page.wait_for_timeout(300)
+    _focus_kb(page)
+    page.keyboard.press("v")
+    page.wait_for_function("() => compareMvActive && compareMvViews.length > 0", timeout=10_000)
+    page.wait_for_timeout(600)
+    before = page.evaluate("() => compareMvViews.map(v => [v.lockedVmin, v.lockedVmax])")
+    for _ in range(3):
+        page.keyboard.press("d")
+        page.wait_for_timeout(700)
+    state = page.evaluate(
+        "() => ({ shared: [manualVmin, manualVmax],"
+        " panes: compareMvViews.map(v => [v.lockedVmin, v.lockedVmax]) })"
+    )
+    assert state["panes"] != before
+    for pane in state["panes"]:
+        assert pane == pytest.approx(state["shared"])

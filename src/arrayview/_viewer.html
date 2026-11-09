@@ -15450,25 +15450,11 @@
             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
             const vminEffectivelyLocked = vminLocked || _dmenuQmriPolicyLocksVmin();
-            if (preset.lo === 0 && preset.hi === 1) {
-                if (!vminEffectivelyLocked) { manualVmin = _histData.vmin; _dmenuVminPresetIdx = window._dQuantileIdx; }
-                if (!vmaxLocked) { manualVmax = _histData.vmax; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
-                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
-            } else {
-                let qLo = _quantileValueFromHistogram(_histData, preset.lo);
-                const qHi = _quantileValueFromHistogram(_histData, preset.hi);
-                qLo = _dmenuMaybeLiftUnlockedZeroFloor(_histData, preset, qLo);
-                if (!vminEffectivelyLocked) { manualVmin = qLo; _dmenuVminPresetIdx = window._dQuantileIdx; }
-                if (!vmaxLocked) { manualVmax = qHi; _dmenuVmaxPresetIdx = window._dQuantileIdx; }
-                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
-            }
-            _dmenuNormalizeManualWindow();
-            if (!vminEffectivelyLocked) cmpManualVmin.fill(null);
-            if (!vmaxLocked) cmpManualVmax.fill(null);
-            if (multiViewActive) mvViews.forEach((v, i) => {
-                if (!vminEffectivelyLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
-                if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
-            });
+            const win = _quantileWindowFromHistogram(_histData, preset);
+            if (!win) return null;
+            _dmenuWritePresetWindow(win.vmin, win.vmax, !vminEffectivelyLocked, !vmaxLocked);
+            if (!vminEffectivelyLocked) _dmenuVminPresetIdx = window._dQuantileIdx;
+            if (!vmaxLocked) _dmenuVmaxPresetIdx = window._dQuantileIdx;
             _updateDmenuPreset();
             _showPercentilePresetOverlay(preset, window._dQuantileIdx);
             return preset;
@@ -15496,25 +15482,40 @@
             return qLo;
         }
 
-        function _dmenuNormalizeManualWindow() {
-            const win = primaryCb && primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
+        /**
+         * Put a preset window into every place the shared range is kept, via
+         * the same writer a typed bound uses. `d` used to keep its own partial
+         * copy of that list, which missed the compare+ortho panes: they hold
+         * the window from their first frame, so `d` moved the numbers but the
+         * image never changed. A non-finite bound is never stored, the bounds
+         * stay ordered, and a symmetric lock holds. Returns false if nothing
+         * was written.
+         */
+        function _dmenuWritePresetWindow(lo, hi, writeLo, writeHi) {
+            writeLo = !!writeLo && Number.isFinite(lo);
+            writeHi = !!writeHi && Number.isFinite(hi);
+            if (!writeLo && !writeHi) return false;
+            const cur = primaryCb && primaryCb.opts && typeof primaryCb.opts.getWindow === 'function'
                 ? primaryCb.opts.getWindow()
                 : null;
-            let lo = Number.isFinite(manualVmin) ? manualVmin : Number(win && win.vmin);
-            let hi = Number.isFinite(manualVmax) ? manualVmax : Number(win && win.vmax);
-            if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi > lo) return;
-            const spanSource = _histData && Number.isFinite(_histData.vmax) && Number.isFinite(_histData.vmin)
-                ? Math.abs(_histData.vmax - _histData.vmin)
-                : Math.max(Math.abs(lo), Math.abs(hi), 1);
-            const eps = Math.max(spanSource * 1e-9, 1e-9);
-            const vminEffectivelyLocked = _dmenuEffectiveVminLocked();
-            if (vminEffectivelyLocked && !vmaxLocked) {
-                manualVmax = lo + eps;
-            } else if (!vminEffectivelyLocked && vmaxLocked) {
-                manualVmin = hi - eps;
-            } else if (!vminEffectivelyLocked && !vmaxLocked) {
-                manualVmax = lo + eps;
+            let nlo = writeLo ? lo : Number(cur && cur.vmin);
+            let nhi = writeHi ? hi : Number(cur && cur.vmax);
+            if (Number.isFinite(nlo) && Number.isFinite(nhi) && !(nhi > nlo)) {
+                const spanSource = _histData && Number.isFinite(_histData.vmax) && Number.isFinite(_histData.vmin)
+                    ? Math.abs(_histData.vmax - _histData.vmin)
+                    : Math.max(Math.abs(nlo), Math.abs(nhi), 1);
+                const eps = Math.max(spanSource * 1e-9, 1e-9);
+                if (writeHi) nhi = nlo + eps;
+                else nlo = nhi - eps;
             }
+            if (writeLo && writeHi && _dmenuEffectiveSymmetricLocked()) {
+                const half = Math.max(Math.abs(nlo), Math.abs(nhi));
+                nlo = -half;
+                nhi = half;
+            }
+            if (writeLo) _dmenuFanOutSharedBound('vmin', nlo, false);
+            if (writeHi) _dmenuFanOutSharedBound('vmax', nhi, false);
+            return true;
         }
 
         function _qmriLocksLowerBound(view) {
@@ -15814,6 +15815,50 @@
             }
         }
 
+        /**
+         * Sum per-array histograms onto one set of bins spanning all of them,
+         * spreading each bin's count by overlap. Each array's bins cover its
+         * own range, so adding bin i to bin i (as before) put every array on
+         * the first one's scale and `d` presets fitted only that array.
+         */
+        function _mergeHistogramsOnSharedBins(hists) {
+            const merged = JSON.parse(JSON.stringify(hists[0]));
+            if (hists.length < 2) return merged;
+            merged.vmin = Math.min(...hists.map(h => Number(h.vmin)).filter(Number.isFinite));
+            merged.vmax = Math.max(...hists.map(h => Number(h.vmax)).filter(Number.isFinite));
+            const lo = Math.min(...hists.map(h => Number(h.edges[0])));
+            const hi = Math.max(...hists.map(h => Number(h.edges[h.edges.length - 1])));
+            const n = merged.counts.length;
+            if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo) || !(n > 0)) {
+                for (let i = 1; i < hists.length; i++) {
+                    const c = hists[i].counts;
+                    for (let j = 0; j < n && j < c.length; j++) merged.counts[j] += c[j];
+                }
+                return merged;
+            }
+            const w = (hi - lo) / n;
+            const edges = Array.from({ length: n + 1 }, (_, i) => (i === n ? hi : lo + w * i));
+            const counts = new Array(n).fill(0);
+            const binOf = x => Math.max(0, Math.min(n - 1, Math.floor((x - lo) / w)));
+            hists.forEach(h => {
+                for (let j = 0; j < h.counts.length; j++) {
+                    const c = Number(h.counts[j]) || 0;
+                    if (!(c > 0)) continue;
+                    const a = Number(h.edges[j]);
+                    const b = Number(h.edges[j + 1]);
+                    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+                    if (!(b > a)) { counts[binOf(a)] += c; continue; }
+                    for (let k = binOf(a); k <= binOf(b); k++) {
+                        const overlap = Math.min(b, edges[k + 1]) - Math.max(a, edges[k]);
+                        if (overlap > 0) counts[k] += c * overlap / (b - a);
+                    }
+                }
+            });
+            merged.counts = counts;
+            merged.edges = edges;
+            return merged;
+        }
+
         let _histCompareInFlight = null;
         function _fetchHistogramCompare() {
             if (_histCompareInFlight) return _histCompareInFlight;
@@ -15843,18 +15888,7 @@
                 const allHists = await Promise.all(histPromises);
                 const valid = allHists.filter(_histUsable);
                 if (!valid.length) return null;
-                // Start from first valid result, then sum counts from the rest
-                const merged = JSON.parse(JSON.stringify(valid[0]));
-                for (let i = 1; i < valid.length; i++) {
-                    const h = valid[i];
-                    for (let j = 0; j < merged.counts.length && j < h.counts.length; j++) {
-                        merged.counts[j] += h.counts[j];
-                    }
-                    // Expand vmin/vmax to union range
-                    if (h.vmin < merged.vmin) merged.vmin = h.vmin;
-                    if (h.vmax > merged.vmax) merged.vmax = h.vmax;
-                }
-                _histData = _tagHistKey(merged, requestKey);
+                _histData = _tagHistKey(_mergeHistogramsOnSharedBins(valid), requestKey);
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':compare';
             } catch (_) {
                 _histData = null;
@@ -48118,6 +48152,35 @@
             return controls;
         }
 
+        /**
+         * Write one bound of the shared range everywhere it is kept: the main
+         * window, the focused view, and every multi-pane mode's per-pane copy
+         * (per-pane compare overrides are dropped). qMRI panes each own a map's
+         * window, so they are only included for an explicitly typed bound.
+         */
+        function _dmenuFanOutSharedBound(action, value, includeQmri) {
+            if (!Number.isFinite(value)) return;
+            const isMin = action === 'vmin';
+            if (!isMin && action !== 'vmax') return;
+            const key = isMin ? 'vmin' : 'vmax';
+            const lockedKey = isMin ? 'lockedVmin' : 'lockedVmax';
+            if (isMin) { manualVmin = value; cmpManualVmin.fill(null); }
+            else { manualVmax = value; cmpManualVmax.fill(null); }
+            const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+            if (dv) dv.displayState[key] = value;
+            const withDisplayState = (views) => views.forEach((v, i) => {
+                v[lockedKey] = value;
+                const mv = modeManager.currentViews[i];
+                if (mv) mv.displayState[key] = value;
+            });
+            if (multiViewActive) withDisplayState(mvViews);
+            if (compareMvActive) compareMvViews.forEach(v => { v[lockedKey] = value; });
+            if (includeQmri) {
+                if (qmriActive) withDisplayState(qmriViews);
+                if (compareQmriActive) compareQmriViews.forEach(v => { v[lockedKey] = value; });
+            }
+        }
+
         function _dmenuSetBoundManual(action, value) {
             if (!Number.isFinite(value)) return;
             if (_dmenuDiffTargetActive()) {
@@ -48132,41 +48195,7 @@
                 }
                 return;
             }
-            if (action === 'vmin') {
-                manualVmin = value;
-                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
-                if (dv) dv.displayState.vmin = manualVmin;
-                cmpManualVmin.fill(null);
-                if (multiViewActive) mvViews.forEach((v, i) => {
-                    v.lockedVmin = manualVmin;
-                    const mv = modeManager.currentViews[i];
-                    if (mv) mv.displayState.vmin = manualVmin;
-                });
-                if (qmriActive) qmriViews.forEach((v, i) => {
-                    v.lockedVmin = manualVmin;
-                    const qv = modeManager.currentViews[i];
-                    if (qv) qv.displayState.vmin = manualVmin;
-                });
-                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmin = manualVmin; });
-                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmin = manualVmin; });
-            } else if (action === 'vmax') {
-                manualVmax = value;
-                const dv = modeManager.getFocusedView() || modeManager.currentViews[0];
-                if (dv) dv.displayState.vmax = manualVmax;
-                cmpManualVmax.fill(null);
-                if (multiViewActive) mvViews.forEach((v, i) => {
-                    v.lockedVmax = manualVmax;
-                    const mv = modeManager.currentViews[i];
-                    if (mv) mv.displayState.vmax = manualVmax;
-                });
-                if (qmriActive) qmriViews.forEach((v, i) => {
-                    v.lockedVmax = manualVmax;
-                    const qv = modeManager.currentViews[i];
-                    if (qv) qv.displayState.vmax = manualVmax;
-                });
-                if (compareMvActive) compareMvViews.forEach(v => { v.lockedVmax = manualVmax; });
-                if (compareQmriActive) compareQmriViews.forEach(v => { v.lockedVmax = manualVmax; });
-            }
+            _dmenuFanOutSharedBound(action, value, true);
             // Under a symmetric lock the bounds move together, so mirror the
             // write through the same per-mode fan-out above rather than
             // duplicating it. The guard stops the mirror from recursing.
@@ -48644,11 +48673,13 @@
                 if (_dmenuPickerOpen) _dmenuPickerPosition();
                 return;
             }
+            // The combined compare modes keep compareActive set, so test them
+            // first: otherwise only the hidden plain compare panes re-render.
             if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-            else if (compareActive) compareRender();
-            else if (qmriActive) qmriViews.forEach(v => qvRender(v));
             else if (compareMvActive) compareMvViews.forEach(v => compareMvRender(v));
             else if (compareQmriActive) compareQmriViews.forEach(v => compareQmriRender(v));
+            else if (compareActive) compareRender();
+            else if (qmriActive) qmriViews.forEach(v => qvRender(v));
             else updateView();
             if (primaryCb && primaryCb._expanded) {
                 primaryCb.draw();
@@ -48682,7 +48713,9 @@
             if (qmriMvActive && _hoveredQmriMvView) {
                 return await _cycleQmriMvRangePreset();
             }
-            if ((qmriActive || compareQmriActive) && _hoveredQmriView) {
+            // Mouse off the panes: still the qMRI path, as on the first press.
+            // The shared path below would give every map one range.
+            if (qmriActive || compareQmriActive) {
                 return await _cycleQmriPaneRangePreset();
             }
             await _dmenuEnsureCurrentHist();
@@ -49214,23 +49247,16 @@
         function _reapplyCurrentQuantilePreset() {
             if (_dmenuDiffTargetActive()) { _reapplyDiffQuantilePreset(); return; }
             if (!_histData || !_histData.counts) return;
+            let lo = null, hi = null;
             if (_dmenuVminPresetIdx != null && !_dmenuEffectiveVminLocked()) {
                 const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVminPresetIdx]);
-                if (win) manualVmin = win.vmin;
+                if (win) lo = win.vmin;
             }
             if (_dmenuVmaxPresetIdx != null && !vmaxLocked) {
                 const win = _quantileWindowFromHistogram(_histData, _QUANTILE_PRESETS[_dmenuVmaxPresetIdx]);
-                if (win) manualVmax = win.vmax;
+                if (win) hi = win.vmax;
             }
-            _dmenuNormalizeManualWindow();
-            const _dv = modeManager.getFocusedView() || modeManager.currentViews[0];
-            if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
-            if (!vminLocked) cmpManualVmin.fill(null);
-            if (!vmaxLocked) cmpManualVmax.fill(null);
-            if (multiViewActive) mvViews.forEach((v, i) => {
-                if (!vminLocked) { v.lockedVmin = manualVmin; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmin = manualVmin; }
-                if (!vmaxLocked) { v.lockedVmax = manualVmax; const mv = modeManager.currentViews[i]; if (mv) mv.displayState.vmax = manualVmax; }
-            });
+            _dmenuWritePresetWindow(lo, hi, lo != null, hi != null);
             if (primaryCb) primaryCb._snapWindowFractionsOnNextDraw();
         }
 
