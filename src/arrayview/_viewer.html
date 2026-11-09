@@ -17860,15 +17860,9 @@
             const unchanged = target.length === _compareConnectedSids.length
                 && target.every((s, i) => s === _compareConnectedSids[i]);
             if (unchanged) return;
-            // A pane showing the same array at the same place keeps its connection:
-            // adding or removing a side-by-side pane must not reconnect the ones that
-            // stay (each reconnect delays the glide). Late replies are dropped by seq.
-            const kept = comparePanes.map((p, i) => p && p.sid === target[i]
-                && (httpTransport || (p.ws && p.ws.readyState <= 1)) ? p : null);
-            comparePanes.forEach((p, i) => { if (!kept[i] && p?.ws) { p.ws.onclose = null; p.ws.close(); } });
+            _compareTeardownPaneConnections();
             _compareConnectedSids = [...target];
             comparePanes = target.map((sidVal, i) => {
-                if (kept[i]) return kept[i];
                 const pane = { sid: sidVal, ws: null, seq: 0 };
                 if (!httpTransport) {
                     pane.ws = createTransport(sidVal,
@@ -42418,7 +42412,7 @@
                 if (!_comparePanesShown()) return null;
                 const panes = _comparePaneParts();
                 return {
-                    panes, chrome: [], drawn: _compareDrawn(), placed: _comparePlaced(),
+                    panes, chrome: [], drawn: _compareDrawn(),
                     pair: (i) => panes[detachedDimIdx.indexOf(oldIdx[i])] || null,
                 };
             }, { slide: [_slimCb()], paneLate: true });
@@ -43177,7 +43171,7 @@
                 if (!_comparePanesShown()) return null;
                 const panes = _comparePaneParts();
                 return {
-                    panes, chrome: [], drawn: _compareDrawn(), placed: _comparePlaced(),
+                    panes, chrome: [], drawn: _compareDrawn(),
                     pair: (i) => i === 0 ? panes[Math.max(0, detachedDimIdx.indexOf(cur))] || null : null,
                 };
             }, { slide: [_slimCb()], paneLate: true });
@@ -43824,12 +43818,6 @@
             const n = _comparePaneParts().length;
             return !compareRendering && compareFrames.filter(Boolean).length >= n;
         };
-        // Every pane has a frame, so the layout is final; a shared-range redraw
-        // may still follow (the copies take on its colours as they glide).
-        const _comparePlaced = () => () => {
-            const n = _comparePaneParts().length;
-            return n > 0 && compareFrames.slice(0, n).every(Boolean);
-        };
         const _rowsDrawn = (views) => () => views.every(v => v.lastImageData && !v.rendering && !v.pending);
         const _isOrthoSlicePlane = (v) => v.dimX === dim_x && v.dimY === dim_y;
         const _samePlane = (a, b) => a.dimX === b.dimX && a.dimY === b.dimY && a.sliceDir === b.sliceDir;
@@ -43974,7 +43962,7 @@
                 {
                     // Layouts settle as each new pane's frame arrives: glide only once
                     // all are drawn, or the copies set off toward a passing layout and bend.
-                    ready: paneLate ? (to.placed || to.drawn) : () => true,
+                    ready: paneLate ? to.drawn : () => true,
                     onStart: () => {
                         if (!paneLate) paired.forEach(_glideFadeInLate);
                         if (lateNew) holds.forEach(([el, h]) => { h.cancel(); _glideFadeInLate(el); });
@@ -44015,10 +44003,9 @@
             const panes = views ? _rowsFrom() : _rowsFrom().filter(p => p.canvas?.getClientRects().length);
             const seq0 = _frameDisplaySeq;
             const drawn = views ? _rowsDrawn(views) : compareActive ? _compareDrawn() : () => _frameDisplaySeq !== seq0;
-            const placed = views ? () => views.every(v => v.lastImageData) : compareActive ? _comparePlaced() : drawn;
             // Names and bars outside the panes show with them, not ahead of them.
             const chrome = views ? [...document.querySelectorAll(`${_ROW_NAMES}, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb`), _mvCb()] : [];
-            return { panes, chrome, drawn, placed, pair: () => null };
+            return { panes, chrome, drawn, pair: () => null };
         }
 
         // Switch with `commit`; each old pane view `v` for which `pairOf(v, newViews)` names a
