@@ -30036,6 +30036,7 @@
                     if (!_pixelInfoVisible) {
                         _clearHoverPins();
                         hideAllPixelInfo();
+                        hideCompareCrosshairs();
                         _clearInfoQuickRoi();
                         _dimbarFadeSwap(() => _resetDimbarHover());
                     } else {
@@ -49944,6 +49945,8 @@
             const srcRect = srcCv.getBoundingClientRect();
             const fx = (e.clientX - srcRect.left) / srcRect.width;
             const fy = (e.clientY - srcRect.top) / srcRect.height;
+            // Mirrored-pointer dots belong to info hover mode only.
+            if (!_pixelInfoVisible) { hideCompareCrosshairs(); return; }
             _allCrosshairCanvases().forEach((cv) => {
                 const inner = cv.closest('.compare-canvas-inner');
                 if (!inner) return;

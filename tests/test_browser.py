@@ -791,7 +791,8 @@ class TestKeyboard:
     def test_compare_hover_marks_other_panes_with_dot(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):
-        """Hovering one compare pane shows a dot at the same spot in the others."""
+        """With info hover on, hovering one compare pane shows a dot at the same
+        spot in the others; with it off, no dot."""
         path = tmp_path / "arr2d_compare_dot.npy"
         np.save(path, arr_2d * 0.5)
         sid_compare = client.post(
@@ -810,6 +811,15 @@ class TestKeyboard:
         }""", timeout=5_000)
         left = page.locator("canvas#compare-left-canvas")
         box = left.bounding_box()
+        right_dot_shown = """() => getComputedStyle(document.getElementById('compare-right-canvas')
+            .closest('.compare-canvas-inner').querySelector('.cmp-xhair-dot')).display !== 'none'"""
+        if page.evaluate("() => _pixelInfoVisible"):
+            page.keyboard.press("i")
+        page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.7)
+        page.wait_for_timeout(100)
+        assert not page.evaluate(right_dot_shown)
+
+        page.keyboard.press("i")
         page.mouse.move(box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.75)
         page.wait_for_timeout(100)
         state = page.evaluate("""() => {
@@ -831,6 +841,11 @@ class TestKeyboard:
         assert abs(state["fx"] - 0.25) < 0.05 and abs(state["fy"] - 0.75) < 0.05
         assert state["leftCursor"] != "none"
         assert state["lines"] == 0
+
+        # Turning info hover off clears the dot straight away.
+        page.keyboard.press("i")
+        page.wait_for_timeout(50)
+        assert not page.evaluate(right_dot_shown)
 
 
     def test_direct_compare_url_renders_compare_canvas(
