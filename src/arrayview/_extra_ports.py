@@ -35,6 +35,33 @@ port out from under it would break the viewer rather than tidy up after it.
 A launch that never receives a viewer loses its lease after a bounded timeout.
 Without that, a failed handoff would leak a port with nothing to trigger its
 release.
+
+Why every response here says ``Connection: close``
+--------------------------------------------------
+
+The integrated browser does not talk to this port directly.  VS Code runs a
+local proxy (``tunnelProxy.ts``) that forwards each plain-HTTP request through
+a Node ``http.Agent({keepAlive: true})``, pooling one tunnel stream per
+``host:port`` and reusing it for later requests.  This server closes an idle
+keep-alive connection after ``timeout_keep_alive`` seconds; on a Remote Tunnel
+the pooled stream on the client does not notice, and the next request written
+into it is never delivered and never answered.  That is the blank tab: the
+page request "never arrives", once per dead pooled stream, until the pool is
+empty and a new tunnel is dialled.  VS Code's own fix (microsoft/vscode
+c889d2cb5, 1.145) describes it the same way: "a later request reuses it and
+gets no response".
+
+Measured from ``~/.arrayview/extension.log``, 2026-10-01..2026-11-09, 774
+integrated-browser launches: a port with no pooled streams (first use) lost
+17/341; a reused port lost 1/84 within 20 s of the previous page, 9/81 at
+20-60 s, 24/84 at 60-180 s, 36/79 at 180-600 s.  The knee sits at this
+server's 30 s keep-alive timeout.
+
+``Connection: close`` makes Node's agent destroy the stream after each
+response instead of pooling it, so every request dials a fresh tunnel and
+there is nothing left to go stale — on every VS Code version.  The cost is one
+tunnel dial per HTTP request (the WebSocket always dialled its own).  Only
+viewer ports do this: nothing but the tunnel's integrated browser uses them.
 """
 
 from __future__ import annotations
@@ -76,6 +103,35 @@ def _bind_free_port() -> socket.socket:
     return sock
 
 
+class _CloseAfterResponse:
+    """Serve *app*, marking every HTTP response ``Connection: close``.
+
+    See the module docstring: VS Code's proxy must not pool streams to this
+    port.  WebSocket and lifespan scopes pass through untouched.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_closing(message) -> None:
+            if message.get("type") == "http.response.start":
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers") or ()
+                    if name.lower() != b"connection"
+                ]
+                headers.append((b"connection", b"close"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_closing)
+
+
 def _start_extra_port() -> tuple[int, dict] | None:
     """Start the singleton extra listener; caller holds ``_PORT_LOCK``."""
     try:
@@ -86,7 +142,7 @@ def _start_extra_port() -> tuple[int, dict] | None:
         sock = _bind_free_port()
         port = sock.getsockname()[1]
         config = uvicorn.Config(
-            _server_mod.app,
+            _CloseAfterResponse(_server_mod.app),
             log_level="error",
             timeout_keep_alive=30,
             ws_ping_interval=None,

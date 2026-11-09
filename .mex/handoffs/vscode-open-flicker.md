@@ -1,10 +1,26 @@
 ---
 name: handoff-vscode-open-flicker
 description: VS Code tunnel launch failures; 2026-09-16 background-check fix tested and activated on the original port with Julia preserved.
-last_updated: 2026-09-16
+last_updated: 2026-11-09
 ---
 
 # Handoff: VS Code tunnel launch flicker/retries
+
+## Current state — 2026-11-09
+
+The blank tab now has a mechanism, read from VS Code's source and matching 774
+logged launches: VS Code's browser proxy pools one connection per `host:port`
+and reuses it after our server has closed it for idleness (30 s); the request
+written into it is never delivered. The viewer port now answers every HTTP
+request with `Connection: close`, so nothing is pooled (Python only, no opener
+change). VS Code 1.145 carries its own fix for the same thing; this host was
+on 1.143. **Real-host confirmation is open**: run
+`uv run python scripts/blank_tab_rate.py <date>` after a day of use on a
+restarted server and compare the reused-port rows with the 29-46 % baseline.
+If they have not collapsed, the next step is a fresh viewer port for any
+launch whose port has been unused for more than ~15 s (first-use ports failed
+5 % in the same data) — still one tab per array. Full entry:
+`plans/tunnel/LOG.md`, 2026-11-09. The sections below predate this.
 
 ## Current state — 2026-09-16
 

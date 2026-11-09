@@ -3843,3 +3843,113 @@ request holds the queue, the request is expiring, or it is a reload recovery.
 
 Evidence: `component` only (`test_reload_recovery.js` + 5 neighbouring extension
 suites pass). Not installed into the active profile; real-host status unknown.
+
+## 2026-11-09 — the blank tab is a dead pooled connection; viewer port now answers `Connection: close`
+
+Asked: why did opening arrays take so long today (real use, tunnel, opener
+0.15.74, VS Code 1.143)?
+
+### What today's log shows
+
+52 integrated-browser launches. Healthy ones: Explorer click on a running
+server ~1 s to first frame; `--match` on 53 SMB files after `--kill` ~5 s.
+Four launches were bad, all on a **reused** viewer port:
+
+| time (UTC) | port | idle since last page | what happened |
+|---|---|---|---|
+| 12:29:16 | 41385 | 308 s | 10 navigations never arrived (5 + fresh tab 5), error, guided reload, frame after 28 s |
+| 12:37:44 | 41385 | 436 s | 4 navigations never arrived, frame after 7.4 s |
+| 12:41:43 | 41385 | 64 s | page arrived, its script never loaded, fresh tab after 10 s, frame after 12 s |
+| 18:56:31 | 42027 | 157 s | 3 navigations never arrived, frame after 5.6 s |
+
+### The dose-response (2026-10-01 .. 2026-11-09, 774 launches, `extension.log`)
+
+"Bad" = any blank-tab retry, fresh-tab retry or failure. Idle = seconds since
+the previous launch's first frame on that same port. Reproduce with
+`uv run python scripts/blank_tab_rate.py 2026-10 2026-11` (add a date prefix
+and `-v` to list one day's bad launches).
+
+| viewer port | launches | bad |
+|---|---|---|
+| first use (nothing pooled) | 341 | 17 (5 %) |
+| reused, < 20 s | 84 | 1 (1 %) |
+| reused, 20-60 s | 81 | 9 (11 %) |
+| reused, 60-180 s | 84 | 24 (29 %) |
+| reused, 180-600 s | 79 | 36 (46 %) |
+| reused, > 600 s | 105 | 39 (37 %) |
+
+When a bad launch recovered it lost a median 5.6 s (90th pct 11 s). Retries
+before recovery: mostly 1-3, rarely above 6. Six launches burned all 10.
+
+### Mechanism (VS Code source, not a guess)
+
+`src/vs/platform/tunnel/node/tunnelProxy.ts`: the integrated browser's
+plain-HTTP requests go through `new http.Agent({ keepAlive: true })`, which
+"pools tunnel sockets by target host:port" and reuses them. On a Remote Tunnel
+the pooled stream is an adapter over a managed connection, not a `net.Socket`.
+Our viewer port ran uvicorn with `timeout_keep_alive=30`: after 30 s idle the
+server closes the connection, the pooled stream on the client does not notice,
+and the next request written into it is neither delivered nor answered. Each
+re-navigation consumes one dead stream (the hung request keeps holding it), so
+recovery takes as many retries as there are dead streams — bounded by
+Chromium's six connections per origin. A port never used before has no pool
+entry, which is the whole reason "a fresh port is clean" was measured on
+2026-08-06. "Page arrived, script never loaded" is the same pool with one live
+stream and dead siblings. The existing nudge refreshes at most three streams
+and only when its tab is running, which is why it helped without curing.
+
+VS Code fixed this on its side in c889d2cb5 (2026-10-27, first released in
+1.145.0): `tunnelStream.allowHalfOpen = false`, with the comment "The
+http.Agent pools this stream. Like a socket, it must close once the
+destination stops sending, or a later request reuses it and gets no
+response." The user's host is on 1.143. Upstream #331909 is still open, so
+1.145 is not assumed to be sufficient.
+
+The earlier readings in this file — "idle forward", "client-side run
+phenomenon", "lazy upstream connection" — were descriptions of this from
+outside. The 12:29 case additionally had both open viewers' WebSockets die
+8 s before the click (the window's remote connection itself dropped); nothing
+on our side fixes that one and the guided reload remains its answer.
+
+### Change
+
+`_extra_ports._CloseAfterResponse` wraps the app on viewer ports only and adds
+`Connection: close` to every HTTP response. Node's agent then destroys the
+stream instead of pooling it, so every request dials a fresh tunnel. WebSocket
+scopes pass through. The main port is unchanged (nothing proxied uses it).
+Python only: no opener rebuild, no window reload. Cost: ~12 tunnel dials while
+a viewer loads (measured request count, headless), none while scrolling.
+
+Not changed: the nudge (now pointless for pooling, left alone until the
+real-host numbers are in), the retry ladder, the singleton port.
+
+### Evidence
+
+- `component`: Node replica of the proxy's agent path with a stream that does
+  not surface the destination's close. Keep-alive port: page 2 after idle gets
+  no response. Viewer port with the change: answered, two tunnels dialled,
+  nothing pooled.
+- `real process`: `tests/test_viewer_port.py` (real uvicorn, raw sockets):
+  viewer port sends `Connection: close` and hangs up; main port still keeps
+  alive; WebSocket still upgrades on the viewer port. CLI launch of an SMB
+  `.nii` loaded through a leased viewer port in headless Chromium: first frame
+  0.28 s, 12 responses all `close`, 0 failed requests, scrolling worked.
+- `real host`: **not run** — needs tabs opened in the owner's window. The
+  acceptance number is the reused-port rows of the table above; a day of normal
+  use on a restarted server gives ~25 reused-port launches, enough to tell 30 %
+  from 5 %.
+
+### Also today: `--match` scanned every header twice, slowly
+
+`nibabel.load` costs a stat, two opens and three reads per file; on SMB each
+is a round trip. The CLI scanned all 53 files (≈1.4 s), then the server scanned
+them again (≈1.8 s). `_read_plain_nifti1_header` reads a plain `.nii` header
+in one 348-byte read through nibabel's own parser: 53 files, 8 threads,
+0.9-1.4 s → 0.12 s. Cold `--match` to first frame, headless `real process`:
+3.63 s → 2.10 s. The scan still runs twice; it is now cheap enough not to
+matter. Compressed, NIfTI-2 and pair files take the old path.
+
+Separately, on this host `~/.local/bin/arrayview` is an editable install of a
+checkout that no longer exists (`/localscratch/oheide/projects/arrayview`), so
+an Explorer click with no server running falls through to
+`uv run --with arrayview` (PyPI release, +~3 s). Environment, not code.

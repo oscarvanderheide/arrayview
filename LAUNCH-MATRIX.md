@@ -52,6 +52,29 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-09 viewer port answers `Connection: close`; faster collection scan
+
+Rows 1-4, 16, 19-20, 23-26, 29, 35 (every VS Code tunnel tab: they all load
+from the private viewer port). The port now closes each HTTP connection after
+its response, so VS Code's browser proxy has no idle connection to reuse after
+the server has dropped it — the measured cause of blank tabs on a port idle
+for more than ~30 s (29-46 % of such launches, 774 launches Oct 1 - Nov 9).
+Rows that could break: the same ones (page, script, status reports and the
+WebSocket all cross that port). Rows 5-15, 17, 21-22 do not use a viewer port.
+
+- `real process`: `tests/test_viewer_port.py`; a CLI-launched SMB `.nii`
+  loaded through a leased viewer port in headless Chromium, first frame and
+  scrolling, 0 failed requests.
+- `component`: Node replica of VS Code's proxy pooling, before and after.
+- `real host`: **not run**. Until it is, every status below is unchanged.
+  Check: reused-port blank rate in `~/.arrayview/extension.log` after the
+  server has been restarted on this code.
+
+`--match` on NIfTI (rows 2, 20 with collections): plain `.nii` headers are read
+in one read instead of through `nibabel.load`. `real process`: cold
+`uv run arrayview --match "<53 SMB files>" --window browser`, headless, first
+frame 3.63 s → 2.10 s, same collection summary printed.
+
 ### 2026-10-12 loading screens and click handover (opener 0.15.66–0.15.70)
 
 Rows 19–20 (Explorer clicks) and every integrated-browser row: the opening

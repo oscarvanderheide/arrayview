@@ -7,12 +7,24 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-09-18
+last_updated: 2026-11-09
 ---
 
 # Project State
 
 ## Working
+
+- Tunnel blank tabs traced to VS Code's browser proxy reusing a pooled
+  connection our server had already closed for idleness (30 s). The private
+  viewer port now answers every HTTP request with `Connection: close`, so
+  nothing is pooled. Python only. `real process` + `component` evidence;
+  **real-host confirmation still open** — the number to watch is the blank
+  rate on a reused viewer port (was 29-46 % after a minute idle). VS Code
+  1.145 carries its own fix for the same thing. Details:
+  `plans/tunnel/LOG.md`, 2026-11-09.
+- `--match` reads plain `.nii` headers in one read each: 53 SMB files scan in
+  ~0.12 s instead of ~1.2 s, and the scan runs in both the CLI and the server,
+  so a cold collection opens ~1.5 s sooner.
 
 - Ortho view no longer jitters its colorbar: dragging the colorbar (either
   handle or a pan) keeps the canvas column at its rest width for the drag's
