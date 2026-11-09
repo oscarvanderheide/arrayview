@@ -108,6 +108,8 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
     assert bracketed() == [1]
 
     a, b = page.evaluate("() => [...detachedDimIdx]")
+    # Neighbours too read as a set, not a run.
+    assert page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent") == f"{{{a + 1},{b + 1}}}"
     _focus(page)
     page.keyboard.press("]")
     page.wait_for_timeout(150)

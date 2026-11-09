@@ -10688,12 +10688,12 @@
             return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
         }
 
-        // The dim bar's indices: neighbours as a run ("4–7"), panes moved apart
-        // as a tight set ("{1,15,3}"). The pane [ ] move is marked only for the
-        // underline to sit under; its brackets on the pane are the visible cue.
+        // The dim bar's indices, always as a tight set ("{1,2,3}", "{1,15,3}").
+        // Once moved apart, the pane [ ] move is marked for the underline to
+        // sit under (its brackets on the pane are the visible cue); neighbours
+        // move together, so the underline spans the whole set.
         function _detachedDimStackHTML() {
-            if (_spreadIsRun()) return _spreadIndicesText();
-            const t = _spreadTargetPane();
+            const t = _spreadIsRun() ? -1 : _spreadTargetPane();
             const items = detachedDimIdx.map((v, i) => i === t ? `<span class="spread-target">${v + 1}</span>` : String(v + 1));
             return `<span class="dim-spread-set">{${items.join(',')}}</span>`;
         }
