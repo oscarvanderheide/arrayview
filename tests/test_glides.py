@@ -284,10 +284,13 @@ def test_split_ortho_rows_keep_their_own_index(loaded_viewer, client, tmp_path):
     page.keyboard.press("Shift+Semicolon")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
-    page.keyboard.press("]")  # the left pane's index moves off the main one
+    box = page.locator("#compare-left-canvas").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    a0 = page.evaluate("detachedDimIdx[0]")
+    page.keyboard.press("]")  # the left pane (under the mouse) moves off the main one
     page.wait_for_timeout(500)
     a, b = page.evaluate("[detachedDimIdx[0], detachedDimIdx[1]]")
-    assert a != b
+    assert a != a0 and a != b
     page.keyboard.press("v")
     _settle(page)
     page.wait_for_function("() => compareMvViews.length && compareMvViews.every(v => v.lastImageData)")

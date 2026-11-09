@@ -7691,7 +7691,7 @@
         // one pointed at); two panes compare (X works); neighbours of three or
         // more page along together, panes moved by hand step along together.
         let detachedDimIdx = [];
-        let _spreadTarget = 0;      // pane [ ] move: the last one the mouse was over
+        let _spreadTarget = -1;     // pane [ ] move: the one under the mouse, -1 when none
         let spreadCount = 2;        // panes used the next time `:` turns it on
         const SPREAD_MAX = 6;       // compare panes available
         let registrationAlpha = 0.5;
@@ -10627,7 +10627,7 @@
             detachedDimMode = false;
             detachedDim = -1;
             detachedDimIdx = [];
-            _spreadTarget = 0;
+            _spreadTarget = -1;
         }
 
         // Panes a stack opens with: all of them for 2–4 arrays, else none.
@@ -10647,9 +10647,9 @@
             return detachedDimIdx.every((v, i) => i === 0 || v === detachedDimIdx[i - 1] + 1);
         }
 
-        // Pane [ ] move, clamped to the panes there are.
+        // Pane [ ] move: the one under the mouse, or -1 when the mouse is off the panes.
         function _spreadTargetPane() {
-            return Math.max(0, Math.min(detachedDimIdx.length - 1, _spreadTarget));
+            return _spreadTarget < detachedDimIdx.length ? _spreadTarget : -1;
         }
 
         // The indices shown, as one run ("4–7") or a list ("3 · 7 · 12").
@@ -10740,11 +10740,18 @@
         document.addEventListener('mousemove', (e) => {
             if (!detachedDimMode) return;
             const i = _spreadPaneAt(e.target);
-            if (i < 0 || i === _spreadTargetPane()) return;
+            if (i === _spreadTargetPane()) return;
             _spreadTarget = i;
             updateCompareTitles();
             renderInfo();
         }, { passive: true });
+        // Off the window: no pane is under the mouse.
+        document.addEventListener('mouseout', (e) => {
+            if (e.relatedTarget || !detachedDimMode || _spreadTarget < 0) return;
+            _spreadTarget = -1;
+            updateCompareTitles();
+            renderInfo();
+        });
 
         function _canDetachDim(dim) {
             if (!Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
@@ -10760,6 +10767,7 @@
             const n = detachedDimIdx.length;
             if (size < 2 || n < 2) return false;
             const p = _spreadTargetPane();
+            if (p < 0) return false;
             const taken = new Set(detachedDimIdx.filter((_, i) => i !== p));
             let next = detachedDimIdx[p];
             for (let tries = 0; tries < size; tries++) {

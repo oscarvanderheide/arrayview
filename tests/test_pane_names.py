@@ -101,12 +101,25 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.wait_for_timeout(100)
 
-    # Every pane names its index; only one wears the brackets.
-    # Just its own number; the total (/120) is the dim bar's.
+    # Every pane names just its own number (the total, /120, is the dim bar's);
+    # only the pane under the mouse wears the brackets, none when off the panes.
     assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /^\\[?\\d{3}\\]?$/.test(e.textContent))"))
+    page.mouse.move(5, 5)
+    page.wait_for_timeout(100)
+    assert bracketed() == []
+    _focus(page)
+    before = page.evaluate("() => [...detachedDimIdx]")
+    page.keyboard.press("]")  # no pane under the mouse: nothing moves
+    page.wait_for_timeout(150)
+    assert page.evaluate("() => [...detachedDimIdx]") == before
+    hover(0)
     assert bracketed() == [0]
     hover(1)
     assert bracketed() == [1]
+    page.mouse.move(5, 5)
+    page.wait_for_timeout(100)
+    assert bracketed() == []
+    hover(1)
 
     a, b = page.evaluate("() => [...detachedDimIdx]")
     # Neighbours too read as a set, not a run.
