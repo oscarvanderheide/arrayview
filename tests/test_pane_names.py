@@ -73,7 +73,7 @@ def test_zoom_map_and_slice_bar_leave_compare_names_readable(page, server_url, c
     assert page.evaluate("() => getComputedStyle(document.getElementById('compare-left-title')).translate") in ("none", "")
 
 
-def test_index_split_stacks_both_indices_in_the_dim_bar(page, server_url, client, tmp_path):
+def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, client, tmp_path):
     arr = np.random.default_rng(5).random((48, 48, 120)).astype(np.float32)
     sid = register_array(client, arr, tmp_path, "names_split")
     page.goto(f"{server_url}/?sid={sid}")
@@ -88,61 +88,52 @@ def test_index_split_stacks_both_indices_in_the_dim_bar(page, server_url, client
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
-    def rows():
+    def bracketed():
         return page.evaluate(
-            "() => [...document.querySelectorAll('#info .dim-split-stack > *')].map(e => e.textContent)"
+            """() => compareTitles.map((t, i) => {
+                const b = t.querySelector('.hint-bracket');
+                return b && getComputedStyle(b).visibility === 'visible' ? i : -1;
+            }).filter(i => i >= 0)"""
         )
 
-    a, b = page.evaluate("() => [detachedDimIdx[0], detachedDimIdx[1]]")
-    assert rows() == [f"[{a + 1:03d}]", f"{{{b + 1:03d}}}"]
-    assert page.evaluate("() => compareTitles.slice(0, 2).map(e => e.textContent)") == ["", ""]
-    assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
-    shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
-    page.screenshot(path=f"{shots}/split_normal.png")
+    def hover(i):
+        box = page.locator(f"#{['compare-left', 'compare-right', 'compare-third'][i]}-canvas").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(100)
 
-    def bracket_is_dimmer_than_digits():
-        return page.evaluate(
-            """() => {
-                const hint = document.querySelector('#info .dim-split-stack .detached-index-hint');
-                const fill = el => getComputedStyle(el).webkitTextFillColor;
-                return fill(hint.querySelector('.hint-bracket')) !== fill(hint);
-            }"""
-        )
+    # Every pane names its index; only one wears the brackets.
+    assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /\\d+\\/120/.test(e.textContent))"))
+    assert bracketed() == [0]
+    hover(1)
+    assert bracketed() == [1]
 
-    # Key hints stay visible but dimmed, selected or not.
-    assert bracket_is_dimmer_than_digits()
-    page.evaluate("() => { activeDim = 0; renderInfo(); }")
-    assert bracket_is_dimmer_than_digits()
-    page.wait_for_timeout(200)
-    page.screenshot(path=f"{shots}/split_other_dim.png")
-
-    # The keys move the row they name, and flash its bracket.
+    a, b = page.evaluate("() => [...detachedDimIdx]")
     _focus(page)
     page.keyboard.press("]")
-    page.wait_for_timeout(100)
-    assert rows()[0] != f"[{a + 1:03d}]"
-    assert page.evaluate("() => !!document.querySelector('#info .index-hint-glow')")
-    page.evaluate("() => { activeDim = 2; renderInfo(); }")
+    page.wait_for_timeout(150)
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1]
+    assert page.evaluate("() => !!compareTitles[1].querySelector('.index-hint-glow')")
 
-    page.set_viewport_size({"width": 2000, "height": 500})
-    page.wait_for_timeout(300)
+    # Moved apart: the dim bar lists them on one line, same height as ever.
+    text = page.evaluate("() => document.querySelector('#info .dim-spread-list').textContent")
+    assert text == f"{a + 1:03d}{b + 2:03d}"
+    assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
+    shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
+    page.screenshot(path=f"{shots}/spread_pair_moved.png")
+
+    # One more pane keeps the hand-set two and follows the last.
+    page.keyboard.press("'")
+    page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
+    page.wait_for_timeout(1200)
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b + 2]
+    hover(2)
     _focus(page)
-    page.keyboard.press("F")
-    page.wait_for_function("() => _fullscreenActive", timeout=5_000)
-    page.wait_for_timeout(1500)
-    assert len(rows()) == 2
-    # Immersive pads its bar differently; the stack still must not add to it.
-    assert page.evaluate(
-        """() => {
-            const info = document.getElementById('info'), stack = info.querySelector('.dim-split-stack');
-            const withStack = info.offsetHeight;
-            stack.replaceWith('S');
-            const withLetter = info.offsetHeight;
-            renderInfo();
-            return withStack === withLetter;
-        }"""
-    )
-    page.screenshot(path=f"{shots}/split_immersive.png")
+    page.keyboard.press("[")
+    page.wait_for_timeout(150)
+    # The pane it lands on is taken, so it skips past it.
+    assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b]
+    assert bracketed() == [2]
+    page.screenshot(path=f"{shots}/spread_three_moved.png")
 
 
 _RECORD_FADE = """
@@ -204,7 +195,7 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
     state = page.evaluate(
         """async () => {
             const lit = () => {
-                const el = document.querySelector('#info .hint-bracket[data-detached-key="]"]');
+                const el = compareTitles[0].querySelector('.hint-bracket[data-detached-key="]"]');
                 return el.classList.contains('index-hint-glow') ? getComputedStyle(el).webkitTextFillColor : null;
             };
             const yellow = () => {
@@ -215,9 +206,10 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
                 probe.remove();
                 return c;
             };
-            _bumpDetachedDimIndex('A', 1, ']');
+            _spreadTarget = 0;
+            _bumpSpreadPane(1, ']');
             const first = lit();
-            renderInfo();
+            updateCompareTitles();
             return { first, afterRedraw: lit(), yellow: yellow() };
         }"""
     )
@@ -226,8 +218,8 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
 
     # Over soon after: a later redraw does not bring it back.
     page.wait_for_timeout(500)
-    page.evaluate("() => renderInfo()")
-    assert page.evaluate("() => !document.querySelector('#info .index-hint-glow')")
+    page.evaluate("() => updateCompareTitles()")
+    assert page.evaluate("() => !compareTitles[0].querySelector('.index-hint-glow')")
 
 
 @pytest.mark.parametrize("shape, viewport", [((48, 48, 20), (2000, 500)), ((48, 96, 20), (1600, 500))])

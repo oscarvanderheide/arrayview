@@ -674,7 +674,8 @@ class TestKeyboard:
         page.wait_for_function("() => detachedDimMode && compareActive && detachedDimIdx.length === 3", timeout=10_000)
         page.wait_for_timeout(500)
         labels = page.evaluate(
-            "() => compareTitles.slice(0, 3).map(e => [e.textContent, !!e.querySelector('svg')])"
+            "() => compareTitles.slice(0, 3).map(e => [[...e.querySelectorAll('.detached-index-hint > span:not(.hint-bracket)')]"
+            ".map(s => s.textContent).join(''), !!e.querySelector('svg')])"
         )
         assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
         assert all(has_logo for _, has_logo in labels)
