@@ -116,8 +116,16 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
 
     # Moved apart: the dim bar lists them as a tight set, the bracketed one picked out.
     setText = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent")
-    target = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set .is-target').textContent")
+    target = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set .spread-target').textContent")
     assert setText() == f"{{{a + 1},{b + 2}}}" and target() == str(b + 2)
+    # The underline sits under the pointed pane's number alone.
+    page.wait_for_timeout(400)
+    ul = page.evaluate("""() => {
+        const t = document.querySelector('#info .spread-target').getBoundingClientRect();
+        const m = document.getElementById('dim-active-underline').getBoundingClientRect();
+        return [Math.round(t.left), Math.round(t.width), Math.round(m.left), Math.round(m.width)];
+    }""")
+    assert abs(ul[0] - ul[2]) <= 1 and abs(ul[1] - ul[3]) <= 1, ul
     hover(0)
     assert target() == str(a + 1)
     hover(1)

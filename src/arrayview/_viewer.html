@@ -4010,9 +4010,7 @@
         }
         /* Only the pane [ ] move shows them; the rest keep the space. */
         .detached-index-hint:not(.is-target) .hint-bracket { visibility: hidden; }
-        /* Panes moved apart: the set a step back, the pane [ ] move at full strength. */
-        #info .dim-spread-set { font-variant-numeric: tabular-nums; color: var(--muted); -webkit-text-fill-color: currentColor; }
-        #info .dim-spread-set .is-target { color: var(--text); }
+        #info .dim-spread-set { font-variant-numeric: tabular-nums; }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -10691,11 +10689,12 @@
         }
 
         // The dim bar's indices: neighbours as a run ("4–7"), panes moved apart
-        // as a tight set ("{1,15,3}") with the pane [ ] move picked out.
+        // as a tight set ("{1,15,3}"). The pane [ ] move is marked only for the
+        // underline to sit under; its brackets on the pane are the visible cue.
         function _detachedDimStackHTML() {
             if (_spreadIsRun()) return _spreadIndicesText();
             const t = _spreadTargetPane();
-            const items = detachedDimIdx.map((v, i) => i === t ? `<span class="is-target">${v + 1}</span>` : String(v + 1));
+            const items = detachedDimIdx.map((v, i) => i === t ? `<span class="spread-target">${v + 1}</span>` : String(v + 1));
             return `<span class="dim-spread-set">{${items.join(',')}}</span>`;
         }
 
@@ -22853,6 +22852,9 @@
                 || info?.querySelector('.playing-dim.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
+            // Side-by-side set: under the pointed pane's number, not the whole set.
+            const t = label.querySelector('.spread-target');
+            if (t) { const q = t.getBoundingClientRect(); return { x: q.left, y: r.bottom, w: q.width }; }
             return { x: r.left, y: r.bottom, w: r.width };
         }
         function _activeDimScrollFraction() {
@@ -22867,7 +22869,8 @@
             }
             const sz = shape[activeDim];
             if (!sz || sz <= 1) return 0;
-            const idx = indices[activeDim];
+            const idx = detachedDimMode && activeDim === detachedDim && !_spreadIsRun()
+                ? detachedDimIdx[_spreadTargetPane()] : indices[activeDim];
             if (idx == null) return 0;
             return idx / Math.max(1, sz - 1);
         }
