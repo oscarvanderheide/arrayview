@@ -9593,6 +9593,8 @@
 
         // const MAX_CANVAS_FIT_PX = 600;
         const NORMAL_SIDE_RESERVE = 80;
+        // Least side margin a width-limited side-by-side grid keeps (both sides together).
+        const COMPARE_MIN_SIDE_RESERVE = 40;
         // Immersive: the image runs to the window edge; islands float a fixed
         // distance inside it, the same at top and bottom.
         const IMMERSIVE_PAD = 0;
@@ -10079,8 +10081,18 @@
             const cP = _crossfadeCollapseP;
             const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
-            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (NORMAL_SIDE_RESERVE * (1 - cP) + immersivePad * 2 * cP)));
             const totalH = Math.max(100, window.innerHeight - uiReserveH - immPadV);
+            // A width-limited grid grows into the side margin, down to
+            // COMPARE_MIN_SIDE_RESERVE, until height becomes the limit.
+            let sideReserve = NORMAL_SIDE_RESERVE;
+            if (!hasCenterPane && !bigLeftCompare) {
+                const rowH = (totalH - (rows - 1) * rowGap) / rows - titleReserve - panePadY;
+                const rowW = Math.max(...activeFrames.map(f => f.width / f.height)) * rowH;
+                const neededW = cols * (rowW + panePadX) + (cols - 1) * colGap;
+                sideReserve = Math.min(NORMAL_SIDE_RESERVE,
+                    Math.max(COMPARE_MIN_SIDE_RESERVE, Math.ceil(window.innerWidth - neededW)));
+            }
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (sideReserve * (1 - cP) + immersivePad * 2 * cP)));
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Rounded down: a slot rounded up overflows an odd-width window and wraps the row.
