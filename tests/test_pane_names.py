@@ -102,7 +102,8 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
         page.wait_for_timeout(100)
 
     # Every pane names its index; only one wears the brackets.
-    assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /\\d+\\/120/.test(e.textContent))"))
+    # Just its own number; the total (/120) is the dim bar's.
+    assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /^\\[?\\d{3}\\]?$/.test(e.textContent))"))
     assert bracketed() == [0]
     hover(1)
     assert bracketed() == [1]

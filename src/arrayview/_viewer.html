@@ -10680,12 +10680,13 @@
         function _detachedDimPaneLabel(indexVal) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isInteger(indexVal)) return '';
             if (_detachedDimIsCases()) return String(caseNames[indexVal]);
+            // Just the pane's own index: the total is in the dim bar already.
             // Pad to the width of the last index. The label sits in a centred
-            // flex row above each pane, so 9/120 → 10/120 grew the whole title
-            // by a digit and shunted everything beside it sideways on a plain
+            // flex row above each pane, so 9 → 10 grew the whole title by a
+            // digit and shunted everything beside it sideways on a plain
             // index step.
             const size = shape[detachedDim];
-            return `${String(indexVal + 1).padStart(String(size).length, '0')}/${size}`;
+            return String(indexVal + 1).padStart(String(size).length, '0');
         }
 
         // The dim bar's indices, always as a tight set ("{1,2,3}", "{1,15,3}").
