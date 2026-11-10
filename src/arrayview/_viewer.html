@@ -3895,17 +3895,22 @@
             filter: blur(6px) brightness(0.55);
             pointer-events: none;
         }
-        /* Present from opening until the closing glide ends. */
+        /* Present from opening until the closing glide ends. Ignores
+           prefers-reduced-motion on purpose, like the quarter turn: the glide
+           is what shows where the pane came from. */
         body.av-qz-anim :is(.mv-pane, .qv-pane, .compare-pane) {
-            transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.26s ease;
+            transition: transform 0.36s cubic-bezier(0.32, 0.72, 0.24, 1), filter 0.36s ease;
+        }
+        /* The dimbar moves up out of the way when there is room above it. */
+        body.av-qz-on #info { translate: 0 var(--qz-info-y, 0px); }
+        body.av-qz-anim #info {
+            transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease,
+                        translate 0.36s cubic-bezier(0.32, 0.72, 0.24, 1);
         }
         .av-qz-target, .av-qz-closing {
             transform-origin: center center;
             transform: translate(var(--qz-tx, 0px), var(--qz-ty, 0px)) scale(var(--qz-s, 1)) !important;
             z-index: 30;
-        }
-        @media (prefers-reduced-motion: reduce) {
-            body.av-qz-anim :is(.mv-pane, .qv-pane, .compare-pane) { transition: none; }
         }
         .av-qz-target .mv-promote-btn { display: none !important; }
         .av-qz-unclip { overflow: visible !important; }
@@ -9292,11 +9297,44 @@
             for (let i = 0; i < 24; i++) { s = (lo + hi) / 2; if (bx(s) < t) lo = s; else hi = s; }
             return 3 * s * s * (1 - s) + s * s * s;
         }
+        // 'cube' (o, next view): 90deg roll takes ~440 ms, the 120deg diagonal tumble a bit longer.
+        const _CUBE_MS = 440;
+        const _cubeEase = t => t <= 0 ? 0 : t >= 1 ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * t);
+        // Rotate v about unit axis k by deg (same handedness as CSS rotate3d).
+        function _rot3(k, deg, v) {
+            const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), d = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+            const x = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+            return [0, 1, 2].map(i => v[i] * c + x[i] * s + k[i] * d * (1 - c));
+        }
+        /** Cube turn for a view switch (o). The two views share one array
+         *  axis; the box rolls about that line on screen. When the shared axis
+         *  is horizontal in one view and vertical in the other, a roll plus a
+         *  quarter twist is composed into one turn about the box diagonal.
+         *  `od` = [dim_x, dim_y, flip_x, flip_y] before the switch. */
+        function _planeCubeTurn(od) {
+            const [odx, ody, ofx, ofy] = od;
+            const shared = [odx, ody].find(d => d === dim_x || d === dim_y);
+            if (shared === undefined) return { axis: [1, 0, 0], deg: -90 };
+            const oldH = shared === odx, newH = shared === dim_x;
+            if (oldH === newH) return { axis: oldH ? [1, 0, 0] : [0, 1, 0], deg: -90 };
+            const so = (oldH ? ofx : ofy) ? -1 : 1, sn = (newH ? flip_x : flip_y) ? -1 : 1;
+            const roll = oldH ? [1, 0, 0] : [0, 1, 0], tau = 90 * so * sn * (oldH ? 1 : -1);
+            // Columns of R = RotZ(tau) . Roll(-90), then axis-angle (always 120deg here).
+            const col = e => _rot3([0, 0, 1], tau, _rot3(roll, -90, e));
+            const [c0, c1, c2] = [col([1, 0, 0]), col([0, 1, 0]), col([0, 0, 1])];
+            const ang = Math.acos(Math.max(-1, Math.min(1, (c0[0] + c1[1] + c2[2] - 1) / 2)));
+            const ax = [c1[2] - c2[1], c2[0] - c0[2], c0[1] - c1[0]], n = Math.hypot(...ax) || 1;
+            return { axis: ax.map(v => v / n), deg: ang * 180 / Math.PI };
+        }
         /* `mode` 'flip' (t, transpose): the copy instead flips like a card
          * 180deg about its top-left→bottom-right diagonal (slight perspective);
          * its back face lands showing the transposed picture. Same path,
-         * shrink-to-fit, glides and label fades as the turn. */
-        function _quarterTurnAround(change, getBoxes, mode = 'turn') {
+         * shrink-to-fit, glides and label fades as the turn.
+         * `mode` 'cube' (o, next view): the copy is the front face of a box
+         * that rolls (getCube() after change -> {axis, deg}); the face rolling
+         * in gets the new frame once it lands. Progress holds near the start
+         * until then so the incoming face is never shown empty. */
+        function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null) {
             if (_quarterTurn) { const q = _quarterTurn; _quarterTurn = null; q.stop(); if (!q.landed) { change(); return; } }
             const boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
             // Innermost boxes only, so a grid is not turned as a whole.
@@ -9304,12 +9342,7 @@
             if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) { change(); return; }
             const rectOf = r => ({ w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
             const old = panes.map(b => rectOf(b.getBoundingClientRect()));
-            const ghosts = panes.map((b, i) => {
-                const r = b.getBoundingClientRect();
-                const g = document.createElement('div');
-                g.setAttribute('aria-hidden', 'true');
-                g.inert = true;
-                g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:41;pointer-events:none;overflow:hidden;border-radius:${getComputedStyle(b).borderRadius};`;
+            const snap = b => {
                 const copy = b.cloneNode(true);
                 copy.removeAttribute('id');
                 copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
@@ -9321,7 +9354,40 @@
                     if (!c.width || !c.height || !c.getClientRects().length) return;
                     try { dst[k].getContext('2d').drawImage(c, 0, 0); } catch (e) { /* WebGL: leave blank */ }
                 });
-                g.appendChild(copy);
+                return copy;
+            };
+            // cube: per pane { box, fa, fb, sa, sb } — g is the 3-D stage, box turns, fa/fb are its faces.
+            const cubes = [];
+            const ghosts = panes.map((b, i) => {
+                const r = b.getBoundingClientRect();
+                const rad = getComputedStyle(b).borderRadius;
+                const g = document.createElement('div');
+                g.setAttribute('aria-hidden', 'true');
+                g.inert = true;
+                g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:41;pointer-events:none;overflow:hidden;border-radius:${rad};`;
+                const copy = snap(b);
+                if (mode === 'cube') {
+                    let bg = getComputedStyle(b).backgroundColor;
+                    if (!bg || bg === 'transparent' || /rgba\(.*,\s*0\)$/.test(bg)) bg = getComputedStyle(document.body).backgroundColor;
+                    const face = (w, h) => {
+                        const f = document.createElement('div');
+                        f.style.cssText = `position:absolute;left:50%;top:50%;width:${w}px;height:${h}px;margin:${-h / 2}px 0 0 ${-w / 2}px;overflow:hidden;backface-visibility:hidden;border-radius:${rad};background:${bg};`;
+                        const s = document.createElement('div');
+                        s.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;';
+                        f.appendChild(s);
+                        return [f, s];
+                    };
+                    const box = document.createElement('div');
+                    box.style.cssText = 'position:absolute;inset:0;transform-style:preserve-3d;';
+                    const [fa, sa] = face(r.width, r.height), [fb, sb] = face(r.width, r.height);
+                    fa.insertBefore(copy, sa);
+                    box.append(fa, fb);
+                    g.style.overflow = 'visible'; g.style.borderRadius = ''; g.style.perspective = '1800px';
+                    g.appendChild(box);
+                    cubes[i] = { box, fa, fb, sa, sb, bw: r.width, bh: r.height };
+                } else {
+                    g.appendChild(copy);
+                }
                 document.body.appendChild(g);
                 copy.querySelectorAll(_TURN_LABELS).forEach(n =>
                     n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: 'ease-out', fill: 'forwards' }));
@@ -9333,6 +9399,25 @@
             const glideOld = glide.map(el => el.getBoundingClientRect());
             const seq0 = _frameDisplaySeq, t0 = performance.now();
             try { change(); } catch (e) { console.error(e); }
+            // cube: incoming face's in-plane axes (bx, by) and normal (bn) in box space at the start.
+            let cube = null;
+            if (mode === 'cube') {
+                let spec = null;
+                try { spec = getCube && getCube(); } catch (e) { console.error(e); }
+                if (!spec) spec = { axis: [1, 0, 0], deg: -90 };
+                const k = spec.axis, th = spec.deg;
+                const bx = _rot3(k, -th, [1, 0, 0]), by = _rot3(k, -th, [0, 1, 0]), bn = _rot3(k, -th, [0, 0, 1]);
+                cube = { k, th, bx, by, bn, ms: _CUBE_MS * (Math.abs(th) > 100 ? 1.08 : 1),
+                    rot: `rotate3d(${k[0]}, ${k[1]}, ${k[2]},` };
+                // Before the new frame lands, guess the incoming face: shared side as now,
+                // its other side as the side of the old picture that is not shared.
+                old.forEach((o, i) => {
+                    const sharedOnX = Math.abs(bx[0]) + Math.abs(by[0]) > 0.5;
+                    const other = sharedOnX ? o.h : o.w;
+                    const dimOf = a => Math.abs(a[0]) * o.w + Math.abs(a[1]) * o.h + Math.abs(a[2]) * other;
+                    Object.assign(cubes[i], { gw: dimOf(bx), gh: dimOf(by), nw: null, nh: null, n: null });
+                });
+            }
             // Live boxes stay hidden until their frame lands (they may already
             // be resized under the copies).
             const holds = panes.map(b => b.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }));
@@ -46659,7 +46744,8 @@
         // running untouched underneath, and pointer handlers that map through
         // getBoundingClientRect keep working on the scaled pane.
         const QUICK_ZOOM_PANE_SEL = '.mv-pane, .qv-pane, .compare-pane';
-        const QUICK_ZOOM_GLIDE_MS = 260;
+        const QUICK_ZOOM_GLIDE_MS = 360;
+        const QUICK_ZOOM_TOP_PAD = 14;   // dimbar's top gap in a plain single view
         let _quickZoomPane = null;
         let _quickZoomObserver = null;
         let _quickZoomCleanupTimer = null;
@@ -46683,6 +46769,13 @@
             const w = r.width / a, h = r.height / a;
             const cx = (r.left + r.right) / 2 - e, cy = (r.top + r.bottom) / 2 - f;
             return { left: cx - w / 2, top: cy - h / 2, right: cx + w / 2, bottom: cy + h / 2, width: w, height: h };
+        }
+
+        // Current vertical `translate` of an element (mid-glide too).
+        function _quickZoomTranslateY(el) {
+            const parts = String(getComputedStyle(el).translate || '').trim().split(/\s+/);
+            const y = parts.length > 1 ? parseFloat(parts[1]) : 0;
+            return Number.isFinite(y) ? y : 0;
         }
 
         function _quickZoomPaneAtMouse(panes) {
@@ -46760,6 +46853,7 @@
                     ['--qz-tx', '--qz-ty', '--qz-s'].forEach(k => el.style.removeProperty(k));
                 });
                 if (_quickZoomPane) return;
+                document.getElementById('info')?.style.removeProperty('--qz-info-y');
                 document.body.classList.remove('av-qz-anim');
                 document.querySelectorAll('.av-qz-unclip').forEach(el => el.classList.remove('av-qz-unclip'));
             }, QUICK_ZOOM_GLIDE_MS + 60);
@@ -46790,15 +46884,35 @@
                     bottom: Math.max(...rects.map(r => r.bottom)),
                 };
                 const bottom = _quickZoomBottomLimit(U, _quickZoomContainer(panes));
+                // When the panes sit low (qMRI row centred in the window) the
+                // dimbar slides up to its usual top spot and the pane grows
+                // into the room it leaves, keeping the same gap below it.
+                let top = U.top, infoShift = 0;
+                const info = document.getElementById('info');
+                const infoPinned = (typeof _fullscreenActive !== 'undefined' && _fullscreenActive)
+                    || (typeof _infoDragPos !== 'undefined' && _infoDragPos);
+                if (info && !infoPinned) {
+                    if (info.offsetHeight > 0) {
+                        const ir = info.getBoundingClientRect();
+                        const cur = _quickZoomTranslateY(info);
+                        if (ir.bottom - cur <= U.top + 1) {
+                            infoShift = Math.max(0, Math.round(ir.top - cur - QUICK_ZOOM_TOP_PAD));
+                            top = U.top - infoShift;
+                        }
+                    } else {
+                        top = Math.min(U.top, QUICK_ZOOM_TOP_PAD);
+                    }
+                }
+                if (info) info.style.setProperty('--qz-info-y', (-infoShift) + 'px');
                 const cx = (U.left + U.right) / 2;
                 const sideMargin = 40;
                 const halfW = Math.max(U.right - cx, Math.min(cx - sideMargin, window.innerWidth - sideMargin - cx));
                 const r = rects[panes.indexOf(pane)];
-                const s = Math.max(1, Math.min((2 * halfW) / r.width, (bottom - U.top) / r.height));
+                const s = Math.max(1, Math.min((2 * halfW) / r.width, (bottom - top) / r.height));
                 // transform-origin is the pane centre: line the scaled pane's top
-                // up with the top of the pane block, centred horizontally.
+                // up with the top of the free block, centred horizontally.
                 const tx = cx - (r.left + r.right) / 2;
-                const ty = (U.top + (r.height * s) / 2) - (r.top + r.bottom) / 2;
+                const ty = (top + (r.height * s) / 2) - (r.top + r.bottom) / 2;
                 // Body class first so the transition is in place when the
                 // transform first changes.
                 document.body.classList.add('av-qz-anim');
