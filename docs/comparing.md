@@ -15,13 +15,16 @@ time. A folder or `--match` collection does the same.
 
 ## Side by side
 
-`:` (Shift+;) shows the active dimension in several panes — the files you
-loaded, or any other non-spatial dimension such as echoes or time points.
-Press it again for one image. `'` adds a pane and `;` removes one (up to six).
+`s` shows the active dimension in several panes — the files you loaded, or
+any other non-spatial dimension such as echoes or time points. The dimension
+bar shows it as a purple `s`; each pane names its own index in its corner (and,
+for loaded files, the part of the file name that differs). Press `s` again for
+one image. `'` adds a pane and `;` removes one (up to six).
 
-- **Two panes compare.** Scrolling moves both through slices together. `[`/`]`
-  moves the left pane along the dimension and `{`/`}` the right one, so you
-  can put echo 1 next to echo 5. `X` opens the center pane (below).
+- `[`/`]` move just the pane under the mouse along the dimension, so you can
+  put echo 1 next to echo 5.
+- **Two panes compare.** Scrolling moves both through slices together. `X`
+  opens the center pane (below).
 - **Three or more browse.** They show neighbouring positions; `j`/`k` on that
   dimension pages to the next few.
 

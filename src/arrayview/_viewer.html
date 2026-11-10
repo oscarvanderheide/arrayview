@@ -2579,7 +2579,9 @@
             user-select: none; transition: color 0.12s, border-color 0.12s;
             z-index: 6;
         }
-        #help-hint { right: 16px; }
+        #help-hint { right: 16px; border: none; border-radius: 0; transition: opacity 0.3s ease, transform 0.12s; }
+        #help-hint svg { width: 20px; height: 20px; display: block; }
+        #help-hint:hover { transform: scale(1.1); }
         #preferences-hint { display: none; }
         #qmri-hint { right: 46px; display: none; }
         #qmri-hint.visible { display: flex; }
@@ -4008,9 +4010,9 @@
             45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
-        /* Only the pane [ ] move shows them; the rest keep the space. */
-        .detached-index-hint:not(.is-target) .hint-bracket { visibility: hidden; }
-        #info .dim-spread-set { font-variant-numeric: tabular-nums; }
+        /* Hidden but keeping their space; shown only while a [ ] press flashes. */
+        .detached-index-hint .hint-bracket:not(.index-hint-glow) { visibility: hidden; }
+        #info .dim-spread-set { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -5922,7 +5924,7 @@
             <div id="uni-picker-footer"><span id="uni-picker-mem"></span><span>esc closes</span></div>
         </div>
     </div>
-    <div id="help-hint">?</div>
+    <div id="help-hint" title="Help and menu" aria-label="Help and menu"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div>
     <div id="link-hint" role="button" tabindex="-1" title="Linked: slices follow other linked tabs · click to unlink" aria-label="Unlink this tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg></div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
@@ -10679,30 +10681,33 @@
 
         function _detachedDimPaneLabel(indexVal) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isInteger(indexVal)) return '';
-            if (_detachedDimIsCases()) return String(caseNames[indexVal]);
             // Just the pane's own index: the total is in the dim bar already.
             // Pad to the width of the last index. The label sits in a centred
             // flex row above each pane, so 9 → 10 grew the whole title by a
             // digit and shunted everything beside it sideways on a plain
             // index step.
             const size = shape[detachedDim];
-            return String(indexVal + 1).padStart(String(size).length, '0');
+            const idx = String(indexVal + 1).padStart(String(size).length, '0');
+            if (!_detachedDimIsCases()) return idx;
+            // Loaded arrays: the index and the part of the name that differs
+            // from the other arrays' (full name on hover).
+            const key = _arrayNameParts(caseNames)[indexVal]?.key || String(caseNames[indexVal]);
+            return `${idx} · ${key}`;
         }
 
-        // The dim bar's indices, always as a tight set ("{1,2,3}", "{1,15,3}").
-        // The underline sits under the digits and commas, not the braces.
+        // The dim bar shows the side-by-side dim as a purple "s" (its key);
+        // each pane's index is on the pane itself.
         function _detachedDimStackHTML() {
-            const items = detachedDimIdx.map(v => String(v + 1));
-            return `<span class="dim-spread-set">{<span class="spread-digits">${items.join(',')}</span>}</span>`;
+            return '<span class="dim-spread-set">s</span>';
         }
 
-        // Pane label; the pane [ ] move wears the brackets. Every pane carries
-        // them (hidden off-target) so moving the mouse never reflows a label.
+        // Pane label. The brackets stay hidden (showing them under the mouse
+        // was too busy) and only flash on a [ ] press; they keep their space
+        // so the flash never reflows a label.
         function _detachedDimPaneTitleHTML(idx, label) {
             const escaped = String(label || '').replace(/</g, '&lt;');
             if (detachedDimIdx.length < 2) return escaped;
-            const on = idx === _spreadTargetPane() ? ' is-target' : '';
-            return `<span class="detached-index-hint${on}" data-detached-pane="${idx}"><span class="hint-bracket" data-detached-key="[">[</span><span>${escaped}</span><span class="hint-bracket" data-detached-key="]">]</span></span>`;
+            return `<span class="detached-index-hint" data-detached-pane="${idx}"><span class="hint-bracket" data-detached-key="[">[</span><span>${escaped}</span><span class="hint-bracket" data-detached-key="]">]</span></span>`;
         }
 
         // The key just pressed. Titles are rebuilt on redraws, so the flash is
@@ -10718,6 +10723,8 @@
             if (!el) return;
             el.style.animationDelay = `${-elapsed}ms`;
             el.classList.add('index-hint-glow');
+            // Hidden again once the flash is over.
+            el.addEventListener('animationend', () => el.classList.remove('index-hint-glow'), { once: true });
         }
 
         // Which side-by-side pane an element sits in, or -1.
@@ -10863,9 +10870,10 @@
                 const text = labels[idx] || '';
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
+                el.removeAttribute('title');
                 if (text && detachedDimMode) {
-                    el.innerHTML = (_detachedDimIsCases() && !sideTitle ? ARRAY_NAME_LOGO_SVG : '')
-                        + '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
+                    el.innerHTML = '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
+                    if (_detachedDimIsCases()) el.title = String(caseNames[detachedDimIdx[idx]] ?? '');
                 } else if (text) {
                     el.innerHTML = (sideTitle ? '' : ARRAY_NAME_LOGO_SVG) + '<span></span>';
                     _setArrayName(el.lastElementChild, nameParts[idx], _arrayNameHover(effectiveSids[idx], text),
@@ -22894,9 +22902,6 @@
                 || info?.querySelector('.playing-dim.dim-label');
             if (!label) return null;
             const r = label.getBoundingClientRect();
-            // Side-by-side set: under the digits and commas, not the braces.
-            const t = label.querySelector('.spread-digits');
-            if (t) { const q = t.getBoundingClientRect(); return { x: q.left, y: r.bottom, w: q.width }; }
             return { x: r.left, y: r.bottom, w: r.width };
         }
         function _activeDimScrollFraction() {
@@ -31638,7 +31643,7 @@
             { key: 'i', command: 'hoverinfo.toggle' },
             { key: 'Z', command: 'mode.toggleZen' },
             // Physical `;` with Shift — layout-independent like Shift+4 above.
-            { code: 'Semicolon', shift: true, command: 'spread.toggle' },
+            { key: 's', command: 'spread.toggle' },
             { code: 'Semicolon', shift: false, command: 'spread.remove' },
             { code: 'Quote', shift: false, command: 'spread.add' },
             { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
@@ -31656,7 +31661,7 @@
             { key: 'B', command: 'panes.rounded.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'nifti.toggleRasResample' },
-            { key: 's', command: 'saveMenu.open' },
+            { key: 'S', shift: true, command: 'saveMenu.open' },
             { key: 'R', shift: true, command: 'roi.cycleMode' },
             { key: 'N', shift: true, command: 'mask.exportActive' },
             { key: 'Delete', command: 'roi.deleteSelected' },
@@ -31768,7 +31773,7 @@
                             { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
-                            { key: 'Shift+;', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
+                            { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
                             { key: "' / ;", action: 'One pane more / fewer', hint: "[ ] move the pane under the mouse · j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along · ' from one image starts with two" },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
@@ -31805,7 +31810,7 @@
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Open save options', hint: 'screenshot, GIF, array, URL or code' },
+                            { key: 'Shift+S', action: 'Open save options', hint: 'screenshot, GIF, array, URL or code' },
                             { key: 'e', action: 'Copy shareable URL' },
                             { key: 'E', action: 'Copy view as code', hint: 'a view(…) call or arrayview command that reopens this view' },
                         ]
@@ -31899,7 +31904,7 @@
                     {
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
-                            { key: 'Shift+;', action: 'Side by side', hint: 'on a non-spatial dim, shows two panes from that dim; with several arrays loaded, use their dim' },
+                            { key: 's', action: 'Side by side', hint: 'on a non-spatial dim, shows two panes from that dim; with several arrays loaded, use their dim' },
                             { key: 'X', action: 'Cycle compare operation', hint: 'A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard; Esc returns to plain compare/split' },
                             { key: 'Click operation', action: 'Choose compare operation', hint: 'buttons replace the dimbar briefly and select a specific operation directly' },
                             { key: '[ ]', action: 'Adjust operation parameter / pane index', hint: 'side by side: moves the pane under the mouse along its dim instead of blend, wipe, flicker, or checker size' },
@@ -31942,10 +31947,10 @@
                     {
                         title: 'Direct', columnBreak: true,
                         entries: [
-                            { key: 's', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
+                            { key: 'Shift+S', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 'Shift+;', action: 'Side by side', hint: "show the active dim in several panes · ' / ; more or fewer" },
+                            { key: 's', action: 'Side by side', hint: "show the active dim in several panes · ' / ; more or fewer" },
                             { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
@@ -34466,9 +34471,9 @@
                         expect: ['multiview.toggle'],
                     },
                     {
-                        key: ':',
-                        text: 'Press : (shift+;) to show this dim side by side.\nPoint at a pane: [ and ] move just that one.',
-                        note: "Press : again to go back. ' and ; add or remove a pane.",
+                        key: 's',
+                        text: 'Press s to show this dim side by side.\nPoint at a pane: [ and ] move just that one.',
+                        note: "Press s again to go back. ' and ; add or remove a pane.",
                         expect: [
                             'spread.toggle', 'spread.add',
                             'spread.adjustPaneIndex',
@@ -38526,7 +38531,7 @@
             _syncRaggedShapeForCollection();
             if (!_stackMosaicGlideOpen(stackMosaicViews[i], exitStackMosaic)) exitStackMosaic();
             const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
-            showStatus(`opened ${name || '#' + (colIdx + 1)} · Shift+; back to the grid`);
+            showStatus(`opened ${name || '#' + (colIdx + 1)} · s back to the grid`);
         }
 
         function _stackMosaicSyncSharedRange() {

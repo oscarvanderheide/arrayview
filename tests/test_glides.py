@@ -107,12 +107,12 @@ def test_side_by_side_on_a_stack_glides_in_and_back(loaded_viewer, client, tmp_p
     _settle(page)
 
     page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     assert page.evaluate("detachedDimIdx.length") == 2
 
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
     _settle(page)
 
@@ -126,7 +126,7 @@ def test_side_by_side_count_and_leave_glide(loaded_viewer, client, tmp_path):
     page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
     _settle(page)
     page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     for key, n in (("'", 3), ("'", 4), (";", 3)):
@@ -135,7 +135,7 @@ def test_side_by_side_count_and_leave_glide(loaded_viewer, client, tmp_path):
         page.wait_for_function(f"() => detachedDimIdx.length === {n}", timeout=10_000)
         _settle(page)
         assert page.evaluate("compareFrames.slice(0, detachedDimIdx.length).every(Boolean)")
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     assert page.evaluate("_orthoGlideBusy")
     page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
     _settle(page)
@@ -262,7 +262,7 @@ def test_compare_ortho_and_qmri_together_is_refused(page, server_url, client, tm
 def test_split_ortho_glides_in_and_back(loaded_viewer, sid_4d):
     page = loaded_viewer(sid_4d)
     _settle(page)
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     page.keyboard.press("v")
@@ -281,7 +281,7 @@ def test_split_ortho_rows_keep_their_own_index(loaded_viewer, client, tmp_path):
     page = loaded_viewer(register_array(client, arr, tmp_path, "coils"))
     _settle(page)
     page.evaluate("activeDim = 3; renderInfo()")
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     box = page.locator("#compare-left-canvas").bounding_box()
@@ -344,21 +344,21 @@ def test_split_and_ortho_commute(loaded_viewer, client, tmp_path):
     arr = np.random.default_rng(6).random((20, 24, 18, 5)).astype(np.float32)
     sid = register_array(client, arr, tmp_path, "vols")
     results = []
-    for keys in (["Shift+Semicolon", "v"], ["v", "Shift+Semicolon"]):
+    for keys in (["s", "v"], ["v", "s"]):
         page = loaded_viewer(sid)
         _settle(page)
         page.evaluate("activeDim = 3; renderInfo()")
         results.append((_press_all(page, keys), page.evaluate("detachedDim")))
     assert results == [("split+ortho", 3), ("split+ortho", 3)]
     # : again leaves the split and keeps ortho.
-    assert _press_all(page, ["Shift+Semicolon"]) == "ortho"
+    assert _press_all(page, ["s"]) == "ortho"
 
 
 def test_split_along_an_ortho_plane_dim_is_refused(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     _settle(page)
     page.evaluate("activeDim = current_slice_dim; renderInfo()")
-    assert _press_all(page, ["Shift+Semicolon", "v"]) == "split"
+    assert _press_all(page, ["s", "v"]) == "split"
     assert "ortho shows as a plane" in page.evaluate("document.getElementById('status').textContent")
 
 
@@ -370,7 +370,7 @@ def test_split_ortho_rows_share_the_split_window(loaded_viewer, client, tmp_path
     page = loaded_viewer(register_array(client, vols, tmp_path, "vols"))
     _settle(page)
     page.evaluate("activeDim = 3; renderInfo()")
-    _press_all(page, ["Shift+Semicolon", "v"])
+    _press_all(page, ["s", "v"])
     page.wait_for_function(_all_drawn("compareMvViews"))
     window = page.evaluate("[manualVmin, manualVmax]")
     assert page.evaluate("compareMvViews.map(v => [v.vmin, v.vmax])") == [window] * 6
@@ -387,12 +387,12 @@ def test_ortho_split_glides_and_restores_the_window(loaded_viewer, client, tmp_p
     _press_all(page, ["v"])
     own = page.evaluate("mvViews.map(v => v.lockedVmax)")
 
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => compareMvActive", timeout=10_000)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)
 
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => multiViewActive && !compareActive", timeout=10_000)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)

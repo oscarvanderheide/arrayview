@@ -600,7 +600,7 @@ class TestKeyboard:
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         panes = "() => detachedDimIdx.join(',')"
 
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         assert page.evaluate(panes) == "0,1"
         page.keyboard.press("k")  # a pair moves by one
@@ -609,7 +609,7 @@ class TestKeyboard:
         page.keyboard.press("'")
         page.wait_for_function(f"() => ({panes})() === '1,2,3'", timeout=10_000)
         page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean)", timeout=10_000)
-        assert "{2,3,4}" in page.inner_text("#info")
+        assert page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent") == "s"
         page.keyboard.press("k")  # three or more page along
         page.wait_for_function(f"() => ({panes})() === '3,4,5'", timeout=5_000)
         page.keyboard.press("k")  # at the end: stays
@@ -634,7 +634,7 @@ class TestKeyboard:
         page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
         _focus_kb(page)
         page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         page.keyboard.press("'")
         page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
@@ -675,17 +675,18 @@ class TestKeyboard:
         page = loaded_viewer(sid)
         _focus_kb(page)
         assert page.evaluate("() => Array.isArray(caseNames) && caseNames.length === 3")
-        # Three cases open side by side, each pane named by its case.
+        # Three cases open side by side, each pane named by its index and the
+        # part of its name that differs from the others; no logo.
         page.wait_for_function("() => detachedDimMode && compareActive && detachedDimIdx.length === 3", timeout=10_000)
         page.wait_for_timeout(500)
         labels = page.evaluate(
             "() => compareTitles.slice(0, 3).map(e => [[...e.querySelectorAll('.detached-index-hint > span:not(.hint-bracket)')]"
             ".map(s => s.textContent).join(''), !!e.querySelector('svg')])"
         )
-        assert [t.lower() for t, _ in labels] == ["alpha", "bravo", "charlie"]
-        assert all(has_logo for _, has_logo in labels)
+        assert [t.lower() for t, _ in labels] == ["1 · alpha", "2 · bravo", "3 · charlie"]
+        assert not any(has_logo for _, has_logo in labels)
         page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => !detachedDimMode", timeout=10_000)
 
         page.wait_for_selector("#case-title.visible svg", timeout=5_000)
@@ -702,12 +703,12 @@ class TestKeyboard:
 
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         page.evaluate("() => { spreadCount = 2; }")
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         titles = page.evaluate(
             "() => compareTitles.slice(0, 2).map(e => e.textContent.replace(/[\\[\\]{}]/g, '').trim().toLowerCase())"
         )
-        assert all(t in ("alpha", "bravo", "charlie") for t in titles), titles
+        assert all(t.split(" · ")[-1] in ("alpha", "bravo", "charlie") for t in titles), titles
         page.wait_for_timeout(500)
         page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/split.png")
 
@@ -730,7 +731,7 @@ class TestKeyboard:
         _focus_kb(page)
         # Three cases open side by side; go to one image first.
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
         page.wait_for_timeout(500)
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; spreadCount = 2; renderInfo(); }")
@@ -746,7 +747,7 @@ class TestKeyboard:
         page.wait_for_function("() => !qmriActive", timeout=5_000)
 
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         page.keyboard.press("q")
         page.wait_for_function("() => compareQmriActive", timeout=5_000)
@@ -1219,7 +1220,7 @@ class TestKeyboard:
         page.keyboard.press("F")
         page.wait_for_function("() => _fullscreenActive", timeout=5_000)
         page.wait_for_timeout(900)
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_timeout(1500)
         tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
             .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
@@ -1278,7 +1279,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__tops = []; const t0 = performance.now(); const f = () => {
             const c = [...document.querySelectorAll('.compare-pane canvas')].find(e => e.offsetWidth);
@@ -1318,7 +1319,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("Shift+Semicolon")
+        page.keyboard.press("s")
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__same = true; const t0 = performance.now(); const f = () => {
             const tops = [...document.querySelectorAll('.compare-pane')].filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top);

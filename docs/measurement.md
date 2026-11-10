@@ -38,7 +38,7 @@ While pixel info is on, use middle-drag or `Ctrl`/`Cmd`+`Shift`-drag to adjust t
 
 | Key | Action |
 |-----|--------|
-| `s` | Open save options (screenshot PNG, GIF, .npy export) |
+| `Shift+S` | Open save options (screenshot PNG, GIF, .npy export) |
 | `e` | Copy a reusable URL to clipboard |
 | `E` | Copy the current view as a line of code |
 

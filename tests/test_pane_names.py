@@ -73,7 +73,7 @@ def test_zoom_map_and_slice_bar_leave_compare_names_readable(page, server_url, c
     assert page.evaluate("() => getComputedStyle(document.getElementById('compare-left-title')).translate") in ("none", "")
 
 
-def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, client, tmp_path):
+def test_brackets_stay_hidden_and_move_only_the_pane_under_the_mouse(page, server_url, client, tmp_path):
     arr = np.random.default_rng(5).random((48, 48, 120)).astype(np.float32)
     sid = register_array(client, arr, tmp_path, "names_split")
     page.goto(f"{server_url}/?sid={sid}")
@@ -84,15 +84,15 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
 
     _focus(page)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
     def bracketed():
         return page.evaluate(
             """() => compareTitles.map((t, i) => {
-                const b = t.querySelector('.hint-bracket');
-                return b && getComputedStyle(b).visibility === 'visible' ? i : -1;
+                const bs = [...t.querySelectorAll('.hint-bracket')];
+                return bs.some(b => getComputedStyle(b).visibility === 'visible') ? i : -1;
             }).filter(i => i >= 0)"""
         )
 
@@ -101,8 +101,7 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.wait_for_timeout(100)
 
-    # Every pane names just its own number (the total, /120, is the dim bar's);
-    # only the pane under the mouse wears the brackets, none when off the panes.
+    # Every pane names just its own number; no brackets, hovered or not.
     assert all(page.evaluate("() => compareTitles.slice(0, 2).map(e => /^\\[?\\d{3}\\]?$/.test(e.textContent))"))
     page.mouse.move(5, 5)
     page.wait_for_timeout(100)
@@ -113,44 +112,25 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
     page.wait_for_timeout(150)
     assert page.evaluate("() => [...detachedDimIdx]") == before
     hover(0)
-    assert bracketed() == [0]
-    hover(1)
-    assert bracketed() == [1]
-    page.mouse.move(5, 5)
-    page.wait_for_timeout(100)
     assert bracketed() == []
     hover(1)
+    assert bracketed() == []
 
     a, b = page.evaluate("() => [...detachedDimIdx]")
-    # Neighbours too read as a set, not a run.
-    assert page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent") == f"{{{a + 1},{b + 1}}}"
+    # The dim bar shows a purple "s", not the indices.
+    look = page.evaluate("""() => {
+        const s = document.querySelector('#info .dim-spread-set');
+        return [s.textContent, getComputedStyle(s).webkitTextFillColor];
+    }""")
+    assert look == ["s", "rgb(167, 139, 250)"], look
     _focus(page)
     page.keyboard.press("]")
     page.wait_for_timeout(150)
     assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1]
+    # The pressed bracket flashes on that pane only, then hides again.
     assert page.evaluate("() => !!compareTitles[1].querySelector('.index-hint-glow')")
-
-    # Moved apart: the dim bar still lists them as a tight set.
-    setText = lambda: page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent")
-    assert setText() == f"{{{a + 1},{b + 2}}}"
-    # The underline covers the digits and commas, not the braces.
-    page.wait_for_timeout(400)
-    ul = page.evaluate("""() => {
-        const t = document.querySelector('#info .spread-digits').getBoundingClientRect();
-        const m = document.getElementById('dim-active-underline').getBoundingClientRect();
-        return [Math.round(t.left), Math.round(t.width), Math.round(m.left), Math.round(m.width)];
-    }""")
-    assert abs(ul[0] - ul[2]) <= 1 and abs(ul[1] - ul[3]) <= 1, ul
-    # Extents on: the slash fills in the active colour like any dim's; digits stay plain.
-    page.evaluate("() => { _dimbarExtentPinned = true; _reconcileDimbarExtent(); renderInfo(); }")
-    look = page.evaluate("""() => {
-        const lab = document.querySelector('#info .active-dim.dim-label');
-        const dig = getComputedStyle(lab.querySelector('.spread-digits')).webkitTextFillColor;
-        return { slash: lab.querySelector('.dim-slash').style.background, dig, text: getComputedStyle(lab).webkitTextFillColor };
-    }""")
-    assert "linear-gradient" in look["slash"] and look["dig"] == look["text"]
-    page.evaluate("() => { _dimbarExtentPinned = false; _reconcileDimbarExtent(); renderInfo(); }")
-    hover(1)
+    page.wait_for_timeout(500)
+    assert bracketed() == []
     assert page.evaluate("() => document.getElementById('info').offsetHeight") == bar_height
     shots = os.environ.get("AV_SHOT_DIR", str(tmp_path))
     page.screenshot(path=f"{shots}/spread_pair_moved.png")
@@ -166,7 +146,6 @@ def test_brackets_follow_the_mouse_and_move_only_that_pane(page, server_url, cli
     page.wait_for_timeout(150)
     # The pane it lands on is taken, so it skips past it.
     assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b]
-    assert bracketed() == [2]
     page.screenshot(path=f"{shots}/spread_three_moved.png")
 
 
@@ -221,7 +200,7 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
     page.wait_for_timeout(500)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -266,7 +245,7 @@ def test_immersive_panes_join_with_touching_off(page, server_url, client, tmp_pa
     page.wait_for_timeout(500)
     page.evaluate("() => { compareGapless = false; activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -332,7 +311,7 @@ def _open_split(page, server_url, client, tmp_path, name, viewport=(2000, 700)):
     page.wait_for_timeout(800)
     page.evaluate("() => { activeDim = 2; _dimbarExtentPinned = false; _reconcileDimbarExtent(); renderInfo(); }")
     _focus(page)
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(900)
 
@@ -468,7 +447,7 @@ def test_immersive_split_bars_appear_after_the_panes_land(page, server_url, clie
     page.wait_for_function("() => _fullscreenActive", timeout=5_000)
     page.wait_for_timeout(1200)
     _focus(page)
-    page.keyboard.press("Shift+Semicolon")
+    page.keyboard.press("s")
     frames = page.evaluate(
         """() => new Promise(res => {
             const out = [], t0 = performance.now();
