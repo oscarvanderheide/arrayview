@@ -4302,16 +4302,6 @@
         #qmri-view-wrap.active.mosaic-overflow.mosaic-dragging { cursor: grabbing; }
         #qmri-mosaic-inner { display: contents; }
         #qmri-view-wrap.mosaic-overflow #qmri-mosaic-inner { display: flex; flex-direction: column; align-items: center; gap: inherit; will-change: transform; }
-        /* ── Stack mosaic: N arrays side by side along the collection dim ── */
-        #stack-mosaic-wrap { display: none; position: relative; width: 100%; height: 100%; }
-        #stack-mosaic-wrap.active { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; }
-        #stack-mosaic-panes { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 16px; }
-        .sm-pane { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; background: var(--bg); }
-        .sm-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
-        .sm-label { font-size: 11px; line-height: 15px; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, var(--text) 75%, var(--muted)); pointer-events: none; white-space: nowrap; width: 100%; contain: inline-size; display: flex; align-items: center; justify-content: center; gap: 5px; }
-        .sm-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-        .sm-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-        .sm-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
@@ -5875,7 +5865,6 @@
         <div id="cutaway-unavailable" role="status">3D cutaway unavailable for this data</div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
-        <div id="stack-mosaic-wrap"></div>
         <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div><div class="av-load-progress"><div class="bar"></div></div></div>
         <div id="render-progress"><div class="bar"></div></div>
         <div id="conn-lost" role="status" aria-live="polite" aria-hidden="true"><div class="av-loading-panel"><div class="conn-lost-title"><span class="conn-lost-dot"></span><span class="conn-lost-text"></span></div><div class="conn-lost-sub">Close this instance and run arrayview again to view the array</div></div></div>
@@ -7910,9 +7899,6 @@
         let compareQmriActive = false; // compare + qMRI combined mode
         let compareQmriViews = [];     // flat array of {sid, colormap, qmriIdx, canvas, ...}
         let compareQmriSids = [];      // SIDs being compared in compare-qMRI mode
-        // compare-qMRI rows as cases of one --match collection (q from the
-        // stack mosaic): one collection index per row, all on `sid`.
-        let compareQmriCases = null;
         let compareQmriDim = -1;       // which dim is qMRI in compare-qMRI mode
         let compareMvActive = false;   // compare + 3-plane multiview combined mode
         let compareMvViews = [];       // flat array of {sid, dimX, dimY, sliceDir, canvas, ...}
@@ -7937,15 +7923,6 @@
         let qmriMvActive = false;      // qMRI + 3-plane multiview combined mode (sub-mode of qMRI)
         let qmriMvViews = [];          // flat array of {qmriIdx, qmriRole, colormap, dimX, dimY, sliceDir, canvas, ...}
         let qmriMvDims = [];           // [d0, d1, d2] spatial dims used for the 3 planes
-        // ── Stack mosaic: N arrays side by side along a collection dim ──
-        let stackMosaicActive = false; // N-array window view over the collection dim
-        let stackMosaicN = 4;          // arrays per window
-        let stackMosaicStart = 0;      // first collection index in the current window
-        let stackMosaicViews = [];     // flat array of {colIdx, canvas, ws, ...}
-        let stackMosaicFocus = 0;      // focused pane index within the window
-        let stackMosaicHover = -1;     // hovered pane index within the window (-1 = none)
-        let stackMosaicTrueScale = false; // false: every image fills its tile; true: tiles keep real-world size
-        let _smPrevZoom = 1.0;
         const QMRI_COLORMAPS = {
             3: ['lipari', 'navia', 'gray'],
             4: ['lipari', 'navia', 'gray', 'twilight_shifted'],
@@ -8544,7 +8521,6 @@
         // ── Mode Registry ────────────────────────────────────────────────
         const ModeRegistry = {
             getScaler() {
-                if (stackMosaicActive)    return smScaleAllCanvases;
                 if (compareQmriActive) return compareQmriScaleAllCanvases;
                 if (compareMvActive)   return compareMvScaleAllCanvases;
                 if (multiViewActive)   return mvScaleAllCanvases;
@@ -8570,13 +8546,12 @@
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
             },
             get isMultiPane() {
-                return stackMosaicActive || multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive || qmriMvActive;
+                return multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive || qmriMvActive;
             },
             get isGrid() {
-                return stackMosaicActive || qmriActive || compareQmriActive || compareMvActive || qmriMvActive;
+                return qmriActive || compareQmriActive || compareMvActive || qmriMvActive;
             },
             get name() {
-                if (stackMosaicActive) return 'stack-mosaic';
                 if (compareQmriActive) return 'compareQmri';
                 if (compareMvActive)   return 'compareMv';
                 if (multiViewActive)   return 'multiView';
@@ -8586,9 +8561,6 @@
                 return 'normal';
             },
             getEggsAnchorRect() {
-                if (stackMosaicActive) {
-                    return _unionVisibleRects(stackMosaicViews.map(v => v.canvas));
-                }
                 if (multiViewActive) {
                     // Horizontal grid: pin to the middle pane so badges, the
                     // percentile dots, and the colorbar hover value all land
@@ -12347,8 +12319,7 @@
             const _cbRefEl = _sharedCompareCb
                 ? (_sharedSourceClip || comparePaneEls[1] || comparePaneEls[0] || document.getElementById('compare-panes') || vpEl)
                 : compareActive ? (document.getElementById('compare-panes') || vpEl)
-                : multiViewActive ? (document.getElementById('mv-panes') || vpEl)
-                : stackMosaicActive ? (document.getElementById('stack-mosaic-panes') || vpEl) : vpEl;
+                : multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
             const canvasRect = (_cbRefEl || canvas).getBoundingClientRect();
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
@@ -22715,8 +22686,7 @@
             if (p === null || p === _overlayJumpCase || !_overlayJumpAvailable()) return false;
             const visible = _visibleOverlayIndices();
             const planes = _overlayJumpPlanes();
-            if (!overlayJumpToMask || !visible.length || !planes.length
-                    || stackMosaicActive || _cqCaseRowsActive()) {
+            if (!overlayJumpToMask || !visible.length || !planes.length) {
                 _overlayJumpCase = p;
                 if (planes.length) _overlayJumpPrefetch(planes);
                 return false;
@@ -23328,13 +23298,8 @@
             _ensureQmriActiveDimVisible();
             _reconcileCaseTitle();
             _syncOverlayPaletteSlice();
-            // In stack mosaic, the spatial sizes shown come from the hovered
-            // (or focused) pane's own array shape so ragged stacks read the
-            // right extents; the tiled collection dim shows the window range.
-            const _smSpatial = stackMosaicActive ? _stackMosaicHoverSpatialShape() : null;
-            const sizeOf = (i) => (_smSpatial && i < collectionSpatialNdim && _smSpatial[i] != null) ? _smSpatial[i] : shape[i];
-            const _smIdx = stackMosaicActive ? _stackMosaicHoverIndices() : null;
-            const idxParts = (_smIdx || indices).map((v, i) => {
+            const sizeOf = (i) => shape[i];
+            const idxParts = indices.map((v, i) => {
                 // The qMRI maps dim: a purple "q", like side by side's "s".
                 // No data-dim — every map is already on screen, nothing to pick.
                 if (_isQmriControlDim(i)) {
@@ -23344,17 +23309,6 @@
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
-                const _cqCases = compareQmriActive && !compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length
-                    ? compareQmriCases : null;
-                if ((stackMosaicActive && i === _stackMosaicColDim()) || (_cqCases && i === collectionSpatialNdim)) {
-                    const total = shape[i];
-                    const first = _cqCases ? _cqCases[0] : stackMosaicStart;
-                    const end = _cqCases ? _cqCases[_cqCases.length - 1] + 1 : Math.min(total, stackMosaicStart + stackMosaicN);
-                    const inner = `<span class="dim-idx">${first + 1}–${end}</span>`
-                        + `<span class="dim-slash">/</span><span class="dim-size">${total}</span>`;
-                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
-                                  : `<span class="dim-label" ${d}>${inner}</span>`;
-                }
                 if (detachedDimMode && i === detachedDim) {
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     // Same look as any dim, cases too (their names sit on the panes).
@@ -23633,8 +23587,7 @@
                 (views || []).forEach(v => add(v.canvas, letter(v.dimX), letter(v.dimY), _mvFlipX(v), _mvFlipY(v)));
             };
             const plain = (cvs) => cvs.forEach(cv => add(cv, _axisLetter(dim_x), _axisLetter(dim_y), flip_x, flip_y));
-            if (stackMosaicActive) plain((stackMosaicViews || []).map(v => v.canvas));
-            else if (compareQmriActive) plain((compareQmriViews || []).map(v => v.canvas));
+            if (compareQmriActive) plain((compareQmriViews || []).map(v => v.canvas));
             else if (compareMvActive) grid(compareMvViews, compareMvDims);
             else if (multiViewActive) grid(mvViews, mvDims);
             else if (compareActive) plain([...document.querySelectorAll('#compare-panes .compare-canvas')]);
@@ -25945,10 +25898,6 @@
             }
             if (mipActive) { _mipBuildLUT(); _mipRender(); return; }
             if (cutawayActive) { _cutawayBuildLUT(); _cutawayRender(); return; }
-            if (stackMosaicActive) {
-                stackMosaicViews.forEach(v => smRender(v));
-                return;
-            }
             if (mvCutawayActive) {
                 Promise.all(mvViews.map(_mvCutawayLoad))
                     .then(_mvCutawayRenderAll)
@@ -30383,7 +30332,7 @@
                 when: [],
                 run: (ctx, e) => {
                     if (multiViewActive || compareMvActive || qmriMvActive) { showStatus('views: the 3-plane view already shows all three'); return; }
-                    if (dim_z >= 0 || qmriMosaicActive || stackMosaicActive) { showStatus('views: leave the mosaic first'); return; }
+                    if (dim_z >= 0 || qmriMosaicActive) { showStatus('views: leave the mosaic first'); return; }
                     if (mipActive || cutawayActive) { showStatus('views: not available in 3-D view'); return; }
                     if (rgbMode || hasVectorfield) { showStatus('views: not available for this array'); return; }
                     const planes = _cyclePlanes();
@@ -31223,7 +31172,6 @@
                 when: [],
                 run: (ctx, e) => {
                     if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
-                    if (stackMosaicActive && sliceJumpBuffer.length === 0) { _stackMosaicOpenFocused(); return; }
                     // Enter key: jump to buffered slice index (1-based input)
                     if (sliceJumpBuffer.length > 0) {
                         const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
@@ -31250,10 +31198,6 @@
                             } else {
                                 showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
                             }
-                        } else if (stackMosaicActive && activeDim === _stackMosaicColDim()) {
-                            const n = shape[activeDim];
-                            if (targetIndex >= 0 && targetIndex < n) _stackMosaicGoTo(targetIndex);
-                            else showStatus(`invalid index: ${targetIndex + 1} (valid range 1–${n})`);
                         } else if (activeDim === dim_x || activeDim === dim_y) {
                             showStatus('cannot jump on display dimension (x/y)');
                         } else {
@@ -31320,51 +31264,6 @@
                     crossfade(() => {
                         if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
                     });
-                },
-            },
-            'stackMosaic.toggle': {
-                title: 'Toggle stack mosaic',
-                when: [],
-                run: async (ctx, e) => {
-                    if (e) e.preventDefault();
-                    if (stackMosaicActive) { _afterGlide(_stackMosaicLeave); return; }
-                    if (!_stackMosaicHasStack()) {
-                        showStatus('stack mosaic: needs a stack (use --match or open a folder)');
-                        return;
-                    }
-                    const total = shape[_stackMosaicColDim()];
-                    const raw = await showInlinePrompt('Arrays per window:', String(stackMosaicN));
-                    if (raw === null) return;
-                    const n = parseInt(raw, 10);
-                    if (!Number.isInteger(n) || n < 1) { showStatus(`stack mosaic: invalid count (${raw})`); return; }
-                    const count = Math.min(n, total);
-                    if (!_stackMosaicGlideEnter(count)) enterStackMosaic(count);
-                },
-            },
-            'stackMosaic.adjustN': {
-                title: 'Adjust arrays per window (stack mosaic)',
-                when: ['stackMosaicActive'],
-                run: (ctx, e) => {
-                    if (!stackMosaicActive) return;
-                    const dir = e && e.key === ']' ? 1 : -1;
-                    const total = shape[_stackMosaicColDim()];
-                    const next = Math.max(1, Math.min(total, stackMosaicN + dir));
-                    if (next === stackMosaicN) return;
-                    _stackMosaicResize(next);
-                },
-            },
-            'stackMosaic.toggleTrueScale': {
-                title: 'Toggle true physical size (stack mosaic)',
-                when: ['stackMosaicActive'],
-                run: (ctx, e) => {
-                    if (!stackMosaicActive) return;
-                    if (e) e.preventDefault();
-                    stackMosaicTrueScale = !stackMosaicTrueScale;
-                    stackMosaicViews.forEach(v => { v.pan.x = 0; v.pan.y = 0; });
-                    smScaleAllCanvases();
-                    showStatus(stackMosaicTrueScale
-                        ? 'stack mosaic: true physical size'
-                        : 'stack mosaic: fill each tile');
                 },
             },
             'axis.assignY': {
@@ -31542,9 +31441,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
-                    if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(1); return; }
                     if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(1); return; }
-                    if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] + 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -31594,9 +31491,7 @@
                 when: [],
                 run: (ctx, e) => {
                     e.preventDefault();
-                    if (stackMosaicActive && activeDim === _stackMosaicColDim()) { _stackMosaicWindowStep(-1); return; }
                     if (detachedDimMode && compareActive && activeDim === detachedDim) { _bumpDetachedDimPair(-1); return; }
-                    if (_cqCaseRowsActive() && activeDim === collectionSpatialNdim) { _cqCaseWindowStep(-1); return; }
                     if (cutawayActive) { _cutawaySetSliceIndex(indices[current_slice_dim] - 1, true); return; }
                     if (isPlaying && activeDim === playingDim) { stopPlay(); }
                     if (activeDim === VFIELD_T_DIM) {
@@ -31977,7 +31872,6 @@
                     || (hasVectorfield && vfieldVisible)
                 ),
                 multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive) || (typeof qmriMvActive !== 'undefined' && qmriMvActive),
-                stackMosaicActive: (typeof stackMosaicActive !== 'undefined') ? !!stackMosaicActive : false,
             };
         }
 
@@ -34344,7 +34238,6 @@
             }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
             if (e.key === 'Escape') {
-                if (stackMosaicActive) { exitStackMosaic(); return; }
                 if (cutawayActive) { exitCutawayMode(); return; }
                 if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
@@ -35402,7 +35295,7 @@
         window.addEventListener('wheel', (e) => {
             const el = e.target;
             if (el && el.closest) {
-                if (el.closest('#stack-mosaic-wrap.active, #canvas-viewport, .mv-pane, .compare-canvas-wrap, .compare-canvas-clip, .qv-canvas-clip, canvas, #info')) return;
+                if (el.closest('#canvas-viewport, .mv-pane, .compare-canvas-wrap, .compare-canvas-clip, .qv-canvas-clip, canvas, #info')) return;
                 let node = el;
                 while (node && node !== document.body && node !== document.documentElement) {
                     const pos = window.getComputedStyle(node).position;
@@ -35504,7 +35397,6 @@
 
                 if (multiViewActive) exitMultiView();
                 if (qmriActive) exitQmri();
-                if (stackMosaicActive) exitStackMosaic();
                 compareSid = targetSid;
                 compareName = cmpMeta.name || targetNameHint || targetSid.slice(0, 8);
                 compareNameBySid[targetSid] = compareName;
@@ -36377,7 +36269,6 @@
         function enterMultiView(dims, opts = {}) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
-            if (stackMosaicActive) exitStackMosaic();
             if (!Array.isArray(dims) || dims.length !== 3 || dims.some(d => _isCollectionDim(d))) {
                 showStatus('Ortho uses spatial dims only');
                 return;
@@ -37990,7 +37881,6 @@
             const n = shape[targetDim];
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
-            if (stackMosaicActive) exitStackMosaic();
             // Saved so exitQmri can restore it (mirrors enterMultiView); immersive is left on the way in.
             _qmriPrevZoom = _fullscreenActive ? _normalFitZoom : userZoom;
             if (_qmriPrevActiveDim === null) _qmriPrevActiveDim = activeDim;
@@ -38537,38 +38427,8 @@
             }
         }
 
-        // --------------- Stack mosaic (N arrays in one window) ---------------
-        // Shows `stackMosaicN` consecutive collection indices side by side in a
-        // grid, each pane rendering its own array's spatial slice. j/k moves the
-        // window by N when the collection dim is the active dim; spatial dims
-        // move every pane together in lockstep. Ragged stacks render each
-        // array's own spatial shape per pane.
-        function _stackMosaicHasStack() {
-            return collectionSpatialNdim >= 0
-                && Number.isInteger(collectionSpatialNdim)
-                && collectionSpatialNdim < shape.length
-                && shape[collectionSpatialNdim] > 1;
-        }
-
-        function _stackMosaicColDim() {
-            return collectionSpatialNdim;
-        }
-
-        function _stackMosaicWindowPanes() {
-            const total = shape[_stackMosaicColDim()];
-            return Math.max(0, Math.min(stackMosaicN, total - stackMosaicStart));
-        }
-
-        // Spatial sizes for the hovered (or focused) pane, used by the dimbar
-        // so ragged stacks show the array under the cursor's own extents.
-        function _stackMosaicHoverSpatialShape() {
-            const idx = stackMosaicHover >= 0 ? stackMosaicHover : stackMosaicFocus;
-            const view = stackMosaicViews[idx];
-            if (!view) return null;
-            return _stackMosaicCaseSpatialShape(view.colIdx);
-        }
-
-        function _stackMosaicCaseSpatialShape(colIdx) {
+        // Spatial sizes of one case of the stack (ragged stacks differ per case).
+        function _caseSpatialShape(colIdx) {
             if (Array.isArray(raggedSpatialShapes)) {
                 const row = raggedSpatialShapes[colIdx] || [];
                 const channelDim = collectionSpatialNdim + 1;
@@ -38581,705 +38441,15 @@
             return shape.slice(0, collectionSpatialNdim).map(Number);
         }
 
-        function enterStackMosaic(n) {
-            if (!_stackMosaicHasStack()) {
-                showStatus('stack mosaic: needs a stack (use --match or open a folder)');
-                return;
-            }
-            if (multiViewActive) exitMultiView();
-            if (qmriActive) exitQmri();
-            if (compareActive) exitCompareMode();
-            const total = shape[_stackMosaicColDim()];
-            stackMosaicN = Math.max(1, Math.min(Math.floor(n) || 4, total));
-            // Align the current collection index into a window of N.
-            const cur = Math.max(0, Math.min(total - 1, indices[_stackMosaicColDim()] || 0));
-            stackMosaicStart = Math.max(0, Math.min(total - stackMosaicN, Math.floor(cur / stackMosaicN) * stackMosaicN));
-            stackMosaicFocus = Math.max(0, Math.min(stackMosaicN - 1, cur - stackMosaicStart));
-            stackMosaicHover = -1;
-            stackMosaicActive = true;
-            _smPrevZoom = userZoom;
-            userZoom = 1.0;
-            hideLoadingOverlay();
-            const wrap = document.getElementById('stack-mosaic-wrap');
-            wrap.innerHTML = '';
-            wrap.classList.add('active');
-            if (!wrap._smWheelBound) {
-                wrap._smWheelBound = true;
-                wrap.addEventListener('wheel', (e) => {
-                    if (!stackMosaicActive) return;
-                    e.preventDefault();
-                    const _s = _wheelIndexDelta(current_slice_dim, e);
-                    if (_s) _smScrollAll(_s);
-                }, { passive: false });
-            }
-            const panes = document.createElement('div');
-            panes.id = 'stack-mosaic-panes';
-            wrap.appendChild(panes);
-            _buildStackMosaicViews(panes);
-            modeManager.modeName = 'stack-mosaic';
-            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'stack-mosaic' } }));
-            _kickInitialRenders(stackMosaicViews, smRender);
-            _reconcileUI();
-            renderInfo();
-            showStatus(`stack mosaic: ${stackMosaicN} per window (${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total})`);
-        }
-
-        function _buildStackMosaicViews(panes) {
-            if (typeof window._smDragCleanup === 'function') {
-                window._smDragCleanup();
-                window._smDragCleanup = null;
-            }
-            stackMosaicViews = [];
-            _smEndPageHold();
-            _smPreloadedStart = -1;
-            const nPanes = _stackMosaicWindowPanes();
-            for (let i = 0; i < nPanes; i++) {
-                const colIdx = stackMosaicStart + i;
-                const pane = document.createElement('div');
-                pane.className = 'sm-pane';
-                pane.dataset.smIdx = String(i);
-                const label = document.createElement('div');
-                label.className = 'sm-label';
-                _stackMosaicSetLabel(label, colIdx);
-                const cvWrap = document.createElement('div');
-                cvWrap.className = 'sm-canvas-wrap';
-                const cv = document.createElement('canvas');
-                cv.className = 'sm-canvas';
-                const clip = document.createElement('div');
-                clip.className = 'sm-canvas-clip';
-                clip.style.position = 'relative';
-                clip.style.overflow = 'hidden';
-                clip.appendChild(cv);
-                cvWrap.appendChild(clip);
-                pane.appendChild(label);
-                pane.appendChild(cvWrap);
-                panes.appendChild(pane);
-                const view = {
-                    colIdx,
-                    pane, label, clip,
-                    canvas: cv, ctx: cv.getContext('2d'),
-                    vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
-                    ws: null, seq: 0, rendering: false, pending: false,
-                    lastW: 0, lastH: 0, lastImageData: null,
-                    sliceOffset: 0, staged: null, reqColIdx: colIdx,
-                    pan: new PanManager({
-                        getViewport: () => {
-                            const r = clip.getBoundingClientRect();
-                            return { w: r.width || 1, h: r.height || 1 };
-                        },
-                        getContent: () => ({
-                            w: parseInt(cv.style.width) || cv.width || 1,
-                            h: parseInt(cv.style.height) || cv.height || 1,
-                        }),
-                        apply: (x, y) => {
-                            cv.style.transform = (x || y) ? `translate(${x}px,${y}px)` : '';
-                        },
-                    }),
-                };
-                pane.addEventListener('dblclick', (e) => {
-                    e.preventDefault();
-                    _stackMosaicOpenFocused(i);
-                });
-                pane.addEventListener('mouseenter', () => {
-                    stackMosaicHover = i;
-                    renderInfo();
-                });
-                pane.addEventListener('mouseleave', () => {
-                    if (stackMosaicHover === i) { stackMosaicHover = -1; renderInfo(); }
-                });
-                pane.addEventListener('mousedown', (e) => {
-                    if (e.button !== 0) return;
-                    e.preventDefault();
-                    _stackMosaicFocusPane(i);
-                    sink.focus();
-                    if (!view.lastW || !view.lastH) return;
-                    view.pan.startDrag(e);
-                });
-                pane.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const _s = _wheelIndexDelta(current_slice_dim, e);
-                    if (_s) _smScrollPane(view, _s);
-                }, { passive: false });
-                _attachPinchHandlers(cv);
-                if (!httpTransport) {
-                    view.ws = createTransport(sid,
-                        (event) => smOnMessage(view, event),
-                        () => smRender(view),
-                        () => { view.rendering = false; },
-                        () => { view.rendering = false; if (view.ws) view.ws.close(); }
-                    );
-                }
-                stackMosaicViews.push(view);
-            }
-            // Shared drag-to-pan handler for all mosaic panes (added once per
-            // mode entry; active only while a pane is dragging).
-            const _smDragMove = (e) => {
-                if (!stackMosaicActive) return;
-                stackMosaicViews.forEach(v => { if (v.pan.dragging) v.pan.updateDrag(e); });
-            };
-            const _smDragUp = () => {
-                if (!stackMosaicActive) return;
-                stackMosaicViews.forEach(v => { if (v.pan.dragging) v.pan.endDrag(); });
-            };
-            document.addEventListener('mousemove', _smDragMove);
-            document.addEventListener('mouseup', _smDragUp);
-            window._smDragCleanup = () => {
-                document.removeEventListener('mousemove', _smDragMove);
-                document.removeEventListener('mouseup', _smDragUp);
-            };
-        }
-
-        function _stackMosaicSetLabel(label, colIdx) {
-            const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
-            label.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
-            label.lastElementChild.textContent = name ? String(name) : `#${colIdx + 1}`;
-        }
-
-        function _stackMosaicFocusPane(i) {
-            if (i < 0 || i >= stackMosaicViews.length) return;
-            stackMosaicFocus = i;
-            indices[_stackMosaicColDim()] = stackMosaicStart + i;
-            _syncRaggedShapeForCollection();
-            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === i));
-            renderInfo();
-            _stackMosaicSyncSharedRange();
-        }
-
-        // Leave the mosaic on the focused case, shown in the normal single view.
-        function _stackMosaicOpenFocused(i = stackMosaicFocus) {
-            if (!stackMosaicActive || !stackMosaicViews[i]) return;
-            const colIdx = stackMosaicViews[i].colIdx;
-            _smPaneIndices(stackMosaicViews[i]).forEach((x, d) => { indices[d] = x; });
-            _syncRaggedShapeForCollection();
-            if (!_stackMosaicGlideOpen(stackMosaicViews[i], exitStackMosaic)) exitStackMosaic();
-            const name = Array.isArray(caseNames) ? caseNames[colIdx] : null;
-            showStatus(`opened ${name || '#' + (colIdx + 1)} · s back to the grid`);
-        }
-
-        function _stackMosaicSyncSharedRange() {
-            const v = stackMosaicViews[stackMosaicFocus];
-            if (!v || !(v.lastW && v.lastH)) return;
-            currentVmin = v.vmin;
-            currentVmax = v.vmax;
-            if (manualVmin === null) drawSlimColorbar();
-        }
-
-        function exitStackMosaic() {
-            if (!stackMosaicActive) return;
-            stackMosaicActive = false;
-            stackMosaicHover = -1;
-            if (typeof window._smDragCleanup === 'function') {
-                window._smDragCleanup();
-                window._smDragCleanup = null;
-            }
-            stackMosaicViews.forEach(v => {
-                if (v.ws) { v.ws.onclose = null; v.ws.close(); }
-            });
-            stackMosaicViews = [];
-            _smEndPageHold();
-            const wrap = document.getElementById('stack-mosaic-wrap');
-            wrap.innerHTML = '';
-            wrap.classList.remove('active');
-            userZoom = _smPrevZoom;
-            // Restore modeManager to normal. The mosaic never swapped
-            // currentLayout/currentViews (only modeName), so there is no
-            // layout to rebuild — calling enterMode() here would destroy the
-            // still-bound normal view and tear out #canvas-wrap.
-            modeManager.modeName = 'normal';
-            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
-            _reconcileUI();
-            updateView();
-            renderInfo();
-            showStatus('stack mosaic: off');
-        }
-
-        function _stackMosaicWindowStep(dir) {
-            if (!stackMosaicActive) return;
-            _stackMosaicShowWindow(stackMosaicStart + dir * stackMosaicN, 0);
-        }
-
-        // Page to the window holding case `colIdx` and focus it.
-        function _stackMosaicGoTo(colIdx) {
-            if (!stackMosaicActive) return;
-            const start = Math.floor(colIdx / stackMosaicN) * stackMosaicN;
-            const total = shape[_stackMosaicColDim()];
-            const clampedStart = Math.max(0, Math.min(Math.max(0, total - stackMosaicN), start));
-            _stackMosaicShowWindow(clampedStart, colIdx - clampedStart);
-        }
-
-        function _stackMosaicShowWindow(start, focus) {
-            const total = shape[_stackMosaicColDim()];
-            const maxStart = Math.max(0, total - stackMosaicN);
-            const nextStart = Math.max(0, Math.min(maxStart, start));
-            if (nextStart === stackMosaicStart) {
-                if (focus !== stackMosaicFocus) _stackMosaicFocusPane(focus);
-                return;
-            }
-            stackMosaicStart = nextStart;
-            stackMosaicFocus = Math.max(0, Math.min(stackMosaicViews.length - 1, focus));
-            indices[_stackMosaicColDim()] = stackMosaicStart;
-            _syncRaggedShapeForCollection();
-            // Old tiles stay up until every new one has arrived (see
-            // _smReceiveFrame); each new case starts on the shared slice.
-            _smBeginPageHold();
-            stackMosaicViews.forEach((v, i) => {
-                v.colIdx = stackMosaicStart + i;
-                v.sliceOffset = 0;
-                v.staged = null;
-                smRender(v);
-            });
-            indices[_stackMosaicColDim()] = stackMosaicStart + stackMosaicFocus;
-            stackMosaicViews.forEach((v, k) => v.pane.classList.toggle('sm-focused', k === stackMosaicFocus));
-            renderInfo();
-            saveState();
-            showStatus(`stack mosaic: ${stackMosaicStart + 1}–${Math.min(total, stackMosaicStart + stackMosaicN)} of ${total}`);
-        }
-
-        // Paging holds the old tiles on screen until every new tile's frame
-        // has arrived, then swaps them all at once. Tiles landing one by one
-        // (each case loads at its own speed) read as a broken grid. The busy
-        // indicator only shows when the wait is long enough to notice.
-        let _smPageHold = false;
-        let _smPageBusyTimer = null;
-        let _smPageBusyVisible = false;
-        let _smPreloadedStart = -1;
-
-        function _smBeginPageHold() {
-            _smPageHold = true;
-            clearTimeout(_smPageBusyTimer);
-            _smPageBusyTimer = setTimeout(() => {
-                if (!_smPageHold) return;
-                _smPageBusyVisible = true;
-                _reconcileUI();
-                // Never wait forever on one pane: show what has arrived.
-                _smPageBusyTimer = setTimeout(_smFlushPageHold, 15000);
-            }, 250);
-        }
-
-        function _smFlushPageHold() {
-            if (!_smPageHold) return;
-            stackMosaicViews.forEach(p => { if (p.staged) { _smApplyFrame(p, p.staged); p.staged = null; } });
-            _smEndPageHold();
-            smScaleAllCanvases();
-            stackMosaicViews.forEach(p => smDrawFrame(p));
-            renderInfo();
-        }
-
-        function _smEndPageHold() {
-            _smPageHold = false;
-            clearTimeout(_smPageBusyTimer);
-            _smPageBusyTimer = null;
-            if (_smPageBusyVisible) { _smPageBusyVisible = false; _reconcileUI(); }
-        }
-
-        function _stackMosaicResize(n) {
-            if (!stackMosaicActive) return;
-            const total = shape[_stackMosaicColDim()];
-            stackMosaicN = Math.max(1, Math.min(Math.floor(n) || stackMosaicN, total));
-            stackMosaicStart = Math.max(0, Math.min(total - stackMosaicN, stackMosaicStart));
-            stackMosaicFocus = Math.min(stackMosaicFocus, stackMosaicN - 1);
-            _syncRaggedShapeForCollection();
-            const panes = document.getElementById('stack-mosaic-panes');
-            panes.innerHTML = '';
-            _buildStackMosaicViews(panes);
-            _kickInitialRenders(stackMosaicViews, smRender);
-            _reconcileUI();
-            renderInfo();
-            showStatus(`stack mosaic: ${stackMosaicN} per window`);
-        }
-
-        // Warm the server for the next window once the current one is fully
-        // shown, so the next page lands fast. Uses separate HTTP requests: a
-        // pane's socket only keeps its newest request, so a preload sent there
-        // could silently replace the pane's real render and leave it waiting
-        // forever for a frame that never comes.
-        function _stackMosaicPreload() {
-            if (!stackMosaicActive || _smPreloadedStart === stackMosaicStart) return;
-            _smPreloadedStart = stackMosaicStart;
-            const total = shape[_stackMosaicColDim()];
-            const nextStart = Math.min(stackMosaicStart + stackMosaicN, Math.max(0, total - stackMosaicN));
-            if (nextStart <= stackMosaicStart) return;
-            for (let c = nextStart; c < Math.min(total, nextStart + stackMosaicN); c++) {
-                const idx = [...indices];
-                idx[_stackMosaicColDim()] = c;
-                fetchSliceFrame(_smSliceParams(idx)).catch(() => {});
-            }
-        }
-
-        // Indices one pane renders: its own case, and its own slice when the
-        // wheel moved it away from the shared one (clamped to its depth).
-        function _smPaneIndices(v) {
-            const idx = [...indices];
-            const colDim = _stackMosaicColDim();
-            idx[colDim] = v.colIdx;
-            const sd = current_slice_dim;
-            if (v.sliceOffset && sd >= 0 && sd < colDim) {
-                idx[sd] = Math.max(0, Math.min(_smPaneDepth(v) - 1, indices[sd] + v.sliceOffset));
-            }
-            return idx;
-        }
-
-        function _smPaneDepth(v) {
-            const sp = _stackMosaicCaseSpatialShape(v.colIdx) || [];
-            return Number(sp[current_slice_dim]) || shape[current_slice_dim];
-        }
-
-        // Wheel over one pane moves only that pane's slice.
-        function _smScrollPane(v, step) {
-            const sd = current_slice_dim;
-            if (sd < 0 || sd >= _stackMosaicColDim()) return;
-            const cur = _smPaneIndices(v)[sd];
-            const next = Math.max(0, Math.min(_smPaneDepth(v) - 1, cur + step));
-            if (next === cur) return;
-            v.sliceOffset = next - indices[sd];
-            smRender(v);
-            renderInfo();
-        }
-
-        // Wheel outside the panes moves every pane together, keeping any
-        // per-pane offsets.
-        function _smScrollAll(step) {
-            const sd = current_slice_dim;
-            const next = Math.max(0, Math.min(shape[sd] - 1, indices[sd] + step));
-            if (next === indices[sd]) return;
-            indices[sd] = next;
-            renderInfo();
-            stackMosaicViews.forEach(v => smRender(v));
-            saveState();
-        }
-
-        // Indices shown in the dimbar: the hovered pane's own, if any.
-        function _stackMosaicHoverIndices() {
-            const v = stackMosaicViews[stackMosaicHover];
-            return v ? _smPaneIndices(v) : null;
-        }
-
-        function _smSliceParams(idx) {
-            const params = new URLSearchParams({
-                dim_x: String(dim_x),
-                dim_y: String(dim_y),
-                dim_z: '-1',
-                indices: idx.join(','),
-                colormap: currentColormap(),
-                dr: '0',
-                complex_mode: String(complexMode),
-                log_scale: String(logScale),
-                slice_dim: String(current_slice_dim),
-            });
-            _applyOverlayRenderParams(params);
-            if (manualVmin !== null && manualVmax !== null) {
-                params.set('vmin_override', String(manualVmin));
-                params.set('vmax_override', String(manualVmax));
-            }
-            if (projectionMode > 0) {
-                params.set('projection_mode', String(projectionMode));
-                params.set('projection_dim', String(projectionDim));
-            }
-            return params;
-        }
-
-        // Ask for frames as large as the pane's tile can show (or its zoomed
-        // canvas, if bigger), never its current size: a pane drawn small for
-        // a moment would otherwise get a low-resolution frame that stays
-        // blurry once the pane grows again.
-        function _smRequestSize(v) {
-            const dpr = window.devicePixelRatio || 1;
-            const w = Math.max(parseInt(v.canvas.style.width) || 0, v.tileW || window.innerWidth);
-            const h = Math.max(parseInt(v.canvas.style.height) || 0, v.tileH || window.innerHeight);
-            return { w: Math.round(w * dpr), h: Math.round(h * dpr) };
-        }
-
-        function smRender(v) {
-            if (httpTransport) {
-                smRenderHttp(v);
-                return;
-            }
-            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
-            if (v.rendering) { v.pending = true; return; }
-            v.rendering = true;
-            v.seq++;
-            v._renderPatientIndex = _currentPatientIndex();
-            v.reqColIdx = v.colIdx;
-            const { w: _cw, h: _ch } = _smRequestSize(v);
-            v.ws.send(JSON.stringify({
-                seq: v.seq, dim_x, dim_y, dim_z: -1,
-                indices: _smPaneIndices(v), colormap: currentColormap(),
-                dr: 0, complex_mode: complexMode, log_scale: logScale,
-                slice_dim: current_slice_dim, direction: 1,
-                vmin_override: manualVmin ?? null,
-                vmax_override: manualVmax ?? null,
-                overlay_sid: _getVisibleOverlaySids() || null,
-                overlay_colors: _getVisibleOverlayColors() || null,
-                overlay_alphas: _getVisibleOverlayAlphas() || null,
-                overlay_outline: overlayOutlineOnly,
-                canvas_w: _cw,
-                canvas_h: _ch,
-                projection_mode: projectionMode,
-                projection_dim: projectionMode > 0 ? projectionDim : -1,
-                perf: _PERF_ENABLED,
-            }));
-        }
-
-        function _smRenderDone(v) {
-            v.rendering = false;
-            if (v.pending) { v.pending = false; smRender(v); }
-            else if (isPlaying && stackMosaicViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
-        }
-
-        function smOnMessage(v, event) {
-            if (typeof event.data === 'string') { _perfHandleTimingMessage(event.data, `sm:${v.colIdx}`); return; }
-            const buf = event.data;
-            const h32 = new Uint32Array(buf, 0, 3);
-            const width = h32[1], height = h32[2];
-            const seq = h32[0];
-            if (seq === v.seq && stackMosaicActive && stackMosaicViews.includes(v)) {
-                const f32 = new Float32Array(buf, 12, 2);
-                const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
-                const frame = _applyAutoCropIfReady(
-                    { imageData: new ImageData(rgba, width, height), width, height },
-                    sid, dim_x, dim_y, indices,
-                );
-                _smReceiveFrame(v, {
-                    colIdx: v.reqColIdx,
-                    imageData: frame.imageData, width: frame.width, height: frame.height,
-                    vmin: f32[0], vmax: f32[1],
-                    nativePerPx: _stackMosaicNativePerPixel(v.reqColIdx, width, height),
-                });
-            }
-            _smRenderDone(v);
-        }
-
-        async function smRenderHttp(v) {
-            if (v.rendering) { v.pending = true; return; }
-            v.rendering = true;
-            v.seq++;
-            v._renderPatientIndex = _currentPatientIndex();
-            const colIdx = v.reqColIdx = v.colIdx;
-            try {
-                const frame = await fetchSliceFrame(_smSliceParams(_smPaneIndices(v)));
-                if (!stackMosaicActive || !stackMosaicViews.includes(v)) return;
-                _smReceiveFrame(v, {
-                    colIdx,
-                    imageData: frame.imageData, width: frame.width, height: frame.height,
-                    vmin: frame.vmin, vmax: frame.vmax,
-                    nativePerPx: _stackMosaicNativePerPixel(colIdx, frame.width, frame.height),
-                });
-            } finally {
-                _smRenderDone(v);
-            }
-        }
-
-        // Every pane frame lands here. A frame rendered for the pane's
-        // previous case (a page change raced it) is dropped; the pane's
-        // pending re-render brings the right one.
-        function _smReceiveFrame(v, frame) {
-            if (frame.colIdx !== v.colIdx) return;
-            if (!_smPageHold) {
-                _smApplyFrame(v, frame);
-                smScaleAllCanvases();
-                smDrawFrame(v);
-                if (stackMosaicViews.indexOf(v) === stackMosaicFocus) _stackMosaicSyncSharedRange();
-                if (stackMosaicViews.every(p => p.lastW && (p === v || !p.rendering))) _stackMosaicPreload();
-                return;
-            }
-            v.staged = frame;
-            if (!stackMosaicViews.every(p => p.staged)) return;
-            stackMosaicViews.forEach(p => { const f = p.staged; p.staged = null; _smApplyFrame(p, f); });
-            _smEndPageHold();
-            smScaleAllCanvases();
-            stackMosaicViews.forEach(p => smDrawFrame(p));
-            _stackMosaicSyncSharedRange();
-            renderInfo();
-            _stackMosaicPreload();
-        }
-
-        function _smApplyFrame(v, frame) {
-            v.nativePerPx = frame.nativePerPx;
-            v.vmin = frame.vmin; v.vmax = frame.vmax;
-            if (v.lockedVmin === undefined || v.lockedVmin === null) {
-                v.lockedVmin = v.vmin; v.lockedVmax = v.vmax;
-            }
-            v.lastImageData = frame.imageData;
-            v.lastW = frame.width; v.lastH = frame.height;
-            _stackMosaicSetLabel(v.label, frame.colIdx);
-        }
-
-        function smDrawFrame(v) {
-            if (!v.lastW || !v.lastH || !v.lastImageData) return;
-            if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
-                v.canvas.width = v.lastW;
-                v.canvas.height = v.lastH;
-            }
-            v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
-            _patientFrameDisplayed(v._renderPatientIndex);
-            _refreshLoupeFromLastMouse();
-        }
-
-        // mm-per-pixel along the displayed axes for one stack-mosaic case, or 1
-        // when spacing isn't known (non-NIfTI files, or files without headers).
-        // A collection can mix cases with different resolution *and* different
-        // real-world field of view (e.g. one scan protocol among several), so
-        // sizing purely by pixel count would make that case's box a different
-        // size from its neighbors for no reason visible to the viewer.
-        function _stackMosaicCaseSpacing(colIdx) {
-            if (!Array.isArray(caseVoxelSpacings) || collectionSpatialNdim < 0) return 1;
-            const row = caseVoxelSpacings[colIdx] || [];
-            const channelDim = collectionSpatialNdim + 1;
-            const channelIdx = shape.length > channelDim
-                ? Math.max(0, Math.min(row.length - 1, indices[channelDim] || 0))
-                : 0;
-            const spacing = row[channelIdx] || row[0];
-            if (!Array.isArray(spacing)) return 1;
-            const sx = Number(spacing[dim_x]), sy = Number(spacing[dim_y]);
-            return Number.isFinite(sx) && sx > 0 ? sx : (Number.isFinite(sy) && sy > 0 ? sy : 1);
-        }
-
-        // The server shrinks frames larger than the requested canvas, so a
-        // frame's width is not the case's own pixel count. Layout that treats
-        // it as such (true-scale extents) shrinks a pane, which requests an
-        // even smaller frame next render — a feedback loop. Track how many
-        // native pixels each received pixel stands for instead.
-        function _stackMosaicNativePerPixel(colIdx, w, h) {
-            const sp = _stackMosaicCaseSpatialShape(colIdx);
-            if (!Array.isArray(sp) || !w || !h) return 1;
-            const nx = Number(sp[dim_x]), ny = Number(sp[dim_y]);
-            if (!(nx > 0 && ny > 0)) return 1;
-            // A rotated/transposed view swaps which native axis is horizontal.
-            const swapped = Math.abs(w / h - ny / nx) < Math.abs(w / h - nx / ny);
-            return Math.max(1, (swapped ? ny : nx) / w);
-        }
-
-        function smScaleAllCanvases() {
-            const ready = stackMosaicViews.filter(v => v.lastW && v.lastH);
-            if (!ready.length) return;
-            // Lay out every pane of the window, loaded or not, so the grid
-            // shape doesn't jump while frames arrive.
-            const n = Math.max(ready.length, stackMosaicViews.length);
-            const colGap = 16, rowGap = 16;
-            const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 4 + 8;
-            const cbH = document.getElementById('slim-cb-wrap')
-                && getComputedStyle(document.getElementById('slim-cb-wrap')).display !== 'none' ? 30 : 0;
-            // Every row carries its own label strip above it (each .sm-pane is
-            // label + canvas stacked), not just one for the whole mosaic —
-            // reserving a single labelH here under-budgeted multi-row windows,
-            // so the panes grid ran taller than planned and pushed the
-            // colorbar (docked to its bottom edge) below the viewport.
-            // spacings[i] scales one received pixel of pane i into the shared
-            // unit the layout fits to the cell. True scale: real-world size
-            // (native pixels × the case's own voxel spacing), so a case scanned
-            // with a larger field of view shows smaller anatomy in a same-size
-            // box. Fill (default): each pane's own fit-to-cell size, so every
-            // image fills its tile.
-            const layoutFor = (cols) => {
-                const rows = Math.ceil(n / cols);
-                const uiReserveH = uiReserveV() + (cbH + labelH * rows) * (1 - _crossfadeCollapseP);
-                const availW = Math.max(50, window.innerWidth - 80);
-                const availH = Math.max(50, window.innerHeight - uiReserveH);
-                const cellW = Math.max(20, (availW - (cols - 1) * colGap) / cols);
-                const cellH = Math.max(20, (availH - (rows - 1) * rowGap) / rows);
-                const spacings = stackMosaicTrueScale
-                    ? ready.map(v => _stackMosaicCaseSpacing(v.colIdx) * (v.nativePerPx || 1))
-                    : ready.map(v => Math.min(cellW / v.lastW, cellH / v.lastH));
-                const absMaxScale = Math.min(...ready.map((v, i) =>
-                    Math.min(cellW / (v.lastW * spacings[i]), cellH / (v.lastH * spacings[i]))));
-                // Total on-screen image area: the column count that maximizes
-                // it uses the window best (4 wide scans on a wide screen go in
-                // one row; 9 go 3×3 instead of wrapping 5+4).
-                const area = ready.reduce((sum, v, i) =>
-                    sum + (v.lastW * v.lastH * (spacings[i] * absMaxScale) ** 2), 0);
-                return { cols, rows, cellW, cellH, spacings, absMaxScale, area };
-            };
-            let layout = layoutFor(1);
-            for (let c = 2; c <= n; c++) {
-                const next = layoutFor(c);
-                if (next.area > layout.area * 1.001) layout = next;
-            }
-            const { cols, cellW, cellH, spacings, absMaxScale } = layout;
-            const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
-            // The shared box is the largest content actually renders at, not the
-            // full cell: cellW/cellH is only a target aspect ratio (usually not
-            // square) that content of a different aspect can't fill on both
-            // axes at once, so forcing every box to the raw cell added slack
-            // around every pane — even ones with identical, unremarkable
-            // spacing — throwing off the mosaic's measured size and, with it,
-            // the fixed-position colorbar anchored below it.
-            let refW = 0, refH = 0;
-            ready.forEach((v, i) => {
-                refW = Math.max(refW, v.lastW * spacings[i] * cappedScale);
-                refH = Math.max(refH, v.lastH * spacings[i] * cappedScale);
-            });
-            ready.forEach((v, i) => {
-                v.tileW = cellW; v.tileH = cellH;
-                const baseScale = cappedScale * spacings[i] / Math.max(0.0001, userZoom);
-                // Pass v.clip as the viewport so _scalePane sizes it (and clamps
-                // pan against that fresh size) in one pass. Sizing the clip
-                // afterward instead left pan.clamp() reading last pass's
-                // (stale) clip size whenever the pane count changed between
-                // renders, cropping panes into a corner until an identical
-                // follow-up pass caught the size up.
-                _scalePane(
-                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: v.pan },
-                    v.clip,
-                    {
-                        maxW: Math.round(cellW),
-                        maxH: Math.round(cellH),
-                        baseScale,
-                        squareStretch: squareStretch,
-                        updateAutoFit: false,
-                        allowOverflowRecalc: false,
-                        // Without this the box shrinks to match content
-                        // whenever content is smaller than the shared box, so a
-                        // case with a smaller physical field of view ends up
-                        // with a smaller box instead of a smaller image inside
-                        // a same-size box.
-                        forceViewport: { w: refW, h: refH },
-                    }
-                );
-                // A case with a smaller physical field of view now renders
-                // smaller than its (uniformly sized) box; pan.clamp() pins
-                // underfilled content to the bottom-right corner since that's
-                // just where its 0/0 default lands once clamped, so center it
-                // instead of leaving it looking adrift from its label.
-                if (v.lastW * baseScale <= refW + 1 && v.lastH * baseScale <= refH + 1) {
-                    v.pan.x = (refW - v.lastW * baseScale) / 2;
-                    v.pan.y = (refH - v.lastH * baseScale) / 2;
-                    v.pan.apply();
-                }
-            });
-            // Panes wrap freely, so cap the row width at exactly `cols` tiles;
-            // a short last row stays centered under the full ones.
-            const panesEl = document.getElementById('stack-mosaic-panes');
-            if (panesEl) panesEl.style.maxWidth = (cols * Math.round(refW) + (cols - 1) * colGap + 1) + 'px';
-            fixWrapperAlignment();
-            // The colorbar docks to this grid's bottom edge, but normally
-            // only repositions when the focused pane's own frame lands
-            // (_stackMosaicSyncSharedRange). If a different pane's frame is
-            // what changed the layout just now — the common case, since
-            // frames from a whole window of cases arrive independently —
-            // that edge moves without anything telling the colorbar to
-            // follow, leaving it docked to a stale position (once offscreen
-            // if this pass shrank the grid from an earlier, larger one).
-            if (_sharedCbVisible) drawSlimColorbar();
-            requestAnimationFrame(() => {
-                if (stackMosaicActive) positionEggs();
-            });
-            return atMax ? 'max' : null;
-        }
-
         // --------------- Compare + qMRI combined mode ---------------
         // Layout: rows = compared arrays, columns = parameter maps
         // Each map column shares one display range across the compared arrays:
         // only the bottom row shows colorbars, so that one bar must be true
         // for every pane above it.
 
-        // compare-qMRI rows pinned to one index of a dim: the cases of the
-        // stack mosaic (compareQmriCases), or the two halves of a split.
-        // null when every row is its own array.
+        // compare-qMRI rows pinned to one index of a dim: the panes of a
+        // side-by-side split. null when every row is its own array.
         function _cqRowPins() {
-            if (!compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length) {
-                return { dim: collectionSpatialNdim, idxs: compareQmriCases };
-            }
             if (compareActive && detachedDimMode && detachedDim >= 0) {
                 return { dim: detachedDim, idxs: [...detachedDimIdx] };
             }
@@ -39327,16 +38497,6 @@
             renderInfo();
         }
 
-        // Page the mosaic's cases shown as compare-qMRI rows by a window.
-        function _cqCaseWindowStep(dir) {
-            const n = compareQmriCases.length;
-            const total = shape[collectionSpatialNdim];
-            const start = Math.max(0, Math.min(Math.max(0, total - n), compareQmriCases[0] + dir * n));
-            if (start === compareQmriCases[0]) return;
-            compareQmriCases = compareQmriCases.map((_, i) => start + i);
-            _cqRefreshRowPins();
-        }
-
         // Indices a compare-qMRI pane renders: its map, and for a pinned
         // row its index; a case keeps spatial indices inside its own shape.
         function _cqViewIndices(v) {
@@ -39345,15 +38505,11 @@
             if (Number.isInteger(v.rowIdx)) {
                 idx[v.rowDim] = v.rowIdx;
                 if (v.rowDim === collectionSpatialNdim) {
-                    const sp = _stackMosaicCaseSpatialShape(v.rowIdx) || [];
+                    const sp = _caseSpatialShape(v.rowIdx) || [];
                     sp.forEach((n, d) => { if (Number(n) > 0) idx[d] = Math.min(idx[d], Number(n) - 1); });
                 }
             }
             return idx;
-        }
-
-        function _cqCaseRowsActive() {
-            return compareQmriActive && !compareActive && Array.isArray(compareQmriCases) && compareQmriCases.length > 0;
         }
 
         function _cqPinsCase(v) {
@@ -43716,7 +42872,7 @@
          *  fades out. Zoomed-in images and any other view keep the plain switch. */
         function _mosaicGlide() {
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
-            const plain = !compareActive && !stackMosaicActive && !multiViewActive && !qmriActive && !rgbMode;
+            const plain = !compareActive && !multiViewActive && !qmriActive && !rgbMode;
             if (!plain || !_orthoGlideAllowed() || !_splitWholeIn(main, vp)) return false;
             const leaving = dim_z >= 0;
             const idx = Number(indices[leaving ? dim_z : current_slice_dim]);
@@ -43885,87 +43041,6 @@
             return true;
         }
 
-        /** Stack mosaic and the single view: one still copy of the array you are on glides
-         *  between its tile and the full view, the other tiles fading where they are.
-         *  False, having changed nothing, when it cannot glide. */
-        function _stackMosaicGlideOpen(view, commit) {
-            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
-            if (!_orthoGlideAllowed() || !view?.lastW) return false;
-            const ghost = _orthoGhost(view.canvas);
-            if (!ghost) return false;
-            _glideBegin();
-            _killImmersiveTweens();
-            stackMosaicViews.filter(v => v !== view).forEach(v => _glideFadeOut(_orthoGhost(v.canvas)));
-            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
-            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
-            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
-            const seq0 = _frameDisplaySeq;
-            commit();
-            const vpHold = _glideHold(vp);
-            const drawn = () => _frameDisplaySeq !== seq0;
-            let tint = null;
-            const clock = _splitGlideLive(ghost, () => main.getBoundingClientRect(), () => _cornerRadii(vp), [[info, infoFrom], [cb, cbFrom]],
-                (p, rect, done) => {
-                    tint?._step(p, rect);
-                    if (!done) return;
-                    vpHold?.cancel();
-                    freeBars();
-                },
-                { ready: drawn, onStart: () => { if (drawn()) tint = _glideTint(ghost, main); } });
-            clock.onfinish = clock.oncancel = () => {
-                if (tint) ghost.remove();
-                _orthoGhostRelease(tint || ghost, () => true);
-            };
-            _syncSinkFocus();
-            return true;
-        }
-
-        function _stackMosaicGlideEnter(n) {
-            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
-            const plain = !compareActive && !multiViewActive && !qmriActive && dim_z < 0;
-            if (!plain || !_orthoGlideAllowed() || !_splitWholeIn(main, vp) || !_stackMosaicHasStack()) return false;
-            const ghost = _glideGhost(main, vp);
-            if (!ghost) return false;
-            _glideBegin();
-            _killImmersiveTweens();
-            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
-            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
-            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
-            enterStackMosaic(n);
-            const wrap = document.getElementById('stack-mosaic-wrap');
-            const view = stackMosaicViews[stackMosaicFocus];
-            const wrapHold = _glideHold(wrap);
-            const canvasHold = _glideHold(view?.canvas);
-            let tint = null;
-            const clock = _splitGlideLive(ghost, () => (view?.lastW ? view.canvas.getBoundingClientRect() : null), () => [0, 0, 0, 0], [[info, infoFrom], [cb, cbFrom]],
-                (p, rect, done) => {
-                    tint?._step(p, rect);
-                    if (!done) return;
-                    canvasHold?.cancel();
-                    freeBars();
-                },
-                {
-                    ready: () => !!view?.lastW,
-                    onStart: () => {
-                        wrapHold?.cancel();
-                        _glideFadeIn(wrap);
-                        if (view?.lastW) tint = _glideTint(ghost, view.canvas);
-                    },
-                });
-            clock.onfinish = clock.oncancel = () => {
-                if (tint) ghost.remove();
-                _orthoGhostRelease(tint || ghost, () => true);
-            };
-            _syncSinkFocus();
-            return true;
-        }
-
-        function _stackMosaicLeave() {
-            const col = Number(indices[_stackMosaicColDim()]);
-            const view = stackMosaicViews.find(v => v.colIdx === col) || stackMosaicViews[stackMosaicFocus];
-            if (!_stackMosaicGlideOpen(view, exitStackMosaic)) exitStackMosaic();
-        }
-
         /** q from the single view: a still copy of the slice glides into its own map's
          *  pane and takes on that map's colours on the way, while the other maps fade
          *  in beside it once drawn; q again glides it back. Anything else (ortho,
@@ -43974,7 +43049,7 @@
         // leaving can glide back onto it.
         let _qmriFromWholeSlice = false;
         function _qmriToggle() {
-            const plain = !compareActive && !stackMosaicActive && !multiViewActive;
+            const plain = !compareActive && !multiViewActive;
             if (!qmriActive) {
                 _qmriFromWholeSlice = plain && _splitWholeIn(document.getElementById('viewer'), document.getElementById('canvas-viewport'));
             }
@@ -44006,22 +43081,7 @@
             }
             crossfade(() => {
                 if (compareQmriActive) {
-                    const cases = compareQmriCases;
                     exitCompareQmri();
-                    // Case rows came from the stack mosaic: go back to it.
-                    if (cases) {
-                        compareQmriCases = null;
-                        // The last case lands in the same window, also at the clamped end.
-                        indices[collectionSpatialNdim] = cases[cases.length - 1];
-                        enterStackMosaic(stackMosaicN);
-                    }
-                } else if (stackMosaicActive && stackMosaicViews.length > 1) {
-                    // Maps of every case in the mosaic, one row each.
-                    compareQmriCases = stackMosaicViews.map(v => v.colIdx);
-                    exitStackMosaic();
-                    _qmriVisibleMaps = null;
-                    enterCompareQmri();
-                    if (!compareQmriActive) compareQmriCases = null;
                 } else if (qmriActive) {
                     exitQmri();
                 } else {
@@ -44920,8 +43980,7 @@
                     updateView(); _roiClearOnDimChange(); triggerPreload(); return;
                 }
             }
-            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z
-                    && !(stackMosaicActive && _isCollectionDim(d))) {
+            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
             renderInfo();
@@ -45034,12 +44093,6 @@
             if (isSpatialNormal || isSpatialMv || isSpatialCmv || isSpatialQmriMv || isQmriDim) return;
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
-            if (stackMosaicActive && hoveredDim === _stackMosaicColDim()) {
-                activeDim = hoveredDim;
-                _stackMosaicWindowStep(delta);
-                renderInfo();
-                return;
-            }
             const nextIndex = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
             if (nextIndex === indices[hoveredDim]) return;
             indices[hoveredDim] = nextIndex;
@@ -47179,7 +46232,7 @@
             const busyOverlay = document.getElementById('busy-overlay');
             if (busyOverlay) {
                 const busy = !startupScreen
-                    && (_patientLoadingVisible || _slowRenderBusyVisible || _smPageBusyVisible);
+                    && (_patientLoadingVisible || _slowRenderBusyVisible);
                 busyOverlay.classList.toggle('visible', busy);
                 busyOverlay.setAttribute('aria-hidden', busy ? 'false' : 'true');
             }
@@ -47261,7 +46314,7 @@
             // 1. Canvas wrap — visible only in single-view (no special mode)
             const canvasWrap = document.getElementById('canvas-wrap');
             if (canvasWrap && !document.body.classList.contains('av-loading')) {
-                canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive && !stackMosaicActive) ? '' : 'none';
+                canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) ? '' : 'none';
             }
             const cutawayCanvas = document.getElementById('cutaway-canvas');
             if (cutawayCanvas) cutawayCanvas.style.display = cutawayActive ? 'block' : 'none';
@@ -50599,7 +49652,7 @@
         }
         function _reconcileZoomCursor() {
             const normalNavigationOwnsCursor = !compareActive && !multiViewActive && !qmriActive
-                && !compareQmriActive && !compareMvActive && !stackMosaicActive
+                && !compareQmriActive && !compareMvActive
                 && !cutawayActive && !_bcDrag && !rectRoiMode && !_cropActive
                 && !document.body.classList.contains('ruler-mode')
                 && !mainPan.dragging;
