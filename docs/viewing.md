@@ -34,6 +34,10 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 `Shift+F` — the image fills the window from top to bottom, with the dimbar and colorbar floating on it. Only opens when height is what limits the image; when width is the limit (side-by-side compare, a wide array in a narrow window) it says so and stays put. In ortho view and compare-centre it needs the big-left layout, and switching away from big left closes it.
 
+## Quick zoom
+
+`Shift+Q` — in a view with several panes (ortho, qMRI, compare, side by side), shows the pane under the mouse on its own, as large as the free space allows. Scrolling, hovering and the other keys keep working on it. Press `Shift+Q` again or `Esc` to bring the other panes back.
+
 ## Pop out (VS Code)
 
 `Shift+W` — moves the VS Code tab into its own window. Press `Shift+W` again in that window to put the tab back.

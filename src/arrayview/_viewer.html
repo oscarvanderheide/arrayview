@@ -3890,6 +3890,17 @@
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
 
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
+        /* ── Quick zoom (Shift+Q): one pane scaled up, the others hidden ── */
+        body.av-qz-on .mv-pane:not(.av-qz-target),
+        body.av-qz-on .qv-pane:not(.av-qz-target),
+        body.av-qz-on .compare-pane:not(.av-qz-target) { visibility: hidden; }
+        .av-qz-target {
+            transform-origin: center center;
+            transform: translate(var(--qz-tx, 0px), var(--qz-ty, 0px)) scale(var(--qz-s, 1)) !important;
+            z-index: 30;
+        }
+        .av-qz-target .mv-promote-btn { display: none !important; }
+        .av-qz-unclip { overflow: visible !important; }
         .mv-pane { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--mv-pane-fill, var(--bg)); overflow: hidden; transition: background-color 0.2s ease, box-shadow 0.16s ease; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
@@ -31610,6 +31621,16 @@
                     });
                 },
             },
+            'quickzoom.toggle': {
+                title: 'Quick zoom: show the pane under the mouse on its own',
+                when: [],
+                run: (ctx, e) => { _toggleQuickZoom(); },
+            },
+            'quickzoom.exit': {
+                title: 'Leave quick zoom',
+                when: ['quickZoomActive'],
+                run: (ctx, e) => { _setQuickZoomPane(null); },
+            },
             'arrays.openPicker': {
                 title: 'Switch array in file',
                 when: [],
@@ -31712,10 +31733,12 @@
             { key: 'Enter', command: 'slice.jumpCommit' },
             // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
             { key: 'Escape', command: 'modePicker.confirm' },
+            { key: 'Escape', command: 'quickzoom.exit' },
             { key: 'Escape', command: 'tool.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
             { key: 'K', shift: true, command: 'arrays.openPicker' },
+            { key: 'Q', shift: true, command: 'quickzoom.toggle' },
         ];
 
         function makeContext(_state) {
@@ -31743,6 +31766,7 @@
                 cmapPickerOpen: (typeof _cmapPickerOpen !== 'undefined') ? !!_cmapPickerOpen : false,
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
                 toolLauncherOpen: (typeof _toolLauncherOpen !== 'undefined') ? !!_toolLauncherOpen : false,
+                quickZoomActive: !!_quickZoomPane,
                 toolMenuList: false,
                 saveMenuOpen: _saveDrawerSelected(),
                 anyToolActive: (
@@ -31808,6 +31832,7 @@
                             { key: '0', action: 'Reset zoom to fit' },
                             { key: 'Drag', action: 'Pan the image (when zoomed in)' },
                             { key: 'Shift+F', action: 'Toggle immersive mode', hint: 'hides chrome and fills the viewport with the array' },
+                            { key: 'Shift+Q', action: 'Quick zoom — show one pane on its own', hint: 'ortho, qMRI, compare and side by side · takes the pane under the mouse · press again or Esc to go back' },
                             { key: 'Z', action: 'Zen mode — hide UI chrome', hint: 'in compare + center active, hides the two source panes instead' },
                             { key: 'Shift+W', action: 'Pop tab out into its own window / put it back', hint: 'VS Code tabs only' },
                         ]
@@ -46620,9 +46645,126 @@
         // ── Unified UI reconciler ────────────────────────────────────
         // Single entry point that reconciles all UI state from current flags.
         // Call after any mode state change.
+        // ── Quick zoom ──
+        // Shift+Q blows one pane of a multi-pane view (ortho, qMRI, compare,
+        // side by side) up to fill the space all panes share, as if it were
+        // the only pane. Pure CSS transform on the pane: the mode's own layout
+        // keeps running untouched underneath, and pointer handlers that map
+        // through getBoundingClientRect keep working on the scaled pane.
+        const QUICK_ZOOM_PANE_SEL = '.mv-pane, .qv-pane, .compare-pane';
+        let _quickZoomPane = null;
+        let _quickZoomObserver = null;
+
+        function _quickZoomCandidates() {
+            return Array.from(document.querySelectorAll(QUICK_ZOOM_PANE_SEL))
+                .filter(p => p.isConnected && p.offsetWidth > 0 && p.offsetHeight > 0
+                    && getComputedStyle(p).visibility !== 'hidden');
+        }
+
+        function _quickZoomPaneAtMouse(panes) {
+            if (!panes.length) return null;
+            const hit = document.elementFromPoint(_lastMouseX, _lastMouseY);
+            const direct = hit && hit.closest ? hit.closest(QUICK_ZOOM_PANE_SEL) : null;
+            if (direct && panes.includes(direct)) return direct;
+            let best = null, bestD = Infinity;
+            for (const p of panes) {
+                const r = p.getBoundingClientRect();
+                const dx = Math.max(r.left - _lastMouseX, 0, _lastMouseX - r.right);
+                const dy = Math.max(r.top - _lastMouseY, 0, _lastMouseY - r.bottom);
+                const d = dx * dx + dy * dy;
+                if (d < bestD) { bestD = d; best = p; }
+            }
+            return best;
+        }
+
+        function _toggleQuickZoom() {
+            if (_quickZoomPane) { _setQuickZoomPane(null); return; }
+            const panes = _quickZoomCandidates();
+            if (panes.length < 2) { showStatus('quick zoom: only one pane on screen'); return; }
+            _setQuickZoomPane(_quickZoomPaneAtMouse(panes));
+        }
+
+        function _setQuickZoomPane(pane) {
+            if (_quickZoomObserver) { _quickZoomObserver.disconnect(); _quickZoomObserver = null; }
+            _quickZoomPane = pane || null;
+            if (_quickZoomPane && typeof ResizeObserver !== 'undefined') {
+                _quickZoomObserver = new ResizeObserver(() => _reconcileQuickZoom());
+                _quickZoomObserver.observe(_quickZoomPane);
+            }
+            _reconcileQuickZoom();
+        }
+
+        // Free space below the panes: walk down until something that is not
+        // the panes' own container (a shared colour bar, a panel) shows up.
+        function _quickZoomBottomLimit(U, container) {
+            const xs = [0.2, 0.5, 0.8].map(f => U.left + (U.right - U.left) * f);
+            const isBackdrop = el => !el || el === document.documentElement || el === document.body
+                || (container && el.contains(container));
+            for (let y = Math.ceil(U.bottom) + 2; y < window.innerHeight - 8; y += 4) {
+                for (const x of xs) {
+                    if (!isBackdrop(document.elementFromPoint(x, y))) return Math.max(U.bottom, y - 16);
+                }
+            }
+            return Math.max(U.bottom, window.innerHeight - 24);
+        }
+
+        function _reconcileQuickZoom() {
+            const pane = _quickZoomPane;
+            const clear = () => {
+                document.body.classList.remove('av-qz-on');
+                document.querySelectorAll('.av-qz-unclip').forEach(el => el.classList.remove('av-qz-unclip'));
+                document.querySelectorAll('.av-qz-target').forEach(el => {
+                    el.classList.remove('av-qz-target');
+                    ['--qz-tx', '--qz-ty', '--qz-s'].forEach(k => el.style.removeProperty(k));
+                });
+            };
+            // Measure the untransformed layout with every pane visible.
+            clear();
+            if (!pane) return;
+            const panes = _quickZoomCandidates();
+            if (!pane.isConnected || !panes.includes(pane) || panes.length < 2) {
+                if (_quickZoomObserver) { _quickZoomObserver.disconnect(); _quickZoomObserver = null; }
+                _quickZoomPane = null;
+                return;
+            }
+            const rects = panes.map(p => p.getBoundingClientRect());
+            const U = {
+                left: Math.min(...rects.map(r => r.left)),
+                top: Math.min(...rects.map(r => r.top)),
+                right: Math.max(...rects.map(r => r.right)),
+                bottom: Math.max(...rects.map(r => r.bottom)),
+            };
+            let container = pane.parentElement;
+            while (container && !panes.every(p => container.contains(p))) container = container.parentElement;
+            const bottom = _quickZoomBottomLimit(U, container);
+            const cx = (U.left + U.right) / 2;
+            const sideMargin = 40;
+            const halfW = Math.max(U.right - cx, Math.min(cx - sideMargin, window.innerWidth - sideMargin - cx));
+            const r = pane.getBoundingClientRect();
+            const s = Math.max(1, Math.min((2 * halfW) / r.width, (bottom - U.top) / r.height));
+            // transform-origin is the pane centre: line the scaled pane's top
+            // up with the top of the pane block, centred horizontally.
+            const tx = cx - (r.left + r.right) / 2;
+            const ty = (U.top + (r.height * s) / 2) - (r.top + r.bottom) / 2;
+            pane.style.setProperty('--qz-tx', tx.toFixed(1) + 'px');
+            pane.style.setProperty('--qz-ty', ty.toFixed(1) + 'px');
+            pane.style.setProperty('--qz-s', s.toFixed(4));
+            pane.classList.add('av-qz-target');
+            // A scrolling/clipping holder between the pane and the page
+            // (qMRI grid) would crop the enlarged pane.
+            const wrapper = document.getElementById('wrapper');
+            for (let el = pane.parentElement; el && el !== wrapper && el !== document.body; el = el.parentElement) {
+                const cs = getComputedStyle(el);
+                if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') el.classList.add('av-qz-unclip');
+            }
+            document.body.classList.add('av-qz-on');
+        }
+        window.addEventListener('resize', () => { if (_quickZoomPane) _reconcileQuickZoom(); });
+
         function _reconcileUI() {
             _leaveImmersiveIfLayoutDisallows();
             _reconcileLayout();
+            _reconcileQuickZoom();
             _reconcilePlaybackHud();
             _reconcileCompareState();
             _reconcileCbVisibility();

@@ -571,6 +571,29 @@ class TestKeyboard:
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         assert page.evaluate(_JS_MV_CANVAS_COUNT) == 3
 
+    def test_shift_q_quick_zooms_hovered_ortho_pane(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(800)
+        box = page.locator(".mv-pane").nth(1).bounding_box()
+        before = box["width"]
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.keyboard.press("Shift+Q")
+        page.wait_for_selector(".mv-pane.av-qz-target", timeout=2_000)
+        zoomed = page.locator(".mv-pane.av-qz-target").bounding_box()
+        assert zoomed["width"] > before * 1.3
+        hidden = page.evaluate(
+            "[...document.querySelectorAll('.mv-pane:not(.av-qz-target)')]"
+            ".map(p => getComputedStyle(p).visibility)"
+        )
+        assert hidden == ["hidden", "hidden"]
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        assert page.locator(".av-qz-target").count() == 0
+        assert not page.evaluate("document.body.classList.contains('av-qz-on')")
+
     def test_v_toggles_back_to_single_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
