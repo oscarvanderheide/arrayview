@@ -601,13 +601,13 @@ class TestKeyboard:
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(800)
         box = page.locator(".mv-pane").nth(1).bounding_box()
-        before = box["width"]
+        image = page.locator(".mv-pane").nth(1).locator(".mv-canvas-box")
+        before = image.bounding_box()["width"]
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.keyboard.press("w")
         page.wait_for_selector(".mv-pane.av-qz-target", timeout=2_000)
-        page.wait_for_timeout(400)  # let the glide finish
-        zoomed = page.locator(".mv-pane.av-qz-target").bounding_box()
-        assert zoomed["width"] > before * 1.3
+        page.wait_for_timeout(500)  # let the glide finish
+        assert image.bounding_box()["width"] > before * 1.3
         others = page.evaluate(
             "[...document.querySelectorAll('.mv-pane:not(.av-qz-target)')]"
             ".map(p => getComputedStyle(p).filter)"
@@ -617,32 +617,38 @@ class TestKeyboard:
         page.wait_for_timeout(500)
         assert page.locator(".av-qz-target, .av-qz-closing").count() == 0
         assert not page.evaluate("document.body.classList.contains('av-qz-on')")
-        restored = page.locator(".mv-pane").nth(1).bounding_box()
-        assert abs(restored["width"] - before) < 1
+        assert abs(image.bounding_box()["width"] - before) < 1
 
-    def test_w_quick_zoom_moves_dimbar_and_colorbar_aside(self, loaded_viewer, sid_3d):
-        # Horizontal ortho: dimbar right above the row, colour bar right under
-        # it. Both slide away so the zoomed pane can grow past the row height.
+    def test_w_quick_zoom_matches_single_view_layout(self, loaded_viewer, sid_3d):
+        # The zoomed image, the dimbar and the colour bar land exactly where
+        # the single view puts them for the same plane.
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
+        rect = "el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }"
+        single = page.locator("canvas#viewer").evaluate(rect)
+        info_single = page.locator("#info").evaluate(rect)
+        cb_single = page.locator("#slim-cb-wrap").evaluate(rect)
         page.keyboard.press("v")
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-        page.evaluate("orthoLayoutMode = 'horizontal'; mvScaleAllCanvases();")
         page.wait_for_timeout(800)
-        row = page.locator(".mv-pane").nth(2).bounding_box()
-        cb_before = page.locator("#mv-cb-wrap").bounding_box()
-        page.mouse.move(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
+        pane = page.locator(".mv-pane").nth(0)
+        box = pane.bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.keyboard.press("w")
+        page.wait_for_selector(".mv-pane.av-qz-target", timeout=2_000)
+        page.wait_for_timeout(600)
+        zoomed = page.locator(".mv-pane.av-qz-target .mv-canvas").evaluate(rect)
+        info_zoomed = page.locator("#info").evaluate(rect)
+        cb_zoomed = page.locator("#mv-cb-wrap").evaluate(rect)
+        assert all(abs(a - b) <= 2 for a, b in zip(zoomed, single)), (zoomed, single)
+        assert abs(info_zoomed[1] - info_single[1]) <= 2
+        assert abs((info_zoomed[0] + info_zoomed[2] / 2) - (info_single[0] + info_single[2] / 2)) <= 2
+        assert abs(cb_zoomed[1] - cb_single[1]) <= 2
+        assert abs((cb_zoomed[0] + cb_zoomed[2] / 2) - (cb_single[0] + cb_single[2] / 2)) <= 2
         page.keyboard.press("w")
         page.wait_for_timeout(600)
-        zoomed = page.locator(".mv-pane.av-qz-target").bounding_box()
-        cb_after = page.locator("#mv-cb-wrap").bounding_box()
-        assert zoomed["height"] > row["height"] * 1.2
-        assert cb_after["y"] > cb_before["y"] + 20
-        assert cb_after["y"] >= zoomed["y"] + zoomed["height"]
-        page.keyboard.press("w")
-        page.wait_for_timeout(600)
-        cb_back = page.locator("#mv-cb-wrap").bounding_box()
-        assert abs(cb_back["y"] - cb_before["y"]) < 1
+        assert page.locator(".av-qz-move").count() == 0
+        assert abs(pane.bounding_box()["width"] - box["width"]) < 1
 
     def test_v_toggles_back_to_single_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
