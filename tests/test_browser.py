@@ -425,6 +425,29 @@ def test_patient_change_jumps_to_largest_mask_slice(page, client, server_url, tm
     assert page.evaluate("() => indices[0]") == before
 
 
+def test_fast_r_presses_chain_and_land_on_the_right_view(loaded_viewer, sid_3d):
+    # Presses during a turn queue up (the turn hurries, the next follows)
+    # instead of snapping the running turn to its end.
+    page = loaded_viewer(sid_3d)
+    _focus_kb(page)
+    state = "() => [dim_x, dim_y, flip_x, flip_y]"
+    before = page.evaluate(state)
+    page.keyboard.press("r")
+    page.wait_for_timeout(60)
+    for _ in range(3):
+        page.keyboard.press("r")
+        page.wait_for_timeout(40)
+    assert page.evaluate("() => _quarterTurnQueue.length") >= 1
+    page.wait_for_function("() => !_quarterTurn && _quarterTurnQueue.length === 0", timeout=5_000)
+    page.wait_for_timeout(300)
+    assert page.evaluate(state) == before  # four quarter turns
+    ghosts = page.evaluate(
+        "[...document.body.children].filter(el => el.style.position === 'fixed'"
+        " && el.style.zIndex === '41').length"
+    )
+    assert ghosts == 0
+
+
 def test_o_cycles_views_and_remembers_each_one(page, client, server_url, tmp_path):
     path = tmp_path / "vol.npy"
     np.save(path, np.random.rand(30, 40, 50).astype(np.float32))

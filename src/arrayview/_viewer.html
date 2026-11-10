@@ -9283,10 +9283,20 @@
          *  its corners stay inside a box sliding from the old outline to the new
          *  one (so they never cross the dimbar/colorbar). Pane names fade out
          *  and back in instead of turning; dimbar/colorbars glide; chrome that
-         *  only appears in the new layout fades in. A press during
-         *  a turn snaps it to its end first. Ignores prefers-reduced-motion on
+         *  only appears in the new layout fades in. A press during a turn
+         *  queues: the running turn hurries to its end, then the queued ones
+         *  play back to back, faster than a lone turn — never a jump to the
+         *  end pose. Ignores prefers-reduced-motion on
          *  purpose: the turn is wanted regardless of OS/IDE motion settings. */
         let _quarterTurn = null;
+        let _quarterTurnQueue = [];
+        const _TURN_HURRY = 3;        // time speed-up while presses are waiting
+        const _TURN_CHAIN_SPEED = 2;  // a queued turn with nothing behind it
+        function _quarterTurnNext() {
+            const next = _quarterTurnQueue.shift();
+            if (next) _quarterTurnAround(next[0], next[1], next[2], next[3],
+                _quarterTurnQueue.length ? _TURN_HURRY : _TURN_CHAIN_SPEED);
+        }
         // Pane/map names: never turned or glided — faded out, hidden, faded back in.
         const _TURN_LABELS = '.pane-name, .mv-pane-name, .qv-label';
         // Chrome around the image that glides to its new place during a turn.
@@ -9337,12 +9347,21 @@
          * that rolls (getCube() after change -> {axis, deg}); the face rolling
          * in gets the new frame once it lands. Progress holds near the start
          * until then so the incoming face is never shown empty. */
-        function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null) {
-            if (_quarterTurn) { const q = _quarterTurn; _quarterTurn = null; q.stop(); if (!q.landed) { change(); return; } }
+        function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null, baseSpeed = 1) {
+            if (_quarterTurn) {
+                // Keep the state change for its own turn; speed this one up.
+                _quarterTurnQueue.push([change, getBoxes, mode, getCube]);
+                _quarterTurn.hurry();
+                return;
+            }
             const boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
             // Innermost boxes only, so a grid is not turned as a whole.
             const panes = boxes.filter(b => !boxes.some(o => o !== b && b.contains(o)));
-            if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) { change(); return; }
+            if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) {
+                change();
+                _quarterTurnNext();
+                return;
+            }
             const rectOf = r => ({ w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
             const old = panes.map(b => rectOf(b.getBoundingClientRect()));
             const snap = b => {
@@ -9534,7 +9553,15 @@
             };
             let prog = 0, lastNow = t0;
             let raf = 0, lastSeq = seq0, quiet = 0, t1 = 0, tEnd = 0;
+            // Turn clock: runs `speed` times real time, so a turn can hurry
+            // without jumping (WAAPI glides follow via playbackRate).
+            let speed = baseSpeed, vNow = t0, lastReal = t0;
             const q = { landed: false };
+            q.hurry = () => {
+                if (speed >= _TURN_HURRY) return;
+                speed = _TURN_HURRY;
+                [...glides, ...fades].forEach(a => { try { a.updatePlaybackRate(speed); } catch (e) { a.playbackRate = speed; } });
+            };
             const finishAll = () => {
                 if (raf) cancelAnimationFrame(raf); raf = 0;
                 ghosts.forEach(g => g.remove());
@@ -9572,16 +9599,20 @@
                 glides = glide.map((el, i) => el.animate(
                     [{ translate: glideDelta(el, i).map(v => v + 'px').join(' ') }, { translate: '0px 0px' }],
                     { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }));
+                [...glides, ...fades].forEach(a => { a.playbackRate = speed; });
             };
             const tick = () => {
                 raf = 0;
                 if (_quarterTurn !== q) return;
-                const now = performance.now();
+                const real = performance.now();
+                vNow += (real - lastReal) * speed;
+                lastReal = real;
+                const now = vNow;
                 if (!q.landed) {
                     const seq = _frameDisplaySeq;
                     quiet = (seq !== seq0 && seq === lastSeq) ? quiet + 1 : 0;
                     lastSeq = seq;
-                    if (quiet >= 1 || now - t0 > 1200) land(now);
+                    if (quiet >= 1 || real - t0 > 1200) land(now);
                     else pin();
                 }
                 holdLabels();
@@ -9605,11 +9636,15 @@
                     finishAll();
                     fades = names.map(n => n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' }));
                     if (_quarterTurn === q) _quarterTurn = null;
+                    _quarterTurnNext();
                     return;
                 }
                 raf = requestAnimationFrame(tick);
             };
-            raf = requestAnimationFrame(tick);
+            // First pose now, not next frame: a chained turn starts inside the
+            // previous one's frame callback, and an unposed cube shows its
+            // empty incoming face for a frame.
+            tick();
         }
 
         /** Shift+A on an array without stored orientation: name the current
