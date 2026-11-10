@@ -7,13 +7,21 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-11-09
+last_updated: 2026-11-10
 ---
 
 # Project State
 
 ## Working
 
+- A healthy warm open was ~1.0 s on a network `.nii`; ~430 ms of it was the
+  first slice being read only once the tab asked, in the middle of the viewer's
+  other startup requests. The server now reads that slice as soon as the
+  session exists (`warm_first_slice`, all three load paths). Opener 0.15.75
+  also takes its own click request at once instead of after the watcher's
+  100 ms delay. `real process` evidence (asked -> image 6-12 ms);
+  **real-host confirmation open**: `scripts/first_image_wait.py <day>`.
+  Details: `plans/tunnel/LOG.md`, 2026-11-10.
 - Tunnel blank tabs traced to VS Code's browser proxy reusing a pooled
   connection our server had already closed for idleness (30 s). The private
   viewer port now answers every HTTP request with `Connection: close`, so

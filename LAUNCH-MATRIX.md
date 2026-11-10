@@ -52,6 +52,31 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-10 first image read at load time; opener 0.15.75 takes its own click at once
+
+Python, every row that loads a file or collection through the server (1-4, 16,
+18-20, 23-25, 35): the slice the viewer opens on is read as soon as the session
+exists instead of when the tab asks for it. Rows that could break: the same —
+a wrong guess of the opening view costs one extra slice read; launches with
+their own starting view, RGB, ragged collections and the array picker are left
+alone.
+
+- `real process`: CLI-launched server, headless Chromium, cold SMB `.nii`
+  files. Click-like open through a leased viewer port: viewer asks -> image
+  sent 6-12 ms (real host before: ~430 ms), image on screen, 0 failed requests.
+  Cold single file, cold `--match` (9 files), and both launched again from the
+  CLI against the running server: 10-62 ms, image on screen. Servers exited on
+  their own. `tests/test_first_slice_warmup.py`.
+- `real host`: **not run**; statuses below unchanged. Check:
+  `uv run python scripts/first_image_wait.py <day>`.
+
+Opener 0.15.75, rows 19-20, 30 (Explorer click with the server running): the
+window takes the request it has just written instead of waiting for its own
+file watcher (a fixed 100 ms). Could break: the same rows, and 29/31 if a
+request were taken by the wrong window — the request is still claimed by
+rename and still carries its window id. `component` only (`node --check`,
+bundle test). `real host`: **not run** — needs install + window reload.
+
 ### 2026-11-09 viewer port answers `Connection: close`; faster collection scan
 
 Rows 1-4, 16, 19-20, 23-26, 29, 35 (every VS Code tunnel tab: they all load

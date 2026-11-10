@@ -1405,6 +1405,12 @@ async function _fastLoadViaDaemon(filePath, title) {
     };
     const signalWritten = _writeSignalFile(signalPayload);
     if (!signalWritten) return false;
+    // Take the request now. Left to the watcher it waits for the fs.watch
+    // event and then that handler's 100 ms settle delay, which exists for
+    // writers outside this process: 120 ms of every warm click, measured.
+    // This request is already complete on disk (renamed into place above), so
+    // nothing needs settling. The watcher still fires and finds it claimed.
+    void tryOpenSignalFile();
 
     let ackOk = false;
     let sawClaimed = false;

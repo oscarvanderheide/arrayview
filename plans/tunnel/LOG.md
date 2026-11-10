@@ -3953,3 +3953,89 @@ Separately, on this host `~/.local/bin/arrayview` is an editable install of a
 checkout that no longer exists (`/localscratch/oheide/projects/arrayview`), so
 an Explorer click with no server running falls through to
 `uv run --with arrayview` (PyPI release, +~3 s). Environment, not code.
+
+## 2026-11-10 — a healthy warm open: first image read at load time, opener takes its own click at once
+
+Question: a warm Explorer click with nothing going wrong takes ~1.0 s on a
+network `.nii`. Where does it go?
+
+### One real click (2026-11-09 12:38:46Z, SMB `parameter_maps.nii`, 263 MB)
+
+| step | at |
+|---|---|
+| click (`resolveCustomEditor`) | 0.00 |
+| ping + `/load` + `/cold-start-port` done, request file written | 0.07 |
+| request claimed (fs.watch event, **then the watcher's fixed 100 ms `setTimeout`**, then the claim) | 0.19 |
+| `openInIntegratedBrowser` | 0.25 |
+| page request reaches server | 0.30 |
+| viewer's first frame request | 0.51 |
+| **first frame sent** | **0.95** |
+| painted | 0.99 |
+
+### The 430 ms between "asked" and "sent" is the slice read, landing at the worst moment
+
+`scripts/first_image_wait.py 2026-11-09` (opener log x launch trace): asked ->
+image, clicked SMB `.nii`: 335-590 ms; local `.nii`: ~170 ms; collections
+30-150 ms; and 14-21 ms whenever the tab had been slow to appear (blank-tab
+retries) — i.e. whenever something had already read the slice.
+
+The session exists ~450 ms before the viewer asks, but nothing read the slice
+until it asked, and at that moment the viewer also posts `/preload`, the
+histogram samples slices across the volume, and the whole-file background read
+is running — all against the same file.
+
+An in-process harness reproduced it only once the frame request was made to
+arrive before `/preload` (as it does over the tunnel, where the socket is
+already up and the POST needs a new connection): 95-120 ms asked -> sent on a
+clean server, ~15 ms with the order reversed. On plain localhost `/preload`
+wins the race and hides the problem, which is why headless runs never showed it.
+
+### Change 1 (Python): `warm_first_slice`
+
+`_analysis.startup_view(session)` gives the view the viewer opens on (same
+`_startup_dims` the metadata uses; `_viewer_start_index`; case axes at 0).
+`warm_first_slice` reads that slice into the raw cache on a thread as soon as
+the session exists: click path (`/load`, background), CLI-against-running-server
+path (`/load`, synchronous, collections included) and the cold daemon load.
+The frame request hits the cache or joins the read through `_cache_once`.
+Progress is forwarded to whatever `session.progress_sink` is at the time, so a
+joined slow read still reports. Skipped for RGB, ragged collections, the
+array-choice placeholder and launches with their own `initial_view`. A wrong
+guess costs one slice read.
+
+Evidence:
+
+- `real process`, headless, SMB files, tunnel-like request order (in-process
+  server): asked -> sent 95-120 ms -> 26 ms.
+- `real process`, CLI-launched server on 8911, click-like sequence (ping,
+  `/load` background, lease, 0.4 s gap, page on the leased port): asked -> sent
+  6-12 ms on three cold SMB files; page -> image 165-280 ms; 0 failed requests.
+  Cold single file: 15-62 ms. Cold `--match` (9 SMB files): 10 ms. `--match` and
+  a single file launched from the CLI against the running server: 10 / 12 ms.
+  Servers exited on their own.
+- `tests/test_first_slice_warmup.py` (fails without the warm-up).
+- `real host`: **not run**. Acceptance: `scripts/first_image_wait.py <day>`,
+  "asked -> image" for clicked network files should fall from ~430 ms to a few
+  tens.
+
+### Change 2 (opener 0.15.75): the click's own request is taken at once
+
+`_fastLoadViaDaemon` writes the request file for its own window and then waited
+for that window's fs.watch event plus the handler's 100 ms settle delay (there
+for outside writers). It now calls `tryOpenSignalFile()` right after the
+rename. The watcher still fires and finds the request claimed. Expected: click
+-> tab from ~250 ms to ~140 ms (`scripts/first_image_wait.py`, "click -> tab";
+baseline median 268 ms over 16 clicks on 2026-11-09).
+
+- `component`: `node --check`, `tests/test_vsix_bundle.py`, lifecycle helper test.
+- `real host`: **not run** — needs the new opener installed and the window
+  reloaded.
+
+### Not changed, and why
+
+- ~0.25 s from tab command to the viewer's first request is VS Code creating
+  the tab, the page crossing the tunnel and the socket connecting. A new tab
+  per array is a requirement, so this stays.
+- ping, `/load` and `/cold-start-port` run one after another (~60 ms). Running
+  the last two together would save ~15 ms and can strand a port lease when the
+  load fails. Left.
