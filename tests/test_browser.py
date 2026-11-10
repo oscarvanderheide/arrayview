@@ -597,6 +597,30 @@ class TestKeyboard:
         restored = page.locator(".mv-pane").nth(1).bounding_box()
         assert abs(restored["width"] - before) < 1
 
+    def test_w_quick_zoom_moves_dimbar_and_colorbar_aside(self, loaded_viewer, sid_3d):
+        # Horizontal ortho: dimbar right above the row, colour bar right under
+        # it. Both slide away so the zoomed pane can grow past the row height.
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.evaluate("orthoLayoutMode = 'horizontal'; mvScaleAllCanvases();")
+        page.wait_for_timeout(800)
+        row = page.locator(".mv-pane").nth(2).bounding_box()
+        cb_before = page.locator("#mv-cb-wrap").bounding_box()
+        page.mouse.move(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
+        page.keyboard.press("w")
+        page.wait_for_timeout(600)
+        zoomed = page.locator(".mv-pane.av-qz-target").bounding_box()
+        cb_after = page.locator("#mv-cb-wrap").bounding_box()
+        assert zoomed["height"] > row["height"] * 1.2
+        assert cb_after["y"] > cb_before["y"] + 20
+        assert cb_after["y"] >= zoomed["y"] + zoomed["height"]
+        page.keyboard.press("w")
+        page.wait_for_timeout(600)
+        cb_back = page.locator("#mv-cb-wrap").bounding_box()
+        assert abs(cb_back["y"] - cb_before["y"]) < 1
+
     def test_v_toggles_back_to_single_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)

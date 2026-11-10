@@ -3903,6 +3903,9 @@
         }
         /* The dimbar moves up out of the way when there is room above it. */
         body.av-qz-on #info { translate: 0 var(--qz-info-y, 0px); }
+        /* Shared chrome right under the panes (one colour bar for all) slides
+           down the same way; its transition is extended inline. */
+        body.av-qz-on .av-qz-slide { translate: 0 var(--qz-slide-y, 0px); }
         body.av-qz-anim #info {
             transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease,
                         translate 0.36s cubic-bezier(0.32, 0.72, 0.24, 1);
@@ -9492,6 +9495,44 @@
                 : (el, ang, k, dx, dy) => {
                     el.style.rotate = `${ang}deg`; el.style.scale = `${k}`; el.style.translate = `${dx}px ${dy}px`;
                 };
+            // cube: e = turn progress; r = blend of the guessed incoming face/box
+            // toward the real new box once its frame has landed. Size-to-fit
+            // uses the visible faces' projected corners, so the box shrinks
+            // exactly as much as its pose needs; faces darken as they turn away.
+            const cubePose = (i, e, r) => {
+                const c = cubes[i], o = old[i], n = c.n, { k, th, bx, by, bn, rot } = cube;
+                const L = (a, b) => a + (b - a) * r;
+                const w2 = n ? L(c.gw, n.w) : c.gw, h2 = n ? L(c.gh, n.h) : c.gh;
+                const cx = n ? L(o.cx, n.cx) : o.cx, cy = n ? L(o.cy, n.cy) : o.cy;
+                const fw = n ? L(o.w, n.w) : o.w, fh = n ? L(o.h, n.h) : o.h;
+                const Z = Math.abs(bx[2]) * w2 + Math.abs(by[2]) * h2;
+                const dB = Math.abs(bn[0]) * o.w / 2 + Math.abs(bn[1]) * o.h / 2;
+                const zc = Z / 2 + (dB - Z / 2) * e, ang = th * e, P = 1800;
+                const nzA = _rot3(k, ang, [0, 0, 1])[2], nzB = _rot3(k, ang, bn)[2];
+                // Per face: fit of its projected corners, relaxed toward 1 as the
+                // face turns edge-on, so a face leaving/entering never makes the size jump.
+                const faceFit = (corner, nz) => {
+                    let mx = 0, my = 0;
+                    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+                        const v = _rot3(k, ang, corner(sx, sy)), f = P / Math.max(1, P - (v[2] - zc));
+                        mx = Math.max(mx, Math.abs(v[0]) * f); my = Math.max(my, Math.abs(v[1]) * f);
+                    }
+                    const ft = mx && my ? Math.min(1, fw / (2 * mx), fh / (2 * my)) : 1;
+                    const t = Math.max(0, Math.min(1, nz / 0.35)), vis = t * t * (3 - 2 * t);
+                    return 1 + (ft - 1) * vis;
+                };
+                const fit = Math.min(1,
+                    faceFit((sx, sy) => [sx * o.w / 2, sy * o.h / 2, Z / 2], nzA),
+                    faceFit((sx, sy) => [0, 1, 2].map(j => bx[j] * sx * w2 / 2 + by[j] * sy * h2 / 2 + bn[j] * dB), nzB));
+                const s = Math.pow(fit, 0.85);
+                ghosts[i].style.transform = `translate(${cx - o.cx}px, ${cy - o.cy}px) scale(${s})`;
+                c.box.style.transform = `translateZ(${-zc}px) ${rot} ${ang}deg)`;
+                c.fa.style.transform = `translateZ(${Z / 2}px)`;
+                c.fb.style.transform = `${rot} ${-th}deg) translateZ(${dB}px) scale(${w2 / c.bw}, ${h2 / c.bh})`;
+                const shade = nz => 0.7 * Math.pow(Math.max(0, 1 - Math.max(0, nz)), 1.3);
+                c.sa.style.opacity = shade(nzA); c.sb.style.opacity = shade(nzB);
+            };
+            let prog = 0, lastNow = t0;
             let raf = 0, lastSeq = seq0, quiet = 0, t1 = 0, tEnd = 0;
             const q = { landed: false };
             const finishAll = () => {
@@ -9508,11 +9549,20 @@
             const land = now => {
                 q.landed = true; t1 = now;
                 const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
-                tEnd = Math.max(t0 + _TURN_MS, now + 180);
+                tEnd = cube ? now + Math.max(180, (1 - prog) * cube.ms) : Math.max(t0 + _TURN_MS, now + 180);
                 path.forEach((p, i) => {
                     const cur = pose(p, e, 0);
                     p.from = cur;
                     p.n = rectOf(panes[i].getBoundingClientRect());
+                });
+                // cube: the incoming face gets the new frame, sized to the real new box.
+                if (cube) cubes.forEach((c, i) => {
+                    const n = c.n = path[i].n;
+                    const copy = snap(panes[i]);
+                    copy.querySelectorAll(_TURN_LABELS).forEach(el => { el.style.opacity = '0'; });
+                    c.fb.insertBefore(copy, c.sb);
+                    Object.assign(c.fb.style, { width: n.w + 'px', height: n.h + 'px', margin: `${-n.h / 2}px 0 0 ${-n.w / 2}px` });
+                    c.bw = n.w; c.bh = n.h;
                 });
                 pins.forEach(a => a.cancel()); pins = [];
                 _placeCaseNameOut(true);
@@ -9535,13 +9585,21 @@
                     else pin();
                 }
                 holdLabels();
-                const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
                 const r = q.landed ? _turnEase(Math.min(1, (now - t1) / Math.max(1, tEnd - t1))) : 0;
-                path.forEach((p, i) => {
-                    const ps = pose(p, e, r);
-                    setPose(ghosts[i], ps.ang, ps.k, ps.cx - p.o.cx, ps.cy - p.o.cy);
-                });
-                if (q.landed && now >= tEnd) {
+                if (cube) {
+                    // Barely moves until the new frame is there, so the face rolling in is never empty.
+                    prog = Math.min(q.landed ? 1 : 0.15, prog + (now - lastNow) / cube.ms);
+                    lastNow = now;
+                    const e = _cubeEase(prog);
+                    cubes.forEach((c, i) => cubePose(i, e, r));
+                } else {
+                    const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
+                    path.forEach((p, i) => {
+                        const ps = pose(p, e, r);
+                        setPose(ghosts[i], ps.ang, ps.k, ps.cx - p.o.cx, ps.cy - p.o.cy);
+                    });
+                }
+                if (q.landed && now >= tEnd && (!cube || prog >= 1)) {
                     holdLabels();
                     const names = [...labelHolds.keys()].filter(n => n.isConnected);
                     finishAll();
@@ -30290,7 +30348,11 @@
                     if (rgbMode || hasVectorfield) { showStatus('views: not available for this array'); return; }
                     const planes = _cyclePlanes();
                     if (!planes) { showStatus('views: need three spatial dimensions'); return; }
-                    _crossfadeViewAround(() => _switchToNextPlane(planes));
+                    // Box roll about the axis both views share; chrome glides as for r / t.
+                    const od = [dim_x, dim_y, flip_x, flip_y];
+                    _quarterTurnAround(() => _switchToNextPlane(planes),
+                        () => [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')],
+                        'cube', () => _planeCubeTurn(od));
                 },
             },
             'view.transpose': {
@@ -46746,6 +46808,10 @@
         const QUICK_ZOOM_PANE_SEL = '.mv-pane, .qv-pane, .compare-pane';
         const QUICK_ZOOM_GLIDE_MS = 360;
         const QUICK_ZOOM_TOP_PAD = 14;   // dimbar's top gap in a plain single view
+        const QUICK_ZOOM_BOTTOM_PAD = 20;
+        const QUICK_ZOOM_SLIDE_TRANSITION = 'translate 0.36s cubic-bezier(0.32, 0.72, 0.24, 1)';
+        // Chrome under the panes found when the zoom opened: { blocks, limitEl }.
+        let _quickZoomBelow = null;
         let _quickZoomPane = null;
         let _quickZoomObserver = null;
         let _quickZoomCleanupTimer = null;
@@ -46804,6 +46870,7 @@
         function _setQuickZoomPane(pane) {
             if (_quickZoomObserver) { _quickZoomObserver.disconnect(); _quickZoomObserver = null; }
             _quickZoomPane = pane || null;
+            if (_quickZoomPane) _quickZoomBelow = null;   // re-scan on open
             if (_quickZoomPane && typeof ResizeObserver !== 'undefined') {
                 _quickZoomObserver = new ResizeObserver(() => _reconcileQuickZoom());
                 _quickZoomObserver.observe(_quickZoomPane);
@@ -46817,22 +46884,76 @@
                 || !!(el.closest && el.closest(QUICK_ZOOM_PANE_SEL));
         }
 
-        // Free space below the panes: walk down until something that is not
-        // the panes or their container (a shared colour bar, a panel) shows up.
-        function _quickZoomBottomLimit(U, container) {
-            const xs = [0.2, 0.5, 0.8].map(f => U.left + (U.right - U.left) * f);
-            for (let y = Math.ceil(U.bottom) + 2; y < window.innerHeight - 8; y += 4) {
-                for (const x of xs) {
-                    if (!_quickZoomIsBackdrop(document.elementFromPoint(x, y), container)) return Math.max(U.bottom, y - 16);
-                }
-            }
-            return Math.max(U.bottom, window.innerHeight - 24);
-        }
-
         function _quickZoomContainer(panes) {
             let c = panes[0] ? panes[0].parentElement : null;
             while (c && !panes.every(p => c.contains(p))) c = c.parentElement;
             return c;
+        }
+
+        // The outermost ancestor of `el` that holds no pane: the whole strip a
+        // shared colour bar sits in, so it moves as one piece.
+        function _quickZoomChromeBlock(el, container) {
+            const wrapper = document.getElementById('wrapper');
+            let b = el;
+            while (b.parentElement && b.parentElement !== document.body && b.parentElement !== wrapper
+                && !(container && b.parentElement.contains(container))) b = b.parentElement;
+            return b;
+        }
+
+        function _quickZoomLayoutBox(el) {
+            const r = el.getBoundingClientRect();
+            const dy = _quickZoomTranslateY(el);
+            return { top: r.top - dy, bottom: r.bottom - dy };
+        }
+
+        // Chrome directly under the panes (a shared colour bar) and the next
+        // thing below that, if any. Scanned once, when the zoom opens.
+        function _quickZoomScanBelow(U, container) {
+            const info = document.getElementById('info');
+            const xs = [0.2, 0.5, 0.8].map(f => U.left + (U.right - U.left) * f);
+            const blocks = [];
+            let firstY = null;
+            for (let y = Math.ceil(U.bottom) + 2; y < window.innerHeight - 8; y += 4) {
+                for (const x of xs) {
+                    const el = document.elementFromPoint(x, y);
+                    if (_quickZoomIsBackdrop(el, container)) continue;
+                    const blk = _quickZoomChromeBlock(el, container);
+                    if (info && (blk === info || blk.contains(info))) continue;
+                    if (!blocks.includes(blk)) blocks.push(blk);
+                    if (firstY === null) firstY = y;
+                }
+                if (firstY !== null && y >= firstY + 8) break;
+            }
+            // Only slide what sits close under the panes; far-off chrome just
+            // bounds the free space.
+            if (firstY !== null && firstY - U.bottom > 48) {
+                return { blocks: [], limitEl: blocks[0] || null };
+            }
+            let limitEl = null;
+            if (blocks.length) {
+                const bBottom = Math.max(...blocks.map(b => _quickZoomLayoutBox(b).bottom));
+                outer: for (let y = Math.ceil(bBottom) + 2; y < window.innerHeight - 8; y += 4) {
+                    for (const x of xs) {
+                        const el = document.elementFromPoint(x, y);
+                        if (_quickZoomIsBackdrop(el, container) || blocks.some(b => b.contains(el))) continue;
+                        limitEl = el;
+                        break outer;
+                    }
+                }
+            }
+            return { blocks, limitEl };
+        }
+
+        function _quickZoomReleaseBlocks() {
+            document.querySelectorAll('.av-qz-slide').forEach(el => {
+                el.classList.remove('av-qz-slide');
+                el.style.removeProperty('--qz-slide-y');
+                if ('qzPrevTransition' in el.dataset) {
+                    el.style.transition = el.dataset.qzPrevTransition;
+                    delete el.dataset.qzPrevTransition;
+                }
+            });
+            _quickZoomBelow = null;
         }
 
         // Glide a pane back to its own spot, then drop the zoom styling.
@@ -46854,6 +46975,7 @@
                 });
                 if (_quickZoomPane) return;
                 document.getElementById('info')?.style.removeProperty('--qz-info-y');
+                _quickZoomReleaseBlocks();
                 document.body.classList.remove('av-qz-anim');
                 document.querySelectorAll('.av-qz-unclip').forEach(el => el.classList.remove('av-qz-unclip'));
             }, QUICK_ZOOM_GLIDE_MS + 60);
@@ -46874,6 +46996,7 @@
                         ['--qz-tx', '--qz-ty', '--qz-s'].forEach(k => el.style.removeProperty(k));
                     });
                     document.querySelectorAll('.av-qz-unclip').forEach(el => el.classList.remove('av-qz-unclip'));
+                    _quickZoomReleaseBlocks();
                     return;
                 }
                 const rects = panes.map(p => _quickZoomLayoutRect(p));
@@ -46883,11 +47006,33 @@
                     right: Math.max(...rects.map(r => r.right)),
                     bottom: Math.max(...rects.map(r => r.bottom)),
                 };
-                const bottom = _quickZoomBottomLimit(U, _quickZoomContainer(panes));
+                const container = _quickZoomContainer(panes);
+                if (!_quickZoomBelow) _quickZoomBelow = _quickZoomScanBelow(U, container);
+                const below = _quickZoomBelow;
+                let bottom, slide = 0;
+                const blocks = below.blocks.filter(b => b.isConnected);
+                if (blocks.length) {
+                    // Slide the strip under the panes down to the bottom of the
+                    // window (or the next thing below it) and grow into the room,
+                    // keeping the gap it had to the panes.
+                    const boxes = blocks.map(b => _quickZoomLayoutBox(b));
+                    const bTop = Math.min(...boxes.map(b => b.top));
+                    const bBottom = Math.max(...boxes.map(b => b.bottom));
+                    const gap = Math.max(6, bTop - U.bottom);
+                    const limit = below.limitEl && below.limitEl.isConnected
+                        ? below.limitEl.getBoundingClientRect().top - 8
+                        : window.innerHeight - QUICK_ZOOM_BOTTOM_PAD;
+                    slide = Math.max(0, Math.round(limit - bBottom));
+                    bottom = Math.max(U.bottom, bTop + slide - gap);
+                } else if (below.limitEl && below.limitEl.isConnected) {
+                    bottom = Math.max(U.bottom, below.limitEl.getBoundingClientRect().top - 16);
+                } else {
+                    bottom = Math.max(U.bottom, window.innerHeight - 24);
+                }
                 // When the panes sit low (qMRI row centred in the window) the
                 // dimbar slides up to its usual top spot and the pane grows
                 // into the room it leaves, keeping the same gap below it.
-                let top = U.top, infoShift = 0;
+                let top = U.top, infoShift = 0, infoCx = null;
                 const info = document.getElementById('info');
                 const infoPinned = (typeof _fullscreenActive !== 'undefined' && _fullscreenActive)
                     || (typeof _infoDragPos !== 'undefined' && _infoDragPos);
@@ -46896,6 +47041,9 @@
                         const ir = info.getBoundingClientRect();
                         const cur = _quickZoomTranslateY(info);
                         if (ir.bottom - cur <= U.top + 1) {
+                            // Centre under the dimbar: big-left centres it (and
+                            // the colour bar) on the big pane, not the cluster.
+                            infoCx = (ir.left + ir.right) / 2;
                             infoShift = Math.max(0, Math.round(ir.top - cur - QUICK_ZOOM_TOP_PAD));
                             top = U.top - infoShift;
                         }
@@ -46904,9 +47052,13 @@
                     }
                 }
                 if (info) info.style.setProperty('--qz-info-y', (-infoShift) + 'px');
-                const cx = (U.left + U.right) / 2;
                 const sideMargin = 40;
-                const halfW = Math.max(U.right - cx, Math.min(cx - sideMargin, window.innerWidth - sideMargin - cx));
+                let cx = (U.left + U.right) / 2;
+                let halfW = Math.max(U.right - cx, Math.min(cx - sideMargin, window.innerWidth - sideMargin - cx));
+                if (infoCx !== null) {
+                    const halfAtInfo = Math.min(infoCx - sideMargin, window.innerWidth - sideMargin - infoCx);
+                    if (halfAtInfo > 100) { cx = infoCx; halfW = halfAtInfo; }
+                }
                 const r = rects[panes.indexOf(pane)];
                 const s = Math.max(1, Math.min((2 * halfW) / r.width, (bottom - top) / r.height));
                 // transform-origin is the pane centre: line the scaled pane's top
@@ -46922,6 +47074,16 @@
                 for (let el = pane.parentElement; el && el !== wrapper && el !== document.body; el = el.parentElement) {
                     const cs = getComputedStyle(el);
                     if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') el.classList.add('av-qz-unclip');
+                }
+                for (const b of blocks) {
+                    if (!('qzPrevTransition' in b.dataset)) {
+                        b.dataset.qzPrevTransition = b.style.transition || '';
+                        const cur = getComputedStyle(b).transition;
+                        b.style.transition = cur && cur !== 'none' && !/^all 0s/.test(cur)
+                            ? `${cur}, ${QUICK_ZOOM_SLIDE_TRANSITION}` : QUICK_ZOOM_SLIDE_TRANSITION;
+                    }
+                    b.style.setProperty('--qz-slide-y', slide + 'px');
+                    b.classList.add('av-qz-slide');
                 }
                 pane.classList.remove('av-qz-closing');
                 pane.style.setProperty('--qz-tx', tx.toFixed(1) + 'px');
