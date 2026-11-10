@@ -51,6 +51,12 @@ open arrays straight away, or tick several open arrays or files (up to six
 panes) and press Enter. Arrays of a different shape fade out. This works in
 VS Code tabs, where `Cmd/Ctrl+O` is taken by VS Code.
 
+The chosen arrays then reopen together the way several files on the command
+line do: one array with them along a new last dimension, shown side by side.
+Dropping a file and choosing **Compare side by side** does the same. When
+that is not possible (different shapes, RGB, overlays on screen) they open in
+the older compare view.
+
 ## Switching between arrays
 
 `n` cycles the compare target array (when multiple arrays are loaded).

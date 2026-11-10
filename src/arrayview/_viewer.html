@@ -25715,8 +25715,10 @@
                 _dropMenuVisible = false;
                 _reconcileUI();
                 if (action === 'compare') {
-                    await enterCompareModeBySid(result.sid, result.name);
-                    showStatus(`Compare: ${result.name}`);
+                    if (!await _compareAsStack([sid, result.sid])) {
+                        await enterCompareModeBySid(result.sid, result.name);
+                        showStatus(`Compare: ${result.name}`);
+                    }
                 } else if (action === 'overlay') {
                     await _attachOverlaySession(result);
                 } else if (replaceCurrent || !sid) {
@@ -30586,9 +30588,9 @@
                     const result = await showUnifiedPicker('open');
                     if (!result) return;
                     if (result.action === 'compare' && result.sids && result.sids.length >= 2) {
-                        await enterCompareModeByMultipleSids(result.sids);
+                        if (!await _compareAsStack(result.sids)) await enterCompareModeByMultipleSids(result.sids);
                     } else if (result.action === 'compare' && result.sids && result.sids.length === 1) {
-                        await enterCompareModeBySid(result.sids[0], result.names[0] || '');
+                        if (!await _compareAsStack([sid, result.sids[0]])) await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                     }
                     // For 'open' action, navigation already happened in the picker
                 },
@@ -36061,9 +36063,32 @@
             const result = await showUnifiedPicker('compare');
             if (!result) return;
             if (result.action === 'compare' && result.sids.length >= 2) {
-                await enterCompareModeByMultipleSids(result.sids);
+                if (!await _compareAsStack(result.sids)) await enterCompareModeByMultipleSids(result.sids);
             } else if (result.action === 'compare' && result.sids.length === 1) {
-                await enterCompareModeBySid(result.sids[0], result.names[0] || '');
+                if (!await _compareAsStack([sid, result.sids[0]])) await enterCompareModeBySid(result.sids[0], result.names[0] || '');
+            }
+        }
+
+        // Compare from the picker or a drop: same-shape plain arrays reopen
+        // as one stack, side by side, like several files on the command line.
+        // False (nothing changed) when they cannot stack; the caller then
+        // uses the per-array compare.
+        async function _compareAsStack(sids) {
+            const list = (sids || []).filter(Boolean);
+            if (list.length < 2 || new Set(list).size !== list.length) return false;
+            if (_overlaySids.length || isInlineEmbed) return false;
+            try {
+                const res = await proxyFetch('/stack', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sids: list }),
+                });
+                const out = res.ok ? await res.json() : null;
+                if (!out || out.error || !out.url) return false;
+                window.location.href = _dropViewerUrl(out.url);
+                return true;
+            } catch (_e) {
+                return false;
             }
         }
 

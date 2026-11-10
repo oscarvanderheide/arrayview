@@ -1008,8 +1008,10 @@ class TestKeyboard:
         assert twin_row.get_attribute("data-number") is not None
 
         page.keyboard.press(twin_row.get_attribute("data-number"))
-        page.wait_for_function("() => compareActive === true", timeout=5_000)
-        assert page.evaluate("() => getCompareRenderSids()") == [sid_3d, twin]
+        # Same shape: both reopen as one stack side by side, like two CLI files.
+        page.wait_for_url(lambda u: sid_3d not in u, timeout=10_000)
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        assert page.evaluate("() => caseNames") == ["arr3d", "arr3d_twin"]
 
     def test_compare_mosaic_hover_toggle_sends_no_rejected_pixel_request(
         self, page, server_url, sid_3d, arr_3d, client, tmp_path

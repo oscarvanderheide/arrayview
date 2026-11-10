@@ -4676,3 +4676,28 @@ class TestRevealTab:
                 assert pop("/?t=other") is False
                 assert pop("/?t=ab12c") is True
             assert asked == [("w1", "/?t=ab12c", 5.0, "toggle-window")]
+
+
+class TestStackOpenArrays:
+    """Picker / drop compare: same-shape open arrays reopen as one stack."""
+
+    def test_same_shape_arrays_stack_as_cases(self, client, tmp_path):
+        from conftest import register_array
+
+        a = register_array(client, np.zeros((6, 8, 3), np.float32), tmp_path, "a")
+        b = register_array(client, np.ones((6, 8, 3), np.float32), tmp_path, "b")
+        out = client.post("/stack", json={"sids": [a, b]}).json()
+        assert out["url"] == f"/?sid={out['sid']}"
+        meta = client.get(f"/metadata/{out['sid']}").json()
+        assert meta["shape"] == [6, 8, 3, 2]
+        assert meta["collection_spatial_ndim"] == 3
+        assert meta["case_names"] == ["a", "b"]
+
+    def test_different_shapes_do_not_stack(self, client, tmp_path):
+        from conftest import register_array
+
+        a = register_array(client, np.zeros((6, 8, 3), np.float32), tmp_path, "a")
+        c = register_array(client, np.zeros((5, 8, 3), np.float32), tmp_path, "c")
+        assert "error" in client.post("/stack", json={"sids": [a, c]}).json()
+        assert "error" in client.post("/stack", json={"sids": [a]}).json()
+        assert "error" in client.post("/stack", json={"sids": [a, "nope"]}).json()
