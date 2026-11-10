@@ -753,14 +753,14 @@ class TestKeyboard:
         page.wait_for_function("() => compareQmriActive", timeout=5_000)
         rows_names = "() => [...document.querySelectorAll('.cq-row-name')].map(e => e.textContent.toLowerCase()).join(',')"
         assert page.evaluate("() => [...new Set(compareQmriViews.map(v => v.rowIdx))]") == [0, 1]
-        assert page.evaluate(rows_names) == "alpha,bravo"
+        assert page.evaluate(rows_names) == "1 · alpha,2 · bravo"
         page.wait_for_function("() => compareQmriViews.every(v => v.lastW > 0)", timeout=10_000)
         page.wait_for_timeout(500)
         page.screenshot(path=shots + "/qmri_cases.png")
         # j/k on the case dim pages the rows to the next cases.
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         page.keyboard.press("k")
-        page.wait_for_function(f"() => ({rows_names})() === 'bravo,charlie'", timeout=5_000)
+        page.wait_for_function(f"() => ({rows_names})() === '2 · bravo,3 · charlie'", timeout=5_000)
         page.keyboard.press("q")
         page.wait_for_function("() => !compareQmriActive && detachedDimMode && compareActive", timeout=5_000)
         assert page.evaluate("() => detachedDimIdx.join(',')") == "1,2"
@@ -1837,6 +1837,11 @@ class TestModeCombinations:
         page.keyboard.press("q")
         page.wait_for_function("() => qmriActive", timeout=5_000)
         page.wait_for_timeout(500)
+        # The maps dim shows in the dim bar as a purple "q".
+        q = page.evaluate("""() => { const e = document.querySelector('#info .dim-mode-letter');
+            return e && [e.textContent, getComputedStyle(e).webkitTextFillColor]; }""")
+        assert q == ["q", "rgb(167, 139, 250)"], q
+        page.screenshot(path=str(tmp_path / "qdim.png"))
         box = page.locator("#qmri-view-wrap canvas.qv-canvas").first.bounding_box()
         before = page.evaluate("() => JSON.stringify(indices)")
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)

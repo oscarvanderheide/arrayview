@@ -4012,7 +4012,8 @@
         }
         /* Hidden but keeping their space; shown only while a [ ] press flashes. */
         .detached-index-hint .hint-bracket:not(.index-hint-glow) { visibility: hidden; }
-        #info .dim-spread-set { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
+        /* Dims shown all at once by a mode ("s" side by side, "q" qMRI maps). */
+        #info .dim-spread-set, #info .dim-mode-letter { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -23132,7 +23133,11 @@
             const sizeOf = (i) => (_smSpatial && i < collectionSpatialNdim && _smSpatial[i] != null) ? _smSpatial[i] : shape[i];
             const _smIdx = stackMosaicActive ? _stackMosaicHoverIndices() : null;
             const idxParts = (_smIdx || indices).map((v, i) => {
-                if (_isQmriControlDim(i)) return '';
+                // The qMRI maps dim: a purple "q", like side by side's "s".
+                // No data-dim — every map is already on screen, nothing to pick.
+                if (_isQmriControlDim(i)) {
+                    return `<span class="dim-label"><span class="dim-mode-letter">q</span><span class="dim-slash">/</span><span class="dim-size">${shape[i]}</span></span>`;
+                }
                 const active = (i === activeDim);
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim' : 'active-dim';
