@@ -2121,6 +2121,9 @@
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 120ms ease; }
         body.loupe-value-pill #mode-eggs { z-index: 101; }
+        /* o / r / t: the turning copy of the image sits at z 41; the badges and
+           the view HUD (on the image) stay above it for the whole turn. */
+        body.av-turning #mode-eggs { z-index: 42; }
         body.loupe-value-pill .cv-pixel-info { display: none !important; }
         #mode-eggs.percentile-preset-switching { opacity: 0; }
         #mode-eggs .mode-badge {
@@ -9419,6 +9422,7 @@
                 .filter(el => el.getClientRects().length && !panes.some(b => b.contains(el)));
             const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
             const glideOld = glide.map(el => el.getBoundingClientRect());
+            document.body.classList.add('av-turning');
             const seq0 = _frameDisplaySeq, t0 = performance.now();
             try { change(); } catch (e) { console.error(e); }
             // cube: incoming face's in-plane axes (bx, by) and normal (bn) in box space at the start.
@@ -9564,6 +9568,7 @@
             };
             const finishAll = () => {
                 if (raf) cancelAnimationFrame(raf); raf = 0;
+                document.body.classList.remove('av-turning');
                 ghosts.forEach(g => g.remove());
                 holds.forEach(a => a.cancel()); pins.forEach(a => a.cancel());
                 newcomers.forEach(a => a.cancel());
