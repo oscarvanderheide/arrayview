@@ -18891,6 +18891,8 @@
                 }
                 data = result.data;
             }
+            // Updates sent right after opening still count as new data.
+            if (Number.isInteger(data.data_version)) _watchDataVersion = data.data_version;
 
             await _loadOverlayLabelValues();
 

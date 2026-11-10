@@ -13,6 +13,17 @@ the order you typed them (a `|` in the dimension bar marks it). Files may have
 different shapes. Two to four open side by side; five or more show one at a
 time. A folder or `--match` collection does the same.
 
+From Python, `view(a, b)` does the same with arrays of the same shape:
+
+```python
+ha, hb = arrayview.view(a, b)   # side by side, panes named "a" and "b"
+hb.update(b2)                   # replaces only the second pane
+```
+
+Each array still gets its own handle; closing any of them closes the view.
+Arrays of different shapes, or with `rgb=` or `overlay=`, open in the older
+compare view.
+
 ## Side by side
 
 `s` shows the active dimension in several panes — the files you loaded, or

@@ -2907,6 +2907,76 @@ class TestUpdate:
         assert r2.json()["version"] == v1 + 1
 
 
+class TestViewArrayStack:
+    """view(a, b, ...) opens like several CLI files: one stack, cases last."""
+
+    def test_stack_reads_each_array_without_copy(self):
+        from arrayview._io import _ArrayStack
+
+        a = np.zeros((4, 5), dtype=np.float32)
+        b = np.ones((4, 5), dtype=np.float64)
+        stack = _ArrayStack([a, b], ["a", "b"])
+        assert stack.shape == (4, 5, 2)
+        assert stack.dtype == np.float64
+        assert stack._vol_shape == (4, 5)
+        assert float(stack[:, :, 1].sum()) == 20.0
+        assert np.asarray(stack).shape == (4, 5, 2)
+        b[0, 0] = 7.0
+        assert stack[0, 0, 1] == 7.0
+        with pytest.raises(ValueError, match="same shape"):
+            _ArrayStack([a, np.zeros((3, 5))])
+
+    def test_only_same_shape_plain_arrays_stack(self):
+        from arrayview._launcher import _stackable_view_arrays
+
+        a = np.zeros((4, 5))
+        assert _stackable_view_arrays((a, a), [False, False], None)
+        assert not _stackable_view_arrays((a,), [False], None)
+        assert not _stackable_view_arrays((a, np.zeros((4, 6))), [False, False], None)
+        assert not _stackable_view_arrays((a, a), [True, False], None)
+        assert not _stackable_view_arrays((a, a), [False, False], a)
+
+    def test_handles_share_one_view_and_update_their_own_slot(self):
+        from arrayview._launcher import _view_handles
+
+        ha, hb = _view_handles("http://localhost:1/", ["sid"], 1, None, 2)
+        assert (ha.sid, hb.sid) == ("sid", "sid")
+        assert (ha._slot, hb._slot) == (0, 1)
+        assert ha._shared is hb._shared
+
+    def test_running_server_shows_stack_as_cases_and_updates_one(
+        self, client, tmp_path
+    ):
+        a = np.zeros((6, 8, 3), dtype=np.float32)
+        b = np.full((6, 8, 3), 2.0, dtype=np.float32)
+        path = tmp_path / "stack.npy"
+        np.save(path, np.stack([a, b], axis=-1))
+        sid = client.post(
+            "/load",
+            json={"filepath": str(path), "name": "a · b", "stack_names": ["a", "b"]},
+        ).json()["sid"]
+        meta = client.get(f"/metadata/{sid}").json()
+        assert meta["shape"] == [6, 8, 3, 2]
+        assert meta["collection_spatial_ndim"] == 3
+        assert meta["case_names"] == ["a", "b"]
+
+        def pixel(case):
+            params = {"dim_x": 1, "dim_y": 0, "indices": f"0,0,0,{case}", "px": 2, "py": 2}
+            return client.get(f"/pixel/{sid}", params=params).json()["value"]
+
+        assert (pixel(0), pixel(1)) == (0.0, 2.0)
+        buf = io.BytesIO()
+        np.save(buf, np.full((6, 8, 3), 5.0, dtype=np.float32))
+        r = client.post(f"/update/{sid}?slot=0", content=buf.getvalue())
+        assert r.status_code == 200
+        assert (pixel(0), pixel(1)) == (5.0, 2.0)
+        buf = io.BytesIO()
+        np.save(buf, np.zeros((2, 2), dtype=np.float32))
+        r = client.post(f"/update/{sid}?slot=1", content=buf.getvalue())
+        assert r.status_code == 400
+        assert "keep its shape" in r.text
+
+
 class TestOverlaySliceCounts:
     def test_ragged_collection_counts_use_each_case_size(self, client, tmp_path):
         img_dir, mask_dir = tmp_path / "img", tmp_path / "mask"

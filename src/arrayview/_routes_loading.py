@@ -481,9 +481,22 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 if staging_dir:
                     cleanup_staging_directory(staging_dir)
                 return {"error": str(e)}
+            stack_names = body.get("stack_names")
+            if stack_names and not dir_patterns:
+                # view(a, b, ...) on a running server: the arrays came stacked
+                # along a new last dim; show them as cases, like CLI files.
+                from ._io import _ArrayStack
+
+                try:
+                    data = _ArrayStack.from_stacked(np.asarray(data), stack_names)
+                except Exception as e:
+                    return {"error": str(e)}
+                filepath_for_session = None
+            else:
+                filepath_for_session = None if dir_patterns else filepath
             try:
                 session = await asyncio.to_thread(
-                    Session, data, filepath=None if dir_patterns else filepath, name=name
+                    Session, data, filepath=filepath_for_session, name=name
                 )
             except Exception as e:
                 if staging_dir:

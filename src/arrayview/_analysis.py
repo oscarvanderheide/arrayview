@@ -152,6 +152,8 @@ def _build_metadata(session) -> dict:
         "vfield_n_times": _vfield_n_times(session),
         "is_rgb": session.rgb_axis is not None,
         "has_source_file": bool(getattr(session, "filepath", None)),
+        # The data the viewer opens on; a later bump means an update arrived.
+        "data_version": int(getattr(session, "data_version", 0)),
     }
     if getattr(session, "initial_view", None):
         meta["initial_view"] = session.initial_view

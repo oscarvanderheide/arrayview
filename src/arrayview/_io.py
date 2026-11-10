@@ -1251,6 +1251,69 @@ class _FileSeries:
         return result
 
 
+class _ArrayStack:
+    """Same-shape in-memory arrays seen as one array, cases along a new last dim.
+
+    What ``view(a, b, ...)`` shows, like several files on the command line.
+    No copy: a slice reads straight from its array. ``replace(i, arr)`` swaps
+    one case (``handle.update`` of that array's handle).
+    """
+
+    _av_lazy = True
+
+    def __init__(self, arrays, case_names=None):
+        arrays = list(arrays)
+        if len(arrays) < 2:
+            raise ValueError("a stack needs at least two arrays")
+        shape = tuple(int(s) for s in arrays[0].shape)
+        if any(tuple(int(s) for s in a.shape) != shape for a in arrays):
+            raise ValueError("stacked arrays must all have the same shape")
+        self._arrays = arrays
+        self._vol_shape = shape
+        self._dtype = np.result_type(*[np.dtype(a.dtype) for a in arrays])
+        self.shape = (*shape, len(arrays))
+        self.ndim = len(self.shape)
+        self.case_names = [str(n) for n in case_names] if case_names else None
+
+    @classmethod
+    def from_stacked(cls, data, case_names=None):
+        """Split an array already stacked along its last dim (no copy)."""
+        return cls([data[..., i] for i in range(int(data.shape[-1]))], case_names)
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @property
+    def nbytes(self):
+        return int(np.prod(self.shape)) * self._dtype.itemsize
+
+    def replace(self, i, arr):
+        if tuple(int(s) for s in arr.shape) != self._vol_shape:
+            raise ValueError(
+                f"array {i + 1} must keep its shape {self._vol_shape}, got {tuple(arr.shape)}"
+            )
+        self._arrays[i] = arr
+        self._dtype = np.result_type(*[np.dtype(a.dtype) for a in self._arrays])
+
+    def __getitem__(self, key):
+        if not isinstance(key, tuple):
+            key = (key,)
+        if not any(k is None or k is Ellipsis for k in key) and len(key) == self.ndim:
+            case = key[-1]
+            if isinstance(case, (int, np.integer)):
+                return np.asarray(self._arrays[int(case)][key[:-1]], dtype=self._dtype)
+        return np.asarray(self)[key]
+
+    def __array__(self, dtype=None, copy=None):
+        result = np.empty(self.shape, dtype=self._dtype)
+        for i, a in enumerate(self._arrays):
+            result[..., i] = np.asarray(a)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+
 class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin, _ScatteredRegionMixin):
     """Lazy collection view over same-rank, same-dtype files with varying shapes.
 

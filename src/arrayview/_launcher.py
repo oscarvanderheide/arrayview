@@ -1336,6 +1336,7 @@ def _load_session_from_filepath(
     initial_view: dict | None = None,
     code_source: dict | None = None,
     align_to: str | None = None,
+    stack_names: list[str] | None = None,
 ) -> dict:
     requested_sid = uuid.uuid4().hex
     payload = {
@@ -1353,6 +1354,8 @@ def _load_session_from_filepath(
         payload["source_staging_dir"] = source_staging_dir
     if align_to:
         payload["align_to"] = align_to
+    if stack_names:
+        payload["stack_names"] = list(stack_names)
     if watch:
         payload["watch"] = True
     if initial_view:
@@ -3432,12 +3435,18 @@ class ViewHandle(str):
         sid: str,
         port: int,
         server_id: str | None = None,
+        slot: int | None = None,
+        shared: dict | None = None,
     ):
         obj = super().__new__(cls, url)
         obj._sid = sid
         obj._port = port
         obj._server_id = server_id
         obj._closed = False
+        # One array of a view(a, b, ...) stack: update swaps only its pane,
+        # and closing any handle of the stack closes the whole view.
+        obj._slot = slot
+        obj._shared = shared
         return obj
 
     @property
@@ -3472,7 +3481,8 @@ class ViewHandle(str):
         _np.save(buf, arr)
         body = buf.getvalue()
         request = _req.Request(
-            f"http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}",
+            f"http://{_LOOPBACK_HOST}:{self._port}/update/{self._sid}"
+            + (f"?slot={self._slot}" if self._slot is not None else ""),
             data=body,
             headers=(
                 {"X-ArrayView-Expected-Server-ID": self._server_id}
@@ -3497,7 +3507,8 @@ class ViewHandle(str):
         Closing a handle more than once is a local no-op.  If the request
         fails, the handle remains open so the caller can retry.
         """
-        if self._closed:
+        if self._closed or (self._shared is not None and self._shared["closed"]):
+            self._closed = True
             return
 
         release_url = (
@@ -3523,6 +3534,8 @@ class ViewHandle(str):
                 f"  Is the ArrayView server still running?"
             ) from exc
         self._closed = True
+        if self._shared is not None:
+            self._shared["closed"] = True
 
     def __enter__(self):
         return self
@@ -3530,6 +3543,31 @@ class ViewHandle(str):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
         return False
+
+
+def _view_handles(url, sids, port, server_id, stack_slots=0):
+    """Handles for a multi-array view(): one per array, in the order given."""
+    if stack_slots:
+        shared = {"closed": False}
+        return tuple(
+            ViewHandle(url, sids[0], port, server_id, slot=i, shared=shared)
+            for i in range(stack_slots)
+        )
+    return tuple(ViewHandle(url, s, port, server_id) for s in sids)
+
+
+def _stackable_view_arrays(arrays, rgbs, overlay) -> bool:
+    """view(a, b, ...) stacks like several CLI files: same-shape numpy arrays,
+    no RGB, no overlay. Anything else keeps the per-array compare."""
+    import numpy as np
+
+    return (
+        len(arrays) > 1
+        and overlay is None
+        and not any(rgbs)
+        and all(isinstance(a, np.ndarray) and a.ndim >= 2 for a in arrays)
+        and len({a.shape for a in arrays}) == 1
+    )
 
 
 def _caller_variable_name(obj) -> str | None:
@@ -3629,8 +3667,14 @@ def view(
     ``(1, 1, 2)`` for 1 mm pixels and 2 mm slices. Slices then show their
     true proportions. Leading dimensions only; later ones keep size 1.
 
+    Several arrays of the same shape open like several files on the command
+    line: one array with them along a new last dimension, two to four shown
+    side by side. Arrays of different shapes, ``rgb`` or ``overlay`` keep the
+    older compare view.
+
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
-    objects for multiple arrays (one per array). In inline/Jupyter mode with
+    objects for multiple arrays (one per array). ``update`` on one of them
+    replaces only that array; closing any of them closes the whole view. In inline/Jupyter mode with
     multiple arrays, the IFrame is displayed automatically and a uniform tuple
     of ``ViewHandle`` objects is returned.
 
@@ -3716,6 +3760,23 @@ def view(
         (f"Array {getattr(arrays[i], 'shape', '?')}" if names[i] is None else names[i])
         for i in range(n_arrays)
     ]
+
+    # Several same-shape arrays: one array with them along a new last dim,
+    # as several files on the command line; the viewer opens 2-4 side by side.
+    _stack_slots = 0
+    if _stackable_view_arrays(arrays, rgbs, overlay):
+        from arrayview._io import _ArrayStack
+
+        _stack_slots = n_arrays
+        if (
+            _initial_view
+            and "index" in _initial_view
+            and len(_initial_view["index"]) == arrays[0].ndim
+        ):
+            _initial_view["index"] = [*_initial_view["index"], 0]
+        arrays = (_ArrayStack(arrays, names),)
+        names = [" · ".join(names)]
+        rgbs = [False]
 
     # Convenience: primary data and name
     data = arrays[0]
@@ -3870,13 +3931,14 @@ def view(
                 with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
                     _tmp_path = _tmp.name
                 try:
-                    np.save(_tmp_path, _array)
+                    np.save(_tmp_path, np.asarray(_array))
                     _is_primary = not _loaded_sids
                     _result = _load_session_from_filepath(
                         port,
                         _tmp_path,
                         _name,
                         rgb=_rgb,
+                        stack_names=getattr(_array, "case_names", None) if _stack_slots else None,
                         expected_server_id=_expected_server_id,
                         release_on_disconnect=inline,
                         initial_view=_initial_view if _is_primary else None,
@@ -3922,20 +3984,14 @@ def view(
                     if n_arrays == 1:
                         return _inline_html
                     _ipy_display(_inline_html)
-                    return tuple(
-                        ViewHandle(url_viewer, s, port, _expected_server_id)
-                        for s in [sid] + _compare_sids
-                    )
+                    return _view_handles(url_viewer, [sid] + _compare_sids, port, _expected_server_id, _stack_slots)
                 iframe = _make_resizable_jupyter_iframe(
                     _inline_url, port, height, _inline_mode_heights
                 )
                 if n_arrays == 1:
                     return iframe
                 _ipy_display(iframe)
-                return tuple(
-                    ViewHandle(url_viewer, s, port, _expected_server_id)
-                    for s in [sid] + _compare_sids
-                )
+                return _view_handles(url_viewer, [sid] + _compare_sids, port, _expected_server_id, _stack_slots)
 
             if _launch_plan.display is Display.NATIVE:
                 _session_mod._window_process = _open_webview_with_fallback(
@@ -3960,10 +4016,7 @@ def view(
             _print_viewer_location(url_viewer, launch_context=_launch_context)
             if n_arrays == 1:
                 return ViewHandle(url_viewer, sid, port, _expected_server_id)
-            return tuple(
-                ViewHandle(url_viewer, s, port, _expected_server_id)
-                for s in [sid] + _compare_sids
-            )
+            return _view_handles(url_viewer, [sid] + _compare_sids, port, _expected_server_id, _stack_slots)
         except Exception:
             _release_remote_sessions(
                 port,
@@ -4145,15 +4198,7 @@ def view(
             if n_arrays == 1:
                 return _inline_html
             _ipy_display(_inline_html)
-            handles = tuple(
-                ViewHandle(
-                    url_viewer,
-                    s,
-                    port,
-                    _session_mod.SERVER_RUNTIME.instance_id,
-                )
-                for s in [session.sid] + _compare_sids
-            )
+            handles = _view_handles(url_viewer, [session.sid] + _compare_sids, port, _session_mod.SERVER_RUNTIME.instance_id, _stack_slots)
             return handles
         iframe = _make_resizable_jupyter_iframe(
             _inline_url, port, height, _inline_mode_heights
@@ -4162,15 +4207,7 @@ def view(
             return iframe
         # Multi-array inline: display the IFrame and return a uniform tuple of handles.
         _ipy_display(iframe)
-        handles = tuple(
-            ViewHandle(
-                url_viewer,
-                s,
-                port,
-                _session_mod.SERVER_RUNTIME.instance_id,
-            )
-            for s in [session.sid] + _compare_sids
-        )
+        handles = _view_handles(url_viewer, [session.sid] + _compare_sids, port, _session_mod.SERVER_RUNTIME.instance_id, _stack_slots)
         return handles
 
     if window and can_native_window and not _force_browser and not _force_vscode:
@@ -4279,15 +4316,7 @@ def view(
             port,
             _session_mod.SERVER_RUNTIME.instance_id,
         )
-    return tuple(
-        ViewHandle(
-            url_viewer,
-            s,
-            port,
-            _session_mod.SERVER_RUNTIME.instance_id,
-        )
-        for s in [session.sid] + _compare_sids
-    )
+    return _view_handles(url_viewer, [session.sid] + _compare_sids, port, _session_mod.SERVER_RUNTIME.instance_id, _stack_slots)
 
 
 # ── Server Lifecycle ──────────────────────────────────────────────

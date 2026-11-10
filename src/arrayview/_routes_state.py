@@ -63,6 +63,20 @@ def register_state_routes(app, get_session_or_404) -> None:
             arr = np.load(io.BytesIO(raw))
         except Exception as e:
             return Response(status_code=400, content=f"failed to decode array: {e}")
+        slot = request.query_params.get("slot")
+        if slot is not None:
+            # One array of a view(a, b, ...) stack: swap just that case.
+            stack = session.data
+            try:
+                i = int(slot)
+                if not hasattr(stack, "replace") or not 0 <= i < stack.shape[-1]:
+                    raise ValueError(f"no array {i + 1} in this view")
+                stack.replace(i, arr)
+            except ValueError as e:
+                return Response(status_code=400, content=str(e))
+            session.reset_caches()
+            session.data_version = getattr(session, "data_version", 0) + 1
+            return {"version": session.data_version}
         session.data = arr
         session.shape = arr.shape
         session.spatial_shape = arr.shape
