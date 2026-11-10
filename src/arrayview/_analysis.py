@@ -42,6 +42,101 @@ def _code_source(session) -> dict | None:
     return {"kind": "file", "path": path}
 
 
+def _startup_dims(session, target_shape) -> tuple[int, int] | None:
+    """The two axes the viewer opens on, as sent to it in the metadata."""
+    collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
+    default_shape = target_shape
+    if collection_spatial_ndim is not None:
+        spatial_ndim = int(collection_spatial_ndim)
+        if 2 <= spatial_ndim <= len(target_shape):
+            # Collection axes are appended after the image dimensions. They
+            # select a case; they must not influence the startup plane.
+            default_shape = target_shape[:spatial_ndim]
+            # NIfTI metadata identifies the first three axes as anatomical.
+            # Later axes may be echoes, parameters, or time points, so they
+            # must not change which anatomical plane opens first.
+            if getattr(session, "spatial_meta", None) is not None:
+                default_shape = default_shape[:3]
+    return _session_mod._startup_dims_for_data(session.data, default_shape)
+
+
+def startup_view(session) -> tuple[int, int, tuple[int, ...]] | None:
+    """``(dim_x, dim_y, indices)`` of the first image the viewer asks for.
+
+    Mirrors the viewer's startup: the axes from the metadata, the middle slice
+    on spatial axes and 0 elsewhere (``_initialIndices``).  None when the
+    launch picks its own view or the session is one this cannot predict.
+    """
+    if getattr(session, "rgb_axis", None) is not None:
+        return None
+    if getattr(session.data, "_av_ragged", False):
+        return None
+    if getattr(session, "array_prompt", False):
+        return None
+    if getattr(session, "initial_view", None):
+        return None
+    shape = tuple(int(s) for s in session.shape)
+    if len(shape) < 2 or 0 in shape:
+        return None
+    dims = _startup_dims(session, shape)
+    if dims is None:
+        return None
+    from arrayview._io import _viewer_start_index
+
+    indices = list(_viewer_start_index(shape, dims))
+    collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
+    if collection_spatial_ndim is not None:
+        # The viewer never counts a case axis as spatial, however long it is.
+        for axis in range(int(collection_spatial_ndim), len(shape)):
+            if axis not in dims:
+                indices[axis] = 0
+    return int(dims[0]), int(dims[1]), tuple(indices)
+
+
+def warm_first_slice(session) -> bool:
+    """Start reading the viewer's first image now, before the viewer asks.
+
+    A session exists about half a second before its tab has loaded the page,
+    connected and asked for a frame.  Reading the slice only then put the read
+    after that wait instead of inside it, and in the middle of everything else
+    a starting viewer asks for at once: 430 ms for the first image of a 263 MB
+    .nii on an SMB share, against ~15 ms when the slice is already cached
+    (plans/tunnel/LOG.md, 2026-11-10).  The frame request finds the slice in
+    the raw cache, or joins this read if it is still running.
+
+    Progress goes to whatever sink the session has at the time, so a frame
+    request that joins a slow read still shows it moving.  A wrong guess costs
+    one slice read and nothing else.  Returns whether a read was started.
+    """
+    try:
+        view = startup_view(session)
+    except Exception:
+        return False
+    if view is None:
+        return False
+    dim_x, dim_y, indices = view
+
+    def _report(done, total):
+        sink = getattr(session, "progress_sink", None)
+        if sink is not None:
+            sink(done, total)
+
+    def _warm():
+        try:
+            extract_slice(session, dim_x, dim_y, list(indices), progress=_report)
+        except Exception:
+            pass  # the frame request reads it itself and reports the error
+
+    import threading
+
+    threading.Thread(
+        target=_warm,
+        daemon=True,
+        name=f"arrayview-first-slice-{str(getattr(session, 'sid', ''))[:8]}",
+    ).start()
+    return True
+
+
 def _build_metadata(session) -> dict:
     """Build metadata shared by HTTP routes and WebSocket startup."""
     target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
@@ -73,19 +168,7 @@ def _build_metadata(session) -> dict:
     if code_source is not None:
         meta["code_source"] = code_source
     collection_spatial_ndim = getattr(session, "collection_spatial_ndim", None)
-    default_shape = target_shape
-    if collection_spatial_ndim is not None:
-        spatial_ndim = int(collection_spatial_ndim)
-        if 2 <= spatial_ndim <= len(target_shape):
-            # Collection axes are appended after the image dimensions. They
-            # select a case; they must not influence the startup plane.
-            default_shape = target_shape[:spatial_ndim]
-            # NIfTI metadata identifies the first three axes as anatomical.
-            # Later axes may be echoes, parameters, or time points, so they
-            # must not change which anatomical plane opens first.
-            if getattr(session, "spatial_meta", None) is not None:
-                default_shape = default_shape[:3]
-    default_dims = _session_mod._startup_dims_for_data(session.data, default_shape)
+    default_dims = _startup_dims(session, target_shape)
     if default_dims is not None:
         meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
     if getattr(session, "spatial_meta", None) is not None:

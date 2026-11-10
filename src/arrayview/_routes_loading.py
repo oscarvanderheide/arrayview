@@ -363,6 +363,10 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     apply_launch_view(session, body)
                     if staging_dir:
                         session._source_staging_dirs = [str(staging_dir)]
+                    # The tab is still opening: read its first image meanwhile.
+                    from arrayview._analysis import warm_first_slice
+
+                    warm_first_slice(session)
                     upgrade_memmap_in_background(session)
                     committed = commit_pending_session(sid, session)
                     if not committed and staging_dir:
@@ -542,6 +546,10 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             if dir_patterns:
                 session.collection_overlay_sids = list(overlay_sids)
                 session.collection_overlay_names = list(overlay_names)
+            # The tab is still opening: read its first image meanwhile.
+            from arrayview._analysis import warm_first_slice
+
+            warm_first_slice(session)
             if requested_sid:
                 if not commit_session_group_unless_cancelled(
                     session.sid,

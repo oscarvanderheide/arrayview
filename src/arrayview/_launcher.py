@@ -4973,6 +4973,10 @@ def _serve_daemon(
                         f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
                         flush=True,
                     )
+            # The tab is still opening: read its first image meanwhile.
+            from arrayview._analysis import warm_first_slice
+
+            warm_first_slice(session)
             _session_mod.upgrade_memmap_in_background(session)
             sessions_to_commit = [session]
             if dir_overlay_items is not None:
