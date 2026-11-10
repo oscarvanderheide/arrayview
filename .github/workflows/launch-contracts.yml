@@ -32,7 +32,7 @@ jobs:
         # launch-trace failures, a node contract test, an ipykernel test) plus a
         # stray console interrupt ~15s in. A job that always fails teaches
         # nothing, so it is out until someone ports those paths deliberately.
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
