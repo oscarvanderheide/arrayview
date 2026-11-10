@@ -571,7 +571,7 @@ class TestKeyboard:
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         assert page.evaluate(_JS_MV_CANVAS_COUNT) == 3
 
-    def test_shift_q_quick_zooms_hovered_ortho_pane(self, loaded_viewer, sid_3d):
+    def test_w_quick_zooms_hovered_ortho_pane(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("v")
@@ -580,19 +580,22 @@ class TestKeyboard:
         box = page.locator(".mv-pane").nth(1).bounding_box()
         before = box["width"]
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        page.keyboard.press("Shift+Q")
+        page.keyboard.press("w")
         page.wait_for_selector(".mv-pane.av-qz-target", timeout=2_000)
+        page.wait_for_timeout(400)  # let the glide finish
         zoomed = page.locator(".mv-pane.av-qz-target").bounding_box()
         assert zoomed["width"] > before * 1.3
-        hidden = page.evaluate(
+        others = page.evaluate(
             "[...document.querySelectorAll('.mv-pane:not(.av-qz-target)')]"
-            ".map(p => getComputedStyle(p).visibility)"
+            ".map(p => getComputedStyle(p).filter)"
         )
-        assert hidden == ["hidden", "hidden"]
+        assert len(others) == 2 and all("blur" in f for f in others)
         page.keyboard.press("Escape")
-        page.wait_for_timeout(200)
-        assert page.locator(".av-qz-target").count() == 0
+        page.wait_for_timeout(500)
+        assert page.locator(".av-qz-target, .av-qz-closing").count() == 0
         assert not page.evaluate("document.body.classList.contains('av-qz-on')")
+        restored = page.locator(".mv-pane").nth(1).bounding_box()
+        assert abs(restored["width"] - before) < 1
 
     def test_v_toggles_back_to_single_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

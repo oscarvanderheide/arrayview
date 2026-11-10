@@ -36,7 +36,7 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 ## Quick zoom
 
-`Shift+Q` — in a view with several panes (ortho, qMRI, compare, side by side), shows the pane under the mouse on its own, as large as the free space allows. Scrolling, hovering and the other keys keep working on it. Press `Shift+Q` again or `Esc` to bring the other panes back.
+`w` — in a view with several panes (ortho, qMRI, compare, side by side), shows the pane under the mouse on its own, as large as the free space allows. Scrolling, hovering and the other keys keep working on it. Press `w` again or `Esc` to bring the other panes back.
 
 ## Pop out (VS Code)
 
