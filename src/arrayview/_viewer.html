@@ -509,7 +509,7 @@
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         /* Same face and size as the tick row under the bar, so the ends and
            the values between them read as one scale. */
-        .slim-cb-val { font-size: 10px; color: var(--text); opacity: 0.9; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 10ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
+        .slim-cb-val { font-size: 10px; color: var(--text); opacity: 0.9; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: pointer; display: inline-block; transition: color 140ms ease, opacity 140ms ease; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         .cb-expanded .slim-cb-val.is-locked,
         .cb-expanded .slim-cb-val.locked { color: var(--muted); opacity: 0.5; }
@@ -4072,8 +4072,16 @@
             45% { color: var(--active-dim); }
             100% { color: var(--muted); }
         }
-        /* Hidden but keeping their space; shown only while a [ ] press flashes. */
+        /* Hidden; shown only while a [ ] press flashes. They sit just outside the
+           label, taking no room, so the label starts at the pane's corner (where
+           the logo sits in the single view) and a flash never reflows it. */
+        .detached-index-hint { position: relative; }
+        .detached-index-hint .hint-bracket { position: absolute; bottom: 0; }
+        .detached-index-hint .hint-bracket[data-detached-key="["] { right: 100%; }
+        .detached-index-hint .hint-bracket[data-detached-key="]"] { left: 100%; }
         .detached-index-hint .hint-bracket:not(.index-hint-glow) { visibility: hidden; }
+        /* "1 · name": monospace spaces are a full letter wide — tighten them. */
+        .detached-index-hint .hint-sep { word-spacing: -0.55ch; }
         /* Dims shown all at once by a mode ("s" side by side, "q" qMRI maps). */
         #info .dim-spread-set, #info .dim-mode-letter { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
         /* On the image: white like every corner name, brackets a step back. */
@@ -9327,10 +9335,14 @@
         function _turnLabelGhost(el) {
             const cs = getComputedStyle(el);
             if (cs.visibility === 'hidden' || +cs.opacity < 0.02) return null;
-            const look = _TURN_LABEL_LOOK.map(k => [k, cs.getPropertyValue(k)]);
+            // The parts inside a name (index, dot, name) take their colour from the
+            // pane too: copy their look as well, or the copy shows them dimmed.
+            const looks = [el, ...el.querySelectorAll('*')].map((n, i) => { const c = i ? getComputedStyle(n) : cs;
+                return [..._TURN_LABEL_LOOK, 'visibility'].map(k => [k, c.getPropertyValue(k)]); });
             const g = _orthoLabelGhost(el, true);
             if (!g) return null;
-            look.forEach(([k, v]) => { if (v) g.style.setProperty(k, v); });
+            [g, ...g.querySelectorAll('*')].forEach((n, i) =>
+                (looks[i] || []).forEach(([k, v]) => { if (v) n.style.setProperty(k, v); }));
             g._turnGhost = true;
             return g;
         }
@@ -9356,7 +9368,7 @@
         const _turnLiveNames = () => [...document.querySelectorAll(_TURN_LABELS)]
             .filter(n => !n._turnGhost && n.getClientRects().length && !n.closest('[data-turn-frame]'));
         // Chrome around the image that glides to its new place during a turn.
-        const _TURN_GLIDE_SEL = '#info, #slim-cb-wrap, #dim-active-underline, #case-name-out, .cb-wrap';
+        const _TURN_GLIDE_SEL = '#info, #slim-cb-wrap, #dim-active-underline, #case-name-out, .cb-wrap, #mode-eggs';
         const _TURN_MS = 380;
         // cubic-bezier(0.4, 0, 0.2, 1), solved for y at x = t.
         function _turnEase(t) {
@@ -9523,7 +9535,7 @@
                 return g;
             });
             const glideAll = [...document.querySelectorAll(_TURN_GLIDE_SEL)]
-                .filter(el => el.getClientRects().length && !panes.some(b => b.contains(el)));
+                .filter(el => el.getClientRects().length && el.getBoundingClientRect().width > 0 && !panes.some(b => b.contains(el)));
             const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
             const glideOld = glide.map(el => el.getBoundingClientRect());
             // { n: name, g: its floating copy, to: the name it lands on (set at landing) }
@@ -9565,7 +9577,7 @@
             // Chrome that only shows up in the new layout: hidden, then faded in.
             const newcomers = new Map();
             const holdNewcomers = () => document.querySelectorAll(_TURN_GLIDE_SEL).forEach(el => {
-                if (newcomers.has(el) || glideAll.includes(el) || !el.getClientRects().length
+                if (newcomers.has(el) || glideAll.includes(el) || !el.getBoundingClientRect().width
                     || panes.some(b => b.contains(el))) return;
                 newcomers.set(el, el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 3000, fill: 'forwards' }));
             });
@@ -9577,6 +9589,14 @@
                 holdNewcomers();
             };
             pin();
+            // The page also resizes the panes in its own frame callbacks, after this
+            // turn's frame has set the pins: re-pin on every resize, before the paint,
+            // or the bars show one frame at the wrong spot.
+            const pinRO = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+                if (_quarterTurn === q && !q.landed) pin();
+            }) : null;
+            if (pinRO) new Set([...panes, ...panes.map(b => b.parentElement), ...glide, ...glide.map(el => el.parentElement)]
+                .filter(Boolean)).forEach(el => pinRO.observe(el));
             // Per-box path. Size, centre and fit box stay the old box's until the
             // new frame lands (the new box is not known before; a guess sent the
             // backdrop the wrong way first), then go to the real new box over the
@@ -9668,6 +9688,7 @@
             };
             const finishAll = () => {
                 if (raf) cancelAnimationFrame(raf); raf = 0;
+                pinRO?.disconnect();
                 document.body.classList.remove('av-turning');
                 frames.forEach(f => { f.el.remove(); f.edge?.remove(); });
                 nameGhosts.forEach(p => p.g.remove());
@@ -11027,7 +11048,8 @@
         function _detachedDimPaneTitleHTML(idx, label) {
             const escaped = String(label || '').replace(/</g, '&lt;');
             if (detachedDimIdx.length < 2) return escaped;
-            return `<span class="detached-index-hint" data-detached-pane="${idx}"><span class="hint-bracket" data-detached-key="[">[</span><span>${escaped}</span><span class="hint-bracket" data-detached-key="]">]</span></span>`;
+            const body = escaped.replace(' · ', '<span class="hint-sep"> · </span>');
+            return `<span class="detached-index-hint" data-detached-pane="${idx}"><span class="hint-bracket" data-detached-key="[">[</span><span>${body}</span><span class="hint-bracket" data-detached-key="]">]</span></span>`;
         }
 
         // The key just pressed. Titles are rebuilt on redraws, so the flash is
@@ -13856,6 +13878,18 @@
                         // the canvas by half the difference the instant a drag
                         // begins (the wrap re-centers); agreeing on width
                         // removes that one-time jump.
+                        // The high-water mark (and the cached reserve format)
+                        // keep the width from shrinking while the window moves,
+                        // but they belong to one data range: a new array starts
+                        // over, otherwise one wide array left every later one
+                        // padded.
+                        const hd = this._histData;
+                        const hwmKey = hd ? `${hd.vmin}|${hd.vmax}` : null;
+                        if (hwmKey !== this._labelWidthHwmKey) {
+                            this._labelWidthHwmKey = hwmKey;
+                            this._labelWidthHwmPx = 0;
+                            this._reserveFormatter = null;
+                        }
                         const reserveWm = this._reserveWidestLabelPx();
                         const restFloor = Math.max(natMw, reserveWm);
                         if (restFloor > this._labelWidthHwmPx) this._labelWidthHwmPx = restFloor;
@@ -14236,11 +14270,16 @@
             // so its own font, padding, and box-sizing all apply (a detached
             // probe inherits none of those and undershoots).
             _reserveWidestLabelPx() {
-                if (!this.vminLabel || !this.vmaxLabel || !this._histData) return 0;
+                if (!this.vminLabel || !this.vmaxLabel) return 0;
+                const hd = this._histData;
+                const win = this.opts.getWindow ? this.opts.getWindow() : null;
+                if (!hd && !win) return 0;
+                const dMin = hd ? hd.vmin : NaN, dMax = hd ? hd.vmax : NaN;
+                const wMin = win ? win.vmin : NaN, wMax = win ? win.vmax : NaN;
                 const fmt = this._dragLabelFormatter || this._reserveFormatter
-                    || _cbLabelFormatter(this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax);
-                this._reserveFormatter = fmt;
-                const candidates = [this._histData.vmin, this._histData.vmax, this.opts.getWindow().vmin, this.opts.getWindow().vmax];
+                    || _cbLabelFormatter(dMin, dMax, wMin, wMax);
+                if (hd) this._reserveFormatter = fmt;
+                const candidates = [dMin, dMax, wMin, wMax];
                 let widest = '';
                 for (const v of candidates) {
                     if (!Number.isFinite(v)) continue;
