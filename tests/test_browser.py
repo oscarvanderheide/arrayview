@@ -703,6 +703,50 @@ class TestKeyboard:
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
+
+    def test_roi_side_by_side_is_drawn_on_every_pane_and_measured_in_each(
+        self, loaded_viewer, client, tmp_path
+    ):
+        """A ROI drawn on one side-by-side pane shows on all of them with one
+        mean per pane; 3-plane rows put the tool away but keep the ROI."""
+        stack_dir = tmp_path / "roi_src"
+        stack_dir.mkdir()
+        for i in range(3):
+            np.save(stack_dir / f"vol_{i}.npy", np.full((5, 40, 40), float(i + 1), dtype=np.float32))
+        sid = client.post("/load", json={"filepath": str(stack_dir)}).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.wait_for_function(
+            "() => detachedDimMode && compareActive && compareFrames.slice(0, 3).every(Boolean)",
+            timeout=10_000,
+        )
+        page.keyboard.press("Shift+R")
+        page.wait_for_function("() => rectRoiMode", timeout=5_000)
+        box = page.evaluate(
+            "() => { const r = compareCanvases[1].getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }"
+        )
+        x, y = box[0] + box[2] * 0.3, box[1] + box[3] * 0.3
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + box[2] * 0.3, y + box[3] * 0.3, steps=6)
+        page.mouse.up()
+        page.wait_for_function(
+            "() => _rois.length === 1 && (_rois[0].paneStats || []).length === 3"
+            " && _rois[0].paneStats.every(q => q.stats)",
+            timeout=10_000,
+        )
+        assert page.evaluate("() => _rois[0].paneStats.map(q => q.stats.mean)") == [1.0, 2.0, 3.0]
+        assert page.evaluate(
+            "() => compareCanvases.slice(0, 3).every(cv => cv._roiOverlay && cv._roiOverlay.style.display !== 'none')"
+        )
+        assert page.evaluate("() => document.querySelectorAll('#roi-stats-hud .roi-hud-panerow').length") == 3
+        assert page.evaluate("() => _roiTableRows().length") == 4  # header + one row per pane
+
+        page.keyboard.press("v")
+        page.wait_for_function("() => compareMvActive && !rectRoiMode", timeout=10_000)
+        assert page.evaluate("() => _rois.length") == 1
+
     def test_side_by_side_rows_follow_count_and_paging(self, loaded_viewer, client, tmp_path):
         """With three panes side by side, v shows one 3-plane row per pane;
         paging moves the rows (images and names) and ' / ; change the

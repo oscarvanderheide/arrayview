@@ -7,12 +7,20 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-11-10
+last_updated: 2026-11-11
 ---
 
 # Project State
 
 ## Working
+
+- Several arrays always open as one stack: CLI files with `--overlay` (a plain
+  mask on every file it fits), `--compare`, `--watch` (every file followed);
+  `view(a, b, ...)` with `overlay=` and arrays of different sizes
+  (`_ArrayStack` ragged path), on a running server and from Julia too; MATLAB
+  `arrayview.m` takes several arrays and all `view()` options. The per-array
+  compare remains only for rgb, `--vectorfield` and arrays of different rank.
+  `real process` evidence in `LAUNCH-MATRIX.md` (2026-11-11); MATLAB not run.
 
 - A healthy warm open was ~1.0 s on a network `.nii`; ~430 ms of it was the
   first slice being read only once the tab asked, in the middle of the viewer's
@@ -55,8 +63,11 @@ last_updated: 2026-11-10
   qMRI views. The HUD prefers room outside the panes, can be dragged within
   the viewport, and provides per-row deletion. Content-sized columns share one
   heading row with the details button; the drawing toolbar omits global delete. It replaces cursor-side ROI
-  statistics. qMRI values follow the hovered map. Compare retains its existing
-  ROI guard.
+  statistics. qMRI values follow the hovered map. In side by side (plain
+  compare panes) a ROI is drawn on every pane and measured in each
+  (`roi.paneStats`, one HUD line per pane); the info-mode quick freehand is
+  shared across same-size panes too. ROI mode is refused in compare 3-plane /
+  qMRI rows and when the panes differ in size; flood fill is single-view only.
 
 - No-argument CLI startup opens a generated, action-gated interactive tutorial.
   It presents as a single whisper line — one key named at a time, with no panel,

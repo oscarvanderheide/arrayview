@@ -1443,6 +1443,14 @@
         #roi-stats-hud .roi-hud-detail-line { display: flex; flex-wrap: wrap; column-gap: 12px; line-height: 17px; }
         #roi-stats-hud .roi-hud-detail-line b { color: var(--text); font-weight: normal; }
         #roi-stats-hud .roi-hud-detail-map { min-width: 4ch; color: var(--text); }
+        /* Side by side: one line of numbers per pane under each ROI. */
+        #roi-stats-hud .roi-hud-panerow td { height: 20px; }
+        #roi-stats-hud .roi-hud-panerow td:first-child {
+            padding-left: 24px; max-width: 16ch; overflow: hidden; text-overflow: ellipsis;
+            color: color-mix(in srgb, var(--text) 45%, var(--muted)); font-size: 10px;
+        }
+        #roi-stats-hud .roi-hud-panerow.focused td { background: var(--surface-2); }
+        #roi-stats-hud .roi-hud-panerow.last td { padding-bottom: 4px; }
         #roi-stats-hud .roi-hud-dist { margin: 2px 0 6px; }
         #roi-stats-hud .roi-hud-dist-title { line-height: 16px; letter-spacing: 0.03em; }
         #roi-stats-hud .roi-hud-strip {
@@ -10581,8 +10589,10 @@
             const overflowing = comparePan.overflows;
             compareCanvases.forEach(cv => {
                 if (!cv) return;
-                cv.style.cursor = overflowing ? 'grab' : 'crosshair';
+                cv.style.cursor = overflowing && !rectRoiMode ? 'grab' : 'crosshair';
             });
+            // ROI outlines follow the panes' new size.
+            if (rectRoiMode || compareCanvases.some(cv => cv && cv._roiOverlay)) _drawAllCompareRois();
             if (bigLeftCompare && _showCompareSharedSourceCb()) {
                 const _sharedSourceClip = (compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
                     || (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip'));
@@ -11087,6 +11097,8 @@
             });
             if (detachedDimMode) _resumeSplitKeyFlash();
             _renderCompareCenterTitleControls();
+            // Panes were added, removed or moved: measure the ROIs in them.
+            if (rectRoiMode && _rois.length) _scheduleRoiStatsRefresh();
         }
 
         // ── Compare center-pane mode (unified: diff / overlay / wipe) ─────────
@@ -19665,6 +19677,10 @@
         function _roiSetShape(shape) {
             const allowed = new Set(['circle', 'rect', 'freehand', 'floodfill']);
             if (!allowed.has(shape)) shape = 'circle';
+            if (shape === 'floodfill' && compareActive) {
+                showStatus('flood fill: not available side by side');
+                return;
+            }
             _roiShape = shape;
             const modeHint = shape === 'floodfill' ? 'hold seed · drag up/down sensitivity · release to create' : 'drag to draw';
             if (rectRoiMode) showStatus(`ROI mode: ${shape} · ${modeHint}`);
@@ -19809,9 +19825,57 @@
         }
         window._islandToggleRoi = _islandToggleRoi;
 
+        // ── Regions in side by side ─────────────────────────────────────────
+        // One region is drawn on every pane and measured in each: the panes
+        // show the same picture of different arrays (or echoes, time points).
+        // Not in 3-plane / qMRI rows (panes × planes × maps is too much to
+        // read) and not when the panes differ in size (a pixel outline has no
+        // meaning across grids).
+        function _roiComparePanes() {
+            if (!_comparePanesShown()) return [];
+            const n = Math.min(compareCanvases.length,
+                detachedDimMode ? detachedDimIdx.length : compareDisplaySids.length);
+            const out = [];
+            for (let i = 0; i < n; i++) {
+                const cv = compareCanvases[i];
+                if (!cv) continue;
+                const paneSid = compareDisplaySids[i] || sid;
+                out.push({
+                    i, cv, sid: paneSid,
+                    indices: _comparePaneHoverIndices(i),
+                    key: detachedDimMode ? `d${detachedDimIdx[i]}` : `s${i}`,
+                    label: detachedDimMode ? _detachedDimPaneLabel(detachedDimIdx[i]) : comparePaneLabelForSid(paneSid),
+                });
+            }
+            return out;
+        }
+        function _roiPaneStat(r, key) {
+            return (r?.paneStats || []).find(q => q.key === key)?.stats || null;
+        }
+        // Why regions cannot be drawn in the current view ('' when they can).
+        // `checkCanvases`: also compare the panes' drawn sizes — only when the
+        // panes are settled (turning the tool on), never while one is still
+        // waiting for its first image.
+        function _roiUnavailableReason({ checkCanvases = false } = {}) {
+            if (compareMvActive || compareQmriActive) return 'not in 3-plane or qMRI rows';
+            if (!compareActive) return '';
+            const differ = 'the panes differ in size';
+            // Arrays of different sizes shown side by side along their own dim.
+            if (detachedDimMode && Array.isArray(raggedSpatialShapes) && detachedDim >= collectionSpatialNdim) {
+                const sizes = new Set(raggedSpatialShapes.flat().map(sh => (sh || []).join('x')));
+                if (sizes.size > 1) return differ;
+            }
+            if (checkCanvases) {
+                const panes = _roiComparePanes().filter(p => p.cv.width && p.cv.height);
+                if (panes.some(p => p.cv.width !== panes[0].cv.width || p.cv.height !== panes[0].cv.height)) return differ;
+            }
+            return '';
+        }
+
         function _activateRoiInteraction() {
-            if (compareActive || compareMvActive) {
-                showStatus('ROI mode: not available in this mode');
+            const blocked = _roiUnavailableReason({ checkCanvases: true });
+            if (blocked) {
+                showStatus(`ROI mode: ${blocked}`);
                 return;
             }
             if (_segMode) {
@@ -19820,6 +19884,7 @@
             }
             rectRoiMode = true;
             if (!['circle', 'rect', 'freehand', 'floodfill'].includes(_roiShape)) _roiShape = 'circle';
+            if (compareActive && _roiShape === 'floodfill') _roiShape = 'circle';
             _roiVisible = true;
             _clearInfoQuickRoi(); // switching to the real ROI tool drops the quick-measure outline
             hideAllPixelInfo();
@@ -19827,6 +19892,10 @@
             canvas.style.cursor = 'crosshair';
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
             if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
+            if (compareActive) {
+                compareCanvases.forEach(cv => { if (cv) cv.style.cursor = 'crosshair'; });
+                _scheduleRoiStatsRefresh();
+            }
             showStatus(`ROI mode: ${_roiShape} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity' : 'drag to draw'}`);
             renderEggs();
             renderIsland();
@@ -19847,6 +19916,7 @@
             if (clear) { _rois = []; _selectedRoiIdx = -1; }
             if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = ''; });
             if (multiViewActive) mvViews.forEach(v => { v.canvas.style.cursor = ''; });
+            if (compareActive) compareCanvases.forEach(cv => { if (cv) cv.style.cursor = ''; });
             canvas.style.cursor = '';
             const hover = document.getElementById('roi-hover-tooltip');
             if (hover) hover.style.display = 'none';
@@ -19896,6 +19966,7 @@
         let _roiHudMapIdx = null;
         let _roiHudPosition = null;
         let _roiHudDrag = null;
+        let _roiGuardPending = false;
         function _setRoiHudHover(idx, mapIdx = _roiHudMapIdx) {
             idx = rectRoiMode && _rois[idx] && _rois[idx].visible !== false ? idx : -1;
             if (idx === _roiHudHoverIdx && mapIdx === _roiHudMapIdx) return;
@@ -19958,6 +20029,12 @@
                 ? `<div class="roi-hud-dist"><div class="roi-hud-dist-title">distribution</div>${plot}<div class="roi-hud-dist-axis"><span>${axisFmt(lo)}</span><span>${axisFmt(hi)}</span></div></div>`
                 : '';
             const line = s => `<span>n <b>${s.n ?? '—'}</b></span><span>min <b>${fmt(s.min)}</b></span><span>max <b>${fmt(s.max)}</b></span>`;
+            const panes = _roiComparePanes();
+            if (panes.length) {
+                const lines = panes.map(p => [p, _roiPaneStat(r, p.key)]).filter(([, st]) => st);
+                if (!lines.length) return '<div class="roi-hud-detail-line">measuring…</div>';
+                return lines.map(([p, st]) => `<div class="roi-hud-detail-line"><span class="roi-hud-detail-map">${_roiHtmlEscape(p.label)}</span>${line(st)}</div>`).join('');
+            }
             if (Array.isArray(r.qmriStats) && r.qmriStats.length) {
                 return r.qmriStats.filter(q => q && q.stats).map(q => {
                     const label = QMRI_LABELS[q.colormap] || q.colormap || `map ${(q.qmriIdx ?? 0) + 1}`;
@@ -20012,17 +20089,32 @@
             if (hud.parentElement !== document.body) document.body.appendChild(hud);
             // The panel opens with ROI mode: shape buttons on top straight
             // away, the table and its footer once there is something to list.
-            const visible = rectRoiMode && !compareActive && !compareMvActive;
+            // A view regions cannot be drawn in was entered with ROI mode on:
+            // put the tool away (the regions themselves are kept).
+            if (rectRoiMode && _roiUnavailableReason() && !_roiGuardPending) {
+                _roiGuardPending = true;
+                queueMicrotask(() => {
+                    _roiGuardPending = false;
+                    const why = rectRoiMode && _roiUnavailableReason();
+                    if (!why) return;
+                    _deactivateRoiInteraction();
+                    showStatus(`ROI mode: ${why}`);
+                });
+            }
+            const visible = rectRoiMode && !compareMvActive && !compareQmriActive;
             hud.classList.toggle('visible', !!visible);
             hud.setAttribute('aria-hidden', String(!visible));
             if (!visible) { _roiHudHoverIdx = -1; return; }
+            const panes = _roiComparePanes();
             const hasRows = _roiVisible && _rois.length > 0;
             if (_roiHudRenaming >= 0) return;  // keep the name field alive while typing
             for (const i of [..._roiHudExpanded]) if (i >= _rois.length) _roiHudExpanded.delete(i);
             const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
             const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI analysis';
-            const all = _rois.map(r => _roiHudStats(r, map));
-            const shown = all.filter((st, i) => st && _rois[i].visible !== false);
+            // Side by side: every ROI lists one line of numbers per pane.
+            const perRoi = _rois.map(r => panes.length ? panes.map(p => _roiPaneStat(r, p.key)) : [_roiHudStats(r, map)]);
+            const all = perRoi.flat();
+            const shown = perRoi.flatMap((list, i) => _rois[i].visible !== false ? list.filter(Boolean) : []);
             const fmtMean = _roiHudColumnFormat(all.map(st => st?.mean));
             const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
             const lo = shown.length ? Math.min(...shown.map(st => st.min).filter(Number.isFinite)) : NaN;
@@ -20039,14 +20131,22 @@
             html += '<div class="roi-hud-body">';
             if (hasRows) {
                 html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
+                const measures = stats => `<span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span>`;
                 _rois.forEach((r, i) => {
-                    const stats = all[i];
+                    const stats = panes.length ? null : perRoi[i][0];
                     const name = _roiName(i);
                     const open = _roiHudExpanded.has(i);
                     html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
                         + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
-                        + `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}"><span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span></td>`
+                        + (panes.length ? '<td class="roi-hud-num"></td>'
+                            : `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}">${measures(stats)}</td>`)
                         + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                    panes.forEach((p, k) => {
+                        const st = perRoi[i][k];
+                        html += `<tr class="roi-hud-panerow${r.visible === false ? ' off' : ''}${k === panes.length - 1 ? ' last' : ''}" data-roi-idx="${i}">`
+                            + `<td title="${_roiHtmlEscape(p.label)}">${_roiHtmlEscape(p.label)}</td>`
+                            + `<td class="roi-hud-num" title="${_roiStatsFmt(st?.mean)} ± ${_roiStatsFmt(st?.std)}">${measures(st)}</td><td></td></tr>`;
+                    });
                     if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
                 });
                 html += '</tbody></table>';
@@ -20101,10 +20201,14 @@
                         _islandDeleteRoi(idx);
                     });
                 });
+                hud.querySelectorAll('.roi-hud-panerow').forEach(row => {
+                    row.addEventListener('pointerenter', () => _setRoiHudHover(Number(row.dataset.roiIdx)));
+                });
                 hud.onpointerleave = () => _setRoiHudHover(-1);
             }
-            hud.querySelectorAll('.roi-hud-row').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
-            const canvases = multiViewActive ? mvViews.map(v => v.pane) : qmriActive ? qmriViews.map(v => v.canvas.closest('.qv-pane')) : [_overlayPaletteAnchor()];
+            hud.querySelectorAll('.roi-hud-row, .roi-hud-panerow').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
+            const canvases = multiViewActive ? mvViews.map(v => v.pane) : qmriActive ? qmriViews.map(v => v.canvas.closest('.qv-pane'))
+                : panes.length ? panes.map(p => p.cv.closest('.compare-pane') || p.cv) : [_overlayPaletteAnchor()];
             const rects = canvases.filter(Boolean).map(c => c.getBoundingClientRect()).filter(r => r.width && r.height);
             const gap = 10, width = hud.offsetWidth, height = hud.offsetHeight;
             let position = _roiHudPosition;
@@ -20517,6 +20621,7 @@
             const roi = _rois[idx];
             if (!roi) return;
             if (qmriActive) { _fetchQvRoiStats(idx); return; }
+            if (compareActive) { _fetchCompareRoiStats(idx); return; }
             try {
                 const resp = await proxyFetch(`/roi_stats/${sid}`, {
                     method: 'POST',
@@ -20547,6 +20652,36 @@
             } catch (err) {
                 showToast(`ROI stats: ${err.message}`);
             }
+        }
+
+        /** Side by side: measure one ROI in every pane (each pane's own array
+         *  and position), kept on `roi.paneStats` as [{key, label, stats}]. */
+        function _fetchCompareRoiStats(idx) {
+            const roi = _rois[idx];
+            const panes = _roiComparePanes();
+            if (!roi || !panes.length) return;
+            const payload = _roiPayload([Object.assign({}, roi, { visible: true })], { currentIndices: true })[0];
+            if (!payload) return;
+            const token = roi._paneStatsToken = (roi._paneStatsToken || 0) + 1;
+            Promise.all(panes.map(p => proxyFetch(`/roi_stats/${p.sid}`, {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    dim_x, dim_y,
+                    indices: p.indices.slice(),
+                    complex_mode: complexMode,
+                    rois: [Object.assign({}, payload, { scope: { indices: p.indices.slice(), broadcast_dims: [], values: {} } })],
+                }),
+            }).then(r => r.json())
+                .then(d => ({ key: p.key, label: p.label, stats: (d.results && d.results[0] && d.results[0].stats) || null }))
+                .catch(() => ({ key: p.key, label: p.label, stats: null }))
+            )).then(results => {
+                if (_rois[idx] !== roi || roi._paneStatsToken !== token) return;
+                roi.paneStats = results;
+                roi.stats = (results.find(q => q.stats) || {}).stats || null;
+                _updateRoiPanel();
+                _redrawRoiOverlays();
+            });
         }
 
         /** Ad-hoc mean/std for the hover-info quick-measure outline — same
@@ -28422,12 +28557,21 @@
          *  `entry.statsText`, and redraw so that entry's own pill picks it
          *  up (see _infoRenderCompareOverlay) — the fixed pane pill is no
          *  longer used for this, since each shape now carries its own number. */
-        function _infoQuickComparePaneStats(i, entry) {
+        function _infoQuickComparePaneStats(i, entry, retry = true) {
             const cv = compareCanvases[i];
             const cvSid = compareDisplaySids[i];
             if (!cv || !cvSid || !cv.width || !cv.height) return;
-            const cached = _getCachedHoverSlice(cvSid, dim_x, dim_y, _comparePaneHoverIndices(i));
-            if (!cached || !cached.w || !cached.h) return;
+            const paneIndices = _comparePaneHoverIndices(i);
+            const cached = _getCachedHoverSlice(cvSid, dim_x, dim_y, paneIndices);
+            if (!cached || !cached.w || !cached.h) {
+                // A pane the mouse has not been over yet: get its values once.
+                if (retry) {
+                    _fetchHoverSlice(cvSid, dim_x, dim_y, paneIndices).then(got => {
+                        if (got) _infoQuickComparePaneStats(i, entry, false);
+                    });
+                }
+                return;
+            }
             const scaledPts = entry.points.map(p => [p[0] * cached.w / cv.width, p[1] * cached.h / cv.height]);
             const stats = _infoQuickRasterStats(cached.w, cached.h, scaledPts, (gx, gy) => {
                 const rawX = flip_x ? cached.w - 1 - gx : gx;
@@ -28728,9 +28872,70 @@
                 if (v.roiOverlay) { v.roiOverlay.style.display = 'none'; if (v.roiCtx) v.roiCtx.clearRect(0, 0, v.roiOverlay.width, v.roiOverlay.height); }
             }
         }
+        // Side by side: every pane gets its own overlay canvas (as the crop
+        // and quick-measure overlays do) showing the same ROIs; the hover
+        // pill on a pane carries that pane's own numbers.
+        function _drawAllCompareRois(previewRoi) {
+            const panes = _roiComparePanes();
+            const live = new Set(panes.map(p => p.cv));
+            compareCanvases.forEach(cv => {
+                if (cv && cv._roiOverlay && !live.has(cv)) cv._roiOverlay.style.display = 'none';
+            });
+            const realPreview = previewRoi && !previewRoi._infoQuick ? previewRoi : null;
+            const any = _roiVisible && (realPreview || _rois.some(r => r && r.visible !== false && !_roiIsMvPaneRoi(r)));
+            for (const p of panes) {
+                const cv = p.cv;
+                let ov = cv._roiOverlay;
+                if (!ov) {
+                    const parent = cv.parentElement; // .compare-canvas-inner
+                    if (!parent) continue;
+                    ov = document.createElement('canvas');
+                    ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;display:none;z-index:3;';
+                    parent.appendChild(ov);
+                    cv._roiOverlay = ov;
+                }
+                if (!any || !cv.width || !cv.height) { ov.style.display = 'none'; continue; }
+                const dW = parseInt(cv.style.width) || cv.clientWidth || cv.width;
+                const dH = parseInt(cv.style.height) || cv.clientHeight || cv.height;
+                const dpr = Math.max(1, window.devicePixelRatio || 1);
+                const bw = Math.max(1, Math.round(dW * dpr)), bh = Math.max(1, Math.round(dH * dpr));
+                if (ov.width !== bw || ov.height !== bh) { ov.width = bw; ov.height = bh; }
+                ov.style.width = `${dW}px`;
+                ov.style.height = `${dH}px`;
+                const rctx = ov.getContext('2d');
+                rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                rctx.clearRect(0, 0, dW, dH);
+                ov.style.display = '';
+                const sx = dW / cv.width, sy = dH / cv.height;
+                for (let i = 0; i < _rois.length; i++) {
+                    const r = _rois[i];
+                    if (_roiIsMvPaneRoi(r) || !_roiIsVisibleOnCurrentSlice(r)) continue;
+                    const c = _roiColors[i % _roiColors.length];
+                    // Flood-fill masks are in data space (see _drawAllRois).
+                    const ffDs = r.type === 'floodfill' && r.mask_b64;
+                    rctx.save();
+                    if (ffDs && flip_x) { rctx.translate(dW, 0); rctx.scale(-1, 1); }
+                    if (ffDs && flip_y) { rctx.translate(0, dH); rctx.scale(1, -1); }
+                    _roiDrawVisibleShape(rctx, r, sx, sy, c, i === _selectedRoiIdx);
+                    if (i === _selectedRoiIdx) _roiDrawHandles(rctx, r, sx, sy);
+                    rctx.restore();
+                    let [lx, ly] = _roiLabelPoint(r, sx, sy);
+                    if (ffDs) {
+                        if (flip_x) lx = dW - lx;
+                        if (flip_y) ly = dH - ly;
+                    }
+                    _roiDrawLabel(rctx, _roiCanvasLabel(i), lx, ly, c.stroke);
+                    _roiDrawHoverPill(rctx, r, i, sx, sy, rr => _roiPaneStat(rr, p.key), ffDs ? { x: flip_x, y: flip_y, w: dW, h: dH } : null);
+                }
+                if (realPreview) {
+                    _roiDrawVisibleShape(rctx, realPreview, sx, sy, _roiColors[_rois.length % _roiColors.length], false);
+                }
+            }
+        }
         function _redrawRoiOverlays(previewRoi) {
             _reconcileRoiHud();
-            if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
+            if (compareActive) _drawAllCompareRois(previewRoi);
+            else if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
             else if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
             else _drawAllRois(previewRoi);
         }
@@ -28930,6 +29135,18 @@
                 ? (Number.isInteger(v) ? String(v) : parseFloat(v.toPrecision(6)).toString())
                 : '';
             const shown = _rois.map((r, i) => [r, i]).filter(([r]) => r && r.visible !== false);
+            const panes = _roiComparePanes();
+            if (panes.length) {
+                // Side by side: one row per ROI and pane.
+                const rows = [['ROI', 'pane', 'mean', 'std', 'min', 'max', 'pixels']];
+                for (const [r, i] of shown) {
+                    for (const p of panes) {
+                        const st = _roiPaneStat(r, p.key) || {};
+                        rows.push([_roiName(i), p.label, num(st.mean), num(st.std), num(st.min), num(st.max), num(st.n)]);
+                    }
+                }
+                return rows;
+            }
             const useMaps = qmriActive && shown.some(([r]) => Array.isArray(r.qmriStats) && r.qmriStats.length);
             if (!useMaps) {
                 const rows = [['ROI', 'mean', 'std', 'min', 'max', 'pixels']];
@@ -36259,6 +36476,14 @@
                 if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; }
             }
             _compareAutoWindow = null;
+            // ROIs stay with the one view left behind: put their outlines
+            // away here and measure them there again.
+            compareCanvases.forEach(cv => { if (cv && cv._roiOverlay) cv._roiOverlay.style.display = 'none'; });
+            if (rectRoiMode) {
+                _rois.forEach(r => { if (r) r.paneStats = null; });
+                canvas.style.cursor = 'crosshair';
+                _scheduleRoiStatsRefresh();
+            }
             _compareTeardownPaneConnections();
             compareFrames = [];
             compareDisplaySids = [];
@@ -44466,6 +44691,122 @@
         });
         // Compare pane drag-to-pan when zoomed past viewport
         compareCanvases.forEach((cv, cmpPaneIdx) => {
+            // ROI mode in side by side: draw, select, move and resize on any
+            // pane; the region shows on all of them (see _drawAllCompareRois).
+            const roiPoint = (ev) => {
+                const rect = cv.getBoundingClientRect();
+                return {
+                    x: (ev.clientX - rect.left) * cv.width / rect.width,
+                    y: (ev.clientY - rect.top) * cv.height / rect.height,
+                    tol: Math.max(3, 8 * cv.width / rect.width),
+                };
+            };
+            cv.addEventListener('mousemove', (e) => {
+                if (!compareActive || !rectRoiMode || roiDragging || _roiEditDrag) return;
+                const pt = roiPoint(e);
+                const hit = _roiHitTest(pt.x, pt.y, pt.tol);
+                _setRoiHudHover(hit ? hit.idx : -1);
+            });
+            cv.addEventListener('mouseleave', () => {
+                if (compareActive && rectRoiMode && !roiDragging && !_roiEditDrag) _setRoiHudHover(-1);
+            });
+            cv.addEventListener('mousedown', (e) => {
+                if (!compareActive || !rectRoiMode || !_comparePanesShown()) return;
+                if (e.button !== 0 || e.shiftKey || e.metaKey || e.altKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                const start = roiPoint(e);
+                const hit = _roiHitTest(start.x, start.y, start.tol);
+                if (hit) {
+                    _roiSelect(hit.idx);
+                    _roiEditDrag = { idx: hit.idx, mode: hit.mode, handle: hit.handle, startX: start.x, startY: start.y, snapshot: _roiCloneGeometry(_rois[hit.idx]) };
+                    cv.style.cursor = hit.mode === 'resize' ? 'nwse-resize' : 'move';
+                    let moved = false;
+                    const onEditMove = (me) => {
+                        if (!_roiEditDrag) return;
+                        const r = _rois[_roiEditDrag.idx];
+                        if (!r) return;
+                        const pt = roiPoint(me);
+                        if (_roiEditDrag.mode === 'resize') _roiResizeGeometry(r, pt.x, pt.y, _roiEditDrag.handle, _roiEditDrag.snapshot);
+                        else _roiMoveGeometry(r, pt.x - _roiEditDrag.startX, pt.y - _roiEditDrag.startY, _roiEditDrag.snapshot);
+                        moved = true;
+                        r.stats = null; r.paneStats = null;
+                        _redrawRoiOverlays();
+                    };
+                    const editIdx = hit.idx;
+                    const onEditUp = () => {
+                        window.removeEventListener('mousemove', onEditMove);
+                        window.removeEventListener('mouseup', onEditUp);
+                        _roiEditDrag = null;
+                        cv.style.cursor = 'crosshair';
+                        _redrawRoiOverlays();
+                        if (moved) _fetchCompareRoiStats(editIdx);
+                    };
+                    window.addEventListener('mousemove', onEditMove);
+                    window.addEventListener('mouseup', onEditUp);
+                    return;
+                }
+                if (_roiShape === 'floodfill') {
+                    showStatus('flood fill: not available side by side');
+                    return;
+                }
+                roiDragging = true;
+                roiStart = roiEnd = { x: start.x, y: start.y };
+                if (_roiShape === 'freehand') _roiFreehandPts = [[start.x, start.y]];
+                const onMove = (me) => {
+                    if (!roiDragging) return;
+                    const pt = roiPoint(me);
+                    roiEnd = { x: pt.x, y: pt.y };
+                    let previewRoi = null;
+                    if (_roiShape === 'circle') {
+                        previewRoi = {
+                            type: 'circle',
+                            cx: (roiStart.x + roiEnd.x) / 2, cy: (roiStart.y + roiEnd.y) / 2,
+                            r: Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2,
+                        };
+                    } else if (_roiShape === 'freehand') {
+                        _roiFreehandPts.push([roiEnd.x, roiEnd.y]);
+                        if (_roiFreehandPts.length > 2) previewRoi = { type: 'freehand', points: _roiFreehandPts };
+                    } else {
+                        previewRoi = {
+                            type: 'rect',
+                            x0: Math.min(roiStart.x, roiEnd.x), y0: Math.min(roiStart.y, roiEnd.y),
+                            x1: Math.max(roiStart.x, roiEnd.x), y1: Math.max(roiStart.y, roiEnd.y),
+                        };
+                    }
+                    _redrawRoiOverlays(previewRoi);
+                };
+                const onUp = () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                    if (!roiDragging) return;
+                    roiDragging = false;
+                    const roiIdx = _rois.length;
+                    let made = null;
+                    if (_roiShape === 'circle') {
+                        const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2;
+                        if (r >= 2) made = { type: 'circle', cx: Math.round((roiStart.x + roiEnd.x) / 2), cy: Math.round((roiStart.y + roiEnd.y) / 2), r: Math.round(r) };
+                    } else if (_roiShape === 'freehand') {
+                        const pts = _roiFreehandPts.slice();
+                        _roiFreehandPts = [];
+                        if (pts.length >= 5) made = { type: 'freehand', points: pts };
+                    } else if (Math.abs(roiEnd.x - roiStart.x) >= 3 && Math.abs(roiEnd.y - roiStart.y) >= 3) {
+                        made = {
+                            type: 'rect',
+                            x0: Math.round(Math.min(roiStart.x, roiEnd.x)), y0: Math.round(Math.min(roiStart.y, roiEnd.y)),
+                            x1: Math.round(Math.max(roiStart.x, roiEnd.x)), y1: Math.round(Math.max(roiStart.y, roiEnd.y)),
+                        };
+                    }
+                    if (!made) { _redrawRoiOverlays(); return; }
+                    _roiAdd(Object.assign(made, { stats: null, paneStats: null }));
+                    _redrawRoiOverlays();
+                    _fetchCompareRoiStats(roiIdx);
+                    renderEggs();
+                    renderIsland();
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+            });
             cv.addEventListener('mousedown', (e) => {
                 if (!compareActive) return;
                 // Hover-info quick-measure: a plain click-drag while hover info
@@ -44481,6 +44822,12 @@
                 if (e.button === 0 && _pixelInfoVisible && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
                     e.preventDefault();
                     const dragTag = `cmp:${cmpPaneIdx}`;
+                    // Panes of the same size all get the outline, each with
+                    // its own numbers; otherwise only the pane drawn on.
+                    const quickPanes = () => {
+                        const panes = _roiComparePanes();
+                        return panes.length && !_roiUnavailableReason({ checkCanvases: true }) ? panes : [{ i: cmpPaneIdx, cv }];
+                    };
                     _infoFreehandDragging = true;
                     _infoFreehandView = dragTag;
                     const rect0 = cv.getBoundingClientRect();
@@ -44496,7 +44843,8 @@
                             (me.clientY - mr.top) * cv.height / mr.height,
                         ]);
                         if (_infoFreehandPts.length > 2) {
-                            _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx], { type: 'freehand', points: _infoFreehandPts, _infoQuick: true });
+                            const preview = { type: 'freehand', points: _infoFreehandPts, _infoQuick: true };
+                            quickPanes().forEach(p => _infoRenderCompareOverlay(p.cv, _infoQuickRoisCompare[p.i], preview));
                         }
                     };
                     const onInfoUp = () => {
@@ -44511,21 +44859,27 @@
                         // (already shown continuously by this pane's mousemove
                         // listener) — just redraw whatever outlines already
                         // persisted here, same threshold as the rest of this feature.
-                        if (pts.length < 5) { _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx]); return; }
-                        const entry = { type: 'freehand', points: pts, _infoQuick: true, statsText: null };
-                        if (!_infoQuickRoisCompare[cmpPaneIdx]) _infoQuickRoisCompare[cmpPaneIdx] = [];
-                        _infoQuickRoisCompare[cmpPaneIdx].push(entry);
+                        const targets = quickPanes();
+                        if (pts.length < 5) { targets.forEach(p => _infoRenderCompareOverlay(p.cv, _infoQuickRoisCompare[p.i])); return; }
+                        const placed = targets.map(p => {
+                            const entry = { type: 'freehand', points: pts, _infoQuick: true, statsText: null };
+                            if (!_infoQuickRoisCompare[p.i]) _infoQuickRoisCompare[p.i] = [];
+                            _infoQuickRoisCompare[p.i].push(entry);
+                            return { p, entry };
+                        });
                         _infoQuickRoiStack.push({
-                            remove: () => {
-                                const arr = _infoQuickRoisCompare[cmpPaneIdx];
+                            remove: () => placed.forEach(({ p, entry }) => {
+                                const arr = _infoQuickRoisCompare[p.i];
                                 if (!arr) return;
                                 const idx = arr.indexOf(entry);
                                 if (idx >= 0) arr.splice(idx, 1);
-                                _infoRenderCompareOverlay(cv, arr);
-                            },
+                                _infoRenderCompareOverlay(p.cv, arr);
+                            }),
                         });
-                        _infoRenderCompareOverlay(cv, _infoQuickRoisCompare[cmpPaneIdx]);
-                        _infoQuickComparePaneStats(cmpPaneIdx, entry);
+                        placed.forEach(({ p, entry }) => {
+                            _infoRenderCompareOverlay(p.cv, _infoQuickRoisCompare[p.i]);
+                            _infoQuickComparePaneStats(p.i, entry);
+                        });
                     };
                     window.addEventListener('mousemove', onInfoMove);
                     window.addEventListener('mouseup', onInfoUp);
