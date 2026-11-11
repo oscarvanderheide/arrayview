@@ -52,6 +52,7 @@ from arrayview._routes_websocket import _notify_shells, register_websocket_route
 from arrayview._config import (
     get_viewer_colormaps,
     get_viewer_dimbar_mode,
+    get_viewer_turn_animation,
     get_viewer_ortho_layout,
     get_viewer_rounded_panes,
     get_viewer_qmri_gapless,
@@ -475,6 +476,7 @@ def _viewer_ui_response(
     _default_rounded_panes = "false" if _cfg_rounded is False else "true"
     _default_ortho_layout = json.dumps(get_viewer_ortho_layout())
     _default_dimbar_mode = json.dumps(get_viewer_dimbar_mode())
+    _default_turn_animation = json.dumps(get_viewer_turn_animation())
     html = (
         _VIEWER_PAGE_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
@@ -490,6 +492,7 @@ def _viewer_ui_response(
         .replace("__DEFAULT_REMEMBER_VIEW__", "true" if get_viewer_remember_view() else "false")
         .replace("__DEFAULT_ORTHO_LAYOUT__", _default_ortho_layout)
         .replace("__DEFAULT_DIMBAR_MODE__", _default_dimbar_mode)
+        .replace("__DEFAULT_TURN_ANIMATION__", _default_turn_animation)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )

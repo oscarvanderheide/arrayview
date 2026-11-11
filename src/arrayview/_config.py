@@ -16,6 +16,7 @@ _VALID_ENV_KEYS = {"default", "terminal", "vscode", "jupyter", "ssh", "julia"}
 _VALID_THEMES = {"dark", "light"}
 _VALID_ORTHO_LAYOUTS = {"horizontal", "big-left"}
 _VALID_DIMBAR_MODES = {"compact", "extended"}
+_VALID_TURN_ANIMATIONS = {"rotate", "fade"}
 _CONFIG_LOCK = threading.Lock()
 
 WINDOW_PREFERENCE_OPTIONS = {
@@ -43,6 +44,7 @@ BUILTIN_PREFERENCES = {
         "remember_view": False,
         "ortho_layout": None,
         "dimbar_mode": "compact",
+        "turn_animation": "rotate",
     },
 }
 PREFERENCE_SCHEMA = {
@@ -56,6 +58,7 @@ PREFERENCE_SCHEMA = {
         "colormaps": "non-empty list of names",
         "ortho_layout": sorted(_VALID_ORTHO_LAYOUTS),
         "dimbar_mode": sorted(_VALID_DIMBAR_MODES),
+        "turn_animation": sorted(_VALID_TURN_ANIMATIONS),
     },
     "nninteractive": {"url": "string"},
 }
@@ -143,6 +146,8 @@ def _validate_preference(section: str, key: str, value):
         return _normalized_string(value, _VALID_ORTHO_LAYOUTS, "viewer.ortho_layout")
     if section == "viewer" and key == "dimbar_mode":
         return _normalized_string(value, _VALID_DIMBAR_MODES, "viewer.dimbar_mode")
+    if section == "viewer" and key == "turn_animation":
+        return _normalized_string(value, _VALID_TURN_ANIMATIONS, "viewer.turn_animation")
     if section == "nninteractive" and key == "url":
         if not isinstance(value, str) or not value.strip():
             raise InvalidPreferenceError("nninteractive.url must be a non-empty string")
@@ -280,6 +285,15 @@ def get_viewer_dimbar_mode() -> str | None:
         return None
     value = viewer_cfg.get("dimbar_mode")
     return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_DIMBAR_MODES else None
+
+
+def get_viewer_turn_animation() -> str | None:
+    """Return the preferred animation for r / t / o (rotate or fade)."""
+    viewer_cfg = load_config().get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    value = viewer_cfg.get("turn_animation")
+    return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_TURN_ANIMATIONS else None
 
 
 def get_nninteractive_url() -> str | None:

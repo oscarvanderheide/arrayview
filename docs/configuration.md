@@ -34,11 +34,14 @@ Stored in `~/.arrayview/config.toml`.
 arrayview config set viewer.rounded_panes false
 arrayview config set viewer.ortho_layout big-left
 arrayview config set viewer.dimbar_mode extended
+arrayview config set viewer.turn_animation fade
 ```
 
 Ortho layouts: `horizontal`, `big-left`.
 
 Dimbar modes: `compact`, `extended`.
+
+Turn animations (r / t / o): `rotate` (default), `fade`.
 
 ## Environment variable
 

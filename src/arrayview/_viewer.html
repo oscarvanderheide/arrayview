@@ -6099,6 +6099,7 @@
         const DEFAULT_REMEMBER_VIEW = __DEFAULT_REMEMBER_VIEW__;
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
+        const DEFAULT_TURN_ANIMATION = __DEFAULT_TURN_ANIMATION__;
         // The array's description, written into the page by the server when it
         // already knew it. Saves waiting for the same thing to arrive over the
         // WebSocket before the first frame can be requested. null whenever the
@@ -9289,6 +9290,8 @@
          *  purpose: the turn is wanted regardless of OS/IDE motion settings. */
         let _quarterTurn = null;
         let _quarterTurnQueue = [];
+        // viewer.turn_animation: 'fade' swaps the turn for the plain view crossfade.
+        let turnAnimationFade = DEFAULT_TURN_ANIMATION === 'fade';
         const _TURN_HURRY = 3;        // time speed-up while presses are waiting
         const _TURN_CHAIN_SPEED = 2;  // a queued turn with nothing behind it
         function _quarterTurnNext() {
@@ -9347,6 +9350,7 @@
          * in gets the new frame once it lands. Progress holds near the start
          * until then so the incoming face is never shown empty. */
         function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null, baseSpeed = 1) {
+            if (turnAnimationFade && !_quarterTurn) { _crossfadeViewAround(change); return; }
             if (_quarterTurn) {
                 // Keep the state change for its own turn; speed this one up.
                 _quarterTurnQueue.push([change, getBoxes, mode, getCube]);
@@ -26396,6 +26400,7 @@
             'viewer.remember_view': ['Reopen where you left off', 'Opening the same file again brings back its slice, view, colormap and rotation. Its display range comes back too, unless the file has changed. Kept in ~/.arrayview/view_memory.json.'],
             'viewer.colormaps': ['Colormap cycle', 'The colormaps offered when you press c, in this order. Type names separated by commas. Unknown names are skipped. Leave empty for the full built-in list. Applies the next time you open a viewer.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Ortho view (v) shows three planes of a volume at once. This sets how they are arranged when it opens. Responsive picks what fits your window best.'],
+            'viewer.turn_animation': ['Turn animation', 'How the image moves when you press r (rotate), t (transpose) or o (next view). Rotate shows the image turning. Fade blends from the old view to the new one.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'The row above the image lists the dimensions and the current slice. Extended also shows the size of each dimension, such as 11/20 instead of 11. Press Shift+D to switch while you work.'],
             'window.terminal': ['Terminal window', 'When you start arrayview from a normal terminal.'],
             'window.vscode': ['VS Code window', 'When you start arrayview from a VS Code terminal.'],
@@ -26470,6 +26475,8 @@
             } else if (key === 'dimbar_mode') {
                 _dimbarExtentPinned = value === 'extended';
                 _reconcileDimbarExtent();
+            } else if (key === 'turn_animation') {
+                turnAnimationFade = value === 'fade';
             }
         }
 
