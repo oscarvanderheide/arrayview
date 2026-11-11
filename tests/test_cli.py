@@ -273,10 +273,43 @@ def test_cli_rejects_compare_flags_with_more_than_four_files(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy", "e.npy", "--overlay", "m.npy"],
+        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy", "e.npy", "--rgb"],
     )
     with pytest.raises(SystemExit):
         appmod.arrayview()
+
+
+def test_cli_several_files_with_overlay_compare_and_watch_stack(monkeypatch, tmp_path):
+    files = [str(tmp_path / f"{n}.npy") for n in ("a", "b", "c")]
+    mask = str(tmp_path / "mask.npy")
+    for f in [*files, mask]:
+        np.save(f, np.zeros((8, 8), dtype=np.float32))
+    captured = {}
+
+    def fake_launch(*a, **kw):
+        captured.update(kw)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(_launcher_mod, "_handle_cli_existing_server", fake_launch)
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    _mock_launch_server_snapshot(monkeypatch, alive=True)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["arrayview", files[0], files[1], "--compare", files[2],
+         "--overlay", f"lesion={mask}", "--watch", "--browser"],
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    with pytest.raises(SystemExit):
+        appmod.arrayview()
+    # One stack of all three files; the mask is a plain overlay file drawn on
+    # every one of them, not a per-case pattern; every file is watched.
+    assert captured["dir_patterns"] == files
+    assert captured["compare_files"] in (None, [])
+    assert captured["overlay_files"] == [mask]
+    assert captured["overlay_names"] == ["lesion"]
+    assert captured["dir_overlay_specs"] == []
+    assert captured["watch"] is True
 
 
 def test_cli_stacks_several_plain_files(monkeypatch, tmp_path):

@@ -8,17 +8,25 @@ import threading
 import urllib.request
 
 
-def start_file_watch(filepath: str, sid: str, port: int) -> tuple[threading.Event, threading.Thread]:
+def _mtimes(filepaths: list[str]) -> tuple[float, ...]:
+    return tuple(os.stat(path).st_mtime for path in filepaths)
+
+
+def start_file_watch(
+    filepath: str | list[str], sid: str, port: int
+) -> tuple[threading.Event, threading.Thread]:
+    """Reload ``sid`` when its file changes; a list watches every file of a stack."""
+    filepaths = [filepath] if isinstance(filepath, str) else list(filepath)
     stop_event = threading.Event()
 
     def _watch() -> None:
         try:
-            last_mtime = os.stat(filepath).st_mtime
+            last_mtime = _mtimes(filepaths)
         except OSError:
             return
         while not stop_event.wait(1.0):
             try:
-                mtime = os.stat(filepath).st_mtime
+                mtime = _mtimes(filepaths)
             except OSError:
                 continue
             if mtime == last_mtime:
@@ -52,6 +60,10 @@ def start_file_watch(filepath: str, sid: str, port: int) -> tuple[threading.Even
 
 
 def attach_file_watch(session, filepath: str, port: int) -> None:
+    # Several files opened as one stack: watch each of them.
+    files = getattr(session.data, "_file_matrix", None)
+    if files is not None:
+        filepath = [path for row in files for path in row if path]
     stop_event, thread = start_file_watch(filepath, session.sid, port)
     session._source_watch_stop = stop_event
     session._source_watch_thread = thread

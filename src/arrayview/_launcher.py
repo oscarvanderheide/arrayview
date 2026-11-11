@@ -2112,15 +2112,18 @@ def _handle_cli_spawned_daemon(
         if cleanup_dir is not None and len(compare_files) == 1
         else None
     )
-    overlay_count = len(dir_overlay_specs or []) if dir_patterns is not None else len(overlay_files)
-    overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
-    overlay_sid = ",".join(overlay_sids) if overlay_sids else None
-    resolved_overlay_names = (
-        [spec[0] for spec in (dir_overlay_specs or [])]
-        if dir_patterns is not None
-        else overlay_names
+    # A collection's pattern overlays come first, then plain overlay files.
+    _pattern_overlay_names = (
+        [spec[0] for spec in (dir_overlay_specs or [])] if dir_patterns is not None else []
+    )
+    _file_overlay_names = list(
+        overlay_names
         or [os.path.basename(path) or f"overlay {i + 1}" for i, path in enumerate(overlay_files)]
     )
+    overlay_count = len(_pattern_overlay_names) + len(overlay_files)
+    overlay_sids = [uuid.uuid4().hex for _ in range(overlay_count)]
+    overlay_sid = ",".join(overlay_sids) if overlay_sids else None
+    resolved_overlay_names = [*_pattern_overlay_names, *_file_overlay_names]
 
     vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
     daemon_server_id = None
@@ -2165,7 +2168,7 @@ def _handle_cli_spawned_daemon(
                 collection_load=collection_load,
                 collection_stack=collection_stack,
                 collection_keep_order=collection_keep_order,
-                overlay_names=resolved_overlay_names,
+                overlay_names=_file_overlay_names,
                 cleanup_dir=cleanup_dir,
                 source_staging_dirs=source_staging_dirs,
             )
@@ -2206,7 +2209,7 @@ def _handle_cli_spawned_daemon(
             f" cleanup={demo_cleanup},"
             f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
             f" overlay_sids={repr(overlay_sids)},"
-            f" overlay_names={repr(resolved_overlay_names)},"
+            f" overlay_names={repr(_file_overlay_names)},"
             f" compare_filepath={repr(compare_files[0] if bundled_compare_sid else None)},"
             f" compare_sid={repr(bundled_compare_sid)},"
             f" vfield_filepath={repr(vfield_abs)},"
@@ -3556,18 +3559,56 @@ def _view_handles(url, sids, port, server_id, stack_slots=0):
     return tuple(ViewHandle(url, s, port, server_id) for s in sids)
 
 
-def _stackable_view_arrays(arrays, rgbs, overlay) -> bool:
-    """view(a, b, ...) stacks like several CLI files: same-shape numpy arrays,
-    no RGB, no overlay. Anything else keeps the per-array compare."""
-    import numpy as np
-
+def _stackable_view_arrays(arrays, rgbs) -> bool:
+    """view(a, b, ...) stacks like several CLI files: arrays with the same
+    number of dimensions (sizes may differ), no RGB. Colour images and arrays
+    of different rank keep the per-array compare."""
+    try:
+        ranks = {len(a.shape) for a in arrays}
+        dtypes_ok = all(getattr(a, "dtype", None) is not None for a in arrays)
+    except Exception:
+        return False
     return (
         len(arrays) > 1
-        and overlay is None
         and not any(rgbs)
-        and all(isinstance(a, np.ndarray) and a.ndim >= 2 for a in arrays)
-        and len({a.shape for a in arrays}) == 1
+        and dtypes_ok
+        and len(ranks) == 1
+        and min(ranks) >= 2
     )
+
+
+def _write_view_tempfile(array) -> str:
+    """Save one view() array (or stack) where a server process can load it."""
+    import tempfile
+
+    import numpy as np
+
+    from arrayview._io import _ArrayStack, save_array_stack
+
+    fd, base = tempfile.mkstemp(prefix="arrayview-")
+    os.close(fd)
+    os.unlink(base)
+    if isinstance(array, _ArrayStack):
+        return save_array_stack(array, base)
+    np.save(base + ".npy", np.asarray(array))
+    return base + ".npy"
+
+
+def _view_overlay_arrays(overlay) -> list:
+    """view(overlay=...) as a list of numpy arrays."""
+    import numpy as np
+
+    if overlay is None:
+        return []
+    out = []
+    for item in overlay if isinstance(overlay, (list, tuple)) else [overlay]:
+        if not isinstance(item, np.ndarray):
+            try:
+                item = np.array(item)
+            except Exception:
+                pass
+        out.append(item)
+    return out
 
 
 def _caller_variable_name(obj) -> str | None:
@@ -3667,10 +3708,11 @@ def view(
     ``(1, 1, 2)`` for 1 mm pixels and 2 mm slices. Slices then show their
     true proportions. Leading dimensions only; later ones keep size 1.
 
-    Several arrays of the same shape open like several files on the command
-    line: one array with them along a new last dimension, two to four shown
-    side by side. Arrays of different shapes, ``rgb`` or ``overlay`` keep the
-    older compare view.
+    Several arrays open like several files on the command line: one array
+    with them along a new last dimension, two to four shown side by side.
+    Their sizes may differ; an ``overlay`` is drawn on every array it fits.
+    Only ``rgb`` arrays and arrays with different numbers of dimensions keep
+    the older compare view.
 
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). ``update`` on one of them
@@ -3764,7 +3806,7 @@ def view(
     # Several same-shape arrays: one array with them along a new last dim,
     # as several files on the command line; the viewer opens 2-4 side by side.
     _stack_slots = 0
-    if _stackable_view_arrays(arrays, rgbs, overlay):
+    if _stackable_view_arrays(arrays, rgbs):
         from arrayview._io import _ArrayStack
 
         _stack_slots = n_arrays
@@ -3890,15 +3932,16 @@ def view(
 
     port = _revalidate_launch_server(_launch_context, port)
 
-    # --- Julia path: only single-array supported ---
+    # --- Julia path: the server runs in its own process ---
     if _invocation is Invocation.JULIA:
-        if n_arrays > 1:
+        if len(arrays) > 1:
             raise NotImplementedError(
-                "Multi-array view() is not yet supported in Julia mode"
+                "From Julia, several arrays in one view() must have the same "
+                "number of dimensions and cannot be rgb."
             )
 
         return _view_julia(
-            np.array(data) if not isinstance(data, np.ndarray) else data,
+            data,
             name,
             port,
             window=window,
@@ -3909,6 +3952,9 @@ def view(
             launch_context=_launch_context,
             initial_view=_initial_view,
             code_source=_code_source,
+            rgb=bool(rgb_primary),
+            overlays=_view_overlay_arrays(overlay),
+            stack_slots=_stack_slots,
         )
 
     # VS Code tunnel/remote: use the server + WebSocket path. The opener owns
@@ -3924,14 +3970,34 @@ def view(
             _launch_context, port
         ).server_instance_id
         assert _expected_server_id is not None
+        _overlay_sids: list[str] = []
         try:
-            import tempfile as _tf
-
-            for _array, _name, _rgb in zip(arrays, names, rgbs):
-                with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
-                    _tmp_path = _tmp.name
+            for _ov_i, _ov_arr in enumerate(_view_overlay_arrays(overlay)):
+                _tmp_path = _write_view_tempfile(_ov_arr)
                 try:
-                    np.save(_tmp_path, np.asarray(_array))
+                    _result = _load_session_from_filepath(
+                        port,
+                        _tmp_path,
+                        f"overlay {_ov_i + 1}",
+                        expected_server_id=_expected_server_id,
+                        release_on_disconnect=inline,
+                    )
+                finally:
+                    try:
+                        os.unlink(_tmp_path)
+                    except OSError:
+                        pass
+                if "error" in _result:
+                    raise RuntimeError(_result["error"])
+                _overlay_sids.append(str(_result["sid"]))
+            _overlay_colors = [
+                _OVERLAY_PALETTE[i % len(_OVERLAY_PALETTE)]
+                for i in range(len(_overlay_sids))
+            ]
+            for _array, _name, _rgb in zip(arrays, names, rgbs):
+                _tmp_path = None
+                try:
+                    _tmp_path = _write_view_tempfile(_array)
                     _is_primary = not _loaded_sids
                     _result = _load_session_from_filepath(
                         port,
@@ -3941,12 +4007,14 @@ def view(
                         stack_names=getattr(_array, "case_names", None) if _stack_slots else None,
                         expected_server_id=_expected_server_id,
                         release_on_disconnect=inline,
+                        related_sids=_overlay_sids if _is_primary else None,
                         initial_view=_initial_view if _is_primary else None,
                         code_source=_code_source if _is_primary else None,
                     )
                 finally:
                     try:
-                        os.unlink(_tmp_path)
+                        if _tmp_path is not None:
+                            os.unlink(_tmp_path)
                     except OSError:
                         pass
                 if "error" in _result:
@@ -3955,7 +4023,7 @@ def view(
         except Exception as e:
             _release_remote_sessions(
                 port,
-                _loaded_sids,
+                [*_loaded_sids, *_overlay_sids],
                 expected_server_id=_expected_server_id,
             )
             _vprint(
@@ -3969,13 +4037,24 @@ def view(
 
         try:
             sid, *_compare_sids = _loaded_sids
-            url_viewer = _viewer_url(port, sid, compare_sids=_compare_sids)
+            url_viewer = _viewer_url(
+                port,
+                sid,
+                compare_sids=_compare_sids,
+                overlay_sids=_overlay_sids,
+                overlay_colors=_overlay_colors,
+            )
 
             if inline:
                 from IPython.display import display as _ipy_display
 
                 _inline_url = _viewer_url(
-                    port, sid, compare_sids=_compare_sids, inline=True
+                    port,
+                    sid,
+                    compare_sids=_compare_sids,
+                    overlay_sids=_overlay_sids,
+                    overlay_colors=_overlay_colors,
+                    inline=True,
                 )
                 if _should_use_jupyter_proxy_inline():
                     _inline_html = _make_jupyter_proxy_inline_html(
@@ -4049,13 +4128,7 @@ def view(
     _overlay_sids = []
     _overlay_colors = []
     if overlay is not None:
-        _ov_list = overlay if isinstance(overlay, (list, tuple)) else [overlay]
-        for _i, _ov_arr in enumerate(_ov_list):
-            if not isinstance(_ov_arr, np.ndarray):
-                try:
-                    _ov_arr = np.array(_ov_arr)
-                except Exception:
-                    pass
+        for _i, _ov_arr in enumerate(_view_overlay_arrays(overlay)):
             _ov_session = _session_mod.Session(_ov_arr, name=f"overlay {_i + 1}")
             _session_mod.SESSIONS[_ov_session.sid] = _ov_session
             _overlay_sids.append(_ov_session.sid)
@@ -4440,6 +4513,9 @@ def _view_julia(
     launch_context=None,
     initial_view: dict | None = None,
     code_source: dict | None = None,
+    rgb: bool = False,
+    overlays: list | None = None,
+    stack_slots: int = 0,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
@@ -4463,6 +4539,9 @@ def _view_julia(
         launch_context=launch_context,
         initial_view=initial_view,
         code_source=code_source,
+        rgb=rgb,
+        overlays=overlays,
+        stack_slots=stack_slots,
     )
 
 
@@ -4480,20 +4559,49 @@ def _view_subprocess(
     launch_context=None,
     initial_view: dict | None = None,
     code_source: dict | None = None,
+    overlays: list | None = None,
+    stack_slots: int = 0,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
     Used when the calling process may exit shortly after view() returns
     (Julia, VS Code tunnel one-shot scripts, CLI).  The subprocess server
     survives because it is not a daemon thread.
-    """
-    import numpy as np
-    import tempfile
 
-    # Persist the array to a temp file so the server subprocess can load it.
-    with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as tmp:
-        tmp_path = tmp.name
-    np.save(tmp_path, data)
+    ``data`` is one array, or the stack of a several-array view()
+    (``stack_slots`` arrays); ``overlays`` are drawn on top of it.
+    """
+    # Persist the arrays to temp files so the server subprocess can load them.
+    stack_names = getattr(data, "case_names", None) if stack_slots else None
+    tmp_path = _write_view_tempfile(data)
+    overlay_paths = []
+    try:
+        for _overlay in overlays or []:
+            overlay_paths.append(_write_view_tempfile(_overlay))
+    except Exception:
+        for _path in [tmp_path, *overlay_paths]:
+            try:
+                os.unlink(_path)
+            except OSError:
+                pass
+        raise
+    overlay_names = [f"overlay {i + 1}" for i in range(len(overlay_paths))]
+    overlay_colors = [
+        _OVERLAY_PALETTE[i % len(_OVERLAY_PALETTE)] for i in range(len(overlay_paths))
+    ]
+    overlay_sids: list[str] = []
+
+    def _handles(url):
+        if stack_slots:
+            return _view_handles(url, [sid], port, active_server_id, stack_slots)
+        return ViewHandle(url, sid, port, active_server_id)
+
+    def _unlink_temp_files():
+        for _path in [tmp_path, *overlay_paths]:
+            try:
+                os.unlink(_path)
+            except OSError:
+                pass
 
     tab_injected = False  # True when an existing shell window received the new tab
     active_server_id = None
@@ -4522,29 +4630,42 @@ def _view_subprocess(
         # Pass notify=True so the server injects a new tab into any open shell
         # window rather than requiring the caller to open a new native window.
         try:
+            for _ov_path, _ov_name in zip(overlay_paths, overlay_names):
+                _ov_result = _load_session_from_filepath(
+                    port,
+                    _ov_path,
+                    _ov_name,
+                    expected_server_id=active_server_id,
+                    release_on_disconnect=True,
+                )
+                if "error" in _ov_result:
+                    raise RuntimeError(_ov_result["error"])
+                overlay_sids.append(str(_ov_result["sid"]))
             result = _load_session_from_filepath(
                 port,
                 tmp_path,
                 name,
                 notify=(
-                    launch_context.plan.display.value == "native"
-                    if launch_context is not None
-                    else True
+                    (
+                        launch_context.plan.display.value == "native"
+                        if launch_context is not None
+                        else True
+                    )
+                    and not overlay_sids
                 ),
                 rgb=rgb,
+                stack_names=stack_names,
                 expected_server_id=active_server_id,
                 native_request_id=native_request_id,
                 release_on_disconnect=True,
+                related_sids=overlay_sids,
                 initial_view=initial_view,
                 code_source=code_source,
             )
             if "error" in result:
                 raise RuntimeError(result["error"])
-            # Data is now in server memory; temp file no longer needed.
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            # Data is now in server memory; temp files no longer needed.
+            _unlink_temp_files()
             sid = result["sid"]
             tab_injected = bool(result.get("notified", False))
             if tab_injected and native_request_id:
@@ -4558,13 +4679,15 @@ def _view_subprocess(
             _vprint(
                 f"[ArrayView] Failed to register with existing server: {e}", flush=True
             )
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            _unlink_temp_files()
+            if overlay_sids:
+                _release_remote_sessions(
+                    port, overlay_sids, expected_server_id=active_server_id
+                )
             raise
     else:
         sid = uuid.uuid4().hex
+        overlay_sids = [uuid.uuid4().hex for _ in overlay_paths]
         persist_daemon = bool(
             launch_context is not None
             and launch_context.placement.value == "vscode_remote"
@@ -4596,14 +4719,20 @@ def _view_subprocess(
                         flush=True,
                     )
                 # Spawn a self-contained server subprocess (same as CLI path).
+                # ascii(): names may hold non-ASCII ("a · b") and argv must
+                # survive a C locale.
                 script = (
                     f"from arrayview._launcher import _serve_daemon;"
-                    f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
-                    f"name={repr(name)}, cleanup=True, "
+                    f"_serve_daemon({ascii(tmp_path)}, {port}, {ascii(sid)}, "
+                    f"name={ascii(name)}, cleanup=True, "
                     f"persist={persist_daemon}, "
-                    f"connect_timeout={repr(daemon_connect_timeout)}, rgb={rgb}, "
-                    f"initial_view={repr(initial_view)}, "
-                    f"code_source={repr(code_source)})"
+                    f"connect_timeout={ascii(daemon_connect_timeout)}, rgb={rgb}, "
+                    f"overlay_filepaths={ascii(overlay_paths)}, "
+                    f"overlay_sids={ascii(overlay_sids)}, "
+                    f"overlay_names={ascii(overlay_names)}, "
+                    f"stack_names={ascii(stack_names)}, "
+                    f"initial_view={ascii(initial_view)}, "
+                    f"code_source={ascii(code_source)})"
                 )
                 daemon_proc = subprocess.Popen(
                     [sys.executable, "-c", script],
@@ -4626,13 +4755,12 @@ def _view_subprocess(
                 active_server_id = daemon_identity[0]
         except Exception:
             _terminate_owned_process(daemon_proc)
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            _unlink_temp_files()
             raise
 
-    url_viewer = _viewer_url(port, sid)
+    url_viewer = _viewer_url(
+        port, sid, overlay_sids=overlay_sids, overlay_colors=overlay_colors
+    )
     url_shell = _shell_url(port, sid, name)
     _print_viewer_location(url_viewer, launch_context=launch_context)
 
@@ -4640,10 +4768,16 @@ def _view_subprocess(
         launch_context is not None
         and launch_context.plan.display.value == "none"
     ):
-        return ViewHandle(url_viewer, sid, port, active_server_id)
+        return _handles(url_viewer)
 
     if inline:
-        _inline_url = _viewer_url(port, sid, inline=True)
+        _inline_url = _viewer_url(
+            port,
+            sid,
+            overlay_sids=overlay_sids,
+            overlay_colors=overlay_colors,
+            inline=True,
+        )
         iframe_html = (
             _build_jupyter_inline_html(
                 _inline_url,
@@ -4680,7 +4814,7 @@ def _view_subprocess(
     if tab_injected:
         # Tab was injected into the existing native shell window — no new window needed.
         _vprint("[ArrayView] New tab injected into existing window", flush=True)
-        return ViewHandle(url_viewer, sid, port, active_server_id)
+        return _handles(url_viewer)
 
     can_native = (
         launch_context.plan.display.value == "native"
@@ -4719,7 +4853,7 @@ def _view_subprocess(
             floating=floating,
             launch_context=launch_context,
         )
-    return ViewHandle(url_viewer, sid, port, active_server_id)
+    return _handles(url_viewer)
 
 
 def _serve_empty(port: int) -> None:
@@ -4782,6 +4916,7 @@ def _serve_daemon(
     watch: bool = False,
     initial_view: dict | None = None,
     code_source: dict | None = None,
+    stack_names: list[str] | None = None,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -4919,6 +5054,13 @@ def _serve_daemon(
                     keep_order=collection_keep_order,
                 )
                 collection_spatial_ndim = len(_summary["spatial_shape"])
+            elif stack_names:
+                # A several-array view(): the arrays as cases of one stack.
+                from arrayview._io import load_array_stack
+
+                data, spatial_meta = load_array_stack(filepath, stack_names), None
+                dir_overlay_items = None
+                collection_spatial_ndim = None
             elif (filepath.endswith(".npz") or filepath.endswith(".mat")) and not cleanup:
                 try:
                     _array_keys = list_array_keys(filepath)
@@ -5019,14 +5161,28 @@ def _serve_daemon(
                 os.path.basename(path) or f"overlay {i + 1}"
                 for i, path in enumerate(overlay_filepaths or [])
             ]
+            # Plain overlay files take the sids after a collection's own.
+            _n_dir_overlays = len(dir_overlay_items or [])
             for ov_path, ov_sid, ov_name in zip(
-                overlay_filepaths or [], overlay_sids or [], resolved_overlay_names
+                overlay_filepaths or [],
+                (overlay_sids or [])[_n_dir_overlays:],
+                resolved_overlay_names,
             ):
                 try:
                     ov_data = load_data(ov_path)
                     ov_data = align_overlay_to_base(ov_path, ov_data, spatial_meta)
+                    if cleanup:
+                        # A view() overlay saved to a temp file: keep it in
+                        # memory, the file goes.
+                        import numpy as _np
+
+                        ov_data = _np.array(ov_data)
+                        try:
+                            os.unlink(ov_path)
+                        except OSError:
+                            pass
                     ov_session = _session_mod.Session(
-                        ov_data, filepath=ov_path, name=ov_name
+                        ov_data, filepath=None if cleanup else ov_path, name=ov_name
                     )
                     if ov_path in source_staging_dirs:
                         ov_session._source_staging_dirs = [
@@ -6106,21 +6262,25 @@ def arrayview():
             "which files form the collection."
         )
     if (
+        args.compare
+        and args.files
+        and not args.stack_mode
+        and not (args.vectorfield or args.rgb or args.relay)
+    ):
+        # --compare FILE is one more file: `a --compare b` opens as `a b`.
+        args.files = [*args.files, args.compare]
+        args.compare = None
+    if (
         args.files
         and len(args.files) > 1
         and not args.stack_mode
-        and not (
-            args.compare
-            or args.overlay
-            or args.vectorfield
-            or args.watch
-            or args.rgb
-            or args.relay
-        )
+        and not (args.compare or args.vectorfield or args.rgb or args.relay)
     ):
         # Several plain files: one array with the files along a new last
         # dim, in the order given, as --match does for explicit file lists.
-        # The viewer opens 2-4 of them side by side.
+        # The viewer opens 2-4 of them side by side. An --overlay is a plain
+        # mask file shown on every one of them (not a per-case pattern), and
+        # --watch follows every file.
         args.stack_mode = True
         args.keep_file_order = True
         args.auto_stack = True
@@ -6130,7 +6290,12 @@ def arrayview():
     if args.stack_mode:
         if not args.files:
             parser.error("--match requires at least one image pattern.")
-        if args.compare or args.vectorfield or args.watch or args.rgb:
+        if (
+            args.compare
+            or args.vectorfield
+            or args.rgb
+            or (args.watch and not getattr(args, "auto_stack", False))
+        ):
             parser.error(
                 "--match is incompatible with --compare, --vectorfield, "
                 "--watch, and --rgb."
@@ -6173,7 +6338,7 @@ def arrayview():
     if args.files and len(args.files) > 4 and not args.stack_mode:
         parser.error(
             "More than four FILE arguments open as one stack, which does not "
-            "support --compare, --overlay, --vectorfield, --watch, --rgb, or --relay."
+            "support --vectorfield, --rgb, or --relay."
         )
     if args.compare and len(args.files) > 1 and not args.stack_mode:
         parser.error("Use either positional compare files or --compare, not both.")
@@ -6336,8 +6501,32 @@ def arrayview():
 
         dir_patterns = [lexical_abspath(p) for p in args.files]
         collection_inputs = list(dir_patterns)
+        file_overlay_names = []
+        file_overlay_paths = []
+        _pattern_overlays = args.overlay or []
+        if getattr(args, "auto_stack", False):
+            try:
+                _file_overlays = _normalize_file_overlay_specs(args.overlay)
+            except ValueError as e:
+                parser.error(str(e))
+            file_overlay_names = [name for name, _path in _file_overlays]
+            file_overlay_paths = [path for _name, path in _file_overlays]
+            for _path in file_overlay_paths:
+                if not os.path.exists(_path):
+                    _print_failure(f"file not found: {_path}")
+                    sys.exit(1)
+            if args.watch and any(
+                direct_network_mount(_path) is not None for _path in dir_patterns
+            ):
+                _print_failure(
+                    "--watch is not supported for network-mounted sources because "
+                    "polling can block forever after a disconnect. Launch without "
+                    "--watch or copy the files to local storage first."
+                )
+                sys.exit(1)
+            _pattern_overlays = []
         collection_inputs.extend(
-            pattern for _name, pattern in _normalize_dir_overlay_specs(args.overlay or [])
+            pattern for _name, pattern in _normalize_dir_overlay_specs(_pattern_overlays)
         )
         collection_inputs.extend(args.overlay_dir or [])
         if os.environ.get("ARRAYVIEW_SKIP_SOURCE_STAGING", "1") == "0":
@@ -6356,7 +6545,7 @@ def arrayview():
             dir_patterns = [os.path.join(dir_patterns[0], "**", "*")]
         dir_overlay_specs = [
             (role, os.path.abspath(pattern))
-            for role, pattern in _normalize_dir_overlay_specs(args.overlay or [])
+            for role, pattern in _normalize_dir_overlay_specs(_pattern_overlays)
         ]
         try:
             dir_overlay_specs.extend(
@@ -6742,8 +6931,8 @@ def arrayview():
                 base_file=base_file,
                 name=name,
                 compare_files=compare_files,
-                overlay_files=[] if args.stack_mode else file_overlay_paths,
-                overlay_names=[] if args.stack_mode else file_overlay_names,
+                overlay_files=file_overlay_paths,
+                overlay_names=file_overlay_names,
                 rgb=args.rgb,
                 vectorfield=args.vectorfield,
                 vfield_components_dim=vfield_components_dim,
@@ -6780,8 +6969,8 @@ def arrayview():
             base_file=base_file,
             name=name,
             compare_files=compare_files,
-            overlay_files=[] if args.stack_mode else file_overlay_paths,
-            overlay_names=[] if args.stack_mode else file_overlay_names,
+            overlay_files=file_overlay_paths,
+            overlay_names=file_overlay_names,
             dims_override=dims_override,
             initial_view=initial_view,
             use_native_shell=use_native_shell,

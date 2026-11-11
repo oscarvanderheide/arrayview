@@ -436,6 +436,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 _key = body.get("key")
                 _array_keys = None
                 _array_prompt = False
+                _stack_names = None if dir_patterns else body.get("stack_names")
                 if dir_patterns:
                     data, spatial_meta, dir_overlay_items, summary = await asyncio.to_thread(
                         load_dir_collection,
@@ -447,6 +448,15 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                         stack=body.get("stack", "auto"),
                         keep_order=bool(body.get("keep_order", False)),
                     )
+                elif _stack_names:
+                    # view(a, b, ...) on a running server: show the arrays as
+                    # cases of one stack, like several CLI files.
+                    from ._io import load_array_stack
+
+                    data = await asyncio.to_thread(
+                        load_array_stack, filepath, _stack_names
+                    )
+                    spatial_meta = None
                 elif filepath.endswith(".npz") or filepath.endswith(".mat"):
                     _array_keys = await asyncio.to_thread(list_array_keys, filepath)
                     if len(_array_keys) > 1 and not _key:
@@ -459,7 +469,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                     if len(_array_keys) == 1 and not _key:
                         _key = _array_keys[0]["key"]
 
-                if not dir_patterns and not _array_prompt:
+                if not dir_patterns and not _array_prompt and not _stack_names:
                     data, spatial_meta = await asyncio.to_thread(
                         load_data_with_meta,
                         filepath,
@@ -481,19 +491,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 if staging_dir:
                     cleanup_staging_directory(staging_dir)
                 return {"error": str(e)}
-            stack_names = body.get("stack_names")
-            if stack_names and not dir_patterns:
-                # view(a, b, ...) on a running server: the arrays came stacked
-                # along a new last dim; show them as cases, like CLI files.
-                from ._io import _ArrayStack
-
-                try:
-                    data = _ArrayStack.from_stacked(np.asarray(data), stack_names)
-                except Exception as e:
-                    return {"error": str(e)}
-                filepath_for_session = None
-            else:
-                filepath_for_session = None if dir_patterns else filepath
+            filepath_for_session = None if dir_patterns or _stack_names else filepath
             try:
                 session = await asyncio.to_thread(
                     Session, data, filepath=filepath_for_session, name=name

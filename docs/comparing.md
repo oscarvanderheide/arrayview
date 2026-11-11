@@ -6,23 +6,31 @@
 uvx arrayview base.npy moving.npy           # 2 arrays, side by side to compare
 uvx arrayview base.npy a.npy b.npy c.npy    # up to 4, side by side
 uvx arrayview run_*.npy                     # 5 or more: one at a time
+uvx arrayview a.npy b.npy --overlay mask.npy   # the mask on every array it fits
+uvx arrayview a.npy b.npy --watch              # each pane follows its own file
 ```
 
 Several files open as one array, with the files along a new last dimension in
 the order you typed them (a `|` in the dimension bar marks it). Files may have
 different shapes. Two to four open side by side; five or more show one at a
-time. A folder or `--match` collection does the same.
+time. A folder or `--match` collection does the same. `--compare FILE` is just
+one more file. An `--overlay` mask is drawn on every array of the same shape,
+and `--watch` reloads whichever file changed.
 
-From Python, `view(a, b)` does the same with arrays of the same shape:
+From Python, `view(a, b)` does the same. The arrays may differ in size, as long
+as they have the same number of dimensions:
 
 ```python
 ha, hb = arrayview.view(a, b)   # side by side, panes named "a" and "b"
 hb.update(b2)                   # replaces only the second pane
+arrayview.view(a, b, overlay=mask)
 ```
 
 Each array still gets its own handle; closing any of them closes the view.
-Arrays of different shapes, or with `rgb=` or `overlay=`, open in the older
-compare view.
+The same call works from Julia and MATLAB (see [MATLAB and Julia](foreign-hosts.md)).
+
+Only colour images (`--rgb` / `rgb=`), a `--vectorfield`, and arrays with
+different numbers of dimensions still open in the older compare view.
 
 ## Side by side
 

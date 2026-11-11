@@ -35,6 +35,15 @@ def register_state_routes(app, get_session_or_404) -> None:
     async def reload_session(sid: str, session=Depends(get_session_or_404)):
         """Reload session data from its source file (used by --watch mode)."""
         filepath = session.filepath
+        if getattr(session.data, "_file_matrix", None) is not None:
+            # Several files as one stack: forget what was read, so each pane
+            # is read from its file again. The files must keep their shapes.
+            from arrayview._io import forget_cached_volumes
+
+            forget_cached_volumes(session.data)
+            session.reset_caches()
+            session.data_version = getattr(session, "data_version", 0) + 1
+            return {"version": session.data_version}
         if not filepath or not os.path.isfile(filepath):
             return {"error": "session has no reloadable filepath"}
         try:
@@ -101,9 +110,10 @@ def register_state_routes(app, get_session_or_404) -> None:
         """Open arrays already loaded as one stack, cases along a new last dim.
 
         The file picker's and drag-and-drop's compare use it so several arrays
-        show side by side the way several files on the command line do. Only
-        plain arrays of the same shape stack; anything else answers an
-        ``error`` and the viewer keeps its per-array compare.
+        show side by side the way several files on the command line do. Plain
+        arrays with the same number of dimensions stack (sizes may differ);
+        anything else answers an ``error`` and the viewer keeps its per-array
+        compare.
         """
         from arrayview._io import _ArrayStack
         from arrayview._session import Session
@@ -121,8 +131,8 @@ def register_state_routes(app, get_session_or_404) -> None:
                 or s.fft_original_data is not None
             ):
                 return {"error": f"stack: {s.name} cannot be stacked"}
-        if len({tuple(int(n) for n in s.data.shape) for s in sessions}) != 1:
-            return {"error": "stack: arrays differ in shape"}
+        if len({len(s.data.shape) for s in sessions}) != 1:
+            return {"error": "stack: arrays differ in number of dimensions"}
         try:
             data = _ArrayStack([s.data for s in sessions], [s.name for s in sessions])
             stack = await asyncio.to_thread(

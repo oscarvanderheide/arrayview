@@ -2923,18 +2923,46 @@ class TestViewArrayStack:
         assert np.asarray(stack).shape == (4, 5, 2)
         b[0, 0] = 7.0
         assert stack[0, 0, 1] == 7.0
-        with pytest.raises(ValueError, match="same shape"):
-            _ArrayStack([a, np.zeros((3, 5))])
+        with pytest.raises(ValueError, match="same number of dimensions"):
+            _ArrayStack([a, np.zeros((3, 5, 2))])
 
-    def test_only_same_shape_plain_arrays_stack(self):
+    def test_arrays_of_different_sizes_stack_each_in_its_own_size(self, tmp_path):
+        from arrayview._io import _ArrayStack, load_array_stack, save_array_stack
+
+        a = np.arange(20, dtype=np.float32).reshape(4, 5)
+        b = np.ones((3, 7), dtype=np.float32)
+        stack = _ArrayStack([a, b], ["a", "b"])
+        assert stack._av_ragged
+        assert stack.shape == (4, 7, 2)
+        assert stack.ragged_spatial_shapes == [[(4, 5)], [(3, 7)]]
+        assert stack[:, :, 0].shape == (4, 5)
+        assert stack[:, :, 1].shape == (3, 7)
+        # A position past the smaller array's edge reads its last row/column.
+        assert stack.clamp_indices([3, 6, 0]) == [3, 4, 0]
+        assert stack[3, 6, 1] == 1.0
+        with pytest.raises(TypeError):
+            np.asarray(stack)
+        with pytest.raises(ValueError, match="keep its shape"):
+            stack.replace(1, np.zeros((4, 5), dtype=np.float32))
+        # The form view() hands to a server in another process.
+        path = save_array_stack(stack, str(tmp_path / "stack"))
+        back = load_array_stack(path, ["a", "b"])
+        assert back.ragged_spatial_shapes == stack.ragged_spatial_shapes
+        assert np.array_equal(back[:, :, 0], a)
+        same = _ArrayStack([a, a + 1], ["a", "b"])
+        assert not same._av_ragged
+        back = load_array_stack(save_array_stack(same, str(tmp_path / "same")), ["a", "b"])
+        assert np.array_equal(np.asarray(back), np.asarray(same))
+
+    def test_arrays_of_the_same_rank_stack(self):
         from arrayview._launcher import _stackable_view_arrays
 
         a = np.zeros((4, 5))
-        assert _stackable_view_arrays((a, a), [False, False], None)
-        assert not _stackable_view_arrays((a,), [False], None)
-        assert not _stackable_view_arrays((a, np.zeros((4, 6))), [False, False], None)
-        assert not _stackable_view_arrays((a, a), [True, False], None)
-        assert not _stackable_view_arrays((a, a), [False, False], a)
+        assert _stackable_view_arrays((a, a), [False, False])
+        assert _stackable_view_arrays((a, np.zeros((4, 6))), [False, False])
+        assert not _stackable_view_arrays((a,), [False])
+        assert not _stackable_view_arrays((a, np.zeros((4, 5, 2))), [False, False])
+        assert not _stackable_view_arrays((a, a), [True, False])
 
     def test_handles_share_one_view_and_update_their_own_slot(self):
         from arrayview._launcher import _view_handles
@@ -2975,6 +3003,32 @@ class TestViewArrayStack:
         r = client.post(f"/update/{sid}?slot=1", content=buf.getvalue())
         assert r.status_code == 400
         assert "keep its shape" in r.text
+
+
+class TestWatchedFileStack:
+    def test_reload_reads_the_files_of_a_stack_again(self, client, tmp_path):
+        files = [tmp_path / "a.npy", tmp_path / "b.npy"]
+        for f in files:
+            np.save(f, np.zeros((6, 8, 3), dtype=np.float32))
+        sid = client.post(
+            "/load",
+            json={
+                "filepath": str(files[0]),
+                "name": "stack",
+                "dir_patterns": [str(f) for f in files],
+                "keep_order": True,
+            },
+        ).json()["sid"]
+
+        def pixel(case):
+            params = {"dim_x": 1, "dim_y": 0, "indices": f"0,0,0,{case}", "px": 2, "py": 2}
+            return client.get(f"/pixel/{sid}", params=params).json()["value"]
+
+        assert (pixel(0), pixel(1)) == (0.0, 0.0)
+        np.save(files[1], np.full((6, 8, 3), 4.0, dtype=np.float32))
+        out = client.post(f"/reload/{sid}").json()
+        assert out["version"] >= 1
+        assert (pixel(0), pixel(1)) == (0.0, 4.0)
 
 
 class TestOverlaySliceCounts:
@@ -4679,7 +4733,7 @@ class TestRevealTab:
 
 
 class TestStackOpenArrays:
-    """Picker / drop compare: same-shape open arrays reopen as one stack."""
+    """Picker / drop compare: same-rank open arrays reopen as one stack."""
 
     def test_same_shape_arrays_stack_as_cases(self, client, tmp_path):
         from conftest import register_array
@@ -4693,11 +4747,16 @@ class TestStackOpenArrays:
         assert meta["collection_spatial_ndim"] == 3
         assert meta["case_names"] == ["a", "b"]
 
-    def test_different_shapes_do_not_stack(self, client, tmp_path):
+    def test_different_sizes_stack_and_different_ranks_do_not(self, client, tmp_path):
         from conftest import register_array
 
         a = register_array(client, np.zeros((6, 8, 3), np.float32), tmp_path, "a")
         c = register_array(client, np.zeros((5, 8, 3), np.float32), tmp_path, "c")
-        assert "error" in client.post("/stack", json={"sids": [a, c]}).json()
+        d = register_array(client, np.zeros((6, 8), np.float32), tmp_path, "d")
+        out = client.post("/stack", json={"sids": [a, c]}).json()
+        meta = client.get(f"/metadata/{out['sid']}").json()
+        assert meta["ragged_spatial_shapes"] == [[[6, 8, 3]], [[5, 8, 3]]]
+        assert meta["case_names"] == ["a", "c"]
+        assert "error" in client.post("/stack", json={"sids": [a, d]}).json()
         assert "error" in client.post("/stack", json={"sids": [a]}).json()
         assert "error" in client.post("/stack", json={"sids": [a, "nope"]}).json()

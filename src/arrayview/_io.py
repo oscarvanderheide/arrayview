@@ -1251,12 +1251,37 @@ class _FileSeries:
         return result
 
 
+def forget_cached_volumes(series) -> None:
+    """Drop the volumes a file series has read, so its files are read again."""
+    lock = getattr(series, "_cache_lock", None)
+    if lock is None:
+        return
+    jobs_lock = getattr(series, "_progressive_lock", None)
+    if jobs_lock is not None:
+        with jobs_lock:
+            series._progressive_jobs.clear()
+    with lock:
+        series._vol_cache.clear()
+        if hasattr(series, "_vol_cache_bytes"):
+            series._vol_cache_bytes = 0
+    region_lock = getattr(series, "_region_lock", None)
+    if region_lock is not None:
+        with region_lock:
+            series._region_cache.clear()
+            series._region_cache_bytes = 0
+            series._region_generation += 1
+
+
 class _ArrayStack:
-    """Same-shape in-memory arrays seen as one array, cases along a new last dim.
+    """In-memory arrays seen as one array, cases along a new last dim.
 
     What ``view(a, b, ...)`` shows, like several files on the command line.
     No copy: a slice reads straight from its array. ``replace(i, arr)`` swaps
     one case (``handle.update`` of that array's handle).
+
+    Arrays of the same rank but different sizes form a ragged stack, read the
+    way ``_RaggedFileSeries`` is: ``shape`` is the largest size per dim, and a
+    slice comes back in its own array's size.
     """
 
     _av_lazy = True
@@ -1265,15 +1290,25 @@ class _ArrayStack:
         arrays = list(arrays)
         if len(arrays) < 2:
             raise ValueError("a stack needs at least two arrays")
-        shape = tuple(int(s) for s in arrays[0].shape)
-        if any(tuple(int(s) for s in a.shape) != shape for a in arrays):
-            raise ValueError("stacked arrays must all have the same shape")
+        shapes = [tuple(int(s) for s in a.shape) for a in arrays]
+        if len({len(shape) for shape in shapes}) != 1:
+            raise ValueError(
+                "arrays shown side by side must have the same number of "
+                f"dimensions, got shapes {shapes}"
+            )
         self._arrays = arrays
-        self._vol_shape = shape
+        self._set_shapes(shapes)
         self._dtype = np.result_type(*[np.dtype(a.dtype) for a in arrays])
-        self.shape = (*shape, len(arrays))
         self.ndim = len(self.shape)
+        self._stack_axes = (self.ndim - 1,)
         self.case_names = [str(n) for n in case_names] if case_names else None
+
+    def _set_shapes(self, shapes):
+        self._shapes = shapes
+        self._vol_shape = tuple(max(sizes) for sizes in zip(*shapes))
+        self.shape = (*self._vol_shape, len(shapes))
+        # Only a stack whose arrays differ in size takes the ragged path.
+        self._av_ragged = len(set(shapes)) > 1
 
     @classmethod
     def from_stacked(cls, data, case_names=None):
@@ -1286,12 +1321,36 @@ class _ArrayStack:
 
     @property
     def nbytes(self):
-        return int(np.prod(self.shape)) * self._dtype.itemsize
+        return int(sum(np.prod(shape) for shape in self._shapes)) * self._dtype.itemsize
+
+    @property
+    def ragged_spatial_shapes(self):
+        return [[shape] for shape in self._shapes]
+
+    def _case(self, idx_list):
+        n = len(self._arrays)
+        case = int(idx_list[-1]) if len(idx_list) >= self.ndim else 0
+        if case < 0:
+            case += n
+        return max(0, min(n - 1, case))
+
+    def spatial_shape_for_indices(self, idx_list):
+        return self._shapes[self._case(idx_list)]
+
+    def clamp_indices(self, idx_list):
+        out = list(idx_list)
+        for dim, size in enumerate(self.spatial_shape_for_indices(out)):
+            if dim < len(out):
+                out[dim] = max(0, min(int(size) - 1, int(out[dim])))
+        if len(out) >= self.ndim:
+            out[self.ndim - 1] = self._case(out)
+        return out
 
     def replace(self, i, arr):
-        if tuple(int(s) for s in arr.shape) != self._vol_shape:
+        shape = tuple(int(s) for s in arr.shape)
+        if shape != self._shapes[i]:
             raise ValueError(
-                f"array {i + 1} must keep its shape {self._vol_shape}, got {tuple(arr.shape)}"
+                f"array {i + 1} must keep its shape {self._shapes[i]}, got {shape}"
             )
         self._arrays[i] = arr
         self._dtype = np.result_type(*[np.dtype(a.dtype) for a in self._arrays])
@@ -1302,16 +1361,54 @@ class _ArrayStack:
         if not any(k is None or k is Ellipsis for k in key) and len(key) == self.ndim:
             case = key[-1]
             if isinstance(case, (int, np.integer)):
-                return np.asarray(self._arrays[int(case)][key[:-1]], dtype=self._dtype)
+                case = self._case(key)
+                spatial_key = key[:-1]
+                if self._av_ragged:
+                    shape = self._shapes[case]
+                    spatial_key = tuple(
+                        max(0, min(shape[d] - 1, int(k) + (shape[d] if int(k) < 0 else 0)))
+                        if isinstance(k, (int, np.integer))
+                        else k
+                        for d, k in enumerate(spatial_key)
+                    )
+                return np.asarray(self._arrays[case][spatial_key], dtype=self._dtype)
+        if self._av_ragged:
+            raise TypeError("Arrays of different sizes are read one array at a time.")
         return np.asarray(self)[key]
 
     def __array__(self, dtype=None, copy=None):
+        if self._av_ragged:
+            raise TypeError("Arrays of different sizes cannot be joined into one array.")
         result = np.empty(self.shape, dtype=self._dtype)
         for i, a in enumerate(self._arrays):
             result[..., i] = np.asarray(a)
         if dtype is not None:
             result = result.astype(dtype)
         return result
+
+
+def save_array_stack(stack, filepath):
+    """Write a stack where another process can ``load_array_stack`` it.
+
+    Same-size arrays go into one ``.npy`` along the last dim; arrays of
+    different sizes into an ``.npz``, one entry each. Returns the path written.
+    """
+    if getattr(stack, "_av_ragged", False):
+        filepath = filepath + ".npz"
+        np.savez(filepath, **{f"a{i}": np.asarray(a) for i, a in enumerate(stack._arrays)})
+    else:
+        filepath = filepath + ".npy"
+        np.save(filepath, np.asarray(stack))
+    return filepath
+
+
+def load_array_stack(filepath, case_names):
+    """Read what ``save_array_stack`` wrote back into an ``_ArrayStack``."""
+    if filepath.endswith(".npz"):
+        with np.load(filepath) as bundle:
+            arrays = [bundle[f"a{i}"] for i in range(len(bundle.files))]
+        return _ArrayStack(arrays, case_names)
+    return _ArrayStack.from_stacked(np.load(filepath), case_names)
 
 
 class _RaggedFileSeries(_ProgressiveNiftiSeriesMixin, _ScatteredRegionMixin):

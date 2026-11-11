@@ -25141,12 +25141,12 @@
         }
 
         // One line of code that reopens the current view: `view(x, …)` for an
-        // array passed from Python, `arrayview.view(x; …)` from Julia, and
-        // `arrayview <file> …` for an array opened from a file. Only settings
-        // that differ from how the array opens by default are written out.
+        // array passed from Python, `arrayview.view(x; …)` from Julia,
+        // `arrayview(x, …)` from MATLAB, and `arrayview <file> …` for an array
+        // opened from a file. Only settings that differ from how the array
+        // opens by default are written out.
         function _viewAsCode() {
             const src = _codeSource || { kind: 'python', name: 'x' };
-            if (src.kind === 'matlab') return null;
             const num = v => String(Number(Number(v).toPrecision(4)));
             const opts = [];
             const viewMode = currentViewMode();
@@ -25182,9 +25182,8 @@
                 opts.push(['vmin', num(manualVmin)]);
                 opts.push(['vmax', num(manualVmax)]);
             }
-            // Python only: files carry their own voxel size, and the CLI and
-            // Julia have no such option.
-            if (src.kind !== 'file' && src.kind !== 'julia' && _userVoxelSizes) {
+            // Not for files: they carry their own voxel size.
+            if (src.kind !== 'file' && _userVoxelSizes) {
                 const n = Math.max(...Object.keys(_userVoxelSizes).map(Number)) + 1;
                 opts.push(['voxel_size', Array.from({ length: n }, (_, i) => num(_userVoxelSizes[i] || 1))]);
             }
@@ -25196,13 +25195,21 @@
                 });
                 return ['arrayview', src.path, ...flags].join(' ');
             }
+            const name = src.name || 'x';
+            if (src.kind === 'matlab') {
+                // MATLAB counts dims and positions from 1.
+                const mval = (k, v) => v === true ? 'true'
+                    : Array.isArray(v) ? `[${v.map(n => (k === 'dims' || k === 'index') ? Number(n) + 1 : n).join(' ')}]`
+                    : (typeof v === 'string' && !/^-?[0-9.e+-]+$/.test(v)) ? `'${v.replace(/'/g, "''")}'`
+                    : String(v);
+                return `arrayview(${[name, ...opts.map(([k, v]) => `'${k}', ${mval(k, v)}`)].join(', ')})`;
+            }
             const julia = src.kind === 'julia';
             const value = v => v === true ? (julia ? 'true' : 'True')
                 : Array.isArray(v) ? `(${v.join(', ')})`
                 : (typeof v === 'string' && !/^-?[0-9.e+-]+$/.test(v)) ? JSON.stringify(v)
                 : String(v);
             const kwargs = opts.map(([k, v]) => `${k}=${value(v)}`).join(', ');
-            const name = src.name || 'x';
             if (julia) return `arrayview.view(${name}${kwargs ? '; ' + kwargs : ''})`;
             return `view(${name}${kwargs ? ', ' + kwargs : ''})`;
         }
@@ -33160,7 +33167,7 @@
                 id: 'code', label: 'Copy view as code',
                 detail: 'A line of code that reopens this view.',
                 icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 7.5 4 12l4.5 4.5"/><path d="M15.5 7.5 20 12l-4.5 4.5"/></svg>',
-                isEnabled: () => !_codeSource || _codeSource.kind !== 'matlab',
+                isEnabled: () => true,
                 run: () => _runCommand('view.copyAsCode'),
             },
         ];
@@ -36116,14 +36123,25 @@
             }
         }
 
-        // Compare from the picker or a drop: same-shape plain arrays reopen
-        // as one stack, side by side, like several files on the command line.
-        // False (nothing changed) when they cannot stack; the caller then
-        // uses the per-array compare.
+        // Compare from the picker or a drop: plain arrays with the same
+        // number of dims reopen as one stack, side by side, like several
+        // files on the command line. False (nothing changed) when they cannot
+        // stack; the caller then uses the per-array compare.
         async function _compareAsStack(sids) {
             const list = (sids || []).filter(Boolean);
             if (list.length < 2 || new Set(list).size !== list.length) return false;
-            if (_overlaySids.length || isInlineEmbed) return false;
+            if (isInlineEmbed) return false;
+            // Overlays the view was opened with travel along in the address;
+            // ones added later are not in it, so those keep the old compare.
+            const here = new URLSearchParams(window.location.search);
+            let overlayQuery = '';
+            if (_overlaySids.length) {
+                if (here.get('overlay_sid') !== _overlaySids.join(',')) return false;
+                overlayQuery = ['overlay_sid', 'overlay_colors', 'overlay_names']
+                    .filter(k => here.get(k))
+                    .map(k => `&${k}=${encodeURIComponent(here.get(k)).replace(/%2C/g, ',')}`)
+                    .join('');
+            }
             try {
                 const res = await proxyFetch('/stack', {
                     method: 'POST',
@@ -36132,7 +36150,7 @@
                 });
                 const out = res.ok ? await res.json() : null;
                 if (!out || out.error || !out.url) return false;
-                window.location.href = _dropViewerUrl(out.url);
+                window.location.href = _dropViewerUrl(out.url) + overlayQuery;
                 return true;
             } catch (_e) {
                 return false;

@@ -52,6 +52,36 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-11 several arrays always open as one stack — CLI, Python, Julia, MATLAB
+
+Rows changed: every CLI row when several files come with `--overlay`,
+`--compare` or `--watch` (they now stack like plain files instead of using the
+per-array compare); Python `view(a, b, ...)` with `overlay=` or arrays of
+different sizes, in-process and on a running server (the running-server path
+used to drop `overlay=` silently); Julia/PythonCall with several arrays,
+`overlay=` or `rgb=` (was: one array only, overlay and rgb dropped); the MATLAB
+wrapper (several arrays, all `view()` options, returns handles). Rows that
+could break: single-file CLI launches, `--match` with pattern overlays,
+single-array Julia. No display or opener code changed.
+
+- `real process`: `uv run arrayview a.npy b.npy --overlay mask.npy --window
+  browser` on a new server and again on the running one (3 files): first frame
+  side by side, mask on every pane; mixed sizes show the mask only where it
+  fits. `a.npy --compare b.npy`: two panes. `w1.npy w2.npy --watch`:
+  overwriting w2 on disk redrew pane 2 only. Single file + overlay unchanged.
+  `a.npy small.npy --overlay mask.npy --watch --window none`: loaded and
+  released, no server left (row 11).
+- `real process`: Python script `view(a, small, c)` and `view(a, b,
+  overlay=m)` in-process, and `view(a, small, a*2, overlay=m)` against a
+  standing `_serve_empty` server: first frame, three panes, per-array
+  `update` redrew its pane, a wrong-size `update` refused.
+- `real process`: real `julia` + PythonCall, `av.view(a, small, b; overlay=m,
+  voxel_size=(1,1,3), window="browser")`: first frame, three panes, overlay,
+  `h[2].update(...)` redrew pane 3. Single-array Julia call re-checked. A name
+  with a non-ASCII character no longer breaks the server start in a C locale.
+- `unavailable`: MATLAB (did not start in batch mode on this machine), every
+  VS Code display row, native window. Their statuses below are unchanged.
+
 ### 2026-11-10 first image read at load time; opener 0.15.75 takes its own click at once
 
 Python, every row that loads a file or collection through the server (1-4, 16,

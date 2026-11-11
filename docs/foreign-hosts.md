@@ -4,14 +4,26 @@ ArrayView uses the Python environment selected by the host application.
 
 ## MATLAB
 
-Select a Python environment with ArrayView installed, then import and call it:
+Select a Python environment with ArrayView installed and put
+[`matlab/arrayview.m`](https://github.com/oscarvanderheide/arrayview/blob/main/matlab/arrayview.m)
+on the MATLAB path:
 
 ```matlab
 pyenv(Version="/path/to/python")
-py.importlib.import_module("arrayview");
 
-h = py.arrayview.view(A);
+arrayview(A)                                   % one array
+arrayview(A, B)                                % side by side
+arrayview(A, B, 'overlay', mask, 'cmap', 'viridis', 'voxel_size', [1 1 3])
+[ha, hb] = arrayview(A, B);                    % one handle per array
+hb.update(B2)                                  % replaces only the second pane
 ```
+
+It takes the same options as Python's `view()`: `name`, `overlay`, `rgb`,
+`mode`, `dims`, `index`, `cmap`, `vmin`, `vmax`, `log`, `complex`,
+`voxel_size`, `window` and `port`. `dims` and `index` count from 1, as MATLAB
+does. `E` in the viewer copies the current view as an `arrayview(...)` line.
+
+Without the wrapper, call Python directly: `h = py.arrayview.view(A);`
 
 Local MATLAB follows the normal display selection and prefers a native window
 when available. MATLAB started through SSH or VS Code follows that environment's
@@ -44,13 +56,23 @@ arrayview = pyimport("arrayview")
 h = arrayview.view(A)
 ```
 
-Julia currently supports one array per `view()` call. Call `view()` again for
-another array.
+Everything Python's `view()` takes works from Julia too: several arrays side
+by side, overlays, colour images and the view options.
 
-ArrayView copies the array to a temporary NumPy file and starts or reuses a
+```julia
+ha, hb = arrayview.view(A, B; overlay=mask, cmap="viridis", voxel_size=(1, 1, 3))
+hb.update(B2)        # replaces only the second pane
+```
+
+`dims` and `index` count from 0 here, because this is the Python function.
+Several arrays in one call must have the same number of dimensions (their
+sizes may differ) and cannot be colour images.
+
+ArrayView copies the arrays to temporary NumPy files and starts or reuses a
 separate Python server process. This avoids blocking on Julia's Python lock and
 lets the viewer survive after the call returns. The returned value is a Python
-`ViewHandle` wrapper with `url`, `sid`, `port`, `update()`, and `close()`.
+`ViewHandle` wrapper with `url`, `sid`, `port`, `update()`, and `close()`; a
+several-array call returns one per array.
 
 ```julia
 h.close()
