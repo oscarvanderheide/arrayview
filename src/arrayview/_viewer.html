@@ -10602,6 +10602,10 @@
                     const cv = compareCanvases[i];
                     if (!frame || !cv) continue;
                     const base = Math.min(availW / frame.width, availH / frame.height) * fitSlack;
+                    // Each pane holds the box it has at userZoom = 1 and lets the
+                    // zoom overflow inside it (as big-left does). Growing the clip
+                    // to the cap on the first zoom step re-centred the row and
+                    // moved the colorbar under it on every step.
                     const r = _scalePane(
                         { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
                         null,
@@ -10612,6 +10616,9 @@
                             squareStretch: squareStretch,
                             updateAutoFit: false,
                             allowOverflowRecalc: false,
+                            forceViewport: _paneViewportAtBaseZoom(
+                                frame.width, frame.height, Math.max(0.0001, base), capPaneW, capPaneH, squareStretch,
+                            ),
                         }
                     );
                     const inner = cv.closest('.compare-canvas-inner');
