@@ -16007,9 +16007,11 @@
          * moving to another map `d` cut presets from the old map's values.
          */
         function _compareHistogramVersion() {
+            const detached = (detachedDimMode && detachedDim >= 0)
+                ? `${detachedDim}:${detachedDimIdx.join(':')}` : '';
             return [
                 getCompareRenderSids().join('/'), indices.join(','),
-                dim_x, dim_y, complexMode,
+                dim_x, dim_y, complexMode, detached,
             ].join('|');
         }
 
@@ -16093,19 +16095,25 @@
                 const allSids = getCompareRenderSids();
                 const fetchDimX = dim_x;
                 const fetchDimY = dim_y;
-                const params = new URLSearchParams({
-                    dim_x: fetchDimX,
-                    dim_y: fetchDimY,
-                    indices: indices.join(','),
-                    complex_mode: complexMode,
-                    bins: 64,
-                });
-                const histPromises = allSids.map(s => _fetchHistogramJson(`/histogram/${s}?${params}`));
-                const allHists = await Promise.all(histPromises);
+                // Side by side shows one array at several slices: ask for the
+                // slice each pane shows, and each distinct one only once.
+                const urls = [...new Set(allSids.map((s, i) => {
+                    const params = new URLSearchParams({
+                        dim_x: fetchDimX,
+                        dim_y: fetchDimY,
+                        indices: _comparePaneHoverIndices(i).join(','),
+                        complex_mode: complexMode,
+                        bins: 64,
+                    });
+                    return `/histogram/${s}?${params}`;
+                }))];
+                const allHists = await Promise.all(urls.map(_fetchHistogramJson));
                 const valid = allHists.filter(_histUsable);
                 if (!valid.length) return null;
                 _histData = _tagHistKey(_mergeHistogramsOnSharedBins(valid), requestKey);
-                _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':compare';
+                // Same stamp the colorbars check against; any other format
+                // made them drop the copy and refetch on every `d`.
+                _histDataVersion = requestKey;
             } catch (_) {
                 _histData = null;
             } finally {
@@ -19156,6 +19164,14 @@
                 return _hoveredQmriMvView.canvas || null;
             }
             if (compareActive) {
+                // One range covers every pane, so centre the pill on the row
+                // instead of the pane under the mouse (or, off the panes, the
+                // leftmost one). The diff pane keeps its own range, so with
+                // it showing, stay with the pane the pointer is on.
+                if (!diffMode) {
+                    const row = document.getElementById('compare-panes');
+                    if (row && row.getBoundingClientRect().width > 0) return row;
+                }
                 const pos = modeManager._lastMouseXY;
                 const pointedPane = pos
                     ? document.elementFromPoint(pos.x, pos.y)?.closest('.compare-pane')
