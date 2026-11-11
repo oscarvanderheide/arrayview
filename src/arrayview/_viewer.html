@@ -7491,6 +7491,9 @@
         let _pendingImmersiveTargetZoom = null; // one-shot override consumed by _buildImmersiveTl()
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
+        // How far zooming out goes outside immersive. Side-by-side and 3-plane panes
+        // fit at zoom 1; a larger fit left over from the single view stopped them short.
+        const _normalZoomFloor = () => (compareActive || multiViewActive) ? Math.min(_normalFitZoom, 1.0) : _normalFitZoom;
         let _zoomAdjustedByUser = false;
         let _autoFitPending = true; // auto-fit to viewport on first render
         let _lastZeroPress = 0; // timestamp of last '0' keypress for double-tap detection
@@ -30385,7 +30388,7 @@
                 run: (ctx, e) => {
                     const floor = _fullscreenActive
                         ? _calcAutoFitZoom(lastImgW || canvas.width, lastImgH || canvas.height, true) * 1.005
-                        : _normalFitZoom;
+                        : _normalZoomFloor();
                     userZoom = Math.max(userZoom / 1.1, floor);
                     if (!_snapZoomToFit()) _zoomAdjustedByUser = true;
                     _scaleAllWithAnim();
@@ -44718,18 +44721,35 @@
                 const _hZ = lastImgH || canvas.height;
                 const floorZ = qmriPaneZoom ? 1.0 : (_fullscreenActive && _wZ && _hZ
                     ? _calcAutoFitZoom(_wZ, _hZ, true) * 1.005
-                    : _normalFitZoom);
+                    : _normalZoomFloor());
                 const desiredZoom = Math.max(floorZ, Math.min(10.0, zoomBase * factor));
                 _scrubRequestedZoom = null;
                 userZoom = desiredZoom;
+                // Snap to fit only on the way out. Pinch steps are ~1–2 %, so
+                // snapping both ways swallowed the start of every pinch-in.
+                // Outside immersive, snap to the normal floor only: _fitZoom may
+                // hold the immersive fit, and snapping there then re-fitting
+                // made a visible jump just before the bottom.
+                const zoomingOut = desiredZoom < zoomBase;
                 let snapped = false;
-                if (qmriPaneZoom && Math.abs(userZoom - 1.0) < 0.02) {
-                    userZoom = 1.0;
-                    _zoomAdjustedByUser = false;
-                    qvPan.reset();
-                    snapped = true;
-                } else if (!qmriPaneZoom) {
+                if (!zoomingOut) {
+                    // no snap
+                } else if (qmriPaneZoom) {
+                    if (Math.abs(userZoom - 1.0) < 0.02) {
+                        userZoom = 1.0;
+                        _zoomAdjustedByUser = false;
+                        qvPan.reset();
+                        snapped = true;
+                    }
+                } else if (_fullscreenActive) {
                     snapped = _snapZoomToFit();
+                } else if (Math.abs(userZoom - floorZ) < 0.02) {
+                    userZoom = floorZ;
+                    _zoomAdjustedByUser = false;
+                    mainPan.reset();
+                    comparePan.reset();
+                    _autoFitPending = true;
+                    snapped = true;
                 }
                 if (!snapped) {
                     _zoomAdjustedByUser = true;
@@ -45451,8 +45471,8 @@
                 return true;
             }
             // Also snap to normal-fit floor when close (prevents fractional drift below floor)
-            if (!_fullscreenActive && Math.abs(userZoom - _normalFitZoom) < 0.02) {
-                userZoom = _normalFitZoom;
+            if (!_fullscreenActive && Math.abs(userZoom - _normalZoomFloor()) < 0.02) {
+                userZoom = _normalZoomFloor();
                 _zoomAdjustedByUser = false;
                 mainPan.reset();
                 _autoFitPending = true;
@@ -50384,7 +50404,11 @@
                 && qmriViews.some(v => v.canvas === cvs);
         }
         function _zoomPanForCanvas(cvs) {
-            return _usesQmriPaneZoom(cvs) ? qvPan : mainPan;
+            if (_usesQmriPaneZoom(cvs)) return qvPan;
+            // Side-by-side panes share one pan; anchoring on mainPan left them
+            // growing out of their top-left corner instead of under the cursor.
+            if (compareActive && cvs && cvs.closest && cvs.closest('.compare-canvas-inner')) return comparePan;
+            return mainPan;
         }
         function _captureZoomAnchor(clientX, clientY, targetCanvas = canvas) {
             const r = targetCanvas.getBoundingClientRect();
@@ -50471,7 +50495,7 @@
         function _onGestureChange(e) {
             e.preventDefault();
             // e.scale is cumulative from gesturestart — multiply against cached start
-            const floorZoom = _usesQmriPaneZoom(e.currentTarget) ? 1.0 : _normalFitZoom;
+            const floorZoom = _usesQmriPaneZoom(e.currentTarget) ? 1.0 : _normalZoomFloor();
             userZoom = Math.max(floorZoom, Math.min(10.0, _gestureStartZoom * e.scale));
             _zoomAdjustedByUser = true;
             ModeRegistry.scaleAll();
