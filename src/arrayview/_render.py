@@ -71,6 +71,11 @@ _ICEFIRE_STOPS = [
 ]
 
 
+# qMRI maps: the lowest entry (at or below vmin — masked-out background at 0) is
+# pure black instead of the map's own dark navy. Every other entry is untouched.
+_BLACK_AT_VMIN = ("lipari", "navia")
+
+
 def _init_luts():
     """Build colourmap LUTs on first use (defers matplotlib + qmricolors import)."""
     global _mpl_colormaps
@@ -98,6 +103,8 @@ def _init_luts():
                 ],
                 axis=1,
             )
+            if name in _BLACK_AT_VMIN:
+                lut[0, :3] = 0
             LUTS[name] = lut
         for name in COLORMAPS:
             COLORMAP_GRADIENT_STOPS[name] = _lut_to_gradient_stops(LUTS[name])

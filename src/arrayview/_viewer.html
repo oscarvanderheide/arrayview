@@ -4947,8 +4947,14 @@
         }
         #qmri-view-wrap .qv-cb-island.qv-cb-inset > * { pointer-events: auto; }
         :root.light #qmri-view-wrap .qv-cb-island.qv-cb-inset .qv-cb-val { color: #fff; }
-        /* Floating islands are narrow: the value labels must not take the
-           bar's room with their 10ch strip-layout reservation. */
+        /* qMRI panes are narrow and their values short (ms, fractions): the
+           value labels must not take the bar's room with the 10ch floor the
+           single wide strip uses. Only a floor, so no !important: updateLabels
+           sets one inline min-width on both labels (widest value seen), which
+           keeps the bar centred. 7ch holds a sign and four digits, so the
+           bars of all panes match and stay still for the usual ms values. */
+        #qmri-view-wrap .qv-cb-island:not(.qmri-mv-vcb-island):not(.qv-cb-inset) .slim-cb-val { min-width: 7ch; }
+        /* Floating islands are narrower still: each label hugs its own value. */
         #qmri-view-wrap .qv-cb-island.qv-cb-inset .slim-cb-val { min-width: 5ch !important; }
         /* Colorbars floating on the images have no box: the bar, its values and
            ticks are as in the normal view, the text outlined in black. The bar sits low enough that its
@@ -9283,14 +9289,18 @@
 
         /** Quarter turn across `change` (r key). A still copy of each image box
          *  (fixed, on top, so no pane/wrap overflow clips it) starts turning at
-         *  once and does the whole turn; the live box stays hidden until the
-         *  turn ends, then replaces the copy (same pixels, turned). Once the new
-         *  frame lands the copy's path bends toward the real new box. Poses
+         *  once but barely moves until the new frame lands, then does the rest
+         *  of the turn while its size and centre go from the old box to the real
+         *  new one; the live box stays hidden until the turn ends, then
+         *  replaces the copy (same pixels, turned). Poses
          *  use the CSS `rotate`/`scale`/`translate` properties, leaving any
          *  zoom/pan `transform` alone. Mid-turn the box shrinks just enough that
          *  its corners stay inside a box sliding from the old outline to the new
-         *  one (so they never cross the dimbar/colorbar). Pane names fade out
-         *  and back in instead of turning; dimbar/colorbars glide; chrome that
+         *  one (so they never cross the dimbar/colorbar). That sliding box is
+         *  drawn behind the copy in the pane's vmin colour and clips it, so an
+         *  image on a vmin background turns inside a frame that just changes
+         *  shape. Pane names do not turn: a floating copy of each glides to
+         *  where the name sits afterwards, as the dimbar/colorbars do; chrome that
          *  only appears in the new layout fades in. A press during a turn
          *  queues: the running turn hurries to its end, then the queued ones
          *  play back to back, faster than a lone turn — never a jump to the
@@ -9307,8 +9317,44 @@
             if (next) _quarterTurnAround(next[0], next[1], next[2], next[3],
                 _quarterTurnQueue.length ? _TURN_HURRY : _TURN_CHAIN_SPEED);
         }
-        // Pane/map names: never turned or glided — faded out, hidden, faded back in.
-        const _TURN_LABELS = '.pane-name, .mv-pane-name, .qv-label';
+        // Pane/map names: never turned with the image — a floating copy of each
+        // glides from where the name was to where it sits after the turn.
+        const _TURN_LABELS = '.pane-name, .mv-pane-name, .qv-label, .compare-title';
+        // What a name's copy takes from the name itself: part of its look hangs on the pane it sits in.
+        const _TURN_LABEL_LOOK = ['font-size', 'font-weight', 'line-height', 'letter-spacing', 'text-transform', 'color',
+            '-webkit-text-stroke-width', '-webkit-text-stroke-color', 'paint-order', 'text-shadow', 'opacity',
+            'padding', 'background-color', 'border-radius', 'display', 'align-items', 'gap'];
+        function _turnLabelGhost(el) {
+            const cs = getComputedStyle(el);
+            if (cs.visibility === 'hidden' || +cs.opacity < 0.02) return null;
+            const look = _TURN_LABEL_LOOK.map(k => [k, cs.getPropertyValue(k)]);
+            const g = _orthoLabelGhost(el, true);
+            if (!g) return null;
+            look.forEach(([k, v]) => { if (v) g.style.setProperty(k, v); });
+            g._turnGhost = true;
+            return g;
+        }
+        // Longest a turn waits for a pane's new picture before it goes on without it.
+        const _TURN_WAIT_MS = 5000;
+        // Call before the change; the result tells whether one of the turning `panes`
+        // still waits for the picture the change asked for. The panes of a multi-pane
+        // view each get their own, one after the other, and on a slow link seconds
+        // apart: a pane shown before its own holds the old picture squeezed into the
+        // new box. "Still the picture from before" rather than just "busy", so
+        // playback (always busy) does not keep a turn waiting.
+        function _turnPaneWatch(panes) {
+            const under = c => !!c && panes.some(b => b === c || b.contains(c));
+            const views = [mvViews, qmriViews, compareQmriViews, compareMvViews, qmriMvViews].flat()
+                .filter(v => v && under(v.canvas));
+            const pic0 = new Map(views.map(v => [v, v.lastImageData]));
+            const main = under(canvas), main0 = lastImageData;
+            return () => (compareActive && compareRendering)
+                || (main && (isRendering || pendingRequest) && lastImageData === main0)
+                || views.some(v => (v.rendering || v.pending) && v.lastImageData === pic0.get(v));
+        }
+        // The names on screen, without a turn's own copies of them.
+        const _turnLiveNames = () => [...document.querySelectorAll(_TURN_LABELS)]
+            .filter(n => !n._turnGhost && n.getClientRects().length && !n.closest('[data-turn-frame]'));
         // Chrome around the image that glides to its new place during a turn.
         const _TURN_GLIDE_SEL = '#info, #slim-cb-wrap, #dim-active-underline, #case-name-out, .cb-wrap';
         const _TURN_MS = 380;
@@ -9349,6 +9395,18 @@
             const ax = [c1[2] - c2[1], c2[0] - c0[2], c0[1] - c1[0]], n = Math.hypot(...ax) || 1;
             return { axis: ax.map(v => v / n), deg: ang * 180 / Math.PI };
         }
+        /** Colour the colormap of pane box `b` gives vmin (the backdrop of a
+         *  turn), or null where that is not the image background (diff pane). */
+        function _paneVminColor(b) {
+            if (b.closest('#compare-diff-pane')) return null;
+            if (rgbMode) return '#000';
+            const own = [...qmriViews, ...compareQmriViews, ...qmriMvViews]
+                .find(v => v && v.colormap && v.canvas && (v.canvas === b || b.contains(v.canvas)));
+            const stops = (own && COLORMAP_GRADIENT_STOPS[own.colormap])
+                || (colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]]);
+            const c = stops && stops[0];
+            return c ? `rgb(${c[0]},${c[1]},${c[2]})` : null;
+        }
         /* `mode` 'flip' (t, transpose): the copy instead flips like a card
          * 180deg about its top-left→bottom-right diagonal (slight perspective);
          * its back face lands showing the transposed picture. Same path,
@@ -9375,6 +9433,8 @@
             }
             const rectOf = r => ({ w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
             const old = panes.map(b => rectOf(b.getBoundingClientRect()));
+            // Backdrop colour per pane (null: use the pane's own background).
+            const vminCols = panes.map(b => _paneVminColor(b));
             const snap = b => {
                 const copy = b.cloneNode(true);
                 copy.removeAttribute('id');
@@ -9387,10 +9447,28 @@
                     if (!c.width || !c.height || !c.getClientRects().length) return;
                     try { dst[k].getContext('2d').drawImage(c, 0, 0); } catch (e) { /* WebGL: leave blank */ }
                 });
+                // The image border stays on the backdrop's box (`edge`), not on the turning copy.
+                copy.style.outline = 'none';
+                dst.forEach(c => { c.style.outline = 'none'; });
+                // Names travel as floating copies of their own (nameGhosts).
+                copy.querySelectorAll(_TURN_LABELS).forEach(n => { n.style.visibility = 'hidden'; });
                 return copy;
             };
             // cube: per pane { box, fa, fb, sa, sb } — g is the 3-D stage, box turns, fa/fb are its faces.
             const cubes = [];
+            // Backdrop per pane: a viewport-sized layer in the vmin colour, clipped
+            // to the sliding box (setFrame); the copy lives inside it. The pane's
+            // border and shadow ride on that box (`edge`) instead of on the turning
+            // copy, so they neither turn nor blink off for the turn.
+            const frames = [];
+            const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+            // Whole pixels: a 1px border between two pixels dims, so it would shimmer as it moves.
+            const setFrame = (i, cx, cy, w, h) => {
+                const l = Math.round(cx - w / 2), t = Math.round(cy - h / 2), e = frames[i].edge;
+                const x1 = Math.round(cx + w / 2), y1 = Math.round(cy + h / 2);
+                frames[i].el.style.clipPath = `inset(${t}px ${vw - x1}px ${vh - y1}px ${l}px${frames[i].round})`;
+                if (e) Object.assign(e.style, { left: l + 'px', top: t + 'px', width: (x1 - l) + 'px', height: (y1 - t) + 'px' });
+            };
             const ghosts = panes.map((b, i) => {
                 const r = b.getBoundingClientRect();
                 const rad = getComputedStyle(b).borderRadius;
@@ -9399,14 +9477,32 @@
                 g.inert = true;
                 g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:41;pointer-events:none;overflow:hidden;border-radius:${rad};`;
                 const copy = snap(b);
+                let bg = getComputedStyle(b).backgroundColor;
+                if (!bg || bg === 'transparent' || /rgba\(.*,\s*0\)$/.test(bg)) bg = getComputedStyle(document.body).backgroundColor;
+                const f = document.createElement('div');
+                f.setAttribute('aria-hidden', 'true');
+                f.inert = true;
+                f.dataset.turnFrame = '';
+                f.style.cssText = `position:fixed;inset:0;z-index:41;pointer-events:none;background:${vminCols[i] || bg};`;
+                const bs = getComputedStyle(b);
+                let edge = null;
+                if ((bs.outlineStyle !== 'none' && parseFloat(bs.outlineWidth) > 0) || bs.boxShadow !== 'none') {
+                    edge = document.createElement('div');
+                    edge.setAttribute('aria-hidden', 'true');
+                    edge.dataset.turnEdge = '';
+                    edge.style.cssText = `position:fixed;z-index:41;pointer-events:none;border-radius:${rad};`
+                        + `outline:${bs.outlineWidth} ${bs.outlineStyle} ${bs.outlineColor};outline-offset:${bs.outlineOffset};box-shadow:${bs.boxShadow};`;
+                }
+                frames[i] = { el: f, edge, round: rad && !/^0px( 0px)*$/.test(rad) ? ' round ' + rad : '' };
+                setFrame(i, r.left + r.width / 2, r.top + r.height / 2, r.width, r.height);
                 if (mode === 'cube') {
-                    let bg = getComputedStyle(b).backgroundColor;
-                    if (!bg || bg === 'transparent' || /rgba\(.*,\s*0\)$/.test(bg)) bg = getComputedStyle(document.body).backgroundColor;
                     const face = (w, h) => {
                         const f = document.createElement('div');
                         f.style.cssText = `position:absolute;left:50%;top:50%;width:${w}px;height:${h}px;margin:${-h / 2}px 0 0 ${-w / 2}px;overflow:hidden;backface-visibility:hidden;border-radius:${rad};background:${bg};`;
                         const s = document.createElement('div');
-                        s.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;';
+                        // A face turning away fades toward the backdrop's colour, not black: its
+                        // vmin background then never shows as a darker block on the backdrop.
+                        s.style.cssText = `position:absolute;inset:0;background:${vminCols[i] || '#000'};opacity:0;pointer-events:none;`;
                         f.appendChild(s);
                         return [f, s];
                     };
@@ -9421,17 +9517,20 @@
                 } else {
                     g.appendChild(copy);
                 }
-                document.body.appendChild(g);
-                copy.querySelectorAll(_TURN_LABELS).forEach(n =>
-                    n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: 'ease-out', fill: 'forwards' }));
+                f.appendChild(g);
+                document.body.appendChild(f);
+                if (edge) document.body.appendChild(edge);
                 return g;
             });
             const glideAll = [...document.querySelectorAll(_TURN_GLIDE_SEL)]
                 .filter(el => el.getClientRects().length && !panes.some(b => b.contains(el)));
             const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
             const glideOld = glide.map(el => el.getBoundingClientRect());
+            // { n: name, g: its floating copy, to: the name it lands on (set at landing) }
+            const nameGhosts = _turnLiveNames().map(n => ({ n, g: _turnLabelGhost(n), to: null })).filter(p => p.g);
             document.body.classList.add('av-turning');
             const seq0 = _frameDisplaySeq, t0 = performance.now();
+            const waiting = _turnPaneWatch(panes);
             try { change(); } catch (e) { console.error(e); }
             // cube: incoming face's in-plane axes (bx, by) and normal (bn) in box space at the start.
             let cube = null;
@@ -9455,15 +9554,13 @@
             // Live boxes stay hidden until their frame lands (they may already
             // be resized under the copies).
             const holds = panes.map(b => b.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }));
-            // Names fade out now and stay hidden until the turn ends; names a
-            // pane rebuild creates mid-turn are caught by holdLabels() each frame.
+            // The real names stay hidden until the turn ends (their copies stand
+            // in); names a pane rebuild creates mid-turn are caught each frame.
             const labelHolds = new Map();
-            const holdLabels = (fadeOut = false) => document.querySelectorAll(_TURN_LABELS).forEach(n => {
-                if (labelHolds.has(n) || !n.getClientRects().length) return;
-                labelHolds.set(n, n.animate(fadeOut ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 0 }],
-                    { duration: fadeOut ? 110 : 3000, easing: 'ease-out', fill: 'forwards' }));
+            const holdLabels = () => _turnLiveNames().forEach(n => {
+                if (!labelHolds.has(n)) labelHolds.set(n, n.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 3000, fill: 'forwards' }));
             });
-            holdLabels(true);
+            holdLabels();
             let pins = [], glides = [], fades = [];
             // Chrome that only shows up in the new layout: hidden, then faded in.
             const newcomers = new Map();
@@ -9480,24 +9577,17 @@
                 holdNewcomers();
             };
             pin();
-            // Per-box path. Before landing the target is a guess (old box with
-            // sides swapped); at landing the size/centre/fit box blend from
-            // wherever they are to the real new box over the rest of the turn.
-            const path = old.map(o => ({ o, tw: o.h, th: o.w, tcx: o.cx, tcy: o.cy, from: null, n: null }));
+            // Per-box path. Size, centre and fit box stay the old box's until the
+            // new frame lands (the new box is not known before; a guess sent the
+            // backdrop the wrong way first), then go to the real new box over the
+            // rest of the turn (r), in step with the turn itself.
+            const path = old.map(o => ({ o, n: null }));
             const sigEnd = (o, w, h) => Math.sqrt((w * h) / (o.w * o.h));
             const pose = (p, e, r) => {
-                const o = p.o;
-                let sig, cx, cy, fw, fh;
-                if (!p.from) {
-                    sig = 1 + (sigEnd(o, p.tw, p.th) - 1) * e;
-                    cx = o.cx + (p.tcx - o.cx) * e; cy = o.cy + (p.tcy - o.cy) * e;
-                    fw = o.w + (p.tw - o.w) * e; fh = o.h + (p.th - o.h) * e;
-                } else {
-                    const f = p.from, n = p.n;
-                    sig = f.sig + (sigEnd(o, n.w, n.h) - f.sig) * r;
-                    cx = f.cx + (n.cx - f.cx) * r; cy = f.cy + (n.cy - f.cy) * r;
-                    fw = f.fw + (n.w - f.fw) * r; fh = f.fh + (n.h - f.fh) * r;
-                }
+                const o = p.o, n = p.n || o;
+                const L = (a, b) => a + (b - a) * r;
+                const sig = L(1, sigEnd(o, n.w, n.h)), cx = L(o.cx, n.cx), cy = L(o.cy, n.cy);
+                const fw = L(o.w, n.w), fh = L(o.h, n.h);
                 const w = o.w * sig, h = o.h * sig;
                 let ang, bw, bh, slack = 1;
                 if (mode === 'flip') {
@@ -9529,13 +9619,14 @@
             // cube: e = turn progress; r = blend of the guessed incoming face/box
             // toward the real new box once its frame has landed. Size-to-fit
             // uses the visible faces' projected corners, so the box shrinks
-            // exactly as much as its pose needs; faces darken as they turn away.
+            // exactly as much as its pose needs; faces fade toward the backdrop as they turn away.
             const cubePose = (i, e, r) => {
                 const c = cubes[i], o = old[i], n = c.n, { k, th, bx, by, bn, rot } = cube;
                 const L = (a, b) => a + (b - a) * r;
                 const w2 = n ? L(c.gw, n.w) : c.gw, h2 = n ? L(c.gh, n.h) : c.gh;
                 const cx = n ? L(o.cx, n.cx) : o.cx, cy = n ? L(o.cy, n.cy) : o.cy;
                 const fw = n ? L(o.w, n.w) : o.w, fh = n ? L(o.h, n.h) : o.h;
+                setFrame(i, cx, cy, fw, fh);
                 const Z = Math.abs(bx[2]) * w2 + Math.abs(by[2]) * h2;
                 const dB = Math.abs(bn[0]) * o.w / 2 + Math.abs(bn[1]) * o.h / 2;
                 const zc = Z / 2 + (dB - Z / 2) * e, ang = th * e, P = 1800;
@@ -9564,6 +9655,7 @@
                 c.sa.style.opacity = shade(nzA); c.sb.style.opacity = shade(nzB);
             };
             let prog = 0, lastNow = t0;
+            const turnMs = cube ? cube.ms : _TURN_MS;
             let raf = 0, lastSeq = seq0, quiet = 0, t1 = 0, tEnd = 0;
             // Turn clock: runs `speed` times real time, so a turn can hurry
             // without jumping (WAAPI glides follow via playbackRate).
@@ -9577,7 +9669,8 @@
             const finishAll = () => {
                 if (raf) cancelAnimationFrame(raf); raf = 0;
                 document.body.classList.remove('av-turning');
-                ghosts.forEach(g => g.remove());
+                frames.forEach(f => { f.el.remove(); f.edge?.remove(); });
+                nameGhosts.forEach(p => p.g.remove());
                 holds.forEach(a => a.cancel()); pins.forEach(a => a.cancel());
                 newcomers.forEach(a => a.cancel());
                 glides.forEach(a => a.cancel());
@@ -9588,18 +9681,12 @@
             _quarterTurn = q;
             const land = now => {
                 q.landed = true; t1 = now;
-                const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
-                tEnd = cube ? now + Math.max(180, (1 - prog) * cube.ms) : Math.max(t0 + _TURN_MS, now + 180);
-                path.forEach((p, i) => {
-                    const cur = pose(p, e, 0);
-                    p.from = cur;
-                    p.n = rectOf(panes[i].getBoundingClientRect());
-                });
+                tEnd = now + Math.max(180, (1 - prog) * turnMs);
+                path.forEach((p, i) => { p.n = rectOf(panes[i].getBoundingClientRect()); });
                 // cube: the incoming face gets the new frame, sized to the real new box.
                 if (cube) cubes.forEach((c, i) => {
                     const n = c.n = path[i].n;
                     const copy = snap(panes[i]);
-                    copy.querySelectorAll(_TURN_LABELS).forEach(el => { el.style.opacity = '0'; });
                     c.fb.insertBefore(copy, c.sb);
                     Object.assign(c.fb.style, { width: n.w + 'px', height: n.h + 'px', margin: `${-n.h / 2}px 0 0 ${-n.w / 2}px` });
                     c.bw = n.w; c.bh = n.h;
@@ -9612,6 +9699,22 @@
                 glides = glide.map((el, i) => el.animate(
                     [{ translate: glideDelta(el, i).map(v => v + 'px').join(' ') }, { translate: '0px 0px' }],
                     { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }));
+                // Each name copy glides onto its name (the same element, else a rebuilt
+                // one with the same text); a name that is gone fades out.
+                const shown = _turnLiveNames();
+                const taken = new Set();
+                nameGhosts.forEach(p => { if (shown.includes(p.n)) { p.to = p.n; taken.add(p.n); } });
+                nameGhosts.forEach(p => {
+                    if (!p.to) {
+                        p.to = shown.find(m => !taken.has(m) && m.textContent === p.g.textContent) || null;
+                        if (p.to) taken.add(p.to);
+                    }
+                    const to = p.to && p.to.getBoundingClientRect();
+                    glides.push(p.g.animate(to
+                        ? [{ transform: 'none' }, { transform: `translate(${to.left - p.g._from.left}px, ${to.top - p.g._from.top}px)` }]
+                        : [{ opacity: p.g.style.opacity || 1 }, { opacity: 0 }],
+                        { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }));
+                });
                 [...glides, ...fades].forEach(a => { a.playbackRate = speed; });
             };
             const tick = () => {
@@ -9625,27 +9728,31 @@
                     const seq = _frameDisplaySeq;
                     quiet = (seq !== seq0 && seq === lastSeq) ? quiet + 1 : 0;
                     lastSeq = seq;
-                    if (quiet >= 1 || real - t0 > 1200) land(now);
+                    const wait = waiting();
+                    if ((quiet >= 1 && !wait) || real - t0 > (wait ? _TURN_WAIT_MS : 1200)) land(now);
                     else pin();
                 }
                 holdLabels();
                 const r = q.landed ? _turnEase(Math.min(1, (now - t1) / Math.max(1, tEnd - t1))) : 0;
+                // Barely moves until the new frame is there: the cube's incoming face is
+                // never empty, and every turn sets off for a box it knows.
+                prog = Math.min(q.landed ? 1 : 0.15, prog + (now - lastNow) / turnMs);
+                lastNow = now;
                 if (cube) {
-                    // Barely moves until the new frame is there, so the face rolling in is never empty.
-                    prog = Math.min(q.landed ? 1 : 0.15, prog + (now - lastNow) / cube.ms);
-                    lastNow = now;
                     const e = _cubeEase(prog);
                     cubes.forEach((c, i) => cubePose(i, e, r));
                 } else {
-                    const u = Math.min(1, (now - t0) / _TURN_MS), e = _turnEase(u);
+                    const e = _turnEase(prog);
                     path.forEach((p, i) => {
                         const ps = pose(p, e, r);
                         setPose(ghosts[i], ps.ang, ps.k, ps.cx - p.o.cx, ps.cy - p.o.cy);
+                        setFrame(i, ps.cx, ps.cy, ps.fw, ps.fh);
                     });
                 }
-                if (q.landed && now >= tEnd && (!cube || prog >= 1)) {
+                if (q.landed && now >= tEnd && prog >= 1) {
                     holdLabels();
-                    const names = [...labelHolds.keys()].filter(n => n.isConnected);
+                    // A name its copy landed on just takes over; any other fades in.
+                    const names = [...labelHolds.keys()].filter(n => n.isConnected && !nameGhosts.some(p => p.to === n));
                     finishAll();
                     fades = names.map(n => n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' }));
                     if (_quarterTurn === q) _quarterTurn = null;
@@ -26554,7 +26661,7 @@
             'viewer.theme': ['Theme', 'The colours of the viewer. Press T to switch while you work.'],
             'viewer.rounded_panes': ['Rounded panes', 'Rounds the corners of images. Rounding hides a few pixels in each corner, so turn it off to see them. Press Shift+B to switch while you work.'],
             'viewer.qmri_gapless': ['qMRI maps touching', 'qMRI mode (q) shows T₁, T₂, PD and other maps next to each other. This removes the space between them so they can be larger. With two rows of maps, the colour bars move inside the maps.'],
-            'viewer.compare_gapless': ['Compare panes touching', 'Removes the space between arrays shown side by side, so they can be larger. Immersive view always joins them. With two rows of arrays, their names move inside the images.'],
+            'viewer.compare_gapless': ['Compare panes touching', 'Removes the space between arrays shown side by side, so they can be larger. Arrays of different sizes keep their space. Immersive view always joins them. With two rows of arrays, their names move inside the images.'],
             'viewer.remember_view': ['Reopen where you left off', 'Opening the same file again brings back its slice, view, colormap and rotation. Its display range comes back too, unless the file has changed. Kept in ~/.arrayview/view_memory.json.'],
             'viewer.colormaps': ['Colormap cycle', 'The colormaps offered when you press c, in this order. Type names separated by commas. Unknown names are skipped. Leave empty for the full built-in list. Applies the next time you open a viewer.'],
             'viewer.ortho_layout': ['Ortho-view layout', 'Ortho view (v) shows three planes of a volume at once. This sets how they are arranged when it opens. Responsive picks what fits your window best.'],
@@ -27023,7 +27130,8 @@
         async function _bcEnsureCmapLut(name) {
             if (_cmapLutCache[name]) return _cmapLutCache[name];
             try {
-                const resp = await proxyFetch(`/colormap_lut/${encodeURIComponent(name)}`);
+                // ?v=: the table is browser-cached for a day — bump when a table changes.
+                const resp = await proxyFetch(`/colormap_lut/${encodeURIComponent(name)}?v=2`);
                 if (!resp.ok) return null;
                 const buf = await resp.arrayBuffer();
                 if (buf.byteLength !== 1024) return null;
@@ -47024,8 +47132,22 @@
         // a centre view (A−B, overlay, wipe…) keeps the gaps around it.
         function _compareTouching() {
             // Immersive is there to fill the screen: its panes always join.
-            return compareActive && (compareGapless || _fullscreenActive)
+            // The preference yields to panes of different sizes: joined, they
+            // make a ragged block instead of a grid.
+            return compareActive && ((compareGapless && !_comparePanesDifferInSize()) || _fullscreenActive)
                 && !_compareGridShape(compareFrames.filter(Boolean).length).hasCenterPane;
+        }
+
+        // True when the side-by-side images are not all the same size in the
+        // displayed plane. A mixed-size stack answers from its known shapes, for
+        // every case at once, so the layout does not hop while panes load or page.
+        function _comparePanesDifferInSize() {
+            if (detachedDimMode && Array.isArray(raggedSpatialShapes) && detachedDim >= collectionSpatialNdim) {
+                const sizes = new Set(raggedSpatialShapes.flat().map(sh => `${(sh || [])[dim_x]}x${(sh || [])[dim_y]}`));
+                if (sizes.size > 1) return true;
+            }
+            const frames = compareFrames.filter(Boolean);
+            return frames.some(f => f.width !== frames[0].width || f.height !== frames[0].height);
         }
 
         // Array names sit in the images' top-left corners, as in the single

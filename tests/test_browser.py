@@ -1160,6 +1160,37 @@ class TestKeyboard:
         )
         assert t0 <= title_top < b0
 
+    def test_compare_panes_touching_keeps_gaps_between_arrays_of_different_sizes(
+        self, page, server_url, sid_2d, client, tmp_path
+    ):
+        compare_sids = []
+        for i, size in enumerate([(60, 90), (90, 60), (70, 70)]):
+            path = tmp_path / f"arr2d_mixed_{i}.npy"
+            np.save(path, np.random.default_rng(i).random(size, dtype=np.float32))
+            compare_sids.append(client.post(
+                "/load", json={"filepath": str(path), "name": f"arr2d_mixed_{i}"}
+            ).json()["sid"])
+
+        page.goto(
+            f"{server_url}/?sid={sid_2d}&compare_sid={compare_sids[0]}&compare_sids={','.join(compare_sids)}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => _applyViewerPreference('compare_gapless', true)")
+        page.wait_for_timeout(300)
+
+        rects = page.evaluate(
+            """() => [...document.querySelectorAll('#compare-panes .compare-pane.active .compare-canvas-clip')]
+                .map(e => { const r = e.getBoundingClientRect();
+                            return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; })"""
+        )
+        assert len(rects) == 4
+        # Joined, panes of different sizes make a ragged block: they stay apart.
+        assert rects[1][0] - rects[0][2] >= 8, f"mixed-size panes touch: {rects}"
+        assert not page.evaluate(
+            "() => document.getElementById('compare-view-wrap').classList.contains('compare-touching')"
+        )
+
 
     def test_d_opens_without_selector_then_cycles_a_stable_percentile_overlay(
         self, loaded_viewer, sid_2d
