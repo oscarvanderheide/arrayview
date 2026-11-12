@@ -86,7 +86,7 @@ the older compare view.
 - **Flicker** — rapid A/B toggle
 - **Checkerboard** — alternating tiles
 
-`Z` zooms into the center pane.
+`Z` hides the two source panes so only the center pane shows. The A−B difference uses a blue–red map on a black background, centred on zero.
 
 ## Layouts
 
@@ -114,7 +114,7 @@ uvx arrayview --match "data/**/*_0000.nii.gz" --overlay "gt=data/**/labels/*.nii
 uvx arrayview volume.nii.gz --vectorfield disp.nii.gz
 ```
 
-Deformation field with arrow overlay. `U` toggles arrows. `[`/`]` adjusts density. `{`/`}` adjusts arrow length.
+Deformation field with arrow overlay. `O` toggles arrows. `[`/`]` adjusts density. `{`/`}` adjusts arrow length.
 
 ## Linking tabs
 

@@ -12,15 +12,17 @@ When the voxel size is known (NIfTI, or set with `Shift+A`), images are drawn in
 
 ## Multi-view
 
-`v` — splits the canvas into three orthogonal planes (axial, coronal, sagittal). Drag the crosshair to navigate. Shift+drag for oblique rotation. `V` opens custom dimension selection; `o` resets the orientation.
+`v` — splits the canvas into three orthogonal planes (axial, coronal, sagittal). Click or drag in any pane to move the crosshair. Hold Alt and drag a line to tilt that plane (oblique). `V` lets you pick which dimensions the three planes use; `o` moves the crosshair back to the origin.
 
 ## Mosaic
 
 `z` — lays out a grid of slices along the next dimension. Scrolling then steps through the dimension after that; a plain 3-D volume shows all its slices at once.
 
+`Shift+→` lays the active dimension out across the screen, `Shift+↓` lays it out down. Use one dimension each way for a grid of both, for example echoes across and time points down. `Shift+←` / `Shift+↑` take the across / down dimension out again, and `z` leaves the mosaic. `r`, `t`, `o` and `w` work on the tiles.
+
 ## Projections
 
-`p` — cycles through statistical projections along the scroll axis: MAX, MIN, MEAN, STD, SOS. 
+`p` — cycles through statistical projections along the scroll axis: MAX, MIN, MEAN, STD, SOS, SUM, then off. The first press shows the options; click one to jump to it.
 
 ## FFT
 

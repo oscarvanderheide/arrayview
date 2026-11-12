@@ -6,7 +6,7 @@
 
 Draw on the canvas to measure a region. The default shape is a circle.
 
-Shapes: circle, rectangle, freehand, flood fill. Switch via the colorbar controls.
+Shapes: circle, rectangle, freehand, flood fill. The shape buttons sit at the top of the ROI panel, which opens with ROI mode.
 
 For flood fill, `[` / `]` adjusts tolerance.
 

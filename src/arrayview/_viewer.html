@@ -32770,10 +32770,12 @@
                             { key: 'd', action: 'Open histogram / range menu', hint: 'repeat d to cycle presets · j/k to select · arrows/Enter to close · click dims to cycle scope' },
                             { key: 'Histogram open', action: 'Dim participation underlines', hint: 'Click a dim to cycle in scope → recompute → frozen. Hover a dim for the explanation.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
+                            { key: 'M', action: 'Hide values below the range minimum', hint: 'they turn transparent · press again to show them' },
                             { key: 'Shift+4', action: 'Toggle automatic display crop', hint: 'nonzero bounds plus a 12 mm margin · view-only, per collection item' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light' },
                             { key: 'b', action: 'Toggle canvas borders' },
                             { key: 'Shift+B', action: 'Toggle rounded panes' },
+                            { key: 'a', action: 'Stretch panes to a square', hint: 'overrides true proportions from the voxel size' },
                         ]
                     },
                     {
@@ -32839,6 +32841,7 @@
                             { key: '/ c', action: 'Compare with…', hint: 'tick open arrays or files of the same shape · 1–9 picks an open one' },
                             { key: 'g', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
                             { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
+                            { key: 'n', action: 'Next compare target', hint: 'when more than two arrays are loaded' },
                         ]
                     },
                     {
@@ -32962,7 +32965,7 @@
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'hiding keeps your regions and their numbers' },
                             { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
                             { key: 'Drag', action: 'Draw a region' },
-                            { key: 'Shape buttons', action: 'Switch shape', hint: 'below the image · circle, rectangle, freehand, flood fill' },
+                            { key: 'Shape buttons', action: 'Switch shape', hint: 'top of the ROI panel · circle, rectangle, freehand, flood fill' },
                             { key: 'Click ROI', action: 'Select a region' },
                             { key: 'Double-click ROI', action: 'Rename a region' },
                             { key: 'Delete / Backspace', action: 'Delete the selected region' },
@@ -32975,7 +32978,7 @@
                             { key: 'Click row', action: 'Show distribution, pixel count, min and max', hint: 'every region\u2019s distribution uses the same value axis · in qMRI: mean ± std for every map' },
                             { key: 'Double-click name', action: 'Rename' },
                             { key: 'Drag header', action: 'Move the panel' },
-                            { key: 'CSV / mask', action: 'Download the numbers or the region mask' },
+                            { key: 'copy / CSV / mask', action: 'Copy or download the numbers, or download the region mask', hint: 'copy pastes straight into a spreadsheet' },
                             { key: 'N', action: 'Export the region mask as .npy' },
                         ]
                     },
@@ -35471,9 +35474,9 @@
                     },
                     {
                         key: 'R',
-                        text: 'Press R (shift+r) to draw regions.\nDrag a box to measure what is inside it.\nPress R again to stop.',
+                        text: 'Press R (shift+r) to draw regions.\nDrag on the image to draw one.\nThe panel beside it shows what is inside.',
+                        note: 'The buttons at the top of the panel change the shape.\nPress R again to stop.',
                         expect: ['roi.cycleMode'],
-                        spotlight: '#slim-cb-wrap',
                     },
                 ],
             },
