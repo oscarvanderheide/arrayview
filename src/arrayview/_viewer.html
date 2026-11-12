@@ -7728,12 +7728,12 @@
         let _diffAutoRangeKey = null;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
-        const DIFF_COLORMAPS = ['blue_orange', 'icefire', 'RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
-        // A−B default follows the theme: blue_orange's dark centre blends into
-        // the dark viewport (masked voxels stay dark) and its ends stay
-        // saturated, unlike icefire's near-white tips; light theme keeps RdBu_r.
+        const DIFF_COLORMAPS = ['RdBu_r', 'icefire', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
+        // A−B default is RdBu_r on both themes. Background (zero in A and B)
+        // is drawn black server-side, so the white centre no longer floods
+        // the area outside the object on dark theme.
         function _diffDefaultColormap() {
-            return diffMode === 1 ? (isDark ? 'blue_orange' : 'RdBu_r') : 'afmhot';
+            return diffMode === 1 ? 'RdBu_r' : 'afmhot';
         }
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane

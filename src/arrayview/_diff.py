@@ -172,11 +172,13 @@ def _compute_diff(
         b = _resize_values_like(b, a)
     if diff_mode == 1:
         raw = a - b
-        lo = float(np.nanpercentile(raw, 1))
-        hi = float(np.nanpercentile(raw, 99))
+        fg = raw[~((a == 0) & (b == 0))]
+        fg = fg if fg.size else raw
+        lo = float(np.nanpercentile(fg, 1))
+        hi = float(np.nanpercentile(fg, 99))
         vmax = max(abs(lo), abs(hi)) or 1.0
         vmin = -vmax
-        colormap = "blue_orange"
+        colormap = "RdBu_r"
     elif diff_mode == 2:
         raw = np.abs(a - b)
         vmax = float(np.nanmax(raw)) or 1.0
@@ -189,6 +191,11 @@ def _compute_diff(
         vmin = 0.0
         colormap = "afmhot"
 
+    # Background (zero in both A and B, e.g. outside a masked head) becomes
+    # NaN: drawn black like the source panes instead of the colormap's
+    # zero colour (white for RdBu_r), and left out of histogram/hover.
+    raw = np.asarray(raw, dtype=np.float32)
+    raw[(a == 0) & (b == 0)] = np.nan
     return raw, vmin, vmax, colormap, nan_mask
 
 
@@ -207,6 +214,7 @@ def _render_diff_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut_rgba(lut, (normalized * 255).astype(np.uint8))
+    rgba[~np.isfinite(raw)] = [0, 0, 0, 255]
     if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
         rgba[nan_mask] = [22, 22, 22, 255]
     return rgba

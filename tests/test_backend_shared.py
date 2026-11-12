@@ -65,7 +65,7 @@ def test_compute_diff_modes_and_histogram():
         dr=1, complex_mode=0, log_scale=False, diff_mode=1,
     )
     assert raw.shape == (8, 8)
-    assert colormap == "blue_orange"
+    assert colormap == "RdBu_r"
     assert nan_mask is None
     assert vmin == -vmax
     assert vmax > 0
@@ -99,8 +99,8 @@ def test_compute_diff_is_true_a_minus_b():
             a, b, dim_x=2, dim_y=1, indices=f"{z},0,0", dim_z=-1,
             dr=0, complex_mode=0, log_scale=False, diff_mode=1,
         )
-        np.testing.assert_allclose(raw, data[z] - data[z] * 0.9, atol=1e-6)
-        assert np.all(raw[:4] == 0)
+        np.testing.assert_allclose(raw[4:], data[z, 4:] - data[z, 4:] * 0.9, atol=1e-6)
+        assert np.all(np.isnan(raw[:4]))  # zero in both: background
     raw, _, _, _, nan_mask = _compute_diff(
         a, b, dim_x=2, dim_y=1, indices="0,0,0", dim_z=0,
         dr=0, complex_mode=0, log_scale=False, diff_mode=1,
@@ -272,3 +272,22 @@ def test_app_shim_re_exports():
     assert hasattr(appmod, "_render_normalized")
     assert hasattr(appmod, "_vfield_n_times")
     assert hasattr(appmod, "_notify_shells")
+
+
+def test_diff_background_is_black_not_colormap_centre():
+    # Zero in both A and B (masked background) must not take RdBu_r's white
+    # centre; real equal-valued pixels inside the object still do.
+    a_arr = np.zeros((6, 6), dtype=np.float32)
+    b_arr = np.zeros((6, 6), dtype=np.float32)
+    a_arr[2:4, 2:4] = [[5.0, 5.0], [7.0, 3.0]]
+    b_arr[2:4, 2:4] = [[5.0, 4.0], [3.0, 7.0]]
+    raw, vmin, vmax, colormap, nan_mask = _compute_diff(
+        Session(a_arr), Session(b_arr), dim_x=1, dim_y=0, indices="0,0",
+        dim_z=-1, dr=1, complex_mode=0, log_scale=False, diff_mode=1,
+    )
+    assert colormap == "RdBu_r"
+    assert np.isnan(raw[0, 0]) and raw[2, 2] == 0.0
+    rgba = _render_diff_rgba(raw, vmin, vmax, colormap, nan_mask)
+    assert tuple(rgba[0, 0, :3]) == (0, 0, 0)
+    assert min(rgba[2, 2, :3]) > 200  # equal inside the object: near-white
+    assert _diff_histogram(raw, 8)["counts"] and sum(_diff_histogram(raw, 8)["counts"]) == 4
