@@ -35,10 +35,15 @@ different numbers of dimensions still open in the older compare view.
 ## Side by side
 
 `s` shows the active dimension in several panes — the files you loaded, or
-any other non-spatial dimension such as echoes or time points. The dimension
-bar shows it as a purple `s`; each pane names its own index in its corner (and,
-for loaded files, the part of the file name that differs). Press `s` again for
-one image. `'` adds a pane and `;` removes one (up to six).
+any other non-spatial dimension such as echoes or time points. Pressing `s`
+opens a strip of pane counts (two to six) at the bottom of the picture: press
+a digit or click a count, or move with the arrows and press Enter. `s` again
+or Esc closes the strip without changing anything.
+
+The dimension bar shows the dimension as a purple `s`; each pane names its own
+index in its corner (and, for loaded files, the part of the file name that
+differs). In side by side, `s` goes back to one image, and holding `s` brings
+the strip back for another number of panes: choose, then release `s`.
 
 - `[`/`]` move just the pane under the mouse along the dimension, so you can
   put echo 1 next to echo 5.

@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from conftest import pick_panes, side_by_side
+
 pytestmark = pytest.mark.browser
 
 DEBUG_DIR = Path(__file__).resolve().parents[1] / "debug"
@@ -663,9 +665,9 @@ class TestKeyboard:
 
 
     def test_side_by_side_counts_and_pages_along_stack(self, loaded_viewer, client, tmp_path):
-        """: shows the stack dim side by side (two panes first); ' and ;
-        add and remove panes; j/k moves a pair by one and pages three or
-        more along; dropping below two returns to one intact image."""
+        """s shows the stack dim side by side (two panes first); holding s
+        picks another count; j/k moves a pair by one and pages three or
+        more along; s again returns to one intact image."""
         stack_dir = tmp_path / "spread_src"
         stack_dir.mkdir()
         rng = np.random.default_rng(7)
@@ -679,13 +681,13 @@ class TestKeyboard:
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         panes = "() => detachedDimIdx.join(',')"
 
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         assert page.evaluate(panes) == "0,1"
         page.keyboard.press("k")  # a pair moves by one
         page.wait_for_function(f"() => ({panes})() === '1,2'", timeout=5_000)
 
-        page.keyboard.press("'")
+        pick_panes(page, 3)
         page.wait_for_function(f"() => ({panes})() === '1,2,3'", timeout=10_000)
         page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean)", timeout=10_000)
         assert page.evaluate("() => document.querySelector('#info .dim-spread-set').textContent") == "s"
@@ -695,14 +697,145 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert page.evaluate(panes) == "3,4,5"
 
-        page.keyboard.press(";")
+        pick_panes(page, 2)
         page.wait_for_function(f"() => ({panes})() === '3,4'", timeout=10_000)
-        page.keyboard.press(";")
+        side_by_side(page)
         page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
         assert page.evaluate("() => indices[collectionSpatialNdim]") == 3
         assert page.evaluate("() => !!document.getElementById('canvas-wrap')")
         assert page.is_visible("canvas#viewer")
 
+    def test_s_picks_pane_count(self, loaded_viewer, client, tmp_path):
+        """From one image, s opens the pane count strip at the bottom centre of
+        the picture and it stays: a digit, a click or arrows + Enter take a
+        count; s, Esc or another key close it. In side by side a tap of s goes
+        back to one image and holding s picks another count on release. What
+        the strip lies on is hidden while it is up."""
+        stack_dir = tmp_path / "pick_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(11)
+        for i in range(6):
+            np.save(stack_dir / f"vol_{i}.npy", (rng.standard_normal((5, 40, 40)) + i).astype(np.float32))
+        sid = client.post("/load", json={"filepath": str(stack_dir)}).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
+        page.mouse.move(400, 300)
+        panes = "() => detachedDimIdx.join(',')"
+        strip = "() => !!document.querySelector('.spread-picker.is-visible')"
+        picked = "() => _spreadPick.counts[_spreadPick.sel]"
+        one_image = "() => !detachedDimMode && !compareActive"
+
+        def settle(n):
+            page.wait_for_function(f"() => compareFrames.slice(0, {n}).every(Boolean) && !_orthoGlideBusy", timeout=10_000)
+
+        def leave():
+            page.keyboard.press("s")
+            page.wait_for_function(one_image, timeout=10_000)
+            page.wait_for_function("() => !_orthoGlideBusy", timeout=10_000)
+
+        # One image: s opens the strip and it stays; nothing changes yet.
+        page.keyboard.press("s")
+        page.wait_for_timeout(350)
+        assert page.evaluate(strip)
+        assert page.evaluate(one_image)
+        assert page.evaluate("() => _spreadPick.counts.join(',')") == "2,3,4,5,6"
+        assert page.evaluate(picked) == 2
+        assert "[ ]" in page.locator(".spread-picker__hint").inner_text()
+        # It sits at the bottom centre of the picture, not at the pointer.
+        box = page.locator(".spread-picker").bounding_box()
+        vp = page.locator("#canvas-viewport").bounding_box()
+        assert abs((box["x"] + box["width"] / 2) - (vp["x"] + vp["width"] / 2)) <= 2
+        assert vp["y"] + vp["height"] / 2 < box["y"]
+        assert box["y"] + box["height"] <= vp["y"] + vp["height"]
+
+        # s again, Esc, or a key that means something else close it unchanged.
+        for key in ("s", "Escape", "i"):
+            if not page.evaluate(strip):
+                page.keyboard.press("s")
+                page.wait_for_function(strip, timeout=2_000)
+            page.keyboard.press(key)
+            assert not page.evaluate(strip), key
+            assert page.evaluate(one_image), key
+        page.keyboard.press("i")  # i went through and turned the value readout on: off again
+
+        # Arrows + Enter take a count.
+        page.keyboard.press("s")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        assert page.evaluate(picked) == 4
+        page.keyboard.press("Enter")
+        page.wait_for_function(f"() => ({panes})() === '0,1,2,3'", timeout=10_000)
+        assert not page.evaluate(strip)
+        settle(4)
+
+        # Side by side: holding s brings the strip back on the current count;
+        # a digit jumps, the mouse picks, and the release applies.
+        page.keyboard.down("s")
+        page.wait_for_function(strip, timeout=5_000)
+        assert page.evaluate(picked) == 4
+        page.keyboard.press("6")
+        assert page.evaluate(picked) == 6 and page.evaluate(strip)
+        three = page.locator(".spread-picker__opt", has_text="3").bounding_box()
+        page.mouse.move(three["x"] + three["width"] / 2, three["y"] + three["height"] / 2, steps=4)
+        assert page.evaluate(picked) == 3
+        page.keyboard.up("s")
+        page.wait_for_function(f"() => ({panes})() === '0,1,2'", timeout=10_000)
+        settle(3)
+
+        # Esc while holding keeps the view as it was, also once s comes up.
+        page.keyboard.down("s")
+        page.wait_for_function(strip, timeout=5_000)
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Escape")
+        assert not page.evaluate(strip)
+        page.keyboard.up("s")
+        page.wait_for_timeout(400)
+        assert page.evaluate(panes) == "0,1,2"
+
+        # A tap goes back to one image.
+        leave()
+
+        # One image again: a digit is the whole choice, and so is a click.
+        page.keyboard.press("s")
+        page.keyboard.press("5")
+        page.wait_for_function(f"() => ({panes})() === '0,1,2,3,4'", timeout=10_000)
+        settle(5)
+        leave()
+        page.keyboard.press("s")
+        page.wait_for_function(strip, timeout=2_000)
+        page.locator(".spread-picker__opt", has_text="2").click()
+        page.wait_for_function(f"() => ({panes})() === '0,1'", timeout=10_000)
+        settle(2)
+        leave()
+
+        # Held from one image, s works like in side by side once a count is picked.
+        page.keyboard.down("s")
+        page.wait_for_function(strip, timeout=2_000)
+        page.wait_for_timeout(300)
+        page.keyboard.press("3")
+        assert page.evaluate(one_image) and page.evaluate(strip)
+        page.keyboard.up("s")
+        page.wait_for_function(f"() => ({panes})() === '0,1,2'", timeout=10_000)
+        settle(3)
+        leave()
+
+        # Fullscreen: the strip takes the colour bar's place and gives it back.
+        page.keyboard.press("F")
+        page.wait_for_function("() => _fullscreenActive", timeout=5_000)
+        page.wait_for_timeout(1500)
+        bar = "() => +getComputedStyle(document.getElementById('slim-cb-wrap')).opacity"
+        before = page.evaluate(bar)
+        assert before > 0
+        page.keyboard.press("s")
+        page.wait_for_function(f"() => ({bar})() === 0", timeout=2_000)
+        box = page.locator(".spread-picker").bounding_box()
+        cb = page.locator("#slim-cb-wrap").bounding_box()
+        assert box["x"] < cb["x"] + cb["width"] / 2 < box["x"] + box["width"]
+        assert box["y"] < cb["y"] + cb["height"] / 2 < box["y"] + box["height"]
+        page.keyboard.press("Escape")
+        page.wait_for_function(f"() => ({bar})() === {before}", timeout=2_000)
 
     def test_roi_side_by_side_is_drawn_on_every_pane_and_measured_in_each(
         self, loaded_viewer, client, tmp_path
@@ -757,9 +890,9 @@ class TestKeyboard:
         page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
         _focus_kb(page)
         page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("'")
+        pick_panes(page, 3)
         page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
         page.wait_for_function("() => compareFrames.slice(0, 3).every(Boolean) && !compareRendering", timeout=10_000)
         page.wait_for_timeout(500)
@@ -773,13 +906,13 @@ class TestKeyboard:
         assert page.evaluate(names) == "4,5,6"
         cb_w = "() => Math.round(document.getElementById('mv-cb-wrap').getBoundingClientRect().width)"
         w3 = page.evaluate(cb_w)
-        page.keyboard.press("'")
+        pick_panes(page, 4)
         page.wait_for_function("() => compareMvActive && compareMvViews.length === 12", timeout=10_000)
         assert page.evaluate(rows) == "3,4,5,6"
         # One bar under the whole grid: a row more (smaller panes) keeps its width.
         page.wait_for_timeout(600)
         assert page.evaluate(cb_w) == w3
-        page.keyboard.press(";")
+        pick_panes(page, 3)
         page.wait_for_function("() => compareMvActive && compareMvViews.length === 9", timeout=10_000)
 
     def test_collection_case_names_shown_above_panes(self, loaded_viewer, client, tmp_path):
@@ -809,7 +942,7 @@ class TestKeyboard:
         assert [t.lower() for t, _ in labels] == ["1 · alpha", "2 · bravo", "3 · charlie"]
         assert not any(has_logo for _, has_logo in labels)
         page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/mosaic.png")
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => !detachedDimMode", timeout=10_000)
 
         page.wait_for_selector("#case-title.visible svg", timeout=5_000)
@@ -826,7 +959,7 @@ class TestKeyboard:
 
         page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
         page.evaluate("() => { spreadCount = 2; }")
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         titles = page.evaluate(
             "() => compareTitles.slice(0, 2).map(e => e.textContent.replace(/[\\[\\]{}]/g, '').trim().toLowerCase())"
@@ -854,7 +987,7 @@ class TestKeyboard:
         _focus_kb(page)
         # Three cases open side by side; go to one image first.
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
         page.wait_for_timeout(500)
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; spreadCount = 2; renderInfo(); }")
@@ -870,7 +1003,7 @@ class TestKeyboard:
         page.wait_for_function("() => !qmriActive", timeout=5_000)
 
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
         page.keyboard.press("q")
         page.wait_for_function("() => compareQmriActive", timeout=5_000)
@@ -1291,6 +1424,13 @@ class TestKeyboard:
             "el => el.classList.contains('playback-hud-visible')"
         )
 
+        # Restarting keeps the speed the user picked.
+        page.keyboard.press("Space")
+        page.wait_for_function("() => document.querySelector('#info').classList.contains('playback-hud-visible')")
+        assert page.evaluate("() => playFps") == adjusted
+        assert page.locator(".playback-fps").inner_text() == f"{adjusted} fps"
+        page.keyboard.press("Space")
+
 
     def test_shift_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
         # Shift+I shows the info overlay (#info-overlay gains .visible class)
@@ -1376,7 +1516,7 @@ class TestKeyboard:
         page.keyboard.press("F")
         page.wait_for_function("() => _fullscreenActive", timeout=5_000)
         page.wait_for_timeout(900)
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_timeout(1500)
         tops = page.evaluate("""() => [...document.querySelectorAll('.compare-pane')]
             .filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top)""")
@@ -1435,7 +1575,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__tops = []; const t0 = performance.now(); const f = () => {
             const c = [...document.querySelectorAll('.compare-pane canvas')].find(e => e.offsetWidth);
@@ -1475,7 +1615,7 @@ class TestKeyboard:
         page.goto(f"{server_url}/?sid={sid_3d}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("s")
+        side_by_side(page)
         page.wait_for_timeout(1500)
         page.evaluate("""() => { window.__same = true; const t0 = performance.now(); const f = () => {
             const tops = [...document.querySelectorAll('.compare-pane')].filter(p => p.offsetWidth).map(p => p.getBoundingClientRect().top);

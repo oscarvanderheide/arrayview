@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pytest
 
-from conftest import register_array
+from conftest import pick_panes, register_array, side_by_side
 
 pytestmark = pytest.mark.browser
 
@@ -84,7 +84,7 @@ def test_brackets_stay_hidden_and_move_only_the_pane_under_the_mouse(page, serve
 
     _focus(page)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -136,7 +136,7 @@ def test_brackets_stay_hidden_and_move_only_the_pane_under_the_mouse(page, serve
     page.screenshot(path=f"{shots}/spread_pair_moved.png")
 
     # One more pane keeps the hand-set two and follows the last.
-    page.keyboard.press("'")
+    pick_panes(page, 3)
     page.wait_for_function("() => detachedDimIdx.length === 3", timeout=10_000)
     page.wait_for_timeout(1200)
     assert page.evaluate("() => [...detachedDimIdx]") == [a, b + 1, b + 2]
@@ -200,7 +200,7 @@ def test_split_key_flash_survives_the_bar_redrawing(page, server_url, client, tm
     page.wait_for_timeout(500)
     page.evaluate("() => { activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -245,7 +245,7 @@ def test_immersive_panes_join_with_touching_off(page, server_url, client, tmp_pa
     page.wait_for_timeout(500)
     page.evaluate("() => { compareGapless = false; activeDim = 2; renderInfo(); }")
     _focus(page)
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(800)
 
@@ -311,7 +311,7 @@ def _open_split(page, server_url, client, tmp_path, name, viewport=(2000, 700)):
     page.wait_for_timeout(800)
     page.evaluate("() => { activeDim = 2; _dimbarExtentPinned = false; _reconcileDimbarExtent(); renderInfo(); }")
     _focus(page)
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     page.wait_for_timeout(900)
 
@@ -447,7 +447,7 @@ def test_immersive_split_bars_appear_after_the_panes_land(page, server_url, clie
     page.wait_for_function("() => _fullscreenActive", timeout=5_000)
     page.wait_for_timeout(1200)
     _focus(page)
-    page.keyboard.press("s")
+    side_by_side(page)
     frames = page.evaluate(
         """() => new Promise(res => {
             const out = [], t0 = performance.now();

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from conftest import side_by_side
+
 _GHOSTS = (
     "() => [...document.body.children]"
     ".filter(e => e.tagName === 'CANVAS' && e.style.position === 'fixed').length"
@@ -107,35 +109,35 @@ def test_side_by_side_on_a_stack_glides_in_and_back(loaded_viewer, client, tmp_p
     _settle(page)
 
     page.evaluate("() => { activeDim = collectionSpatialNdim; renderInfo(); }")
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     assert page.evaluate("detachedDimIdx.length") == 2
 
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
     _settle(page)
 
 
 def test_side_by_side_count_and_leave_glide(loaded_viewer, client, tmp_path):
-    """' and ; glide the panes to their new places, and : from three panes
-    glides back to one image, each leaving no copies behind."""
-    from conftest import register_array
+    """A new pane count glides the panes to their new places, and s from
+    three panes glides back to one image, each leaving no copies behind."""
+    from conftest import pick_panes, register_array
 
     arr = np.random.default_rng(6).random((40, 44, 8, 6)).astype(np.float32)
     page = loaded_viewer(register_array(client, arr, tmp_path, "echoes"))
     _settle(page)
     page.evaluate("() => { indices[3] = 0; activeDim = 3; renderInfo(); }")
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
-    for key, n in (("'", 3), ("'", 4), (";", 3)):
-        page.keyboard.press(key)
-        assert page.evaluate("_orthoGlideBusy"), key
+    for n in (3, 4, 3):
+        pick_panes(page, n)
+        assert page.evaluate("_orthoGlideBusy"), n
         page.wait_for_function(f"() => detachedDimIdx.length === {n}", timeout=10_000)
         _settle(page)
         assert page.evaluate("compareFrames.slice(0, detachedDimIdx.length).every(Boolean)")
-    page.keyboard.press("s")
+    side_by_side(page)
     assert page.evaluate("_orthoGlideBusy")
     page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
     _settle(page)
@@ -262,7 +264,7 @@ def test_compare_ortho_and_qmri_together_is_refused(page, server_url, client, tm
 def test_split_ortho_glides_in_and_back(loaded_viewer, sid_4d):
     page = loaded_viewer(sid_4d)
     _settle(page)
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     page.keyboard.press("v")
@@ -281,7 +283,7 @@ def test_split_ortho_rows_keep_their_own_index(loaded_viewer, client, tmp_path):
     page = loaded_viewer(register_array(client, arr, tmp_path, "coils"))
     _settle(page)
     page.evaluate("activeDim = 3; renderInfo()")
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
     _settle(page)
     box = page.locator("#compare-left-canvas").bounding_box()
@@ -323,7 +325,10 @@ _MODE = (
 
 def _press_all(page, keys):
     for k in keys:
-        page.keyboard.press(k)
+        if k == "s":
+            side_by_side(page)
+        else:
+            page.keyboard.press(k)
         page.wait_for_function("() => !_orthoGlideBusy && !_crossfading", timeout=10_000)
         page.wait_for_timeout(400)
     _settle(page)
@@ -387,12 +392,12 @@ def test_ortho_split_glides_and_restores_the_window(loaded_viewer, client, tmp_p
     _press_all(page, ["v"])
     own = page.evaluate("mvViews.map(v => v.lockedVmax)")
 
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => compareMvActive", timeout=10_000)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)
 
-    page.keyboard.press("s")
+    side_by_side(page)
     page.wait_for_function("() => multiViewActive && !compareActive", timeout=10_000)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)
@@ -412,14 +417,14 @@ def test_qmri_side_by_side_glides_in_and_back(loaded_viewer, client, tmp_path):
     page.evaluate("activeDim = 4; renderInfo()")
     fitted = page.evaluate("qmriViews.map(v => v.canvas.style.width)")
 
-    page.keyboard.press("'")
+    side_by_side(page)
     assert page.evaluate("_orthoGlideBusy")
     # The plain split in between never shows its colour bar.
     assert page.evaluate("+getComputedStyle(document.getElementById('slim-cb-wrap')).opacity") == 0
     _settle(page)
     assert page.evaluate(_MODE) == "split+qmri"
 
-    page.keyboard.press(";")
+    side_by_side(page)
     assert page.evaluate("_orthoGlideBusy")
     _settle(page)
     page.wait_for_function("() => qmriViews.length && qmriViews.every(v => v.lastImageData)")

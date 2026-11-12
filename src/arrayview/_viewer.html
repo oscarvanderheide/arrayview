@@ -5428,6 +5428,81 @@
             font-size: 9px; color: var(--muted); padding: 0 4px;
             text-align: center; letter-spacing: 0.04em;
         }
+        /* ── Hold-s pane count picker ───────────────────────────── */
+        /* Same translucent pill as the d preset readout (.percentile-preset-overlay). */
+        .spread-picker {
+            --sp-sq: 7px; --sp-cell: 39px; --sp-h: 16px; --sp-gap: 2px; --sp-pad: 5px;
+            position: fixed; left: 0; top: 0;
+            display: flex; flex-direction: column; align-items: center; gap: 3px;
+            padding: var(--sp-pad);
+            border-radius: 9px;
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            opacity: 0; pointer-events: none;
+            transform: translateY(6px);
+            transition: opacity 0.14s ease, transform 0.14s ease;
+            z-index: 60;
+            user-select: none; -webkit-user-select: none;
+        }
+        :root.light .spread-picker { background-color: rgba(240, 240, 240, 0.8); }
+        .spread-picker.is-visible {
+            opacity: 1; pointer-events: auto;
+            transform: none;
+            transition: opacity 0.12s ease-out, transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+        }
+        .spread-picker__opts { position: relative; display: flex; gap: var(--sp-gap); }
+        .spread-picker__hint {
+            padding: 0 5px 2px;
+            font-size: 9px; line-height: 1.3; letter-spacing: 0.01em; white-space: nowrap;
+            color: color-mix(in srgb, var(--text) 55%, transparent);
+        }
+        .spread-picker__hint b { font-weight: inherit; color: var(--text); }
+        /* One soft highlight that slides to the chosen count. */
+        .spread-picker__glow {
+            position: absolute; left: 0; top: 0; bottom: 0;
+            width: var(--sp-cell);
+            border-radius: 6px;
+            background: color-mix(in srgb, var(--active-dim) 16%, transparent);
+            transform: translateX(calc(var(--sp-sel, 0) * (var(--sp-cell) + var(--sp-gap))));
+            transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+            pointer-events: none;
+        }
+        .spread-picker__opt {
+            position: relative;
+            width: var(--sp-cell); padding: 6px 0 5px;
+            display: flex; flex-direction: column; align-items: center; gap: 5px;
+            font-size: 10px; line-height: 1; letter-spacing: 0.01em;
+            cursor: pointer;
+        }
+        /* Unchosen counts are the text colour, thinned: muted grey vanishes
+           when a bright image shows through the pill. */
+        .spread-picker__opt span { opacity: 0.6; transition: color 0.12s ease, opacity 0.12s ease; }
+        .spread-picker__opt.is-selected span { color: var(--active-dim); opacity: 1; }
+        /* The panes as they will lie, every one the same small square. */
+        .spread-picker__frame, .spread-picker__row { display: flex; gap: 2px; justify-content: center; }
+        .spread-picker__frame { flex-direction: column; align-items: center; height: var(--sp-h); }
+        .spread-picker__row i {
+            width: var(--sp-sq); height: var(--sp-sq); border-radius: 1.5px;
+            background: var(--text); opacity: 0.4;
+            transition: background-color 0.12s ease, opacity 0.12s ease;
+        }
+        .spread-picker__opt.is-selected .spread-picker__row i { background: var(--active-dim); opacity: 1; }
+        /* On opening, each block of squares starts whole and comes apart. */
+        .spread-picker.is-visible .spread-picker__frame,
+        .spread-picker.is-visible .spread-picker__row {
+            animation: spread-picker-cut 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+            animation-delay: calc(var(--sp-i, 0) * 24ms);
+        }
+        @keyframes spread-picker-cut { from { gap: 0; } }
+        @media (prefers-reduced-motion: reduce) {
+            .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
+            .spread-picker.is-visible .spread-picker__frame,
+            .spread-picker.is-visible .spread-picker__row { animation: none; }
+        }
+
         /* Stacked pane state — drop shadow gives the card-deck feel during
            the hold-g gesture. Transform is owned by GSAP. */
         .mv-pane.is-stacked {
@@ -10345,17 +10420,21 @@
 
         /* ── JS: Compare Mode ─────────────────────────────────────── */
 
+        // Columns `paneCount` panes are laid out in, before any centre pane.
+        function _compareBaseCols(paneCount) {
+            const mode = _resolvedCompareLayoutMode();
+            return mode === 'horizontal' ? paneCount
+                : mode === 'vertical'   ? 1
+                : mode === 'grid'       ? 2
+                : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+        }
+
         // Columns and rows the compare panes are sized for. The centre pane
         // (diff, overlay, wipe…) only appears with two arrays and adds a column.
         function _compareGridShape(paneCount) {
-            const resolvedCompareLayout = _resolvedCompareLayoutMode();
             const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             const bigLeft = _isCompareBigLeftLayout() && hasCenterPane && paneCount === 2;
-            const baseCols = bigLeft ? 2
-                : resolvedCompareLayout === 'horizontal' ? paneCount
-                : resolvedCompareLayout === 'vertical'   ? 1
-                : resolvedCompareLayout === 'grid'       ? 2
-                : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+            const baseCols = bigLeft ? 2 : _compareBaseCols(paneCount);
             const cols = bigLeft ? 2 : (hasCenterPane && paneCount === 2) ? 3 : baseCols;
             const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
             const rows = bigLeft ? 2 : Math.max(1, Math.ceil(visiblePaneCount / cols));
@@ -11038,7 +11117,7 @@
             return detachedDimMode ? detachedDimIdx.length : 0;
         }
 
-        // Panes still neighbours in order (as `:` and ' / ; lay them out).
+        // Panes still neighbours in order (as s and its count picker lay them out).
         function _spreadIsRun() {
             return detachedDimIdx.every((v, i) => i === 0 || v === detachedDimIdx[i - 1] + 1);
         }
@@ -26432,6 +26511,7 @@
 
         let playLastFrameTime = 0;
         let playFps = 30; // playback speed; adjustable with < / > while playing
+        let _userPlayFps = null; // speed picked with < / >; kept across stop/start
         let _playRafId = null;
         let _playbackPressedStep = null;
         let _playbackPressedTimer = null;
@@ -26504,13 +26584,13 @@
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
-                playFps = _initialPlaybackFps(vfieldNTimes);
+                playFps = _userPlayFps ?? _initialPlaybackFps(vfieldNTimes);
                 playLastFrameTime = performance.now();
                 playNextVfieldT();
             } else {
                 playingDim = current_slice_dim;
                 const sz = shape[playingDim];
-                playFps = _initialPlaybackFps(sz);
+                playFps = _userPlayFps ?? _initialPlaybackFps(sz);
                 playLastFrameTime = performance.now();
                 playNext();
             }
@@ -30824,6 +30904,7 @@
                     next = Math.round(next);
                     if (next === playFps) next = playFps + (up ? 1 : -1);
                     playFps = Math.max(1, Math.min(120, next));
+                    _userPlayFps = playFps;
                     _playbackPressedStep = up ? 'up' : 'down';
                     clearTimeout(_playbackPressedTimer);
                     _playbackPressedTimer = setTimeout(() => {
@@ -32387,16 +32468,6 @@
                 when: [],
                 run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(_spreadToggle); },
             },
-            'spread.add': {
-                title: 'Side by side: one more pane',
-                when: [],
-                run: (ctx, e) => { if (e) e.preventDefault(); _spreadStepQueued(1); },
-            },
-            'spread.remove': {
-                title: 'Side by side: one pane fewer',
-                when: [],
-                run: (ctx, e) => { if (e) e.preventDefault(); _spreadStepQueued(-1); },
-            },
             'spread.adjustPaneIndex': {
                 title: 'Side by side: move the pane under the mouse',
                 when: ['detachedDimMode'],
@@ -32507,8 +32578,6 @@
             { key: 'Z', command: 'mode.toggleZen' },
             // Physical `;` with Shift — layout-independent like Shift+4 above.
             { key: 's', command: 'spread.toggle' },
-            { code: 'Semicolon', shift: false, command: 'spread.remove' },
-            { code: 'Quote', shift: false, command: 'spread.add' },
             { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
             // Ctrl/Cmd+O belongs to VS Code inside its tabs, so the picker also has Shift+Y.
             { key: 'Y', shift: true, command: 'overlay.openPicker' },
@@ -32643,8 +32712,9 @@
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
                             { key: 'Shift+→ / Shift+↓', action: 'Mosaic — lay the active dim out across / down', hint: 'one dim each way makes a grid of both · again on that dim takes it out · z leaves' },
                             { key: 'Shift+← / Shift+↑', action: 'Mosaic — take the across / down dim out' },
-                            { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
-                            { key: "' / ;", action: 'One pane more / fewer', hint: "[ ] move the pane under the mouse · j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along · ' from one image starts with two" },
+                            { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'opens a strip of pane counts at the bottom of the picture: a digit or a click takes one, arrows + Enter too · works on any non-spatial dim, including the dim of several loaded arrays · in side by side, s goes back to one image' },
+                            { key: 's (hold)', action: 'Side by side — another number of panes', hint: 'in side by side, holding s brings the strip back · arrows, a digit or the mouse choose · release s to apply · Esc cancels' },
+                            { key: '[ / ]', action: 'Side by side — move the pane under the mouse', hint: 'j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
@@ -32820,7 +32890,7 @@
                             { key: 'Shift+S', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
                             { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
                             { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
-                            { key: 's', action: 'Side by side', hint: "show the active dim in several panes · ' / ; more or fewer" },
+                            { key: 's', action: 'Side by side', hint: 'pick how many panes of the active dim · in side by side: s goes back, hold s for another count' },
                             { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
                             { key: 'Shift+R', action: 'Show / hide ROI mode', hint: 'preserves session ROIs while hidden' },
@@ -34907,7 +34977,9 @@
             if (e.key === 'Escape' && _compareCenterPickerVisible) {
                 _compareCenterPickerVisible = false;
                 if (_compareCenterPickerTimer) { clearTimeout(_compareCenterPickerTimer); _compareCenterPickerTimer = null; }
-                _setCompareCenterMode(0);
+                // Same animated exit as plain Esc (glide back), not a hard cut.
+                if (compareActive && _comparePanesShown() && _compareCenterSupported()) _afterGlide(_compareCenterOff);
+                else _setCompareCenterMode(0);
                 _reconcileCompareCenterPicker();
                 return;
             }
@@ -34921,6 +34993,7 @@
             if (_orthoLayoutPicker && _orthoLayoutPicker.isActive()) {
                 if (_orthoLayoutPicker.keyEvent(e)) return;
             }
+            if (_spreadPick.active && _spreadPickKey(e)) return;
             if (_histPickerActive) {
                 if (_histPickerKey(e)) return;
             }
@@ -34982,6 +35055,10 @@
                 showStatus('hover info: cleared all pins');
                 return;
             }
+            // Plain s: a tap toggles side by side on release, a hold opens the
+            // pane count picker. Where neither applies it goes on to the dispatcher.
+            if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+                && _spreadPickDown(e)) return;
             if (dispatchCommand(e)) return;
             // Forward Cmd/Ctrl+Shift+[/] to shell for tab cycling
             const modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
@@ -35015,6 +35092,14 @@
             _orthoLayoutPicker.armUp();
         }, true);
 
+        // Pane count picker: s coming up, and a click anywhere else closes it.
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 's' || e.key === 'S') _spreadPickUp();
+        }, true);
+        window.addEventListener('mousedown', (e) => {
+            if (_spreadPick.active && !_spreadPick.el.contains(e.target)) _spreadPickClose(false);
+        }, true);
+
         // Safety: if focus leaves while the cmap menu is up, cancel it;
         // the dim-picker is a tap-to-open menu and closes itself on Esc/commit,
         // so no blur coupling is needed for it.
@@ -35026,6 +35111,11 @@
             if (_orthoLayoutPicker && _orthoLayoutPicker.isActive()) {
                 _orthoLayoutPicker.cancel();
             }
+            // A release of s outside the window is never seen: drop the press.
+            clearTimeout(_spreadPick.timer);
+            _spreadPick.timer = null;
+            _spreadPick.down = false;
+            _spreadPickClose(false);
         });
 
         // ── Learn by doing tutorial ─────────────────────────────────
@@ -35341,10 +35431,10 @@
                     },
                     {
                         key: 's',
-                        text: 'Press s to show this dim side by side.\nPoint at a pane: [ and ] move just that one.',
-                        note: "Press s again to go back. ' and ; add or remove a pane.",
+                        text: 'Press s, then pick how many panes to show side by side.\nPoint at a pane: [ and ] move just that one.',
+                        note: 'Press s again to go back. Hold s for another number of panes.',
                         expect: [
-                            'spread.toggle', 'spread.add',
+                            'spread.toggle',
                             'spread.adjustPaneIndex',
                         ],
                     },
@@ -42632,40 +42722,258 @@
             _spreadSticky = { dim: detachedDim, activeAt: activeDim };
         }
 
-        // ' / ; pressed during a glide add up, and the total is applied in one glide.
-        let _spreadQueuedDelta = 0, _spreadQueuedFn = null;
-        function _spreadStepQueued(dir) {
-            if (!_orthoGlideBusy) { _spreadStep(dir); return; }
-            _spreadQueuedDelta += dir;
-            if (!_spreadQueuedFn) {
-                _spreadQueuedFn = () => {
-                    const d = _spreadQueuedDelta;
-                    _spreadQueuedDelta = 0;
-                    _spreadQueuedFn = null;
-                    if (d) _spreadStep(d);
-                };
-            }
-            _orthoGlideQueued = _spreadQueuedFn;
+        // Side by side with exactly `n` panes, from one image or from another count.
+        function _spreadSetCount(n) {
+            if (!detachedDimMode) { spreadCount = n; _splitToggle(_spreadDim()); return; }
+            if (n !== detachedDimIdx.length) _spreadResize(n);
         }
 
-        // `'` / `;` — one pane more or fewer. From one image, `'` starts with
-        // two; dropping below two goes back to one image.
-        function _spreadStep(dir) {
+        // ── s pane count picker ─────────────────────────────────────
+        // A strip of pane counts at the bottom centre of the picture, where the
+        // colour bar sits in immersive.
+        // From one image, s opens it and it stays: a digit or a click takes a
+        // count, arrows + Enter too, s or Esc closes it again. (Held down, s
+        // works as below, once something was picked.)
+        // In side by side, a tap of s goes back to one image; holding s opens
+        // the strip, and releasing s applies the count picked meanwhile.
+        const _SPREAD_HOLD_MS = 220;
+        const _spreadPick = {
+            down: false, downAt: 0, timer: null, active: false,
+            touched: false,             // a count was picked since it opened
+            counts: [], sel: 0,
+            el: null, built: '', shown: false, covered: [],
+            mx: 0, my: 0, moved: false,
+        };
+
+        // Pane counts on offer: 2 up to the dim's size, at most SPREAD_MAX.
+        // Empty where s itself would refuse.
+        function _spreadPickCounts() {
+            let dim = detachedDim;
             if (!detachedDimMode) {
-                if (dir < 0) { showStatus('side by side: already one image'); return; }
-                spreadCount = 1 + dir;
-                _splitToggle(_spreadDim());
+                dim = _spreadDim();
+                if (compareActive || qmriMvActive) return [];
+                if (qmriActive && dim === qmriDim) return [];
+                if (multiViewActive ? (mvDims.includes(dim) || !(Number(shape[dim]) >= 2)) : !_canDetachDim(dim)) return [];
+            }
+            const cap = Math.min(SPREAD_MAX, Number(shape[dim]) || 0);
+            return Array.from({ length: Math.max(0, cap - 1) }, (_, i) => i + 2);
+        }
+
+        // The pictures `n` panes will show, as squares per row: full rows and a
+        // short last one as the pane layout picks them, or, where every pane is
+        // a row of planes or maps, `n` rows of that many.
+        function _spreadPickGrid(n) {
+            const per = compareMvActive || compareQmriActive
+                ? (compareMvActive ? compareMvViews : compareQmriViews).length / detachedDimIdx.length
+                : detachedDimMode ? 0 : multiViewActive ? mvViews.length : qmriActive ? qmriViews.length : 0;
+            if (per) return Array(n).fill(Math.max(1, Math.min(6, Math.round(per))));
+            const cols = _compareBaseCols(n), rows = [];
+            for (let left = n; left > 0; left -= cols) rows.push(Math.min(cols, left));
+            return rows;
+        }
+
+        function _spreadPickEmit(id) {
+            window.setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('arrayview:action', { detail: { id, source: 'keyboard' } }));
+            }, 40);
+        }
+
+        // s went down: true when the press is ours.
+        function _spreadPickDown(e) {
+            const p = _spreadPick;
+            if (e.repeat) return p.down;
+            if (_spreadPickCounts().length < 2) return false;
+            p.down = true;
+            p.downAt = performance.now();
+            clearTimeout(p.timer);
+            p.timer = null;
+            // One image: the strip is there at once. Side by side: tap or hold, decided on release.
+            if (!detachedDimMode) _spreadPickOpen();
+            else p.timer = setTimeout(() => { p.timer = null; if (p.down) _spreadPickOpen(); }, _SPREAD_HOLD_MS);
+            return true;
+        }
+
+        function _spreadPickUp() {
+            const p = _spreadPick;
+            if (!p.down) return;
+            p.down = false;
+            const tap = p.timer !== null;
+            clearTimeout(p.timer);
+            p.timer = null;
+            if (p.active) {
+                // Opened from one image, it stays up unless s was held and a count picked.
+                const held = performance.now() - p.downAt >= _SPREAD_HOLD_MS;
+                if (detachedDimMode || (held && p.touched)) _spreadPickClose(true);
                 return;
             }
-            const n = detachedDimIdx.length + dir;
-            if (n < 2) { spreadCount = 2; _spreadLeaving(); _splitToggle(); return; }
-            const cap = Math.min(SPREAD_MAX, Number(shape[detachedDim]) || 0);
-            // Several presses at once stop at the limit instead of doing nothing.
-            _spreadResize(dir > 1 || dir < -1 ? Math.min(n, cap) : n);
+            if (tap) { _runCommand('spread.toggle'); _spreadPickEmit('spread.toggle'); }
         }
 
-        // ' / ; — panes that stay glide to their new places; an added pane
-        // fades in where it lands, a removed one fades out.
+        function _spreadPickOpen() {
+            const p = _spreadPick;
+            p.counts = _spreadPickCounts();
+            if (p.counts.length < 2) return;
+            const cur = detachedDimMode ? detachedDimIdx.length : spreadCount;
+            p.sel = Math.max(0, p.counts.indexOf(Math.max(2, Math.min(cur, p.counts[p.counts.length - 1]))));
+            p.mx = _lastMouseX; p.my = _lastMouseY; p.moved = false;
+            p.touched = false;
+            p.active = true;
+            _reconcileSpreadPicker();
+        }
+
+        function _spreadPickClose(commit) {
+            const p = _spreadPick;
+            if (!p.active) return;
+            p.active = false;
+            const n = p.counts[p.sel];
+            _reconcileSpreadPicker();
+            if (!commit || !_spreadPickCounts().includes(n)) return;
+            const entering = !detachedDimMode;
+            if (!entering && n === detachedDimIdx.length) return;
+            _afterGlide(() => _spreadSetCount(n));
+            if (entering) _spreadPickEmit('spread.toggle');
+        }
+
+        function _spreadPickSelect(i) {
+            const p = _spreadPick;
+            i = Math.max(0, Math.min(p.counts.length - 1, i));
+            p.touched = true;
+            if (i === p.sel) return;
+            p.sel = i;
+            _reconcileSpreadPicker();
+        }
+
+        // What is on show, as one box: every pane together, or in ortho the big
+        // pane when there is one. This is the box the immersive colour bar floats on.
+        function _spreadPickAnchor() {
+            const union = (els) => {
+                let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+                for (const el of els) {
+                    const q = el?.getBoundingClientRect();
+                    if (!q || !q.width || !q.height) continue;
+                    l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+                }
+                return r > l ? { left: l, top: t, right: r, bottom: b } : null;
+            };
+            if (compareMvActive) return union(compareMvViews.map(v => v.canvas));
+            if (compareQmriActive) return union(compareQmriViews.map(v => v.canvas));
+            if (compareActive) return union(document.querySelectorAll('.compare-canvas-clip'));
+            if (multiViewActive) return _mvImmersiveAnchorRect();
+            if (qmriActive) return union(document.querySelectorAll('#qmri-view-wrap .qv-canvas'));
+            return union([document.getElementById('canvas-viewport')]);
+        }
+
+        // Bottom centre of that box, as far as it is on screen.
+        function _spreadPickPlace() {
+            const el = _spreadPick.el;
+            const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+            const a = _spreadPickAnchor() || { left: 0, top: 0, right: vw, bottom: vh };
+            const l = Math.max(0, a.left), r = Math.min(vw, a.right), b = Math.min(vh, a.bottom);
+            el.style.left = `${Math.round(Math.max(8, Math.min(vw - w - 8, (l + r - w) / 2)))}px`;
+            el.style.top = `${Math.round(Math.max(8, Math.min(vh - h - 8, b - IMMERSIVE_ISLAND_GAP - h)))}px`;
+        }
+
+        // Chrome the strip lies on fades out for as long as it is up.
+        const _SPREAD_PICK_COVERS = '#slim-cb-wrap, .oblique-flip-wrap, #mv-cb-wrap, .cb-island, #info, #array-name, '
+            + '#mode-eggs, #mini-map, .cmp-mini-map, .cv-pixel-info, .pane-name, .compare-title, .mv-label, '
+            + '.cq-row-name, #mv-orientation, #roi-stats-hud, #help-hint, #status, #compare-center-island, '
+            + '#compare-param-wrap, #wipe-range-wrap, #reg-blend-bar-wrap';
+        function _spreadPickCover(on) {
+            const p = _spreadPick;
+            p.covered.forEach(a => { a.onfinish = () => a.cancel(); a.reverse(); });
+            p.covered = [];
+            if (!on) return;
+            const m = 6, x0 = parseFloat(p.el.style.left) - m, y0 = parseFloat(p.el.style.top) - m;
+            const x1 = x0 + p.el.offsetWidth + 2 * m, y1 = y0 + p.el.offsetHeight + 2 * m;
+            const hit = [...document.querySelectorAll(_SPREAD_PICK_COVERS)].filter(el => {
+                const q = el.getBoundingClientRect();
+                return q.width && q.height && q.left < x1 && q.right > x0 && q.top < y1 && q.bottom > y0;
+            });
+            p.covered = hit.filter(el => !hit.some(o => o !== el && o.contains(el)))
+                .map(el => el.animate([{ opacity: 0 }], { duration: 120, easing: 'ease', fill: 'both' }));
+        }
+
+        function _reconcileSpreadPicker() {
+            const p = _spreadPick;
+            if (!p.el) {
+                if (!p.active) return;
+                const el = document.createElement('div');
+                el.className = 'spread-picker';
+                el.addEventListener('click', (e) => {
+                    const opt = e.target.closest('.spread-picker__opt');
+                    if (!opt || !p.active) return;
+                    p.sel = Number(opt.dataset.i);
+                    _spreadPickClose(true);
+                });
+                // Pointing at a count picks it; a few pixels of jitter while
+                // using the keys do not steal the choice.
+                el.addEventListener('mousemove', (e) => {
+                    const opt = e.target.closest('.spread-picker__opt');
+                    if (!opt || !p.active) return;
+                    if (!p.moved && Math.hypot(e.clientX - p.mx, e.clientY - p.my) < 4) return;
+                    p.moved = true;
+                    _spreadPickSelect(Number(opt.dataset.i));
+                });
+                document.body.appendChild(el);
+                p.el = el;
+            }
+            const el = p.el;
+            const grids = p.active ? p.counts.map(_spreadPickGrid) : [];
+            const key = grids.map(g => g.join('.')).join(',');
+            if (p.active && p.built !== key) {
+                // Every square is the same size in all the previews; a busy set gets smaller ones.
+                const maxCols = Math.max(...grids.flat()), maxRows = Math.max(...grids.map(g => g.length));
+                const sq = maxCols > 4 || maxRows > 3 ? 5 : 7, gap = 2;
+                el.style.setProperty('--sp-sq', `${sq}px`);
+                el.style.setProperty('--sp-h', `${maxRows * (sq + gap) - gap}px`);
+                el.style.setProperty('--sp-cell', `${maxCols * (sq + gap) - gap + 14}px`);
+                el.innerHTML = '<div class="spread-picker__opts"><div class="spread-picker__glow"></div>' + p.counts.map((n, i) =>
+                    `<div class="spread-picker__opt" data-i="${i}" style="--sp-i:${i}"><div class="spread-picker__frame">`
+                    + grids[i].map(k => `<div class="spread-picker__row">${'<i></i>'.repeat(k)}</div>`).join('')
+                    + `</div><span>${n}</span></div>`).join('')
+                    + '</div><div class="spread-picker__hint"><b>[ ]</b> over a pane changes its index</div>';
+                p.built = key;
+            }
+            el.classList.toggle('is-visible', p.active);
+            el.setAttribute('aria-hidden', p.active ? 'false' : 'true');
+            if (p.active !== p.shown) {
+                p.shown = p.active;
+                if (p.active) _spreadPickPlace();
+                _spreadPickCover(p.active);
+            }
+            if (!p.active) return;
+            el.style.setProperty('--sp-sel', p.sel);
+            el.querySelectorAll('.spread-picker__opt').forEach((o, i) => o.classList.toggle('is-selected', i === p.sel));
+        }
+
+        function _spreadPickKey(e) {
+            const p = _spreadPick, k = e.key;
+            if (!p.active) return false;
+            if (k === 'Escape') { _spreadPickClose(false); return true; }
+            if (k === 'Enter') { _spreadPickClose(true); return true; }
+            if (k === 'ArrowLeft' || k === 'ArrowDown' || k === 'h' || k === 'j') { _spreadPickSelect(p.sel - 1); return true; }
+            if (k === 'ArrowRight' || k === 'ArrowUp' || k === 'l' || k === 'k') { _spreadPickSelect(p.sel + 1); return true; }
+            if (/^[2-9]$/.test(k)) {
+                const i = p.counts.indexOf(Number(k));
+                if (i >= 0) {
+                    _spreadPickSelect(i);
+                    // With s up the digit is the whole choice; with s held, the release is.
+                    if (!p.down) _spreadPickClose(true);
+                }
+                return true;
+            }
+            if (k === 's' || k === 'S') {
+                // s again closes the strip it opened; while held it only repeats.
+                if (!p.down && !e.repeat) _spreadPickClose(false);
+                return true;
+            }
+            // Any other key moves on: the strip goes, the key does its own thing.
+            if (!p.down && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(k)) _spreadPickClose(false);
+            return false;
+        }
+
+        // A new pane count: panes that stay glide to their new places; an added
+        // pane fades in where it lands, a removed one fades out.
         function _spreadResize(n) {
             const size = Number(shape[detachedDim]) || 0;
             const cap = Math.min(SPREAD_MAX, size);

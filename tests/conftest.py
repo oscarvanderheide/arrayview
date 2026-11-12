@@ -166,3 +166,20 @@ def loaded_viewer(page, server_url):
         return page
 
     return _load
+
+
+def side_by_side(page):
+    """s as a toggle: from one image it opens the count strip, and Enter takes
+    the count it opens on (two, or the one used last); in side by side it
+    goes back to one image."""
+    page.keyboard.press("s")
+    if page.evaluate("() => _spreadPick.active"):
+        page.keyboard.press("Enter")
+
+
+def pick_panes(page, n: int):
+    """Hold s, choose `n` panes in the count strip, release s."""
+    page.keyboard.down("s")
+    page.wait_for_function("() => !!document.querySelector('.spread-picker.is-visible')", timeout=5_000)
+    page.keyboard.press(str(n))
+    page.keyboard.up("s")
