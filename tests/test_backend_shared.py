@@ -65,7 +65,7 @@ def test_compute_diff_modes_and_histogram():
         dr=1, complex_mode=0, log_scale=False, diff_mode=1,
     )
     assert raw.shape == (8, 8)
-    assert colormap == "icefire"
+    assert colormap == "blue_orange"
     assert nan_mask is None
     assert vmin == -vmax
     assert vmax > 0
@@ -272,17 +272,3 @@ def test_app_shim_re_exports():
     assert hasattr(appmod, "_render_normalized")
     assert hasattr(appmod, "_vfield_n_times")
     assert hasattr(appmod, "_notify_shells")
-
-
-def test_diff_summary_numbers():
-    from arrayview._diff import _diff_summary
-
-    a = np.array([[3.0, 4.0], [np.nan, 0.0]])
-    b = np.array([[0.0, 4.0], [1.0, 0.0]])
-    out = _diff_summary(a, b, None)
-    # Finite pairs: (3,0), (4,4), (0,0) -> differences 3, 0, 0.
-    assert out["max_abs"] == 3.0
-    assert np.isclose(out["rmse"], np.sqrt(3.0))
-    assert np.isclose(out["rel"], np.sqrt(3.0) / np.sqrt(25.0 / 3.0))
-    empty = _diff_summary(np.full((2, 2), np.nan), b, None)
-    assert np.isnan(empty["rmse"]) and np.isnan(empty["rel"])

@@ -4059,8 +4059,6 @@
         .av-name-br { display: none; }
         /* Chrome breaks at <wbr> even under nowrap: names stay on one line */
         .av-name wbr { display: none; }
-        .compare-diff-stats { display: inline-flex; gap: 12px; font-variant-numeric: tabular-nums; cursor: default; }
-        .compare-diff-stats b { font-weight: normal; color: color-mix(in srgb, var(--text) 75%, var(--muted)); text-transform: none; }
         .detached-index-hint {
             display: inline-flex;
             align-items: baseline;
@@ -7730,11 +7728,12 @@
         let _diffAutoRangeKey = null;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
-        const DIFF_COLORMAPS = ['icefire', 'RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
-        // A−B default follows the theme: icefire's dark centre blends into the
-        // dark viewport (masked voxels stay dark); light theme keeps RdBu_r.
+        const DIFF_COLORMAPS = ['blue_orange', 'icefire', 'RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
+        // A−B default follows the theme: blue_orange's dark centre blends into
+        // the dark viewport (masked voxels stay dark) and its ends stay
+        // saturated, unlike icefire's near-white tips; light theme keeps RdBu_r.
         function _diffDefaultColormap() {
-            return diffMode === 1 ? (isDark ? 'icefire' : 'RdBu_r') : 'afmhot';
+            return diffMode === 1 ? (isDark ? 'blue_orange' : 'RdBu_r') : 'afmhot';
         }
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
@@ -11340,36 +11339,6 @@
             }).join('') + `</div>`;
         }
 
-        // Summary of the A−B pair on screen, from the last diff image's headers.
-        let _diffStats = null;
-        function _fmtDiffStat(v) {
-            if (!Number.isFinite(v)) return '—';
-            if (v === 0) return '0';
-            const m = Math.abs(v);
-            if (m >= 1e4 || m < 1e-3) return v.toExponential(1);
-            return parseFloat(v.toPrecision(3)).toString();
-        }
-        /** The A−B title row carries the numbers for the view it shows; the
-         *  source panes' titles carry their file names in the same style. */
-        function _reconcileDiffStats() {
-            const diffTitle = document.getElementById('compare-diff-title');
-            if (!diffTitle) return;
-            const show = _compareCenterSupported() && compareCenterMode > 0
-                && diffMode >= 1 && diffMode <= 3 && !!_diffStats;
-            let el = diffTitle.querySelector('.compare-diff-stats');
-            if (!show) { if (el) el.remove(); return; }
-            if (!el) {
-                el = document.createElement('span');
-                el.className = 'compare-diff-stats';
-                el.title = 'For the view shown: root-mean-square of A−B · largest |A−B| · RMS of A−B relative to the RMS of A';
-                diffTitle.appendChild(el);
-            }
-            const st = _diffStats;
-            const rel = Number.isFinite(st.rel) ? `${parseFloat((st.rel * 100).toPrecision(2))}%` : '—';
-            const html = `<span>rmse <b>${_fmtDiffStat(st.rmse)}</b></span><span>max <b>${_fmtDiffStat(st.max)}</b></span><span>rel <b>${rel}</b></span>`;
-            if (el.innerHTML !== html) el.innerHTML = html;
-        }
-
         function _renderCompareCenterTitleControls() {
             const supported = _compareCenterSupported();
             const diffTitle = document.getElementById('compare-diff-title');
@@ -11384,7 +11353,6 @@
                     diffTitle.innerHTML = 'A − B';
                 }
             }
-            _reconcileDiffStats();
             if (wipeTitle) {
                 wipeTitle.classList.toggle('compare-center-title', supported);
                 if (isCenter) {
@@ -18811,11 +18779,6 @@
                 const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
                 const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
                 const usedCmap = resp.headers.get('X-ArrayView-Colormap') || '';
-                const diffStats = {
-                    rmse: parseFloat(resp.headers.get('X-ArrayView-Diff-Rmse')),
-                    max: parseFloat(resp.headers.get('X-ArrayView-Diff-Max')),
-                    rel: parseFloat(resp.headers.get('X-ArrayView-Diff-Rel')),
-                };
                 const blob = await resp.blob();
                 const bmp = await createImageBitmap(blob);
                 // Cache gradient stops for the colormap used by the server
@@ -18847,8 +18810,6 @@
                         _diffAutoVmax = hdrVmax;
                     }
                 }
-                _diffStats = diffStats;
-                _reconcileDiffStats();
                 const diffCanvas = document.getElementById('compare-diff-canvas');
                 diffCanvas.width = bmp.width;
                 diffCanvas.height = bmp.height;

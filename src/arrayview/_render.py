@@ -94,6 +94,23 @@ def _init_luts():
             colormaps.register(
                 LinearSegmentedColormap.from_list("icefire", _ICEFIRE_STOPS)
             )
+        if "blue_orange" not in colormaps:
+            # Dark-centred diverging map for the A−B compare center on dark
+            # theme. Unlike icefire, both ends stay saturated (blue / orange)
+            # instead of washing out to near-white, so sign is readable at
+            # the extremes.
+            colormaps.register(
+                LinearSegmentedColormap.from_list(
+                    "blue_orange",
+                    [
+                        (0.0, "#3b9cff"),
+                        (0.25, "#1f4fa8"),
+                        (0.5, "#141414"),
+                        (0.75, "#a8361c"),
+                        (1.0, "#ff9a3c"),
+                    ],
+                )
+            )
         _mpl_colormaps = colormaps
         for name in COLORMAPS:
             lut = np.concatenate(
