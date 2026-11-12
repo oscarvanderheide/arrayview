@@ -304,11 +304,11 @@
         body.rounded-panes #canvas-viewport,
         body.rounded-panes .mv-pane,
         body.rounded-panes .qv-canvas-clip {
-            border-radius: 10px;
+            border-radius: calc(10px / var(--qz-s)); /* = 10px unless quick-zoomed */
             overflow: hidden;
         }
         body.rounded-panes .compare-canvas-clip {
-            border-radius: 10px;
+            border-radius: calc(10px / var(--qz-s));
             overflow: hidden;
         }
         /* Orientation cross — hovering the DimBar (or pressing r / t) shows a
@@ -3931,6 +3931,20 @@
             scale: calc(1 / var(--qz-s));
             transform-origin: 0 0;
         }
+        /* Chrome inside the scaled image box keeps its screen size: frame,
+           corner radius, hover readout, crosshair dot, source badge. The
+           frame is a box-shadow ring because sub-pixel outlines snap to 1px
+           before the scale and would still grow. */
+        .av-qz-move.canvas-bordered {
+            outline: none !important;
+            box-shadow: 0 0 0 calc(1px / var(--qz-s)) var(--canvas-border) !important;
+        }
+        .av-qz-move :is(.cv-pixel-info, .cmp-xhair-dot, .compare-source-pane-badge) {
+            scale: calc(1 / var(--qz-s));
+            transform-origin: 0 0;
+        }
+        /* The pill hangs centred from its pane's bottom edge. */
+        .av-qz-move .cv-pixel-info.pane-pixel-pill { transform-origin: 0 100%; }
         /* Labels stay on top of the image they now sit on. */
         .av-qz-move:is(.compare-title, .qv-label, .pane-name) { z-index: 32 !important; }
         body:not(.fullscreen-mode) .av-qz-move:is(.pane-name, .compare-title) {
@@ -4927,13 +4941,13 @@
         /* Touching panes read as one block: only its outer corners stay
            rounded (corner classes set by _markBlockCorners). */
         body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-tl,
-        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tl { border-top-left-radius: 10px !important; }
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tl { border-top-left-radius: calc(10px / var(--qz-s)) !important; }
         body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-tr,
-        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tr { border-top-right-radius: 10px !important; }
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-tr { border-top-right-radius: calc(10px / var(--qz-s)) !important; }
         body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-bl,
-        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-bl { border-bottom-left-radius: 10px !important; }
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-bl { border-bottom-left-radius: calc(10px / var(--qz-s)) !important; }
         body.rounded-panes.qmri-gapless #qmri-view-wrap .qv-canvas-clip.block-br,
-        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-br { border-bottom-right-radius: 10px !important; }
+        body.rounded-panes #compare-view-wrap.compare-touching .compare-canvas-clip.block-br { border-bottom-right-radius: calc(10px / var(--qz-s)) !important; }
         /* Compare panes touching (Preferences): no gaps, rows packed together;
            with more than one row the names sit inside the images like the
            qMRI map labels, so the rows can touch too. A centre view (A−B,
