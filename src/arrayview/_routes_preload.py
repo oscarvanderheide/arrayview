@@ -21,6 +21,9 @@ def register_preload_routes(app) -> None:
         dr = int(body.get("dr", 1))
         slice_dim = int(body["slice_dim"])
         dim_z = int(body.get("dim_z", -1))
+        dim_z2 = int(body.get("dim_z2", -1)) if dim_z >= 0 else -1
+        _mc = body.get("mosaic_cols") if dim_z >= 0 else None
+        mosaic_cols = int(_mc) if _mc is not None else None
         complex_mode = int(body.get("complex_mode", 0))
         log_scale = bool(body.get("log_scale", False))
 
@@ -40,6 +43,8 @@ def register_preload_routes(app) -> None:
                 dim_z,
                 complex_mode,
                 log_scale,
+                dim_z2,
+                mosaic_cols,
             ),
             daemon=True,
         ).start()

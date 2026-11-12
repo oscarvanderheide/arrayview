@@ -2029,6 +2029,8 @@ class TestPreloadRoutes:
             dim_z,
             complex_mode,
             log_scale,
+            dim_z2=-1,
+            mosaic_cols=None,
         ):
             with session.preload_lock:
                 session.preload_done = 3
@@ -4633,6 +4635,25 @@ def test_mosaic_lookahead_warms_the_next_grid(monkeypatch):
     # Scrolling down from 2 to 1 warms 0, the next grid in that direction.
     cached = {key[3][3] for key in session.mosaic_cache}
     assert 0 in cached
+
+
+def test_two_dim_mosaic_lays_first_dim_across_second_down():
+    from arrayview import _session as session_mod
+    from arrayview._render import extract_slice, render_mosaic
+
+    data = np.zeros((8, 6, 4, 3, 5), np.float32)
+    for i in range(3):
+        for j in range(5):
+            data[..., i, j] = i * 10 + j
+    data[0, 0] = 100.0  # keep the colour range off the tile values' own span
+    session = session_mod.Session(data, name="grid2")
+    rgba = render_mosaic(session, 0, 1, 4, (0, 0, 2, 0, 0), "gray", 0,
+                         vmin_override=0.0, vmax_override=40.0, dim_z2=3)
+    tile_h, tile_w = extract_slice(session, 0, 1, [0, 0, 2, 0, 0]).shape
+    assert rgba.shape[:2] == (3 * tile_h + 2 * 2, 5 * tile_w + 4 * 2)
+    # Tile (row 2, col 4) holds p1=2, p2=4: value 24 of 0..40.
+    y0, x0 = 2 * (tile_h + 2) + tile_h - 1, 4 * (tile_w + 2) + tile_w - 1
+    assert abs(int(rgba[y0, x0, 0]) - round(24 / 40 * 255)) <= 1
 
 
 def test_fitted_mosaic_matches_shrinking_the_full_grid():

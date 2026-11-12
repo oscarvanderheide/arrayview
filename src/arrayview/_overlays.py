@@ -7,6 +7,8 @@ import numpy as np
 from arrayview._render import (
     _build_mosaic_grid,
     _composite_overlay_mask,
+    mosaic_grid_cols,
+    mosaic_tile_indices,
     _extract_overlay_mask,
     _overlay_is_label_map,
 )
@@ -111,6 +113,7 @@ def _composite_mosaic_overlays(
     idx_tuple: tuple[int, ...],
     base_shape: tuple[int, ...],
     mosaic_cols: int | None = None,
+    dim_z2: int = -1,
 ) -> np.ndarray:
     """Composite each overlay as a mosaic using the base mosaic's frame indices.
 
@@ -132,7 +135,9 @@ def _composite_mosaic_overlays(
         else []
     )
     tile_shape = (int(base_shape[dim_y]), int(base_shape[dim_x]))
-    n_frames = int(base_shape[dim_z])
+    tiles = mosaic_tile_indices(base_shape, dim_z, dim_z2, idx_tuple)
+    n_frames = len(tiles)
+    mosaic_cols = mosaic_grid_cols(base_shape, dim_z, dim_z2, mosaic_cols)
 
     for i, sid in enumerate(sids):
         color, hidden = (
@@ -147,9 +152,7 @@ def _composite_mosaic_overlays(
         alpha = max(0.0, min(1.0, alpha))
 
         frames = []
-        for frame in range(n_frames):
-            frame_idx = list(idx_tuple)
-            frame_idx[dim_z] = frame
+        for frame_idx in tiles:
             ov_raw = _extract_overlay_mask(
                 sid,
                 dim_x,

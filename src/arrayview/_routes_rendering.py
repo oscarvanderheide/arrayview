@@ -11,6 +11,7 @@ from arrayview._render import (
     lut_rgba,
     LUTS,
     _build_mosaic_grid,
+    mosaic_tile_indices,
     _compute_vmin_vmax,
     _ensure_lut,
     _init_luts,
@@ -85,6 +86,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         dr: int = 1,
         slice_dim: int = -1,
         dim_z: int = -1,
+        dim_z2: int = -1,
         complex_mode: int = 0,
         log_scale: bool = False,
         vmin_override: float | None = None,
@@ -183,26 +185,21 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     mosaic_cols=mosaic_cols,
                     vmin_override=vmin_override,
                     vmax_override=vmax_override,
+                    dim_z2=dim_z2,
                 )
                 rgba = _composite_mosaic_overlays(
                     rgba, overlay_sid, overlay_colors, overlay_alpha, overlay_alphas,
                     overlay_outline, dim_x, dim_y, dim_z, idx_tuple, session.shape,
-                    mosaic_cols,
+                    mosaic_cols, dim_z2=dim_z2,
                 )
                 if vmin_override is not None and vmax_override is not None:
                     vmin, vmax = float(vmin_override), float(vmax_override)
                 else:
                     frames_raw = [
-                        extract_slice(
-                            session,
-                            dim_x,
-                            dim_y,
-                            [
-                                i if j == dim_z else idx_tuple[j]
-                                for j in range(len(session.shape))
-                            ],
+                        extract_slice(session, dim_x, dim_y, tile)
+                        for tile in mosaic_tile_indices(
+                            session.shape, dim_z, dim_z2, idx_tuple
                         )
-                        for i in range(session.shape[dim_z])
                     ]
                     frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
                     if log_scale:

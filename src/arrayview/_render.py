@@ -169,10 +169,34 @@ def mosaic_shape(batch):
     return tuple(mshape)
 
 
+def mosaic_tile_indices(shape, dim_z, dim_z2, idx):
+    """Index list of every mosaic tile, row by row.
+
+    *dim_z* runs across the grid; *dim_z2* (``-1`` for none) runs down it,
+    so tile ``k`` is ``dim_z = k % shape[dim_z]``, ``dim_z2 = k // shape[dim_z]``.
+    """
+    base = list(idx)
+    rows = range(shape[dim_z2]) if dim_z2 >= 0 else (None,)
+    tiles = []
+    for r in rows:
+        for c in range(shape[dim_z]):
+            t = list(base)
+            t[dim_z] = c
+            if r is not None:
+                t[dim_z2] = r
+            tiles.append(t)
+    return tiles
+
+
+def mosaic_grid_cols(shape, dim_z, dim_z2, mosaic_cols=None):
+    """Column count a mosaic is laid out with (None = near-square)."""
+    return int(shape[dim_z]) if dim_z2 >= 0 else mosaic_cols
+
+
 def _build_mosaic_grid(all_data, n, gap=2, cols=None):
     """Place n frames into a NaN-padded mosaic grid. Returns (grid, rows, cols)."""
     if cols is not None:
-        rows = 1
+        rows = -(-n // cols)
     else:
         rows, cols = mosaic_shape(n)
     H, W = all_data[0].shape
@@ -899,8 +923,9 @@ def render_mosaic(
     vmax_override=None,
     progress=None,
     fit=None,
+    dim_z2=-1,
 ):
-    """Render the mosaic grid of every slice along *dim_z*.
+    """Render the mosaic grid of every slice along *dim_z* (and *dim_z2*, down).
 
     ``fit=(w, h)`` returns the grid already shrunk to the viewer's canvas
     (as the live socket would before sending) and caches it that way, so a
@@ -909,12 +934,15 @@ def render_mosaic(
     """
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
-    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override)
+    if dim_z2 >= 0:
+        idx_norm[dim_z2] = 0
+    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override, dim_z2)
 
     def build_full():
         return _build_mosaic_rgba(
             session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
             log_scale, mosaic_cols, vmin_override, vmax_override, progress,
+            dim_z2=dim_z2,
         )
 
     full = lambda: _mosaic_once(session, key, build_full)
@@ -993,8 +1021,11 @@ def fit_rgba(rgba, canvas_w, canvas_h):
 def _build_mosaic_rgba(
     session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
     log_scale, mosaic_cols, vmin_override, vmax_override, progress,
+    dim_z2=-1,
 ):
-    n = session.shape[dim_z]
+    tiles = mosaic_tile_indices(session.shape, dim_z, dim_z2, idx_tuple)
+    n = len(tiles)
+    mosaic_cols = mosaic_grid_cols(session.shape, dim_z, dim_z2, mosaic_cols)
     # Reported per slice rather than estimated: each slice faults in roughly the
     # same number of pages, so slice i of n is an honest fraction of the wait.
     # On an array whose display axes are the outer ones this loop is the whole
@@ -1002,15 +1033,8 @@ def _build_mosaic_rgba(
     # every 4 bytes wanted costs a 4096-byte page and the slices between them
     # cover the entire file.
     frames_raw = []
-    for i in range(n):
-        frames_raw.append(
-            extract_slice(
-                session,
-                dim_x,
-                dim_y,
-                [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
-            )
-        )
+    for i, tile in enumerate(tiles):
+        frames_raw.append(extract_slice(session, dim_x, dim_y, tile))
         if progress is not None:
             progress(i + 1, n)
     frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
@@ -1067,6 +1091,8 @@ def _run_preload(
     dim_z=-1,
     complex_mode=0,
     log_scale=False,
+    dim_z2=-1,
+    mosaic_cols=None,
 ):
     shape = session.spatial_shape if session.rgb_axis is not None else session.shape
     n = shape[slice_dim]
@@ -1074,7 +1100,11 @@ def _run_preload(
     W = shape[dim_x]
     if dim_z >= 0:
         nz = shape[dim_z]
-        mrows, mcols = mosaic_shape(nz)
+        mrows, mcols = (
+            (shape[dim_z2], nz) if dim_z2 >= 0
+            else (-(-nz // mosaic_cols), mosaic_cols) if mosaic_cols
+            else mosaic_shape(nz)
+        )
         size_bytes = n * (mrows * H) * (mcols * W) * 4
     else:
         size_bytes = n * H * W * 4
@@ -1103,6 +1133,8 @@ def _run_preload(
                 dr,
                 complex_mode,
                 log_scale,
+                mosaic_cols=mosaic_cols,
+                dim_z2=dim_z2,
             )
         else:
             if session.rgb_axis is not None:
@@ -1140,6 +1172,8 @@ __all__ = [
     "OVERLAY_ALPHA",
     # Utility
     "mosaic_shape",
+    "mosaic_tile_indices",
+    "mosaic_grid_cols",
     # Slice extraction
     "_compute_vmin_vmax",
     "extract_slice",

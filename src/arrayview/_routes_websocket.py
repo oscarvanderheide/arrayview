@@ -632,6 +632,8 @@ def register_websocket_routes(app) -> None:
                 colormap = str(msg.get("colormap", "gray"))
                 dr = int(msg.get("dr", 1))
                 dim_z = int(msg.get("dim_z", -1))
+                # Second mosaic dim (down the rows); plain mosaic only.
+                dim_z2 = int(msg.get("dim_z2", -1)) if dim_z >= 0 else -1
                 complex_mode = int(msg.get("complex_mode", 0))
                 log_scale = bool(msg.get("log_scale", False))
                 _vmin_ov = msg.get("vmin_override")
@@ -736,13 +738,14 @@ def register_websocket_routes(app) -> None:
                                 vmax_override=vmax_override,
                                 progress=_render_progress_reporter(loop, ws, label='Building mosaic'),
                                 fit=mosaic_fit,
+                                dim_z2=dim_z2,
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
                             rgba, msg.get("overlay_sid"), msg.get("overlay_colors"),
                             float(msg.get("overlay_alpha", 0.45)), msg.get("overlay_alphas"),
                             bool(msg.get("overlay_outline", False)), dim_x, dim_y, dim_z,
-                            idx_tuple, session.shape, mosaic_cols,
+                            idx_tuple, session.shape, mosaic_cols, dim_z2=dim_z2,
                         )
                         h, w = rgba.shape[:2]
                         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
@@ -952,7 +955,7 @@ def register_websocket_routes(app) -> None:
                             colormap=colormap, dr=dr, complex_mode=complex_mode,
                             log_scale=log_scale, mosaic_cols=mosaic_cols,
                             vmin_override=vmin_override, vmax_override=vmax_override,
-                            fit=mosaic_fit,
+                            fit=mosaic_fit, dim_z2=dim_z2,
                         ),
                     )
                 stack_axes = tuple(getattr(session.data, "_stack_axes", ()))

@@ -425,15 +425,16 @@ def _schedule_mosaic_prefetch(session, dim_x, dim_y, dim_z, idx_list, slice_dim,
     (colormap, dr, complex_mode, log_scale, mosaic_cols, vmin/vmax overrides)
     so the warmed grid hits the same cache key as the real request.
     """
-    if slice_dim < 0 or slice_dim == dim_z:
+    dim_z2 = int(render_args.get("dim_z2", -1))
+    if slice_dim < 0 or slice_dim in (dim_z, dim_z2):
         return
     current = idx_list[slice_dim]
-    lane = ("mosaic", dim_x, dim_y, dim_z, slice_dim)
+    lane = ("mosaic", dim_x, dim_y, dim_z, dim_z2, slice_dim)
     lanes, generation, direction = _prefetch_lane_step(session, lane, current, None)
     target = current + direction
     if not 0 <= target < session.shape[slice_dim]:
         return
-    frames = session.shape[dim_z]
+    frames = session.shape[dim_z] * (session.shape[dim_z2] if dim_z2 >= 0 else 1)
     grid_bytes = frames * session.shape[dim_x] * session.shape[dim_y] * 4
     # Never let the warmed grid push the one on screen out of the cache.
     if 2 * grid_bytes > getattr(session, "MOSAIC_CACHE_BYTES", 0):

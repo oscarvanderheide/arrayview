@@ -4096,6 +4096,8 @@
         .detached-index-hint .hint-sep { word-spacing: -0.55ch; }
         /* Dims shown all at once by a mode ("s" side by side, "q" qMRI maps). */
         #info .dim-spread-set, #info .dim-mode-letter { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
+        /* Across: the ↓ glyph turned (the → glyph is small and low in monospace fonts). */
+        #info .dim-mosaic-across { display: inline-block; transform: rotate(-90deg); }
         /* On the image: white like every corner name, brackets a step back. */
         #compare-view-wrap.compare-titles-inset .detached-index-hint { color: inherit; }
         #compare-view-wrap.compare-titles-inset .detached-index-hint .hint-bracket { color: #c4c4c4; }
@@ -6760,6 +6762,12 @@
         let isPlaying = false, playInterval = null, playingVfieldT = false;
         let playingDim = -1;  // -1 = not playing; set to dim index during playback
         let dim_z = -1;
+        // How the mosaic is laid out: 'square' (z: near-square grid of dim_z),
+        // 'row' / 'col' (Shift+→ / Shift+↓: dim_z in one row / column) or
+        // 'grid' (both: dim_z across, dim_z2 down). Arrow layouts are single
+        // view only — read them through _mosaicArrange() / _mosaicDim2().
+        let mosaicLayout = 'square';
+        let dim_z2 = -1;
         let lastDirection = 1;
         let isDark = true;
         let themeIdx = 0; // set immediately by applyTheme() below
@@ -7017,6 +7025,7 @@
                 dim_y = 1;
             }
             if (dim_z >= spatialLimit) dim_z = -1;
+            if (dim_z < 0 || dim_z2 >= spatialLimit) dim_z2 = -1;
             if (current_slice_dim >= spatialLimit || current_slice_dim === dim_x || current_slice_dim === dim_y) {
                 current_slice_dim = _firstNonDisplaySpatialDim();
             }
@@ -9236,7 +9245,7 @@
 
         /** o: show the plane after the current one, keeping each plane's
          *  remembered screen axes and flips. */
-        function _switchToNextPlane(planes) {
+        function _switchToNextPlane(planes, beforeRender = null) {
             const cur = _currentPlaneIndex(planes);
             if (cur >= 0) {
                 _viewMemory[planes[cur].sliceDir] = { dimX: dim_x, dimY: dim_y, flipX: flip_x, flipY: flip_y };
@@ -9251,6 +9260,7 @@
             current_slice_dim = plane.sliceDir;
             if (wasSliceActive) activeDim = current_slice_dim;
             if (projectionMode > 0) projectionDim = current_slice_dim;
+            if (beforeRender) beforeRender();
             _roiClearOnDimChange();
             if (qmriActive || compareQmriActive) qvScaleAllCanvases();
             updateView();
@@ -9387,7 +9397,7 @@
         // new box. "Still the picture from before" rather than just "busy", so
         // playback (always busy) does not keep a turn waiting.
         function _turnPaneWatch(panes) {
-            const under = c => !!c && panes.some(b => b === c || b.contains(c));
+            const under = c => !!c && panes.some(b => b === c || b.contains(c) || b._standsFor === c);
             const views = [mvViews, qmriViews, compareQmriViews, compareMvViews, qmriMvViews].flat()
                 .filter(v => v && under(v.canvas));
             const pic0 = new Map(views.map(v => [v, v.lastImageData]));
@@ -9471,6 +9481,7 @@
             // Innermost boxes only, so a grid is not turned as a whole.
             const panes = boxes.filter(b => !boxes.some(o => o !== b && b.contains(o)));
             if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) {
+                boxes.forEach(b => { if (b._turnProxy) b.remove(); });
                 change();
                 _quarterTurnNext();
                 return;
@@ -9596,8 +9607,9 @@
                 });
             }
             // Live boxes stay hidden until their frame lands (they may already
-            // be resized under the copies).
-            const holds = panes.map(b => b.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }));
+            // be resized under the copies). Mosaic tile stand-ins hide the grid too.
+            const holds = [...new Set([...panes, ...panes.map(b => b._hideAlso).filter(Boolean)])]
+                .map(b => b.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }));
             // The real names stay hidden until the turn ends (their copies stand
             // in); names a pane rebuild creates mid-turn are caught each frame.
             const labelHolds = new Map();
@@ -9729,12 +9741,14 @@
                 glides.forEach(a => a.cancel());
                 labelHolds.forEach(a => a.cancel());
                 labelHolds.clear();
+                panes.forEach(b => { if (b._turnProxy) b.remove(); });
             };
             q.stop = () => { finishAll(); fades.forEach(a => a.cancel()); };
             _quarterTurn = q;
             const land = now => {
                 q.landed = true; t1 = now;
                 tEnd = now + Math.max(180, (1 - prog) * turnMs);
+                panes.forEach(b => b._turnRefresh?.());
                 path.forEach((p, i) => { p.n = rectOf(panes[i].getBoundingClientRect()); });
                 // cube: the incoming face gets the new frame, sized to the real new box.
                 if (cube) cubes.forEach((c, i) => {
@@ -11143,7 +11157,7 @@
 
         function _canDetachDim(dim) {
             if (!Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
-            if (dim === dim_x || dim === dim_y || dim === dim_z) return false;
+            if (dim === dim_x || dim === dim_y || _isMosaicDim(dim)) return false;
             if ((qmriActive && dim === qmriDim) || (compareQmriActive && dim === compareQmriDim)) return false;
             return Number(shape[dim]) >= 2;
         }
@@ -16416,12 +16430,9 @@
             } else if (compareActive) {
                 compareDisplaySids.forEach((s, i) => { if (s) _fetchHoverSlice(s, dim_x, dim_y, _comparePaneHoverIndices(i)); });
             } else if (dim_z >= 0) {
-                // Mosaic: pre-fetch each z-tile slice
-                const n = shape[dim_z];
-                for (let z = 0; z < n; z++) {
-                    const ti = [...indices]; ti[dim_z] = z;
-                    _fetchHoverSlice(sid, dim_x, dim_y, ti);
-                }
+                // Mosaic: pre-fetch each tile's slice
+                const n = _mosaicGridInfo().n;
+                for (let k = 0; k < n; k++) _fetchHoverSlice(sid, dim_x, dim_y, _mosaicTileIndices(k));
             }
         }
 
@@ -18196,6 +18207,7 @@
                     dim_x: String(dim_x),
                     dim_y: String(dim_y),
                     dim_z: String(dim_z),
+                    dim_z2: String(_mosaicDim2()),
                     indices: indices.join(','),
                     colormap: currentColormap(),
                     dr: '0',
@@ -18203,6 +18215,7 @@
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
                 });
+                if (dim_z >= 0 && _mosaicColsParam() != null) params.set('mosaic_cols', String(_mosaicColsParam()));
                 const _hasManualWindow = manualVmin !== null || manualVmax !== null;
                 const _effectiveVmin = _hasManualWindow ? (manualVmin ?? currentVmin) : null;
                 const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
@@ -18858,7 +18871,8 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    dim_x, dim_y, dim_z,
+                    dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(),
+                    mosaic_cols: dim_z >= 0 ? _mosaicColsParam() : null,
                     indices: [...indices],
                     colormap: currentColormap(),
                     dr: 0,
@@ -23587,7 +23601,7 @@
             if (!_axisIdent || _axisIdent.key !== key) {
                 _axisIdent = { key, letters: { [dim_x]: 'x', [dim_y]: 'y' } };
             }
-            if (d === dim_z) return 'z';
+            if (d === dim_z || d === _mosaicDim2()) return 'z';
             return _axisIdent.letters[d] || (d === dim_x ? 'x' : 'y');
         }
 
@@ -23684,8 +23698,12 @@
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
-                if (i === dim_z) {
-                    const inner = `<span class="dim-axis-letter">z</span><span class="dim-slash">/</span><span class="dim-size" id="dim-z-size">${sizeOf(i)}</span>`;
+                if (i === dim_z || i === _mosaicDim2()) {
+                    const k = i === dim_z ? 'z' : 'z2';
+                    const glyph = i === _mosaicAcross() ? '→' : i === _mosaicDown() ? '↓' : '';
+                    // Across is the same ↓ glyph turned, so both arrows match.
+                    const letter = glyph ? `<span class="dim-axis-letter dim-mode-letter${glyph === '→' ? ' dim-mosaic-across' : ''}">↓</span>` : '<span class="dim-axis-letter">z</span>';
+                    const inner = `${letter}<span class="dim-slash">/</span><span class="dim-size" id="dim-${k}-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
@@ -23733,7 +23751,7 @@
             // blink away.
             if (_dimbarHoverState && _pixelInfoActive()) {
                 const s = _dimbarHoverState;
-                _updateDimbarHover(s.px, s.py, s.xLabel, s.yLabel, s.pz);
+                _updateDimbarHover(s.px, s.py, s.xLabel, s.yLabel, s.pz, s.pz2);
             }
             _wireDimbarDblClick(_info);
             _wireQmriHintAnchor();
@@ -24775,10 +24793,10 @@
             if (padLen <= 0) return slash + valStr;
             return slash + '0'.repeat(padLen) + valStr;
         }
-        function _updateDimbarHover(px, py, xLabel, yLabel, pz) {
+        function _updateDimbarHover(px, py, xLabel, yLabel, pz, pz2) {
             // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
-            // pz: optional z index (for mosaic mode)
-            _dimbarHoverState = { px, py, xLabel, yLabel, pz };
+            // pz / pz2: optional tile position along the mosaic dims
+            _dimbarHoverState = { px, py, xLabel, yLabel, pz, pz2 };
             const xl = xLabel || 'x', yl = yLabel || 'y';
             const xEl = document.getElementById('dim-' + xl + '-size');
             const yEl = document.getElementById('dim-' + yl + '-size');
@@ -24804,6 +24822,8 @@
                 const zMax = dim_z >= 0 ? shape[dim_z] : 1;
                 zEl.innerHTML = _dimHoverPadded(pz + 1, zMax, withSlash); zEl.className = 'dim-hover-idx';
             }
+            const z2El = pz2 != null ? document.getElementById('dim-z2-size') : null;
+            if (z2El) { z2El.innerHTML = _dimHoverPadded(pz2 + 1, shape[_mosaicDim2()] || 1, withSlash); z2El.className = 'dim-hover-idx'; }
             // A pane only carries two of the three spatial axes, but the third
             // one has a position too — the slice the pane is cut at — so the
             // readout covers all three rather than two at a time.
@@ -25367,6 +25387,7 @@
             if (mode === 'mosaic' && shape.length >= 3) {
                 // Without a third dim, grid the dim that was scrolling, as `z` does.
                 dim_z = dimsOk && dims.length === 3 ? dims[2] : current_slice_dim;
+                mosaicLayout = 'square';
                 if (current_slice_dim === dim_z && free() >= 0) current_slice_dim = activeDim = free();
             }
             if (mode === 'ortho') {
@@ -25520,6 +25541,8 @@
                 dim_x,
                 dim_y,
                 dim_z,
+                dim_z2,
+                mosaicLayout,
                 current_slice_dim,
                 activeDim,
                 viewMemory: { ..._viewMemory },
@@ -25629,6 +25652,9 @@
             if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
             if (Number.isInteger(s.dim_y) && s.dim_y >= 0 && s.dim_y < shape.length) dim_y = s.dim_y;
             if (Number.isInteger(s.dim_z) && s.dim_z >= -1 && s.dim_z < shape.length) dim_z = s.dim_z;
+            dim_z2 = Number.isInteger(s.dim_z2) && dim_z >= 0 && s.dim_z2 >= 0 && s.dim_z2 < shape.length
+                && ![dim_x, dim_y, dim_z].includes(s.dim_z2) ? s.dim_z2 : -1;
+            mosaicLayout = ['square', 'row', 'col', 'grid'].includes(s.mosaicLayout) ? s.mosaicLayout : 'square';
             if (
                 Number.isInteger(s.current_slice_dim)
                 && s.current_slice_dim >= 0
@@ -25756,7 +25782,7 @@
         const _REMEMBERED_VIEW_KEYS = [
             'colormap_idx', 'customColormap', 'indices', 'logScale', 'cbTickLevel',
             'projectionMode', 'projectionDim', 'complexMode', 'complexModeEverUsed',
-            'flip_x', 'flip_y', 'flipDims', 'dim_x', 'dim_y', 'dim_z',
+            'flip_x', 'flip_y', 'flipDims', 'dim_x', 'dim_y', 'dim_z', 'dim_z2', 'mosaicLayout',
             'current_slice_dim', 'activeDim', 'viewMemory', 'userAnatomy', 'userVoxelSizes',
             'viewMode', 'mvDims', 'orthoLayoutMode', 'qmriDim', 'manualVmin', 'manualVmax',
         ];
@@ -26276,14 +26302,18 @@
             wsSentSeq++;
             _perfMarkRequest('ws', wsSentSeq, { perfKey: 'main', sid, dim_x, dim_y, slice_dim: current_slice_dim });
             const _dpr = window.devicePixelRatio || 1;
-            const canvas_w = Math.round((parseInt(canvas.style.width)  || window.innerWidth)  * _dpr);
-            const canvas_h = Math.round((parseInt(canvas.style.height) || window.innerHeight) * _dpr);
+            // Box the server may shrink the picture to: never smaller than the
+            // window, so a frame whose shape changes (mosaic row <-> column, r, t)
+            // is not squeezed into the old picture's box and shown blurry.
+            const canvas_w = Math.round(Math.max(parseInt(canvas.style.width) || 0, window.innerWidth) * _dpr);
+            const canvas_h = Math.round(Math.max(parseInt(canvas.style.height) || 0, window.innerHeight) * _dpr);
             const _hasManualWindow = manualVmin !== null || manualVmax !== null;
             const _effectiveVmin = _hasManualWindow ? (manualVmin ?? currentVmin) : null;
             const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
             ws.send(JSON.stringify({
                 seq: wsSentSeq,
-                dim_x, dim_y, dim_z,
+                dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(),
+                mosaic_cols: dim_z >= 0 ? _mosaicColsParam() : null,
                 indices: [...indices],
                 colormap: currentColormap(),
                 dr: 0,
@@ -29630,15 +29660,188 @@
          *  transpose), so tileW = shape[dim_x] and tileH = shape[dim_y].
          *  The previous max/min formula only matched when dim_x > dim_y. */
         function _mosaicGridInfo() {
-            const n = shape[dim_z];
-            let rows = Math.floor(Math.sqrt(n));
-            let cols = Math.floor(n / rows);
-            while (rows * cols < n) cols++;
-            if ((rows - 1) * (cols + 1) === n) { rows--; cols++; }
+            const z2 = _mosaicDim2(), lay = _mosaicArrange();
+            let rows, cols, n;
+            if (z2 >= 0) {
+                // Two dims: dim_z across, the second down (server mosaic_grid_cols).
+                cols = shape[dim_z]; rows = shape[z2]; n = rows * cols;
+            } else if (lay === 'row' || lay === 'col') {
+                n = shape[dim_z];
+                [rows, cols] = lay === 'row' ? [1, n] : [n, 1];
+            } else {
+                n = shape[dim_z];
+                rows = Math.floor(Math.sqrt(n));
+                cols = Math.floor(n / rows);
+                while (rows * cols < n) cols++;
+                if ((rows - 1) * (cols + 1) === n) { rows--; cols++; }
+            }
             const tileW = shape[dim_x];
             const tileH = shape[dim_y];
             const GAP = 2;
             return { rows, cols, tileW, tileH, GAP, n };
+        }
+
+        /** Only the single view lays a mosaic out with the arrows; any other
+         *  view turns it back into a plain z mosaic of the across dim. */
+        function _mosaicGridPlain() {
+            return !compareActive && !multiViewActive && !qmriActive && !qmriMvActive
+                && !compareMvActive && !compareQmriActive && !detachedDimMode && !rgbMode;
+        }
+        function _mosaicArrange() {
+            if (dim_z < 0 || (mosaicLayout !== 'square' && !_mosaicGridPlain())) mosaicLayout = 'square';
+            if (mosaicLayout === 'grid' && (dim_z2 < 0 || dim_z2 === dim_z)) mosaicLayout = 'row';
+            if (mosaicLayout !== 'grid') dim_z2 = -1;
+            return mosaicLayout;
+        }
+        function _mosaicDim2() { return _mosaicArrange() === 'grid' ? dim_z2 : -1; }
+        /** Columns the server lays the main mosaic out with (null: near-square). */
+        function _mosaicColsParam() {
+            const lay = _mosaicArrange();
+            return lay === 'row' || lay === 'grid' ? shape[dim_z] : lay === 'col' ? 1 : null;
+        }
+        // Dims laid out across / down by Shift+→ / Shift+↓ (-1: none).
+        function _mosaicAcross() { const l = _mosaicArrange(); return l === 'row' || l === 'grid' ? dim_z : -1; }
+        function _mosaicDown() { const l = _mosaicArrange(); return l === 'col' ? dim_z : l === 'grid' ? dim_z2 : -1; }
+
+        /** Shift+→ / Shift+↓ on the selected dim: lay it out across / down, or
+         *  take it out if it already is. Shift+← / Shift+↑ take the across /
+         *  down dim out wherever the selection is. A z mosaic is replaced.
+         *  The selection stays where it is. */
+        function _mosaicArrow(dir) {
+            const d = activeDim;
+            if (!_mosaicGridPlain()) { showStatus('mosaic layout: single view only'); return; }
+            const square = dim_z >= 0 && _mosaicArrange() === 'square';
+            const a0 = square ? -1 : _mosaicAcross(), d0 = square ? -1 : _mosaicDown();
+            let across = a0, down = d0, removed = -1;
+            if (dir === 'unacross' || dir === 'undown') {
+                removed = dir === 'unacross' ? across : down;
+                if (removed < 0) { showStatus(dir === 'unacross' ? 'mosaic: nothing laid out across' : 'mosaic: nothing laid out down'); return; }
+                if (dir === 'unacross') across = -1; else down = -1;
+            } else {
+                if (!(d >= 0 && d < shape.length) || d === dim_x || d === dim_y || _isCollectionDim(d)) {
+                    showStatus('mosaic: pick a dim to lay out'); return;
+                }
+                if (dir === 'across') {
+                    if (d === across) { across = -1; removed = d; }
+                    else { if (d === down) down = across; across = d; }
+                } else {
+                    if (d === down) { down = -1; removed = d; }
+                    else { if (d === across) across = down; down = d; }
+                }
+            }
+            const commit = () => {
+                if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
+                else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
+                else { dim_z = -1; dim_z2 = -1; mosaicLayout = 'square'; }
+                // Scrolling follows the selection onto a dim just taken out.
+                if (removed >= 0 && removed === activeDim) current_slice_dim = removed;
+                if (_isMosaicDim(current_slice_dim) || current_slice_dim === dim_x || current_slice_dim === dim_y) {
+                    // Scroll the next free dim; laid-out ones are all on screen.
+                    for (let k = 1; k < shape.length; k++) {
+                        const c = (Math.max(0, d) + k) % shape.length;
+                        if (c !== dim_x && c !== dim_y && !_isMosaicDim(c) && !_isCollectionDim(c)) { current_slice_dim = c; break; }
+                    }
+                }
+                _invalidateVolHistCache();
+                updateView(); triggerPreload();
+            };
+            // Fold-out glide: the picture on screen now is one tile, row or
+            // column of the new one (or the reverse), so it glides there.
+            const n1 = (across >= 0) + (down >= 0), n0 = square ? -1 : (a0 >= 0) + (d0 >= 0);
+            let plan = null;
+            if (n0 === 0 && n1 === 1) plan = { toBox: () => _mosaicTileBox(_mosaicTileK()) };
+            else if (n0 === 1 && n1 === 0) plan = { fromBox: _mosaicTileBox(_mosaicTileK()) };
+            else if (n0 === 1 && n1 === 2 && (across === a0 || down === d0)) {
+                // The row (column) glides to its own place in the grid; only the
+                // rows (columns) that were not on screen unroll out from it.
+                const kind = across === a0 ? 'row' : 'col';
+                plan = { toBox: () => _mosaicBandBox(kind, Number(indices[kind === 'row' ? down : across])), reveal: kind };
+            } else if (n0 === 2 && n1 === 1 && (across === a0 || down === d0)) {
+                // The other rows (columns) roll into the one that stays.
+                const kind = across === a0 ? 'row' : 'col';
+                plan = { fromBox: _mosaicBandBox(kind, Number(indices[kind === 'row' ? d0 : a0])), reveal: kind };
+            }
+            if (plan) { if (!_mosaicGlide({ commit, ...plan })) commit(); return; }
+            // Same tiles in another layout (row <-> column, across <-> down, z <->
+            // an arrow layout): each tile glides to its new spot. Other tiles: crossfade.
+            const dims0 = new Set(square ? [dim_z] : [a0, d0].filter(x => x >= 0));
+            const dims1 = new Set([across, down].filter(x => x >= 0));
+            const same = dims0.size && dims0.size === dims1.size && [...dims0].every(x => dims1.has(x));
+            if (same && _mosaicShuffleGlide(commit)) return;
+            if (dims0.size && dims1.size && _mosaicGridPlain()) _crossfadeViewAround(commit);
+            else commit();
+        }
+
+        /** The same tiles laid out anew: a still copy of every tile glides from its
+         *  old spot to its new one while the grid stays hidden, then hands over. */
+        function _mosaicShuffleGlide(commit) {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            if (dim_z < 0 || !_mosaicGridPlain() || !_orthoGlideAllowed() || !_splitWholeIn(main, vp)) return false;
+            const n0 = _mosaicGridInfo().n;
+            if (n0 > 400) return false;
+            const olds = [];
+            for (let k = 0; k < n0; k++) {
+                const g = _mosaicTileGhost(main, _mosaicTileBox(k));
+                if (!g) { olds.forEach(o => o.g.remove()); return false; }
+                olds.push({ g, ti: _mosaicTileIndices(k) });
+            }
+            _glideBegin();
+            _killImmersiveTweens();
+            const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
+            const cb = _slimCb(), cbFrom = cb?.getBoundingClientRect();
+            const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
+            const seq0 = _frameDisplaySeq;
+            const vpHold = _glideHold(vp);
+            commit();
+            // Where each old tile sits now (-1: not in the new grid).
+            const n1 = dim_z >= 0 ? _mosaicGridInfo().n : 0;
+            const kOf = ti => { const z2 = _mosaicDim2(); return z2 >= 0 ? ti[z2] * shape[dim_z] + ti[dim_z] : ti[dim_z]; };
+            olds.forEach(o => {
+                const k = dim_z >= 0 ? kOf(o.ti) : -1;
+                o.k = k >= 0 && k < n1 && _mosaicTileIndices(k).every((v, i) => v === o.ti[i]) ? k : -1;
+            });
+            const stay = olds.filter(o => o.k >= 0);
+            olds.filter(o => o.k < 0).forEach(o => _glideFadeOut(o.g));
+            const aspect = dim_z >= 0 ? _mosaicTileBox(0).aspect : 1;
+            const drawn = () => _frameDisplaySeq !== seq0 && main.height > 0
+                && Math.abs(main.width / main.height / aspect - 1) < 0.05;
+            const finish = () => {
+                vpHold?.cancel();
+                freeBars();
+                const [lead, ...rest] = stay;
+                rest.forEach(o => {
+                    const a = o.g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
+                    a.onfinish = a.oncancel = () => o.g.remove();
+                });
+                if (lead) _orthoGhostRelease(lead.g, () => true);
+                else { _dropBars(); if (_orthoGlideBusy) _caseNamesUnveil(); _orthoGlideBusy = false; }
+            };
+            if (!stay.length) { finish(); return true; }
+            const tgt = o => () => (drawn() ? _rectOfBox(main, _mosaicTileBox(o.k)) : null);
+            const [lead, ...rest] = stay;
+            const flat = () => [0, 0, 0, 0];
+            const clock = _splitGlideLive(lead.g, tgt(lead), flat, [[info, infoFrom], [cb, cbFrom]], null,
+                { ready: drawn, riders: rest.map(o => ({ g: o.g, target: tgt(o), radii: flat })) });
+            clock.onfinish = clock.oncancel = () => {
+                const t0 = performance.now();
+                // Landed before the new grid came: wait for it, then hand over.
+                const wait = () => {
+                    if (!drawn() && performance.now() - t0 < 10000) { requestAnimationFrame(wait); return; }
+                    finish();
+                };
+                wait();
+            };
+            _syncSinkFocus();
+            return true;
+        }
+        function _isMosaicDim(d) { return d >= 0 && (d === dim_z || d === _mosaicDim2()); }
+
+        /** Indices of mosaic tile k (row by row, as the server lays it out). */
+        function _mosaicTileIndices(k, base = indices) {
+            const t = [...base], z2 = _mosaicDim2();
+            if (z2 >= 0) { t[dim_z] = k % shape[dim_z]; t[z2] = Math.floor(k / shape[dim_z]); }
+            else t[dim_z] = k;
+            return t;
         }
 
         function _updateMainPixelInfo(e) {
@@ -29661,8 +29864,10 @@
                 const zIdx = row * g.cols + col;
                 if (zIdx < 0 || zIdx >= g.n || localX >= g.tileW || localY >= g.tileH || localX < 0 || localY < 0) return;
                 // Direct cache lookup for this tile's slice
-                const tileIndices = [...indices];
-                tileIndices[dim_z] = zIdx;
+                const tileIndices = _mosaicTileIndices(zIdx);
+                // Dim bar readout: across / down position in a two-dim grid.
+                const z2 = _mosaicDim2();
+                const hz = z2 >= 0 ? tileIndices[dim_z] : zIdx, hz2 = z2 >= 0 ? tileIndices[z2] : null;
                 const ver = tileIndices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
                 const hkey = sid + ':' + ver;
                 const cached = _hoverSliceCache[hkey];
@@ -29674,7 +29879,7 @@
                         if (Number.isFinite(val)) {
                             const fmt = _pixelHoverFormat(val, _activeNumericContext());
                             _showMainPixelValue({ valueText: fmt.text, rawX, rawY }, e.clientX, e.clientY, fmt.stableCh);
-                            _updateDimbarHover(localX, localY, null, null, zIdx);
+                            _updateDimbarHover(localX, localY, null, null, hz, hz2);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -29701,7 +29906,7 @@
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
                             const fmt = _pixelHoverFormat(d.value, _activeNumericContext());
                             _showMainPixelValue({ valueText: fmt.text, rawX, rawY }, _lastMouseX, _lastMouseY, fmt.stableCh);
-                            _updateDimbarHover(localX, localY, null, null, zIdx);
+                            _updateDimbarHover(localX, localY, null, null, hz, hz2);
                         }).catch(() => {});
                 }
                 return;
@@ -30758,15 +30963,29 @@
                 when: [],
                 run: (ctx, e) => {
                     if (multiViewActive || compareMvActive || qmriMvActive) { showStatus('views: the 3-plane view already shows all three'); return; }
-                    if (dim_z >= 0 || qmriMosaicActive) { showStatus('views: leave the mosaic first'); return; }
+                    if (qmriMosaicActive || (dim_z >= 0 && !_mosaicGridPlain())) { showStatus('views: leave the mosaic first'); return; }
                     if (mipActive || cutawayActive) { showStatus('views: not available in 3-D view'); return; }
                     if (rgbMode || hasVectorfield) { showStatus('views: not available for this array'); return; }
                     const planes = _cyclePlanes();
                     if (!planes) { showStatus('views: need three spatial dimensions'); return; }
+                    // A mosaic of the slices themselves becomes the mosaic of the
+                    // next view's slices: other tiles, so it crossfades.
+                    const cur = _currentPlaneIndex(planes);
+                    const oldSlice = cur >= 0 ? planes[cur].sliceDir : -1;
+                    const zSlices = dim_z >= 0 && oldSlice >= 0 && _isMosaicDim(oldSlice);
+                    const keepScroll = current_slice_dim;
+                    const swapMosaic = !zSlices ? null : () => {
+                        const nd = current_slice_dim;
+                        if (dim_z === oldSlice) dim_z = nd; else dim_z2 = nd;
+                        current_slice_dim = keepScroll;
+                        if (current_slice_dim === dim_x || current_slice_dim === dim_y || _isMosaicDim(current_slice_dim)) current_slice_dim = oldSlice;
+                        if (activeDim === nd) activeDim = current_slice_dim;
+                    };
+                    if (zSlices) { _crossfadeViewAround(() => _switchToNextPlane(planes, swapMosaic)); return; }
                     // Box roll about the axis both views share; chrome glides as for r / t.
                     const od = [dim_x, dim_y, flip_x, flip_y];
                     _quarterTurnAround(() => _switchToNextPlane(planes),
-                        () => [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')],
+                        () => _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')],
                         'cube', () => _planeCubeTurn(od));
                 },
             },
@@ -30780,7 +30999,7 @@
                     // Same boxes as r (view.rotateOrFlip); the copy flips over its diagonal.
                     const _flipBoxes = () => _orthoT
                         ? _orthoT.views.map(v => v.cvBox || v.canvas)
-                        : [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
+                        : _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
                     _quarterTurnAround(() => {
                     if (_orthoT) {
                         for (const v of _orthoT.views) {
@@ -30803,7 +31022,7 @@
                     [flip_x, flip_y] = [flip_y, flip_x];
                     if (_adOnX) activeDim = dim_x;
                     else if (_adOnY) activeDim = dim_y;
-                    if (!wasMosaic) dim_z = -1;
+                    if (!wasMosaic) { dim_z = -1; dim_z2 = -1; }
                     updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -30820,7 +31039,7 @@
                     const _turnBoxes = () => _orthoR
                         // The picture itself where it is letterboxed in a fixed cell.
                         ? _orthoR.views.map(v => v.cvBox || v.canvas)
-                        : [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
+                        : _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
                     _quarterTurnAround(() => {
                     if (_orthoR) {
                         for (const v of _orthoR.views) {
@@ -30945,6 +31164,26 @@
                     }
                     _afterGlide(_mosaicToggle);
                 },
+            },
+            'mosaic.across': {
+                title: 'Mosaic: lay the active dim out across',
+                when: [],
+                run: (ctx, e) => { e.preventDefault(); _afterGlide(() => _mosaicArrow('across')); },
+            },
+            'mosaic.down': {
+                title: 'Mosaic: lay the active dim out down',
+                when: [],
+                run: (ctx, e) => { e.preventDefault(); _afterGlide(() => _mosaicArrow('down')); },
+            },
+            'mosaic.unacross': {
+                title: 'Mosaic: take the across dim out',
+                when: [],
+                run: (ctx, e) => { e.preventDefault(); _afterGlide(() => _mosaicArrow('unacross')); },
+            },
+            'mosaic.undown': {
+                title: 'Mosaic: take the down dim out',
+                when: [],
+                run: (ctx, e) => { e.preventDefault(); _afterGlide(() => _mosaicArrow('undown')); },
             },
             'overlay.cycleVisibility': {
                 title: 'Cycle overlay visibility',
@@ -31521,6 +31760,7 @@
                             dim_x = activeDim;
                             if (current_slice_dim === activeDim) current_slice_dim = oldX;
                             else if (dim_z === activeDim) dim_z = oldX;
+                            else if (dim_z2 === activeDim) dim_z2 = oldX;
                             else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldX;
                             else current_slice_dim = oldX;
                         }
@@ -31725,6 +31965,7 @@
                             dim_y = activeDim;
                             if (current_slice_dim === activeDim) current_slice_dim = oldY;
                             else if (dim_z === activeDim) dim_z = oldY;
+                            else if (dim_z2 === activeDim) dim_z2 = oldY;
                             else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldY;
                             else current_slice_dim = oldY;
                         }
@@ -31784,7 +32025,7 @@
                             activeDim = (activeDim - 1 + shape.length) % shape.length;
                             _skipQmriControlDim(-1);
                         }
-                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
+                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && !_isMosaicDim(activeDim) && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
                         renderInfo();
@@ -31854,7 +32095,7 @@
                             activeDim = (activeDim + 1) % shape.length;
                             _skipQmriControlDim(1);
                         }
-                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z && !_isCollectionDim(activeDim)) {
+                        if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && !_isMosaicDim(activeDim) && !_isCollectionDim(activeDim)) {
                             current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                         }
                         renderInfo();
@@ -32145,7 +32386,7 @@
             'quickzoom.exit': {
                 title: 'Leave quick zoom',
                 when: ['quickZoomActive'],
-                run: (ctx, e) => { _setQuickZoomPane(null); },
+                run: (ctx, e) => { if (_mosaicLook) _mosaicLookClose(); else _setQuickZoomPane(null); },
             },
             'arrays.openPicker': {
                 title: 'Switch array in file',
@@ -32213,6 +32454,10 @@
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'd', command: 'histogram.openOrCycle' },
             { key: 'j', command: 'slice.prev' },
+            { key: 'ArrowDown', shift: true, command: 'mosaic.down' },
+            { key: 'ArrowRight', shift: true, command: 'mosaic.across' },
+            { key: 'ArrowUp', shift: true, command: 'mosaic.undown' },
+            { key: 'ArrowLeft', shift: true, command: 'mosaic.unacross' },
             { key: 'ArrowDown', command: 'slice.prev' },
             { key: 'k', command: 'slice.next' },
             { key: 'ArrowUp', command: 'slice.next' },
@@ -32281,7 +32526,7 @@
                 cmapPickerOpen: (typeof _cmapPickerOpen !== 'undefined') ? !!_cmapPickerOpen : false,
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
                 toolLauncherOpen: (typeof _toolLauncherOpen !== 'undefined') ? !!_toolLauncherOpen : false,
-                quickZoomActive: !!_quickZoomPane,
+                quickZoomActive: !!_quickZoomPane || !!_mosaicLook,
                 toolMenuList: false,
                 saveMenuOpen: _saveDrawerSelected(),
                 anyToolActive: (
@@ -32316,6 +32561,8 @@
                             { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
                             { key: 'z', action: 'Mosaic — tile all slices in a grid' },
+                            { key: 'Shift+→ / Shift+↓', action: 'Mosaic — lay the active dim out across / down', hint: 'one dim each way makes a grid of both · again on that dim takes it out · z leaves' },
+                            { key: 'Shift+← / Shift+↑', action: 'Mosaic — take the across / down dim out' },
                             { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'works on any non-spatial dim, including the dim of several loaded arrays · press again for one image' },
                             { key: "' / ;", action: 'One pane more / fewer', hint: "[ ] move the pane under the mouse · j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along · ' from one image starts with two" },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
@@ -43273,9 +43520,10 @@
         function _mosaicCommit() {
             if (dim_z >= 0) {
                 current_slice_dim = dim_z;
-                dim_z = -1;
+                dim_z = -1; dim_z2 = -1; mosaicLayout = 'square';
             } else {
                 dim_z = current_slice_dim;
+                mosaicLayout = 'square';
                 // Scroll the next free dim after the gridded one. A
                 // plain volume has none left: its mosaic shows every
                 // slice and scrolling has nothing to step through.
@@ -43291,6 +43539,170 @@
 
         function _mosaicToggle() {
             if (!_mosaicGlide()) _mosaicCommit();
+        }
+
+        // Tile on screen for the current indices (row by row).
+        function _mosaicTileK() {
+            const z2 = _mosaicDim2();
+            return z2 >= 0 ? Number(indices[z2]) * shape[dim_z] + Number(indices[dim_z]) : Number(indices[dim_z]);
+        }
+
+        /** Single-view mosaic: one stand-in canvas per tile over the grid, so
+         *  r / t / o turn every tile on its own. Each reports where its tile is
+         *  in the grid as now drawn (after the turn: the new grid) and re-copies
+         *  its tile when the new frame lands. Null when not a plain mosaic. */
+        function _mosaicTurnTiles() {
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            if (dim_z < 0 || !_mosaicGridPlain() || !main || !main.width || !vp) return null;
+            const n = _mosaicGridInfo().n;
+            if (n > 400) return null;
+            const tiles = [];
+            for (let k = 0; k < n; k++) {
+                const g = _mosaicTileGhost(main, _mosaicTileBox(k));
+                if (!g) { tiles.forEach(t => t.remove()); return null; }
+                g.style.zIndex = '40';
+                Object.assign(g, { _turnProxy: true, _standsFor: main, _hideAlso: vp });
+                g.getBoundingClientRect = () => {
+                    const r = _rectOfBox(main, _mosaicTileBox(k));
+                    return { ...r, x: r.left, y: r.top, right: r.left + r.width, bottom: r.top + r.height };
+                };
+                g._turnRefresh = () => {
+                    const b = _mosaicTileBox(k);
+                    g.width = Math.max(1, Math.round(b.w * main.width)); g.height = Math.max(1, Math.round(b.h * main.height));
+                    const gx = g.getContext('2d');
+                    gx.imageSmoothingEnabled = false;
+                    gx.drawImage(main, b.x * main.width, b.y * main.height, g.width, g.height, 0, 0, g.width, g.height);
+                };
+                tiles.push(g);
+            }
+            return tiles;
+        }
+
+        /* w on a single-view mosaic: the tile under the mouse glides up to the
+         * single view's size while the grid blurs, then is redrawn at full
+         * resolution (and follows scrolling); w, Esc or a click glides it home. */
+        let _mosaicLook = null;
+        function _mosaicLookToggle() {
+            if (_mosaicLook) { _mosaicLookClose(); return true; }
+            if (dim_z < 0 || !_mosaicGridPlain()) return false;
+            const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
+            if (!main || !main.width) return false;
+            const g = _mosaicGridInfo(), r = main.getBoundingClientRect();
+            const mx = (_lastMouseX - r.left) / r.width, my = (_lastMouseY - r.top) / r.height;
+            const W = g.cols * g.tileW + (g.cols - 1) * g.GAP, H = g.rows * g.tileH + (g.rows - 1) * g.GAP;
+            const clamp = (v, n) => Math.max(0, Math.min(n - 1, v));
+            const col = clamp(Math.floor(mx * W / (g.tileW + g.GAP)), g.cols);
+            const row = clamp(Math.floor(my * H / (g.tileH + g.GAP)), g.rows);
+            let k = row * g.cols + col;
+            if (!(mx >= 0 && mx <= 1 && my >= 0 && my <= 1) || k >= g.n) k = Math.min(g.n - 1, _mosaicTileK());
+            const ghost = _mosaicTileGhost(main, _mosaicTileBox(k));
+            if (!ghost) return false;
+            ghost.style.zIndex = '32';
+            const aspect = (g.tileW / g.tileH) / _pixelAspect(dim_x, dim_y);
+            const cb = _slimCb(), info = document.getElementById('info');
+            const home = () => _rectOfBox(main, _mosaicTileBox(k));
+            const target = () => {
+                const t = _quickZoomSingleViewRect(aspect);
+                const ir = info?.getBoundingClientRect();
+                // Keep clear of the dimbar where the grid left it.
+                if (ir && ir.height && t.top < ir.bottom + 6) {
+                    const top = ir.bottom + 6, h = Math.max(40, Math.min(t.height, window.innerHeight - top - NORMAL_BOTTOM_RESERVE));
+                    const w = h * aspect;
+                    return { left: (window.innerWidth - w) / 2, top, width: w, height: h };
+                }
+                return t;
+            };
+            const at = (rc) => ({ left: rc.left + 'px', top: rc.top + 'px', width: rc.width + 'px', height: rc.height + 'px' });
+            const layoutKey = () => [dim_x, dim_y, dim_z, _mosaicDim2(), _mosaicArrange()].join(',');
+            const look = _mosaicLook = { k, ghost, seq: -1, closing: false, raf: 0, anims: [], idx: null, layout: layoutKey() };
+            const t = target(), h0 = home();
+            look.anims.push(ghost.animate([at(h0), at(t)], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
+            if (cb) {
+                const cr = cb.getBoundingClientRect();
+                const dy = Math.min(t.top + t.height + QUICK_ZOOM_CB_GAP, window.innerHeight - cr.height - 4) - cr.top;
+                look.anims.push(cb.animate([{ translate: '0 0' }, { translate: `0 ${dy}px` }], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
+                cb.style.zIndex = cb.style.zIndex || '';
+            }
+            look.blur = vp.animate([{ filter: 'none' }, { filter: 'blur(14px) brightness(0.4)' }], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'ease', fill: 'forwards' });
+            // Full-resolution picture of this tile, refetched as slices move.
+            const refresh = async () => {
+                const ti = _mosaicTileIndices(look.k);
+                const key = ti.join(',') + '|' + [dim_x, dim_y, flip_x, flip_y, complexMode, logScale, currentVmin, currentVmax, colormap_idx].join(',');
+                if (key === look.idx) return;
+                look.idx = key;
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x), dim_y: String(dim_y), indices: ti.join(','),
+                    colormap: currentColormap(), dr: '0', complex_mode: String(complexMode), log_scale: String(logScale),
+                    vmin_override: String(currentVmin), vmax_override: String(currentVmax),
+                });
+                try {
+                    const fr = await fetchSliceFrame(params);
+                    if (_mosaicLook !== look || look.idx !== key || !fr?.imageData) return;
+                    const off = document.createElement('canvas');
+                    off.width = fr.width; off.height = fr.height;
+                    off.getContext('2d').putImageData(fr.imageData, 0, 0);
+                    ghost.width = fr.width; ghost.height = fr.height;
+                    const gx = ghost.getContext('2d');
+                    gx.imageSmoothingEnabled = false;
+                    gx.setTransform(flip_x ? -1 : 1, 0, 0, flip_y ? -1 : 1, flip_x ? fr.width : 0, flip_y ? fr.height : 0);
+                    gx.drawImage(off, 0, 0);
+                    gx.setTransform(1, 0, 0, 1, 0, 0);
+                } catch (e) { /* keep the grid's copy */ }
+            };
+            const watch = () => {
+                look.raf = 0;
+                if (_mosaicLook !== look || look.closing) return;
+                // The mosaic went away under it (another key changed the view).
+                if (dim_z < 0 || !_mosaicGridPlain() || layoutKey() !== look.layout) { _mosaicLookClose(true); return; }
+                if (_frameDisplaySeq !== look.seq) { look.seq = _frameDisplaySeq; refresh(); }
+                look.raf = requestAnimationFrame(watch);
+            };
+            watch();
+            return true;
+        }
+        function _mosaicLookClose(instant = false) {
+            const look = _mosaicLook;
+            if (!look || look.closing) return;
+            look.closing = true;
+            if (look.raf) cancelAnimationFrame(look.raf);
+            const vp = document.getElementById('canvas-viewport'), main = document.getElementById('viewer');
+            const done = () => {
+                look.anims.forEach(a => a.cancel());
+                look.blur?.cancel();
+                look.ghost.remove();
+                if (_mosaicLook === look) _mosaicLook = null;
+            };
+            if (look.blur && !instant) look.blur.reverse();
+            if (instant || dim_z < 0 || !main || look.k >= _mosaicGridInfo().n) { done(); return; }
+            const back = _rectOfBox(main, _mosaicTileBox(look.k));
+            const ease = 'cubic-bezier(0.32, 0.72, 0.24, 1)';
+            const cur = look.ghost.getBoundingClientRect();
+            const at = (rc) => ({ left: rc.left + 'px', top: rc.top + 'px', width: rc.width + 'px', height: rc.height + 'px' });
+            look.anims.forEach(a => {
+                const el = a.effect?.target;
+                if (!el || el === look.ghost) return;
+                const tr = getComputedStyle(el).translate;
+                a.cancel();
+                look.anims.push(el.animate([{ translate: tr === 'none' ? '0 0' : tr }, { translate: '0 0' }], { duration: QUICK_ZOOM_GLIDE_MS, easing: ease }));
+            });
+            const g = look.ghost.animate([at(cur), at(back)], { duration: QUICK_ZOOM_GLIDE_MS, easing: ease, fill: 'forwards' });
+            look.anims.push(g);
+            g.onfinish = g.oncancel = done;
+        }
+        // Clicking anywhere closes the tile quick look.
+        document.addEventListener('mousedown', (e) => {
+            if (!_mosaicLook || e.button !== 0) return;
+            e.preventDefault(); e.stopPropagation();
+            _mosaicLookClose();
+        }, true);
+
+        // Row `i` ('row') or column `i` ('col') of a two-dim grid, as _mosaicTileBox.
+        function _mosaicBandBox(kind, i) {
+            const { rows, cols, tileW, tileH, GAP } = _mosaicGridInfo();
+            const W = cols * tileW + (cols - 1) * GAP, H = rows * tileH + (rows - 1) * GAP;
+            return kind === 'row'
+                ? { x: 0, y: i * (tileH + GAP) / H, w: 1, h: tileH / H, aspect: W / H }
+                : { x: i * (tileW + GAP) / W, y: 0, w: tileW / W, h: 1, aspect: W / H };
         }
 
         // Where slice `idx` sits in the grid, as fractions of the grid image: the image
@@ -43339,19 +43751,30 @@
 
         /** z from the single view: a still copy of the slice shrinks into its own tile while
          *  the grid fades in around it once drawn; z again grows that tile back as the grid
-         *  fades out. Zoomed-in images and any other view keep the plain switch. */
-        function _mosaicGlide() {
+         *  fades out. Zoomed-in images and any other view keep the plain switch.
+         *  Shift+arrows pass their own `commit` and the part of the picture that
+         *  folds: `fromBox` (part of the grid now on screen that grows into the
+         *  whole new picture) or `toBox()` (part of the new grid the whole picture
+         *  now on screen shrinks into, asked after commit). */
+        function _mosaicGlide(plan = null) {
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             const plain = !compareActive && !multiViewActive && !qmriActive && !rgbMode;
             if (!plain || !_orthoGlideAllowed() || !_splitWholeIn(main, vp)) return false;
-            const leaving = dim_z >= 0;
-            const idx = Number(indices[leaving ? dim_z : current_slice_dim]);
-            const zDim = leaving ? dim_z : current_slice_dim;
-            if (!Number.isInteger(idx) || idx < 0 || idx >= shape[zDim]) return false;
+            if (!plan) {
+                const leaving = dim_z >= 0;
+                const idx = Number(indices[leaving ? dim_z : current_slice_dim]);
+                const zDim = leaving ? dim_z : current_slice_dim;
+                if (!Number.isInteger(idx) || idx < 0 || idx >= shape[zDim]) return false;
+                plan = leaving ? { fromBox: _mosaicTileBox(_mosaicTileK()) } : { toBox: () => _mosaicTileBox(idx) };
+            }
+            const commit = plan.commit || _mosaicCommit;
+            const leaving = !!plan.fromBox;
+            const okBox = b => b && [b.x, b.y, b.w, b.h].every(Number.isFinite) && b.x >= 0 && b.y >= 0 && b.x + b.w <= 1.0001 && b.y + b.h <= 1.0001;
+            if (leaving && !okBox(plan.fromBox)) return false;
             let box = null;
             let ghost, fadeGrid = null;
             if (leaving) {
-                box = _mosaicTileBox(idx);
+                box = plan.fromBox;
                 ghost = _mosaicTileGhost(main, box);
                 if (!ghost) return false;
                 fadeGrid = _orthoGhost(main, main, '0');
@@ -43367,9 +43790,9 @@
             const freeBars = _holdTransitions([info, cb, _cbBar(cb)], null);
             const seq0 = _frameDisplaySeq;
             const before = main.getBoundingClientRect();
-            _mosaicCommit();
-            if (!leaving) box = _mosaicTileBox(idx);
-            const aspect = leaving ? shape[dim_x] / shape[dim_y] : box.aspect;
+            commit();
+            if (!leaving) box = plan.toBox();
+            const aspect = leaving ? (dim_z >= 0 ? _mosaicTileBox(0).aspect : shape[dim_x] / shape[dim_y]) : box.aspect;
             // Still the old picture until the new one is back in the shape it should have.
             const drawn = () => _frameDisplaySeq !== seq0 && main.height > 0
                 && Math.abs(main.width / main.height / aspect - 1) < 0.05;
@@ -43378,23 +43801,54 @@
             const expected = leaving ? null : _rectOfGridBox(box, before);
             const vpHold = _glideHold(vp);
             _caseVeil?.leave(vp);
+            // Clip grid `el` (its image is rect `M`) so that while the copy is at `G`,
+            // tiles before its slot `S` show only on the side before it (above; left
+            // in its own row) and tiles after it only on the side after it; the slot
+            // itself stays clear. `open` (0..1): how far the rows (columns) around a
+            // row (column) have unrolled out of it.
+            const sideClip = (el, M, S, G, open = 1) => {
+                if (!el || !G) return;
+                const e = el.getBoundingClientRect(), L = (a, b, t) => a + (b - a) * t;
+                const top = L(S.top, M.top, open), bottom = L(S.bottom, M.bottom, open);
+                const left = L(S.left, M.left, open), right = L(S.right, M.right, open);
+                const rects = [];
+                const add = (x0, y0, x1, y1) => {
+                    if (x1 - x0 > 0.5 && y1 - y0 > 0.5) rects.push(`M${x0 - e.left} ${y0 - e.top}H${x1 - e.left}V${y1 - e.top}H${x0 - e.left}Z`);
+                };
+                add(left, top, right, Math.min(G.top, S.top));
+                add(left, Math.max(G.bottom, S.bottom), right, bottom);
+                add(left, S.top, Math.min(G.left, S.left), S.bottom);
+                add(Math.max(G.right, S.right), S.top, right, S.bottom);
+                el.style.clipPath = rects.length ? `path('${rects.join('')}')` : 'inset(50%)';
+            };
+            const R = el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; };
+            const slotIn = el => { const r = _rectOfBox(el, box); return { left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }; };
+            const asRect = r => r && { left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height };
+            const openAt = p => (plan.reveal ? _easeInOutCubic(Math.max(0, Math.min(1, p))) : 1);
+            if (leaving && fadeGrid) sideClip(fadeGrid, R(fadeGrid), slotIn(fadeGrid), R(ghost), 1);
             _glideFadeOut(fadeGrid);
-            let tint = null, gridIn = leaving, tintFrom = 0;
-            const showGrid = (p) => {
+            let tint = null, gridIn = leaving, tintFrom = 0, clipping = false;
+            const showGrid = (p, rect) => {
                 gridIn = true;
+                // Entering: the grid shows around the copy by the rule above.
+                if (!leaving && p < 1 && rect) { clipping = true; sideClip(vp, R(main), slotIn(main), asRect(rect), openAt(p)); }
                 vpHold?.cancel();
-                vp.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
+                if (!plan.reveal) vp.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
                 // Grid and slice have different display ranges: blend on the way.
                 if (p < 0.9) { tintFrom = p; tint = _glideTint(ghost, main, _mosaicTileGhost(main, box)); }
             };
+            const unclip = () => { if (clipping) { clipping = false; vp.style.removeProperty('clip-path'); } };
             const clock = _splitGlideLive(ghost,
                 () => (drawn() ? (leaving ? main.getBoundingClientRect() : _rectOfBox(main, box)) : expected),
                 () => (leaving ? _cornerRadii(vp) : [0, 0, 0, 0]),
                 [[info, infoFrom], [cb, cbFrom]],
                 (p, rect, done) => {
-                    if (!gridIn && drawn()) showGrid(p);
+                    if (!gridIn && drawn()) showGrid(p, rect);
+                    else if (clipping) sideClip(vp, R(main), slotIn(main), asRect(rect), openAt(p));
+                    if (leaving && fadeGrid?.isConnected) sideClip(fadeGrid, R(fadeGrid), slotIn(fadeGrid), asRect(rect), plan.reveal ? 1 - openAt(p) : 1);
                     tint?._step((p - tintFrom) / (1 - tintFrom), rect);
                     if (!done) return;
+                    unclip();
                     if (leaving) vpHold?.cancel();
                     freeBars();
                 },
@@ -43411,6 +43865,7 @@
                         showGrid(1);
                     }
                     if (tint) ghost.remove();
+                    unclip();
                     _orthoGhostRelease(tint || ghost, () => true);
                 };
                 wait();
@@ -44445,12 +44900,12 @@
             if (!multiViewActive && !qmriActive) {
                 if ((d === dim_x && activeDim === dim_y) || (d === dim_y && activeDim === dim_x)) {
                     [dim_x, dim_y] = [dim_y, dim_x];
-                    dim_z = -1;
+                    dim_z = -1; dim_z2 = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
                     updateView(); _roiClearOnDimChange(); triggerPreload(); return;
                 }
             }
-            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z) {
+            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && !_isMosaicDim(d)) {
                 current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
             renderInfo();
@@ -44555,7 +45010,7 @@
             }
             if (hoveredDim < 0) return;
             // Only scroll non-display dims (skip x/y/z/q)
-            const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || hoveredDim === dim_z);
+            const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || _isMosaicDim(hoveredDim));
             const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
             const isSpatialCmv = compareMvActive && compareMvDims.includes(hoveredDim);
             const isSpatialQmriMv = qmriMvActive && qmriMvDims.includes(hoveredDim);
@@ -44767,7 +45222,7 @@
             if (hoveredDim >= 0
                 && hoveredDim !== dim_x
                 && hoveredDim !== dim_y
-                && hoveredDim !== dim_z
+                && !_isMosaicDim(hoveredDim)
                 && !_isCollectionDim(hoveredDim)) {
                 scrollDim = hoveredDim;
                 if (current_slice_dim !== scrollDim) current_slice_dim = scrollDim;
@@ -46560,6 +47015,7 @@
 
         function _toggleQuickZoom() {
             if (_quickZoomPane) { _setQuickZoomPane(null); return; }
+            if (_mosaicLookToggle()) return;
             const panes = _quickZoomCandidates();
             if (panes.length < 2) { showStatus('quick zoom: only one pane on screen'); return; }
             _setQuickZoomPane(_quickZoomPaneAtMouse(panes));
