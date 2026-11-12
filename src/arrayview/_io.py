@@ -205,11 +205,12 @@ def _select_npz_array(npz, filepath):
 class _NiftiHeaderOnly:
     """What a collection scan reads from a NIfTI image, without the image."""
 
-    __slots__ = ("shape", "affine", "_dtype")
+    __slots__ = ("shape", "affine", "header", "_dtype")
 
     def __init__(self, header):
         self.shape = tuple(int(v) for v in header.get_data_shape())
         self.affine = header.get_best_affine()
+        self.header = header
         self._dtype = header.get_data_dtype()
 
     def get_data_dtype(self):
@@ -246,6 +247,14 @@ def _read_plain_nifti1_header(filepath):
         return None
 
 
+def _header_names_orientation(header):
+    """False only for a NIfTI header with neither sform nor qform set."""
+    try:
+        return int(header["sform_code"]) > 0 or int(header["qform_code"]) > 0
+    except Exception:
+        return True
+
+
 def _nifti_header_with_meta(filepath, *, native=False, header_only=False):
     """Return a NIfTI image and spatial metadata without reading voxels.
 
@@ -280,7 +289,13 @@ def _nifti_header_with_meta(filepath, *, native=False, header_only=False):
     for i in range(3):
         if canonical_voxel_sizes[i] > 0:
             norm_rot[:, i] = canonical_rot[:, i] / canonical_voxel_sizes[i]
-    axis_labels = tuple(str(v) for v in nib.aff2axcodes(data_affine))
+    # Without an sform or qform the affine is nibabel's placeholder; naming
+    # anatomy from it would turn views on a guess.
+    axis_labels = (
+        tuple(str(v) for v in nib.aff2axcodes(data_affine))
+        if _header_names_orientation(getattr(img, "header", None))
+        else ()
+    )
     off_diag_max = max(
         (abs(norm_rot[i, j]) for i in range(3) for j in range(3) if i != j),
         default=0.0,

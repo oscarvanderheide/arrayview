@@ -116,6 +116,21 @@ def test_permuted_flipped_affine_reports_source_orientation(tmp_path):
     np.testing.assert_array_equal(meta["affine"], affine)
 
 
+@pytest.mark.parametrize("filename", ["no-orientation.nii", "no-orientation.nii.gz"])
+def test_nifti_without_stored_orientation_names_no_anatomy(tmp_path, filename):
+    """No sform/qform: voxel sizes stay, but no anatomical axis names are made up."""
+    img = nib.Nifti1Image(np.zeros((4, 5, 6), np.float32), None)
+    img.header.set_zooms((2.0, 3.0, 4.0))
+    path = tmp_path / filename
+    nib.save(img, str(path))
+    assert int(nib.load(str(path)).header["sform_code"]) == 0
+
+    _, meta = _load_nifti_with_meta(str(path))
+
+    assert meta["axis_labels"] == ()
+    assert meta["voxel_sizes"] == pytest.approx((2.0, 3.0, 4.0))
+
+
 def test_colormap_recommendation_uses_bounded_indexing_without_flattening():
     class GuardedProxy:
         dtype = np.dtype(np.float32)

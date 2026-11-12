@@ -9265,6 +9265,22 @@
                     : { dims: [...new Set(planes.map(p => p.sliceDir))].sort((a, b) => a - b), sliceDim: plane.sliceDir });
         }
 
+        /** First view of a file with stored orientation: turn it head-up, as
+         *  Shift+P lays out that plane. `keepDims` keeps the x/y dims asked
+         *  for at launch and only flips them. */
+        function _openPlaneUpright(keepDims) {
+            if (!_hasStoredOrientation() || rgbMode || hasVectorfield) return;
+            const planes = _cyclePlanes();
+            if (!planes) return;
+            const i = _currentPlaneIndex(planes);
+            if (i < 0) return;
+            const p = planes[i];
+            if (!keepDims) { dim_x = p.dimX; dim_y = p.dimY; }
+            const same = p.dimX === dim_x;
+            flip_x = !!(same ? p.flipX : p.flipY);
+            flip_y = !!(same ? p.flipY : p.flipX);
+        }
+
         /** Crossfade the whole view across `change`: a still copy of the
          *  view covers it while `change` runs underneath, then fades away once
          *  the new frame has landed, so image, colorbar and dimbar settle
@@ -19224,7 +19240,10 @@
                 const _askedForView = (data.initial_view && Object.keys(data.initial_view).length)
                     || urlParams.has('dim_x');
                 if (data.remembered_view && !_askedForView) applyStateSnapshot(data.remembered_view);
-                else _applyInitialView(data.initial_view);
+                else {
+                    _applyInitialView(data.initial_view);
+                    _openPlaneUpright(urlParams.has('dim_x') || Array.isArray(data.initial_view?.dims));
+                }
             }
             _syncRaggedShapeForCollection();
             _ensureViewingDimsAreSpatial();
