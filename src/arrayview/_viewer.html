@@ -18691,8 +18691,12 @@
             return planned.length >= 2 ? planned.slice(0, 2) : null;
         }
 
-        /** Request for the diff currently being asked for, or null. */
-        function _buildDiffRequest() {
+        /**
+         * Request for the diff currently being asked for, or null.
+         * `idx` overrides the global `indices` (read-ahead builds the same
+         * request for a neighbouring position, so its key matches exactly).
+         */
+        function _buildDiffRequest(idx = indices) {
             const sids = _diffPaneSids();
             if (!sids) return null;
             const [sid_a, sid_b] = sids;
@@ -18712,15 +18716,15 @@
                 dim_x: String(dim_x),
                 dim_y: String(dim_y),
                 dim_z: String(dim_z),
-                indices: indices.join(','),
+                indices: idx.join(','),
                 dr: '0',
                 complex_mode: String(complexMode),
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
             });
             if (detachedDimMode && detachedDim >= 0) {
-                const indicesA = [...indices];
-                const indicesB = [...indices];
+                const indicesA = [...idx];
+                const indicesB = [...idx];
                 indicesA[detachedDim] = detachedDimIdx[0];
                 indicesB[detachedDim] = detachedDimIdx[1];
                 params.set('indices_a', indicesA.join(','));
@@ -18774,6 +18778,83 @@
             }
         }
 
+        // Diff read-ahead. The source panes are read ahead on the server, but
+        // each diff frame was only requested once it was due, one at a time,
+        // so during playback or a held scroll key the centre pane trailed the
+        // source panes by a full round trip and skipped frames. Neighbouring
+        // diffs in the direction of travel are now requested in parallel and
+        // decoded ahead of time; the draw path takes them from here.
+        const DIFF_AHEAD_FRAMES = 4;
+        const DIFF_AHEAD_FRAMES_MOSAIC = 2;
+        const _diffAhead = new Map();  // request key -> Promise<frame|null>
+        let _diffAheadLast = null;     // {dim, pos} of the previous request
+
+        async function _loadDiffFrame(url) {
+            const resp = await _hedgedFetch(url);
+            if (!resp.ok) return null;
+            const frame = {
+                hdrVmin: parseFloat(resp.headers.get('X-ArrayView-Vmin')),
+                hdrVmax: parseFloat(resp.headers.get('X-ArrayView-Vmax')),
+                usedCmap: resp.headers.get('X-ArrayView-Colormap') || '',
+            };
+            frame.bmp = await createImageBitmap(await resp.blob());
+            return frame;
+        }
+
+        function _dropDiffAhead(key) {
+            const p = _diffAhead.get(key);
+            if (!p) return;
+            _diffAhead.delete(key);
+            p.then(f => { try { f?.bmp?.close(); } catch (_) {} }, () => {});
+        }
+
+        /** Take a read-ahead frame for `key` (or null) out of the buffer. */
+        function _takeDiffAhead(key) {
+            const p = _diffAhead.get(key);
+            if (!p) return null;
+            _diffAhead.delete(key);
+            return p;
+        }
+
+        /** Request the next few diffs in the direction the slice is moving. */
+        function _scheduleDiffAhead() {
+            const dim = isPlaying && playingDim >= 0 ? playingDim : current_slice_dim;
+            const n = shape[dim];
+            const pos = indices[dim];
+            const prev = _diffAheadLast;
+            let dir = 0;
+            if (isPlaying && playingDim === dim) dir = 1;
+            else if (prev && prev.dim === dim) dir = prev.pos !== pos ? Math.sign(pos - prev.pos) : prev.dir;
+            _diffAheadLast = { dim, pos, dir };
+            const wanted = new Set();
+            // Until the first frame fixes the auto display range, the URL a
+            // neighbour will be drawn with is not known yet.
+            const rangeKnown = (_diffManualVmin ?? _diffAutoVmin) !== null
+                && (_diffManualVmax ?? _diffAutoVmax) !== null;
+            const ok = dir !== 0 && rangeKnown && Number.isInteger(n) && n > 1
+                && dim !== dim_x && dim !== dim_y && dim !== dim_z
+                && !(detachedDimMode && dim === detachedDim);
+            if (ok) {
+                const count = Math.min(n - 1, dim_z >= 0 ? DIFF_AHEAD_FRAMES_MOSAIC : DIFF_AHEAD_FRAMES);
+                for (let step = 1; step <= count; step++) {
+                    let t = pos + dir * step;
+                    if (isPlaying) t = ((t % n) + n) % n;
+                    else if (t < 0 || t >= n) break;
+                    const idx = [...indices];
+                    idx[dim] = t;
+                    const r = _buildDiffRequest(idx);
+                    if (!r) break;
+                    wanted.add(r.key);
+                    if (!_diffAhead.has(r.key)) {
+                        _diffAhead.set(r.key, _loadDiffFrame(r.url).catch(() => null));
+                    }
+                }
+            }
+            for (const key of [..._diffAhead.keys()]) {
+                if (!wanted.has(key)) _dropDiffAhead(key);
+            }
+        }
+
         async function _fetchAndDrawDiffOnce() {
             const transitionGeneration = _compareCenterTransitionGeneration;
             const requestedMode = diffMode;
@@ -18786,14 +18867,13 @@
                 _commitCompareCenterHandoff(transitionGeneration);
                 return;
             }
+            // Taken before scheduling, which drops every key it does not want.
+            const ahead = _takeDiffAhead(req.key);
+            _scheduleDiffAhead();
             try {
-                const resp = await _hedgedFetch(req.url);
-                if (!resp.ok) return;
-                const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
-                const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
-                const usedCmap = resp.headers.get('X-ArrayView-Colormap') || '';
-                const blob = await resp.blob();
-                const bmp = await createImageBitmap(blob);
+                const frame = (ahead && await ahead) || await _loadDiffFrame(req.url);
+                if (!frame) return;
+                const { hdrVmin, hdrVmax, usedCmap, bmp } = frame;
                 // Cache gradient stops for the colormap used by the server
                 if (usedCmap && COLORMAP_GRADIENT_STOPS[usedCmap]) {
                     _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[usedCmap];
