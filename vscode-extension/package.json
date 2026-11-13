@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView through private, request-scoped VS Code display routes",
-  "version": "0.15.75",
+  "version": "0.15.76",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -24,7 +24,9 @@
   ],
   "contributes": {
     "configurationDefaults": {
-      "workbench.browser.enableRemoteProxy": true
+      "workbench.browser.enableRemoteProxy": true,
+      "zenMode.fullScreen": false,
+      "zenMode.centerLayout": false
     },
     "configuration": {
       "title": "ArrayView",

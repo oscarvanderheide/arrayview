@@ -40,9 +40,9 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 `w` — in a view with several panes (ortho, qMRI, compare, side by side), shows the pane under the mouse on its own, as large as the free space allows. The other panes blur behind it, and the dimbar and a shared colorbar slide to the window edges to make room. Scrolling, hovering and the other keys keep working on it. Press `w` again or `Esc` to bring the other panes back.
 
-## Pop out (VS Code)
+## Fill the window (VS Code)
 
-`Shift+W` — moves the VS Code tab into its own window. Press `Shift+W` again in that window to put the tab back.
+`Shift+W` — makes the VS Code tab fill the whole VS Code window: the side bars, bottom panel, activity bar, status bar and any split editors are hidden. Press `Shift+W` again to bring back exactly what was open before. The tab does not move or reload.
 
 ## Zen mode
 

@@ -653,7 +653,7 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
 
     @app.post("/popout/{sid}")
     async def toggle_session_tab_window(sid: str, request: Request):
-        """Move this VS Code browser tab into its own window, or back."""
+        """Make this VS Code browser tab fill its window, or put the layout back."""
         from arrayview._routes_websocket import viewer_tab_window_id
         from arrayview._vscode_signal import _request_vscode_tab_reveal
 

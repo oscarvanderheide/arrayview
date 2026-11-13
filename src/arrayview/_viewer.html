@@ -30804,11 +30804,11 @@
                 },
             },
             'window.togglePopout': {
-                title: 'Pop this tab out into its own window / put it back',
+                title: 'Make this tab fill the VS Code window / put it back',
                 when: [],
                 run: async () => {
                     if (!_vscodeTabWindowId) {
-                        showStatus('pop out: only in a VS Code tab');
+                        showStatus('fill window: only in a VS Code tab');
                         return;
                     }
                     try {
@@ -30819,7 +30819,7 @@
                         });
                         if (r.ok && (await r.json()).moved) return;
                     } catch (_) {}
-                    showStatus('pop out: VS Code did not respond');
+                    showStatus('fill window: VS Code did not respond');
                 },
             },
             'immersive.toggle': {
@@ -32769,7 +32769,7 @@
                             { key: 'Shift+F', action: 'Toggle immersive mode', hint: 'hides chrome and fills the viewport with the array' },
                             { key: 'w', action: 'Quick zoom — show one pane on its own', hint: 'ortho, qMRI, compare and side by side · takes the pane under the mouse · press again or Esc to go back' },
                             { key: 'Z', action: 'Zen mode — hide UI chrome', hint: 'in compare + center active, hides the two source panes instead' },
-                            { key: 'Shift+W', action: 'Pop tab out into its own window / put it back', hint: 'VS Code tabs only' },
+                            { key: 'Shift+W', action: 'Make tab fill the VS Code window / put it back', hint: 'VS Code tabs only' },
                         ]
                     },
                     {

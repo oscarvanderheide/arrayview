@@ -845,41 +845,31 @@ function _revealBrowserTab(urlFilter) {
     });
 }
 
-// Tab groups of windows this extension popped a viewer tab out into. The
-// extension API cannot tell which window a tab group lives in, so the toggle
-// remembers the windows it made itself.
-const _poppedOutGroups = new Set();
+// Editor groups this extension maximized when their viewer tab was made to
+// fill the window, so the next press puts the split back.
+const _maximizedGroups = new Set();
 
 async function _toggleBrowserTabWindow() {
     // The key was pressed inside the viewer tab, so it is already the active
-    // editor; both window commands act on it. Revealing by URL is not used:
-    // when it finds no match it opens an empty browser tab.
+    // editor. The tab stays where it is: moving it to a new window is slow,
+    // starts small and reloads the page.
     const group = vscode.window.tabGroups.activeTabGroup;
     if (!_isBrowserTabCandidate(group?.activeTab)) return false;
     const liveGroups = new Set(vscode.window.tabGroups.all);
-    for (const g of _poppedOutGroups) if (!liveGroups.has(g)) _poppedOutGroups.delete(g);
-    if (_poppedOutGroups.has(group)) {
-        _poppedOutGroups.delete(group);
-        // Merges every group of the focused window into the main window. Safe
-        // here: the focused window is the one this extension popped out.
-        await vscode.commands.executeCommand('workbench.action.restoreEditorsToMainWindow');
-        return true;
+    for (const g of _maximizedGroups) if (!liveGroups.has(g)) _maximizedGroups.delete(g);
+    // Zen mode hides the side bars, panel, activity and status bar in one
+    // layout pass and restores exactly what was open before. Fullscreen and
+    // centring are switched off for it in package.json configurationDefaults.
+    const zen = vscode.workspace.getConfiguration('zenMode');
+    log(`FILL: zen fullScreen=${zen.get('fullScreen')} centerLayout=${zen.get('centerLayout')}`);
+    if (_maximizedGroups.has(group)) {
+        _maximizedGroups.delete(group);
+        await vscode.commands.executeCommand('workbench.action.toggleMaximizeEditorGroup');
+    } else if (liveGroups.size > 1) {
+        _maximizedGroups.add(group);
+        await vscode.commands.executeCommand('workbench.action.toggleMaximizeEditorGroup');
     }
-    const groupsBefore = liveGroups;
-    await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
-    for (let i = 0; i < 40; i++) {
-        const added = vscode.window.tabGroups.all.find(g => !groupsBefore.has(g));
-        // Fullscreen acts on the focused window, so wait until the new
-        // window's group is active; otherwise the main window would go.
-        if (added && vscode.window.tabGroups.activeTabGroup === added) {
-            _poppedOutGroups.add(added);
-            // New windows open at a fixed small size that VS Code gives no way
-            // to change; fullscreen is the only way to make them screen-sized.
-            await vscode.commands.executeCommand('workbench.action.toggleFullScreen');
-            return true;
-        }
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await vscode.commands.executeCommand('workbench.action.toggleZenMode');
     return true;
 }
 

@@ -699,8 +699,8 @@ def _request_vscode_tab_reveal(
     """Ask the opener in *window_id* to bring the browser tab matching
     *url_filter* forward. True only when that window confirms it did.
 
-    ``action="toggle-window"`` also moves that tab into its own window, or
-    back into the main window when it was popped out before."""
+    ``action="toggle-window"`` also makes that tab fill its VS Code window
+    (zen mode without fullscreen), or restores the layout."""
     signal_dir = Path(os.path.expanduser("~/.arrayview"))
     request_id = uuid.uuid4().hex
     request_path = signal_dir / f"{_VSCODE_REVEAL_REQUEST_PREFIX}{request_id}.json"
