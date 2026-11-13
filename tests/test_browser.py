@@ -652,6 +652,31 @@ class TestKeyboard:
         assert page.locator(".av-qz-move").count() == 0
         assert abs(pane.bounding_box()["width"] - box["width"]) < 1
 
+    def test_r_in_mosaic_quick_look_turns_only_that_tile(self, loaded_viewer, sid_3d):
+        # w on a mosaic, then r: the look stays open on the same tile, turned.
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z >= 0", timeout=5_000)
+        page.wait_for_timeout(800)
+        box = page.locator("canvas#viewer").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.keyboard.press("w")
+        page.wait_for_function("() => !!_mosaicLook", timeout=2_000)
+        page.wait_for_timeout(500)
+        k0 = page.evaluate("() => _mosaicLook.k")
+        page.keyboard.press("r")
+        page.wait_for_function("() => !_quarterTurn", timeout=5_000)
+        page.wait_for_timeout(500)
+        assert page.evaluate("() => !!_mosaicLook && !_mosaicLook.closing && _mosaicLook.k") == k0
+        # The tile's copy is the only stand-in: no per-tile copies of the grid.
+        assert page.evaluate("() => [...document.body.children].filter(e => e.tagName === 'CANVAS' && e !== _mosaicLook.ghost).length") == 0
+        g = page.evaluate("() => { const r = _mosaicLook.ghost.getBoundingClientRect(); return [r.width, r.height]; }")
+        tile = page.evaluate("() => { const g = _mosaicGridInfo(); return [g.tileW, g.tileH]; }")
+        assert abs(g[0] / g[1] - tile[0] / tile[1]) < 0.05
+        page.keyboard.press("w")
+        page.wait_for_function("() => !_mosaicLook", timeout=2_000)
+
     def test_v_toggles_back_to_single_view(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
@@ -1221,6 +1246,37 @@ class TestKeyboard:
         page.mouse.move(400, 300)
         page.wait_for_timeout(400)
         assert rejected == []
+
+    def test_compare_pane_names_have_no_logo_and_w_r_keeps_name_on_corner(
+        self, page, server_url, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_qz.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_compare_qz"}
+        ).json()["sid"]
+        page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={sid_compare}&compare_sids={sid_compare}")
+        page.wait_for_selector("canvas#compare-left-canvas:visible", timeout=15_000)
+        page.wait_for_timeout(600)
+        # Loaded arrays are named without the logo, as stacked ones are.
+        assert page.evaluate("() => [...document.querySelectorAll('.compare-title')].filter(t => t.offsetWidth).every(t => !t.querySelector('svg'))")
+        box = page.locator("#compare-left-canvas").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.keyboard.press("w")
+        page.wait_for_selector(".compare-pane.av-qz-target", timeout=2_000)
+        page.wait_for_timeout(500)
+        page.keyboard.press("r")
+        page.wait_for_function("() => !_quarterTurn", timeout=5_000)
+        page.wait_for_timeout(600)
+        # The name sits on the zoomed image's top-left corner, not off in the pane.
+        cv = page.locator(".compare-pane.av-qz-target canvas").first.bounding_box()
+        title = page.locator(".compare-pane.av-qz-target .compare-title").bounding_box()
+        assert 0 <= title["x"] - cv["x"] <= 20 and 0 <= title["y"] - cv["y"] <= 20, (title, cv)
+        # Only the zoomed pane is lifted; the other one stays blurred behind.
+        assert page.locator(".compare-pane.av-qz-target").count() == 1
+        page.keyboard.press("w")
+        page.wait_for_timeout(600)
+        assert page.locator(".av-qz-move").count() == 0
 
     # test_B_is_locked_for_multi_array_launch removed: the B keybind has
     # been retired entirely, so "B is locked" is meaningless. The

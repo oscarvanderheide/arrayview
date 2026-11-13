@@ -3917,6 +3917,8 @@
            is what shows where the image came from. */
         body.av-qz-anim .av-qz-blur { transition: filter 0.36s ease !important; }
         /* Moved pieces: offsets set inline; their transition is extended inline. */
+        /* A turn (r/t/o) moves the pieces itself: the zoom jumps under it. */
+        body.av-turning .av-qz-move { transition: none !important; }
         .av-qz-move {
             translate: var(--qz-x) var(--qz-y);
             scale: var(--qz-s);
@@ -9483,7 +9485,8 @@
         }
         // The names on screen, without a turn's own copies of them.
         const _turnLiveNames = () => [...document.querySelectorAll(_TURN_LABELS)]
-            .filter(n => !n._turnGhost && n.getClientRects().length && !n.closest('[data-turn-frame]'));
+            .filter(n => !n._turnGhost && n.getClientRects().length && !n.closest('[data-turn-frame]')
+                && (!_quickZoomPane || _quickZoomPane.contains(n)));
         // Chrome around the image that glides to its new place during a turn.
         const _TURN_GLIDE_SEL = '#info, #slim-cb-wrap, #dim-active-underline, #case-name-out, .cb-wrap, #mode-eggs';
         const _TURN_MS = 380;
@@ -9552,7 +9555,13 @@
                 _quarterTurn.hurry();
                 return;
             }
-            const boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
+            let boxes = (getBoxes() || []).filter(b => b && b.getClientRects().length);
+            // Quick zoom (w): only the lifted pane turns; the blurred rest
+            // just changes underneath.
+            if (_quickZoomPane && boxes.some(b => _quickZoomPane.contains(b))) {
+                boxes.filter(b => !_quickZoomPane.contains(b)).forEach(b => { if (b._turnProxy) b.remove(); });
+                boxes = boxes.filter(b => _quickZoomPane.contains(b));
+            }
             // Innermost boxes only, so a grid is not turned as a whole.
             const panes = boxes.filter(b => !boxes.some(o => o !== b && b.contains(o)));
             if (!panes.length || typeof panes[0].animate !== 'function' || cutawayActive || mipActive) {
@@ -9570,6 +9579,15 @@
                 copy.removeAttribute('id');
                 copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
                 copy.style.margin = '0';
+                if (b.classList.contains('av-qz-move')) {
+                    // Lifted by quick zoom: the ghost already sits on the lifted
+                    // spot, so keep only the zoom's scale, from the top-left corner.
+                    const qs = parseFloat(getComputedStyle(b).getPropertyValue('--qz-s')) || 1;
+                    copy.classList.remove('av-qz-move');
+                    _QZ_PROPS.forEach(k => copy.style.removeProperty(k));
+                    Object.assign(copy.style, { transition: 'none', translate: 'none', transformOrigin: '0 0', scale: String(qs) });
+                    copy.querySelectorAll('.cv-pixel-info').forEach(n => n.remove());
+                }
                 const isCv = b.tagName === 'CANVAS';
                 if (isCv) Object.assign(copy.style, { width: '100%', height: '100%', transform: 'none', position: 'static', display: 'block' });
                 const src = isCv ? [b] : b.querySelectorAll('canvas'), dst = isCv ? [copy] : copy.querySelectorAll('canvas');
@@ -9704,7 +9722,7 @@
             const pin = () => {
                 pins.forEach(a => a.cancel());
                 pins = glide.map((el, i) => { const t = glideDelta(el, i).map(v => v + 'px').join(' ');
-                    return el.animate([{ translate: t }, { translate: t }], { duration: 2000, fill: 'forwards' }); });
+                    return el.animate([{ translate: t }, { translate: t }], { duration: 2000, fill: 'forwards', composite: 'add' }); });
                 holdNewcomers();
             };
             pin();
@@ -9824,6 +9842,7 @@
                 q.landed = true; t1 = now;
                 tEnd = now + Math.max(180, (1 - prog) * turnMs);
                 panes.forEach(b => b._turnRefresh?.());
+                if (_quickZoomPane) { _reconcileQuickZoom(); pin(); }
                 path.forEach((p, i) => { p.n = rectOf(panes[i].getBoundingClientRect()); });
                 // cube: the incoming face gets the new frame, sized to the real new box.
                 if (cube) cubes.forEach((c, i) => {
@@ -9840,7 +9859,7 @@
                     fades.push(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: tEnd - now, easing: 'ease-in' })); });
                 glides = glide.map((el, i) => el.animate(
                     [{ translate: glideDelta(el, i).map(v => v + 'px').join(' ') }, { translate: '0px 0px' }],
-                    { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }));
+                    { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', composite: 'add' }));
                 // Each name copy glides onto its name (the same element, else a rebuilt
                 // one with the same text); a name that is gone fades out.
                 const shown = _turnLiveNames();
@@ -11349,7 +11368,7 @@
                     el.innerHTML = '<span>' + _detachedDimPaneTitleHTML(idx, text) + '</span>';
                     if (_detachedDimIsCases()) el.title = String(caseNames[detachedDimIdx[idx]] ?? '');
                 } else if (text) {
-                    el.innerHTML = (sideTitle ? '' : ARRAY_NAME_LOGO_SVG) + '<span></span>';
+                    el.innerHTML = '<span></span>';
                     _setArrayName(el.lastElementChild, nameParts[idx], _arrayNameHover(effectiveSids[idx], text),
                         [el.closest('.compare-pane'), document.getElementById('compare-view-wrap')], _placeCompareTitle);
                 } else {
@@ -12245,7 +12264,9 @@
                 const sourceRect = sourceCanvas?.getBoundingClientRect();
                 const diffRect = diffPaneCb?.getBoundingClientRect();
                 if (!sourceRect || !diffRect || !sourceRect.height || !diffRect.height) return;
-                const dy = sourceRect.bottom - diffRect.bottom;
+                // Line them up where they sit, not where quick zoom (w) lifted either.
+                const qzY = el => { const i = el.closest('.av-qz-move'); return i ? _quickZoomTranslate(i).y : 0; };
+                const dy = (sourceRect.bottom - qzY(sourceCanvas)) - (diffRect.bottom - qzY(diffPaneCb));
                 if (Math.abs(dy) > 0.5) {
                     diffIsland.style.transform = `translateY(${dy}px)`;
                 }
@@ -23792,7 +23813,7 @@
                 n.classList.toggle('visible', shown);
                 if (!shown || n.dataset.name === text) continue;
                 n.dataset.name = text;
-                n.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                n.innerHTML = (n === el ? ARRAY_NAME_LOGO_SVG : '') + '<span></span>';
                 n.lastElementChild.textContent = text;
             }
             _caseVeil?.check();
@@ -31142,10 +31163,13 @@
                         if (current_slice_dim === dim_x || current_slice_dim === dim_y || _isMosaicDim(current_slice_dim)) current_slice_dim = oldSlice;
                         if (activeDim === nd) activeDim = current_slice_dim;
                     };
-                    if (zSlices) { _crossfadeViewAround(() => _switchToNextPlane(planes, swapMosaic)); return; }
+                    // A tile on show (w) rolls on its own to the next view of its slice.
+                    const looking = _mosaicLook && !_mosaicLook.closing;
+                    if (zSlices && !looking) { _crossfadeViewAround(() => _switchToNextPlane(planes, swapMosaic)); return; }
+                    if (looking) _mosaicLook.retile = zSlices;
                     // Box roll about the axis both views share; chrome glides as for r / t.
                     const od = [dim_x, dim_y, flip_x, flip_y];
-                    _quarterTurnAround(() => _switchToNextPlane(planes),
+                    _quarterTurnAround(() => _switchToNextPlane(planes, swapMosaic || undefined),
                         () => _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')],
                         'cube', () => _planeCubeTurn(od));
                 },
@@ -39548,7 +39572,7 @@
                 // Array name, in the corner of its row's first image
                 const rowName = document.createElement('div');
                 rowName.className = 'pane-name cq-row-name';
-                rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                rowName.innerHTML = '<span></span>';
                 _cqRowNameEls.push(rowName.lastElementChild);
                 for (let mi = 0; mi < nMaps; mi++) {
                     const actualIdx = mapIndices[mi];
@@ -40116,7 +40140,7 @@
                     if (pi === 0 && showRowName) {
                         const rowName = document.createElement('div');
                         rowName.className = 'pane-name cq-row-name';
-                        rowName.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                        rowName.innerHTML = '<span></span>';
                         cvBox.appendChild(rowName);
                         _setArrayName(rowName.lastElementChild, rowNameParts[si], _arrayNameHover(sidVal, rowNames[si]), [cvBox], _placeCompareTitle);
                         _cmvRowNameEls[si] = rowName.lastElementChild;
@@ -43945,6 +43969,7 @@
         function _mosaicTurnTiles() {
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             if (dim_z < 0 || !_mosaicGridPlain() || !main || !main.width || !vp) return null;
+            if (_mosaicLook && !_mosaicLook.closing) return _mosaicLook.turnBox();
             const n = _mosaicGridInfo().n;
             if (n > 400) return null;
             const tiles = [];
@@ -43979,6 +44004,7 @@
             const main = document.getElementById('viewer'), vp = document.getElementById('canvas-viewport');
             if (!main || !main.width) return false;
             const g = _mosaicGridInfo(), r = main.getBoundingClientRect();
+            // r / t / o turn the tile on show, not the grid behind it.
             const mx = (_lastMouseX - r.left) / r.width, my = (_lastMouseY - r.top) / r.height;
             const W = g.cols * g.tileW + (g.cols - 1) * g.GAP, H = g.rows * g.tileH + (g.rows - 1) * g.GAP;
             const clamp = (v, n) => Math.max(0, Math.min(n - 1, v));
@@ -43989,10 +44015,11 @@
             const ghost = _mosaicTileGhost(main, _mosaicTileBox(k));
             if (!ghost) return false;
             ghost.style.zIndex = '32';
-            const aspect = (g.tileW / g.tileH) / _pixelAspect(dim_x, dim_y);
+            const aspectNow = () => { const gi = _mosaicGridInfo(); return (gi.tileW / gi.tileH) / _pixelAspect(dim_x, dim_y); };
             const cb = _slimCb(), info = document.getElementById('info');
             const home = () => _rectOfBox(main, _mosaicTileBox(k));
             const target = () => {
+                const aspect = aspectNow();
                 const t = _quickZoomSingleViewRect(aspect);
                 const ir = info?.getBoundingClientRect();
                 // Keep clear of the dimbar where the grid left it.
@@ -44005,18 +44032,73 @@
             };
             const at = (rc) => ({ left: rc.left + 'px', top: rc.top + 'px', width: rc.width + 'px', height: rc.height + 'px' });
             const layoutKey = () => [dim_x, dim_y, dim_z, _mosaicDim2(), _mosaicArrange()].join(',');
-            const look = _mosaicLook = { k, ghost, seq: -1, closing: false, raf: 0, anims: [], idx: null, layout: layoutKey() };
+            const look = _mosaicLook = { k, ghost, seq: -1, closing: false, raf: 0, anims: [], idx: null, layout: layoutKey(), follow: false };
             const t = target(), h0 = home();
             look.anims.push(ghost.animate([at(h0), at(t)], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
-            if (cb) {
+            // Colour bar under the tile; glides from wherever it is now.
+            const placeCb = (t) => {
+                if (!cb) return;
+                const prev = look.anims.find(a => a.effect?.target === cb);
+                const from = prev ? getComputedStyle(cb).translate : 'none';
+                prev?.cancel();
+                if (prev) look.anims.splice(look.anims.indexOf(prev), 1);
                 const cr = cb.getBoundingClientRect();
                 const dy = Math.min(t.top + t.height + QUICK_ZOOM_CB_GAP, window.innerHeight - cr.height - 4) - cr.top;
-                look.anims.push(cb.animate([{ translate: '0 0' }, { translate: `0 ${dy}px` }], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
-                cb.style.zIndex = cb.style.zIndex || '';
-            }
+                look.anims.push(cb.animate([{ translate: from === 'none' ? '0 0' : from }, { translate: `0 ${dy}px` }], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
+            };
+            placeCb(t);
+            // The view changed under the look (r / t / o): same tile, new
+            // shape. Jumps to its new spot; the turn covers the change.
+            const retarget = () => {
+                if (_mosaicLook !== look || look.closing) return;
+                if (dim_z < 0 || !_mosaicGridPlain()) { _mosaicLookClose(true); return; }
+                look.follow = false;
+                look.layout = layoutKey();
+                // Other tiles altogether (o on a mosaic of slices): the current slice's.
+                look.k = look.retile ? _mosaicTileK() : Math.min(look.k, _mosaicGridInfo().n - 1);
+                look.retile = false;
+                const pa = look.anims.find(a => a.effect?.target === ghost);
+                if (pa) { pa.cancel(); look.anims.splice(look.anims.indexOf(pa), 1); }
+                const nt = target();
+                Object.assign(ghost.style, at(nt));
+                const b = _mosaicTileBox(look.k);
+                ghost.width = Math.max(1, Math.round(b.w * main.width)); ghost.height = Math.max(1, Math.round(b.h * main.height));
+                const gx = ghost.getContext('2d');
+                gx.imageSmoothingEnabled = false;
+                gx.drawImage(main, b.x * main.width, b.y * main.height, ghost.width, ghost.height, 0, 0, ghost.width, ghost.height);
+                placeCb(nt);
+                look.idx = null;
+                refresh();
+            };
+            // The page moved the dimbar or colour bar (the grid changed shape
+            // under the look): glide the tile and its colour bar after them.
+            const settle = () => {
+                if (_quarterTurn || look.anims.some(a => a.playState === 'running')) return;
+                const nt = target(), gr = ghost.getBoundingClientRect();
+                const off = (a, b) => Math.abs(a - b) > 1;
+                if (off(gr.left, nt.left) || off(gr.top, nt.top) || off(gr.width, nt.width) || off(gr.height, nt.height)) {
+                    const pa = look.anims.find(a => a.effect?.target === ghost);
+                    if (pa) { pa.cancel(); look.anims.splice(look.anims.indexOf(pa), 1); }
+                    look.anims.push(ghost.animate([at(gr), at(nt)], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0.24, 1)', fill: 'forwards' }));
+                    Object.assign(ghost.style, at(nt));
+                    placeCb(nt);
+                    return;
+                }
+                if (cb) {
+                    const cr = cb.getBoundingClientRect();
+                    const want = Math.min(nt.top + nt.height + QUICK_ZOOM_CB_GAP, window.innerHeight - cr.height - 4);
+                    if (off(cr.top, want)) placeCb(nt);
+                }
+            };
+            look.turnBox = () => {
+                look.follow = true;
+                ghost._turnRefresh = retarget;
+                return [ghost];
+            };
             look.blur = vp.animate([{ filter: 'none' }, { filter: 'blur(14px) brightness(0.4)' }], { duration: QUICK_ZOOM_GLIDE_MS, easing: 'ease', fill: 'forwards' });
             // Full-resolution picture of this tile, refetched as slices move.
             const refresh = async () => {
+                if (look.follow) return;
                 const ti = _mosaicTileIndices(look.k);
                 const key = ti.join(',') + '|' + [dim_x, dim_y, flip_x, flip_y, complexMode, logScale, currentVmin, currentVmax, colormap_idx].join(',');
                 if (key === look.idx) return;
@@ -44043,9 +44125,15 @@
             const watch = () => {
                 look.raf = 0;
                 if (_mosaicLook !== look || look.closing) return;
-                // The mosaic went away under it (another key changed the view).
-                if (dim_z < 0 || !_mosaicGridPlain() || layoutKey() !== look.layout) { _mosaicLookClose(true); return; }
+                // The mosaic went away under it (another key changed the view);
+                // a turn of the tile on show follows it once the new grid is in.
+                if (dim_z < 0 || !_mosaicGridPlain()) { _mosaicLookClose(true); return; }
+                if (layoutKey() !== look.layout) {
+                    if (!look.follow) { _mosaicLookClose(true); return; }
+                    if (_frameDisplaySeq !== look.seq) retarget();
+                }
                 if (_frameDisplaySeq !== look.seq) { look.seq = _frameDisplaySeq; refresh(); }
+                if (!look.follow) settle();
                 look.raf = requestAnimationFrame(watch);
             };
             watch();
@@ -47409,6 +47497,8 @@
             if (_mosaicLookToggle()) return;
             const panes = _quickZoomCandidates();
             if (panes.length < 2) { showStatus('quick zoom: only one pane on screen'); return; }
+            // The A−B/overlay picker strip holds the dimbar's slot: done with it.
+            if (_compareCenterPickerVisible) { _compareCenterPickerVisible = false; _reconcileCompareCenterPicker(); }
             _setQuickZoomPane(_quickZoomPaneAtMouse(panes));
         }
 
@@ -47420,6 +47510,9 @@
                 _quickZoomObserver.observe(_quickZoomPane);
                 const img = _quickZoomPane.querySelector(QUICK_ZOOM_IMAGE_SEL);
                 if (img) _quickZoomObserver.observe(img);
+                // The picture can change shape inside a box that keeps its size (r, t).
+                const cv = img && img.querySelector('canvas');
+                if (cv) _quickZoomObserver.observe(cv);
             }
             _reconcileQuickZoom();
         }
@@ -47741,8 +47834,11 @@
                     continue;
                 }
                 const lr = _quickZoomHomeRect(lab);
-                const nx = newImg.left + Math.max(6, lr.left - I.left);
-                const ny = newImg.top + Math.max(6, lr.top - I.top);
+                // A name over the image keeps its spot on it; one in a title
+                // row above the panes (centre view) goes to the image's corner.
+                const above = lr.bottom <= I.top + 1;
+                const nx = newImg.left + (above ? 10 : Math.max(6, lr.left - I.left));
+                const ny = newImg.top + (above ? 8 : Math.max(6, lr.top - I.top));
                 _quickZoomMove(lab, nx - lr.left, ny - lr.top, 1);
                 moved.push(lab);
             }
@@ -48082,7 +48178,9 @@
             compareWrap.querySelectorAll('.compare-pane > .compare-title').forEach(title => {
                 const clip = inset && title.parentElement.querySelector('.compare-canvas-clip');
                 if (!clip || !clip.offsetWidth) { title.style.removeProperty('top'); title.style.removeProperty('left'); return; }
-                const p = title.parentElement.getBoundingClientRect(), c = clip.getBoundingClientRect();
+                // Where the image sits in the pane, not where quick zoom (w) has lifted it.
+                const p = title.parentElement.getBoundingClientRect();
+                const c = clip.classList.contains('av-qz-move') ? _quickZoomHomeRect(clip) : clip.getBoundingClientRect();
                 title.style.top = `${Math.round(c.top - p.top + 8)}px`;
                 title.style.left = `${Math.round(c.left - p.left + 10)}px`;
             });

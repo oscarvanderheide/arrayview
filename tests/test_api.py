@@ -4779,3 +4779,23 @@ class TestStackOpenArrays:
         assert "error" in client.post("/stack", json={"sids": [a, d]}).json()
         assert "error" in client.post("/stack", json={"sids": [a]}).json()
         assert "error" in client.post("/stack", json={"sids": [a, "nope"]}).json()
+
+
+def test_mosaic_reports_the_window_its_tiles_were_coloured_with():
+    # The colour bar of a mosaic must match its tiles: the whole stack's
+    # range, not the current slice's (a noise-only first slice gave a tiny
+    # range, and a zoomed tile drawn with it came out white).
+    from arrayview import _session as session_mod
+    from arrayview._render import render_mosaic
+
+    data = np.zeros((6, 8, 8), np.float32)
+    data[0] = np.linspace(-0.1, 0.1, 64).reshape(8, 8)
+    data[1:] = np.linspace(0.0, 2.0, 64).reshape(8, 8)
+    session = session_mod.Session(data, name="win")
+    for fit in (None, (20, 20)):  # built fresh, then from the cache
+        win = []
+        render_mosaic(session, 2, 1, 0, (0, 0, 0), "gray", 0, fit=fit, window_out=win)
+        assert len(win) == 1
+        lo, hi = win[0]
+        expected = np.percentile(data, [1, 99])
+        assert abs(lo - expected[0]) < 1e-5 and abs(hi - expected[1]) < 1e-5

@@ -924,6 +924,7 @@ def render_mosaic(
     progress=None,
     fit=None,
     dim_z2=-1,
+    window_out=None,
 ):
     """Render the mosaic grid of every slice along *dim_z* (and *dim_z2*, down).
 
@@ -931,6 +932,9 @@ def render_mosaic(
     (as the live socket would before sending) and caches it that way, so a
     grid warmed ahead of time is ready to send: the shrink of a 240-slice
     grid costs as much as rendering it.
+
+    ``window_out``, a list, receives the (vmin, vmax) the tiles were coloured
+    with — the whole stack's, not the current slice's.
     """
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
@@ -938,18 +942,30 @@ def render_mosaic(
         idx_norm[dim_z2] = 0
     key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override, dim_z2)
 
+    windows = session.__dict__.setdefault("_mosaic_windows", {})
+
     def build_full():
-        return _build_mosaic_rgba(
+        win = []
+        rgba = _build_mosaic_rgba(
             session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
             log_scale, mosaic_cols, vmin_override, vmax_override, progress,
-            dim_z2=dim_z2,
+            dim_z2=dim_z2, window_out=win,
         )
+        if win:
+            if len(windows) > 256:
+                windows.clear()
+            windows[key] = win[0]
+        return rgba
 
     full = lambda: _mosaic_once(session, key, build_full)
     if not fit:
-        return full()
-    fit_w, fit_h = int(fit[0]), int(fit[1])
-    return _mosaic_once(session, key + (("fit", fit_w, fit_h),), lambda: fit_rgba(full(), fit_w, fit_h))
+        out = full()
+    else:
+        fit_w, fit_h = int(fit[0]), int(fit[1])
+        out = _mosaic_once(session, key + (("fit", fit_w, fit_h),), lambda: fit_rgba(full(), fit_w, fit_h))
+    if window_out is not None and key in windows:
+        window_out.append(windows[key])
+    return out
 
 
 def _mosaic_once(session, key, build):
@@ -1021,7 +1037,7 @@ def fit_rgba(rgba, canvas_w, canvas_h):
 def _build_mosaic_rgba(
     session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
     log_scale, mosaic_cols, vmin_override, vmax_override, progress,
-    dim_z2=-1,
+    dim_z2=-1, window_out=None,
 ):
     tiles = mosaic_tile_indices(session.shape, dim_z, dim_z2, idx_tuple)
     n = len(tiles)
@@ -1050,6 +1066,8 @@ def _build_mosaic_rgba(
         # One call partitions once for both ends; two calls sorted the whole
         # stack twice (~0.14 s of a 240-slice mosaic step).
         vmin, vmax = (float(v) for v in np.percentile(all_data, [1, 99]))
+    if window_out is not None:
+        window_out.append((vmin, vmax))
 
     if mosaic_cols is not None:
         grid, rows, cols = _build_mosaic_grid(all_data, n, cols=mosaic_cols)

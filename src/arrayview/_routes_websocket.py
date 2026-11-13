@@ -721,6 +721,7 @@ def register_websocket_routes(app) -> None:
                             if canvas_w and canvas_h and not msg.get("overlay_sid")
                             else None
                         )
+                        mosaic_window = []
                         rgba = await _render(
                             loop,
                             lambda: render_mosaic(
@@ -739,6 +740,7 @@ def register_websocket_routes(app) -> None:
                                 progress=_render_progress_reporter(loop, ws, label='Building mosaic'),
                                 fit=mosaic_fit,
                                 dim_z2=dim_z2,
+                                window_out=mosaic_window,
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
@@ -748,16 +750,20 @@ def register_websocket_routes(app) -> None:
                             idx_tuple, session.shape, mosaic_cols, dim_z2=dim_z2,
                         )
                         h, w = rgba.shape[:2]
-                        raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-                        _, vmin, vmax = _prepare_display(
-                            session,
-                            raw,
-                            complex_mode,
-                            dr,
-                            log_scale,
-                            vmin_override=vmin_override,
-                            vmax_override=vmax_override,
-                        )
+                        if mosaic_window:
+                            # The range the tiles were coloured with (whole stack).
+                            vmin, vmax = mosaic_window[0]
+                        else:
+                            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                            _, vmin, vmax = _prepare_display(
+                                session,
+                                raw,
+                                complex_mode,
+                                dr,
+                                log_scale,
+                                vmin_override=vmin_override,
+                                vmax_override=vmax_override,
+                            )
                 elif projection_mode > 0 and projection_dim >= 0:
                     _pm = projection_mode
                     _pd = projection_dim
