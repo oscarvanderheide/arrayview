@@ -970,7 +970,9 @@ class TestKeyboard:
         side_by_side(page)
         page.wait_for_function("() => !detachedDimMode", timeout=10_000)
 
-        page.wait_for_selector("#case-title.visible svg", timeout=5_000)
+        page.wait_for_selector("#case-title.visible span", timeout=5_000)
+        # The case name stands alone, no logo in front of it.
+        assert not page.evaluate("() => !!document.querySelector('#case-title svg')")
         first = page.inner_text("#case-title").strip().lower()
         assert first in ("alpha", "bravo", "charlie")
         page.screenshot(path=os.environ.get("AV_SHOT_DIR", str(tmp_path)) + "/single.png")

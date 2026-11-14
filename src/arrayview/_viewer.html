@@ -272,7 +272,7 @@
         #case-title:not(.visible), .mv-pane-name:not(.visible) { display: none; }
         #case-name-out > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* --match name outside the panes (qMRI, qMRI ortho, horizontal ortho): on the
-           dimbar's baseline, logo over the top-left pane's label. _placeCaseNameOut(). */
+           dimbar's baseline, over the top-left pane's label. _placeCaseNameOut(). */
         #case-name-out:not(.visible) { display: none; }
         #case-name-out {
             position: fixed; z-index: 30; left: 0; top: 0;
@@ -11064,8 +11064,6 @@
                 .join('');
         }
 
-        // Logo before every array name: 14px icon + 5px gap.
-        const ARRAY_NAME_LOGO_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
         function _fitArrayName(el) {
             const p = el && el._nameParts;
             if (!p) return;
@@ -23802,7 +23800,7 @@
                 out.classList.toggle('visible', outside);
                 if (outside && out.dataset.name !== text) {
                     out.dataset.name = text;
-                    out.innerHTML = ARRAY_NAME_LOGO_SVG + '<span></span>';
+                    out.innerHTML = '<span></span>';
                     out.lastElementChild.textContent = text;
                 }
                 if (outside) _placeCaseNameOut();
@@ -23813,7 +23811,7 @@
                 n.classList.toggle('visible', shown);
                 if (!shown || n.dataset.name === text) continue;
                 n.dataset.name = text;
-                n.innerHTML = (n === el ? ARRAY_NAME_LOGO_SVG : '') + '<span></span>';
+                n.innerHTML = '<span></span>';
                 n.lastElementChild.textContent = text;
             }
             _caseVeil?.check();
@@ -41486,7 +41484,7 @@
             return rr.width ? rr.left : el.getBoundingClientRect().left;
         }
         /** --match name outside the panes: same baseline as the dimbar numbers,
-         *  logo lined up with the top-left pane's label (kept clear of the
+         *  lined up with the top-left pane's label (kept clear of the
          *  dimbar). Fixed-positioned, so it takes no room. Follows the dimbar
          *  while it slides; skipped mid-turn (the r animation calls it itself
          *  once its pins are off). */
