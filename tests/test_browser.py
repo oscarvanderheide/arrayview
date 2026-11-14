@@ -767,7 +767,9 @@ class TestKeyboard:
         assert page.evaluate(one_image)
         assert page.evaluate("() => _spreadPick.counts.join(',')") == "2,3,4,5,6"
         assert page.evaluate(picked) == 2
-        assert "[ ]" in page.locator(".spread-picker__hint").inner_text()
+        hint = page.locator(".spread-picker__hint").inner_text()
+        assert "Afterwards" in hint and "hover" in hint and "[ or ]" in hint
+        assert "How many panes" in page.locator(".spread-picker__title").inner_text()
         # It sits at the bottom centre of the picture, not at the pointer.
         box = page.locator(".spread-picker").bounding_box()
         vp = page.locator("#canvas-viewport").bounding_box()

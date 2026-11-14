@@ -5462,6 +5462,12 @@
             color: color-mix(in srgb, var(--text) 55%, transparent);
         }
         .spread-picker__hint b { font-weight: inherit; color: var(--text); }
+        .spread-picker__hint { text-align: center; }
+        .spread-picker__title {
+            padding: 1px 5px 1px;
+            font-size: 10px; line-height: 1.3; letter-spacing: 0.01em; white-space: nowrap;
+            color: color-mix(in srgb, var(--text) 85%, transparent);
+        }
         /* One soft highlight that slides to the chosen count. */
         .spread-picker__glow {
             position: absolute; left: 0; top: 0; bottom: 0;
@@ -42952,11 +42958,12 @@
                 el.style.setProperty('--sp-sq', `${sq}px`);
                 el.style.setProperty('--sp-h', `${maxRows * (sq + gap) - gap}px`);
                 el.style.setProperty('--sp-cell', `${maxCols * (sq + gap) - gap + 14}px`);
-                el.innerHTML = '<div class="spread-picker__opts"><div class="spread-picker__glow"></div>' + p.counts.map((n, i) =>
+                el.innerHTML = '<div class="spread-picker__title">How many panes side by side?</div>'
+                    + '<div class="spread-picker__opts"><div class="spread-picker__glow"></div>' + p.counts.map((n, i) =>
                     `<div class="spread-picker__opt" data-i="${i}" style="--sp-i:${i}"><div class="spread-picker__frame">`
                     + grids[i].map(k => `<div class="spread-picker__row">${'<i></i>'.repeat(k)}</div>`).join('')
                     + `</div><span>${n}</span></div>`).join('')
-                    + '</div><div class="spread-picker__hint"><b>[ ]</b> over a pane changes its index</div>';
+                    + '</div><div class="spread-picker__hint">Afterwards, hover over a pane and<br>press <b>[</b> or <b>]</b> to change its index</div>';
                 p.built = key;
             }
             el.classList.toggle('is-visible', p.active);
