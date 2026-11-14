@@ -133,8 +133,16 @@ def register_state_routes(app, get_session_or_404) -> None:
                 return {"error": f"stack: {s.name} cannot be stacked"}
         if len({len(s.data.shape) for s in sessions}) != 1:
             return {"error": "stack: arrays differ in number of dimensions"}
+        names = [s.name for s in sessions]
+        paths = [s.filepath for s in sessions]
+        if len(set(names)) < len(names) and all(paths):
+            # Same file name from different folders: name each by the
+            # nearest folders that tell them apart.
+            from arrayview._io import _distinguishing_path_parts
+
+            names = _distinguishing_path_parts(paths)
         try:
-            data = _ArrayStack([s.data for s in sessions], [s.name for s in sessions])
+            data = _ArrayStack([s.data for s in sessions], names)
             stack = await asyncio.to_thread(
                 Session, data, name=" · ".join(s.name for s in sessions)
             )

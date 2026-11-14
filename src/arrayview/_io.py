@@ -1696,13 +1696,25 @@ def _explicit_case_files(patterns, keep_order=False):
 
 
 def _distinguishing_path_parts(paths):
-    """Name each path by the first path component in which the paths differ."""
-    split = [os.path.normpath(p).split(os.sep) for p in paths]
-    if len({len(parts) for parts in split}) == 1:
-        for i in range(len(split[0])):
-            names = [parts[i] for parts in split]
-            if len(set(names)) == len(names):
-                return [_strip_array_ext(n) if i == len(split[0]) - 1 else n for n in names]
+    """Short unique names for paths that may share a file name.
+
+    Works back from the file name: the file name (no extension) when those
+    differ, else the nearest folder that differs, adding further differing
+    folders until every name is unique (p1/pre, p2/pre, p2/post). Parts that
+    every path shares are left out. Same rule as the viewer's compare titles.
+    """
+    split = [os.path.normpath(os.path.abspath(p)).split(os.sep) for p in paths]
+    split = [[*parts[:-1], _strip_array_ext(p)] for parts, p in zip(split, paths)]
+    depth = max(len(parts) for parts in split)
+    rev = [parts[::-1] + [""] * (depth - len(parts)) for parts in split]
+    keep = []
+    for i in range(depth):
+        if len({r[i] for r in rev}) < 2:
+            continue
+        keep.append(i)
+        names = ["/".join(r[j] for j in reversed(keep) if r[j]) for r in rev]
+        if all(names) and len(set(names)) == len(names):
+            return names
     return [_default_collection_case_key(p) for p in paths]
 
 

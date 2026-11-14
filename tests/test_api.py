@@ -460,6 +460,18 @@ class TestLoad:
         # Same files in the given order must not reuse the sorted session.
         assert case_order(keep_order=True) == ["e", "a", "d", "b", "c"]
 
+    def test_same_file_names_are_named_by_the_folders_that_differ(self, client, tmp_path):
+        # p1/pre/t1, p2/pre/t1, p2/post/t1: no single folder level tells all
+        # three apart, so names grow back from the file name until unique.
+        files = []
+        for case in ["p1/pre", "p2/pre", "p2/post"]:
+            (tmp_path / case).mkdir(parents=True)
+            files.append(str(tmp_path / case / "t1.npy"))
+            np.save(files[-1], np.zeros((4, 5), dtype=np.float32))
+        body = client.post("/load", json={"dir_patterns": files, "keep_order": True}).json()
+        names = client.get(f"/metadata/{body['sid']}").json()["case_names"]
+        assert names == ["p1/pre", "p2/pre", "p2/post"]
+
 
     def test_load_rejects_arbitrary_staging_cleanup_authority(
         self, client, arr_2d, tmp_path, monkeypatch
@@ -4765,6 +4777,16 @@ class TestStackOpenArrays:
         assert meta["shape"] == [6, 8, 3, 2]
         assert meta["collection_spatial_ndim"] == 3
         assert meta["case_names"] == ["a", "b"]
+
+    def test_same_named_arrays_stack_with_their_folders(self, client, tmp_path):
+        sids = []
+        for folder in ["run1", "run2"]:
+            (tmp_path / folder).mkdir()
+            path = tmp_path / folder / "t1.npy"
+            np.save(path, np.zeros((6, 8, 3), np.float32))
+            sids.append(client.post("/load", json={"filepath": str(path)}).json()["sid"])
+        out = client.post("/stack", json={"sids": sids}).json()
+        assert client.get(f"/metadata/{out['sid']}").json()["case_names"] == ["run1", "run2"]
 
     def test_different_sizes_stack_and_different_ranks_do_not(self, client, tmp_path):
         from conftest import register_array
