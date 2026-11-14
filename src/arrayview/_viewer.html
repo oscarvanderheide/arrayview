@@ -30174,7 +30174,8 @@
             });
         });
 
-        // Click-to-copy pixel value: shared helper
+        // Click-to-copy pixel value: shared helper. Silent — a toast on
+        // every click was noise.
         function _fmtPixelForCopy(v) {
             if (v === null || v === undefined || !isFinite(v)) return null;
             if (Number.isInteger(v)) return String(v);
@@ -30188,7 +30189,6 @@
                 const txt = _fmtPixelForCopy(d.value);
                 if (!txt) return;
                 await navigator.clipboard.writeText(txt);
-                showToast(`copied: ${txt}`);
             } catch (e) { /* clipboard may fail in non-secure contexts */ }
         }
 
