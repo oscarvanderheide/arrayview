@@ -9448,7 +9448,7 @@
         function _quarterTurnNext() {
             const next = _quarterTurnQueue.shift();
             if (next) _quarterTurnAround(next[0], next[1], next[2], next[3],
-                _quarterTurnQueue.length ? _TURN_HURRY : _TURN_CHAIN_SPEED);
+                _quarterTurnQueue.length ? _TURN_HURRY : _TURN_CHAIN_SPEED, next[4]);
         }
         // Pane/map names: never turned with the image — a floating copy of each
         // glides from where the name was to where it sits after the turn.
@@ -9513,6 +9513,23 @@
             const x = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
             return [0, 1, 2].map(i => v[i] * c + x[i] * s + k[i] * d * (1 - c));
         }
+        /** x / y on the active dim, animated like r / t / o: the dim already on
+         *  that axis mirrors (card flip about the centre line); the other screen
+         *  axis swaps like t; a slice dim rolls the box like o. Other tiles
+         *  (a mosaic dim, or a mosaic mirroring) crossfade.
+         *  `change` does the state change and the repaint. */
+        function _axisAssignAround(axis, change) {
+            const boxes = () => _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
+            const same = axis === 'x' ? dim_x : dim_y, other = axis === 'x' ? dim_y : dim_x;
+            const mosaic = dim_z >= 0 || qmriMosaicActive;
+            const tiles = _isMosaicDim(activeDim) || (qmriMosaicActive && _qmriMosaicZDim === activeDim);
+            if (mipActive || cutawayActive || tiles || (activeDim === same && mosaic)
+                || (activeDim === other && flip_x !== flip_y)) { _crossfadeViewAround(change); return; }
+            if (activeDim === same) { _quarterTurnAround(change, boxes, axis === 'x' ? 'mirrorX' : 'mirrorY', null, 1, true); return; }
+            if (activeDim === other) { _quarterTurnAround(change, boxes, 'flip', null, 1, true); return; }
+            const od = [dim_x, dim_y, flip_x, flip_y];
+            _quarterTurnAround(change, boxes, 'cube', () => _planeCubeTurn(od), 1, true);
+        }
         /** Cube turn for a view switch (o). The two views share one array
          *  axis; the box rolls about that line on screen. When the shared axis
          *  is horizontal in one view and vertical in the other, a roll plus a
@@ -9549,15 +9566,17 @@
          * 180deg about its top-left→bottom-right diagonal (slight perspective);
          * its back face lands showing the transposed picture. Same path,
          * shrink-to-fit, glides and label fades as the turn.
+         * `mode` 'mirrorX' / 'mirrorY' (x / y on the dim already there): the
+         * card flips 180deg about the vertical / horizontal centre line.
          * `mode` 'cube' (o, next view): the copy is the front face of a box
          * that rolls (getCube() after change -> {axis, deg}); the face rolling
          * in gets the new frame once it lands. Progress holds near the start
          * until then so the incoming face is never shown empty. */
-        function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null, baseSpeed = 1) {
+        function _quarterTurnAround(change, getBoxes, mode = 'turn', getCube = null, baseSpeed = 1, morphBar = false) {
             if (turnAnimationFade && !_quarterTurn) { _crossfadeViewAround(change); return; }
             if (_quarterTurn) {
                 // Keep the state change for its own turn; speed this one up.
-                _quarterTurnQueue.push([change, getBoxes, mode, getCube]);
+                _quarterTurnQueue.push([change, getBoxes, mode, getCube, morphBar]);
                 _quarterTurn.hurry();
                 return;
             }
@@ -9680,6 +9699,13 @@
                 .filter(el => el.getClientRects().length && el.getBoundingClientRect().width > 0 && !panes.some(b => b.contains(el)));
             const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
             const glideOld = glide.map(el => el.getBoundingClientRect());
+            // morphBar (x / y): labels change places in the dim bar. A still copy stands
+            // in until the landing, where the bar morphs piece by piece (_dimBarCrossfade)
+            // instead of gliding whole.
+            const barEl = document.getElementById('info');
+            const bar = morphBar && glide.includes(barEl) ? { copy: _dimBarCopy(barEl), text: barEl.textContent } : null;
+            if (bar?.copy) bar.hold = barEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 });
+            const dropBar = () => { if (!bar?.copy) return; bar.copy.remove(); bar.copy = null; bar.hold.cancel(); };
             // { n: name, g: its floating copy, to: the name it lands on (set at landing) }
             const nameGhosts = _turnLiveNames().map(n => ({ n, g: _turnLabelGhost(n), to: null })).filter(p => p.g);
             document.body.classList.add('av-turning');
@@ -9764,6 +9790,13 @@
                         bw = Math.max(bw, 2 * Math.abs(m + d)); bh = Math.max(bh, 2 * Math.abs(m - d));
                     }
                     slack = 1 - 0.06 * Math.sin(ang * Math.PI / 180); // room for perspective
+                } else if (mode === 'mirrorX' || mode === 'mirrorY') {
+                    // Card flip about the vertical (x) / horizontal (y) centre line.
+                    ang = 180 * e;
+                    const th = ang * Math.PI / 180, c = Math.abs(Math.cos(th)), mx = mode === 'mirrorX';
+                    // Perspective (1600px in setPose) enlarges the near edge.
+                    const f = 1600 / Math.max(1, 1600 - (mx ? w : h) / 2 * Math.abs(Math.sin(th)));
+                    bw = (mx ? w * c : w) * f; bh = (mx ? h : h * c) * f;
                 } else {
                     ang = -90 * e;
                     const th = ang * Math.PI / 180, c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
@@ -9772,9 +9805,10 @@
                 const fit = Math.min(1, bw ? fw / bw : 1, bh ? fh / bh : 1) * slack;
                 return { ang, sig, cx, cy, fw, fh, k: sig * fit };
             };
-            const setPose = mode === 'flip'
+            const flipAxis = { flip: '1, 1, 0', mirrorX: '0, 1, 0', mirrorY: '1, 0, 0' }[mode];
+            const setPose = flipAxis
                 ? (el, ang, k, dx, dy) => {
-                    el.style.transform = `translate(${dx}px, ${dy}px) perspective(1600px) rotate3d(1, 1, 0, ${ang}deg) scale(${k})`;
+                    el.style.transform = `translate(${dx}px, ${dy}px) perspective(1600px) rotate3d(${flipAxis}, ${ang}deg) scale(${k})`;
                 }
                 : (el, ang, k, dx, dy) => {
                     el.style.rotate = `${ang}deg`; el.style.scale = `${k}`; el.style.translate = `${dx}px ${dy}px`;
@@ -9840,6 +9874,7 @@
                 glides.forEach(a => a.cancel());
                 labelHolds.forEach(a => a.cancel());
                 labelHolds.clear();
+                dropBar();
                 panes.forEach(b => { if (b._turnProxy) b.remove(); });
             };
             q.stop = () => { finishAll(); fades.forEach(a => a.cancel()); };
@@ -9863,9 +9898,12 @@
                 holdNewcomers();
                 newcomers.forEach((hold, el) => { hold.cancel();
                     fades.push(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: tEnd - now, easing: 'ease-in' })); });
-                glides = glide.map((el, i) => el.animate(
+                const morphing = bar?.copy && barEl.textContent !== bar.text;
+                if (morphing) { bar.hold.cancel(); _dimBarCrossfade(bar.copy, barEl); bar.copy = null; }
+                else dropBar();
+                glides = glide.map((el, i) => morphing && el === barEl ? null : el.animate(
                     [{ translate: glideDelta(el, i).map(v => v + 'px').join(' ') }, { translate: '0px 0px' }],
-                    { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', composite: 'add' }));
+                    { duration: tEnd - now, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', composite: 'add' })).filter(Boolean);
                 // Each name copy glides onto its name (the same element, else a rebuilt
                 // one with the same text); a name that is gone fades out.
                 const shown = _turnLiveNames();
@@ -31928,14 +31966,18 @@
                     }
                     if (activeDim === dim_x) {
                         // already x — flip its direction and repaint immediately
+                        _axisAssignAround('x', () => {
                         flip_x = !flip_x;
                         if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
                         else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (compareActive) updateView();   // side-by-side panes redraw from the server
                         else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (!compareActive || compareQmriActive) _frameDisplaySeq++; // repainted in place: lets a turn land now
                         renderInfo(); saveState();
+                        });
                         return;
                     }
-                    _crossfadeViewAround(() => {
+                    _axisAssignAround('x', () => {
                         if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
                         else {
                             // Make activeDim the new x-axis and relocate the old
@@ -32137,14 +32179,18 @@
                     }
                     if (activeDim === dim_y) {
                         // already y — flip its direction and repaint immediately
+                        _axisAssignAround('y', () => {
                         flip_y = !flip_y;
                         if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
                         else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (compareActive) updateView();   // side-by-side panes redraw from the server
                         else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (!compareActive || compareQmriActive) _frameDisplaySeq++; // repainted in place: lets a turn land now
                         renderInfo(); saveState();
+                        });
                         return;
                     }
-                    _crossfadeViewAround(() => {
+                    _axisAssignAround('y', () => {
                         if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
                         else {
                             // Mirror of axis.assignX: preserve mosaic / current

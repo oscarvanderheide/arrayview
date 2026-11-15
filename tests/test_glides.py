@@ -67,10 +67,11 @@ def test_complex_mode_and_axis_swap_dissolve(loaded_viewer, client, tmp_path):
     page.wait_for_function("() => !_viewCrossfadeGhost", timeout=5_000)
     assert page.evaluate("complexMode") == 1
 
-    # The slice dim is selected: x swaps it onto the horizontal axis.
+    # The slice dim is selected: x swaps it onto the horizontal axis, rolling
+    # the box like o (a turn, not a dissolve).
     old_x = page.evaluate("dim_x")
-    assert page.evaluate("(commands['axis.assignX'].run({}, null), !!_viewCrossfadeGhost)")
-    page.wait_for_function("() => !_viewCrossfadeGhost", timeout=5_000)
+    assert page.evaluate("(commands['axis.assignX'].run({}, null), !!_quarterTurn && !_viewCrossfadeGhost)")
+    page.wait_for_function("() => !_quarterTurn", timeout=5_000)
     assert page.evaluate("dim_x") != old_x
 
 
