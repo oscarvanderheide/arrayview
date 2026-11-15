@@ -591,6 +591,7 @@ class Session:
         )
         self.fft_original_data = None
         self.fft_axes = None
+        self.fft_busy = False  # an FFT is being computed off the event loop
         self.data_version = 0  # incremented by /reload when file is reloaded
         self.viewer_leases = 1  # one release is required for each tab using this SID
 

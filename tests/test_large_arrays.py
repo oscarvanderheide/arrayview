@@ -207,6 +207,20 @@ class TestGuardrails:
                     json={"axes": ""},
                     headers={"Content-Type": "application/json"})
 
+    def test_fft_matches_numpy_and_restores(self, client, sid_3d):
+        from arrayview._session import SESSIONS
+        session = SESSIONS[sid_3d]
+        original = np.asarray(session.data).copy()
+        r = client.post(f"/fft/{sid_3d}", json={"axes": "0,1"})
+        assert r.json().get("status") == "fft_applied"
+        expected = np.fft.fftshift(np.fft.fftn(original, axes=(0, 1)), axes=(0, 1))
+        got = np.asarray(session.data)
+        assert got.shape == expected.shape
+        assert np.allclose(got, expected, rtol=1e-4, atol=1e-3 * np.abs(expected).max())
+        r = client.post(f"/fft/{sid_3d}", json={"axes": ""})
+        assert r.json().get("status") == "restored"
+        assert np.array_equal(np.asarray(session.data), original)
+
 
 # ---------------------------------------------------------------------------
 # /cache_info endpoint

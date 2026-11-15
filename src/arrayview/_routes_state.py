@@ -18,6 +18,16 @@ def _meta_equal(a, b) -> bool:
         return a is b
 
 
+def _fft_shifted(data, axes):
+    """Centred n-D FFT over `axes`, multithreaded; keeps single precision."""
+    full = np.asarray(data)  # materialise memmaps / lazy arrays
+    try:
+        import scipy.fft as sfft
+    except ImportError:  # scipy is a dependency, but stay usable without it
+        return np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
+    return sfft.fftshift(sfft.fftn(full, axes=axes, workers=-1), axes=axes)
+
+
 def register_state_routes(app, get_session_or_404) -> None:
     @app.get("/clearcache/{sid}")
     def clear_cache(sid: str):
@@ -308,6 +318,9 @@ def register_state_routes(app, get_session_or_404) -> None:
         body = await request.json()
         axes_str = str(body.get("axes", "")).strip()
 
+        if session.fft_busy:
+            return {"error": "FFT is still being computed"}
+
         if session.fft_original_data is not None:
             session.data = session.fft_original_data
             session.shape = session.data.shape
@@ -339,9 +352,19 @@ def register_state_routes(app, get_session_or_404) -> None:
                 "too_large": True,
             }
 
-        session.fft_original_data = session.data
-        full = np.array(session.data)
-        session.data = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
+        # Off the event loop: the viewer keeps answering while it computes.
+        original = session.data
+        session.fft_busy = True
+        try:
+            result = await asyncio.to_thread(_fft_shifted, original, axes)
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            session.fft_busy = False
+        if session.data is not original:
+            return {"error": "data changed while computing FFT"}
+        session.fft_original_data = original
+        session.data = result
         session.shape = session.data.shape
         session.fft_axes = axes
         session.reset_caches()
