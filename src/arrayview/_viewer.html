@@ -598,13 +598,6 @@
         }
         .dim-label.hist-scope-pulse { animation: hist-scope-pulse 500ms ease-out forwards; }
         .muted { color: var(--muted); }
-        .dim-flip-sign {
-            position: absolute;
-            left: -0.65ch;
-            color: var(--muted);
-            -webkit-text-fill-color: var(--muted);
-            font-weight: normal;
-        }
         .dim-label {
             cursor: pointer; padding: 1px 3px; margin: 0 -3px;
             border-radius: 4px; transition: background 0.12s;
@@ -23898,9 +23891,8 @@
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
                         const sizeId = label === 'x' ? ' id="dim-x-size"' : label === 'y' ? ' id="dim-y-size"' : label === 'z' ? ' id="dim-z-size"' : '';
-                        const prefix = flipDims[i] ? '<span class="dim-flip-sign">-</span>' : '';
                         const cls = (active || playing) ? `spatial-dim ${dimCls} dim-label` : 'spatial-dim dim-label';
-                        return `<span class="${cls}" ${d}>${prefix}<span class="dim-axis-letter">${label}</span><span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
+                        return `<span class="${cls}" ${d}><span class="dim-axis-letter">${label}</span><span class="dim-slash">/</span><span class="dim-size"${sizeId}>${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
@@ -23909,14 +23901,12 @@
                     return `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
-                    const sign = flip_x ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
+                    const inner = `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-x-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
-                    const sign = flip_y ? '<span class="dim-flip-sign">-</span>' : '';
-                    const inner = sign + `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
+                    const inner = `<span class="dim-axis-letter">${_axisLetter(i)}</span>` + `<span class="dim-slash">/</span><span class="dim-size" id="dim-y-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }

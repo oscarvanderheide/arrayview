@@ -2376,3 +2376,12 @@ def test_d_presets_reach_compare_ortho_panes(page, client, server_url, tmp_path,
     assert state["panes"] != before
     for pane in state["panes"]:
         assert pane == pytest.approx(state["shared"])
+
+
+def test_mirroring_x_leaves_no_minus_sign_in_the_dim_bar(loaded_viewer, sid_3d):
+    # The hover arrows already show which way x runs; the dim bar stays plain.
+    page = loaded_viewer(sid_3d)
+    page.evaluate("() => { flip_x = true; flipDims[dim_x] = true; updateView(); }")
+    page.wait_for_timeout(400)
+    text = page.evaluate("() => document.getElementById('info').textContent")
+    assert "-" not in text, text
